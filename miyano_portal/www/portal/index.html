@@ -1,6 +1,6 @@
 {% extends "templates/web.html" %}
 {% block page_content %}
-<link rel="stylesheet" href="/assets/miyano_portal/css/portal.css">
+<link rel="stylesheet" href="/assets/miyano_portal/css/portal.css?v={{ build_version }}">
 <div id="miyano-portal">
   <nav class="mp-nav">
     <div class="mp-brand">Miyano</div>
@@ -19,5 +19,5 @@
   // cần CSRF token của phiên hiện tại, được server bơm vào đây.
   window.CSRF_TOKEN = "{{ csrf_token }}";
 </script>
-<script src="/assets/miyano_portal/js/portal_app.js"></script>
+<script src="/assets/miyano_portal/js/portal_app.js?v={{ build_version }}"></script>
 {% endblock %}

@@ -76,12 +76,61 @@ async function viewCatalog(){
     el("mp-view").innerHTML = `<h2>Danh mục — ${esc(MP.contract)}</h2>
       ${selector}
       <table><thead><tr><th>Mã</th><th>Tên</th><th>ĐVT</th><th>Đơn giá</th>
-      <th>Còn lại</th><th>SL</th><th></th></tr></thead><tbody>
-      ${cat.map((r,i)=>`<tr><td>${esc(r.item_code)}</td><td>${esc(r.item_name)}</td><td>${esc(r.uom)}</td>
-        <td>${vnd(r.rate)}</td><td>${r.remaining}</td>
-        <td><input id="q${i}" type="number" min="1" style="width:80px"></td>
-        <td><button onclick="addToCart('${esc(r.item_code)}','${esc(r.item_name)}',${r.rate},${r.remaining},${i})">Thêm</button></td></tr>`).join('')}
-      </tbody></table>`;
+      <th>Còn lại</th><th>SL</th><th></th></tr></thead><tbody id="mp-catalog-body"></tbody></table>`;
+
+    // Build rows via DOM APIs instead of interpolating item_code/item_name
+    // into an inline onclick="..." handler: an item name containing a `'`
+    // would otherwise break out of the single-quoted JS string inside the
+    // HTML attribute (DOM-XSS). Untrusted values go on data-* attributes
+    // (safe: read back verbatim via .dataset, never re-parsed as JS/HTML)
+    // and the name cell is set with textContent, never innerHTML.
+    const tbody = el("mp-catalog-body");
+    cat.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      tr.dataset.code = r.item_code;
+      tr.dataset.name = r.item_name;
+      tr.dataset.rate = r.rate;
+      tr.dataset.remaining = r.remaining;
+      tr.dataset.index = i;
+
+      const tdCode = document.createElement("td");
+      tdCode.textContent = r.item_code;
+      const tdName = document.createElement("td");
+      tdName.textContent = r.item_name;
+      const tdUom = document.createElement("td");
+      tdUom.textContent = r.uom;
+      const tdRate = document.createElement("td");
+      tdRate.textContent = vnd(r.rate);
+      const tdRemaining = document.createElement("td");
+      tdRemaining.textContent = r.remaining;
+
+      const tdQty = document.createElement("td");
+      const qtyInput = document.createElement("input");
+      qtyInput.type = "number";
+      qtyInput.min = "1";
+      qtyInput.style.width = "80px";
+      qtyInput.id = "q" + i;
+      tdQty.appendChild(qtyInput);
+
+      const tdBtn = document.createElement("td");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mp-add-btn";
+      btn.textContent = "Thêm";
+      tdBtn.appendChild(btn);
+
+      tr.append(tdCode, tdName, tdUom, tdRate, tdRemaining, tdQty, tdBtn);
+      tbody.appendChild(tr);
+    });
+
+    // Single delegated listener for every "Thêm" button in this table.
+    tbody.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".mp-add-btn");
+      if(!btn) return;
+      const tr = btn.closest("tr");
+      addToCart(tr.dataset.code, tr.dataset.name, parseFloat(tr.dataset.rate),
+                parseFloat(tr.dataset.remaining), tr.dataset.index);
+    });
   }catch(e){ showError(e); }
 }
 
@@ -90,7 +139,7 @@ window.switchContract = function(name){
   viewCatalog();
 };
 
-window.addToCart = function(code,name,rate,rem,i){
+function addToCart(code,name,rate,rem,i){
   const qty = parseFloat(el("q"+i).value||0);
   if(qty<=0) return alert("Số lượng phải > 0");
   if(qty>rem) return alert("Vượt hạn mức còn lại: "+rem);
@@ -98,7 +147,7 @@ window.addToCart = function(code,name,rate,rem,i){
   if(existing){ existing.qty += qty; }
   else{ MP.cart.push({item_code:code,item_name:name,rate,qty}); }
   el("mp-cart-count").innerText = MP.cart.length;
-};
+}
 
 async function viewCart(){
   if(!MP.cart.length){ el("mp-view").innerHTML="<h2>Giỏ hàng</h2><p>Giỏ hàng trống.</p>"; return; }

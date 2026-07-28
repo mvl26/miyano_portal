@@ -21,4 +21,14 @@ def get_context(context):
     except Exception:
         context.csrf_token = ""
 
+    # Cache-busting query string for the built portal.js/portal.css assets:
+    # browsers/CDNs otherwise keep serving a stale cached copy after a
+    # redeploy since the asset URL itself never changes. Prefer the app
+    # version (stable across requests, only changes on release); fall back
+    # to a timestamp if that lookup ever fails.
+    try:
+        context.build_version = frappe.get_attr("miyano_portal.__version__")
+    except Exception:
+        context.build_version = frappe.utils.now()
+
     return context

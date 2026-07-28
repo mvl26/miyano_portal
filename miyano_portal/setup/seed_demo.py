@@ -218,25 +218,30 @@ def _ensure_blanket_order(customer):
     existing = frappe.db.get_value(
         "Blanket Order", {"customer": customer, "blanket_order_type": "Selling"}, "name"
     )
-    if existing:
-        return existing
+    if not existing:
+        bo = frappe.get_doc(
+            {
+                "doctype": "Blanket Order",
+                "blanket_order_type": "Selling",
+                "customer": customer,
+                "company": COMPANY,
+                "from_date": BLANKET_ORDER_FROM_DATE,
+                "to_date": BLANKET_ORDER_TO_DATE,
+                "items": [
+                    {"item_code": code, "qty": qty, "rate": next(i["rate"] for i in ITEMS if i["item_code"] == code)}
+                    for code, qty in BLANKET_ORDER_QTY.items()
+                ],
+            }
+        )
+        bo.insert(ignore_permissions=True)
+        existing = bo.name
 
-    bo = frappe.get_doc(
-        {
-            "doctype": "Blanket Order",
-            "blanket_order_type": "Selling",
-            "customer": customer,
-            "company": COMPANY,
-            "from_date": BLANKET_ORDER_FROM_DATE,
-            "to_date": BLANKET_ORDER_TO_DATE,
-            "items": [
-                {"item_code": code, "qty": qty, "rate": next(i["rate"] for i in ITEMS if i["item_code"] == code)}
-                for code, qty in BLANKET_ORDER_QTY.items()
-            ],
-        }
-    )
-    bo.insert(ignore_permissions=True)
-    return bo.name
+    # Idempotent: only submit while still a draft, so re-running seed_demo()
+    # never re-submits an already-submitted (or cancelled) document.
+    if frappe.db.get_value("Blanket Order", existing, "docstatus") == 0:
+        frappe.get_doc("Blanket Order", existing).submit()
+
+    return existing
 
 
 def _ensure_party_specific_items(customer):
