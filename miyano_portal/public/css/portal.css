@@ -1,0 +1,18 @@
+#miyano-portal{display:flex;font-family:sans-serif;min-height:100vh;background:#f8fafc}
+.mp-nav{width:210px;min-height:100vh;background:#0f172a;padding:16px;box-sizing:border-box}
+.mp-brand{color:#fff;font-weight:700;font-size:20px;margin-bottom:16px}
+.mp-link{display:block;color:#cbd5e1;padding:10px;text-decoration:none;border-radius:6px;cursor:pointer}
+.mp-link.active,.mp-link:hover{background:#1e293b;color:#fff}
+.mp-link-logout{margin-top:24px;border-top:1px solid #1e293b;padding-top:16px}
+#mp-view{flex:1;padding:24px;box-sizing:border-box}
+#mp-view h2{margin-top:0;color:#0f172a}
+.mp-badge{padding:2px 8px;border-radius:10px;color:#fff;font-size:12px;white-space:nowrap}
+.b-cho{background:#64748b}.b-xuly{background:#2563eb}.b-giao{background:#f59e0b}
+.b-done{background:#16a34a}.b-huy{background:#dc2626}
+table{width:100%;border-collapse:collapse;background:#fff}
+td,th{border:1px solid #e2e8f0;padding:8px;text-align:left}
+th{background:#f1f5f9;font-weight:600;color:#334155}
+button{cursor:pointer;padding:8px 14px;border:0;border-radius:6px;background:#0f766e;color:#fff;font-size:14px}
+button:hover{background:#0d6058}
+input{padding:6px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:14px}
+.err{color:#dc2626}

@@ -1,0 +1,17 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+<link rel="stylesheet" href="/assets/miyano_portal/css/portal.css">
+<div id="miyano-portal">
+  <nav class="mp-nav">
+    <div class="mp-brand">Miyano</div>
+    <a data-view="dashboard" class="mp-link active">Tổng quan</a>
+    <a data-view="catalog"   class="mp-link">Đặt hàng</a>
+    <a data-view="cart"      class="mp-link">Giỏ hàng (<span id="mp-cart-count">0</span>)</a>
+    <a data-view="orders"    class="mp-link">Đơn hàng</a>
+    <a data-view="invoices"  class="mp-link">Hoá đơn &amp; công nợ</a>
+    <a href="/api/method/logout" class="mp-link mp-link-logout">Đăng xuất</a>
+  </nav>
+  <main id="mp-view">Đang tải…</main>
+</div>
+<script src="/assets/miyano_portal/js/portal_app.js"></script>
+{% endblock %}
