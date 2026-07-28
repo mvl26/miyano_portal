@@ -37,17 +37,14 @@ def _customer_addresses(customer: str) -> list:
     return out
 
 
-def _resolve_delivery_warehouse(company: str):
-    """Resolve a leaf Warehouse for `company` to use as the Sales Order's
-    "Set Source Warehouse" (so.set_warehouse), so every stock line on the
-    order inherits a valid delivery warehouse.
+def _resolve_company_fallback_warehouse(company: str):
+    """Resolve a leaf Warehouse for `company` to use ONLY when an item has no
+    warehouse of its own to ship from (see _resolve_item_warehouse below).
 
-    Demo-seeded items get a default_warehouse in their Item Defaults (see
-    setup/seed_demo.py), but items migrated from SupplyCore have none — some
-    even carry an Item Default for an unrelated Company — so relying on the
-    item's own defaults leaves Sales Order Item.warehouse empty and ERPNext's
-    Sales Order.validate_warehouse() raises WarehouseRequired. Setting
-    so.set_warehouse before insert() sidesteps that regardless of the item.
+    This must never be forced onto every line of a Sales Order: items whose
+    stock actually lives in a different warehouse (e.g. UAT items stocked in
+    "Kho Miyano - MYN") would otherwise get a delivery warehouse where they
+    have no stock, and the Delivery Note would raise NegativeStockError.
     """
     warehouse = None
     # This build's Company doctype may not carry a default_warehouse field
@@ -69,6 +66,32 @@ def _resolve_delivery_warehouse(company: str):
         elif candidates:
             warehouse = candidates[0]
     return warehouse
+
+
+def _resolve_item_warehouse(item_code: str, company: str):
+    """Resolve the delivery warehouse for ONE Sales Order line.
+
+    Each item ships from wherever its own stock actually lives, not from a
+    single warehouse forced onto the whole order. Preference order:
+      1. The item's own "Item Default" row for this company
+         (Item Default.default_warehouse) - this is where the item's stock
+         actually sits (e.g. UAT items in "Kho Miyano - MYN").
+      2. The company's default warehouse, for items with no company-specific
+         default of their own (e.g. some SupplyCore-migrated items).
+      3. Any leaf, non-disabled Warehouse belonging to the company, as a last
+         resort so a missing default doesn't block order placement outright.
+    Returns None if nothing at all can be resolved - the caller must refuse
+    to create the Sales Order line in that case rather than leave/guess a
+    warehouse.
+    """
+    warehouse = frappe.db.get_value(
+        "Item Default",
+        {"parent": item_code, "parenttype": "Item", "company": company},
+        "default_warehouse",
+    )
+    if warehouse:
+        return warehouse
+    return _resolve_company_fallback_warehouse(company)
 
 
 def _get_outstanding(customer: str) -> float:
@@ -217,17 +240,6 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
     so.custom_hdnt = contract
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
-    # Every stock item needs a delivery warehouse (Sales Order.validate_warehouse
-    # -> WarehouseRequired). Migrated items don't reliably have a matching
-    # Item Default warehouse for this company, so resolve one for the SO
-    # itself: all lines inherit it via so.set_warehouse.
-    delivery_warehouse = _resolve_delivery_warehouse(so.company)
-    if not delivery_warehouse:
-        frappe.throw(
-            f"Không tìm thấy kho giao hàng hợp lệ cho công ty {so.company}. "
-            "Vui lòng liên hệ quản trị viên hệ thống."
-        )
-    so.set_warehouse = delivery_warehouse
     if address:
         so.shipping_address_name = address
         so.customer_address = address
@@ -246,10 +258,22 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
         )
         if not rate:
             frappe.throw(f"Không tìm thấy giá bán cho mặt hàng {item_code}.")
+        # Ship each line from THIS item's own default warehouse (where its
+        # stock actually is), never a single warehouse forced onto the whole
+        # order - otherwise items stocked elsewhere (e.g. UAT items in "Kho
+        # Miyano - MYN") end up shipping from an empty warehouse and the
+        # Delivery Note raises NegativeStockError.
+        item_warehouse = _resolve_item_warehouse(item_code, so.company)
+        if not item_warehouse:
+            frappe.throw(
+                f"Không tìm thấy kho giao hàng cho mặt hàng {item_code} tại "
+                f"công ty {so.company}. Vui lòng liên hệ quản trị viên hệ thống."
+            )
         so.append("items", {
             "item_code": item_code,
             "qty": qty,
             "rate": rate,
+            "warehouse": item_warehouse,
             "delivery_date": delivery_date,
             "blanket_order": contract,
             "against_blanket_order": 1,

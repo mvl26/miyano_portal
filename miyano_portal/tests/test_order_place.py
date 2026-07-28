@@ -112,3 +112,74 @@ class TestOrderPlace(FrappeTestCase):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)
         self.assertTrue(so.set_warehouse or so.items[0].warehouse)
+
+    def test_item_own_default_warehouse_used_not_company_default(self):
+        # Regression test: an item whose stock lives in a warehouse OTHER
+        # than the company default (e.g. UAT items stocked in
+        # "Kho Miyano - MYN") must ship from ITS OWN default warehouse, not
+        # from a single warehouse forced onto the whole Sales Order. Before
+        # the fix, portal_order_place forced so.set_warehouse to the company
+        # default for every line, which broke delivery for items stocked
+        # elsewhere (NegativeStockError on the Delivery Note).
+        company = "Miyano Việt Nam"
+        item_code = "TEST-ITEM-OWN-WAREHOUSE"
+        own_warehouse = frappe.db.get_value(
+            "Warehouse", {"company": company, "is_group": 0, "disabled": 0, "name": ["!=", "Stores - MYN"]}
+        )
+        self.assertTrue(own_warehouse, "Expected a non-default leaf warehouse to exist for the test company.")
+
+        if not frappe.db.exists("Item", item_code):
+            item_doc = frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_code,
+                "item_name": "Test item with its own default warehouse",
+                "item_group": "All Item Groups",
+                "stock_uom": "Cái",
+                "is_stock_item": 1,
+            })
+            item_doc.append(
+                "item_defaults", {"company": company, "default_warehouse": own_warehouse}
+            )
+            item_doc.insert(ignore_permissions=True)
+        else:
+            item_doc = frappe.get_doc("Item", item_code)
+            if not any(d.company == company and d.default_warehouse == own_warehouse for d in item_doc.item_defaults):
+                item_doc.append(
+                    "item_defaults", {"company": company, "default_warehouse": own_warehouse}
+                )
+                item_doc.save(ignore_permissions=True)
+
+        customer = portal.portal_me()["customer"]
+        price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+        if not frappe.db.exists(
+            "Item Price", {"item_code": item_code, "price_list": price_list, "selling": 1}
+        ):
+            frappe.get_doc({
+                "doctype": "Item Price",
+                "item_code": item_code,
+                "price_list": price_list,
+                "uom": "Cái",
+                "selling": 1,
+                "price_list_rate": 5000,
+                "currency": "VND",
+            }).insert(ignore_permissions=True)
+
+        frappe.get_doc({
+            "doctype": "Blanket Order Item",
+            "parenttype": "Blanket Order",
+            "parentfield": "items",
+            "parent": self.bo,
+            "item_code": item_code,
+            "qty": 10,
+            "ordered_qty": 0,
+            "rate": 5000,
+            "uom": "Cái",
+        }).insert(ignore_permissions=True)
+
+        res = portal.portal_order_place(
+            self.bo, json.dumps([{"item_code": item_code, "qty": 1}]),
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual(so.docstatus, 0)
+        self.assertEqual(so.items[0].warehouse, own_warehouse)
+        self.assertNotEqual(so.items[0].warehouse, "Stores - MYN")
