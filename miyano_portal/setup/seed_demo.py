@@ -79,14 +79,20 @@ def _ensure_price_list():
     return PRICE_LIST
 
 
+def _default_warehouse():
+    """Leaf (non-group) warehouse for the demo company, used as each item's default."""
+    return frappe.db.get_value("Warehouse", {"company": COMPANY, "is_group": 0, "warehouse_name": "Stores"})
+
+
 def _ensure_items():
     item_codes = []
+    warehouse = _default_warehouse()
     for it in ITEMS:
         _ensure_uom(it["uom"])
         _ensure_item_group(it["item_group"])
 
         if not frappe.db.exists("Item", it["item_code"]):
-            frappe.get_doc(
+            item_doc = frappe.get_doc(
                 {
                     "doctype": "Item",
                     "item_code": it["item_code"],
@@ -95,7 +101,20 @@ def _ensure_items():
                     "stock_uom": it["uom"],
                     "is_stock_item": 1,
                 }
-            ).insert(ignore_permissions=True)
+            )
+            if warehouse:
+                item_doc.append(
+                    "item_defaults", {"company": COMPANY, "default_warehouse": warehouse}
+                )
+            item_doc.insert(ignore_permissions=True)
+        elif warehouse:
+            # Idempotent re-run: make sure the default warehouse is set for existing items.
+            item_doc = frappe.get_doc("Item", it["item_code"])
+            if not any(d.company == COMPANY and d.default_warehouse for d in item_doc.item_defaults):
+                item_doc.append(
+                    "item_defaults", {"company": COMPANY, "default_warehouse": warehouse}
+                )
+                item_doc.save(ignore_permissions=True)
         item_codes.append(it["item_code"])
 
         if not frappe.db.exists(
