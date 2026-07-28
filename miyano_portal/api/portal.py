@@ -149,3 +149,94 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None) 
     so.flags.ignore_permissions = True
     so.insert(ignore_permissions=True)
     return {"sales_order": so.name, "total": float(so.grand_total)}
+
+
+STATUS_VI = {
+    "Draft": "Chờ xác nhận",
+    "To Deliver and Bill": "Đang xử lý",
+    "To Bill": "Đang xử lý",
+    "To Deliver": "Đang giao",
+    "Completed": "Hoàn thành",
+    "Cancelled": "Đã huỷ",
+    "Closed": "Đã huỷ",
+}
+
+
+def _status_vi(status):
+    return STATUS_VI.get(status, status)
+
+
+@frappe.whitelist()
+def portal_order_history(limit=20, start=0) -> list:
+    rows = frappe.get_list(
+        "Sales Order",
+        fields=["name", "transaction_date", "grand_total", "status", "per_delivered"],
+        order_by="transaction_date desc, creation desc",
+        limit_page_length=int(limit), limit_start=int(start),
+    )
+    for r in rows:
+        r["status_vi"] = _status_vi(r.pop("status"))
+    return rows
+
+
+@frappe.whitelist()
+def portal_order_track(order) -> dict:
+    so = frappe.get_doc("Sales Order", order)
+    # frappe.get_doc does not auto-check permissions on load; check_permission()
+    # is what actually invokes the has_permission hook (Task 5) that scopes
+    # this to the caller's own customer.
+    so.check_permission("read")
+    delivered = (so.per_delivered or 0) > 0
+    billed = (so.per_billed or 0) > 0
+    milestones = [
+        {"key": "ordered", "label": "Đặt hàng", "done": True},
+        {"key": "confirmed", "label": "Xác nhận", "done": so.docstatus == 1},
+        {"key": "delivering", "label": "Giao hàng", "done": delivered},
+        {"key": "invoiced", "label": "Hoá đơn", "done": billed},
+    ]
+    return {
+        "order": so.name,
+        "status_vi": _status_vi(so.status),
+        "milestones": milestones,
+        "items": [
+            {"item_code": i.item_code, "qty": i.qty, "delivered_qty": i.delivered_qty}
+            for i in so.items
+        ],
+    }
+
+
+@frappe.whitelist()
+def portal_deliveries(limit=20, start=0) -> list:
+    return frappe.get_list(
+        "Delivery Note",
+        fields=["name", "posting_date", "status"],
+        order_by="posting_date desc",
+        limit_page_length=int(limit), limit_start=int(start),
+    )
+
+
+@frappe.whitelist()
+def portal_invoices(limit=20, start=0) -> list:
+    rows = frappe.get_list(
+        "Sales Invoice",
+        fields=["name", "posting_date", "grand_total", "outstanding_amount", "status"],
+        order_by="posting_date desc",
+        limit_page_length=int(limit), limit_start=int(start),
+    )
+    for r in rows:
+        r["status_vi"] = _status_vi(r.pop("status"))
+    return rows
+
+
+@frappe.whitelist()
+def portal_request_cancel(order, reason) -> dict:
+    so = frappe.get_doc("Sales Order", order)
+    so.check_permission("read")
+    if so.docstatus != 0:
+        frappe.throw("Chỉ yêu cầu huỷ được khi đơn còn Chờ xác nhận.")
+    so.add_comment("Comment", f"[Portal] Khách yêu cầu huỷ: {reason}")
+    frappe.get_doc({
+        "doctype": "ToDo", "description": f"Khách yêu cầu huỷ {order}: {reason}",
+        "reference_type": "Sales Order", "reference_name": order,
+    }).insert(ignore_permissions=True)
+    return {"ok": True}
