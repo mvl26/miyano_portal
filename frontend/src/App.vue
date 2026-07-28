@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { store } from './store'
 import { logout } from './api'
+import ToastHost from './ToastHost.vue'
 
 const route = useRoute()
 
@@ -89,5 +90,7 @@ async function doLogout() {
         <span v-if="n.cart && cartCount" class="cartn2">{{ cartCount }}</span>
       </router-link>
     </nav>
+
+    <ToastHost />
   </div>
 </template>

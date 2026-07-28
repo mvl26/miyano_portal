@@ -5,6 +5,7 @@ import api from '../api'
 import { store } from '../store'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
+import { showToast } from '../toast'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -82,9 +83,11 @@ function add(it) {
     window.alert(
       `Vượt hạn mức HĐNT!\n${it.item_code} chỉ còn được đặt tối đa ${left} ${it.uom} theo hợp đồng.`
     )
+    showToast(`Vượt hạn mức HĐNT · ${it.item_code} chỉ còn ${left} ${it.uom}`, 'error')
     return
   }
   store.addToCart(it, qty)
+  showToast(`Đã thêm ${qty} ${it.uom} · ${it.item_name} vào giỏ hàng`)
   qtys[it.item_code] = 1
 }
 
