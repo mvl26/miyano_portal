@@ -2,9 +2,43 @@ const MP = { cart: [], contract: null, badge: {
   "Chờ xác nhận":"b-cho","Đang xử lý":"b-xuly","Đang giao":"b-giao",
   "Hoàn thành":"b-done","Đã huỷ":"b-huy"} };
 
+// SPA chạy trên trang website (extends templates/web.html) nên `frappe.call`
+// (desk helper) KHÔNG có sẵn ở đây — gọi thẳng /api/method/<method> bằng
+// fetch() kèm CSRF token (window.CSRF_TOKEN, bơm từ index.py qua index.html).
+// Giữ nguyên chữ ký call(method, args) => Promise<message> để không phải
+// sửa các nơi gọi (await call("portal_me"), call("portal_catalog", {...})...).
 function call(method, args){
-  return new Promise((res, rej)=>frappe.call({method:"miyano_portal.api.portal."+method,
-    args:args||{}, callback:r=>res(r.message), error:rej}));
+  return fetch("/api/method/miyano_portal.api.portal." + method, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Frappe-CSRF-Token": window.CSRF_TOKEN || "",
+      "Accept": "application/json",
+    },
+    body: JSON.stringify(args || {}),
+    credentials: "same-origin",
+  }).then(res => res.json().catch(() => ({})).then(data => {
+    if(!res.ok){
+      throw new Error(extractErrorMessage(data) || ("Lỗi máy chủ (" + res.status + ")"));
+    }
+    return data.message;
+  }));
+}
+
+function extractErrorMessage(data){
+  if(!data) return "";
+  if(data._server_messages){
+    try{
+      const arr = JSON.parse(data._server_messages);
+      const msgs = arr.map(m=>{ try{ return JSON.parse(m).message; }catch(e){ return m; } }).filter(Boolean);
+      if(msgs.length) return msgs.join(" — ");
+    }catch(e){ /* ignore */ }
+  }
+  if(data.exception){
+    const parts = String(data.exception).split(":");
+    return parts[parts.length - 1].trim();
+  }
+  return "";
 }
 const vnd = n => (n||0).toLocaleString('vi-VN')+' ₫';
 const el = document.getElementById.bind(document);

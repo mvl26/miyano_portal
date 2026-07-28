@@ -13,5 +13,11 @@
   </nav>
   <main id="mp-view">Đang tải…</main>
 </div>
+<script>
+  // frappe.call (desk helper) không có sẵn trên trang website (extends
+  // templates/web.html) — portal_app.js gọi API whitelist qua fetch() và
+  // cần CSRF token của phiên hiện tại, được server bơm vào đây.
+  window.CSRF_TOKEN = "{{ csrf_token }}";
+</script>
 <script src="/assets/miyano_portal/js/portal_app.js"></script>
 {% endblock %}
