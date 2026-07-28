@@ -240,3 +240,49 @@ def portal_request_cancel(order, reason) -> dict:
         "reference_type": "Sales Order", "reference_name": order,
     }).insert(ignore_permissions=True)
     return {"ok": True}
+
+
+@frappe.whitelist()
+def portal_provision(customer, email, send_invite=False) -> dict:
+    # Caller-role guard: only staff (not portal customers) may provision accounts.
+    if not (set(frappe.get_roles()) & {"System Manager", "Sales Manager", "Sales User"}):
+        frappe.throw("Không có quyền", frappe.PermissionError)
+
+    if not frappe.db.exists("Customer", customer):
+        frappe.throw("Không tìm thấy khách hàng.")
+    if not frappe.db.exists("User", email):
+        u = frappe.get_doc({
+            "doctype": "User", "email": email, "first_name": customer,
+            "user_type": "Website User", "send_welcome_email": int(send_invite),
+        })
+        u.append("roles", {"role": "Customer"})
+        u.insert(ignore_permissions=True)
+    contact_name = f"{customer}-{email}"
+    if not frappe.db.exists("Contact", contact_name):
+        ct = frappe.get_doc({"doctype": "Contact", "first_name": customer, "user": email})
+        ct.name = contact_name
+        ct.append("email_ids", {"email_id": email, "is_primary": 1})
+        ct.append("links", {"link_doctype": "Customer", "link_name": customer})
+        ct.insert(ignore_permissions=True)
+    if not frappe.db.exists("User Permission", {"user": email, "allow": "Customer", "for_value": customer}):
+        frappe.get_doc({
+            "doctype": "User Permission", "user": email,
+            "allow": "Customer", "for_value": customer,
+        }).insert(ignore_permissions=True)
+    return {"user": email}
+
+
+@frappe.whitelist()
+def portal_document_download(doctype, name) -> None:
+    if doctype not in ("Sales Order", "Delivery Note", "Sales Invoice"):
+        frappe.throw("Loại chứng từ không hợp lệ.")
+    doc = frappe.get_doc(doctype, name)
+    # frappe.get_doc does NOT auto-enforce has_permission in this build, so the
+    # isolation check must be done explicitly before any data leaves the server.
+    doc.check_permission("read")
+    from frappe.utils.pdf import get_pdf
+    from frappe.www.printview import get_html_and_style
+    html = get_html_and_style(doc=doc.as_json(), print_format=None, no_letterhead=0)["html"]
+    frappe.local.response.filename = f"{name}.pdf"
+    frappe.local.response.filecontent = get_pdf(html)
+    frappe.local.response.type = "pdf"
