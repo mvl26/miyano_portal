@@ -31,12 +31,41 @@ class TestUatScenario(FrappeTestCase):
         self.assertEqual(bo.docstatus, 1)
         self.assertEqual(len(bo.items), len(ITEMS))
 
-        # Stock: actual_qty >= 300 for each item in the warehouse
+        # Stock: setup_uat must have stocked the warehouse via a submitted opening
+        # Material Receipt for each item. We deliberately do NOT assert a hard
+        # actual_qty >= OPENING_STOCK_QTY here: setup_uat's opening stock entry is
+        # idempotent (fires once, only while the warehouse has zero stock for these
+        # items) and a real order-to-cash UAT flow may since have consumed some of
+        # that opening stock via deliveries. Asserting against the live, mutable
+        # Bin quantity would make this test brittle to legitimate stock consumption
+        # that happens outside of setup_uat. Instead we prove setup_uat did its job
+        # by asserting: (a) there is some stock at all, and (b) a submitted
+        # Material Receipt Stock Entry actually created that opening stock.
         for it in ITEMS:
             qty = frappe.db.get_value(
                 "Bin", {"item_code": it["item_code"], "warehouse": warehouse}, "actual_qty"
             )
-            self.assertGreaterEqual(qty or 0, OPENING_STOCK_QTY)
+            self.assertGreater(qty or 0, 0)
+
+            opening_receipt_exists = frappe.db.sql(
+                """
+                select sed.name
+                from `tabStock Entry Detail` sed
+                inner join `tabStock Entry` se on se.name = sed.parent
+                where se.docstatus = 1
+                    and se.stock_entry_type = 'Material Receipt'
+                    and sed.t_warehouse = %s
+                    and sed.item_code = %s
+                    and sed.qty = %s
+                limit 1
+                """,
+                (warehouse, it["item_code"], OPENING_STOCK_QTY),
+            )
+            self.assertTrue(
+                opening_receipt_exists,
+                f"Expected a submitted opening Material Receipt of qty {OPENING_STOCK_QTY} "
+                f"for {it['item_code']} into {warehouse}",
+            )
 
         # Portal user resolves to the customer.
         frappe.set_user(second["portal_user"])
