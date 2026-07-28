@@ -117,13 +117,19 @@ required_apps = ["frappe/frappe", "erpnext"]
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Sales Order": "miyano_portal.permissions.sales_query",
+	"Delivery Note": "miyano_portal.permissions.delivery_query",
+	"Sales Invoice": "miyano_portal.permissions.invoice_query",
+	"Blanket Order": "miyano_portal.permissions.blanket_query",
+}
+
+has_permission = {
+	"Sales Order": "miyano_portal.permissions.sales_has_permission",
+	"Delivery Note": "miyano_portal.permissions.generic_has_permission",
+	"Sales Invoice": "miyano_portal.permissions.generic_has_permission",
+	"Blanket Order": "miyano_portal.permissions.generic_has_permission",
+}
 
 # DocType Class
 # ---------------
