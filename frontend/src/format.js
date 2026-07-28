@@ -35,3 +35,39 @@ export function statusBadge(statusVi) {
   }
   return map[statusVi] || 'b-gray'
 }
+
+// Map trạng thái hoá đơn (đã Việt hoá ở backend) → class badge.
+export function invoiceBadge(statusVi) {
+  const map = {
+    'Nháp': 'b-gray',
+    'Chưa thanh toán': 'b-blue',
+    'TT một phần': 'b-orange',
+    'Đã thanh toán': 'b-green',
+    'Quá hạn': 'b-red',
+    'Trả hàng': 'b-gray',
+    'Đã ghi sổ': 'b-blue',
+    'Đã huỷ': 'b-red',
+  }
+  return map[statusVi] || 'b-gray'
+}
+
+// YYYY-MM-DD hôm nay (local) để so sánh hạn thanh toán.
+export function todayISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Cộng thêm n ngày vào hôm nay → YYYY-MM-DD.
+export function addDaysISO(n) {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Số ngày từ hôm nay tới ngày ISO (dương = còn hạn, âm = quá hạn).
+export function daysUntil(iso) {
+  if (!iso) return null
+  const target = new Date(String(iso).slice(0, 10) + 'T00:00:00')
+  const now = new Date(todayISO() + 'T00:00:00')
+  return Math.round((target - now) / 86400000)
+}

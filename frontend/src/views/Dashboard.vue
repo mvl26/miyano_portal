@@ -52,6 +52,11 @@ onMounted(async () => {
 function openOrder(name) {
   router.push({ name: 'order-detail', params: { name } })
 }
+
+function orderByContract(contractName) {
+  store.setContract(contractName)
+  router.push('/catalog')
+}
 </script>
 
 <template>
@@ -112,6 +117,9 @@ function openOrder(name) {
           <div class="note" style="margin-top: 14px">
             💡 Đặt hàng theo đúng đơn giá và hạn mức của hợp đồng nguyên tắc đã ký.
           </div>
+          <button class="btn-o btn-sm" style="margin-top: 12px" @click="orderByContract(contract.name)">
+            Đặt hàng theo hợp đồng này →
+          </button>
         </template>
         <p v-else class="tag">Chưa có hợp đồng nguyên tắc còn hiệu lực.</p>
       </div>

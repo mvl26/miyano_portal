@@ -15,10 +15,14 @@ const NAV = [
   { to: '/profile', icon: '🏥', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile' },
 ]
 
-// Bottom nav (mobile) chỉ hiện 5 mục chính.
-const BNAV = NAV.filter((n) => n.key !== 'invoices').concat(
-  NAV.filter((n) => n.key === 'invoices')
-)
+// Bottom nav (mobile): 5 mục — Hoá đơn truy cập qua "Thêm" (Hồ sơ) như mockup.
+const BNAV = [
+  { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
+  { to: '/catalog', icon: '🛒', short: 'Đặt hàng', key: 'catalog' },
+  { to: '/cart', icon: '🧺', short: 'Giỏ hàng', key: 'cart', cart: true },
+  { to: '/orders', icon: '📋', short: 'Đơn hàng', key: 'orders' },
+  { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile' },
+]
 
 const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
 const cartCount = computed(() => store.cartCount)
@@ -26,6 +30,7 @@ const cartCount = computed(() => store.cartCount)
 function isActive(key) {
   const name = route.name || ''
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
+  if (key === 'profile') return name === 'profile' || name === 'invoices'
   return name === key
 }
 

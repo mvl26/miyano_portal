@@ -284,3 +284,222 @@ h3 { font-size: 16px; }
 .stub { padding: 40px 20px; }
 .stub h2 { margin-bottom: 8px; }
 .clickable { cursor: pointer; }
+
+/* ============================================================
+   Pass 2 — form controls, catalog/cart/orders/detail/invoices
+   (ported from both mockups)
+   ============================================================ */
+
+/* Inputs */
+input, select, textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  width: 100%;
+  background: #fff;
+  color: var(--dark);
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid #93c5fd;
+  border-color: var(--blue2);
+}
+.field { margin-bottom: 12px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+/* Filter chips */
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+.chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 20px;
+  padding: 7px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: #475569;
+}
+.chip.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* Qty stepper */
+.step {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.step button {
+  width: 34px;
+  height: 34px;
+  background: #f1f5f9;
+  border: none;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--blue);
+}
+.step button:disabled { color: #cbd5e1; cursor: not-allowed; }
+.step input {
+  width: 52px;
+  border: none;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0;
+  border-radius: 0;
+}
+.qty { width: 74px; text-align: center; }
+.warn { color: var(--red); font-size: 12px; font-weight: 600; }
+
+/* Row line (mobile list rows) */
+.rowline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.rowline:last-child { border-bottom: none; }
+.sb { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+
+/* Item card (catalog / cart, mobile) */
+.item .nm { font-weight: 600; font-size: 14px; line-height: 1.35; }
+.item .pr { font-size: 16px; font-weight: 800; color: var(--blue); }
+.mb10 { margin-bottom: 10px; }
+
+/* Horizontal timeline (desktop, S-07) */
+.tl { display: flex; margin: 18px 0 10px; }
+.tl .st { flex: 1; text-align: center; position: relative; }
+.tl .st::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: -50%;
+  width: 100%;
+  height: 3px;
+  background: #e2e8f0;
+  z-index: 0;
+}
+.tl .st:first-child::before { display: none; }
+.tl .dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  position: relative;
+  z-index: 1;
+}
+.tl .st.done .dot { background: var(--green); color: #fff; }
+.tl .st.done::before { background: var(--green); }
+.tl .st.cur .dot { background: var(--orange); color: #fff; }
+.tl .lb { font-size: 12px; margin-top: 6px; color: var(--gray); }
+.tl .st.done .lb, .tl .st.cur .lb { color: var(--dark); font-weight: 600; }
+
+/* Vertical timeline (mobile, S-07) */
+.vtl { margin: 4px 0 4px 6px; }
+.vst { display: flex; gap: 12px; position: relative; padding-bottom: 18px; }
+.vst::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 28px;
+  bottom: 0;
+  width: 3px;
+  background: #e2e8f0;
+}
+.vst:last-child::before { display: none; }
+.vst.done::before { background: var(--green); }
+.vdot {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  z-index: 1;
+}
+.vst.done .vdot { background: var(--green); color: #fff; }
+.vst.cur .vdot { background: var(--orange); color: #fff; }
+.vst .vlb { font-size: 13px; color: var(--gray); padding-top: 4px; }
+.vst.done .vlb, .vst.cur .vlb { color: var(--dark); }
+.vst .vlb b { display: block; }
+
+/* Desktop confirm modal (S-04) */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+}
+.modal .card { width: 440px; max-width: 92vw; }
+
+/* Mobile bottom sheet (S-04) */
+.sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 120;
+}
+.sheet .in {
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 20px 16px 26px;
+  width: 100%;
+  max-width: 480px;
+}
+.grab { width: 44px; height: 5px; background: #cbd5e1; border-radius: 5px; margin: 0 auto 14px; }
+
+/* Sticky cart bar (mobile, S-03) */
+.cartbar {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: 74px;
+  z-index: 49;
+}
+.cartbar button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 6px 18px rgba(31, 78, 121, 0.35);
+}
+
+/* Success view */
+.success { max-width: 560px; margin: 40px auto; text-align: center; padding: 36px; }
+@media (max-width: 900px) {
+  .success { margin: 24px auto; padding: 30px 16px; }
+}
+
+hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
