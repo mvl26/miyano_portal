@@ -289,10 +289,14 @@ def portal_document_download(doctype, name) -> None:
     doc.check_permission("read")
     from frappe.utils.pdf import get_pdf
     from frappe.www.printview import get_html_and_style
-    # Sales Order confirmations should render the installed bilingual
-    # "Miyano - Xác nhận đơn hàng" format; other doctypes keep the default
-    # for now.
-    print_format = "Miyano - Xác nhận đơn hàng" if doctype == "Sales Order" else None
+    # Each doctype renders through its installed bilingual Miyano print
+    # format (see setup/install_print_formats.py).
+    PRINT_FORMATS = {
+        "Sales Order": "Miyano - Xác nhận đơn hàng",
+        "Delivery Note": "Miyano - Phiếu giao hàng",
+        "Sales Invoice": "Miyano - Hoá đơn",
+    }
+    print_format = PRINT_FORMATS.get(doctype)
     html = get_html_and_style(
         doc=doc.as_json(), print_format=print_format, no_letterhead=0
     )["html"]

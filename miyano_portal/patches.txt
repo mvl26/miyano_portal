@@ -9,3 +9,4 @@ miyano_portal.patches.v1_0.grant_customer_role_read_perms
 miyano_portal.patches.v1_0.install_portal_workflow
 miyano_portal.patches.v1_0.install_portal_notifications
 miyano_portal.patches.v1_0.install_portal_print_formats
+miyano_portal.patches.v1_0.install_portal_print_formats_extra
