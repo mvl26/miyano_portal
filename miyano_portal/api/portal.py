@@ -37,6 +37,40 @@ def _customer_addresses(customer: str) -> list:
     return out
 
 
+def _resolve_delivery_warehouse(company: str):
+    """Resolve a leaf Warehouse for `company` to use as the Sales Order's
+    "Set Source Warehouse" (so.set_warehouse), so every stock line on the
+    order inherits a valid delivery warehouse.
+
+    Demo-seeded items get a default_warehouse in their Item Defaults (see
+    setup/seed_demo.py), but items migrated from SupplyCore have none — some
+    even carry an Item Default for an unrelated Company — so relying on the
+    item's own defaults leaves Sales Order Item.warehouse empty and ERPNext's
+    Sales Order.validate_warehouse() raises WarehouseRequired. Setting
+    so.set_warehouse before insert() sidesteps that regardless of the item.
+    """
+    warehouse = None
+    # This build's Company doctype may not carry a default_warehouse field
+    # at all (custom fixtures vary by environment), so probe via the meta
+    # before querying it - a bare frappe.db.get_value on a nonexistent
+    # column raises OperationalError instead of returning None.
+    if frappe.get_meta("Company").has_field("default_warehouse"):
+        warehouse = frappe.db.get_value("Company", company, "default_warehouse")
+    if not warehouse:
+        abbr = frappe.db.get_value("Company", company, "abbr")
+        candidates = frappe.get_all(
+            "Warehouse",
+            filters={"company": company, "is_group": 0, "disabled": 0},
+            pluck="name",
+        )
+        preferred = f"Stores - {abbr}" if abbr else None
+        if preferred and preferred in candidates:
+            warehouse = preferred
+        elif candidates:
+            warehouse = candidates[0]
+    return warehouse
+
+
 def _get_outstanding(customer: str) -> float:
     """Sum of unpaid GL Entry balance for this customer across companies.
 
@@ -183,6 +217,17 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
     so.custom_hdnt = contract
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
+    # Every stock item needs a delivery warehouse (Sales Order.validate_warehouse
+    # -> WarehouseRequired). Migrated items don't reliably have a matching
+    # Item Default warehouse for this company, so resolve one for the SO
+    # itself: all lines inherit it via so.set_warehouse.
+    delivery_warehouse = _resolve_delivery_warehouse(so.company)
+    if not delivery_warehouse:
+        frappe.throw(
+            f"Không tìm thấy kho giao hàng hợp lệ cho công ty {so.company}. "
+            "Vui lòng liên hệ quản trị viên hệ thống."
+        )
+    so.set_warehouse = delivery_warehouse
     if address:
         so.shipping_address_name = address
         so.customer_address = address
