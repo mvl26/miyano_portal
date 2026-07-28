@@ -27,3 +27,10 @@ class TestTracking(FrappeTestCase):
     def test_cancel_request_on_draft(self):
         res = portal.portal_request_cancel(self.so, "Đặt nhầm")
         self.assertTrue(res["ok"])
+
+    def test_cross_customer_cannot_track_or_cancel(self):
+        frappe.set_user("pxnabc@demo.miyano")
+        self.assertRaises(frappe.PermissionError, portal.portal_order_track, self.so)
+        self.assertRaises(
+            frappe.PermissionError, portal.portal_request_cancel, self.so, "x"
+        )
