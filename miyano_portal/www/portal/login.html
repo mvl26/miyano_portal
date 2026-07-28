@@ -1,54 +1,61 @@
 {% extends "templates/web.html" %}
 {% block page_content %}
-<div class="mp-login-wrap">
-  <div class="mp-login-card">
-    <div class="mp-login-brand">
-      <span class="mp-login-logo">M</span>
-      <div>
-        <div class="mp-login-title">Miyano</div>
-        <div class="mp-login-subtitle">Cổng khách hàng</div>
-      </div>
-    </div>
-    <h3 class="mp-login-heading">Đăng nhập</h3>
+<div class="mp-login">
+  <div class="mp-login-box">
+    <div class="mp-logo">MIYANO<span>◆</span> Client Portal</div>
+    <p class="mp-tagline">Cổng đặt hàng vật tư y tế – hoá chất xét nghiệm<br>theo Hợp đồng nguyên tắc</p>
     <form onsubmit="return miyanoLogin(event)">
-      <label class="mp-login-label" for="usr">Email</label>
-      <input id="usr" type="email" placeholder="ten@congty.vn" required
-             class="mp-login-input" autocomplete="username">
-      <label class="mp-login-label" for="pwd">Mật khẩu</label>
-      <input id="pwd" type="password" placeholder="••••••••" required
-             class="mp-login-input" autocomplete="current-password">
-      <button type="submit" class="mp-login-btn">Đăng nhập</button>
-      <p id="err" class="mp-login-err"></p>
+      <div class="mp-field"><label for="usr">Email đăng nhập</label>
+        <input id="usr" type="email" placeholder="ten@congty.vn" required autocomplete="username"></div>
+      <div class="mp-field"><label for="pwd">Mật khẩu</label>
+        <input id="pwd" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
+      <button type="submit" class="mp-btn" id="mp-login-btn">Đăng nhập</button>
+      <p id="err" class="mp-err"></p>
     </form>
+    <p class="mp-hint">Chưa có tài khoản? Liên hệ nhân viên kinh doanh Miyano<br>Hotline: 024 xxxx xxxx – sales@miyano.com.vn</p>
   </div>
 </div>
 <style>
-  body{background:#f1f5f9}
-  .mp-login-wrap{max-width:380px;margin:60px auto;font-family:sans-serif}
-  .mp-login-card{background:#fff;border-radius:10px;padding:32px;box-shadow:0 1px 4px rgba(15,23,42,.1)}
-  .mp-login-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-  .mp-login-logo{display:inline-flex;align-items:center;justify-content:center;
-    width:36px;height:36px;border-radius:8px;background:#0f172a;color:#fff;font-weight:700}
-  .mp-login-title{font-weight:700;font-size:16px;color:#0f172a}
-  .mp-login-subtitle{font-size:12px;color:#64748b}
-  .mp-login-heading{margin:0 0 16px;color:#0f172a}
-  .mp-login-label{display:block;font-size:12px;color:#475569;margin:10px 0 4px}
-  .mp-login-input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:6px;
-    box-sizing:border-box;font-size:14px}
-  .mp-login-btn{width:100%;padding:10px;margin-top:18px;background:#0f766e;color:#fff;
-    border:0;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
-  .mp-login-btn:hover{background:#0d6058}
-  .mp-login-err{color:#dc2626;font-size:13px;min-height:18px;margin:10px 0 0}
+  body{background:linear-gradient(135deg,#1f4e79,#2d6da3);min-height:100vh}
+  .navbar,.web-footer,footer,.footer,#navbar{display:none!important}
+  .mp-login{position:fixed;inset:0;background:linear-gradient(135deg,#1f4e79,#2d6da3);
+    display:flex;align-items:center;justify-content:center;padding:20px;z-index:1;
+    font-family:'Segoe UI',Roboto,Arial,sans-serif}
+  .mp-login-box{background:#fff;border-radius:16px;padding:36px;width:380px;max-width:92vw;
+    box-shadow:0 20px 50px rgba(0,0,0,.25)}
+  .mp-logo{font-size:22px;font-weight:800;color:#1f4e79;text-align:center;margin-bottom:6px}
+  .mp-logo span{color:#e11d48}
+  .mp-tagline{text-align:center;color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5}
+  .mp-field{margin-bottom:14px}
+  .mp-field label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+  .mp-field input{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:11px 12px;
+    font-size:14px;box-sizing:border-box;color:#1e293b}
+  .mp-field input:focus{outline:2px solid #93c5fd;border-color:#2d6da3}
+  .mp-btn{width:100%;margin-top:6px;background:#1f4e79;color:#fff;border:none;border-radius:8px;
+    padding:12px 18px;font-weight:600;font-size:14px;cursor:pointer}
+  .mp-btn:hover{background:#2d6da3}
+  .mp-btn:disabled{opacity:.7;cursor:default}
+  .mp-err{color:#dc2626;font-size:13px;min-height:18px;margin:10px 0 0;text-align:center}
+  .mp-hint{text-align:center;margin-top:16px;font-size:12px;color:#64748b;line-height:1.5}
 </style>
 <script>
 async function miyanoLogin(e){
   e.preventDefault();
-  const r = await fetch('/api/method/login', {method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body:new URLSearchParams({usr:document.getElementById('usr').value,
-                              pwd:document.getElementById('pwd').value})});
-  if(r.ok){ location.href='/portal'; }
-  else{ document.getElementById('err').innerText='Sai email hoặc mật khẩu'; }
+  const btn = document.getElementById('mp-login-btn');
+  const err = document.getElementById('err');
+  err.innerText = '';
+  btn.disabled = true; btn.innerText = 'Đang đăng nhập…';
+  try{
+    const r = await fetch('/api/method/login', {method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({usr:document.getElementById('usr').value,
+                                pwd:document.getElementById('pwd').value})});
+    if(r.ok){ location.href='/portal'; return false; }
+    err.innerText = 'Sai email hoặc mật khẩu';
+  }catch(ex){
+    err.innerText = 'Không kết nối được máy chủ';
+  }
+  btn.disabled = false; btn.innerText = 'Đăng nhập';
   return false;
 }
 </script>

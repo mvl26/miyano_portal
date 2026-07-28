@@ -1,18 +1,192 @@
-#miyano-portal{display:flex;font-family:sans-serif;min-height:100vh;background:#f8fafc}
-.mp-nav{width:210px;min-height:100vh;background:#0f172a;padding:16px;box-sizing:border-box}
-.mp-brand{color:#fff;font-weight:700;font-size:20px;margin-bottom:16px}
-.mp-link{display:block;color:#cbd5e1;padding:10px;text-decoration:none;border-radius:6px;cursor:pointer}
-.mp-link.active,.mp-link:hover{background:#1e293b;color:#fff}
-.mp-link-logout{margin-top:24px;border-top:1px solid #1e293b;padding-top:16px}
-#mp-view{flex:1;padding:24px;box-sizing:border-box}
-#mp-view h2{margin-top:0;color:#0f172a}
-.mp-badge{padding:2px 8px;border-radius:10px;color:#fff;font-size:12px;white-space:nowrap}
-.b-cho{background:#64748b}.b-xuly{background:#2563eb}.b-giao{background:#f59e0b}
-.b-done{background:#16a34a}.b-huy{background:#dc2626}
+/* ==========================================================================
+   Miyano Client Portal — design system (ported from the client mockups)
+   Desktop (>=900px): fixed left sidebar + main content.
+   Mobile  (<900px):  sticky top header + bottom nav + sticky cart bar.
+   Both widths share the same page containers and JS renderers.
+   ========================================================================== */
+:root{
+  --blue:#1f4e79; --blue2:#2d6da3; --bg:#f4f6f9; --line:#e2e8f0;
+  --gray:#64748b; --dark:#1e293b; --green:#16a34a; --orange:#ea580c; --red:#dc2626;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+#miyano-portal{font-family:'Segoe UI',Roboto,Arial,sans-serif;color:var(--dark);font-size:14px;background:var(--bg)}
+#miyano-portal a{text-decoration:none}
+
+/* Neutralise the website theme wrapper so the SPA can go full-bleed. */
+body{background:var(--bg)}
+.page_content,.web-page-content,main.page_content,#page-index,.container{max-width:none!important}
+#miyano-portal h2{font-size:20px;margin-bottom:4px;color:var(--dark)}
+#miyano-portal h3{font-size:16px}
+#miyano-portal h4{font-size:14px}
+.sub{color:var(--gray);font-size:13px;margin-bottom:18px}
+.tag{font-size:11px;color:var(--gray)}
+.right{text-align:right}
+.muted{color:var(--gray)}
+.err{color:var(--red);font-size:13px;margin:8px 0}
+
+/* ---- Badges ------------------------------------------------------------ */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-gray{background:#e2e8f0;color:#475569}
+.b-blue{background:#dbeafe;color:#1d4ed8}
+.b-orange{background:#ffedd5;color:#c2410c}
+.b-green{background:#dcfce7;color:#15803d}
+.b-red{background:#fee2e2;color:#b91c1c}
+
+/* ---- Buttons ----------------------------------------------------------- */
+button{cursor:pointer;font-size:14px;font-family:inherit}
+.btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:var(--blue2)}
+.btn-o{background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:9px 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn-o:hover{background:#f1f5f9}
+.btn-sm{padding:6px 12px;border-radius:6px;font-size:13px}
+.btn-danger{color:var(--red);border-color:var(--red)}
+.btn-danger:hover{background:#fef2f2}
+.btn-block{width:100%}
+
+/* ---- Cards / tables / inputs ------------------------------------------ */
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+.card.flush{padding:0;overflow-x:auto}
 table{width:100%;border-collapse:collapse;background:#fff}
-td,th{border:1px solid #e2e8f0;padding:8px;text-align:left}
-th{background:#f1f5f9;font-weight:600;color:#334155}
-button{cursor:pointer;padding:8px 14px;border:0;border-radius:6px;background:#0f766e;color:#fff;font-size:14px}
-button:hover{background:#0d6058}
-input{padding:6px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:14px}
-.err{color:#dc2626}
+th{background:#f1f5f9;text-align:left;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#475569;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:#f8fafc}
+input,select,textarea{border:1px solid #cbd5e1;border-radius:8px;padding:9px 12px;font-size:14px;width:100%;background:#fff;font-family:inherit;color:var(--dark)}
+input:focus,select:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue2)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+.flex{display:flex;gap:10px;align-items:center}
+.sb{display:flex;justify-content:space-between;align-items:center}
+.qty{width:74px;text-align:center}
+.warn{color:var(--red);font-size:12px;font-weight:600}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin:12px 0}
+hr{border:none;border-top:1px solid var(--line);margin:10px 0}
+
+/* ---- Quota / progress bars -------------------------------------------- */
+.bar{height:8px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--blue2)}
+.bar i.hot{background:var(--red)}
+.bar i.old{background:#94a3b8}
+.bar i.orange{background:var(--orange)}
+
+/* ==========================================================================
+   LAYOUT — sidebar (desktop) + header/bottom-nav (mobile)
+   ========================================================================== */
+.side{position:fixed;left:0;top:0;bottom:0;width:230px;background:var(--blue);color:#fff;padding:20px 0;display:flex;flex-direction:column;z-index:40}
+.side .logo{font-size:20px;font-weight:800;color:#fff;padding:0 20px 18px;border-bottom:1px solid rgba(255,255,255,.15)}
+.side .logo span{color:#fca5a5}
+.nav{margin-top:12px;flex:1;overflow-y:auto}
+.nav a{display:flex;justify-content:space-between;align-items:center;color:#cbd5e1;padding:11px 20px;font-weight:500;cursor:pointer;gap:8px}
+.nav a:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav a.on{background:rgba(255,255,255,.15);color:#fff;border-left:3px solid #fff}
+.cartn{background:#e11d48;color:#fff;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:700;min-width:20px;text-align:center}
+.who{padding:14px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;color:#cbd5e1;line-height:1.5}
+.who a{color:#fca5a5}
+
+.main{margin-left:230px;padding:24px 28px;max-width:1200px}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+
+/* Mobile header */
+.hdr{display:none;position:sticky;top:0;z-index:50;background:var(--blue);color:#fff;padding:12px 16px;justify-content:space-between;align-items:center;min-height:54px}
+.hdr .ttl{font-weight:700;font-size:16px}
+.hdr .back{background:none;border:none;color:#fff;font-size:22px;padding:0 8px 0 0;line-height:1}
+.hdr .cartbtn{position:relative;background:none;border:none;color:#fff;font-size:20px}
+.hdr .cartn{position:absolute;top:-6px;right:-8px;padding:1px 6px;font-size:10px}
+
+/* Mobile bottom nav */
+.bnav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;border-top:1px solid var(--line);padding:6px 0 10px}
+.bnav button{flex:1;background:none;border:none;color:var(--gray);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
+.bnav button .ic{font-size:20px}
+.bnav button.on{color:var(--blue);font-weight:700}
+.bnav .cartn2{position:absolute;top:-2px;right:calc(50% - 22px);background:#e11d48;color:#fff;border-radius:20px;font-size:10px;padding:1px 6px;font-weight:700}
+
+/* Mobile sticky cart bar (catalog page) */
+#cartbar{display:none;position:fixed;left:0;right:0;bottom:66px;z-index:49;padding:0 14px}
+#cartbar .btn{width:100%;box-shadow:0 6px 18px rgba(31,78,121,.35)}
+
+.pg{display:none}
+
+/* ==========================================================================
+   KPIs / grids
+   ========================================================================== */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px}
+.kpi{margin-bottom:0}
+.kpi .n{font-size:26px;font-weight:800;color:var(--blue)}
+.kpi .t{color:var(--gray);font-size:13px;margin-top:2px}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start}
+.rowline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
+.rowline:last-child{border-bottom:none}
+.rowline.click{cursor:pointer}
+.rowline.click:hover{background:#f8fafc}
+
+/* ==========================================================================
+   Catalog / cart item cards + qty stepper
+   ========================================================================== */
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px}
+.chip{border:1px solid #cbd5e1;background:#fff;border-radius:20px;padding:7px 14px;font-size:13px;white-space:nowrap;color:#475569;cursor:pointer}
+.chip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.item{margin-bottom:10px}
+.item .nm{font-weight:600;font-size:14px;line-height:1.35}
+.item .pr{font-size:16px;font-weight:800;color:var(--blue)}
+.step{display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:10px;overflow:hidden}
+.step button{width:38px;height:38px;background:#f1f5f9;border:none;font-size:18px;font-weight:700;color:var(--blue);line-height:1}
+.step input{width:54px;border:none;text-align:center;font-size:15px;font-weight:600;padding:0;border-radius:0}
+.step input:focus{outline:none}
+
+/* ==========================================================================
+   Timeline — horizontal (desktop), vertical (mobile)
+   ========================================================================== */
+.tl{display:flex;margin:18px 0 10px}
+.tl .st{flex:1;text-align:center;position:relative}
+.tl .st::before{content:"";position:absolute;top:14px;left:-50%;width:100%;height:3px;background:#e2e8f0;z-index:0}
+.tl .st:first-child::before{display:none}
+.tl .dot{width:30px;height:30px;border-radius:50%;background:#e2e8f0;color:#64748b;display:inline-flex;align-items:center;justify-content:center;font-weight:700;position:relative;z-index:1}
+.tl .st.done .dot{background:var(--green);color:#fff}
+.tl .st.done::before{background:var(--green)}
+.tl .st.cur .dot{background:var(--orange);color:#fff}
+.tl .lb{font-size:12px;margin-top:6px;color:var(--gray)}
+.tl .st.done .lb,.tl .st.cur .lb{color:var(--dark);font-weight:600}
+
+.vtl{margin:4px 0 4px 6px}
+.vst{display:flex;gap:12px;position:relative;padding-bottom:18px}
+.vst::before{content:"";position:absolute;left:13px;top:28px;bottom:0;width:3px;background:#e2e8f0}
+.vst:last-child::before{display:none}
+.vst.done::before{background:var(--green)}
+.vdot{width:28px;height:28px;min-width:28px;border-radius:50%;background:#e2e8f0;color:#64748b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;z-index:1}
+.vst.done .vdot{background:var(--green);color:#fff}
+.vst.cur .vdot{background:var(--orange);color:#fff}
+.vst .vlb{font-size:13px;color:var(--gray);padding-top:4px}
+.vst.done .vlb,.vst.cur .vlb{color:var(--dark)}
+.vst .vlb b{display:block}
+
+/* ==========================================================================
+   Confirm — modal (desktop) / bottom sheet (mobile), one element
+   ========================================================================== */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:120;padding:16px}
+.modal.show{display:flex}
+.modal .modal-box{background:#fff;border-radius:12px;padding:22px;width:440px;max-width:100%}
+.modal .grab{display:none}
+
+/* ==========================================================================
+   Responsive switch
+   ========================================================================== */
+.only-mobile{display:none!important}
+
+@media (max-width:899.98px){
+  .side{display:none}
+  .main{margin-left:0;padding:14px 14px 92px;max-width:100%}
+  .hdr{display:flex}
+  .bnav{display:flex}
+  .topbar{margin-bottom:14px}
+  .kpis{grid-template-columns:1fr 1fr;gap:8px}
+  .kpi .n{font-size:20px}
+  .kpi .t{font-size:11px}
+  .grid2{grid-template-columns:1fr}
+  .card{border-radius:14px;padding:14px}
+  .only-desktop{display:none!important}
+  .only-mobile{display:block!important}
+  .modal{align-items:flex-end;padding:0}
+  .modal .modal-box{width:100%;max-width:100%;border-radius:18px 18px 0 0;padding:20px 16px 26px}
+  .modal .grab{display:block;width:44px;height:5px;background:#cbd5e1;border-radius:5px;margin:0 auto 14px}
+  #miyano-portal h2{font-size:18px}
+}
