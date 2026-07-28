@@ -53,6 +53,17 @@ required_apps = ["frappe/frappe", "erpnext"]
 # include app icons in desk
 # app_include_icons = "miyano_portal/public/icons.svg"
 
+# Website route rules
+# --------------------
+# SPA Vue phục vụ tại /portal (www/portal/index.html). Các route phía client
+# như /portal/orders, /portal/dashboard phải trả về cùng shell để vue-router xử
+# lý. Rule /portal/login đặt trước (werkzeug ưu tiên segment tĩnh hơn <path:>)
+# để trang đăng nhập www/portal/login.html KHÔNG bị catch-all chiếm mất.
+website_route_rules = [
+	{"from_route": "/portal/login", "to_route": "portal/login"},
+	{"from_route": "/portal/<path:app_path>", "to_route": "portal/index"},
+]
+
 # Home Pages
 # ----------
 

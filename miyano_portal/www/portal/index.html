@@ -1,86 +1,25 @@
-{% extends "templates/web.html" %}
-{% block page_content %}
-<link rel="stylesheet" href="/assets/miyano_portal/css/portal.css?v={{ build_version }}">
-<div id="miyano-portal">
-
-  <!-- ============ DESKTOP SIDEBAR (>=900px) ============ -->
-  <aside class="side">
-    <div class="logo">MIYANO<span>◆</span> Portal</div>
-    <nav class="nav">
-      <a data-action="go" data-page="dash"   data-nav-d="dash">🏠 Tổng quan</a>
-      <a data-action="go" data-page="cat"    data-nav-d="cat">🛒 Đặt hàng</a>
-      <a data-action="go" data-page="cart"   data-nav-d="cart">📦 Giỏ hàng <span class="cartn mp-cartn">0</span></a>
-      <a data-action="go" data-page="orders" data-nav-d="orders">📋 Đơn hàng của tôi</a>
-      <a data-action="go" data-page="inv"    data-nav-d="inv">🧾 Hoá đơn &amp; công nợ</a>
-      <a data-action="go" data-page="prof"   data-nav-d="prof">🏥 Hồ sơ đơn vị</a>
-    </nav>
-    <div class="who">
-      <div>👤 <span id="who-name">…</span></div>
-      <div id="who-sub" class="tag" style="color:#cbd5e1"></div>
-      <a href="/api/method/logout">Đăng xuất</a>
-    </div>
-  </aside>
-
-  <!-- ============ MOBILE HEADER (<900px) ============ -->
-  <header class="hdr">
-    <div class="flex">
-      <button class="back" id="backbtn" data-action="back" style="display:none">‹</button>
-      <span class="ttl" id="hdr-t">Tổng quan</span>
-    </div>
-    <button class="cartbtn" data-action="go" data-page="cart">🧺<span class="cartn mp-cartn">0</span></button>
-  </header>
-
-  <!-- ============ MAIN CONTENT — all page containers ============ -->
-  <main class="main">
-    <div class="pg" id="pg-dash"></div>
-    <div class="pg" id="pg-cat"></div>
-    <div class="pg" id="pg-cart"></div>
-    <div class="pg" id="pg-done"></div>
-    <div class="pg" id="pg-orders"></div>
-    <div class="pg" id="pg-detail"></div>
-    <div class="pg" id="pg-inv"></div>
-    <div class="pg" id="pg-prof"></div>
-  </main>
-
-  <!-- ============ MOBILE STICKY CART BAR (catalog) ============ -->
-  <div id="cartbar">
-    <button class="btn sb" data-action="go" data-page="cart">
-      <span>🧺 <span id="cb-n">0</span> mặt hàng</span>
-      <span id="cb-t">0 ₫</span>
-      <span>Xem giỏ ›</span>
-    </button>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+  <meta name="theme-color" content="#1f4e79" />
+  <title>Cổng khách hàng Miyano</title>
+  <link rel="stylesheet" href="/assets/miyano_portal/frontend/index.css?v={{ build_version }}" />
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #f4f6f9; }
+    #app { min-height: 100vh; }
+    .mp-boot { display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
+    .mp-boot-spinner { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: #2d6da3; border-radius: 50%; animation: mp-spin 0.8s linear infinite; }
+    @keyframes mp-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="mp-boot"><div class="mp-boot-spinner"></div></div>
   </div>
-
-  <!-- ============ MOBILE BOTTOM NAV (<900px) ============ -->
-  <nav class="bnav">
-    <button data-action="go" data-page="dash"   data-nav-m="dash"><span class="ic">🏠</span>Tổng quan</button>
-    <button data-action="go" data-page="cat"    data-nav-m="cat"><span class="ic">🛒</span>Đặt hàng</button>
-    <button data-action="go" data-page="cart"   data-nav-m="cart"><span class="ic">🧺</span>Giỏ hàng<span class="cartn2 mp-cartn2" style="display:none">0</span></button>
-    <button data-action="go" data-page="orders" data-nav-m="orders"><span class="ic">📋</span>Đơn hàng</button>
-    <button data-action="go" data-page="prof"   data-nav-m="prof"><span class="ic">☰</span>Thêm</button>
-  </nav>
-
-  <!-- ============ CONFIRM MODAL / SHEET ============ -->
-  <div class="modal" id="modal">
-    <div class="modal-box">
-      <div class="grab"></div>
-      <h3>Xác nhận gửi đơn hàng?</h3>
-      <p style="font-size:13px;margin:10px 0">Đơn hàng theo hợp đồng nguyên tắc <b id="m-contract">–</b>, tổng giá trị <b id="m-tot">0 ₫</b> sẽ được gửi về hệ thống Supplycore của Miyano và tạo Đơn bán hàng (Sales Order) chờ xác nhận.</p>
-      <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt hàng theo đơn giá và điều khoản của Hợp đồng nguyên tắc đã ký.</div>
-      <p class="err" id="m-err"></p>
-      <div class="flex" style="justify-content:flex-end;margin-top:6px">
-        <button class="btn-o" data-action="confirm-close">Quay lại</button>
-        <button class="btn" id="m-confirm" data-action="confirm-do">Xác nhận đặt hàng</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-  // frappe.call (desk helper) không có sẵn trên trang website (extends
-  // templates/web.html) — portal_app.js gọi API whitelist qua fetch() và
-  // cần CSRF token của phiên hiện tại, được server bơm vào đây.
-  window.CSRF_TOKEN = "{{ csrf_token }}";
-</script>
-<script src="/assets/miyano_portal/js/portal_app.js?v={{ build_version }}"></script>
-{% endblock %}
+  <script>window.mp_csrf = "{{ csrf_token }}";</script>
+  <script type="module" src="/assets/miyano_portal/frontend/index.js?v={{ build_version }}"></script>
+</body>
+</html>
