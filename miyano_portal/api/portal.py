@@ -130,6 +130,13 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None) 
     so.custom_hdnt = contract
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
+    # Set the contact so the "Portal - Đơn mới" Notification (recipient
+    # field contact_email) actually has an email to send to. The portal
+    # user's email == frappe.session.user == the linked Contact's email.
+    contact_name = frappe.db.get_value("Contact", {"user": frappe.session.user})
+    if contact_name:
+        so.contact_person = contact_name
+        so.contact_email = frappe.session.user
     for item_code, qty in aggregated.items():
         rate = frappe.db.get_value(
             "Item Price",
@@ -282,7 +289,13 @@ def portal_document_download(doctype, name) -> None:
     doc.check_permission("read")
     from frappe.utils.pdf import get_pdf
     from frappe.www.printview import get_html_and_style
-    html = get_html_and_style(doc=doc.as_json(), print_format=None, no_letterhead=0)["html"]
+    # Sales Order confirmations should render the installed bilingual
+    # "Miyano - Xác nhận đơn hàng" format; other doctypes keep the default
+    # for now.
+    print_format = "Miyano - Xác nhận đơn hàng" if doctype == "Sales Order" else None
+    html = get_html_and_style(
+        doc=doc.as_json(), print_format=print_format, no_letterhead=0
+    )["html"]
     frappe.local.response.filename = f"{name}.pdf"
     frappe.local.response.filecontent = get_pdf(html)
     frappe.local.response.type = "pdf"
