@@ -283,19 +283,27 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
     return {"sales_order": so.name, "total": float(so.grand_total)}
 
 
-STATUS_VI = {
-    "Draft": "Chờ xác nhận",
-    "To Deliver and Bill": "Đang xử lý",
-    "To Bill": "Đang xử lý",
-    "To Deliver": "Đang giao",
-    "Completed": "Hoàn thành",
-    "Cancelled": "Đã huỷ",
-    "Closed": "Đã huỷ",
-}
+def _so_status_vi(so_status, per_delivered=None):
+    """Vietnamese label for a Sales Order, delivery-aware.
 
-
-def _status_vi(status):
-    return STATUS_VI.get(status, status)
+    Per the BA doc the progression is:
+      Chờ xác nhận -> Đang xử lý -> Đang giao -> Hoàn thành
+    Raw ERPNext status alone conflates "Đang xử lý" and "Đang giao": both
+    "To Deliver and Bill" and "To Bill" can appear while a delivery has
+    already started (per_delivered > 0). So once delivery has started but
+    the order isn't Completed/Cancelled/Closed, show "Đang giao" regardless
+    of the raw status string.
+    """
+    if so_status == "Completed":
+        return "Hoàn thành"
+    if so_status in ("Cancelled", "Closed"):
+        return "Đã huỷ"
+    if float(per_delivered or 0) > 0:
+        return "Đang giao"
+    if so_status == "Draft":
+        return "Chờ xác nhận"
+    # To Deliver and Bill / To Bill / To Deliver, all with 0 delivered so far.
+    return "Đang xử lý"
 
 
 # Sales Invoice uses a different status vocabulary than Sales Order, so it needs
@@ -330,7 +338,7 @@ def portal_order_history(limit=20, start=0) -> list:
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
-        r["status_vi"] = _status_vi(r.pop("status"))
+        r["status_vi"] = _so_status_vi(r.pop("status"), r.get("per_delivered"))
     return rows
 
 
@@ -385,7 +393,7 @@ def portal_order_track(order) -> dict:
 
     return {
         "order": so.name,
-        "status_vi": _status_vi(so.status),
+        "status_vi": _so_status_vi(so.status, so.per_delivered),
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
