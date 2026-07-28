@@ -1,0 +1,55 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+<div class="mp-login-wrap">
+  <div class="mp-login-card">
+    <div class="mp-login-brand">
+      <span class="mp-login-logo">M</span>
+      <div>
+        <div class="mp-login-title">Miyano</div>
+        <div class="mp-login-subtitle">Cổng khách hàng</div>
+      </div>
+    </div>
+    <h3 class="mp-login-heading">Đăng nhập</h3>
+    <form onsubmit="return miyanoLogin(event)">
+      <label class="mp-login-label" for="usr">Email</label>
+      <input id="usr" type="email" placeholder="ten@congty.vn" required
+             class="mp-login-input" autocomplete="username">
+      <label class="mp-login-label" for="pwd">Mật khẩu</label>
+      <input id="pwd" type="password" placeholder="••••••••" required
+             class="mp-login-input" autocomplete="current-password">
+      <button type="submit" class="mp-login-btn">Đăng nhập</button>
+      <p id="err" class="mp-login-err"></p>
+    </form>
+  </div>
+</div>
+<style>
+  body{background:#f1f5f9}
+  .mp-login-wrap{max-width:380px;margin:60px auto;font-family:sans-serif}
+  .mp-login-card{background:#fff;border-radius:10px;padding:32px;box-shadow:0 1px 4px rgba(15,23,42,.1)}
+  .mp-login-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+  .mp-login-logo{display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:36px;border-radius:8px;background:#0f172a;color:#fff;font-weight:700}
+  .mp-login-title{font-weight:700;font-size:16px;color:#0f172a}
+  .mp-login-subtitle{font-size:12px;color:#64748b}
+  .mp-login-heading{margin:0 0 16px;color:#0f172a}
+  .mp-login-label{display:block;font-size:12px;color:#475569;margin:10px 0 4px}
+  .mp-login-input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:6px;
+    box-sizing:border-box;font-size:14px}
+  .mp-login-btn{width:100%;padding:10px;margin-top:18px;background:#0f766e;color:#fff;
+    border:0;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
+  .mp-login-btn:hover{background:#0d6058}
+  .mp-login-err{color:#dc2626;font-size:13px;min-height:18px;margin:10px 0 0}
+</style>
+<script>
+async function miyanoLogin(e){
+  e.preventDefault();
+  const r = await fetch('/api/method/login', {method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({usr:document.getElementById('usr').value,
+                              pwd:document.getElementById('pwd').value})});
+  if(r.ok){ location.href='/portal'; }
+  else{ document.getElementById('err').innerText='Sai email hoặc mật khẩu'; }
+  return false;
+}
+</script>
+{% endblock %}
