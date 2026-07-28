@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 miyano_portal.patches.v1_0.create_sales_order_custom_fields
 miyano_portal.patches.v1_0.grant_customer_role_read_perms
+miyano_portal.patches.v1_0.install_portal_workflow
