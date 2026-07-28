@@ -118,7 +118,7 @@ onMounted(load)
             </thead>
             <tbody>
               <tr v-for="it in data.items" :key="it.item_code">
-                <td><b>{{ it.item_code }}</b></td>
+                <td><b>{{ it.item_code }}</b> {{ it.item_name }}</td>
                 <td>{{ it.uom }}</td>
                 <td class="right">{{ it.qty }}</td>
                 <td class="right">{{ it.delivered_qty }}</td>
@@ -132,7 +132,7 @@ onMounted(load)
           <div class="h3">Mặt hàng</div>
           <div v-for="it in data.items" :key="it.item_code" class="rowline">
             <span>
-              <b>{{ it.item_code }}</b><br />
+              <b>{{ it.item_code }}</b> {{ it.item_name }}<br />
               <span class="tag">{{ it.qty }} {{ it.uom }} × {{ fmtVND(it.rate) }} · đã giao {{ it.delivered_qty }}</span>
             </span>
             <b>{{ fmtVND(it.amount) }}</b>

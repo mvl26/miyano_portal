@@ -24,6 +24,12 @@ class TestTracking(FrappeTestCase):
         self.assertEqual(t["status_vi"], "Chờ xác nhận")
         self.assertTrue(any(m["key"] == "ordered" and m["done"] for m in t["milestones"]))
 
+    def test_track_items_include_item_name(self):
+        t = portal.portal_order_track(self.so)
+        self.assertTrue(t["items"])
+        for item in t["items"]:
+            self.assertTrue(item.get("item_name"), f"item_name missing for {item['item_code']}")
+
     def test_cancel_request_on_draft(self):
         res = portal.portal_request_cancel(self.so, "Đặt nhầm")
         self.assertTrue(res["ok"])

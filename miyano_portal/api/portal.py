@@ -367,7 +367,9 @@ def portal_order_track(order) -> dict:
         "hdnt": so.get("custom_hdnt") or "",
         "milestones": milestones,
         "items": [
-            {"item_code": i.item_code, "qty": i.qty, "delivered_qty": i.delivered_qty,
+            {"item_code": i.item_code,
+             "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
+             "qty": i.qty, "delivered_qty": i.delivered_qty,
              "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
             for i in so.items
         ],
