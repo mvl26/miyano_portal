@@ -121,13 +121,14 @@ onMounted(async () => {
           <table>
             <thead>
               <tr>
-                <th>Mặt hàng</th><th>ĐVT</th><th class="right">Đơn giá</th>
+                <th>MÃ</th><th>TÊN VẬT TƯ</th><th>ĐVT</th><th class="right">Đơn giá</th>
                 <th style="width: 120px">SL</th><th class="right">Thành tiền</th><th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="l in lines" :key="l.item_code">
-                <td><b>{{ l.item_code }}</b> {{ l.item_name }}</td>
+                <td><b>{{ l.item_code }}</b></td>
+                <td>{{ l.item_name }}</td>
                 <td>{{ l.uom }}</td>
                 <td class="right">{{ fmtVND(l.rate) }}</td>
                 <td>
@@ -150,7 +151,7 @@ onMounted(async () => {
         <template v-else>
           <div v-for="l in lines" :key="l.item_code" class="card mb10">
             <div class="sb">
-              <span><b>{{ l.item_code }}</b> {{ l.item_name }}</span>
+              <span><b>{{ l.item_code }}</b><br /><span style="font-size: 13px">{{ l.item_name }}</span></span>
               <button class="btn-o btn-sm" style="color: var(--red); border-color: var(--red)" @click="store.removeFromCart(l.item_code)">✕</button>
             </div>
             <div class="tag" style="margin: 4px 0 8px">{{ fmtVND(l.rate) }} / {{ l.uom }}</div>
