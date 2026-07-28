@@ -2,6 +2,41 @@ import frappe
 from miyano_portal.portal_context import get_portal_customer, remaining_qty
 
 
+def _customer_addresses(customer: str) -> list:
+    """Addresses linked to this Customer via Dynamic Link.
+
+    Returns [{name, display}] where display is a human-readable one-line
+    address. Scoped strictly to the caller's customer.
+    """
+    parents = frappe.get_all(
+        "Dynamic Link",
+        filters={
+            "parenttype": "Address",
+            "link_doctype": "Customer",
+            "link_name": customer,
+        },
+        pluck="parent",
+    )
+    if not parents:
+        return []
+    rows = frappe.get_all(
+        "Address",
+        filters={"name": ["in", list(dict.fromkeys(parents))]},
+        fields=["name", "address_title", "address_line1", "address_line2", "city"],
+        order_by="creation asc",
+    )
+    out = []
+    for a in rows:
+        parts = [a.get("address_line1"), a.get("address_line2"), a.get("city")]
+        display = ", ".join(p for p in parts if p)
+        if a.get("address_title") and display:
+            display = f"{a['address_title']} – {display}"
+        elif a.get("address_title"):
+            display = a["address_title"]
+        out.append({"name": a["name"], "display": display or a["name"]})
+    return out
+
+
 def _get_outstanding(customer: str) -> float:
     """Sum of unpaid GL Entry balance for this customer across companies.
 
@@ -20,10 +55,15 @@ def _get_outstanding(customer: str) -> float:
 @frappe.whitelist()
 def portal_me() -> dict:
     customer = get_portal_customer()
+    cust = frappe.db.get_value(
+        "Customer", customer, ["customer_name", "tax_id"], as_dict=True
+    ) or {}
     return {
         "customer": customer,
-        "customer_name": frappe.db.get_value("Customer", customer, "customer_name"),
+        "customer_name": cust.get("customer_name"),
+        "tax_id": cust.get("tax_id"),
         "outstanding": _get_outstanding(customer),
+        "addresses": _customer_addresses(customer),
     }
 
 
@@ -43,12 +83,13 @@ def portal_contracts() -> list:
     )
     for r in rows:
         agg = frappe.db.sql(
-            """select sum(qty) q, sum(ordered_qty) o
+            """select sum(qty) q, sum(ordered_qty) o, count(*) c
                from `tabBlanket Order Item` where parent=%s""",
             r["name"],
         )[0]
         total, ordered = float(agg[0] or 0), float(agg[1] or 0)
         r["used_pct"] = round(ordered / total * 100, 1) if total else 0
+        r["item_count"] = int(agg[2] or 0)
     return rows
 
 
@@ -63,35 +104,47 @@ def portal_catalog(contract: str) -> list:
     for row in frappe.get_all(
         "Blanket Order Item",
         filters={"parent": contract},
-        fields=["item_code", "rate"],
+        fields=["item_code", "rate", "qty", "ordered_qty"],
     ):
         item = frappe.db.get_value(
-            "Item", row["item_code"], ["item_name", "stock_uom"], as_dict=True
+            "Item", row["item_code"], ["item_name", "stock_uom", "item_group"], as_dict=True
         )
         rate = frappe.db.get_value(
             "Item Price",
             {"item_code": row["item_code"], "price_list": price_list, "selling": 1},
             "price_list_rate",
         ) or row["rate"]
+        total = float(row["qty"] or 0)
+        used = float(row["ordered_qty"] or 0)
         out.append({
             "item_code": row["item_code"],
             "item_name": item.item_name if item else row["item_code"],
             "uom": item.stock_uom if item else "",
+            "item_group": (item.item_group if item else "") or "",
             "rate": float(rate),
             "vat_pct": 0,
-            "remaining": remaining_qty(contract, row["item_code"]),
+            "total": total,
+            "used": used,
+            "remaining": max(total - used, 0.0),
         })
     return out
 
 
 @frappe.whitelist()
-def portal_order_place(contract, items, po=None, delivery_date=None, note=None) -> dict:
+def portal_order_place(contract, items, po=None, delivery_date=None, note=None, address=None) -> dict:
     customer = get_portal_customer()
     bo = frappe.db.get_value(
         "Blanket Order", contract, ["customer", "company"], as_dict=True
     )
     if not bo or bo.customer != customer:
         raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
+
+    # Validate the optional shipping address actually belongs to this customer
+    # (isolation) before it is written onto the Sales Order.
+    if address:
+        allowed = {a["name"] for a in _customer_addresses(customer)}
+        if address not in allowed:
+            raise frappe.PermissionError("Địa chỉ giao hàng không thuộc đơn vị của bạn.")
     if isinstance(items, str):
         items = frappe.parse_json(items)
     if not items:
@@ -130,6 +183,9 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None) 
     so.custom_hdnt = contract
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
+    if address:
+        so.shipping_address_name = address
+        so.customer_address = address
     # Set the contact so the "Portal - Đơn mới" Notification (recipient
     # field contact_email) actually has an email to send to. The portal
     # user's email == frappe.session.user == the linked Contact's email.
@@ -173,6 +229,29 @@ def _status_vi(status):
     return STATUS_VI.get(status, status)
 
 
+# Sales Invoice uses a different status vocabulary than Sales Order, so it needs
+# its own Vietnamese map (a "Draft" invoice must not read "Chờ xác nhận").
+INVOICE_STATUS_VI = {
+    "Draft": "Nháp",
+    "Unpaid": "Chưa thanh toán",
+    "Unpaid and Discounted": "Chưa thanh toán",
+    "Partly Paid": "TT một phần",
+    "Partially Paid": "TT một phần",
+    "Partly Paid and Discounted": "TT một phần",
+    "Paid": "Đã thanh toán",
+    "Overdue": "Quá hạn",
+    "Overdue and Discounted": "Quá hạn",
+    "Return": "Trả hàng",
+    "Credit Note Issued": "Đã phát hành giấy báo có",
+    "Submitted": "Đã ghi sổ",
+    "Cancelled": "Đã huỷ",
+}
+
+
+def _invoice_status_vi(status):
+    return INVOICE_STATUS_VI.get(status, status)
+
+
 @frappe.whitelist()
 def portal_order_history(limit=20, start=0) -> list:
     rows = frappe.get_list(
@@ -201,14 +280,53 @@ def portal_order_track(order) -> dict:
         {"key": "delivering", "label": "Giao hàng", "done": delivered},
         {"key": "invoiced", "label": "Hoá đơn", "done": billed},
     ]
+
+    # Delivery Notes fulfilling this Sales Order. Delivery Note Item carries
+    # against_sales_order; distinct parents give the batches ("đợt giao"). The
+    # SO was already permission-checked above, so its own DNs are in scope.
+    total_qty = sum(float(i.qty or 0) for i in so.items) or 0
+    dn_names = frappe.get_all(
+        "Delivery Note Item",
+        filters={"against_sales_order": so.name, "docstatus": ["<", 2]},
+        pluck="parent",
+    )
+    deliveries = []
+    for dn_name in list(dict.fromkeys(dn_names)):
+        dn = frappe.db.get_value(
+            "Delivery Note", dn_name,
+            ["name", "posting_date", "status", "lr_no", "transporter_name"],
+            as_dict=True,
+        )
+        if not dn:
+            continue
+        dn_qty = frappe.db.sql(
+            """select sum(qty) from `tabDelivery Note Item`
+               where parent=%s and against_sales_order=%s""",
+            (dn_name, so.name),
+        )[0][0]
+        pct = round(float(dn_qty or 0) / total_qty * 100, 1) if total_qty else 0
+        deliveries.append({
+            "name": dn["name"],
+            "posting_date": dn.get("posting_date"),
+            "status": dn.get("status"),
+            "percent": pct,
+            "carrier": dn.get("transporter_name") or "",
+            "awb": dn.get("lr_no") or "",
+        })
+
     return {
         "order": so.name,
         "status_vi": _status_vi(so.status),
+        "order_date": so.transaction_date,
+        "po_khach": so.get("custom_so_po_khach") or "",
+        "hdnt": so.get("custom_hdnt") or "",
         "milestones": milestones,
         "items": [
-            {"item_code": i.item_code, "qty": i.qty, "delivered_qty": i.delivered_qty}
+            {"item_code": i.item_code, "qty": i.qty, "delivered_qty": i.delivered_qty,
+             "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
             for i in so.items
         ],
+        "deliveries": deliveries,
     }
 
 
@@ -226,12 +344,12 @@ def portal_deliveries(limit=20, start=0) -> list:
 def portal_invoices(limit=20, start=0) -> list:
     rows = frappe.get_list(
         "Sales Invoice",
-        fields=["name", "posting_date", "grand_total", "outstanding_amount", "status"],
+        fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
         order_by="posting_date desc",
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
-        r["status_vi"] = _status_vi(r.pop("status"))
+        r["status_vi"] = _invoice_status_vi(r.pop("status"))
     return rows
 
 

@@ -63,19 +63,19 @@ const badgeClass = (statusVi) => ({
   "Chờ xác nhận":"b-gray", "Đang xử lý":"b-blue", "Đang giao":"b-orange",
   "Hoàn thành":"b-green", "Đã huỷ":"b-red",
 })[statusVi] || "b-gray";
-// Sales Invoice statuses come back from the API in English (STATUS_VI in
-// portal.py is Sales-Order oriented); map the common ones for display only.
-const INV_VI = {
-  "Unpaid":"Chưa thanh toán", "Paid":"Đã thanh toán", "Overdue":"Quá hạn",
-  "Partly Paid":"TT một phần", "Credit Note Issued":"Đã hoàn", "Draft":"Nháp",
-  "Return":"Trả hàng", "Unpaid and Discounted":"Chưa thanh toán",
-  "Overdue and Discounted":"Quá hạn", "Submitted":"Đã ghi sổ",
+// Sales Invoice status_vi now arrives already localised from the API
+// (INVOICE_STATUS_VI in portal.py). Map the Vietnamese label -> badge colour.
+const invBadge = (statusVi) => ({
+  "Đã thanh toán":"b-green", "Quá hạn":"b-red", "TT một phần":"b-orange",
+  "Chưa thanh toán":"b-blue", "Nháp":"b-gray", "Đã huỷ":"b-red",
+})[statusVi] || "b-blue";
+const daysUntil = (iso) => {
+  if(!iso) return null;
+  const d = new Date(String(iso).slice(0,10) + "T00:00:00");
+  if(isNaN(d)) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  return Math.round((d - now) / 86400000);
 };
-const invStatusVi = (s) => INV_VI[s] || s;
-const invBadge = (s) => ({
-  "Paid":"b-green", "Overdue":"b-red", "Partly Paid":"b-orange",
-  "Unpaid":"b-blue", "Draft":"b-gray",
-})[s] || "b-blue";
 const pdfHref = (doctype, name) =>
   "/api/method/miyano_portal.api.portal.portal_document_download"
   + "?doctype=" + encodeURIComponent(doctype) + "&name=" + encodeURIComponent(name);
@@ -89,6 +89,7 @@ const MP = {
   me: null,            // cached
   catalog: [],         // current contract catalog (for client-side search)
   catFilter: "",
+  catGroup: "",        // active item_group filter chip
   currentOrder: null,
   history: null,       // last fetched history (dashboard reuse)
 };
@@ -196,7 +197,7 @@ async function viewDashboard(){
 
     const contractCard = c ? `
       <p style="font-weight:600">${esc(c.name)}</p>
-      <p class="tag">Hiệu lực: ${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))}</p>
+      <p class="tag">Hiệu lực: ${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))}${c.item_count!=null?` · ${esc(c.item_count)} mặt hàng`:''}</p>
       <p style="font-size:13px;margin-top:10px">Hạn mức đã sử dụng: <b>${pct(c.used_pct)}%</b></p>
       <div class="bar"><i style="width:${pct(c.used_pct)}%" class="${pct(c.used_pct)>=80?'hot':''}"></i></div>`
       : `<p class="muted">Chưa có hợp đồng nguyên tắc còn hiệu lực.</p>`;
@@ -247,6 +248,14 @@ async function viewCatalog(){
       contracts.map(c=>`<option value="${esc(c.name)}" ${c.name===MP.contract?'selected':''}>${esc(c.name)} (${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))})</option>`).join('')
     }</select>`;
 
+    // distinct item groups -> filter chips
+    const groups = Array.from(new Set(MP.catalog.map(it=>it.item_group).filter(Boolean))).sort();
+    if(MP.catGroup && !groups.includes(MP.catGroup)) MP.catGroup = "";
+    const chips = `<div class="chips" id="cat-chips">
+      <button class="chip ${MP.catGroup?'':'on'}" data-action="chip" data-group="">Tất cả</button>
+      ${groups.map(g=>`<button class="chip ${MP.catGroup===g?'on':''}" data-action="chip" data-group="${esc(g)}">${esc(g)}</button>`).join('')}
+    </div>`;
+
     el(box).innerHTML = `
       ${topbar('Đặt hàng theo Hợp đồng nguyên tắc',
                'Giá & danh mục theo hợp đồng đã ký – không áp dụng cho mặt hàng ngoài hợp đồng')}
@@ -257,14 +266,25 @@ async function viewCatalog(){
             <input id="cat-q" placeholder="Mã hoặc tên mặt hàng..." value="${esc(MP.catFilter)}" data-action="cat-search"></div>
         </div>
       </div>
+      ${groups.length ? chips : ''}
       <div id="cat-list"></div>`;
     renderCatList();
   }catch(e){ showError(box, e); }
 }
+// Quota bar HTML: used% = used/total; red fill + warning when >=80%.
+function quotaBar(it){
+  const total = Number(it.total)||0;
+  const used = Number(it.used)||0;
+  const p = total ? pct(used/total*100) : 0;
+  const hot = p >= 80;
+  return `<div class="bar"><i style="width:${p}%" class="${hot?'hot':''}"></i></div>`
+    + (hot ? `<span class="warn">Sắp hết hạn mức</span>` : '');
+}
 function renderCatList(){
   const q = (MP.catFilter||'').toLowerCase();
   const rows = MP.catalog.filter(it =>
-    !q || String(it.item_code).toLowerCase().includes(q) || String(it.item_name).toLowerCase().includes(q));
+    (!MP.catGroup || it.item_group===MP.catGroup) &&
+    (!q || String(it.item_code).toLowerCase().includes(q) || String(it.item_name).toLowerCase().includes(q)));
   const inCart = c => (MP.cart[c] ? MP.cart[c].qty : 0);
 
   // Desktop table
@@ -272,10 +292,10 @@ function renderCatList(){
     const left = Number(it.remaining) - inCart(it.item_code);
     return `<tr>
       <td><b>${esc(it.item_code)}</b></td>
-      <td>${esc(it.item_name)}<br><span class="tag">ĐVT: ${esc(it.uom)}${Number(it.vat_pct)?` · VAT ${esc(it.vat_pct)}%`:''}</span></td>
+      <td>${esc(it.item_name)}<br><span class="tag">${esc(it.item_group||'')}${Number(it.vat_pct)?` · VAT ${esc(it.vat_pct)}%`:''}</span></td>
       <td>${esc(it.uom)}</td>
       <td class="right">${vnd(it.rate)}</td>
-      <td style="min-width:120px">${left} ${esc(it.uom)}${left<=0?' <span class="warn">Hết hạn mức</span>':''}</td>
+      <td style="min-width:150px">${left}/${Number(it.total)} ${esc(it.uom)}${quotaBar(it)}</td>
       <td><input class="qty" type="number" min="1" value="1" data-qty="${esc(it.item_code)}"></td>
       <td><button class="btn btn-sm" data-action="add" data-code="${esc(it.item_code)}">+ Giỏ</button></td>
     </tr>`;
@@ -286,10 +306,10 @@ function renderCatList(){
     const left = Number(it.remaining) - inCart(it.item_code);
     return `<div class="card item">
       <div class="nm"><b>${esc(it.item_code)}</b> · ${esc(it.item_name)}</div>
-      <span class="tag">ĐVT: ${esc(it.uom)}${Number(it.vat_pct)?` · VAT ${esc(it.vat_pct)}%`:''}</span>
-      <div class="sb" style="margin-top:8px">
+      <span class="tag">${esc(it.item_group||'')} · ĐVT: ${esc(it.uom)}${Number(it.vat_pct)?` · VAT ${esc(it.vat_pct)}%`:''}</span>
+      <div class="sb" style="margin-top:8px;align-items:flex-start">
         <span class="pr">${vnd(it.rate)}</span>
-        <span class="tag right">Hạn mức còn<br><b style="color:var(--dark)">${left} ${esc(it.uom)}</b>${left<=0?'<br><span class="warn">Hết hạn mức</span>':''}</span>
+        <span class="tag right" style="min-width:140px">Hạn mức còn ${left}/${Number(it.total)} ${esc(it.uom)}${quotaBar(it)}</span>
       </div>
       <div class="sb" style="margin-top:10px">
         <div class="step">
@@ -383,6 +403,11 @@ function viewCart(){
   const d2 = new Date(today.getTime() + 2*86400000);
   const defDate = d2.toISOString().slice(0,10);
 
+  const addresses = (MP.me && MP.me.addresses) || [];
+  const addrField = addresses.length ? `
+    <div class="field"><label>Địa chỉ giao hàng</label>
+      <select id="f-addr">${addresses.map(a=>`<option value="${esc(a.name)}">${esc(a.display)}</option>`).join('')}</select></div>` : '';
+
   el(box).innerHTML = `
     ${topbar('Giỏ hàng & xác nhận đơn', MP.contract || '')}
     <div class="grid2">
@@ -397,6 +422,7 @@ function viewCart(){
       <div>
         <div class="card">
           <div class="field"><label>Ngày giao mong muốn</label><input type="date" id="f-date" value="${defDate}"></div>
+          ${addrField}
           <div class="field"><label>Số dự trù / PO của đơn vị</label><input id="f-po" placeholder="VD: DT-2026-0715"></div>
           <div class="field"><label>Ghi chú</label><textarea id="f-note" rows="2" placeholder="Yêu cầu giao giờ hành chính..."></textarea></div>
         </div>
@@ -455,6 +481,7 @@ async function confirmOrder(){
       po: el('f-po') ? el('f-po').value : '',
       delivery_date: el('f-date') ? el('f-date').value : '',
       note: el('f-note') ? el('f-note').value : '',
+      address: el('f-addr') ? el('f-addr').value : '',
     });
     MP.cart = {};
     MP.lastOrder = res.sales_order;
@@ -577,29 +604,51 @@ async function viewDetail(){
 
     const itemRowsD = (t.items||[]).map(it=>`
       <tr><td><b>${esc(it.item_code)}</b></td>
+        <td>${esc(it.uom||'')}</td>
         <td class="right">${esc(it.qty)}</td>
-        <td class="right">${esc(it.delivered_qty)}</td></tr>`).join('');
+        <td class="right">${esc(it.delivered_qty)}</td>
+        <td class="right">${vnd(it.rate)}</td>
+        <td class="right">${vnd(it.amount)}</td></tr>`).join('');
     const itemCardsM = (t.items||[]).map(it=>`
-      <div class="rowline"><span><b>${esc(it.item_code)}</b><br><span class="tag">Đặt ${esc(it.qty)} · đã giao ${esc(it.delivered_qty)}</span></span></div>`).join('');
+      <div class="rowline"><span><b>${esc(it.item_code)}</b><br><span class="tag">${esc(it.qty)} ${esc(it.uom||'')} × ${vnd(it.rate)} · đã giao ${esc(it.delivered_qty)}</span></span><b>${vnd(it.amount)}</b></div>`).join('');
+
+    // Deliveries ("đợt giao") block from portal_order_track.deliveries
+    const deliveries = t.deliveries || [];
+    const delivHtml = deliveries.length ? deliveries.map((d,i)=>`
+      <p style="font-size:13px;margin-top:${i?'10px':'0'}"><b>Đợt ${i+1} – ${esc(dvn(d.posting_date))}${d.percent?` (${esc(d.percent)}%)`:''}</b></p>
+      <p class="tag">Phiếu giao: ${esc(d.name)}${d.carrier?` · ${esc(d.carrier)}`:''}${d.awb?` · Vận đơn: ${esc(d.awb)}`:''}</p>
+      <a class="btn-o btn-sm" style="margin:6px 0" href="${esc(pdfHref("Delivery Note", d.name))}" target="_blank" rel="noopener">⬇ Phiếu giao đợt ${i+1}</a>`).join('')
+      : `<p class="tag">Chưa có phiếu giao hàng nào cho đơn này.</p>`;
+
+    const subParts = [
+      t.order_date ? 'Đặt ngày ' + dvn(t.order_date) : '',
+      t.hdnt ? 'HĐNT ' + t.hdnt : '',
+      t.po_khach ? 'Số dự trù: ' + t.po_khach : '',
+    ].filter(Boolean).join(' · ');
 
     const pdf = pdfHref("Sales Order", t.order);
     el(box).innerHTML = `
-      ${topbar('Đơn hàng ' + t.order, '', `
+      ${topbar('Đơn hàng ' + t.order, subParts, `
         <a class="btn-o btn-sm only-desktop" href="${esc(pdf)}" target="_blank" rel="noopener">⬇ PDF đơn hàng</a>
         <button class="btn-o btn-sm only-desktop" data-action="go" data-page="orders">← Quay lại</button>`)}
       <div class="card" style="margin-bottom:8px"><span class="badge ${badgeClass(t.status_vi)}">${esc(t.status_vi)}</span></div>
       <div class="card only-desktop"><div class="tl">${htl}</div></div>
       <div class="card only-mobile"><h3 style="margin-bottom:8px">Tiến trình</h3><div class="vtl">${vtl}</div></div>
       <div class="grid2">
-        <div class="card flush only-desktop">
-          <table><thead><tr><th>Mặt hàng</th><th class="right">SL đặt</th><th class="right">Đã giao</th></tr></thead>
-          <tbody>${itemRowsD||'<tr><td colspan="3" class="muted">Không có dòng hàng.</td></tr>'}</tbody></table>
+        <div>
+          <div class="card flush only-desktop">
+            <table><thead><tr><th>Mặt hàng</th><th>ĐVT</th><th class="right">SL đặt</th><th class="right">Đã giao</th><th class="right">Đơn giá</th><th class="right">Thành tiền</th></tr></thead>
+            <tbody>${itemRowsD||'<tr><td colspan="6" class="muted">Không có dòng hàng.</td></tr>'}</tbody></table>
+          </div>
+          <div class="card only-mobile"><h3 style="margin-bottom:6px">Mặt hàng</h3>${itemCardsM||'<p class="muted">Không có dòng hàng.</p>'}</div>
         </div>
-        <div class="card only-mobile"><h3 style="margin-bottom:6px">Mặt hàng</h3>${itemCardsM||'<p class="muted">Không có dòng hàng.</p>'}</div>
-        <div class="card">
-          <h3 style="margin-bottom:10px">Chứng từ</h3>
-          <a class="btn-o btn-sm btn-block" href="${esc(pdf)}" target="_blank" rel="noopener">⬇ PDF đơn hàng</a>
-          <a class="btn-o btn-sm btn-block only-mobile" style="margin-top:8px" data-action="go" data-page="orders">← Quay lại danh sách</a>
+        <div>
+          <div class="card"><h3 style="margin-bottom:10px">Giao hàng</h3>${delivHtml}</div>
+          <div class="card">
+            <h3 style="margin-bottom:10px">Chứng từ</h3>
+            <a class="btn-o btn-sm btn-block" href="${esc(pdf)}" target="_blank" rel="noopener">⬇ PDF đơn hàng</a>
+            <a class="btn-o btn-sm btn-block only-mobile" style="margin-top:8px" data-action="go" data-page="orders">← Quay lại danh sách</a>
+          </div>
         </div>
       </div>`;
   }catch(e){ showError(box, e); }
@@ -613,24 +662,33 @@ async function viewInvoices(){
   el(box).innerHTML = `<p class="muted">Đang tải…</p>`;
   try{
     const [me, rows] = await Promise.all([ getMe(), call("portal_invoices", {limit:100}) ]);
-    const nUnpaid = rows.filter(r=>Number(r.outstanding_amount)>0).length;
+    // KPI computations from outstanding_amount + due_date
+    let overdue = 0, dueSoon = 0;
+    rows.forEach(r=>{
+      const out = Number(r.outstanding_amount)||0;
+      if(out <= 0) return;
+      const d = daysUntil(r.due_date);
+      if(d!=null && d < 0) overdue += out;
+      else if(d!=null && d <= 7) dueSoon += 1;
+    });
 
     const tableRows = rows.length ? rows.map(r=>{
       const paid = Number(r.grand_total) - Number(r.outstanding_amount);
       return `<tr>
         <td><b>${esc(r.name)}</b></td>
         <td>${esc(dvn(r.posting_date))}</td>
+        <td>${esc(dvn(r.due_date))}</td>
         <td class="right">${vnd(r.grand_total)}</td>
         <td class="right">${vnd(paid)}</td>
-        <td><span class="badge ${invBadge(r.status_vi)}">${esc(invStatusVi(r.status_vi))}</span></td>
+        <td><span class="badge ${invBadge(r.status_vi)}">${esc(r.status_vi)}</span></td>
         <td><a class="btn-o btn-sm" href="${esc(pdfHref("Sales Invoice", r.name))}" target="_blank" rel="noopener">⬇ PDF</a></td></tr>`;
-    }).join('') : `<tr><td colspan="6" class="muted">Chưa có hoá đơn nào.</td></tr>`;
+    }).join('') : `<tr><td colspan="7" class="muted">Chưa có hoá đơn nào.</td></tr>`;
 
     const cards = rows.length ? rows.map(r=>{
       const paid = Number(r.grand_total) - Number(r.outstanding_amount);
       return `<div class="card">
-        <div class="sb"><b>${esc(r.name)}</b><span class="badge ${invBadge(r.status_vi)}">${esc(invStatusVi(r.status_vi))}</span></div>
-        <p class="tag" style="margin-top:4px">${esc(dvn(r.posting_date))}${paid>0?` · Đã TT ${vnd(paid)}`:''}</p>
+        <div class="sb"><b>${esc(r.name)}</b><span class="badge ${invBadge(r.status_vi)}">${esc(r.status_vi)}</span></div>
+        <p class="tag" style="margin-top:4px">${esc(dvn(r.posting_date))} · Hạn TT ${esc(dvn(r.due_date))}${paid>0?` · Đã TT ${vnd(paid)}`:''}</p>
         <div class="sb" style="margin-top:6px"><b style="font-size:15px">${vnd(r.grand_total)}</b>
           <a class="btn-o btn-sm" href="${esc(pdfHref("Sales Invoice", r.name))}" target="_blank" rel="noopener">⬇ PDF</a></div>
       </div>`;
@@ -639,11 +697,12 @@ async function viewInvoices(){
     el(box).innerHTML = `
       ${topbar('Hoá đơn & công nợ', me.customer_name || '')}
       <div class="kpis">
-        <div class="card kpi"><div class="n" style="color:var(--red)">${vnd(me.outstanding)}</div><div class="t">Tổng công nợ hiện tại</div></div>
-        <div class="card kpi"><div class="n" style="color:var(--orange)">${nUnpaid}</div><div class="t">Hoá đơn chưa thanh toán</div></div>
+        <div class="card kpi"><div class="n" style="color:var(--red)">${vndShort(me.outstanding)}</div><div class="t">Tổng công nợ hiện tại</div></div>
+        <div class="card kpi"><div class="n" style="color:var(--orange)">${vndShort(overdue)}</div><div class="t">Quá hạn thanh toán</div></div>
+        <div class="card kpi"><div class="n">${dueSoon}</div><div class="t">Hoá đơn đến hạn trong 7 ngày</div></div>
       </div>
       <div class="card flush only-desktop">
-        <table><thead><tr><th>Số hoá đơn</th><th>Ngày</th><th class="right">Giá trị</th><th class="right">Đã thanh toán</th><th>Trạng thái</th><th></th></tr></thead>
+        <table><thead><tr><th>Số hoá đơn</th><th>Ngày</th><th>Hạn TT</th><th class="right">Giá trị</th><th class="right">Đã thanh toán</th><th>Trạng thái</th><th></th></tr></thead>
         <tbody>${tableRows}</tbody></table></div>
       <div class="only-mobile">${cards}</div>`;
   }catch(e){ showError(box, e); }
@@ -660,27 +719,35 @@ async function viewProfile(){
     const contractRowsD = contracts.length ? contracts.map(c=>`
       <tr><td><b>${esc(c.name)}</b></td>
         <td>${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))}</td>
+        <td>${c.item_count!=null?esc(c.item_count):'–'}</td>
         <td>${pct(c.used_pct)}% <div class="bar"><i style="width:${pct(c.used_pct)}%" class="${pct(c.used_pct)>=80?'hot':''}"></i></div></td></tr>`).join('')
-      : `<tr><td colspan="3" class="muted">Chưa có hợp đồng nguyên tắc.</td></tr>`;
+      : `<tr><td colspan="4" class="muted">Chưa có hợp đồng nguyên tắc.</td></tr>`;
     const contractCardsM = contracts.length ? contracts.map(c=>`
-      <div class="rowline"><span><b>${esc(c.name)}</b><br><span class="tag">${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))}</span></span>
+      <div class="rowline"><span><b>${esc(c.name)}</b><br><span class="tag">${esc(dvn(c.from_date))} – ${esc(dvn(c.to_date))}${c.item_count!=null?` · ${esc(c.item_count)} mặt hàng`:''}</span></span>
         <span style="min-width:90px;text-align:right;font-size:12px">${pct(c.used_pct)}%<div class="bar"><i style="width:${pct(c.used_pct)}%" class="${pct(c.used_pct)>=80?'hot':''}"></i></div></span></div>`).join('')
       : `<p class="muted">Chưa có hợp đồng nguyên tắc.</p>`;
+
+    const addresses = me.addresses || [];
+    const addrHtml = addresses.length
+      ? addresses.map(a=>`<p style="font-size:13px">• ${esc(a.display)}</p>`).join('')
+      : `<p class="muted" style="font-size:13px">Chưa có địa chỉ giao hàng.</p>`;
 
     el(box).innerHTML = `
       ${topbar('Hồ sơ đơn vị', 'Thông tin do Miyano quản lý – liên hệ sales để cập nhật')}
       <div class="grid2">
         <div class="card">
           <h3 style="margin-bottom:6px">${esc(me.customer_name || me.customer)}</h3>
-          <p class="tag">Mã đơn vị: ${esc(me.customer)}</p>
+          <p class="tag">${me.tax_id?`MST: ${esc(me.tax_id)} · `:''}Mã đơn vị: ${esc(me.customer)}</p>
           <h4 style="margin:16px 0 8px">Hợp đồng nguyên tắc</h4>
-          <div class="only-desktop"><table><thead><tr><th>Số HĐ</th><th>Hiệu lực</th><th>Hạn mức đã dùng</th></tr></thead>
+          <div class="only-desktop"><table><thead><tr><th>Số HĐ</th><th>Hiệu lực</th><th>Mặt hàng</th><th>Hạn mức đã dùng</th></tr></thead>
             <tbody>${contractRowsD}</tbody></table></div>
           <div class="only-mobile">${contractCardsM}</div>
         </div>
         <div class="card">
           <h4 style="margin-bottom:8px">Người dùng portal</h4>
           <p style="font-size:13px">👤 ${esc(me.customer_name || '')}<br><span class="tag">Bạn đang đăng nhập</span></p>
+          <h4 style="margin:16px 0 8px">Địa chỉ giao hàng</h4>
+          ${addrHtml}
           <h4 style="margin:16px 0 8px">Công nợ</h4>
           <p style="font-size:13px">Tổng công nợ hiện tại: <b style="color:var(--red)">${vnd(me.outstanding)}</b></p>
           <button class="btn-o btn-sm btn-block" style="margin-top:10px" data-action="go" data-page="inv">Xem hoá đơn &amp; công nợ →</button>
@@ -702,6 +769,11 @@ document.addEventListener('click', (ev)=>{
     case 'go':            ev.preventDefault(); go(t.dataset.page); break;
     case 'back':          goBack(); break;
     case 'add':           addToCart(t.dataset.code); break;
+    case 'chip':
+      MP.catGroup = t.dataset.group || "";
+      document.querySelectorAll('#cat-chips .chip').forEach(c=>c.classList.toggle('on', c===t));
+      renderCatList();
+      break;
     case 'step':          catStep(t.dataset.code, parseInt(t.dataset.dir)); break;
     case 'cart-step':     cartStep(t.dataset.code, parseInt(t.dataset.dir)); break;
     case 'cart-del':      cartDel(t.dataset.code); break;
