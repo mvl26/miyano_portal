@@ -23,9 +23,23 @@ class TestOrderPlace(FrappeTestCase):
         self.assertEqual(so.custom_hdnt, self.bo)
         self.assertEqual(so.custom_so_po_khach, "PO-123")
         self.assertEqual(so.items[0].blanket_order, self.bo)
+        self.assertEqual(so.items[0].against_blanket_order, 1)
 
     def test_over_quota_rejected(self):
         with self.assertRaises(frappe.ValidationError):
             portal.portal_order_place(
                 self.bo, json.dumps([{"item_code": "HC0009", "qty": 999999}]),
+            )
+
+    def test_duplicate_lines_aggregated_over_quota_rejected(self):
+        # Remaining qty for HC0009 is 500; two lines of 300 each pass
+        # individually but total 600 > 500, so the aggregated total must
+        # be rejected.
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                self.bo,
+                json.dumps([
+                    {"item_code": "HC0009", "qty": 300},
+                    {"item_code": "HC0009", "qty": 300},
+                ]),
             )

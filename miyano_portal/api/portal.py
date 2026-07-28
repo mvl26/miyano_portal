@@ -100,15 +100,23 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None) 
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
     delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.today(), 2)
 
-    errors = []
+    # Aggregate the incoming cart by item_code so duplicate lines for the same
+    # item can't each pass the quota check individually while together
+    # exceeding the remaining quota (duplicate-line quota bypass).
+    aggregated = {}
     for line in items:
         qty = float(line.get("qty") or 0)
+        item_code = line.get("item_code")
+        aggregated[item_code] = aggregated.get(item_code, 0) + qty
+
+    errors = []
+    for item_code, qty in aggregated.items():
         if qty <= 0:
-            errors.append(f"{line.get('item_code')}: số lượng phải > 0")
+            errors.append(f"{item_code}: số lượng phải > 0")
             continue
-        rem = remaining_qty(contract, line["item_code"])
+        rem = remaining_qty(contract, item_code)
         if qty > rem:
-            errors.append(f"{line['item_code']}: vượt hạn mức (còn {rem:g})")
+            errors.append(f"{item_code}: vượt hạn mức (còn {rem:g})")
     if errors:
         frappe.throw("<br>".join(errors), frappe.ValidationError)
 
@@ -122,18 +130,21 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None) 
     so.custom_hdnt = contract
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
-    for line in items:
+    for item_code, qty in aggregated.items():
         rate = frappe.db.get_value(
             "Item Price",
-            {"item_code": line["item_code"], "price_list": price_list, "selling": 1},
+            {"item_code": item_code, "price_list": price_list, "selling": 1},
             "price_list_rate",
         )
+        if not rate:
+            frappe.throw(f"Không tìm thấy giá bán cho mặt hàng {item_code}.")
         so.append("items", {
-            "item_code": line["item_code"],
-            "qty": float(line["qty"]),
+            "item_code": item_code,
+            "qty": qty,
             "rate": rate,
             "delivery_date": delivery_date,
             "blanket_order": contract,
+            "against_blanket_order": 1,
         })
     so.flags.ignore_permissions = True
     so.insert(ignore_permissions=True)
