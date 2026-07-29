@@ -351,9 +351,13 @@ def portal_order_track(order) -> dict:
     so.check_permission("read")
     delivered = (so.per_delivered or 0) > 0
     billed = (so.per_billed or 0) > 0
+    # "Soạn hàng" (order-preparation): done once the goods have been picked
+    # for this SO (a Pick List exists) or delivery has already started.
+    preparing_done = bool(frappe.db.exists("Pick List Item", {"sales_order": order})) or delivered
     milestones = [
         {"key": "ordered", "label": "Đặt hàng", "done": True},
         {"key": "confirmed", "label": "Xác nhận", "done": so.docstatus == 1},
+        {"key": "preparing", "label": "Soạn hàng", "done": preparing_done},
         {"key": "delivering", "label": "Giao hàng", "done": delivered},
         {"key": "invoiced", "label": "Hoá đơn", "done": billed},
     ]

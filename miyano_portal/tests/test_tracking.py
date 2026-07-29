@@ -24,6 +24,15 @@ class TestTracking(FrappeTestCase):
         self.assertEqual(t["status_vi"], "Chờ xác nhận")
         self.assertTrue(any(m["key"] == "ordered" and m["done"] for m in t["milestones"]))
 
+    def test_track_milestones_include_preparing_between_confirmed_and_delivering(self):
+        t = portal.portal_order_track(self.so)
+        keys = [m["key"] for m in t["milestones"]]
+        self.assertEqual(
+            keys, ["ordered", "confirmed", "preparing", "delivering", "invoiced"]
+        )
+        preparing = next(m for m in t["milestones"] if m["key"] == "preparing")
+        self.assertEqual(preparing["label"], "Soạn hàng")
+
     def test_track_items_include_item_name(self):
         t = portal.portal_order_track(self.so)
         self.assertTrue(t["items"])
