@@ -1758,7 +1758,7 @@ Tạo `.../customer_stock_issue.json`:
   {"fieldname": "noi_nhan", "fieldtype": "Data", "label": "Nơi nhận", "description": "Ghi tự do, ví dụ: Khoa Hồi sức tích cực"},
   {"fieldname": "nguoi_nhan", "fieldtype": "Data", "label": "Người nhận"},
   {"fieldname": "sec_ref", "fieldtype": "Section Break", "label": "Tham chiếu", "collapsible": 1},
-  {"fieldname": "phieu_goc", "fieldtype": "Link", "label": "Phiếu gốc", "options": "Customer Stock Issue", "read_only": 1},
+  {"fieldname": "phieu_goc", "fieldtype": "Data", "label": "Phiếu gốc", "read_only": 1, "description": "Data chứ không phải Link: phiếu đảo trỏ ngược về phiếu gốc vừa bị huỷ, mà Link tới doctype submittable đang docstatus=2 sẽ ném CancelledLinkError, rồi chính phiếu đảo lại chặn phiếu gốc huỷ qua LinkExistsError. Dùng Data cắt vòng đó mà không phải tắt ignore_links."},
   {"fieldname": "sec_items", "fieldtype": "Section Break", "label": "Chi tiết"},
   {"fieldname": "items", "fieldtype": "Table", "label": "Dòng vật tư", "options": "Customer Stock Issue Item", "reqd": 1},
   {"fieldname": "tong_tien", "fieldtype": "Currency", "label": "Tổng tiền", "read_only": 1, "in_list_view": 1},
@@ -1807,8 +1807,26 @@ class CustomerStockIssue(Document):
 	def validate(self):
 		voucher.validate_ngay(self)
 		voucher.validate_vat_tu_thuoc_kho(self)
+		self._chan_dao_thu_cong()
 		self._validate_so_luong()
 		self._lay_gia_va_han_tu_lo()
+
+	def _chan_dao_thu_cong(self):
+		"""Chỉ _tao_phieu_dao mới được đặt loai_xuat = "Phiếu đảo".
+
+		Nếu để hở, người dùng chọn "Phiếu đảo" từ dropdown là tạo được một
+		phiếu XUẤT mang hệ số +1: nó CỘNG tồn thay vì trừ, đẻ ra hàng ma, đồng
+		thời before_submit bỏ qua toàn bộ kiểm tra tồn và lô hết hạn. Tệ hơn,
+		block_cancel_of_reversal khiến phiếu đó vĩnh viễn không huỷ được.
+		"""
+		if self.loai_xuat != voucher.LOAI_DAO:
+			return
+		if not (self.flags.dang_tao_dao or self.phieu_goc):
+			frappe.throw(
+				"Không thể tạo phiếu đảo bằng tay. Phiếu đảo chỉ được hệ thống "
+				"sinh tự động khi huỷ một phiếu xuất đã ghi sổ.",
+				frappe.ValidationError,
+			)
 
 	def _validate_so_luong(self):
 		for row in self.items:
@@ -1893,13 +1911,21 @@ class CustomerStockIssue(Document):
 			"chung_tu_row": r.name,
 		} for r in self.items])
 
-	def on_cancel(self):
+	def before_cancel(self):
+		# Chốt chặn phải nằm ở before_cancel, KHÔNG phải on_cancel: on_cancel
+		# chạy sau db_update() nên docstatus=2 đã ghi xuống database rồi. Ai bắt
+		# ValidationError trong cùng transaction (bench script, background job,
+		# test suite) sẽ để lại phiếu đã huỷ mà lẽ ra phải bị chặn.
 		voucher.block_cancel_of_reversal(self, "loai_xuat")
+
+	def on_cancel(self):
+		# Đây là tác dụng phụ, không phải kiểm tra, nên đặt sau đổi trạng thái.
 		self._tao_phieu_dao()
 		ledger.mark_reversed(self.doctype, self.name)
 
 	def _tao_phieu_dao(self):
 		dao = frappe.new_doc("Customer Stock Issue")
+		dao.flags.dang_tao_dao = True
 		dao.kho = self.kho
 		dao.ngay = frappe.utils.today()
 		dao.loai_xuat = voucher.LOAI_DAO
