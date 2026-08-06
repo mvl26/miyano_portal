@@ -53,3 +53,41 @@ class TestKhoWarehouse(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError) as ctx:
             doc.insert(ignore_permissions=True)
         self.assertIn("đã được dùng", str(ctx.exception))
+
+
+class TestKhoWarehouseItem(FrappeTestCase):
+    def setUp(self):
+        self.kho = seed_kho_demo()
+
+    def test_miyano_item_links_to_real_item(self):
+        vt = frappe.get_doc("Customer Warehouse Item", self.kho["vt_bm"])
+        self.assertEqual(vt.item_code, "MYN-GLOVE-M")
+        self.assertEqual(vt.kho, self.kho["kho_bm"])
+
+    def test_customer_private_code_has_no_item(self):
+        vt = frappe.get_doc("Customer Warehouse Item", self.kho["vt_rieng_bm"])
+        self.assertFalse(vt.item_code)
+        self.assertFalse(frappe.db.exists("Item", "BM-GAC-01"))
+
+    def test_duplicate_code_in_same_warehouse_blocked(self):
+        doc = frappe.get_doc({
+            "doctype": "Customer Warehouse Item",
+            "kho": self.kho["kho_bm"],
+            "ma_vat_tu": "BM-GAC-01",
+            "ten_vat_tu": "Gạc trùng mã",
+            "dvt": "Cái",
+        })
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.insert(ignore_permissions=True)
+        self.assertIn("đã tồn tại", str(ctx.exception))
+
+    def test_same_code_allowed_in_different_warehouse(self):
+        doc = frappe.get_doc({
+            "doctype": "Customer Warehouse Item",
+            "kho": self.kho["kho_pxn"],
+            "ma_vat_tu": "BM-GAC-01",
+            "ten_vat_tu": "Gạc của PXN",
+            "dvt": "Cái",
+        })
+        doc.insert(ignore_permissions=True)
+        self.assertTrue(doc.name)

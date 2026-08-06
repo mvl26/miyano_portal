@@ -1,0 +1,43 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "VTK-.#####",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "kho", "ma_vat_tu", "ten_vat_tu", "dvt", "active",
+  "col_1", "item_code", "quy_cach", "nhom", "ghi_chu"
+ ],
+ "fields": [
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
+  {"fieldname": "ma_vat_tu", "fieldtype": "Data", "label": "Mã vật tư", "reqd": 1, "in_list_view": 1, "search_index": 1},
+  {"fieldname": "ten_vat_tu", "fieldtype": "Data", "label": "Tên vật tư", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "dvt", "fieldtype": "Data", "label": "ĐVT", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "active", "fieldtype": "Check", "label": "Đang dùng", "default": "1"},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "item_code", "fieldtype": "Link", "label": "Mã hàng Miyano", "options": "Item", "description": "Để trống nếu là mã khách tự thêm"},
+  {"fieldname": "quy_cach", "fieldtype": "Data", "label": "Quy cách"},
+  {"fieldname": "nhom", "fieldtype": "Data", "label": "Nhóm"},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Warehouse Item",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "write": 1, "create": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1},
+  {"role": "Customer", "read": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ten_vat_tu",
+ "track_changes": 1
+}
