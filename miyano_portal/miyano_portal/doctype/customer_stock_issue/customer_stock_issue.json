@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "kho", "ngay", "loai_xuat",
+  "col_1", "noi_nhan", "nguoi_nhan",
+  "sec_ref", "phieu_goc",
+  "sec_items", "items", "tong_tien", "dien_giai", "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
+  {"fieldname": "ngay", "fieldtype": "Date", "label": "Ngày", "reqd": 1, "default": "Today", "in_list_view": 1},
+  {"fieldname": "loai_xuat", "fieldtype": "Select", "label": "Loại xuất", "options": "Xuất sử dụng\nXuất huỷ - hết hạn\nXuất trả lại\nĐiều chỉnh kiểm kê\nPhiếu đảo", "reqd": 1, "default": "Xuất sử dụng", "in_list_view": 1},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "noi_nhan", "fieldtype": "Data", "label": "Nơi nhận", "description": "Ghi tự do, ví dụ: Khoa Hồi sức tích cực"},
+  {"fieldname": "nguoi_nhan", "fieldtype": "Data", "label": "Người nhận"},
+  {"fieldname": "sec_ref", "fieldtype": "Section Break", "label": "Tham chiếu", "collapsible": 1},
+  {"fieldname": "phieu_goc", "fieldtype": "Data", "label": "Phiếu gốc", "read_only": 1, "description": "Data chứ không phải Link: phiếu đảo trỏ ngược về phiếu gốc vừa bị huỷ, mà Link tới doctype submittable đang docstatus=2 sẽ ném CancelledLinkError, rồi chính phiếu đảo lại chặn phiếu gốc huỷ qua LinkExistsError. Dùng Data cắt vòng đó mà không phải tắt ignore_links."},
+  {"fieldname": "sec_items", "fieldtype": "Section Break", "label": "Chi tiết"},
+  {"fieldname": "items", "fieldtype": "Table", "label": "Dòng vật tư", "options": "Customer Stock Issue Item", "reqd": 1},
+  {"fieldname": "tong_tien", "fieldtype": "Currency", "label": "Tổng tiền", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "dien_giai", "fieldtype": "Small Text", "label": "Lý do xuất"},
+  {"fieldname": "amended_from", "fieldtype": "Link", "label": "Amended From", "options": "Customer Stock Issue", "read_only": 1, "no_copy": 1, "print_hide": 1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Stock Issue",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1, "amend": 1, "report": 1, "export": 1, "print": 1},
+  {"role": "Sales Manager", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "report": 1, "print": 1},
+  {"role": "Sales User", "read": 1, "report": 1, "print": 1},
+  {"role": "Customer", "read": 1, "print": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
