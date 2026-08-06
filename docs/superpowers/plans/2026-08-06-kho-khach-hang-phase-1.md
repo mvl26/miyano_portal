@@ -1821,7 +1821,11 @@ class CustomerStockIssue(Document):
 		"""
 		if self.loai_xuat != voucher.LOAI_DAO:
 			return
-		if not (self.flags.dang_tao_dao or self.phieu_goc):
+		# Điều kiện DUY NHẤT là cờ in-memory do _tao_phieu_dao đặt. Tuyệt đối
+		# không chấp nhận `or self.phieu_goc`: phieu_goc là Data, ai cũng ghi
+		# được, nên điền một chuỗi bất kỳ là thoả mệnh đề or và guard thành vô
+		# dụng. Cờ này không lưu xuống database nên không giả mạo qua form được.
+		if not self.flags.dang_tao_dao:
 			frappe.throw(
 				"Không thể tạo phiếu đảo bằng tay. Phiếu đảo chỉ được hệ thống "
 				"sinh tự động khi huỷ một phiếu xuất đã ghi sổ.",
