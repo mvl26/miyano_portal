@@ -1,8 +1,6 @@
-import frappe
 from frappe.model.document import Document
 
-from miyano_portal.permissions import _is_restricted_user
-from miyano_portal.portal_context import get_allowed_khos
+from miyano_portal.kho.permissions import voucher_item_readable
 
 
 class CustomerStockIssueItem(Document):
@@ -10,14 +8,14 @@ class CustomerStockIssueItem(Document):
 		"""Ghi đè has_permission() ở mức CLASS — xem giải thích đầy đủ trong
 		CustomerStockReceiptItem.has_permission() (cùng lý do, cùng cơ chế,
 		chỉ khác doctype cha: Customer Stock Issue thay vì Customer Stock
-		Receipt)."""
+		Receipt). Bao gồm cả vá FINDING 4 (chỉ thu hẹp permtype="read", mọi
+		permtype khác giao lại cho Frappe mặc định) và guard
+		ignore_permissions kiểm trước tiên, tách biệt khỏi nhánh permtype.
+		"""
 		if self.flags.ignore_permissions:
 			return True
-		user = user or frappe.session.user
-		if not _is_restricted_user(user):
+		if permtype != "read":
 			return super().has_permission(permtype, debug=debug, user=user)
-		parent = self.get("parent")
-		if not parent:
+		if not super().has_permission(permtype, debug=debug, user=user):
 			return False
-		kho = frappe.db.get_value("Customer Stock Issue", parent, "kho")
-		return bool(kho) and kho in get_allowed_khos(user)
+		return voucher_item_readable(self, permtype, user=user)

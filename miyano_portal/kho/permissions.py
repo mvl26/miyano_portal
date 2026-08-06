@@ -108,7 +108,30 @@ def issue_item_query(user=None) -> str:
 	)
 
 
-def voucher_item_has_permission(doc, ptype=None, user=None) -> bool:
+# FINDING 4 (vòng review 2, CRITICAL): bản trước có `voucher_item_has_permission`
+# trả kết quả kho-check cho MỌI ptype (read/write/delete/submit/cancel như
+# nhau). Hàm đó được đăng ký trong hooks.py["has_permission"] nhưng — như
+# FINDING 1 đã chứng minh — KHÔNG BAO GIỜ được framework gọi tới cho doctype
+# istable=1 (has_child_permission() rẽ nhánh sang parent trước khi bất kỳ hook
+# has_permission nào của child có cơ hội chạy). Vì hook chết, hai controller
+# (customer_stock_receipt_item.py, customer_stock_issue_item.py) phải tự ghi
+# đè has_permission() ở mức class — và bản ghi đè ĐẦU TIÊN mắc đúng lỗi này:
+# nó cũng trả kết quả kho-check cho mọi ptype, khiến role Customer (vốn chỉ
+# có read=1 trên chứng từ cha, write=0/delete=0/submit=0/cancel=0) ĐƯỢC CẤP
+# quyền xoá/sửa dòng con — xác nhận thực nghiệm: frappe.delete_doc() xoá được
+# một dòng trên phiếu ĐÃ SUBMIT, và doc.save() ghi đè được đơn giá trên dòng
+# nháp, cả hai đều làm sổ (Customer Stock Ledger Entry) lệch khỏi phiếu vì
+# on_submit/on_cancel của phiếu cha không hề chạy.
+#
+# Sửa: hàm dùng chung dưới đây CHỈ được gọi cho ptype="read" — cả hai
+# controller đảm bảo điều đó bằng cách tự kiểm `permtype != "read"` và giao
+# lại cho `super().has_permission()` (vốn đã đúng: Customer role không có
+# write/delete/submit/cancel trên chứng từ cha nên super() tự trả False,
+# không cần kho-check nào thêm). Hàm này không tự vệ bằng cách kiểm lại
+# ptype bên trong, vì nó chỉ được gọi từ đúng một chỗ đã kiểm rồi — nhân đôi
+# việc kiểm ở đây dễ tạo ảo giác "đã an toàn" trong khi điểm quyết định thật
+# sự nằm ở lời gọi, không nằm ở hàm.
+def voucher_item_readable(doc, ptype=None, user=None) -> bool:
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):
 		return True

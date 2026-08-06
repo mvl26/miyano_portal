@@ -156,8 +156,18 @@ has_permission = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
-	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
-	"Customer Stock Issue Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
+	# Customer Stock Receipt Item / Customer Stock Issue Item CỐ Ý không có
+	# entry ở đây (dù CÓ entry trong permission_query_conditions ở trên).
+	# Lý do: chúng là istable=1, và frappe.permissions.has_child_permission()
+	# rẽ nhánh sang kiểm PARENT trước khi bất kỳ hook has_permission nào đăng
+	# ký cho CHÍNH doctype con có cơ hội chạy — một entry ở đây sẽ không bao
+	# giờ được gọi (đã xác minh thực nghiệm, xem task-6-report.md phần
+	# "Deviation"). Cách ly quyền đọc/ghi/xoá của hai bảng con này nằm ở
+	# has_permission() ghi đè trực tiếp trên class controller
+	# (customer_stock_receipt_item.py / customer_stock_issue_item.py), không
+	# nằm ở dict này. ĐỪNG thêm lại hai dòng đó — một entry has_permission
+	# "có vẻ đúng" nhưng chết là một decoy: nó khiến người đọc sau tin rằng
+	# hai bảng này đã được hook bảo vệ trong khi thực ra không phải.
 }
 
 # DocType Class

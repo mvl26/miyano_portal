@@ -8,12 +8,28 @@ BM_USER = "bvbm@demo.miyano"
 PXN_USER = "pxnabc@demo.miyano"
 
 # Sáu doctype gốc (Task 6 ban đầu) cộng hai bảng item con của Receipt/Issue
-# (vá theo review) — tổng cộng tám doctype phải có mặt trong cả hai hook dict.
+# (vá theo review) — tổng cộng tám doctype phải có mặt trong
+# permission_query_conditions.
 ALL_EIGHT_DOCTYPES = [
     "Customer Warehouse", "Customer Warehouse Item",
     "Customer Stock Receipt", "Customer Stock Issue",
     "Customer Stock Ledger Entry", "Customer Stock Lot Balance",
     "Customer Stock Receipt Item", "Customer Stock Issue Item",
+]
+
+# has_permission chỉ có SÁU trong tám — CỐ Ý không có Customer Stock Receipt
+# Item / Customer Stock Issue Item (vòng review 2, Finding 5). Hai bảng đó
+# istable=1, và frappe.permissions.has_child_permission() rẽ nhánh sang kiểm
+# PARENT trước khi bất kỳ hook has_permission nào đăng ký cho CHÍNH doctype
+# con có cơ hội chạy — một entry ở đó sẽ không bao giờ được gọi, tức là một
+# decoy: nó khiến người đọc tưởng hai bảng này được hook bảo vệ trong khi cơ
+# chế thật sự là has_permission() ghi đè trực tiếp trên class controller
+# (xem customer_stock_receipt_item.py / customer_stock_issue_item.py).
+# ĐỪNG thêm lại hai entry đó vào has_permission chỉ để "cho khớp" với danh
+# sách tám doctype ở permission_query_conditions.
+SIX_DOCTYPES_WITH_HAS_PERMISSION = [
+    dt for dt in ALL_EIGHT_DOCTYPES
+    if dt not in ("Customer Stock Receipt Item", "Customer Stock Issue Item")
 ]
 
 
@@ -220,16 +236,25 @@ class TestKhoIsolation(FrappeTestCase):
             doc.check_permission("read")
 
     def test_hooks_registered_for_all_eight_doctypes(self):
-        # FINDING 2 (review): kiểm tra membership trong dict LITERAL của
-        # module hooks.py đã import không chứng minh gì về hook THẬT SỰ được
-        # Frappe dùng lúc chạy — nó pass ngay cả khi cache hook cũ (đã bị
-        # clear-cache quên chạy) hoặc app chưa cài. Phải hỏi thẳng
+        # FINDING 2 (review round 1): kiểm tra membership trong dict LITERAL
+        # của module hooks.py đã import không chứng minh gì về hook THẬT SỰ
+        # được Frappe dùng lúc chạy — nó pass ngay cả khi cache hook cũ (đã
+        # bị clear-cache quên chạy) hoặc app chưa cài. Phải hỏi thẳng
         # frappe.get_hooks(), nguồn mà framework thực sự đọc.
+        #
+        # FINDING 5 (review round 2): has_permission chỉ có SÁU, không phải
+        # tám — hai bảng item con (istable=1) KHÔNG được đăng ký ở đây, xem
+        # SIX_DOCTYPES_WITH_HAS_PERMISSION ở đầu file để biết lý do. Assert
+        # NGƯỢC LẠI (rằng chúng KHÔNG có mặt) để không ai "sửa" sự bất đối
+        # xứng này bằng cách thêm lại hai dòng chết đó.
         pqc = frappe.get_hooks("permission_query_conditions")
         hp = frappe.get_hooks("has_permission")
         for dt in ALL_EIGHT_DOCTYPES:
             self.assertIn(dt, pqc, dt)
+        for dt in SIX_DOCTYPES_WITH_HAS_PERMISSION:
             self.assertIn(dt, hp, dt)
+        for dt in ("Customer Stock Receipt Item", "Customer Stock Issue Item"):
+            self.assertNotIn(dt, hp, dt)
 
 
 # ---------------------------------------------------------------------------
@@ -433,8 +458,55 @@ class TestKhoIsolationChildItems(FrappeTestCase):
             },
         }
 
+        # Phiếu NHÁP (docstatus=0) của BM, dùng riêng cho các test write-side
+        # (FINDING 6) — save() ghi đè trực tiếp một dòng con chỉ có ý nghĩa
+        # kiểm tra khi phiếu còn ở trạng thái có thể sửa; phiếu đã submit thì
+        # dùng cho test xoá (delete_doc bỏ qua docstatus hoàn toàn, đúng như
+        # lỗ hổng đã khai thác).
+        self.draft_receipt_bm = self._draft_receipt(
+            self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A"
+        )
+        self.draft_issue_bm = self._draft_issue(
+            self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A"
+        )
+        self.draft_map = {
+            "Customer Stock Receipt Item": self.draft_receipt_bm.items[0].name,
+            "Customer Stock Issue Item": self.draft_issue_bm.items[0].name,
+        }
+
     def tearDown(self):
         frappe.set_user("Administrator")
+
+    def _draft_receipt(self, kho, vat_tu, so_lo):
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Receipt",
+            "kho": kho,
+            "ngay": "2026-02-01",
+            "loai_nhap": "Nhập khác",
+            "nguoi_giao": "Trần Văn Giao",
+            "items": [{
+                "vat_tu": vat_tu,
+                "so_lo": so_lo,
+                "han_su_dung": "2027-01-01",
+                "so_luong": 10,
+                "don_gia": 20000,
+            }],
+        })
+        doc.insert(ignore_permissions=True)  # KHÔNG submit — ở lại docstatus=0
+        return doc
+
+    def _draft_issue(self, kho, vat_tu, so_lo):
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Issue",
+            "kho": kho,
+            "ngay": "2026-03-01",
+            "loai_xuat": "Xuất sử dụng",
+            "noi_nhan": "Khoa test",
+            "nguoi_nhan": "Nhân viên test",
+            "items": [{"vat_tu": vat_tu, "so_lo": so_lo, "so_luong": 5}],
+        })
+        doc.insert(ignore_permissions=True)  # KHÔNG submit
+        return doc
 
     def _rows(self, dt, parent_doctype):
         return frappe.get_list(
@@ -473,10 +545,10 @@ class TestKhoIsolationChildItems(FrappeTestCase):
     # làm) có `parent_doc` resolve về None và TỤT VỀ kiểm role thuần, bỏ qua
     # hoàn toàn `kho`. Vì vậy has_permission() được ghi đè thẳng trên
     # CustomerStockReceiptItem/CustomerStockIssueItem (xem hai file
-    # customer_stock_*_item.py) thay vì chỉ đăng ký hook has_permission
-    # trong hooks.py — hook đó vẫn được đăng ký (voucher_item_has_permission)
-    # nhưng không bao giờ được framework gọi tới cho doctype istable=1; ghi
-    # đè ở đây mới là cơ chế thật sự chặn. Kiểm cả hai hình thức load: độc
+    # customer_stock_*_item.py) thay vì đăng ký hook has_permission trong
+    # hooks.py — một entry ở đó sẽ KHÔNG BAO GIỜ được framework gọi tới cho
+    # doctype istable=1 (cố tình không đăng ký, xem comment trong hooks.py);
+    # ghi đè ở đây mới là cơ chế thật sự chặn. Kiểm cả hai hình thức load: độc
     # lập VÀ đính kèm qua parent doc, để chứng minh override có hiệu lực bất
     # kể đường vào.
 
@@ -524,3 +596,62 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 self.assertIn(info["bm_parent"], parents)
                 frappe.get_doc(dt, info["pxn_row"]).check_permission("read")
                 frappe.get_doc(dt, info["bm_row"]).check_permission("read")
+
+    # -- 6. FINDING 4 (vòng review 2, CRITICAL): write-side, KHÔNG ĐƯỢC xoá/
+    #    sửa dòng con dù đó là dòng CỦA CHÍNH MÌNH -----------------------
+    #
+    # Bản has_permission() ghi đè đầu tiên trả kết quả kho-check cho MỌI
+    # permtype như nhau, nên vô tình CẤP quyền xoá/sửa cho role Customer (chỉ
+    # có read=1 trên chứng từ cha — customer_stock_receipt.json /
+    # customer_stock_issue.json: write=0, delete=0, submit=0, cancel=0). Xác
+    # nhận thực nghiệm bởi review: frappe.delete_doc() xoá được một dòng trên
+    # phiếu ĐÃ SUBMIT, và doc.save() ghi đè được đơn giá trên dòng nháp — cả
+    # hai đều làm sổ (Customer Stock Ledger Entry, append-only) lệch khỏi
+    # phiếu, vì sửa/xoá thẳng dòng con hoàn toàn bỏ qua on_submit/on_cancel
+    # của phiếu cha.
+    #
+    # Đây KHÔNG phải test rò rỉ giữa hai khách — nạn nhân là chính chủ sở hữu
+    # hợp pháp của dòng đó (BM), chỉ là họ không có quyền GHI/XOÁ nó theo
+    # đúng vai trò Customer. Vì vậy chỉ dùng dữ liệu của BM ở đây.
+
+    def test_delete_own_submitted_child_row_blocked(self):
+        frappe.set_user(BM_USER)
+        for dt, info in self.child_map.items():
+            with self.subTest(doctype=dt):
+                with self.assertRaises(frappe.PermissionError):
+                    frappe.delete_doc(dt, info["bm_row"])
+                # Không bị xoá nửa chừng trước khi exception được ném ra.
+                self.assertTrue(frappe.db.exists(dt, info["bm_row"]))
+
+    def test_write_own_draft_child_row_blocked(self):
+        frappe.set_user(BM_USER)
+        for dt, row_name in self.draft_map.items():
+            with self.subTest(doctype=dt):
+                doc = frappe.get_doc(dt, row_name)
+                doc.don_gia = 1
+                with self.assertRaises(frappe.PermissionError):
+                    doc.save()
+                # Không bị ghi đè nửa chừng trước khi exception được ném ra.
+                self.assertEqual(
+                    frappe.db.get_value(dt, row_name, "don_gia"), 20000
+                )
+
+    # -- Positive control: System Manager vẫn xoá/sửa được, chứng minh bản vá
+    #    THU HẸP chứ không cấm tiệt — nếu không có test này, một
+    #    has_permission() luôn trả False cho ptype != "read" (thay vì giao
+    #    lại cho super()) sẽ làm hai test ở trên PASS trong khi khoá luôn cả
+    #    quyền sửa/xoá hợp pháp của nhân viên desk.
+
+    def test_staff_can_still_delete_and_write_child_rows(self):
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        for dt, info in self.child_map.items():
+            with self.subTest(doctype=dt, op="delete"):
+                frappe.delete_doc(dt, info["bm_row"])
+                self.assertFalse(frappe.db.exists(dt, info["bm_row"]))
+        for dt, row_name in self.draft_map.items():
+            with self.subTest(doctype=dt, op="write"):
+                doc = frappe.get_doc(dt, row_name)
+                doc.don_gia = 1
+                doc.save()
+                self.assertEqual(frappe.db.get_value(dt, row_name, "don_gia"), 1)
