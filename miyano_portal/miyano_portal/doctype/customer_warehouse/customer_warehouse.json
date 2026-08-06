@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "KKH-.#####",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer", "ten_kho", "ma_kho", "active", "col_1", "thu_kho",
+  "dia_chi_kho", "ngay_bat_dau", "sec_in", "ten_don_vi_in", "bo_phan_in",
+  "col_2", "mau_phieu_nhap", "mau_phieu_xuat"
+ ],
+ "fields": [
+  {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "unique": 1, "in_list_view": 1},
+  {"fieldname": "ten_kho", "fieldtype": "Data", "label": "Tên kho", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "ma_kho", "fieldtype": "Data", "label": "Mã kho", "reqd": 1, "unique": 1, "description": "Viết tắt dùng trong số phiếu, ví dụ BM"},
+  {"fieldname": "active", "fieldtype": "Check", "label": "Đang hoạt động", "default": "1"},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "thu_kho", "fieldtype": "Data", "label": "Thủ kho"},
+  {"fieldname": "dia_chi_kho", "fieldtype": "Small Text", "label": "Địa chỉ kho"},
+  {"fieldname": "ngay_bat_dau", "fieldtype": "Date", "label": "Ngày bắt đầu quản lý", "reqd": 1},
+  {"fieldname": "sec_in", "fieldtype": "Section Break", "label": "Thông tin in phiếu"},
+  {"fieldname": "ten_don_vi_in", "fieldtype": "Data", "label": "Tên đơn vị in trên phiếu"},
+  {"fieldname": "bo_phan_in", "fieldtype": "Data", "label": "Bộ phận"},
+  {"fieldname": "col_2", "fieldtype": "Column Break"},
+  {"fieldname": "mau_phieu_nhap", "fieldtype": "Link", "label": "Mẫu phiếu nhập", "options": "Print Format"},
+  {"fieldname": "mau_phieu_xuat", "fieldtype": "Link", "label": "Mẫu phiếu xuất", "options": "Print Format"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Warehouse",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "write": 1, "create": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1},
+  {"role": "Customer", "read": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
