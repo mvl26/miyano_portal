@@ -50,7 +50,10 @@ BLANKET_ORDER_QTY = 500
 OPENING_STOCK_QTY = 300
 
 BLANKET_FROM_DATE = "2026-01-01"
-BLANKET_TO_DATE = "2027-12-31"
+# NOT a module-level constant: same rot as seed_demo.py's
+# BLANKET_ORDER_TO_DATE - portal_contracts() filters Blanket Order by
+# `to_date >= today`, so a fixed date eventually goes red. Computed at call
+# time in _ensure_blanket_order(), relative to today.
 
 
 def _ensure_uom(uom_name):
@@ -251,7 +254,7 @@ def _ensure_blanket_order():
                 "customer": CUSTOMER,
                 "company": COMPANY,
                 "from_date": BLANKET_FROM_DATE,
-                "to_date": BLANKET_TO_DATE,
+                "to_date": frappe.utils.add_months(frappe.utils.today(), 12),
                 "items": [
                     {
                         "item_code": it["item_code"],

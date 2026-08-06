@@ -53,6 +53,16 @@ class CustomerStockIssue(Document):
 
 		Đây là điều làm cho báo cáo nhập-xuất-tồn có cột thành tiền mà không cần
 		engine định giá: giá vốn xuất chính là đơn giá đang có của lô.
+
+		NGOẠI LỆ DUY NHẤT: khi đang tạo phiếu đảo (self.flags.dang_tao_dao),
+		KHÔNG được đọc lại đơn giá/hạn dùng từ lô ở đây, vì lô có thể đã đổi giá
+		bình quân gia quyền do những lần nhập xảy ra SAU phiếu xuất gốc (giữa
+		lúc xuất và lúc huỷ). Đọc lại sẽ khiến phiếu đảo hoàn trả một giá trị
+		khác với giá trị phiếu xuất gốc đã trừ đi - tự sinh hoặc tự huỷ tiền
+		mà không có giao dịch nào giải thích được, dù số lượng và tồn cuối vẫn
+		khớp nên không có gì tự lộ ra lỗi. _tao_phieu_dao() đã copy đúng
+		don_gia/han_su_dung từ dòng gốc trước khi insert(); ở đây chỉ cần giữ
+		nguyên giá trị đó.
 		"""
 		tong = 0.0
 		for row in self.items:
@@ -63,9 +73,10 @@ class CustomerStockIssue(Document):
 			if vt:
 				row.ten_vat_tu = vt.ten_vat_tu
 				row.dvt = vt.dvt
-			bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
-			row.don_gia = float(bal["don_gia"]) if bal else 0.0
-			row.han_su_dung = bal["han_su_dung"] if bal else None
+			if not self.flags.dang_tao_dao:
+				bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
+				row.don_gia = float(bal["don_gia"]) if bal else 0.0
+				row.han_su_dung = bal["han_su_dung"] if bal else None
 			row.thanh_tien = float(row.so_luong or 0) * float(row.don_gia or 0)
 			tong += row.thanh_tien
 		self.tong_tien = tong
@@ -143,11 +154,19 @@ class CustomerStockIssue(Document):
 		dao.loai_xuat = voucher.LOAI_DAO
 		dao.phieu_goc = self.name
 		dao.noi_nhan = self.noi_nhan
+		dao.nguoi_nhan = self.nguoi_nhan
 		dao.dien_giai = f"Đảo phiếu {self.name}"
 		for r in self.items:
+			# don_gia và han_su_dung PHẢI copy từ dòng gốc, không được để
+			# _lay_gia_va_han_tu_lo() đọc lại từ lô: giá bình quân gia quyền
+			# của lô có thể đã đổi (do nhập thêm) giữa lúc xuất và lúc huỷ,
+			# và đọc lại sẽ hoàn trả sai giá trị (xem docstring
+			# _lay_gia_va_han_tu_lo). dang_tao_dao chặn việc đọc lại đó;
+			# ở đây ta chỉ cần nạp đúng giá trị gốc vào dòng.
 			dao.append("items", {
 				"vat_tu": r.vat_tu, "so_lo": r.so_lo,
-				"so_luong": r.so_luong, "xac_nhan_het_han": 1,
+				"so_luong": r.so_luong, "don_gia": r.don_gia,
+				"han_su_dung": r.han_su_dung, "xac_nhan_het_han": 1,
 			})
 		dao.flags.ignore_permissions = True
 		dao.insert(ignore_permissions=True)

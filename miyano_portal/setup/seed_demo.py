@@ -30,7 +30,12 @@ CUSTOMERS = [
 # Blanket Order (Selling) is seeded for the first customer only.
 BLANKET_ORDER_QTY = {"VT0005": 10000, "HC0009": 500}
 BLANKET_ORDER_FROM_DATE = "2026-01-01"
-BLANKET_ORDER_TO_DATE = "2026-12-31"
+# NOT a module-level constant: portal_contracts() (api/portal.py) filters
+# Blanket Order by `to_date >= today`, so a fixed date rots the instant
+# "today" passes it, going red across setUp() in three test modules and
+# three assertions in test_portal_read.py. Computed at call time, relative
+# to today, so it can never rot again. (Evaluating frappe.utils.today() at
+# import time would also be unsafe outside an active site context.)
 
 
 def _ensure_uom(uom_name):
@@ -226,7 +231,7 @@ def _ensure_blanket_order(customer):
                 "customer": customer,
                 "company": COMPANY,
                 "from_date": BLANKET_ORDER_FROM_DATE,
-                "to_date": BLANKET_ORDER_TO_DATE,
+                "to_date": frappe.utils.add_months(frappe.utils.today(), 12),
                 "items": [
                     {"item_code": code, "qty": qty, "rate": next(i["rate"] for i in ITEMS if i["item_code"] == code)}
                     for code, qty in BLANKET_ORDER_QTY.items()
