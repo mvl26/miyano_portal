@@ -583,6 +583,31 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 parent = frappe.get_doc(info["parent_doctype"], info["bm_parent"])
                 parent.items[0].check_permission("read")
 
+    # -- 4b. FINDING 8 offshoot (vòng review 3): "print" cũng phải bị thu hẹp
+    #    theo kho giống hệt "read" -----------------------------------------
+    #
+    # Customer role có print=1 trên chứng từ cha giống hệt read=1
+    # (customer_stock_receipt.json / customer_stock_issue.json), và
+    # frappe.utils.weasyprint.get_html() gọi thẳng doc.check_permission("print")
+    # — một lời gọi INSTANCE, đi qua đúng has_permission() override này (khác
+    # với lỗ printview module-level vẫn còn mở, xem comment ở đầu class
+    # controller và task-6-report.md addendum vòng 3). Nếu override chỉ thu
+    # hẹp "read" mà bỏ quên "print", get_html() sẽ render được nội dung của
+    # khách khác qua đường print_format_builder_beta.
+
+    def test_check_permission_narrows_print_too(self):
+        frappe.set_user(BM_USER)
+        for dt, info in self.child_map.items():
+            with self.subTest(doctype=dt, customer="other"):
+                doc = frappe.get_doc(dt, info["pxn_row"])
+                self.assertFalse(doc.has_permission("print"))
+                with self.assertRaises(frappe.PermissionError):
+                    doc.check_permission("print")
+            with self.subTest(doctype=dt, customer="own"):
+                own_doc = frappe.get_doc(dt, info["bm_row"])
+                self.assertTrue(own_doc.has_permission("print"))
+                own_doc.check_permission("print")  # không được ném lỗi
+
     # -- 5. Nhân viên Miyano (System Manager) vẫn thấy dòng con của mọi khách -
 
     def test_staff_user_sees_all_customers_child_rows(self):

@@ -162,12 +162,21 @@ has_permission = {
 	# rẽ nhánh sang kiểm PARENT trước khi bất kỳ hook has_permission nào đăng
 	# ký cho CHÍNH doctype con có cơ hội chạy — một entry ở đây sẽ không bao
 	# giờ được gọi (đã xác minh thực nghiệm, xem task-6-report.md phần
-	# "Deviation"). Cách ly quyền đọc/ghi/xoá của hai bảng con này nằm ở
-	# has_permission() ghi đè trực tiếp trên class controller
-	# (customer_stock_receipt_item.py / customer_stock_issue_item.py), không
-	# nằm ở dict này. ĐỪNG thêm lại hai dòng đó — một entry has_permission
-	# "có vẻ đúng" nhưng chết là một decoy: nó khiến người đọc sau tin rằng
-	# hai bảng này đã được hook bảo vệ trong khi thực ra không phải.
+	# "Deviation"). ĐỪNG thêm lại hai dòng đó — một entry has_permission "có
+	# vẻ đúng" nhưng chết là một decoy: nó khiến người đọc sau tin rằng hai
+	# bảng này đã được hook bảo vệ trong khi thực ra không phải.
+	#
+	# Cách ly THẬT SỰ nằm ở has_permission() ghi đè trực tiếp trên class
+	# controller (customer_stock_receipt_item.py / customer_stock_issue_item.py)
+	# — nhưng CHỈ cho lời gọi đi qua INSTANCE của document
+	# (doc.check_permission()/doc.has_permission()), KHÔNG PHẢI "mọi đường
+	# gọi". Lời gọi MODULE-LEVEL frappe.has_permission(doctype, ptype, doc)
+	# (hàm tự do, không phải instance method — dùng bởi
+	# frappe/www/printview.py và một số nơi khác trong Frappe core) KHÔNG
+	# BAO GIỜ chạm tới class controller đó, nên vẫn tụt về kiểm ROLE THUẦN
+	# trên chứng từ cha cho cả hai doctype này (FINDING 8, vòng review 3 —
+	# xem task-6-report.md, addendum vòng 3, để biết phạm vi chính xác và vì
+	# sao chưa có bản vá đầy đủ cho lỗ này).
 }
 
 # DocType Class

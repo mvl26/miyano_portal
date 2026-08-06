@@ -2279,15 +2279,23 @@ from miyano_portal.kho.permissions import voucher_item_readable
 
 
 class CustomerStockReceiptItem(Document):
-	def has_permission(self, permtype="read", verbose=False):
+	def has_permission(self, permtype="read", *, debug=False, user=None):
 		# Chỉ thu hẹp quyền đọc. Mọi ptype khác trả về mặc định của Frappe,
 		# nếu không sẽ thành leo thang quyền: role Customer chỉ có read trên
 		# chứng từ cha nhưng lại xoá/sửa được dòng con.
+		#
+		# CHÚ Ý (sửa ở vòng review 3): chữ ký thật của
+		# Document.has_permission() trong Frappe 15.113.4 là
+		# (self, permtype="read", *, debug=False, user=None) — không có
+		# tham số `verbose`. Đoạn code mẫu này từng viết sai thành
+		# `verbose=False`; bản đã triển khai (customer_stock_receipt_item.py)
+		# dùng đúng `debug`/`user`. Tài liệu này chỉ là plan lịch sử, không
+		# phải nguồn sự thật — xem code thật để biết chữ ký chính xác.
 		if permtype != "read":
-			return super().has_permission(permtype, verbose)
-		if not super().has_permission(permtype, verbose):
+			return super().has_permission(permtype, debug=debug, user=user)
+		if not super().has_permission(permtype, debug=debug, user=user):
 			return False
-		return voucher_item_readable(self, permtype)
+		return voucher_item_readable(self, permtype, user=user)
 ```
 
 - [ ] **Step 5: Đăng ký hook**

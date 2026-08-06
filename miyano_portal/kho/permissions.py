@@ -123,14 +123,33 @@ def issue_item_query(user=None) -> str:
 # nháp, cả hai đều làm sổ (Customer Stock Ledger Entry) lệch khỏi phiếu vì
 # on_submit/on_cancel của phiếu cha không hề chạy.
 #
-# Sửa: hàm dùng chung dưới đây CHỈ được gọi cho ptype="read" — cả hai
-# controller đảm bảo điều đó bằng cách tự kiểm `permtype != "read"` và giao
-# lại cho `super().has_permission()` (vốn đã đúng: Customer role không có
-# write/delete/submit/cancel trên chứng từ cha nên super() tự trả False,
-# không cần kho-check nào thêm). Hàm này không tự vệ bằng cách kiểm lại
-# ptype bên trong, vì nó chỉ được gọi từ đúng một chỗ đã kiểm rồi — nhân đôi
-# việc kiểm ở đây dễ tạo ảo giác "đã an toàn" trong khi điểm quyết định thật
-# sự nằm ở lời gọi, không nằm ở hàm.
+# Sửa: hàm dùng chung dưới đây CHỈ được gọi cho ptype="read" hoặc "print" —
+# cả hai controller đảm bảo điều đó bằng cách tự kiểm
+# `permtype not in ("read", "print")` và giao lại cho `super().has_permission()`
+# (vốn đã đúng: Customer role không có write/delete/submit/cancel trên chứng
+# từ cha nên super() tự trả False, không cần kho-check nào thêm). "print"
+# được thêm cùng "read" ở vòng review 3, sau khi đo thực nghiệm thấy
+# `doc.has_permission("print")` cũng trả True sai cho khách khác — cùng cơ
+# chế: Customer role có print=1 trên chứng từ cha giống hệt read=1, và
+# `frappe.utils.weasyprint.get_html()` gọi thẳng `doc.check_permission("print")`.
+# Hàm này không tự vệ bằng cách kiểm lại ptype bên trong, vì nó chỉ được gọi
+# từ đúng một chỗ đã kiểm rồi — nhân đôi việc kiểm ở đây dễ tạo ảo giác "đã an
+# toàn" trong khi điểm quyết định thật sự nằm ở lời gọi, không nằm ở hàm.
+#
+# GIỚI HẠN QUAN TRỌNG (FINDING 8, vòng review 3): hàm này — và cả hai
+# has_permission() override gọi nó — CHỈ chặn được khi kiểm tra đi qua
+# INSTANCE của document (doc.check_permission()/doc.has_permission()). Lời
+# gọi MODULE-LEVEL `frappe.has_permission(doctype, ptype, doc)` (hàm tự do,
+# không phải instance method) KHÔNG BAO GIỜ chạm tới class này — với doctype
+# istable=1, nó rẽ thẳng vào `frappe.permissions.has_child_permission()`, một
+# hàm hoàn toàn nằm trong Frappe core, tự suy `parent_doc` (luôn resolve về
+# None cho cả doc-instance lẫn docname-string) rồi tự đệ quy kiểm ROLE THUẦN
+# trên doctype cha — không có bước nào trong đường đó gọi `doc.has_permission()`.
+# `frappe/www/printview.py` (`validate_print_permission`) gọi đúng dạng
+# module-level này, nên `/printview` vẫn render được dòng của khách khác dù
+# override này có mặt. Không có cách đóng lỗ đó ở tầng class/hook của riêng
+# doctype con trong Frappe 15.113.4 — xem task-6-report.md, addendum vòng 3,
+# để biết vì sao và các phương án đã cân nhắc.
 def voucher_item_readable(doc, ptype=None, user=None) -> bool:
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):
