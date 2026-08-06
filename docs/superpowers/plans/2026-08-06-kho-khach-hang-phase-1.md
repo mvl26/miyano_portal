@@ -1855,9 +1855,17 @@ class CustomerStockIssue(Document):
 			if vt:
 				row.ten_vat_tu = vt.ten_vat_tu
 				row.dvt = vt.dvt
-			bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
-			row.don_gia = float(bal["don_gia"]) if bal else 0.0
-			row.han_su_dung = bal["han_su_dung"] if bal else None
+			# Phiếu đảo giữ NGUYÊN đơn giá đã copy từ phiếu gốc, không lấy lại
+			# giá hiện hành của lô. Nếu lấy lại: nhập 100@50k, xuất 30 (sổ ghi
+			# -1.500.000), nhập tiếp 100@70k (bình quân lô thành 61.764,71),
+			# rồi huỷ phiếu xuất -> đảo hoàn +1.852.941. Sổ dôi ra 352.941đ
+			# sinh từ hư không, và đơn giá lô kẹt sai vĩnh viễn. Số lượng vẫn
+			# khớp nên không ai thấy. Phiếu nhập (Task 4) copy giá từ dòng gốc,
+			# phía xuất phải làm y hệt.
+			if not self.flags.dang_tao_dao:
+				bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
+				row.don_gia = float(bal["don_gia"]) if bal else 0.0
+				row.han_su_dung = bal["han_su_dung"] if bal else None
 			row.thanh_tien = float(row.so_luong or 0) * float(row.don_gia or 0)
 			tong += row.thanh_tien
 		self.tong_tien = tong
@@ -1935,11 +1943,15 @@ class CustomerStockIssue(Document):
 		dao.loai_xuat = voucher.LOAI_DAO
 		dao.phieu_goc = self.name
 		dao.noi_nhan = self.noi_nhan
+		dao.nguoi_nhan = self.nguoi_nhan
 		dao.dien_giai = f"Đảo phiếu {self.name}"
 		for r in self.items:
+			# Copy nguyên đơn giá và hạn dùng của dòng gốc: phiếu đảo phải hoàn
+			# lại ĐÚNG giá trị đã trừ đi, không phải giá lô tại thời điểm huỷ.
 			dao.append("items", {
 				"vat_tu": r.vat_tu, "so_lo": r.so_lo,
-				"so_luong": r.so_luong, "xac_nhan_het_han": 1,
+				"so_luong": r.so_luong, "don_gia": r.don_gia,
+				"han_su_dung": r.han_su_dung, "xac_nhan_het_han": 1,
 			})
 		dao.flags.ignore_permissions = True
 		dao.insert(ignore_permissions=True)
