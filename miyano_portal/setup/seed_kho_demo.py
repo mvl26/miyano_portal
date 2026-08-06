@@ -36,7 +36,9 @@ def seed_kho_demo() -> dict:
 		names[row["customer"]] = _ensure_kho(
 			row["customer"], row["ten_kho"], row["ma_kho"]
 		)
-	frappe.db.commit()
+	# KHÔNG gọi frappe.db.commit() ở đây. seed_demo.py sẵn có cũng không gọi,
+	# và tám test file hiện tại đều seed trong setUp: commit sẽ phá rollback
+	# của FrappeTestCase và ghi rác vĩnh viễn vào site.
 	return {
 		"kho_bm": names["Bệnh viện Bạch Mai"],
 		"kho_pxn": names["PXN ABC"],

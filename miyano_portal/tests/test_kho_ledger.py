@@ -32,3 +32,24 @@ class TestKhoWarehouse(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError) as ctx:
             doc.insert(ignore_permissions=True)
         self.assertIn("đã có kho", str(ctx.exception))
+
+    def test_ma_kho_unique_across_customers(self):
+        if not frappe.db.exists("Customer", "Himedic"):
+            frappe.get_doc({
+                "doctype": "Customer",
+                "customer_name": "Himedic",
+                "customer_type": "Company",
+                "customer_group": "All Customer Groups",
+                "territory": "All Territories",
+            }).insert(ignore_permissions=True)
+
+        doc = frappe.get_doc({
+            "doctype": "Customer Warehouse",
+            "customer": "Himedic",
+            "ten_kho": "Kho Himedic",
+            "ma_kho": "BM",
+            "ngay_bat_dau": "2026-01-01",
+        })
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.insert(ignore_permissions=True)
+        self.assertIn("đã được dùng", str(ctx.exception))
