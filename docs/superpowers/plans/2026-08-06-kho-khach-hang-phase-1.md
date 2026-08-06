@@ -2241,7 +2241,23 @@ def issue_item_query(user=None) -> str:
 	)
 
 
-def voucher_item_has_permission(doc, ptype=None, user=None) -> bool:
+def voucher_item_readable(doc, ptype=None, user=None) -> bool:
+	"""Dòng con này có thuộc kho của người gọi không.
+
+	CHỈ dùng để THU HẸP quyền đọc, tuyệt đối không dùng để mở rộng quyền:
+	với ptype khác "read", hàm này phải để mặc định của Frappe quyết định.
+	Nếu trả True cho mọi ptype thì role Customer — vốn chỉ có `read` trên
+	chứng từ cha — sẽ xoá được dòng của phiếu ĐÃ SUBMIT qua
+	`DELETE /api/resource/...` và sửa được đơn giá trên phiếu nháp, mà
+	on_submit/on_cancel của cha không hề chạy nên sổ lệch âm thầm.
+
+	Đăng ký hàm này vào hook `has_permission` là VÔ ÍCH với doctype istable:
+	frappe/permissions.py rẽ sang has_child_permission() trước khi tới hook,
+	và phép suy `parent_doc` ở đó trả None cho mọi dòng con nạp rời. Chốt chặn
+	thật nằm ở method has_permission() override trên controller của hai
+	doctype con, vì method đó chặn được doc.check_permission() ở mọi đường
+	nạp, kể cả REST v1 /api/resource/... và v2 /api/v2/document/...
+	"""
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):
 		return True
@@ -2250,6 +2266,28 @@ def voucher_item_has_permission(doc, ptype=None, user=None) -> bool:
 		return False
 	kho = frappe.db.get_value(parent_type, parent, "kho")
 	return bool(kho) and kho in get_allowed_khos(user)
+```
+
+Controller của hai doctype con (`customer_stock_receipt_item.py`, `customer_stock_issue_item.py`)
+override method `has_permission`, uỷ quyền về helper trên và **chỉ thu hẹp `read`**:
+
+```python
+import frappe
+from frappe.model.document import Document
+
+from miyano_portal.kho.permissions import voucher_item_readable
+
+
+class CustomerStockReceiptItem(Document):
+	def has_permission(self, permtype="read", verbose=False):
+		# Chỉ thu hẹp quyền đọc. Mọi ptype khác trả về mặc định của Frappe,
+		# nếu không sẽ thành leo thang quyền: role Customer chỉ có read trên
+		# chứng từ cha nhưng lại xoá/sửa được dòng con.
+		if permtype != "read":
+			return super().has_permission(permtype, verbose)
+		if not super().has_permission(permtype, verbose):
+			return False
+		return voucher_item_readable(self, permtype)
 ```
 
 - [ ] **Step 5: Đăng ký hook**
@@ -2285,8 +2323,11 @@ has_permission = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
-	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
-	"Customer Stock Issue Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
+	# KHÔNG đăng ký hai doctype con ở đây: hook has_permission không bao giờ
+	# chạy với doctype istable (frappe/permissions.py rẽ sang
+	# has_child_permission() trước). Đăng ký vào đây là dựng một chốt chặn giả
+	# — người đọc sau sẽ tưởng bảng con đã được bảo vệ. Chốt thật là method
+	# has_permission() override trên controller của hai doctype con.
 }
 ```
 
