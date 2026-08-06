@@ -2204,6 +2204,52 @@ def kho_child_has_permission(doc, ptype=None, user=None) -> bool:
 	if not _is_restricted_user(user):
 		return True
 	return doc.get("kho") in get_allowed_khos(user)
+
+
+# --- Bảng con của chứng từ -------------------------------------------------
+# Hai doctype istable dưới đây KHÔNG có field `kho` của riêng chúng, nên phải
+# suy kho qua chứng từ cha. Nếu bỏ sót, chúng rò rỉ toàn bộ dòng phiếu kèm đơn
+# giá của mọi khách: `frappe.client.get_list` được whitelist cho Website User,
+# và check_parent_permission chỉ kiểm quyền ở mức DOCTYPE của cha (role Customer
+# có read nên qua), rồi db_query lọc trên chính bảng con — bảng không có điều
+# kiện lọc nào. Kể cả tài khoản không gắn khách hàng nào cũng lấy được sạch bảng.
+
+
+def _child_condition(table: str, parent_table: str, user: str | None) -> str:
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return ""
+	khos = get_allowed_khos(user)
+	if not khos:
+		return "1=0"
+	joined = ", ".join(frappe.db.escape(k) for k in khos)
+	return (
+		f"`tab{table}`.`parent` in "
+		f"(select name from `tab{parent_table}` where `kho` in ({joined}))"
+	)
+
+
+def receipt_item_query(user=None) -> str:
+	return _child_condition(
+		"Customer Stock Receipt Item", "Customer Stock Receipt", user
+	)
+
+
+def issue_item_query(user=None) -> str:
+	return _child_condition(
+		"Customer Stock Issue Item", "Customer Stock Issue", user
+	)
+
+
+def voucher_item_has_permission(doc, ptype=None, user=None) -> bool:
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return True
+	parent_type, parent = doc.get("parenttype"), doc.get("parent")
+	if not parent_type or not parent:
+		return False
+	kho = frappe.db.get_value(parent_type, parent, "kho")
+	return bool(kho) and kho in get_allowed_khos(user)
 ```
 
 - [ ] **Step 5: Đăng ký hook**
@@ -2223,6 +2269,9 @@ permission_query_conditions = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.issue_query",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.sle_query",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.lot_query",
+	# Bảng con: bắt buộc phải có, xem chú thích trong kho/permissions.py
+	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.receipt_item_query",
+	"Customer Stock Issue Item": "miyano_portal.kho.permissions.issue_item_query",
 }
 
 has_permission = {
@@ -2236,6 +2285,8 @@ has_permission = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
+	"Customer Stock Issue Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
 }
 ```
 
