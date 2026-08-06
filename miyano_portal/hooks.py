@@ -140,6 +140,9 @@ permission_query_conditions = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.issue_query",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.sle_query",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.lot_query",
+	# Grandchild item tables — không có field `kho` riêng, phải lọc qua parent.
+	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.receipt_item_query",
+	"Customer Stock Issue Item": "miyano_portal.kho.permissions.issue_item_query",
 }
 
 has_permission = {
@@ -153,6 +156,8 @@ has_permission = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
+	"Customer Stock Issue Item": "miyano_portal.kho.permissions.voucher_item_has_permission",
 }
 
 # DocType Class

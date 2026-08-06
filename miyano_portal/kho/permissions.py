@@ -67,3 +67,53 @@ def kho_child_has_permission(doc, ptype=None, user=None) -> bool:
 	if not _is_restricted_user(user):
 		return True
 	return doc.get("kho") in get_allowed_khos(user)
+
+
+# `Customer Stock Receipt Item` và `Customer Stock Issue Item` là grandchild:
+# istable=1, permissions=[] trong JSON, và không mang field `kho` của riêng
+# mình — chỉ có `parent` trỏ về Customer Stock Receipt/Issue. Kiểm tra quyền
+# trên PARENT chỉ dừng ở mức doctype (role Customer có read=1 là đủ để qua),
+# rồi db_query mới lọc CHILD table — nếu bảng child không có
+# permission_query_conditions/has_permission riêng, nó không bị lọc gì cả.
+# `frappe.client.get_list`/`get_value` cho phép Website User đọc thẳng bảng
+# child theo `parent`/`parenttype`, không đi qua parent doc nào hết, nên phải
+# đăng ký hook CHO CHÍNH hai doctype này, tách biệt với parent. Đây đúng là
+# loại lỗ hổng dễ tái xuất hiện nhất khi có ai đó thêm loại chứng từ (voucher)
+# thứ ba mà quên nối dây hook cho bảng item con của nó.
+
+
+def _child_condition(table: str, parent_table: str, user: str | None) -> str:
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return ""
+	khos = get_allowed_khos(user)
+	if not khos:
+		return "1=0"
+	joined = ", ".join(frappe.db.escape(k) for k in khos)
+	return (
+		f"`tab{table}`.`parent` in "
+		f"(select name from `tab{parent_table}` where `kho` in ({joined}))"
+	)
+
+
+def receipt_item_query(user=None) -> str:
+	return _child_condition(
+		"Customer Stock Receipt Item", "Customer Stock Receipt", user
+	)
+
+
+def issue_item_query(user=None) -> str:
+	return _child_condition(
+		"Customer Stock Issue Item", "Customer Stock Issue", user
+	)
+
+
+def voucher_item_has_permission(doc, ptype=None, user=None) -> bool:
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return True
+	parent_type, parent = doc.get("parenttype"), doc.get("parent")
+	if not parent_type or not parent:
+		return False
+	kho = frappe.db.get_value(parent_type, parent, "kho")
+	return bool(kho) and kho in get_allowed_khos(user)
