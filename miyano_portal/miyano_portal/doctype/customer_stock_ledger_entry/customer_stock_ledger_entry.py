@@ -8,9 +8,19 @@ class CustomerStockLedgerEntry(Document):
 	Ngoại lệ duy nhất được phép sửa sau khi insert là cờ `da_dao` — xem
 	ledger.mark_reversed(). Mọi thay đổi khác đều bị chặn ở đây để một lỗi
 	lập trình về sau không âm thầm làm hỏng sổ.
+
+	Guard đặt ở `before_save` (không phải `on_update`) vì `Document.save()`
+	gọi `db_update()` TRƯỚC `run_post_save_methods()` và không có savepoint
+	quanh save: nếu chặn ở `on_update`, dòng sai đã được ghi vào DB trong
+	transaction hiện tại trước khi ValidationError được ném ra, nên bất kỳ
+	nơi gọi nào bắt exception (import hàng loạt, background job,
+	try/except quanh post_lines) sẽ để lại giá trị hỏng mà không có lỗi lộ
+	ra. `before_save` chạy trước `db_update()` nên chặn được trước khi ghi.
+	`self.get_doc_before_save()` đã có dữ liệu ở bước này vì Frappe nạp nó
+	trong `load_doc_before_save()`, chạy trước `run_before_save_methods()`.
 	"""
 
-	def on_update(self):
+	def before_save(self):
 		if self.is_new():
 			return
 		before = self.get_doc_before_save()

@@ -26,6 +26,34 @@ def _lot_balance_name(kho: str, vat_tu: str, so_lo: str) -> str | None:
 	)
 
 
+def _current_qty(kho: str, vat_tu: str, so_lo: str) -> float:
+	name = _lot_balance_name(kho, vat_tu, so_lo)
+	if not name:
+		return 0.0
+	return float(frappe.db.get_value("Customer Stock Lot Balance", name, "so_luong") or 0)
+
+
+def _ensure_non_negative(kho, vat_tu, so_lo, cu_qty, delta):
+	"""Chặn một bút toán đẩy tồn của lô xuống âm.
+
+	Tồn âm không chỉ vô nghĩa vật lý: nó còn âm thầm phá đơn giá bình quân gia
+	quyền của lần nhập tiếp theo (cu_qty âm kéo don_gia lệch), và vì
+	get_lot_balances() lọc so_luong > EPS nên một lô đang âm biến mất khỏi mọi
+	báo cáo thay vì báo lỗi. Gọi ở hai điểm: post_lines() gọi trước khi insert
+	dòng sổ (để không bao giờ ghi một dòng làm tồn âm vào sổ append-only,
+	không xoá được), và _apply_to_balance() gọi lại làm lưới an toàn thứ hai
+	cho rebuild_lot_balance() — nơi replay thẳng từ sổ, không đi qua
+	post_lines().
+	"""
+	moi_qty = cu_qty + float(delta)
+	if moi_qty < -EPS:
+		frappe.throw(
+			f"Không đủ tồn để xuất lô {so_lo} (vật tư {vat_tu}, kho {kho}): "
+			f"tồn hiện có {cu_qty}, yêu cầu xuất {abs(float(delta))}.",
+			frappe.ValidationError,
+		)
+
+
 def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 	"""Cộng `delta` vào tồn của một lô và cập nhật đơn giá.
 
@@ -45,6 +73,7 @@ def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 		bal.don_gia = 0
 
 	cu_qty = float(bal.so_luong or 0)
+	_ensure_non_negative(kho, vat_tu, so_lo, cu_qty, delta)
 	moi_qty = cu_qty + float(delta)
 
 	if delta > 0:
@@ -77,12 +106,25 @@ def post_lines(voucher, lines: list[dict]) -> list[str]:
 		row_id = line["chung_tu_row"]
 		if frappe.db.exists(
 			"Customer Stock Ledger Entry",
-			{"chung_tu": voucher.name, "chung_tu_row": row_id},
+			{
+				"chung_tu_type": voucher.doctype,
+				"chung_tu": voucher.name,
+				"chung_tu_row": row_id,
+			},
 		):
 			continue
 
 		so_luong = float(line["so_luong"])
 		don_gia = float(line.get("don_gia") or 0)
+
+		# Chặn TRƯỚC khi insert dòng sổ: sổ là append-only, không xoá được, nên
+		# nếu chặn muộn hơn (trong _apply_to_balance, sau insert) một dòng làm
+		# tồn âm sẽ đã nằm vĩnh viễn trong sổ trước khi lỗi được ném ra.
+		_ensure_non_negative(
+			voucher.kho, line["vat_tu"], line["so_lo"],
+			_current_qty(voucher.kho, line["vat_tu"], line["so_lo"]), so_luong,
+		)
+
 		entry = frappe.new_doc("Customer Stock Ledger Entry")
 		entry.kho = voucher.kho
 		entry.ngay = voucher.ngay
@@ -155,7 +197,13 @@ def rebuild_lot_balance(kho: str | None = None) -> int:
 		"Customer Stock Ledger Entry",
 		filters=filters,
 		fields=["kho", "vat_tu", "so_lo", "han_su_dung", "so_luong", "don_gia"],
-		order_by="creation asc",
+		# creation không đủ để làm tiebreaker duy nhất: dữ liệu di trú (xem
+		# miyano_portal/migration/export_supplycore.py) có thể giữ nguyên
+		# timestamp gốc và trùng creation giữa các dòng, hoặc hai insert rơi
+		# cùng micro giây. _apply_to_balance không giao hoán trên don_gia nên
+		# thứ tự replay phải xác định — dãy SKK-.######### tăng dần đơn điệu
+		# nên dùng name làm tiebreaker.
+		order_by="creation asc, name asc",
 	)
 	for e in entries:
 		_apply_to_balance(
