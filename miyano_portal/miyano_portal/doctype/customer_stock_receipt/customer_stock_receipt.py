@@ -24,15 +24,28 @@ class CustomerStockReceipt(Document):
 		ngăn người dùng tự chọn nó. Nếu để lọt: `_he_so_dau()` sẽ ghi số lượng
 		ÂM vào sổ như thể đang bù trừ một phiếu gốc không hề tồn tại — tức là
 		một cách rút kho — và `block_cancel_of_reversal` khiến phiếu đó vĩnh
-		viễn không huỷ được. Không có đường lùi. `_tao_phieu_dao()` tự đặt cờ
-		`dang_tao_dao` trước khi insert để đi qua được chốt chặn này.
+		viễn không huỷ được. Không có đường lùi.
+
+		Điều kiện duy nhất được chấp nhận là `self.flags.dang_tao_dao`.
+		`self.flags` là thuộc tính trong bộ nhớ của riêng đối tượng Python này,
+		KHÔNG BAO GIỜ được lưu xuống DB và không nằm trong danh sách field của
+		doctype — không cách nào giả được nó qua form, qua payload API, hay
+		qua `frappe.get_doc({...})`. `_tao_phieu_dao()` đặt cờ này trước khi
+		gọi `insert()`.
+
+		Bản trước của guard này còn chấp nhận `or self.phieu_goc` — SAI: sau
+		khi finding 2 đổi `phieu_goc` từ Link sang Data, đó chỉ còn là một
+		field Data thường, ai cũng ghi được chuỗi bất kỳ vào đó (kể cả một
+		mã không tồn tại), nên vế `or` biến chốt chặn thành vô tác dụng. ĐỪNG
+		thêm lại bất kỳ điều kiện `or` nào dựa trên giá trị field vào đây —
+		field luôn ghi được từ bên ngoài, cờ `flags` thì không.
 		"""
-		if self.loai_nhap == voucher.LOAI_DAO and not (
-			self.flags.dang_tao_dao or self.phieu_goc
-		):
+		if self.loai_nhap != voucher.LOAI_DAO:
+			return
+		if not self.flags.dang_tao_dao:
 			frappe.throw(
-				'Không thể tự tạo phiếu loại "Phiếu đảo". Loại phiếu này chỉ '
-				"được hệ thống tự sinh ra khi huỷ một phiếu nhập khác.",
+				"Không thể tạo phiếu đảo bằng tay. Phiếu đảo chỉ được hệ thống "
+				"sinh tự động khi huỷ một phiếu nhập đã ghi sổ.",
 				frappe.ValidationError,
 			)
 

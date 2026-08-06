@@ -117,6 +117,40 @@ class TestPhieuNhap(FrappeTestCase):
             frappe.db.count("Customer Stock Ledger Entry", {"kho": self.kho["kho_bm"]}), 0
         )
 
+    def test_manual_phieu_dao_with_forged_phieu_goc_blocked(self):
+        """Bản trước của guard chấp nhận `or self.phieu_goc`, và phieu_goc là
+        Data thường (finding 2) nên ai cũng ghi được chuỗi bất kỳ vào đó.
+        Đây chính là bypass mà round review đã tái hiện: seed 100 đơn vị LO-A
+        rồi tạo tay một "Phiếu đảo" với phieu_goc giả để lách guard, kéo tồn
+        về 0 mà không hề huỷ phiếu gốc nào — và phiếu tạo ra lại vĩnh viễn
+        không huỷ được. Guard đúng chỉ dựa vào self.flags.dang_tao_dao, không
+        bao giờ dựa vào giá trị của một field ghi được từ bên ngoài.
+        """
+        self._phieu(so_luong=100, so_lo="LO-A").submit()
+        bal = ledger.get_lot_balance(self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")
+        self.assertEqual(bal["so_luong"], 100)
+
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Receipt",
+            "kho": self.kho["kho_bm"],
+            "ngay": "2026-02-01",
+            "loai_nhap": voucher.LOAI_DAO,
+            "phieu_goc": "FAKE-DOES-NOT-EXIST",
+            "items": [{
+                "vat_tu": self.kho["vt_bm"],
+                "so_lo": "LO-A",
+                "han_su_dung": "2027-01-01",
+                "so_luong": 100,
+                "don_gia": 50000,
+            }],
+        })
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.insert(ignore_permissions=True)
+        self.assertIn("Phiếu đảo", str(ctx.exception))
+        # Tồn không được đụng tới: nếu bypass lọt qua, dòng dưới sẽ thấy 0
+        bal = ledger.get_lot_balance(self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")
+        self.assertEqual(bal["so_luong"], 100)
+
     def test_cancel_creates_reversal_and_keeps_ledger(self):
         doc = self._phieu()
         doc.submit()
