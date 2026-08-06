@@ -777,9 +777,16 @@ class CustomerStockLedgerEntry(Document):
 	Ngoại lệ duy nhất được phép sửa sau khi insert là cờ `da_dao` — xem
 	ledger.mark_reversed(). Mọi thay đổi khác đều bị chặn ở đây để một lỗi
 	lập trình về sau không âm thầm làm hỏng sổ.
+
+	Chốt chặn nằm ở `before_save`, KHÔNG phải `on_update`: Document.save()
+	gọi db_update() rồi mới tới run_post_save_methods(), và không có savepoint
+	quanh một lần save. Đặt ở on_update thì UPDATE đã ghi xong trước khi lỗi
+	được ném, nên bất kỳ ai bắt ValidationError cũng để lại dòng sổ hỏng đã
+	nằm trong transaction. `on_trash` thì ngược lại, delete_doc chạy on_trash
+	TRƯỚC khi xoá nên đặt ở đó là đúng.
 	"""
 
-	def on_update(self):
+	def before_save(self):
 		if self.is_new():
 			return
 		before = self.get_doc_before_save()
@@ -938,6 +945,17 @@ def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 		else:
 			bal.don_gia = float(don_gia)
 
+	if moi_qty < -EPS:
+		# Chặn tồn âm ngay tại ranh giới sổ, không chỉ ở tầng phiếu. Nếu để
+		# lọt, lô mang số âm sẽ (a) biến mất khỏi FEFO vì bộ lọc so_luong > EPS,
+		# và (b) làm hỏng vĩnh viễn đơn giá bình quân ở lần nhập kế tiếp:
+		# (-50*50000 + 100*70000)/50 = 90000 thay vì 70000.
+		frappe.throw(
+			f"Lô {so_lo} chỉ còn {cu_qty:g}, không đủ để ghi giảm "
+			f"{abs(float(delta)):g}.",
+			frappe.ValidationError,
+		)
+
 	bal.so_luong = 0.0 if abs(moi_qty) < EPS else moi_qty
 	# Hạn dùng ghi lần đầu; lần nhập sau của cùng lô không được ghi đè bằng
 	# giá trị rỗng, nhưng được phép bổ sung nếu trước đó chưa có.
@@ -959,7 +977,11 @@ def post_lines(voucher, lines: list[dict]) -> list[str]:
 		row_id = line["chung_tu_row"]
 		if frappe.db.exists(
 			"Customer Stock Ledger Entry",
-			{"chung_tu": voucher.name, "chung_tu_row": row_id},
+			{
+				"chung_tu_type": voucher.doctype,
+				"chung_tu": voucher.name,
+				"chung_tu_row": row_id,
+			},
 		):
 			continue
 
@@ -1037,7 +1059,11 @@ def rebuild_lot_balance(kho: str | None = None) -> int:
 		"Customer Stock Ledger Entry",
 		filters=filters,
 		fields=["kho", "vat_tu", "so_lo", "han_su_dung", "so_luong", "don_gia"],
-		order_by="creation asc",
+		# Phải có tiebreaker: _apply_to_balance không giao hoán với don_gia, nên
+		# hai dòng trùng `creation` (import di trú giữ nguyên mốc thời gian gốc,
+		# hoặc hai lần insert cùng micro-giây) replay theo thứ tự tuỳ database sẽ
+		# ra đơn giá khác đường ghi tăng dần. Series SKK-.######### đơn điệu.
+		order_by="creation asc, name asc",
 	)
 	for e in entries:
 		_apply_to_balance(
