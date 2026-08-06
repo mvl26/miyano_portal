@@ -30,6 +30,38 @@ def get_portal_customer(user: str | None = None) -> str:
     return customers[0]
 
 
+def get_portal_kho(user: str | None = None) -> str:
+    """Tên Customer Warehouse của khách đang đăng nhập.
+
+    Mỗi khách đúng một kho, nên hàm này trả về một chuỗi chứ không phải danh
+    sách. Mọi endpoint kho đều phải đi qua đây thay vì nhận tên kho từ client.
+    """
+    customers = get_allowed_customers(user)
+    if not customers:
+        raise frappe.PermissionError("Tài khoản chưa gắn với khách hàng nào.")
+    kho = frappe.db.get_value(
+        "Customer Warehouse",
+        {"customer": ["in", customers], "active": 1},
+        "name",
+    )
+    if not kho:
+        raise frappe.PermissionError(
+            "Đơn vị của bạn chưa được mở kho trên cổng. Vui lòng liên hệ "
+            "nhân viên kinh doanh Miyano."
+        )
+    return kho
+
+
+def get_allowed_khos(user: str | None = None) -> list[str]:
+    """Mọi kho mà user được phép thấy. Dùng cho các hook phân quyền."""
+    customers = get_allowed_customers(user)
+    if not customers:
+        return []
+    return frappe.get_all(
+        "Customer Warehouse", filters={"customer": ["in", customers]}, pluck="name"
+    )
+
+
 def remaining_qty(blanket_order: str, item_code: str) -> float:
     row = frappe.get_all(
         "Blanket Order Item",

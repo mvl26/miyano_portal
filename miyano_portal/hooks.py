@@ -133,6 +133,13 @@ permission_query_conditions = {
 	"Delivery Note": "miyano_portal.permissions.delivery_query",
 	"Sales Invoice": "miyano_portal.permissions.invoice_query",
 	"Blanket Order": "miyano_portal.permissions.blanket_query",
+	# Kho khách hàng — xem miyano_portal/kho/permissions.py
+	"Customer Warehouse": "miyano_portal.kho.permissions.kho_query",
+	"Customer Warehouse Item": "miyano_portal.kho.permissions.vat_tu_query",
+	"Customer Stock Receipt": "miyano_portal.kho.permissions.receipt_query",
+	"Customer Stock Issue": "miyano_portal.kho.permissions.issue_query",
+	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.sle_query",
+	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.lot_query",
 }
 
 has_permission = {
@@ -140,6 +147,12 @@ has_permission = {
 	"Delivery Note": "miyano_portal.permissions.generic_has_permission",
 	"Sales Invoice": "miyano_portal.permissions.generic_has_permission",
 	"Blanket Order": "miyano_portal.permissions.generic_has_permission",
+	"Customer Warehouse": "miyano_portal.kho.permissions.kho_has_permission",
+	"Customer Warehouse Item": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Receipt": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
+	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
 }
 
 # DocType Class
