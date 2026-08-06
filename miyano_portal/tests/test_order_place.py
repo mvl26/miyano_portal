@@ -13,9 +13,13 @@ class TestOrderPlace(FrappeTestCase):
         self.bo = portal.portal_contracts()[0]["name"]
 
     def test_place_creates_draft_sales_order(self):
+        # Delivery date must stay relative to "today": ERPNext requires it on
+        # or after the Sales Order date, and a hardcoded future date rots
+        # into the past (this one was 2026-08-01, written 2026-07-28).
+        delivery_date = frappe.utils.add_days(frappe.utils.today(), 5)
         res = portal.portal_order_place(
             self.bo, json.dumps([{"item_code": "VT0005", "qty": 100}]),
-            po="PO-123", delivery_date="2026-08-01",
+            po="PO-123", delivery_date=delivery_date,
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)
