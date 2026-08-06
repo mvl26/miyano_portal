@@ -1,6 +1,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
+from miyano_portal.kho import ledger
 
 
 class TestKhoWarehouse(FrappeTestCase):
@@ -91,3 +92,143 @@ class TestKhoWarehouseItem(FrappeTestCase):
         })
         doc.insert(ignore_permissions=True)
         self.assertTrue(doc.name)
+
+
+class _FakeVoucher:
+    """Đủ thuộc tính để post_lines dùng, không cần doctype thật ở task này."""
+
+    def __init__(self, kho, ngay="2026-02-01", doctype="Customer Stock Receipt",
+                 name="TEST-PN-001"):
+        self.kho = kho
+        self.ngay = ngay
+        self.doctype = doctype
+        self.name = name
+
+
+class TestKhoLedger(FrappeTestCase):
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.kho["kho_bm"]})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.kho["kho_bm"]})
+
+    def _nhap(self, so_luong, don_gia, so_lo="LO-A", han="2027-01-01", row="r1",
+              name="TEST-PN-001"):
+        v = _FakeVoucher(self.kho["kho_bm"], name=name)
+        return ledger.post_lines(v, [{
+            "vat_tu": self.kho["vt_bm"], "so_lo": so_lo, "han_su_dung": han,
+            "so_luong": so_luong, "don_gia": don_gia, "chung_tu_row": row,
+        }])
+
+    def test_receipt_creates_lot_balance(self):
+        self._nhap(100, 50000)
+        bal = ledger.get_lot_balance(self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")
+        self.assertEqual(bal["so_luong"], 100)
+        self.assertEqual(bal["don_gia"], 50000)
+
+    def test_issue_reduces_lot_balance(self):
+        self._nhap(100, 50000)
+        v = _FakeVoucher(self.kho["kho_bm"], doctype="Customer Stock Issue",
+                         name="TEST-PX-001")
+        ledger.post_lines(v, [{
+            "vat_tu": self.kho["vt_bm"], "so_lo": "LO-A", "han_su_dung": "2027-01-01",
+            "so_luong": -30, "don_gia": 50000, "chung_tu_row": "r9",
+        }])
+        bal = ledger.get_lot_balance(self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")
+        self.assertEqual(bal["so_luong"], 70)
+        # Xuất không đổi đơn giá của lô
+        self.assertEqual(bal["don_gia"], 50000)
+
+    def test_same_lot_twice_gives_weighted_average_price(self):
+        self._nhap(100, 50000, row="r1", name="TEST-PN-001")
+        self._nhap(100, 70000, row="r2", name="TEST-PN-002")
+        bal = ledger.get_lot_balance(self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")
+        self.assertEqual(bal["so_luong"], 200)
+        self.assertEqual(bal["don_gia"], 60000)
+
+    def test_ledger_is_append_only(self):
+        self._nhap(100, 50000)
+        entries = frappe.get_all(
+            "Customer Stock Ledger Entry",
+            filters={"kho": self.kho["kho_bm"]},
+            fields=["name", "so_luong", "gia_tri", "chung_tu"],
+        )
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["gia_tri"], 100 * 50000)
+
+    def test_ledger_entry_cannot_be_edited(self):
+        self._nhap(100, 50000)
+        name = frappe.db.get_value(
+            "Customer Stock Ledger Entry", {"kho": self.kho["kho_bm"]}, "name"
+        )
+        doc = frappe.get_doc("Customer Stock Ledger Entry", name)
+        doc.so_luong = 999
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.save(ignore_permissions=True)
+        self.assertIn("Không được sửa", str(ctx.exception))
+
+    def test_ledger_entry_cannot_be_deleted(self):
+        self._nhap(100, 50000)
+        name = frappe.db.get_value(
+            "Customer Stock Ledger Entry", {"kho": self.kho["kho_bm"]}, "name"
+        )
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            frappe.delete_doc("Customer Stock Ledger Entry", name, ignore_permissions=True)
+        self.assertIn("Không được xoá", str(ctx.exception))
+
+    def test_duplicate_row_is_not_posted_twice(self):
+        self._nhap(100, 50000, row="r1")
+        self._nhap(100, 50000, row="r1")
+        self.assertEqual(
+            frappe.db.count(
+                "Customer Stock Ledger Entry", {"kho": self.kho["kho_bm"]}
+            ),
+            1,
+        )
+
+    def test_mark_reversed_flags_entries(self):
+        self._nhap(100, 50000)
+        ledger.mark_reversed("Customer Stock Receipt", "TEST-PN-001")
+        flags = frappe.get_all(
+            "Customer Stock Ledger Entry",
+            filters={"chung_tu": "TEST-PN-001"}, pluck="da_dao",
+        )
+        self.assertTrue(all(flags))
+
+    def test_rebuild_lot_balance_matches_ledger(self):
+        self._nhap(100, 50000)
+        self._nhap(50, 50000, so_lo="LO-B", han="2026-12-01", row="r2",
+                   name="TEST-PN-002")
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.kho["kho_bm"]})
+        written = ledger.rebuild_lot_balance(self.kho["kho_bm"])
+        self.assertEqual(written, 2)
+        self.assertEqual(
+            ledger.get_lot_balance(
+                self.kho["kho_bm"], self.kho["vt_bm"], "LO-A")["so_luong"], 100
+        )
+        self.assertEqual(
+            ledger.get_lot_balance(
+                self.kho["kho_bm"], self.kho["vt_bm"], "LO-B")["so_luong"], 50
+        )
+
+    def test_get_lot_balances_is_fefo_ordered(self):
+        self._nhap(10, 1000, so_lo="LO-XA", han="2028-01-01", row="r1",
+                   name="TEST-PN-001")
+        self._nhap(10, 1000, so_lo="LO-GAN", han="2026-09-01", row="r2",
+                   name="TEST-PN-002")
+        self._nhap(10, 1000, so_lo=ledger.LOT_KHONG_CO, han=None, row="r3",
+                   name="TEST-PN-003")
+        lots = ledger.get_lot_balances(self.kho["kho_bm"], self.kho["vt_bm"])
+        self.assertEqual([l["so_lo"] for l in lots],
+                         ["LO-GAN", "LO-XA", ledger.LOT_KHONG_CO])
+
+    def test_zero_balance_lot_excluded_from_fefo(self):
+        self._nhap(10, 1000, so_lo="LO-HET", han="2026-09-01")
+        v = _FakeVoucher(self.kho["kho_bm"], doctype="Customer Stock Issue",
+                         name="TEST-PX-001")
+        ledger.post_lines(v, [{
+            "vat_tu": self.kho["vt_bm"], "so_lo": "LO-HET",
+            "han_su_dung": "2026-09-01", "so_luong": -10, "don_gia": 1000,
+            "chung_tu_row": "r9",
+        }])
+        lots = ledger.get_lot_balances(self.kho["kho_bm"], self.kho["vt_bm"])
+        self.assertEqual(lots, [])

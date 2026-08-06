@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "SKK-.#########",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "kho", "ngay", "vat_tu", "so_lo", "han_su_dung",
+  "col_1", "so_luong", "don_gia", "gia_tri",
+  "sec_ct", "chung_tu_type", "chung_tu", "chung_tu_row", "da_dao"
+ ],
+ "fields": [
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1, "read_only": 1},
+  {"fieldname": "ngay", "fieldtype": "Date", "label": "Ngày", "reqd": 1, "search_index": 1, "read_only": 1, "in_list_view": 1},
+  {"fieldname": "vat_tu", "fieldtype": "Link", "label": "Vật tư", "options": "Customer Warehouse Item", "reqd": 1, "search_index": 1, "read_only": 1, "in_list_view": 1},
+  {"fieldname": "so_lo", "fieldtype": "Data", "label": "Số lô", "reqd": 1, "read_only": 1, "in_list_view": 1},
+  {"fieldname": "han_su_dung", "fieldtype": "Date", "label": "Hạn sử dụng", "read_only": 1},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "so_luong", "fieldtype": "Float", "label": "Số lượng", "precision": "3", "read_only": 1, "in_list_view": 1, "description": "Dương là nhập, âm là xuất"},
+  {"fieldname": "don_gia", "fieldtype": "Currency", "label": "Đơn giá", "read_only": 1},
+  {"fieldname": "gia_tri", "fieldtype": "Currency", "label": "Giá trị", "read_only": 1},
+  {"fieldname": "sec_ct", "fieldtype": "Section Break", "label": "Chứng từ"},
+  {"fieldname": "chung_tu_type", "fieldtype": "Select", "label": "Loại chứng từ", "options": "Customer Stock Receipt\nCustomer Stock Issue", "reqd": 1, "read_only": 1},
+  {"fieldname": "chung_tu", "fieldtype": "Data", "label": "Số chứng từ", "reqd": 1, "search_index": 1, "read_only": 1},
+  {"fieldname": "chung_tu_row", "fieldtype": "Data", "label": "Dòng chứng từ", "reqd": 1, "search_index": 1, "read_only": 1},
+  {"fieldname": "da_dao", "fieldtype": "Check", "label": "Đã bị đảo", "default": "0"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Stock Ledger Entry",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1},
+  {"role": "Customer", "read": 1}
+ ],
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "states": []
+}

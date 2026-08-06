@@ -1,0 +1,39 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "kho", "vat_tu", "so_lo", "han_su_dung",
+  "col_1", "so_luong", "don_gia", "gia_tri"
+ ],
+ "fields": [
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1, "read_only": 1},
+  {"fieldname": "vat_tu", "fieldtype": "Link", "label": "Vật tư", "options": "Customer Warehouse Item", "reqd": 1, "search_index": 1, "read_only": 1, "in_list_view": 1},
+  {"fieldname": "so_lo", "fieldtype": "Data", "label": "Số lô", "reqd": 1, "read_only": 1, "in_list_view": 1},
+  {"fieldname": "han_su_dung", "fieldtype": "Date", "label": "Hạn sử dụng", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "so_luong", "fieldtype": "Float", "label": "Số lượng còn", "precision": "3", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "don_gia", "fieldtype": "Currency", "label": "Đơn giá", "read_only": 1},
+  {"fieldname": "gia_tri", "fieldtype": "Currency", "label": "Giá trị", "read_only": 1}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Stock Lot Balance",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1},
+  {"role": "Customer", "read": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
