@@ -103,7 +103,7 @@ class TestDeliveryNoteHook(FrappeTestCase):
 			dn.is_return = 1
 			dn.return_against = return_against
 		for r in rows or [{"item_code": ITEM, "qty": 10, "rate": 95000}]:
-			dn.append("items", {
+			row = {
 				"item_code": r["item_code"],
 				"qty": r["qty"],
 				"rate": r["rate"],
@@ -112,7 +112,13 @@ class TestDeliveryNoteHook(FrappeTestCase):
 				"batch_no": r.get("batch_no"),
 				"use_serial_batch_fields": 1 if r.get("batch_no") else 0,
 				"serial_and_batch_bundle": r.get("bundle"),
-			})
+			}
+			if r.get("uom"):
+				# Chỉ ghi đè khi test CHỦ Ý truyền — để trống thì hành vi cũ
+				# (ERPNext tự điền theo stock_uom của Item) không đổi, tránh
+				# ảnh hưởng mọi test khác đã dựa vào việc tự điền đó.
+				row["uom"] = r["uom"]
+			dn.append("items", row)
 		dn.insert(ignore_permissions=True)
 		if submit:
 			dn.submit()
@@ -280,14 +286,55 @@ class TestDeliveryNoteHook(FrappeTestCase):
 			"Vật tư tạo dở phải bị cuốn lại cùng savepoint",
 		)
 
-	def test_dn_truoc_ngay_bat_dau_khong_tao_phieu_nhung_dn_van_submit(self):
-		frappe.db.set_value(
-			"Customer Warehouse", self.kho_bm, "ngay_bat_dau",
-			frappe.utils.add_days(frappe.utils.today(), 30),
+	def test_dn_truoc_ngay_bat_dau_van_tao_phieu_ghim_ngay_va_luu_ngay_that(self):
+		"""Hàng giao trước Ngày bắt đầu quản lý kho KHÔNG được biến mất (review
+		Item 1): phiếu vẫn phải sinh ra, `ngay` ghim vào đúng `ngay_bat_dau`
+		(để qua được validate_ngay), và ngày giao THẬT phải lộ ra trên
+		`dien_giai` chứ không bị giấu."""
+		ngay_bat_dau = frappe.utils.today()
+		ngay_giao_that = frappe.utils.add_days(ngay_bat_dau, -100)
+		frappe.db.set_value("Customer Warehouse", self.kho_bm, "ngay_bat_dau", ngay_bat_dau)
+		# Tồn của Miyano phải có SẴN TỪ TRƯỚC ngay_giao_that — nếu không, bản
+		# thân DN backdated bị chặn bởi kiểm tra tồn âm của ERPNext
+		# (NegativeStockError), không liên quan gì tới hook đang test ở đây.
+		make_stock_entry(
+			item_code=ITEM, qty=500, to_warehouse=KHO_MYN, rate=1000,
+			company=COMPANY, purpose="Material Receipt",
+			posting_date=frappe.utils.add_days(ngay_giao_that, -10),
 		)
-		dn = self._dn()
-		self.assertEqual(dn.docstatus, 1)
-		self.assertEqual(self._phieu_cua(dn.name), [])
+
+		dn = self._dn(posting_date=ngay_giao_that)
+		self.assertEqual(dn.docstatus, 1, "DN vẫn phải submit được dù backdated")
+
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(
+			frappe.utils.getdate(phieu.ngay), frappe.utils.getdate(ngay_bat_dau),
+			"Ngày phiếu phải ghim vào ngay_bat_dau, không giữ nguyên ngày backdated",
+		)
+		self.assertIn(
+			frappe.utils.formatdate(ngay_giao_that), phieu.dien_giai,
+			"Ngày giao hàng thật phải hiện trên dien_giai để không bị giấu",
+		)
+		# Hàng không được coi là "lỗi": _chay_an_toan không được để lại log nào
+		# cho luồng này, vì đây không phải một lỗi bị nuốt mà là hàng vi đã
+		# được ghi nhận đúng qua nhánh ghim ngày.
+		self.assertEqual(
+			frappe.get_all(
+				"Error Log",
+				filters={"reference_doctype": "Delivery Note", "reference_name": dn.name},
+			),
+			[],
+		)
+
+	def test_dn_dung_ngay_bat_dau_khong_bi_ghim_lai(self):
+		"""Đối chứng: DN đúng hoặc sau ngay_bat_dau thì ngay của phiếu PHẢI là
+		chính posting_date của DN, không bị ghim đi đâu khác."""
+		dn = self._dn(posting_date=frappe.utils.today())
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(
+			frappe.utils.getdate(phieu.ngay), frappe.utils.getdate(dn.posting_date)
+		)
+		self.assertNotIn("CẢNH BÁO", phieu.dien_giai)
 
 	def test_dn_tra_hang_khong_tao_phieu(self):
 		goc = self._dn(rows=[{"item_code": ITEM, "qty": 10, "rate": 95000}])
@@ -458,6 +505,74 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.count("Customer Warehouse Item", {"kho": self.kho_bm}), truoc
 		)
+
+	# ------------------------------------------------- lệch ĐVT (review Item 2)
+	def test_dvt_khac_danh_muc_khong_gay_le_kho_ma_hien_canh_bao(self):
+		"""Giao lần đầu bằng "Hộp" (khớp dvt của vt_bm), lần hai bằng "Cái":
+		hook KHÔNG được âm thầm cộng 10 Hộp + 5 Cái thành "15" của một đơn vị
+		không xác định — dòng lệch phải mang cảnh báo hiển thị, không phải
+		một con số câm."""
+		co_san = frappe.db.get_value(
+			"Customer Warehouse Item", {"kho": self.kho_bm, "ma_vat_tu": ITEM}, "name"
+		)
+		dvt_kho = frappe.db.get_value("Customer Warehouse Item", co_san, "dvt")
+		self.assertEqual(dvt_kho, "Hộp", "Tiền đề của test: dvt đã chốt của vt_bm là Hộp.")
+
+		dn = self._dn(rows=[{"item_code": ITEM, "qty": 5, "rate": 95000, "uom": "Cái"}])
+		self.assertEqual(dn.docstatus, 1, "DN vẫn phải submit được dù ĐVT lệch danh mục")
+
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.items[0].vat_tu, co_san, "Vẫn dùng lại đúng vật tư cũ")
+		self.assertIn("CẢNH BÁO", phieu.items[0].ghi_chu)
+		self.assertIn("Cái", phieu.items[0].ghi_chu)
+		self.assertIn("Hộp", phieu.items[0].ghi_chu)
+		self.assertIn(
+			"CẢNH BÁO", phieu.dien_giai,
+			"Cảnh báo phải nổi lên cả phần mô tả đầu phiếu, không chỉ ở dòng",
+		)
+		# dvt đã chốt của danh mục KHÔNG được hook âm thầm sửa lại.
+		self.assertEqual(
+			frappe.db.get_value("Customer Warehouse Item", co_san, "dvt"), "Hộp"
+		)
+
+		log = frappe.get_all(
+			"Error Log",
+			filters={"reference_doctype": "Customer Warehouse Item", "reference_name": co_san},
+			fields=["method"],
+		)
+		self.assertEqual(len(log), 1, "Lệch ĐVT phải để lại đúng một dòng Error Log")
+		self.assertIn("Kho khách", log[0].method)
+
+	def test_dvt_khop_danh_muc_khong_co_canh_bao(self):
+		"""Đối chứng: ĐVT trùng thì KHÔNG được báo lệch — tránh báo động giả
+		trên mọi phiếu bình thường (đây là đường đi của TUYỆT ĐẠI ĐA SỐ DN)."""
+		dn = self._dn(rows=[{"item_code": ITEM, "qty": 5, "rate": 95000, "uom": "Hộp"}])
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.items[0].ghi_chu, "")
+		self.assertNotIn("CẢNH BÁO", phieu.dien_giai)
+
+	def test_canh_bao_lech_dvt_khoan_dung_hoa_thuong_va_khoang_trang(self):
+		"""Đơn vị: `_canh_bao_lech_dvt` không được báo lệch giả vì hoa/thường
+		hay khoảng trắng thừa — "Hộp" và " hộp " là MỘT ĐVT. Test thẳng hàm
+		nội bộ (như `_lo_cua_dong` đã được test trong file này) vì trường Link
+		`uom` của Delivery Note Item không chấp nhận các biến thể này để dựng
+		một DN thật."""
+		co_san = frappe.db.get_value(
+			"Customer Warehouse Item", {"kho": self.kho_bm, "ma_vat_tu": ITEM}, "name"
+		)
+		self.assertIsNone(delivery_hook._canh_bao_lech_dvt(co_san, " hộp "))
+		self.assertIsNone(delivery_hook._canh_bao_lech_dvt(co_san, "HỘP"))
+		self.assertIsNotNone(delivery_hook._canh_bao_lech_dvt(co_san, "Cái"))
+
+	def test_vat_tu_moi_tao_khong_bao_gio_bao_lech_voi_chinh_no(self):
+		"""Vật tư MỚI tạo trong chính hook này lấy dvt từ đúng dòng DN đó — so
+		nó với chính nó sẽ luôn khớp, không được báo lệch giả trên phiếu đầu
+		tiên của một mặt hàng."""
+		dn = self._dn(rows=[{"item_code": ITEM_MOI, "qty": 2, "rate": 1250000, "uom": "Thùng"}])
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.items[0].ghi_chu, "")
+		vt = frappe.get_doc("Customer Warehouse Item", phieu.items[0].vat_tu)
+		self.assertEqual(vt.dvt, "Thùng")
 
 	# --------------------------------------------------------------- huỷ DN
 	def test_huy_dn_xoa_phieu_con_nhap(self):
