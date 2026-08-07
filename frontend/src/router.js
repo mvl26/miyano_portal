@@ -12,6 +12,7 @@ import PhieuNhap from './views/PhieuNhap.vue'
 import PhieuNhapDetail from './views/PhieuNhapDetail.vue'
 import PhieuXuat from './views/PhieuXuat.vue'
 import PhieuXuatDetail from './views/PhieuXuatDetail.vue'
+import BaoCaoNXT from './views/BaoCaoNXT.vue'
 import Profile from './views/Profile.vue'
 
 const routes = [
@@ -28,6 +29,7 @@ const routes = [
   { path: '/kho/nhap/:name', name: 'kho-nhap-detail', component: PhieuNhapDetail, meta: { title: 'Chi tiết phiếu nhập' } },
   { path: '/kho/xuat', name: 'kho-xuat', component: PhieuXuat, meta: { title: 'Phiếu xuất kho' } },
   { path: '/kho/xuat/:name', name: 'kho-xuat-detail', component: PhieuXuatDetail, meta: { title: 'Chi tiết phiếu xuất' } },
+  { path: '/kho/bao-cao', name: 'kho-bao-cao', component: BaoCaoNXT, meta: { title: 'Báo cáo kho' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
 ]
 
