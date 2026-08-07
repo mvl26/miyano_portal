@@ -11,3 +11,4 @@ miyano_portal.patches.v1_0.install_portal_notifications
 miyano_portal.patches.v1_0.install_portal_print_formats
 miyano_portal.patches.v1_0.install_portal_print_formats_extra
 miyano_portal.patches.v1_0.install_portal_notifications_extra
+miyano_portal.patches.v1_1.install_kho_print_formats
