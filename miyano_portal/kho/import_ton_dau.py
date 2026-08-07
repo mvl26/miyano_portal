@@ -39,12 +39,23 @@ COLUMNS = [
 # cho phiếu nhập nhập tay.
 REQUIRED_FIELDS = {"ma_vat_tu", "ten_vat_tu", "dvt", "so_luong", "don_gia"}
 
-# name cột (nhãn) hoặc field, đã chuẩn hoá NFC + trim + lower, dùng để nhận
-# diện header dù người dùng gõ tay lệch hoa/thường hay đảo cột.
-_ALIASES: dict[str, str] = {}
-for _label, _field in COLUMNS:
-	_ALIASES[unicodedata.normalize("NFC", _label).strip().lower()] = _field
-	_ALIASES[_field] = _field
+
+def build_aliases(columns: list[tuple[str, str]]) -> dict[str, str]:
+	"""Bảng nhận diện tiêu đề cột: nhãn hiển thị (đã NFC + trim + lower) và
+	chính tên field đều trỏ về field. Nhờ vậy header gõ lệch hoa/thường hay
+	đảo thứ tự cột vẫn nhận ra được.
+
+	Là HÀM chứ không phải hằng số module: ba bộ cột (tồn đầu kỳ, danh mục vật
+	tư, dòng phiếu) dùng chung đúng một cơ chế nhận diện này.
+	"""
+	aliases: dict[str, str] = {}
+	for label, field in columns:
+		aliases[unicodedata.normalize("NFC", label).strip().lower()] = field
+		aliases[field] = field
+	return aliases
+
+
+_ALIASES = build_aliases(COLUMNS)
 
 
 def _norm(value) -> str:
@@ -108,7 +119,15 @@ def build_template_bytes() -> bytes:
 	return buf.getvalue()
 
 
-def _read_header(ws) -> tuple[int, dict[str, int]]:
+def read_header(ws, columns, required_fields) -> tuple[int, dict[str, int]]:
+	"""Tìm dòng tiêu đề trong 5 dòng đầu và ánh xạ field -> chỉ số cột.
+
+	`columns`/`required_fields` là tham số chứ không phải hằng số module: hàm
+	này phục vụ cả ba bộ cột. `required_fields` ở đây là các cột BẮT BUỘC PHẢI
+	CÓ MẶT trong header — khác với "bắt buộc có giá trị ở mỗi dòng", việc đó
+	do từng hàm parse tự kiểm.
+	"""
+	aliases = build_aliases(columns)
 	header_row = None
 	header_cells = None
 	for r, row_cells in enumerate(ws.iter_rows(min_row=1, max_row=min(ws.max_row, 5)), start=1):
@@ -121,17 +140,22 @@ def _read_header(ws) -> tuple[int, dict[str, int]]:
 
 	col_index: dict[str, int] = {}
 	for idx, cell in enumerate(header_cells, start=1):
-		field = _ALIASES.get(_fold(cell.value))
+		field = aliases.get(_fold(cell.value))
 		if field:
 			col_index[field] = idx
 
-	missing = [label for label, field in COLUMNS if field in REQUIRED_FIELDS and field not in col_index]
+	missing = [label for label, field in columns if field in required_fields and field not in col_index]
 	if missing:
 		frappe.throw(
 			"Tệp thiếu cột bắt buộc: " + ", ".join(missing) + ". Vui lòng tải lại tệp mẫu.",
 			frappe.ValidationError,
 		)
 	return header_row, col_index
+
+
+def _read_header(ws) -> tuple[int, dict[str, int]]:
+	"""Bộ cột tồn đầu kỳ. Giữ lại để nơi gọi cũ và test cũ không phải đổi."""
+	return read_header(ws, COLUMNS, REQUIRED_FIELDS)
 
 
 def _cell_value(row_cells, col: int):
@@ -171,13 +195,11 @@ def _match_vat_tu(kho: str, ma_vat_tu: str) -> tuple[str, str, str | None]:
 	return "private", "", None
 
 
-def parse_workbook(content: bytes, kho: str) -> dict:
-	"""Đọc và validate toàn bộ file, KHÔNG GHI GÌ vào database.
+def mo_workbook(content: bytes):
+	"""Mở nội dung .xlsx và trả về sheet đang hoạt động.
 
-	Trả verdict theo khuôn mẫu của previewing-imports-before-writing: tổng số
-	dòng, số dòng hợp lệ/lỗi, tóm tắt phân loại, và danh sách chi tiết cho cả
-	hai nhóm — mỗi dòng lỗi mang đủ số dòng trong file gốc (1-based, tính cả
-	header) và MỌI lý do lỗi trên dòng đó, không chỉ lý do đầu tiên.
+	Tách riêng vì cả ba đường import đều cần đúng một thông điệp tiếng Việt khi
+	tệp hỏng — openpyxl ném lỗi tiếng Anh nêu chi tiết nội bộ của tệp zip.
 	"""
 	try:
 		wb = load_workbook(io.BytesIO(content), data_only=True)
@@ -186,8 +208,18 @@ def parse_workbook(content: bytes, kho: str) -> dict:
 			"Tệp không đúng định dạng .xlsx hoặc đã hỏng. Vui lòng dùng tệp mẫu.",
 			frappe.ValidationError,
 		)
+	return wb.active
 
-	ws = wb.active
+
+def parse_workbook(content: bytes, kho: str) -> dict:
+	"""Đọc và validate toàn bộ file, KHÔNG GHI GÌ vào database.
+
+	Trả verdict theo khuôn mẫu của previewing-imports-before-writing: tổng số
+	dòng, số dòng hợp lệ/lỗi, tóm tắt phân loại, và danh sách chi tiết cho cả
+	hai nhóm — mỗi dòng lỗi mang đủ số dòng trong file gốc (1-based, tính cả
+	header) và MỌI lý do lỗi trên dòng đó, không chỉ lý do đầu tiên.
+	"""
+	ws = mo_workbook(content)
 	header_row, col_index = _read_header(ws)
 
 	rows_ok: list[dict] = []
