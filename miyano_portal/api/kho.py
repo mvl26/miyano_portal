@@ -25,6 +25,7 @@ khối comment trong hooks.py). Hệ quả trực tiếp cho file này:
 import frappe
 
 from miyano_portal.kho import ledger
+from miyano_portal.kho import import_ton_dau
 from miyano_portal.portal_context import get_portal_kho
 
 
@@ -113,3 +114,62 @@ def kho_lo(vat_tu) -> list:
 	# endpoint sau này (ví dụ chi tiết một lô, in phiếu) rất dễ vô tình nhận
 	# nó làm tham số rồi tin nó thuộc đúng kho mà không kiểm lại.
 	return [{k: v for k, v in row.items() if k != "name"} for row in ledger.get_lot_balances(kho, vat_tu)]
+
+
+def _resolve_owned_spreadsheet(file_url: str) -> bytes:
+	"""Nạp nội dung một file .xlsx do CHÍNH người gọi vừa upload.
+
+	`frappe.get_doc` không tự kiểm has_permission (xem khối comment đầu file),
+	nên không thể tin việc nạp doc là đủ an toàn — đặc biệt ở đây, nơi
+	`file_url` đến thẳng từ tham số client gửi. Sở hữu được xác nhận bằng so
+	sánh `owner` tường minh, không phải bằng check_permission() (File dùng
+	tầng quyền chung của Frappe, không thuộc nhóm doctype kho bị gỡ quyền).
+	"""
+	if not file_url:
+		frappe.throw("Thiếu tệp để nhập.", frappe.ValidationError)
+	file_doc = frappe.get_doc("File", {"file_url": file_url})
+	if file_doc.owner != frappe.session.user:
+		raise frappe.PermissionError("Bạn không có quyền đọc tệp này.")
+	if not (file_doc.file_name or "").lower().endswith(".xlsx"):
+		frappe.throw("Vui lòng chọn tệp .xlsx đúng định dạng.", frappe.ValidationError)
+	try:
+		content = file_doc.get_content()
+	except Exception:
+		frappe.throw("Không đọc được tệp đã tải lên.", frappe.ValidationError)
+	if isinstance(content, str):
+		content = content.encode("utf-8")
+	return content
+
+
+@frappe.whitelist()
+def kho_import_template() -> None:
+	"""Tải file mẫu import danh mục + tồn đầu kỳ. get_portal_kho() vẫn được
+	gọi dù không dùng kết quả, để nhất quán "mọi endpoint đều tự suy kho từ
+	phiên" với hai endpoint preview/commit — khách chưa mở kho nhận cùng một
+	thông báo tiếng Việt ở cả ba endpoint thay vì tải mẫu được nhưng preview
+	thì bị chặn.
+	"""
+	get_portal_kho()
+	frappe.local.response.filename = "mau_nhap_ton_dau_kho.xlsx"
+	frappe.local.response.filecontent = import_ton_dau.build_template_bytes()
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = (
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	)
+
+
+@frappe.whitelist()
+def kho_import_preview(file_url) -> dict:
+	"""Đọc và phân tích file, KHÔNG GHI GÌ. Xem import_ton_dau.parse_workbook."""
+	kho = get_portal_kho()
+	content = _resolve_owned_spreadsheet(file_url)
+	return import_ton_dau.parse_workbook(content, kho)
+
+
+@frappe.whitelist()
+def kho_import_commit(file_url) -> dict:
+	"""Đọc lại VÀ kiểm tra lại từ đầu ở server rồi mới ghi — không tin bất kỳ
+	dòng dữ liệu nào mà client (đã gọi preview trước đó) có thể gửi kèm."""
+	kho = get_portal_kho()
+	content = _resolve_owned_spreadsheet(file_url)
+	return import_ton_dau.commit_workbook(content, kho)
