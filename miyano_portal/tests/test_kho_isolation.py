@@ -1,10 +1,10 @@
 """Cách ly dữ liệu kho — HỢP ĐỒNG HIỆN HÀNH (vòng 4).
 
 Hợp đồng cũ (vòng 1-3) là: "khách A gọi get_list thấy đúng các dòng của A".
-Hợp đồng MỚI mạnh hơn hẳn: tài khoản portal KHÔNG đọc được tám doctype kho qua
+Hợp đồng MỚI mạnh hơn hẳn: tài khoản portal KHÔNG đọc được doctype kho nào qua
 bất kỳ đường trực tiếp nào — get_list, REST v1/v2, /printview, download_pdf,
 frappe.client.* đều ném PermissionError, KỂ CẢ cho dữ liệu của chính họ. Lý do:
-role `Customer` không còn DocPerm nào trên sáu doctype cha, nên không còn grant
+role `Customer` không còn DocPerm nào trên doctype kho cha, nên không còn grant
 nền để bất kỳ đường nào tụt về. Cổng duy nhất là API whitelist
 miyano_portal/api/kho.py, nơi kho được suy từ phiên và lọc tường minh.
 
@@ -42,7 +42,7 @@ KHO_MODULE = "Miyano Portal"
 KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
-# sách này hiện RỖNG (cả tám doctype của module đều là doctype kho) và tồn tại
+# sách này hiện RỖNG (mọi doctype của module đều là doctype kho) và tồn tại
 # để việc thêm một doctype không-kho vào module trở thành một quyết định TƯỜNG
 # MINH: _nap_doctype_kho() ném lỗi khi gặp một cái tên nó không phân loại
 # được, thay vì âm thầm bỏ qua. Bỏ qua âm thầm chính là cách một doctype kho
@@ -76,7 +76,7 @@ def _nap_doctype_kho() -> dict[str, list[str]]:
     là tiêu chí đúng về mặt cơ chế.
 
     Đọc lười (không phải ở mức module) để việc import file test không cần sẵn
-    kết nối site. Cố ý KHÔNG cache: tám dòng, truy vấn gần như miễn phí, còn
+    kết nối site. Cố ý KHÔNG cache: vài dòng, truy vấn gần như miễn phí, còn
     một cache cũ là đúng kiểu hỏng âm thầm mà cả hàm này sinh ra để chống.
     """
     rows = frappe.get_all(
@@ -231,7 +231,7 @@ def _ensure_orphan_user():
     khách hàng).
 
     Vai trò Customer được giữ nguyên sau vòng 4 dù nó không còn cấp quyền gì
-    trên tám doctype kho: mục đích là mô phỏng đúng tài khoản portal xấu nhất
+    trên doctype kho nào: mục đích là mô phỏng đúng tài khoản portal xấu nhất
     có thể tồn tại trên site, chứ không phải để vượt qua vòng kiểm role. Với
     các test unit gọi thẳng _kho_condition/_child_condition, role không ảnh
     hưởng: chúng vẫn phải render "1=0" vì get_allowed_khos() trả về []."""
@@ -499,12 +499,12 @@ class TestKhoIsolation(FrappeTestCase):
 # Phần dưới đây vượt ra ngoài yêu cầu tối thiểu của brief. Lỗ hổng mà một bộ
 # test "trông có vẻ đủ" hay bỏ sót:
 #
-#   1. check_permission() phải chặn cho CẢ SÁU doctype gốc, không chỉ Customer
+#   1. check_permission() phải chặn cho MỌI doctype kho cha, không chỉ Customer
 #      Warehouse Item như test_check_permission_raises_for_other_customer ở
 #      trên. permission_query_conditions và has_permission được nối dây riêng
 #      cho từng doctype trong hooks.py — thiếu một dòng ở đâu đó vẫn để lọt.
 #   2. frappe.get_list() — con đường list-view thật sự đi qua — không được rò
-#      rỉ bản ghi của khách khác, cho CẢ SÁU doctype gốc. Đây là cơ chế khác
+#      rỉ bản ghi của khách khác, cho MỌI doctype kho cha. Đây là cơ chế khác
 #      hẳn has_permission (permission_query_conditions), nên phải kiểm riêng.
 #   3. Nhân viên Miyano (System Manager, không phải Website User) vẫn phải
 #      thấy toàn bộ dữ liệu của mọi khách hàng — cách ly không được lỡ tay
@@ -563,7 +563,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Lot Balance", {"kho": self.kho["kho_bm"]}, "name"
         )
 
-        # Một bản ghi của PXN (khách B) cho từng doctype trong sáu doctype kho.
+        # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
             "Customer Warehouse Item": self.kho["vt_pxn"],
@@ -572,7 +572,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Ledger Entry": self.sle_pxn,
             "Customer Stock Lot Balance": self.lot_pxn,
         }
-        # Cùng sáu doctype, nhưng bản ghi của chính BM (khách A) — dùng để
+        # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
         # đang đăng nhập. Một hook trả "1=0" vô điều kiện sẽ pass hết mọi
         # test "PXN không lộ" ở trên nhưng phá luôn portal của BM.
@@ -604,7 +604,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             return {"customer": "Bệnh viện Bạch Mai"}
         return {"kho": self.kho["kho_bm"]}
 
-    # -- 1. check_permission() phải chặn cho CẢ SÁU doctype ------------------
+    # -- 1. check_permission() phải chặn cho MỌI doctype kho cha -------------
     #
     # Vẫn pass sau vòng 4, nhưng CƠ CHẾ đã đổi: trước đây lỗi đến từ hook
     # kho_has_permission/kho_child_has_permission (đã qua vòng kiểm role nhờ
@@ -624,8 +624,8 @@ class TestKhoIsolationDeep(FrappeTestCase):
     #
     # Bản cũ assert `get_list(... filters=PXN ...) == []`, tức "khách A gọi
     # get_list thì lọc mất dòng của B". Hợp đồng đó KHÔNG CÒN ĐÚNG và cũng
-    # không còn là thứ ta muốn: role `Customer` không còn DocPerm nào trên sáu
-    # doctype, nên get_list ném PermissionError trước khi tới bước lọc. Đây là
+    # không còn là thứ ta muốn: role `Customer` không còn DocPerm nào trên các
+    # doctype kho, nên get_list ném PermissionError trước khi tới bước lọc. Đây là
     # cách ly MẠNH HƠN, không phải regression — một danh sách rỗng vẫn xác
     # nhận doctype tồn tại và truy vấn được; một PermissionError thì không.
     #
@@ -1041,7 +1041,7 @@ class TestKhoIsolationChildItems(FrappeTestCase):
 # ROLE THUẦN trên doctype CHA và không bao giờ chạm tới controller của con.
 #
 # Vòng 4 đóng ở đúng chỗ mà mọi đường đó quy về: gỡ hết DocPerm của role
-# `Customer` trên sáu doctype cha. Các test dưới đây bám đúng những route đã
+# `Customer` trên các doctype kho cha. Các test dưới đây bám đúng những route đã
 # từng hở.
 # ---------------------------------------------------------------------------
 
@@ -1250,7 +1250,7 @@ class TestKhoPortalDoorClosed(_KhoVoucherFixture):
                         {"has_permission": False},
                     )
 
-    # -- D. frappe.client.get_list trên sáu doctype cha ---------------------
+    # -- D. frappe.client.get_list trên mọi doctype kho cha -----------------
 
     def test_client_get_list_raises_for_portal_user_on_every_parent_doctype(self):
         for user in (BM_USER, PXN_USER):
