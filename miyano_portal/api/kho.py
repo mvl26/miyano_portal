@@ -124,10 +124,23 @@ def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 	`file_url` đến thẳng từ tham số client gửi. Sở hữu được xác nhận bằng so
 	sánh `owner` tường minh, không phải bằng check_permission() (File dùng
 	tầng quyền chung của Frappe, không thuộc nhóm doctype kho bị gỡ quyền).
+
+	Tra `name` bằng `frappe.db.get_value` TRƯỚC khi gọi `frappe.get_doc`: một
+	`file_url` không tồn tại (tệp đã bị xoá, tab cũ gửi lại, hoặc client tự bịa)
+	khiến `frappe.get_doc("File", {...})` ném `DoesNotExistError` với thông điệp
+	tiếng Anh nêu thẳng tên doctype — vi phạm quy tắc "mọi lỗi ra tiếng Việt,
+	không lộ tên doctype". Bắt sớm để luôn trả thông điệp tiếng Việt của riêng
+	hàm này.
 	"""
 	if not file_url:
 		frappe.throw("Thiếu tệp để nhập.", frappe.ValidationError)
-	file_doc = frappe.get_doc("File", {"file_url": file_url})
+	file_name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+	if not file_name:
+		frappe.throw(
+			"Không tìm thấy tệp đã tải lên. Vui lòng chọn lại tệp và thử lại.",
+			frappe.ValidationError,
+		)
+	file_doc = frappe.get_doc("File", file_name)
 	if file_doc.owner != frappe.session.user:
 		raise frappe.PermissionError("Bạn không có quyền đọc tệp này.")
 	if not (file_doc.file_name or "").lower().endswith(".xlsx"):

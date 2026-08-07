@@ -91,9 +91,15 @@ class _ImportTestBase(FrappeTestCase):
         return file_doc
 
     def _counts(self, kho):
+        receipts = frappe.get_all("Customer Stock Receipt", filters={"kho": kho}, pluck="name")
+        item_rows = (
+            frappe.db.count("Customer Stock Receipt Item", {"parent": ["in", receipts]})
+            if receipts else 0
+        )
         return (
             frappe.db.count("Customer Warehouse Item", {"kho": kho}),
-            frappe.db.count("Customer Stock Receipt", {"kho": kho}),
+            len(receipts),
+            item_rows,
             frappe.db.count("Customer Stock Ledger Entry", {"kho": kho}),
             frappe.db.count("Customer Stock Lot Balance", {"kho": kho}),
         )
@@ -183,6 +189,21 @@ class TestKhoImportPreview(_ImportTestBase):
         finally:
             frappe.db.rollback(save_point=sp)
             frappe.clear_document_cache("Customer Warehouse", self.kho["kho_pxn"])
+
+    def test_bogus_file_url_gives_vietnamese_message_not_doctype_name(self):
+        """Một file_url không tồn tại (tệp đã bị xoá, tab cũ gửi lại) không
+        được để lộ DoesNotExistError tiếng Anh nêu tên doctype "File"."""
+        frappe.set_user(BM_USER)
+        for label, call in [
+            ("preview", lambda: kho_api.kho_import_preview("/private/files/khong-ton-tai.xlsx")),
+            ("commit", lambda: kho_api.kho_import_commit("/private/files/khong-ton-tai.xlsx")),
+        ]:
+            with self.assertRaises(frappe.ValidationError, msg=label) as cm:
+                call()
+            msg = str(cm.exception)
+            self.assertNotIn("File", msg, msg=label)
+            self.assertNotIn("DoesNotExistError", msg, msg=label)
+            self.assertNotIn("Traceback", msg, msg=label)
 
     def test_template_download_reimports_cleanly(self):
         frappe.set_user(BM_USER)
