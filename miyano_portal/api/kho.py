@@ -30,11 +30,7 @@ from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import voucher
 from miyano_portal.portal_context import get_portal_kho
-from miyano_portal.setup.install_kho_print_formats import (
-    DEFAULT_NHAP,
-    DEFAULT_XUAT,
-    _rows_html,
-)
+from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -553,19 +549,21 @@ def _render_phieu_html(doctype: str, name: str, kho: str) -> str:
 	nhận tường minh) rồi tự render template của Print Format bằng
 	frappe.render_template — hàm thuần render, không có tầng kiểm quyền nào
 	chen vào giữa.
+
+	Context truyền vào CHỈ gồm {"doc", "frappe"} — cố ý giống hệt context mà
+	frappe.www.printview.get_html_and_style() (đường render CHUẨN mà nhân
+	viên Miyano vẫn dùng từ desk, có print=1 trên hai doctype này) tự truyền.
+	Bản trước còn bơm thêm "kho"/"rows_html" riêng cho đường portal — khiến
+	mẫu RENDER LỖI ("'kho' is undefined") khi ai đó in từ desk, vì đường đó
+	không biết hai biến này. Đã đo bằng get_html_and_style() thật và sửa:
+	bốn template giờ tự tra thông tin kho qua frappe.db.get_value(doc.kho)
+	và tự lặp doc.items, không cần biến ngoài nào khác — cả hai đường render
+	dùng chung một cách phá vỡ, và một cái là đủ.
 	"""
 	doc = frappe.get_doc(doctype, name)
-	kho_info = frappe.db.get_value(
-		"Customer Warehouse", kho,
-		["name", "ten_kho", "ten_don_vi_in", "bo_phan_in", "thu_kho", "dia_chi_kho"],
-		as_dict=True,
-	)
 	print_format = _print_format_cho_kho(doctype, kho)
 	html_template = frappe.db.get_value("Print Format", print_format, "html")
-	rows_html = _rows_html(doc.items)
-	return frappe.render_template(
-		html_template, {"doc": doc, "kho": kho_info, "rows_html": rows_html, "frappe": frappe}
-	)
+	return frappe.render_template(html_template, {"doc": doc, "frappe": frappe})
 
 
 @frappe.whitelist()

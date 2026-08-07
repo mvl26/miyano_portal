@@ -7,9 +7,22 @@ Bố cục dựng theo cấu trúc chuẩn Mẫu 01-VT / 02-VT của hai Thông 
 khách, và kiến trúc (mau_phieu_nhap/mau_phieu_xuat theo từng kho) cho phép
 chỉnh riêng cho một khách mà không đụng khách khác.
 
-Các template này KHÔNG chạy qua frappe.www.printview (route đó bị chặn cho
-role Customer theo thiết kế — xem miyano_portal/api/kho.py::_render_phieu_html),
-nên tự mang theo <style> của riêng mình thay vì dựa vào print.css của Frappe.
+QUAN TRỌNG — bối cảnh Jinja mà template này PHẢI chạy được:
+`miyano_portal.api.kho._render_phieu_html()` (cổng dành cho portal, tự render
+qua frappe.render_template sau khi tự kiểm sở hữu, KHÔNG đi qua
+frappe.www.printview — xem docstring của hàm đó) không phải là đường DUY NHẤT
+render bốn mẫu này. Nhân viên Miyano (System Manager/Sales Manager, có
+print=1 trên Customer Stock Receipt/Issue) vẫn bấm "In" từ desk như bình
+thường, và đường đó đi qua frappe.www.printview.get_html_and_style() —
+pipeline CHUẨN của Frappe, chỉ truyền đúng hai biến {"doc": ..., "frappe":
+...} vào context (giống ba mẫu portal sẵn có ở install_print_formats.py:
+"Miyano - Xác nhận đơn hàng" v.v., chỉ dùng doc/frappe). Template ban đầu của
+bản này còn tham chiếu `kho` và `rows_html` — hai biến chỉ do
+_render_phieu_html() tự bơm thêm — nên RENDER LỖI ("'kho' is undefined") khi
+đi qua đường desk chuẩn. Đã đo bằng get_html_and_style() thật và sửa: mọi
+thông tin kho và danh sách dòng giờ tự tra trong chính template bằng
+frappe.db.get_value()/vòng lặp doc.items, để cả hai đường render đều dùng
+đúng một context tối thiểu {"doc", "frappe"}.
 """
 
 import frappe
@@ -40,25 +53,35 @@ _STYLE = """
 </style>
 """
 
+# Đặt ở đầu mỗi template: tự tra thông tin kho từ doc.kho bằng frappe.db.get_value,
+# KHÔNG trông cậy vào một biến `kho` được bơm sẵn từ bên ngoài — đó chính là
+# lỗi bản trước (xem docstring module). `frappe` luôn có mặt trong context của
+# CẢ HAI đường render (printview chuẩn và _render_phieu_html của portal).
+_HDR_SETUP = (
+    '{% set kho = frappe.db.get_value("Customer Warehouse", doc.kho, '
+    '["ten_kho", "ten_don_vi_in", "bo_phan_in", "thu_kho", "dia_chi_kho"], as_dict=True) %}'
+)
 
-def _rows_html(rows, extra_col=False):
-    trs = []
-    for idx, r in enumerate(rows, start=1):
-        trs.append(f"""
-        <tr>
-          <td>{idx}</td>
-          <td>{r.ten_vat_tu or ''}</td>
-          <td>{(frappe.db.get_value('Customer Warehouse Item', r.vat_tu, 'ma_vat_tu') or '')}</td>
-          <td>{r.dvt or ''}</td>
-          <td class="num">{r.so_luong:g}</td>
-          <td class="num">{r.so_luong:g}</td>
-          <td class="num">{'{:,.0f}'.format(r.don_gia or 0)}</td>
-          <td class="num">{'{:,.0f}'.format(r.thanh_tien or 0)}</td>
-        </tr>""")
-    return "".join(trs)
+# Một dòng chứng từ: tra mã vật tư (không lưu trực tiếp trên dòng phiếu) rồi
+# in đủ 8 cột. Lặp trực tiếp `doc.items` trong Jinja thay vì dựng sẵn HTML
+# bằng Python — không còn biến `rows_html` phải bơm từ ngoài vào nữa.
+_ROWS_LOOP = """
+    {% for i in doc.items %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ i.ten_vat_tu or '' }}</td>
+      <td>{{ frappe.db.get_value("Customer Warehouse Item", i.vat_tu, "ma_vat_tu") or '' }}</td>
+      <td>{{ i.dvt or '' }}</td>
+      <td class="num">{{ "{:g}".format(i.so_luong or 0) }}</td>
+      <td class="num">{{ "{:g}".format(i.so_luong or 0) }}</td>
+      <td class="num">{{ "{:,.0f}".format(i.don_gia or 0) }}</td>
+      <td class="num">{{ "{:,.0f}".format(i.thanh_tien or 0) }}</td>
+    </tr>
+    {% endfor %}
+"""
 
 
-HTML_NHAP_TT107 = _STYLE + """
+HTML_NHAP_TT107 = _STYLE + _HDR_SETUP + """
 <div class="phieu-kho">
   <div class="hdr">
     <div>
@@ -92,7 +115,7 @@ HTML_NHAP_TT107 = _STYLE + """
       </tr>
       <tr><th>Theo chứng từ</th><th>Thực nhập</th></tr>
     </thead>
-    <tbody>{{ rows_html | safe }}</tbody>
+    <tbody>""" + _ROWS_LOOP + """</tbody>
     <tfoot>
       <tr><td colspan="7" style="text-align:right"><b>Cộng</b></td><td class="num"><b>{{ '{:,.0f}'.format(doc.tong_tien or 0) }}</b></td></tr>
     </tfoot>
@@ -108,7 +131,7 @@ HTML_NHAP_TT107 = _STYLE + """
 </div>
 """
 
-HTML_XUAT_TT107 = _STYLE + """
+HTML_XUAT_TT107 = _STYLE + _HDR_SETUP + """
 <div class="phieu-kho">
   <div class="hdr">
     <div>
@@ -142,7 +165,7 @@ HTML_XUAT_TT107 = _STYLE + """
       </tr>
       <tr><th>Yêu cầu</th><th>Thực xuất</th></tr>
     </thead>
-    <tbody>{{ rows_html | safe }}</tbody>
+    <tbody>""" + _ROWS_LOOP + """</tbody>
     <tfoot>
       <tr><td colspan="7" style="text-align:right"><b>Cộng</b></td><td class="num"><b>{{ '{:,.0f}'.format(doc.tong_tien or 0) }}</b></td></tr>
     </tfoot>
@@ -157,7 +180,7 @@ HTML_XUAT_TT107 = _STYLE + """
 </div>
 """
 
-HTML_NHAP_TT200 = _STYLE + """
+HTML_NHAP_TT200 = _STYLE + _HDR_SETUP + """
 <div class="phieu-kho">
   <div class="hdr">
     <div>
@@ -192,7 +215,7 @@ HTML_NHAP_TT200 = _STYLE + """
       </tr>
       <tr><th>Theo chứng từ</th><th>Thực nhập</th></tr>
     </thead>
-    <tbody>{{ rows_html | safe }}</tbody>
+    <tbody>""" + _ROWS_LOOP + """</tbody>
     <tfoot>
       <tr><td colspan="7" style="text-align:right"><b>Cộng</b></td><td class="num"><b>{{ '{:,.0f}'.format(doc.tong_tien or 0) }}</b></td></tr>
     </tfoot>
@@ -208,7 +231,7 @@ HTML_NHAP_TT200 = _STYLE + """
 </div>
 """
 
-HTML_XUAT_TT200 = _STYLE + """
+HTML_XUAT_TT200 = _STYLE + _HDR_SETUP + """
 <div class="phieu-kho">
   <div class="hdr">
     <div>
@@ -243,7 +266,7 @@ HTML_XUAT_TT200 = _STYLE + """
       </tr>
       <tr><th>Yêu cầu</th><th>Thực xuất</th></tr>
     </thead>
-    <tbody>{{ rows_html | safe }}</tbody>
+    <tbody>""" + _ROWS_LOOP + """</tbody>
     <tfoot>
       <tr><td colspan="7" style="text-align:right"><b>Cộng</b></td><td class="num"><b>{{ '{:,.0f}'.format(doc.tong_tien or 0) }}</b></td></tr>
     </tfoot>

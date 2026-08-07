@@ -525,6 +525,30 @@ class TestKhoPhieuPdf(_KhoApiFixture):
             frappe.set_user("Administrator")
             frappe.db.set_value("Customer Warehouse", self.kho["kho_bm"], "mau_phieu_nhap", "")
 
+    def test_pdf_falls_back_to_default_when_configured_format_is_wrong_doctype(self):
+        """Nếu kho lỡ cấu hình mau_phieu_nhap trỏ sang một mẫu XUẤT (hoặc bất
+        kỳ mẫu nào không phải Customer Stock Receipt), _print_format_cho_kho
+        phải BỎ QUA mẫu đó và dùng mặc định TT107 — không render nhầm mẫu xuất
+        cho phiếu nhập, và không để lộ lỗi framework nếu mẫu đó tham chiếu
+        field không có trên doctype khác.
+        """
+        from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107
+
+        frappe.db.set_value(
+            "Customer Warehouse", self.kho["kho_bm"], "mau_phieu_nhap", NAME_XUAT_TT107
+        )
+        try:
+            doc = self._nhap(so_lo="LO-A", so_luong=10, don_gia=1000)
+            frappe.set_user(BM_USER)
+            html = kho_api._render_phieu_html(
+                "Customer Stock Receipt", doc.name, self.kho["kho_bm"]
+            )
+            self.assertIn("PHIẾU NHẬP KHO", html)
+            self.assertNotIn("PHIẾU XUẤT KHO", html)
+        finally:
+            frappe.set_user("Administrator")
+            frappe.db.set_value("Customer Warehouse", self.kho["kho_bm"], "mau_phieu_nhap", "")
+
 
 class TestKhoPhieuCrossTenant(_KhoApiFixture):
     """Bốn thao tác then chốt: đọc, ghi sổ, huỷ, in. Khách A không được phép
