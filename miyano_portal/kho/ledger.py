@@ -55,11 +55,34 @@ def _ensure_non_negative(kho, vat_tu, so_lo, cu_qty, delta):
 
 
 def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
-	"""Cộng `delta` vào tồn của một lô và cập nhật đơn giá.
+	"""Cộng `delta` vào tồn của một lô và cập nhật đơn giá bình quân gia quyền.
 
-	Nhập (delta > 0) làm đơn giá lô thành bình quân gia quyền của các lần nhập.
-	Xuất (delta < 0) không đổi đơn giá — giá vốn xuất chính là đơn giá đang có
-	của lô, đó là toàn bộ lý do sổ này theo lô thay vì cần engine định giá.
+	TÍNH LẠI BÌNH QUÂN CHO CẢ delta ÂM — ĐỪNG "ĐƠN GIẢN HOÁ" LẠI.
+
+	Cám dỗ hiển nhiên là chỉ tính lại khi delta > 0, vì với phiếu XUẤT thường
+	thì phép tính lại đúng là một no-op: dòng xuất luôn mang chính đơn giá bình
+	quân hiện hành của lô (`_lay_gia_va_han_tu_lo` đọc thẳng từ lô), nên
+	(Q·P − q·P)/(Q − q) = P. Bỏ nhánh âm đi mà không có gì đỏ lên.
+
+	Nhưng KHÔNG phải mọi dòng âm đều là phiếu xuất. Phiếu đảo của một phiếu
+	NHẬP cũng ghi một dòng âm, và nó mang đơn giá GỐC lúc nhập chứ không phải
+	bình quân hiện hành — đó là điều bắt buộc, nếu không việc huỷ phiếu sẽ tự
+	sinh hoặc tự huỷ tiền (xem `_lay_gia_va_han_tu_lo`). Nếu không tính lại
+	bình quân ở nhánh âm, sổ trừ đi `delta × giá_gốc` còn cache chỉ trừ
+	`delta × bình_quân_hiện_hành`, và hai bên lệch VĨNH VIỄN: sổ là append-only
+	nên không sửa được, còn `rebuild_lot_balance()` replay đúng hàm này nên lặp
+	lại y nguyên phép tính sai. Đo được: nhập 100@50k, xuất 30, nhập 100@70k,
+	huỷ phiếu xuất, huỷ phiếu nhập 50k → sổ 7.000.000, cache 6.000.000.
+
+	Công thức chung giữ đúng bất biến giá trị theo cấu trúc, vì
+	    tồn_mới × giá_mới = tồn_cũ × giá_cũ + delta × đơn_giá_dòng,
+	tức là đúng số mà dòng sổ vừa cộng vào tổng `gia_tri` của sổ. Xem
+	`TestKhoBatBienGiaTri` và thiết kế mục 3.
+
+	Ý nghĩa kinh tế của nhánh âm: sau khi huỷ phiếu nhập 100 @ 50.000 khỏi một
+	lô đang có 200 đơn vị bình quân 60.000, 100 đơn vị còn lại mang
+	(12.000.000 − 5.000.000) / 100 = 70.000 — đúng thực tế, phần còn lại chính
+	là lô đã nhập giá 70.000.
 	"""
 	name = _lot_balance_name(kho, vat_tu, so_lo)
 	if name:
@@ -73,17 +96,25 @@ def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 		bal.don_gia = 0
 
 	cu_qty = float(bal.so_luong or 0)
+	# Giữ nguyên lưới an toàn: tồn kết quả dưới -EPS bị chặn TRƯỚC khi bất kỳ
+	# thứ gì được ghi, kể cả đơn giá.
 	_ensure_non_negative(kho, vat_tu, so_lo, cu_qty, delta)
 	moi_qty = cu_qty + float(delta)
 
-	if delta > 0:
-		tong = cu_qty + float(delta)
-		if tong > EPS:
-			bal.don_gia = (
-				cu_qty * float(bal.don_gia or 0) + float(delta) * float(don_gia)
-			) / tong
-		else:
-			bal.don_gia = float(don_gia)
+	if abs(moi_qty) > EPS:
+		bal.don_gia = (
+			cu_qty * float(bal.don_gia or 0) + float(delta) * float(don_gia)
+		) / moi_qty
+	elif cu_qty <= EPS:
+		# Lô mới toanh (hoặc đang rỗng) nhận một dòng ~0: không có bình quân cũ
+		# nào để giữ, lấy luôn đơn giá của dòng.
+		bal.don_gia = float(don_gia)
+	# Còn lại: tồn kết quả về 0. Không chia được, nên GIỮ NGUYÊN đơn giá cũ
+	# thay vì chia cho 0 hay đặt về 0. Hệ quả đã biết và chấp nhận: `gia_tri`
+	# được lưu dưới dạng so_luong × don_gia nên nó buộc phải bằng 0, trong khi
+	# tổng của sổ có thể còn dư một phần chênh nếu dòng cuối mang đơn giá khác
+	# bình quân (chỉ xảy ra với phiếu đảo của phiếu nhập). Xem
+	# test_lo_ve_khong_khong_giu_duoc_gia_tri_du.
 
 	bal.so_luong = 0.0 if abs(moi_qty) < EPS else moi_qty
 	# Hạn dùng ghi lần đầu; lần nhập sau của cùng lô không được ghi đè bằng
