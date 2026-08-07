@@ -16,7 +16,7 @@ class CustomerStockIssue(Document):
 		voucher.validate_ngay(self)
 		voucher.validate_vat_tu_thuoc_kho(self)
 		self._chan_dao_thu_cong()
-		self._validate_so_luong()
+		voucher.validate_so_luong(self)
 		self._lay_gia_va_han_tu_lo()
 
 	def _chan_dao_thu_cong(self):
@@ -40,14 +40,6 @@ class CustomerStockIssue(Document):
 				frappe.ValidationError,
 			)
 
-	def _validate_so_luong(self):
-		for row in self.items:
-			if float(row.so_luong or 0) <= 0:
-				frappe.throw(
-					f"Dòng {row.idx}: số lượng phải lớn hơn 0.",
-					frappe.ValidationError,
-				)
-
 	def _lay_gia_va_han_tu_lo(self):
 		"""Đơn giá và hạn dùng của dòng xuất LUÔN lấy từ lô, không nhận từ người dùng.
 
@@ -63,23 +55,20 @@ class CustomerStockIssue(Document):
 		khớp nên không có gì tự lộ ra lỗi. _tao_phieu_dao() đã copy đúng
 		don_gia/han_su_dung từ dòng gốc trước khi insert(); ở đây chỉ cần giữ
 		nguyên giá trị đó.
+
+		Phần điền tên/ĐVT và phần tính thành tiền/tổng tiền dùng CHUNG hàm với
+		phiếu nhập (`voucher.fill_ten_dvt` / `voucher.tinh_tien`, FINDING N4);
+		riêng bước lấy giá từ lô là của riêng phiếu xuất nên phải chen vào
+		GIỮA hai bước đó — đó cũng là lý do fill_item_details() không gọi trọn
+		gói được ở đây.
 		"""
-		tong = 0.0
-		for row in self.items:
-			vt = frappe.db.get_value(
-				"Customer Warehouse Item", row.vat_tu,
-				["ten_vat_tu", "dvt"], as_dict=True,
-			)
-			if vt:
-				row.ten_vat_tu = vt.ten_vat_tu
-				row.dvt = vt.dvt
-			if not self.flags.dang_tao_dao:
+		voucher.fill_ten_dvt(self)
+		if not self.flags.dang_tao_dao:
+			for row in self.items:
 				bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
 				row.don_gia = float(bal["don_gia"]) if bal else 0.0
 				row.han_su_dung = bal["han_su_dung"] if bal else None
-			row.thanh_tien = float(row.so_luong or 0) * float(row.don_gia or 0)
-			tong += row.thanh_tien
-		self.tong_tien = tong
+		voucher.tinh_tien(self)
 
 	def before_submit(self):
 		if self.loai_xuat != voucher.LOAI_DAO:

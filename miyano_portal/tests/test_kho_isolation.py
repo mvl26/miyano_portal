@@ -18,10 +18,13 @@ Xoá một trong các positive control đó là biến cả file này thành vô
 
 import frappe
 from frappe import client as frappe_client
+from frappe.model.base_document import get_controller
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from frappe.www import printview
 from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import permissions as kho_perms
+from miyano_portal.kho.voucher_item import VoucherItemBase
 from miyano_portal.portal_context import get_allowed_khos, get_portal_kho
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
@@ -435,6 +438,37 @@ class TestKhoIsolation(FrappeTestCase):
         doc = frappe.get_doc("Customer Warehouse Item", self.kho["vt_pxn"])
         with self.assertRaises(frappe.PermissionError):
             doc.check_permission("read")
+
+    def test_child_item_controllers_use_shared_has_permission(self):
+        """FINDING N4: hai bảng dòng chứng từ dùng CHUNG một has_permission().
+
+        Vì sao phải chốt bằng test riêng: kể từ vòng 4 mọi test phủ định về
+        dòng con pass nhờ role `Customer` không còn DocPerm trên chứng từ cha,
+        KHÔNG nhờ override này. Nếu Frappe thôi nhận diện được controller (đổi
+        tên class, gộp lớp cơ sở sai, MRO hỏng) thì lớp phòng thủ thứ hai chết
+        âm thầm và cả suite vẫn xanh — đúng kiểu "control chết" mà dự án này
+        đã gặp hai lần (xem progress.md, hook has_permission cho istable).
+
+        Assert cả ba mắt xích: Frappe resolve đúng class, class đó kế thừa lớp
+        cơ sở dùng chung, và has_permission nó dùng CHÍNH LÀ bản của lớp cơ sở
+        (không phải Document.has_permission mặc định, cũng không phải một bản
+        chép tay khác).
+        """
+        for dt in kho_child_doctypes():
+            with self.subTest(doctype=dt):
+                cls = get_controller(dt)
+                self.assertTrue(
+                    issubclass(cls, VoucherItemBase),
+                    f"{dt}: controller {cls!r} không kế thừa VoucherItemBase",
+                )
+                self.assertIs(
+                    cls.has_permission, VoucherItemBase.has_permission,
+                    f"{dt}: has_permission không phải bản dùng chung",
+                )
+                self.assertIsNot(
+                    cls.has_permission, Document.has_permission,
+                    f"{dt}: has_permission tụt về mặc định của Frappe",
+                )
 
     def test_hooks_registered_for_every_kho_doctype(self):
         # FINDING 2 (review round 1): kiểm tra membership trong dict LITERAL

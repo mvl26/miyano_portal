@@ -57,21 +57,44 @@ def validate_vat_tu_thuoc_kho(doc) -> None:
 			)
 
 
-def validate_so_luong_don_gia(doc) -> None:
+def _check_so_luong(row) -> None:
+	if float(row.so_luong or 0) <= 0:
+		frappe.throw(
+			f"Dòng {row.idx}: số lượng phải lớn hơn 0.", frappe.ValidationError
+		)
+
+
+def validate_so_luong(doc) -> None:
+	"""Chỉ kiểm số lượng. Dùng cho phiếu XUẤT, nơi `don_gia` không do người
+	dùng nhập mà lấy từ lô SAU bước validate này — kiểm đơn giá ở đây sẽ bắt
+	nhầm giá trị tạm trên bản nháp trước khi nó bị ghi đè."""
 	for row in doc.items:
-		if float(row.so_luong or 0) <= 0:
-			frappe.throw(
-				f"Dòng {row.idx}: số lượng phải lớn hơn 0.", frappe.ValidationError
-			)
+		_check_so_luong(row)
+
+
+def validate_so_luong_don_gia(doc) -> None:
+	"""Phiếu NHẬP: người dùng nhập cả hai, nên kiểm cả hai.
+
+	Kiểm theo TỪNG DÒNG (số lượng rồi đơn giá) chứ không phải hai vòng lặp
+	tách rời, để thông báo lỗi vẫn là lỗi đầu tiên theo thứ tự dòng — gộp
+	chung với validate_so_luong() bằng hai vòng lặp sẽ đổi lỗi báo ra trong
+	trường hợp dòng 1 sai đơn giá và dòng 2 sai số lượng.
+	"""
+	for row in doc.items:
+		_check_so_luong(row)
 		if float(row.don_gia or 0) < 0:
 			frappe.throw(
 				f"Dòng {row.idx}: đơn giá không được âm.", frappe.ValidationError
 			)
 
 
-def fill_item_details(doc) -> None:
-	"""Điền tên/ĐVT và tính thành tiền, tổng tiền."""
-	tong = 0.0
+def fill_ten_dvt(doc) -> None:
+	"""Điền tên vật tư và ĐVT từ danh mục vật tư của kho.
+
+	Tách riêng khỏi fill_item_details() để phiếu xuất dùng lại được: phiếu
+	xuất phải chen bước lấy đơn giá/hạn dùng từ lô vào GIỮA bước điền tên và
+	bước tính tiền, nên không gọi trọn gói được.
+	"""
 	for row in doc.items:
 		vt = frappe.db.get_value(
 			"Customer Warehouse Item", row.vat_tu, ["ten_vat_tu", "dvt"], as_dict=True
@@ -79,11 +102,29 @@ def fill_item_details(doc) -> None:
 		if vt:
 			row.ten_vat_tu = vt.ten_vat_tu
 			row.dvt = vt.dvt
-		if not row.so_lo:
-			row.so_lo = LOT_KHONG_CO
+
+
+def tinh_tien(doc) -> None:
+	"""Thành tiền từng dòng và tổng tiền của phiếu."""
+	tong = 0.0
+	for row in doc.items:
 		row.thanh_tien = float(row.so_luong or 0) * float(row.don_gia or 0)
 		tong += row.thanh_tien
 	doc.tong_tien = tong
+
+
+def fill_item_details(doc) -> None:
+	"""Điền tên/ĐVT, mặc định số lô, và tính thành tiền, tổng tiền.
+
+	Bước mặc định `so_lo` CỐ Ý chỉ có ở đây (phiếu nhập) chứ không nằm trong
+	fill_ten_dvt(): phiếu xuất không mặc định số lô, và thêm vào sẽ là đổi
+	hành vi chứ không phải gộp trùng lặp.
+	"""
+	fill_ten_dvt(doc)
+	for row in doc.items:
+		if not row.so_lo:
+			row.so_lo = LOT_KHONG_CO
+	tinh_tien(doc)
 
 
 def block_cancel_of_reversal(doc, loai_field: str) -> None:
