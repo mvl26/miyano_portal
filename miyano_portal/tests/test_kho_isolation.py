@@ -54,12 +54,17 @@ ALL_EIGHT_DOCTYPES = [
 # Item / Customer Stock Issue Item (vòng review 2, Finding 5). Hai bảng đó
 # istable=1, và frappe.permissions.has_child_permission() rẽ nhánh sang kiểm
 # PARENT trước khi bất kỳ hook has_permission nào đăng ký cho CHÍNH doctype
-# con có cơ hội chạy — một entry ở đó sẽ không bao giờ được gọi, tức là một
-# decoy: nó khiến người đọc tưởng hai bảng này được hook bảo vệ trong khi cơ
-# chế thật sự là has_permission() ghi đè trực tiếp trên class controller
-# (xem customer_stock_receipt_item.py / customer_stock_issue_item.py).
-# ĐỪNG thêm lại hai entry đó vào has_permission chỉ để "cho khớp" với danh
-# sách tám doctype ở permission_query_conditions.
+# con có cơ hội chạy — một entry ở đó sẽ không bao giờ được gọi, bất kể cấu
+# hình DocPerm thế nào, tức là một decoy. ĐỪNG thêm lại hai entry đó chỉ để
+# "cho khớp" với danh sách tám doctype ở permission_query_conditions.
+#
+# LƯU Ý (sửa lại ở vòng 4): bản trước của comment này viết tiếp rằng "cơ chế
+# THẬT SỰ là has_permission() ghi đè trên class controller". Câu đó KHÔNG CÒN
+# ĐÚNG. Kể từ vòng 4, cơ chế thật sự là role `Customer` không còn DocPerm nào
+# trên sáu doctype cha (xem docstring đầu file và TestKhoDocPermConfig);
+# override trên controller tụt xuống thành lớp phòng thủ thứ hai, và chính nó
+# cũng không đóng nổi đường module-level `frappe.has_permission()` mà
+# /printview dùng — đó là lý do vòng 4 phải sửa ở tầng cấu hình quyền.
 SIX_DOCTYPES_WITH_HAS_PERMISSION = [
     dt for dt in ALL_EIGHT_DOCTYPES
     if dt not in ("Customer Stock Receipt Item", "Customer Stock Issue Item")
@@ -266,7 +271,9 @@ class TestKhoIsolation(FrappeTestCase):
         self.assertTrue(kho_perms.kho_child_has_permission(vt_bm, user=BM_USER))
 
     def test_check_permission_raises_for_other_customer(self):
-        """Đường thoát thật sự: doc.check_permission() phải chặn."""
+        """doc.check_permission() phải chặn. (Trước vòng 4 đây là đường mà
+        hook kho_child_has_permission gánh; từ vòng 4 lỗi đến sớm hơn, ở vòng
+        kiểm role — hợp đồng không đổi, cơ chế thì đổi.)"""
         frappe.set_user(BM_USER)
         doc = frappe.get_doc("Customer Warehouse Item", self.kho["vt_pxn"])
         with self.assertRaises(frappe.PermissionError):
@@ -309,14 +316,23 @@ class TestKhoIsolation(FrappeTestCase):
 #      thấy toàn bộ dữ liệu của mọi khách hàng — cách ly không được lỡ tay
 #      chặn luôn cả desk.
 #
-# Và sau vòng review: Customer Stock Receipt Item / Customer Stock Issue Item
-# là istable=1, permissions=[] trong JSON, KHÔNG có field `kho` riêng, và
-# KHÔNG nằm trong hai hook dict ở bản Task 6 đầu tiên — has_permission chỉ
-# được hỏi ở cấp PARENT (role Customer read=1 là đủ để qua), còn db_query lọc
-# CHILD table lại không có điều kiện gì. frappe.client.get_list được whitelist
-# cho Website User đọc thẳng bảng con theo parent/parenttype, không đi qua
-# get_doc(parent) nào cả — rò rỉ đơn giá, số lô, số lượng của MỌI khách hàng
-# cho bất kỳ ai có role Customer, kể cả user không gắn khách hàng nào.
+# Và sau vòng review — MÔ TẢ LỖ HỔNG NHƯ NÓ TỪNG LÀ (trước vòng 4), giữ lại
+# để giải thích vì sao các test dưới đây tồn tại: Customer Stock Receipt Item /
+# Customer Stock Issue Item là istable=1, permissions=[] trong JSON, KHÔNG có
+# field `kho` riêng, và KHÔNG nằm trong hai hook dict ở bản Task 6 đầu tiên —
+# has_permission chỉ được hỏi ở cấp PARENT (khi đó role Customer read=1 là đủ
+# để qua), còn db_query lọc CHILD table lại không có điều kiện gì.
+# frappe.client.get_list được whitelist cho Website User đọc thẳng bảng con
+# theo parent/parenttype, không đi qua get_doc(parent) nào cả — rò rỉ đơn giá,
+# số lô, số lượng của MỌI khách hàng cho bất kỳ ai có role Customer, kể cả user
+# không gắn khách hàng nào.
+#
+# HIỆN TRẠNG (vòng 4): điều kiện "role Customer read=1 trên PARENT" không còn,
+# nên bước tụt-về đó không xảy ra nữa và frappe.client.get_list ném
+# PermissionError. Các assertion dưới đây đã được viết lại theo hợp đồng mới —
+# xem docstring đầu file. Điểm 2 ở trên ("frappe.get_list là con đường list-view
+# thật sự đi qua") vẫn đúng như một mô tả về đường code, chỉ là kết quả mong đợi
+# đã đổi từ "danh sách đã lọc" thành "PermissionError".
 # ---------------------------------------------------------------------------
 
 
@@ -639,10 +655,16 @@ class TestKhoIsolationChildItems(FrappeTestCase):
     # CustomerStockReceiptItem/CustomerStockIssueItem (xem hai file
     # customer_stock_*_item.py) thay vì đăng ký hook has_permission trong
     # hooks.py — một entry ở đó sẽ KHÔNG BAO GIỜ được framework gọi tới cho
-    # doctype istable=1 (cố tình không đăng ký, xem comment trong hooks.py);
-    # ghi đè ở đây mới là cơ chế thật sự chặn. Kiểm cả hai hình thức load: độc
-    # lập VÀ đính kèm qua parent doc, để chứng minh override có hiệu lực bất
-    # kể đường vào.
+    # doctype istable=1 (cố tình không đăng ký, xem comment trong hooks.py).
+    #
+    # SỬA LẠI Ở VÒNG 4: bản trước của comment này kết luận "ghi đè ở đây mới
+    # là cơ chế THẬT SỰ chặn". Không còn đúng. Kể từ vòng 4, cái chặn là việc
+    # role `Customer` không còn DocPerm nào trên chứng từ cha; override chỉ là
+    # lớp phòng thủ thứ hai, và bản thân nó KHÔNG chặn được đường module-level
+    # `frappe.has_permission()` mà /printview dùng (xem
+    # TestKhoPortalDoorClosed). Test này vì thế giờ pass nhờ vòng kiểm role,
+    # không phải nhờ override. Vẫn kiểm cả hai hình thức load (độc lập VÀ đính
+    # kèm qua parent doc) vì cả hai đều phải bị chặn, bất kể đường vào.
 
     def test_check_permission_raises_for_other_customers_child_row(self):
         frappe.set_user(BM_USER)
@@ -741,9 +763,13 @@ class TestKhoIsolationChildItems(FrappeTestCase):
     # -- 6. FINDING 4 (vòng review 2, CRITICAL): write-side, KHÔNG ĐƯỢC xoá/
     #    sửa dòng con dù đó là dòng CỦA CHÍNH MÌNH -----------------------
     #
+    # Bối cảnh dưới đây là tình trạng TRƯỚC VÒNG 4 (khi role Customer còn
+    # DocPerm trên chứng từ cha); giữ lại vì nó giải thích vì sao override
+    # phải thu hẹp theo permtype, và sẽ đúng trở lại ngay nếu grant quay lại.
+    #
     # Bản has_permission() ghi đè đầu tiên trả kết quả kho-check cho MỌI
-    # permtype như nhau, nên vô tình CẤP quyền xoá/sửa cho role Customer (chỉ
-    # có read=1 trên chứng từ cha — customer_stock_receipt.json /
+    # permtype như nhau, nên vô tình CẤP quyền xoá/sửa cho role Customer (khi
+    # đó chỉ có read=1 trên chứng từ cha — customer_stock_receipt.json /
     # customer_stock_issue.json: write=0, delete=0, submit=0, cancel=0). Xác
     # nhận thực nghiệm bởi review: frappe.delete_doc() xoá được một dòng trên
     # phiếu ĐÃ SUBMIT, và doc.save() ghi đè được đơn giá trên dòng nháp — cả

@@ -64,8 +64,12 @@ class CustomerStockReceiptItem(Document):
 		  đều trả PermissionError cho tài khoản portal — không nhờ override
 		  này, mà nhờ không còn grant nền nào để tụt về.
 
-		FINDING 4 (vòng review 2, CRITICAL — đã vá): bản trước trả kết quả
-		kho-check cho MỌI permtype như nhau, nên role Customer (chỉ có
+		FINDING 4 (vòng review 2, CRITICAL — đã vá). Đoạn này mô tả tình
+		trạng TRƯỚC VÒNG 4; các con số quyền nêu ở đây là LỊCH SỬ, vì vòng 4
+		đã gỡ sạch DocPerm của `Customer` khỏi chứng từ cha. Giữ nguyên vì
+		logic thu hẹp theo permtype vẫn đúng và sẽ lại cần thiết ngay nếu
+		grant quay lại. Nguyên văn: bản trước trả kết quả kho-check cho MỌI
+		permtype như nhau, nên role Customer (khi đó có
 		read=1/print=1 trên chứng từ cha, write=0/delete=0/submit=0/cancel=0)
 		được CẤP quyền xoá/sửa dòng con. CHỈ được thu hẹp "read" và "print";
 		mọi permtype khác phải giao lại cho Frappe mặc định (vốn đã đúng:

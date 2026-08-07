@@ -87,15 +87,25 @@ def kho_child_has_permission(doc, ptype=None, user=None) -> bool:
 
 # `Customer Stock Receipt Item` và `Customer Stock Issue Item` là grandchild:
 # istable=1, permissions=[] trong JSON, và không mang field `kho` của riêng
-# mình — chỉ có `parent` trỏ về Customer Stock Receipt/Issue. Kiểm tra quyền
-# trên PARENT chỉ dừng ở mức doctype (role Customer có read=1 là đủ để qua),
-# rồi db_query mới lọc CHILD table — nếu bảng child không có
-# permission_query_conditions/has_permission riêng, nó không bị lọc gì cả.
-# `frappe.client.get_list`/`get_value` cho phép Website User đọc thẳng bảng
-# child theo `parent`/`parenttype`, không đi qua parent doc nào hết, nên phải
-# đăng ký hook CHO CHÍNH hai doctype này, tách biệt với parent. Đây đúng là
-# loại lỗ hổng dễ tái xuất hiện nhất khi có ai đó thêm loại chứng từ (voucher)
-# thứ ba mà quên nối dây hook cho bảng item con của nó.
+# mình — chỉ có `parent` trỏ về Customer Stock Receipt/Issue.
+#
+# BỐI CẢNH LỊCH SỬ — mô tả tình trạng TRƯỚC VÒNG 4, không phải hiện trạng.
+# Khi role `Customer` còn read=1 trên chứng từ cha: kiểm quyền trên PARENT chỉ
+# dừng ở mức doctype (read=1 là đủ để qua), rồi db_query mới lọc CHILD table —
+# bảng child không có permission_query_conditions riêng thì không bị lọc gì cả,
+# và `frappe.client.get_list`/`get_value` cho phép Website User đọc thẳng bảng
+# child theo `parent`/`parenttype`, không đi qua parent doc nào hết. Đó là lý
+# do hai hàm dưới đây tồn tại.
+#
+# HIỆN TRẠNG (vòng 4): role `Customer` không còn DocPerm nào trên chứng từ cha,
+# nên bước "read=1 là đủ để qua" không còn xảy ra — đã đo:
+# `frappe.client.get_list` trên cả sáu doctype cha ném PermissionError cho cả
+# hai user portal. Hai hàm dưới đây vì thế không còn được gọi tới trong thực
+# tế; giữ lại làm lớp phòng thủ thứ hai (xem docstring đầu file).
+#
+# Vẫn giữ nguyên bài học gốc: nếu ai đó thêm loại chứng từ (voucher) thứ ba VÀ
+# cấp quyền cho một role portal, bảng item con của nó phải được nối dây hook
+# riêng — đó là lỗ dễ tái xuất hiện nhất ở đây.
 
 
 def _child_condition(table: str, parent_table: str, user: str | None) -> str:
@@ -124,7 +134,14 @@ def issue_item_query(user=None) -> str:
 	)
 
 
-# FINDING 4 (vòng review 2, CRITICAL): bản trước có `voucher_item_has_permission`
+# FINDING 4 (vòng review 2, CRITICAL) — TOÀN BỘ khối comment này mô tả tình
+# trạng TRƯỚC VÒNG 4. Mọi câu dạng "role Customer có read=1/print=1 trên chứng
+# từ cha" bên dưới là mô tả LỊCH SỬ, không còn đúng với hiện trạng: vòng 4 đã
+# gỡ sạch DocPerm của `Customer` khỏi sáu doctype kho. Giữ lại nguyên văn vì
+# câu chuyện leo thang quyền vẫn là bài học đúng và sẽ đúng trở lại ngay nếu
+# grant quay lại.
+#
+# Bản trước có `voucher_item_has_permission`
 # trả kết quả kho-check cho MỌI ptype (read/write/delete/submit/cancel như
 # nhau). Hàm đó được đăng ký trong hooks.py["has_permission"] nhưng — như
 # FINDING 1 đã chứng minh — KHÔNG BAO GIỜ được framework gọi tới cho doctype
