@@ -45,10 +45,13 @@ class TestKhoApi(FrappeTestCase):
         self.assertEqual(row["so_lo_count"], 2)
         self.assertEqual(str(row["han_gan_nhat"]), "2026-09-01")
 
-    def test_kho_ton_never_leaks_other_customers(self):
-        frappe.set_user(BM_USER)
-        rows = kho_api.kho_ton()
-        self.assertTrue(all(r["vat_tu"] != self.kho["vt_pxn"] for r in rows))
+    # FINDING N2 (review cuối): test_kho_ton_never_leaks_other_customers đã bị
+    # XOÁ khỏi đây. Nó pass một cách vô nghĩa — setUp không seed dòng nào cho
+    # PXN, nên "không thấy vật tư của PXN" đúng ngay cả khi bộ lọc bị gỡ sạch;
+    # phần dữ liệu PXN mà nó vô tình dựa vào là rác rò rỉ giữa các test (
+    # FrappeTestCase chỉ rollback ở cuối class) cộng thứ tự chạy theo bảng chữ
+    # cái. Bản thay thế có seed CẢ HAI khách là
+    # test_kho_ton_isolated_with_both_customers_seeded ở cuối file.
 
     def test_kho_lo_is_fefo_ordered(self):
         frappe.set_user(BM_USER)

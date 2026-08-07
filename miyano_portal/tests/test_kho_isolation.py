@@ -22,7 +22,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.www import printview
 from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import permissions as kho_perms
-from miyano_portal.portal_context import get_portal_kho
+from miyano_portal.portal_context import get_allowed_khos, get_portal_kho
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
 BM_USER = "bvbm@demo.miyano"
@@ -352,6 +352,68 @@ class TestKhoIsolation(FrappeTestCase):
         self.assertIn("1=0", kho_perms.vat_tu_query(u))
         self.assertIn("1=0", kho_perms.receipt_item_query(u))
         self.assertIn("1=0", kho_perms.issue_item_query(u))
+
+    def test_deactivated_warehouse_leaves_permission_layer_without_leaking(self):
+        """FINDING N3 (review cuối): `get_portal_kho` lọc `active: 1` còn
+        `get_allowed_khos` thì không, nên một kho đã tắt vẫn hiện với tầng
+        phân quyền trong khi API từ chối nó.
+
+        Sau khi sửa, hàm này chốt cả hai nửa của hợp đồng:
+          * kho đã tắt rời khỏi danh sách của CHÍNH chủ (portal bị cắt thật),
+          * và nó KHÔNG vì thế mà rơi sang khách khác — điều kiện lọc của BM
+            vẫn không chứa kho PXN, đúng như trước khi tắt. Lịch sử của một
+            kho đã tắt vẫn là của khách đó, chỉ là không ai ở phía portal đọc
+            được nữa.
+          * Positive control BẮT BUỘC: nhân viên desk vẫn thấy kho đã tắt.
+            Thiếu nó thì một bản vá "tắt kho là xoá sổ dữ liệu" cũng pass.
+
+        FrappeTestCase chỉ rollback ở cuối class, nên bọc trong savepoint và
+        clear cache doc — cùng khuôn mẫu với test_kho_api.py.
+        """
+        kho_pxn = self.kho["kho_pxn"]
+        sp = "test_kho_tat_active_sp"
+        frappe.db.savepoint(sp)
+        try:
+            frappe.db.set_value("Customer Warehouse", kho_pxn, "active", 0)
+
+            # 1. Chủ sở hữu mất kho đã tắt khỏi mọi danh sách phân quyền.
+            self.assertNotIn(kho_pxn, get_allowed_khos(PXN_USER))
+            for fn in (kho_perms.receipt_query, kho_perms.lot_query,
+                       kho_perms.sle_query, kho_perms.receipt_item_query):
+                with self.subTest(fn=fn.__name__, user="PXN"):
+                    self.assertIn("1=0", fn(PXN_USER))
+            frappe.set_user(PXN_USER)
+            with self.assertRaises(frappe.PermissionError) as ctx:
+                get_portal_kho()
+            self.assertIn("chưa được mở kho", str(ctx.exception))
+            frappe.set_user("Administrator")
+
+            # 2. ...và KHÔNG rơi sang khách khác: điều kiện của BM y như cũ.
+            for fn in (kho_perms.receipt_query, kho_perms.lot_query,
+                       kho_perms.sle_query):
+                with self.subTest(fn=fn.__name__, user="BM"):
+                    cond = fn(BM_USER)
+                    self.assertIn(self.kho["kho_bm"], cond)
+                    self.assertNotIn(kho_pxn, cond)
+            self.assertEqual(get_allowed_khos(BM_USER), [self.kho["kho_bm"]])
+            lo_pxn = frappe.get_doc("Customer Warehouse Item", self.kho["vt_pxn"])
+            self.assertFalse(kho_perms.kho_child_has_permission(lo_pxn, user=BM_USER))
+
+            # 3. Positive control: desk Miyano vẫn đọc được kho đã tắt.
+            staff = _ensure_staff_user()
+            self.assertEqual(kho_perms.kho_query(staff), "")
+            self.assertEqual(kho_perms.receipt_query(staff), "")
+            frappe.set_user(staff)
+            self.assertIn(
+                kho_pxn,
+                frappe.get_list("Customer Warehouse", pluck="name",
+                                limit_page_length=0),
+            )
+            frappe.get_doc("Customer Warehouse", kho_pxn).check_permission("read")
+        finally:
+            frappe.set_user("Administrator")
+            frappe.db.rollback(save_point=sp)
+            frappe.clear_document_cache("Customer Warehouse", kho_pxn)
 
     def test_has_permission_blocks_other_customers_warehouse(self):
         kho_pxn = frappe.get_doc("Customer Warehouse", self.kho["kho_pxn"])

@@ -168,7 +168,14 @@ class CustomerStockIssue(Document):
 				"so_luong": r.so_luong, "don_gia": r.don_gia,
 				"han_su_dung": r.han_su_dung, "xac_nhan_het_han": 1,
 			})
-		dao.flags.ignore_permissions = True
+		# Giữ ĐÚNG một hình thức bỏ qua phân quyền, giống hệt phiếu nhập
+		# (customer_stock_receipt.py): kwarg của insert(). Bản trước còn đặt
+		# thêm `dao.flags.ignore_permissions = True` ngay trước đó — thừa,
+		# không sai: Document.insert() làm chính xác việc đó
+		# (`if ignore_permissions is not None: self.flags.ignore_permissions =
+		# ignore_permissions`), nên cờ vẫn còn hiệu lực ở dao.submit() trong
+		# CẢ HAI phiếu. Bỏ dòng thừa đi để hai chứng từ đọc giống nhau và để
+		# không ai hiểu nhầm rằng hai bên có mức kiểm quyền khác nhau.
 		dao.insert(ignore_permissions=True)
 		dao.submit()
 		return dao

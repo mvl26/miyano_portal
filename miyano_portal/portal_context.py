@@ -53,12 +53,29 @@ def get_portal_kho(user: str | None = None) -> str:
 
 
 def get_allowed_khos(user: str | None = None) -> list[str]:
-    """Mọi kho mà user được phép thấy. Dùng cho các hook phân quyền."""
+    """Mọi kho mà user được phép thấy. Dùng cho các hook phân quyền.
+
+    Lọc `active: 1` GIỐNG HỆT get_portal_kho(). Bản trước không lọc, nên một
+    kho đã tắt vẫn nằm trong danh sách của tầng phân quyền trong khi API từ
+    chối nó — hai câu trả lời khác nhau cho cùng một câu hỏi "kho này còn mở
+    không", đúng kiểu bất đối xứng sinh ra lỗ sau này.
+
+    Chiều thu hẹp là chiều đúng, và nó KHÔNG làm dữ liệu lộ sang khách khác:
+    mọi chỗ dùng hàm này (`_kho_condition`, `_child_condition`,
+    `kho_child_has_permission`, `voucher_item_readable`) đều coi kết quả như
+    một DANH SÁCH CHO PHÉP — bớt một kho chỉ có thể siết chặt thêm, không thể
+    nới ra, và danh sách rỗng render thành "1=0". Lịch sử của một kho đã tắt
+    vì thế không thuộc về ai ở tầng phân quyền của Website User; nhân viên
+    Miyano ngồi desk vẫn thấy đủ vì `_is_restricted_user` cho họ đi thẳng
+    trước khi hàm này được gọi.
+    """
     customers = get_allowed_customers(user)
     if not customers:
         return []
     return frappe.get_all(
-        "Customer Warehouse", filters={"customer": ["in", customers]}, pluck="name"
+        "Customer Warehouse",
+        filters={"customer": ["in", customers], "active": 1},
+        pluck="name",
     )
 
 
