@@ -28,47 +28,142 @@ from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 BM_USER = "bvbm@demo.miyano"
 PXN_USER = "pxnabc@demo.miyano"
 
-# Sáu doctype cha. Đây chính là danh sách phải KHÔNG có DocPerm nào cho role
-# `Customer` — xem TestKhoDocPermConfig.
-SIX_PARENT_DOCTYPES = [
-    "Customer Warehouse", "Customer Warehouse Item",
-    "Customer Stock Receipt", "Customer Stock Issue",
-    "Customer Stock Ledger Entry", "Customer Stock Lot Balance",
-]
-
 # Ba role nhân viên Miyano PHẢI giữ nguyên quyền desk. Assert sự có mặt của
 # chúng để một bản vá "xoá sạch mảng permissions" không lọt qua bộ test này.
 STAFF_ROLES = ["System Manager", "Sales Manager", "Sales User"]
 
-# Sáu doctype gốc (Task 6 ban đầu) cộng hai bảng item con của Receipt/Issue
-# (vá theo review) — tổng cộng tám doctype phải có mặt trong
-# permission_query_conditions.
-ALL_EIGHT_DOCTYPES = [
-    "Customer Warehouse", "Customer Warehouse Item",
-    "Customer Stock Receipt", "Customer Stock Issue",
-    "Customer Stock Ledger Entry", "Customer Stock Lot Balance",
-    "Customer Stock Receipt Item", "Customer Stock Issue Item",
-]
+# Module chứa toàn bộ doctype của app. Hai tiền tố dưới đây là quy ước đặt tên
+# của tính năng kho — mọi doctype kho, hiện tại và tương lai, đều bắt đầu bằng
+# một trong hai.
+KHO_MODULE = "Miyano Portal"
+KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 
-# has_permission chỉ có SÁU trong tám — CỐ Ý không có Customer Stock Receipt
-# Item / Customer Stock Issue Item (vòng review 2, Finding 5). Hai bảng đó
-# istable=1, và frappe.permissions.has_child_permission() rẽ nhánh sang kiểm
-# PARENT trước khi bất kỳ hook has_permission nào đăng ký cho CHÍNH doctype
-# con có cơ hội chạy — một entry ở đó sẽ không bao giờ được gọi, bất kể cấu
-# hình DocPerm thế nào, tức là một decoy. ĐỪNG thêm lại hai entry đó chỉ để
-# "cho khớp" với danh sách tám doctype ở permission_query_conditions.
-#
-# LƯU Ý (sửa lại ở vòng 4): bản trước của comment này viết tiếp rằng "cơ chế
-# THẬT SỰ là has_permission() ghi đè trên class controller". Câu đó KHÔNG CÒN
-# ĐÚNG. Kể từ vòng 4, cơ chế thật sự là role `Customer` không còn DocPerm nào
-# trên sáu doctype cha (xem docstring đầu file và TestKhoDocPermConfig);
-# override trên controller tụt xuống thành lớp phòng thủ thứ hai, và chính nó
-# cũng không đóng nổi đường module-level `frappe.has_permission()` mà
-# /printview dùng — đó là lý do vòng 4 phải sửa ở tầng cấu hình quyền.
-SIX_DOCTYPES_WITH_HAS_PERMISSION = [
-    dt for dt in ALL_EIGHT_DOCTYPES
-    if dt not in ("Customer Stock Receipt Item", "Customer Stock Issue Item")
-]
+# Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
+# sách này hiện RỖNG (cả tám doctype của module đều là doctype kho) và tồn tại
+# để việc thêm một doctype không-kho vào module trở thành một quyết định TƯỜNG
+# MINH: _nap_doctype_kho() ném lỗi khi gặp một cái tên nó không phân loại
+# được, thay vì âm thầm bỏ qua. Bỏ qua âm thầm chính là cách một doctype kho
+# đặt tên lệch quy ước sẽ ship ra với zero độ phủ cách ly.
+KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ()
+
+
+def _nap_doctype_kho() -> dict[str, list[str]]:
+    """Liệt kê doctype kho từ DATABASE lúc chạy test, không hardcode.
+
+    FINDING I2 (review cuối). Bản trước giữ hai hằng số viết tay
+    (`SIX_PARENT_DOCTYPES`, `ALL_EIGHT_DOCTYPES`). Không có gì buộc chúng phải
+    theo kịp code: thêm một doctype kho thứ bảy — cụ thể là loại chứng từ thứ
+    ba, đúng kịch bản mà `kho/permissions.py` tự dự báo trong comment của nó —
+    sẽ ship ra với ZERO độ phủ cách ly, và bảng item con của nó không nằm
+    trong hook dict nào, trong khi cả bộ test vẫn xanh.
+
+    Suy động từ `tabDocType` khiến điều đó không thể xảy ra: doctype kho mới
+    tự động lọt vào mọi vòng lặp bên dưới, và bộ test ĐỎ cho tới khi nó được
+    nối dây vào tầng cách ly (hook `permission_query_conditions`, và
+    `has_permission` nếu là doctype cha).
+
+    Truy vấn LẤY VỀ TOÀN BỘ doctype của module rồi mới phân loại trong Python
+    — KHÔNG lọc theo tiền tố ở tầng SQL. Đó là điều kiện để phát hiện được
+    một doctype lệch quy ước đặt tên: nếu lọc bằng `or_filters` thì những cái
+    tên không khớp bị loại ngay ở SQL, tức vô hình, và lưới an toàn dưới đây
+    không bao giờ có gì để bắt.
+
+    Phân loại cha/con bằng `istable` chứ không bằng tên: đó chính là thuộc
+    tính mà `frappe.permissions.has_child_permission()` rẽ nhánh theo, nên nó
+    là tiêu chí đúng về mặt cơ chế.
+
+    Đọc lười (không phải ở mức module) để việc import file test không cần sẵn
+    kết nối site. Cố ý KHÔNG cache: tám dòng, truy vấn gần như miễn phí, còn
+    một cache cũ là đúng kiểu hỏng âm thầm mà cả hàm này sinh ra để chống.
+    """
+    rows = frappe.get_all(
+        "DocType",
+        filters={"module": KHO_MODULE},
+        fields=["name", "istable"],
+        order_by="name asc",
+    )
+    kho_rows = [r for r in rows if r.name.startswith(KHO_PREFIXES)]
+    la = [
+        r.name for r in rows
+        if not r.name.startswith(KHO_PREFIXES)
+        and r.name not in KHONG_PHAI_DOCTYPE_KHO
+    ]
+    if la:
+        frappe.throw(
+            f"Doctype {la} thuộc module {KHO_MODULE} nhưng không khớp tiền tố "
+            f"kho nào ({', '.join(KHO_PREFIXES)}) và cũng không nằm trong "
+            "KHONG_PHAI_DOCTYPE_KHO. Suy động chỉ đúng bằng đúng quy ước đặt "
+            "tên của nó, nên trường hợp này phải ĐỎ chứ không được bỏ qua: "
+            "hoặc đổi tên doctype cho đúng quy ước (nếu là doctype kho), hoặc "
+            "khai báo nó vào KHONG_PHAI_DOCTYPE_KHO (nếu không phải)."
+        )
+    if not kho_rows:
+        frappe.throw(
+            f"Không tìm thấy doctype kho nào trong module {KHO_MODULE} — "
+            "danh sách rỗng sẽ khiến mọi vòng lặp test bên dưới pass vô "
+            "nghĩa. Kiểm tra lại tên module hoặc quy ước tiền tố."
+        )
+    return {
+        "all": [r.name for r in kho_rows],
+        "parent": [r.name for r in kho_rows if not r.istable],
+        "child": [r.name for r in kho_rows if r.istable],
+    }
+
+
+def kho_doctypes() -> list[str]:
+    """Mọi doctype kho — tất cả PHẢI có mặt trong permission_query_conditions."""
+    return _nap_doctype_kho()["all"]
+
+
+def kho_parent_doctypes() -> list[str]:
+    """Doctype kho KHÔNG phải bảng con.
+
+    Đây chính là danh sách phải KHÔNG có DocPerm nào cho role `Customer` (xem
+    TestKhoDocPermConfig) và là danh sách duy nhất được đăng ký trong hook
+    `has_permission`.
+    """
+    return _nap_doctype_kho()["parent"]
+
+
+def kho_child_doctypes() -> list[str]:
+    """Bảng con (istable=1) của các chứng từ kho.
+
+    Chúng CỐ Ý vắng mặt trong hook `has_permission` (vòng review 2, Finding 5):
+    `frappe.permissions.has_child_permission()` rẽ nhánh sang kiểm PARENT
+    trước khi bất kỳ hook has_permission nào đăng ký cho CHÍNH doctype con có
+    cơ hội chạy — một entry ở đó sẽ không bao giờ được gọi, bất kể cấu hình
+    DocPerm thế nào, tức là một decoy. ĐỪNG thêm lại chúng chỉ để "cho khớp"
+    với danh sách đầy đủ ở permission_query_conditions. Sự bất đối xứng đó
+    được CHỐT bằng assertion ngược trong
+    test_hooks_registered_for_every_kho_doctype, không chỉ bằng comment này.
+
+    LƯU Ý (sửa lại ở vòng 4): bản trước của comment này viết tiếp rằng "cơ chế
+    THẬT SỰ là has_permission() ghi đè trên class controller". Câu đó KHÔNG CÒN
+    ĐÚNG. Kể từ vòng 4, cơ chế thật sự là role `Customer` không còn DocPerm nào
+    trên các doctype cha (xem docstring đầu file và TestKhoDocPermConfig);
+    override trên controller tụt xuống thành lớp phòng thủ thứ hai, và chính nó
+    cũng không đóng nổi đường module-level `frappe.has_permission()` mà
+    /printview dùng — đó là lý do vòng 4 phải sửa ở tầng cấu hình quyền.
+    """
+    return _nap_doctype_kho()["child"]
+
+
+def _assert_fixture_phu_het(case, mapping, mong_doi, nhan):
+    """Chốt rằng một fixture viết tay phủ ĐÚNG danh sách doctype suy động.
+
+    FINDING I2. Vài fixture bên dưới buộc phải viết tay vì mỗi doctype cần một
+    BẢN GHI THẬT được seed (không suy ra từ tabDocType được). Nếu chỉ suy động
+    ở mấy test cấu hình hook mà để các fixture này tự do, doctype kho thứ chín
+    vẫn ship ra với zero độ phủ ở chính những test đo hành vi. Assertion này
+    làm chúng ĐỎ ngay khi hai bên lệch nhau.
+    """
+    case.assertEqual(
+        set(mapping), set(mong_doi),
+        f"{nhan}: fixture phải phủ đúng danh sách doctype kho suy động từ "
+        "tabDocType. Lệch nghĩa là có doctype kho mới chưa được nối vào bộ "
+        "test cách ly này (hoặc một doctype đã bị gỡ) — xem FINDING I2 và "
+        "_nap_doctype_kho() ở đầu file.",
+    )
 
 
 def _make_receipt(kho, vat_tu, so_lo):
@@ -279,25 +374,28 @@ class TestKhoIsolation(FrappeTestCase):
         with self.assertRaises(frappe.PermissionError):
             doc.check_permission("read")
 
-    def test_hooks_registered_for_all_eight_doctypes(self):
+    def test_hooks_registered_for_every_kho_doctype(self):
         # FINDING 2 (review round 1): kiểm tra membership trong dict LITERAL
         # của module hooks.py đã import không chứng minh gì về hook THẬT SỰ
         # được Frappe dùng lúc chạy — nó pass ngay cả khi cache hook cũ (đã
         # bị clear-cache quên chạy) hoặc app chưa cài. Phải hỏi thẳng
         # frappe.get_hooks(), nguồn mà framework thực sự đọc.
         #
-        # FINDING 5 (review round 2): has_permission chỉ có SÁU, không phải
-        # tám — hai bảng item con (istable=1) KHÔNG được đăng ký ở đây, xem
-        # SIX_DOCTYPES_WITH_HAS_PERMISSION ở đầu file để biết lý do. Assert
-        # NGƯỢC LẠI (rằng chúng KHÔNG có mặt) để không ai "sửa" sự bất đối
-        # xứng này bằng cách thêm lại hai dòng chết đó.
+        # FINDING 5 (review round 2): has_permission chỉ đăng ký cho doctype
+        # CHA — hai bảng item con (istable=1) KHÔNG được đăng ký, xem
+        # kho_child_doctypes() ở đầu file để biết lý do. Assert NGƯỢC LẠI
+        # (rằng chúng KHÔNG có mặt) để không ai "sửa" sự bất đối xứng này
+        # bằng cách thêm lại những dòng chết đó.
+        #
+        # FINDING I2 (review cuối): danh sách suy động từ tabDocType, nên một
+        # doctype kho thứ chín chưa nối dây sẽ làm test này ĐỎ ngay.
         pqc = frappe.get_hooks("permission_query_conditions")
         hp = frappe.get_hooks("has_permission")
-        for dt in ALL_EIGHT_DOCTYPES:
+        for dt in kho_doctypes():
             self.assertIn(dt, pqc, dt)
-        for dt in SIX_DOCTYPES_WITH_HAS_PERMISSION:
+        for dt in kho_parent_doctypes():
             self.assertIn(dt, hp, dt)
-        for dt in ("Customer Stock Receipt Item", "Customer Stock Issue Item"):
+        for dt in kho_child_doctypes():
             self.assertNotIn(dt, hp, dt)
 
 
@@ -390,6 +488,9 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Ledger Entry": self.sle_bm,
             "Customer Stock Lot Balance": self.lot_bm,
         }
+        for nhan, m in (("pxn_records", self.pxn_records),
+                        ("bm_records", self.bm_records)):
+            _assert_fixture_phu_het(self, m, kho_parent_doctypes(), nhan)
 
     def tearDown(self):
         frappe.set_user("Administrator")
@@ -415,7 +516,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
     # role, vì `Customer` không còn DocPerm nào. Giữ nguyên test vì hợp đồng
     # "khách A không đọc được bản ghi của khách B" không đổi — chỉ mạnh thêm.
 
-    def test_check_permission_blocks_other_customer_for_all_six_doctypes(self):
+    def test_check_permission_blocks_other_customer_for_every_parent_doctype(self):
         frappe.set_user(BM_USER)
         for dt, name in self.pxn_records.items():
             with self.subTest(doctype=dt):
@@ -442,7 +543,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
     # Rủi ro "test thoái hoá thành pass dưới lỗi cấm tiệt": xem
     # TestKhoApiDoorStillOpen + TestKhoStaffDeskAccess, và test 2b ngay dưới.
 
-    def test_get_list_denied_for_portal_user_for_all_six_doctypes(self):
+    def test_get_list_denied_for_portal_user_for_every_parent_doctype(self):
         frappe.set_user(BM_USER)
         for dt in self.pxn_records:
             for label, flt in (
@@ -473,7 +574,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
     # hỏng hoặc trả rỗng, nó fail ngay, trong khi mọi assertRaises ở trên vẫn
     # pass.
 
-    def test_own_data_reachable_via_sanctioned_pattern_for_all_six_doctypes(self):
+    def test_own_data_reachable_via_sanctioned_pattern_for_every_parent_doctype(self):
         frappe.set_user(BM_USER)
         kho = get_portal_kho()
         self.assertEqual(kho, self.kho["kho_bm"])
@@ -555,6 +656,8 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 "bm_row": self.issue_bm.items[0].name,
             },
         }
+        _assert_fixture_phu_het(self, self.child_map, kho_child_doctypes(),
+                                "child_map")
 
         # Phiếu NHÁP (docstatus=0) của BM, dùng riêng cho các test write-side
         # (FINDING 6) — save() ghi đè trực tiếp một dòng con chỉ có ý nghĩa
@@ -859,7 +962,7 @@ class TestKhoDocPermConfig(FrappeTestCase):
         for table in ("DocPerm", "Custom DocPerm"):
             rows = frappe.get_all(
                 table,
-                filters={"parent": ["in", ALL_EIGHT_DOCTYPES], "role": "Customer"},
+                filters={"parent": ["in", kho_doctypes()], "role": "Customer"},
                 fields=["parent", "role"],
             )
             self.assertEqual(
@@ -872,7 +975,7 @@ class TestKhoDocPermConfig(FrappeTestCase):
         """Guard chống bản vá 'xoá sạch mảng permissions'. Nếu chỉ assert
         Customer vắng mặt, một commit xoá luôn System Manager/Sales Manager/
         Sales User vẫn pass — và desk Miyano sẽ chết."""
-        for dt in SIX_PARENT_DOCTYPES:
+        for dt in kho_parent_doctypes():
             roles = {
                 r.role for r in frappe.get_all(
                     "DocPerm", filters={"parent": dt}, fields=["role"]
@@ -887,7 +990,7 @@ class TestKhoDocPermConfig(FrappeTestCase):
         has_child_permission() quy về cho hai bảng con istable=1, và cũng là
         vòng kiểm mà validate_print_permission() đi qua."""
         for user in (BM_USER, PXN_USER):
-            for dt in SIX_PARENT_DOCTYPES:
+            for dt in kho_parent_doctypes():
                 with self.subTest(user=user, doctype=dt):
                     self.assertFalse(
                         frappe.has_permission(dt, "read", user=user),
@@ -924,6 +1027,8 @@ class _KhoVoucherFixture(FrappeTestCase):
                 "bm": self.issue_bm.items[0].name,
             },
         }
+        _assert_fixture_phu_het(self, self.child_rows, kho_child_doctypes(),
+                                "child_rows")
 
     def tearDown(self):
         frappe.set_user("Administrator")
@@ -1051,18 +1156,18 @@ class TestKhoPortalDoorClosed(_KhoVoucherFixture):
 
     # -- D. frappe.client.get_list trên sáu doctype cha ---------------------
 
-    def test_client_get_list_raises_for_portal_user_on_six_doctypes(self):
+    def test_client_get_list_raises_for_portal_user_on_every_parent_doctype(self):
         for user in (BM_USER, PXN_USER):
             frappe.set_user(user)
-            for dt in SIX_PARENT_DOCTYPES:
+            for dt in kho_parent_doctypes():
                 with self.subTest(user=user, doctype=dt):
                     with self.assertRaises(frappe.PermissionError):
                         frappe_client.get_list(dt, limit_page_length=0)
 
-    def test_client_get_list_still_works_for_staff_on_six_doctypes(self):
+    def test_client_get_list_still_works_for_staff_on_every_parent_doctype(self):
         staff = _ensure_staff_user()
         frappe.set_user(staff)
-        for dt in SIX_PARENT_DOCTYPES:
+        for dt in kho_parent_doctypes():
             with self.subTest(doctype=dt):
                 rows = frappe_client.get_list(dt, limit_page_length=0)
                 self.assertTrue(rows, f"staff phải đọc được {dt}")
@@ -1138,7 +1243,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
     Administrator — Administrator bỏ qua mọi kiểm tra nên sẽ không chứng minh
     được gì)."""
 
-    def test_system_manager_has_full_read_on_all_six_doctypes(self):
+    def test_system_manager_has_full_read_on_every_parent_doctype(self):
         staff = _ensure_staff_user()
         frappe.set_user(staff)
         records = {
@@ -1159,6 +1264,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
                                     {"kho": self.kho["kho_pxn"]}, "name"),
             ),
         }
+        _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():
             with self.subTest(doctype=dt):
                 self.assertTrue(frappe.has_permission(dt, "read"))
