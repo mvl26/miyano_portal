@@ -61,8 +61,8 @@ Một bản ghi cho mỗi Customer. Autoname `KKH-.#####`.
 | `bo_phan_in` | Data | ô "Bộ phận" trên mẫu phiếu |
 | `mau_phieu_nhap` | Link Print Format | để trống = dùng mẫu mặc định |
 | `mau_phieu_xuat` | Link Print Format | để trống = dùng mẫu mặc định |
-| `ngay_bat_dau` | Date | reqd, chặn mọi phiếu có ngày trước mốc này |
-| `active` | Check | default 1 |
+| `ngay_bat_dau` | Date | reqd, chặn mọi phiếu có ngày trước mốc này (ngoại lệ duy nhất: hook §4.3 ghim ngày thay vì chặn, để không mất hàng đã giao) |
+| `active` | Check | default 1 — công tắc thủ công ngừng tính năng cho một khách. Bằng 0: hook §4.3 bỏ qua khách này im lặng (coi như "chưa mở kho"); `get_portal_kho()`/`get_allowed_khos()` cũng lọc `active=1` nên khách mất luôn quyền vào cổng kho (`PermissionError` tiếng Việt). Nhân viên Miyano trên desk vẫn thấy đầy đủ (`_is_restricted_user` cho qua trước khi filter này chạy), và ba báo cáo desk (§4.6/Phase 6) CỐ Ý không lọc `active` vì lịch sử một kho đã tắt vẫn cần tra được |
 
 ### 3.2 `Vật Tư Kho Khách`
 
@@ -236,8 +236,24 @@ lượng trên phiếu nháp trước khi submit.
   `delivery_note` đó chưa. Có rồi thì bỏ qua.
 - **Khách chưa mở kho:** bỏ qua im lặng, ghi log. Delivery Note không được phép fail
   vì lý do này.
+- **Kho đã `active = 0`:** bỏ qua im lặng, giống hệt "khách chưa mở kho" — `active`
+  là công tắc thủ công để ngừng tính năng cho một khách (ví dụ khách ngừng dùng dịch
+  vụ kho khách hàng nhưng vẫn còn mua hàng của Miyano bình thường); một kho đã tắt mà
+  vẫn tự mọc phiếu nháp thì cái công tắc đó vô nghĩa. Đây KHÔNG phải một nhánh lỗi —
+  không ghi log — vì đó là trạng thái được cấu hình có chủ đích, không phải sự cố.
 - **Dòng DN có `item_code` chưa có trong kho khách:** tự tạo `Vật Tư Kho Khách` tương
-  ứng, `item_code` trỏ về Item thật.
+  ứng, `item_code` trỏ về Item thật, `dvt` CHỐT theo ĐVT của chính dòng DN đó (hoặc
+  `stock_uom` của Item nếu dòng DN không có ĐVT). `dvt` chỉ được chốt một lần này;
+  hook không bao giờ ghi đè lại sau đó.
+- **Dòng DN có `item_code` ĐÃ có trong kho khách nhưng ĐVT của dòng khác `dvt` đã
+  chốt:** đây là một cái bẫy âm thầm — nếu cứ cộng thẳng, 10 "Hộp" và 10 "Cái" của
+  cùng một mã sẽ nhập chung thành một tồn "20" không còn ý nghĩa đơn vị nào, và không
+  có cách nào tách lại sau khi đã cộng. Hook KHÔNG tự quy đổi (việc quy đổi qua lại
+  giữa hai ĐVT là ngoài phạm vi thiết kế này) và KHÔNG chặn phiếu — vẫn tạo phiếu nháp
+  bình thường, nhưng: (1) ghi một dòng Error Log nêu rõ vật tư và hai ĐVT lệch nhau,
+  và (2) gắn cảnh báo lên `ghi_chu` của đúng dòng đó VÀ lên `dien_giai` của cả phiếu,
+  để thủ kho thấy ngay khi đối chiếu và tự quyết định trước khi ghi sổ (theo đúng
+  khuôn "nháp rồi đối chiếu" đã có ở trên) — không im lặng, không tự động sửa.
 - **Lô/HSD:** build này bật **cả hai** cơ chế lô của ERPNext v15
   (`Stock Settings.use_serial_batch_fields = 1` *và* doctype `Serial and Batch Bundle`
   đều tồn tại), nên hook phải đọc theo thứ tự: `Delivery Note Item.serial_and_batch_bundle`
@@ -246,6 +262,14 @@ lượng trên phiếu nháp trước khi submit.
   lô ở cả hai chỗ thì `so_lo = "KHONG-LO"`, `han_su_dung` để trống — trường hợp này có
   thật, các Delivery Note đang có trên `erptest.local` đều không gắn lô.
 - **Đơn giá:** `rate` trên dòng Delivery Note.
+- **DN có `ngay` (posting_date) trước `ngay_bat_dau` của kho:** ràng buộc §7 "ngày
+  phiếu trước `ngay_bat_dau` bị chặn" vẫn đúng nguyên vẹn cho MỌI phiếu tạo thủ công —
+  nhưng phiếu do hook này tự sinh là một ngoại lệ có chủ đích: hàng đã giao vật lý,
+  bỏ phiếu vì lý do ngày tháng đồng nghĩa với làm hàng biến mất khỏi kho khách mà
+  không ai biết. Hook GHIM `ngay` của phiếu vào đúng `ngay_bat_dau` (ngày sớm nhất kho
+  còn nhận, nên vẫn qua được `validate_ngay` — ràng buộc không hề bị nới lỏng) và ghi
+  ngày giao hàng THẬT vào `dien_giai` để sai khác đó hiện rõ trên chứng từ thay vì bị
+  giấu. Thủ kho tự đối chiếu và xử lý tiếp khi thấy cảnh báo này.
 - **`Delivery Note.on_cancel`:** nếu phiếu nhập tương ứng còn nháp thì huỷ phiếu; nếu
   đã submit thì sinh phiếu đảo.
 
@@ -362,12 +386,13 @@ Sổ kho tự viết nên không có lưới an toàn của ERPNext. Những th�
 |---|---|
 | Xuất quá tồn | Chặn cứng, thông báo nêu rõ lô và số còn lại |
 | Số lượng ≤ 0, đơn giá < 0 | Chặn ở `validate` |
-| Ngày phiếu trước `ngay_bat_dau` của kho | Chặn |
+| Ngày phiếu trước `ngay_bat_dau` của kho | Chặn ở `validate` (`voucher.validate_ngay`), áp dụng cho MỌI phiếu tạo thủ công. Riêng phiếu do hook Delivery Note (§4.3) tự sinh: ràng buộc không hề được nới — hook tự ghim ngày phiếu vào `ngay_bat_dau` TRƯỚC khi validate chạy, để hàng đã giao không bị bỏ phiếu, và ghi ngày giao thật vào `dien_giai` |
 | Sửa/xoá phiếu đã submit | Chặn, chỉ cho huỷ |
 | Ghi trùng dòng sổ | Khoá theo `chung_tu_row` |
 | Trùng `(kho, ma_vat_tu)` | Unique index |
 | Trùng phiếu nhập từ một DN | Kiểm tra `delivery_note` trước khi tạo |
 | Tồn theo lô lệch sổ | Lệnh `rebuild_ton_theo_lo` + test bất biến |
+| ĐVT dòng DN lệch `dvt` đã chốt của vật tư (§4.3) | Không chặn, không tự quy đổi — Error Log + cảnh báo hiển thị trên `ghi_chu` dòng và `dien_giai` phiếu nháp, để thủ kho tự quyết trước khi ghi sổ |
 
 Mọi thông báo lỗi ra tiếng Việt, không để lộ tên doctype tiếng Anh hay traceback.
 Skill áp dụng: `translating-backend-errors`.
