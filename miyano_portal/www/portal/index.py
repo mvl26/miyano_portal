@@ -1,6 +1,28 @@
+import os
+
 import frappe
 
 no_cache = 1
+
+
+def _build_token() -> str:
+    """Mốc cache-busting cho bundle SPA, lấy từ mtime của chính file bundle.
+
+    KHÔNG dùng `miyano_portal.__version__`: đó là hằng số trong code, chỉ đổi khi
+    ai đó nhớ bump lúc release. Deploy một bản build mới mà quên bump thì người
+    dùng vẫn chạy JS cũ, và triệu chứng nhìn thấy là "đã deploy rồi mà giao diện
+    không đổi" — rất khó truy ra nguyên nhân. mtime tự đổi mỗi lần vite build.
+    """
+    bundle = frappe.get_app_path("miyano_portal", "public", "frontend", "index.js")
+    try:
+        return str(int(os.path.getmtime(bundle)))
+    except OSError:
+        # Chưa build bao giờ, hoặc đường dẫn đổi. Thà cache sai còn hơn ném lỗi
+        # làm trắng cả trang cổng.
+        try:
+            return str(frappe.get_attr("miyano_portal.__version__"))
+        except Exception:
+            return "0"
 
 
 def get_context(context):
@@ -25,12 +47,8 @@ def get_context(context):
     except Exception:
         context.csrf_token = ""
 
-    # Cache-busting cho index.js/index.css đã build: URL asset (index.js/index.css)
-    # không đổi giữa các lần deploy nên trình duyệt/CDN sẽ giữ bản cũ. Dùng version
-    # app (ổn định, chỉ đổi khi release); fallback timestamp nếu tra cứu lỗi.
-    try:
-        context.build_version = frappe.get_attr("miyano_portal.__version__")
-    except Exception:
-        context.build_version = frappe.utils.now()
+    # Cache-busting: tên file asset không đổi giữa các lần deploy nên trình duyệt
+    # và CDN sẽ giữ bản cũ nếu không có tham số này. Xem _build_token().
+    context.build_version = _build_token()
 
     return context
