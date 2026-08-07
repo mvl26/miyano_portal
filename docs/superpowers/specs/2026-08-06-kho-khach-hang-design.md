@@ -170,19 +170,38 @@ Tương đương `Bin` của ERPNext. Autoname theo tổ hợp `(kho, vat_tu, so
 Toàn bộ bảng này tái dựng được từ `Sổ Kho Khách`. Cung cấp lệnh sửa chữa:
 
 ```
-bench --site erptest.local execute miyano_portal.kho.ton.rebuild_ton_theo_lo
+bench --site erptest.local execute miyano_portal.kho.ledger.rebuild_lot_balance
 ```
 
 **Đơn giá của lô** khi cùng một lô được nhập nhiều lần với giá khác nhau: bình quân
-gia quyền theo số lượng của các lần nhập lô đó. Xuất kho luôn lấy đơn giá hiện hành
-của lô.
+gia quyền theo số lượng. Phiếu xuất luôn lấy đơn giá hiện hành của lô, nên với phiếu
+xuất phép tính lại bình quân cho ra chính con số cũ — không đổi gì.
+
+**Ghi giảm cũng tính lại bình quân.** Điều này chỉ có tác dụng thật khi dòng ghi giảm
+mang đơn giá KHÁC bình quân hiện hành, mà trường hợp duy nhất như vậy là phiếu đảo của
+một phiếu nhập: nó hoàn lại đúng đơn giá lúc nhập. Ví dụ lô đang có 200 đơn vị bình
+quân 60.000 (12.000.000), huỷ phiếu nhập 100 @ 50.000 thì 100 đơn vị còn lại mang đơn
+giá `(12.000.000 − 5.000.000) / 100 = 70.000`. Đúng thực tế: hàng còn lại chính là lô
+đã nhập giá 70.000. Nếu không tính lại, cache đứng ở 60.000 trong khi sổ đã trừ
+5.000.000 — hai bên lệch 1.000.000 vĩnh viễn, và `rebuild_lot_balance` không cứu được
+vì nó chạy lại đúng phép tính đó.
+
+**Bất biến bắt buộc phải có test:** với mọi lô, tổng `gia_tri` của các dòng
+`Sổ Kho Khách` luôn bằng `gia_tri` của `Tồn Theo Lô`, kể cả sau khi huỷ phiếu và sau
+khi rebuild.
 
 ## 4. Luồng nghiệp vụ
 
 ### 4.1 Mở kho
 
-Nhân viên Miyano (`System Manager` / `Sales Manager` / `Sales User`) tạo `Kho Khách Hàng`
-cho một Customer, đặt `ma_kho`, `ngay_bat_dau` và mẫu phiếu in. Khách không tự mở kho.
+Nhân viên Miyano tạo `Kho Khách Hàng` cho một Customer, đặt `ma_kho`, `ngay_bat_dau`
+và mẫu phiếu in. Khách không tự mở kho. Quyền tạo thuộc về `System Manager` và
+`Sales Manager`; `Sales User` chỉ được đọc — cố ý hẹp hơn, vì mở kho là việc hiếm và
+hệ quả lớn hơn việc cấp một tài khoản portal.
+
+**Role `Customer` không có quyền doctype nào trên các doctype kho.** Portal chạm tới
+dữ liệu kho duy nhất qua API `miyano_portal.api.kho.*`, vốn tự suy kho từ phiên đăng
+nhập. Lý do ở §6.
 
 ### 4.2 Import danh mục + tồn đầu kỳ
 
@@ -307,6 +326,29 @@ từ `get_portal_customer()`** — không endpoint nào nhận `customer` hay `k
 - **Bài học đã ghi trong code này:** `frappe.get_doc` **không** tự chạy `has_permission`
   ở build này. Mọi chỗ lấy doc theo tên do client gửi phải gọi `check_permission()`
   tường minh — xem `api/portal.py:351` và `api/portal.py:490`.
+
+**Bổ sung sau khi thực thi — hai điều chỉ lộ ra khi đi tấn công thật:**
+
+1. **Bảng con của chứng từ cũng phải cách ly.** `Phiếu Nhập Kho Item` và
+   `Phiếu Xuất Kho Item` là doctype `istable`, không có field `kho` của riêng chúng.
+   Nếu bỏ sót, `frappe.client.get_list` trả về toàn bộ dòng phiếu kèm đơn giá của mọi
+   khách — kể cả cho tài khoản không gắn khách hàng nào. Điều kiện lọc của chúng phải
+   suy kho qua chứng từ cha bằng truy vấn con.
+
+2. **Hook `has_permission` KHÔNG BAO GIỜ chạy với doctype `istable`.**
+   `frappe/permissions.py` rẽ sang `has_child_permission()` trước, và phép suy
+   `parent_doc` ở đó trả `None` cho mọi dòng con nạp rời. Override method trên
+   controller cũng chỉ chặn được `doc.check_permission()`, không chặn được hàm cấp
+   module `frappe.has_permission(doctype, ptype, doc)` mà `/printview` và
+   `download_pdf` đang dùng.
+
+   Vì vậy chốt chặn thật là **gỡ hẳn quyền doctype của role `Customer`** trên các
+   doctype kho: cổng của bảng con quy về kiểm quyền mức doctype của chứng từ cha, nên
+   không cấp quyền là đóng mọi đường. Hook và override vẫn giữ làm lớp thứ hai.
+
+   **Hệ quả cần nhớ:** cấp lại `DocPerm` cho role `Customer` (kể cả role `All`) trên
+   bất kỳ doctype kho nào là mở lại lỗ ngay lập tức. `TestKhoDocPermConfig` và
+   `test_portal_user_has_no_doctype_level_read` canh việc này.
 - Nhân viên Miyano (không phải `Website User`) thấy toàn bộ, đúng cơ chế
   `_is_restricted_user` sẵn có.
 
