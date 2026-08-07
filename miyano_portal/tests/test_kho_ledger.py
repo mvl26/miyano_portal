@@ -513,3 +513,147 @@ class TestKhoBatBienGiaTri(FrappeTestCase):
         self.assertAlmostEqual(float(cache.don_gia), 60000, delta=DUNG_SAI)
         # Phần chênh nằm lại ở sổ — ghi nhận tường minh, không giả vờ là 0.
         self.assertAlmostEqual(self._tong_so("LO-A"), 1000000, delta=DUNG_SAI)
+
+
+class TestKhoReplayVouchersIntoLedger(FrappeTestCase):
+    """`replay_vouchers_into_ledger()` — bổ sung cho `rebuild_lot_balance()`:
+    dựng lại chính SỔ (không chỉ cache tồn) từ các phiếu đã submit, dùng khi
+    sổ bị mất nhưng chứng từ nguồn còn nguyên vẹn. Xem docstring của hàm.
+
+    Dùng một Customer/Warehouse RIÊNG cho lớp này, KHÔNG dùng kho_bm/kho_pxn
+    của seed_kho_demo(): hai kho đó đã tích luỹ dữ liệu thật xuyên suốt nhiều
+    lần chạy test trên site này (kho_bm có sẵn nhiều phiếu thật ngoài phạm vi
+    test), nên đếm `len(created)` trên chúng sẽ lẫn cả dữ liệu không do chính
+    test này tạo ra. Bài học rút ra từ chính sự cố mất sổ đã xảy ra khi viết
+    file này — xem báo cáo p6-desk-report.md."""
+
+    def setUp(self):
+        customer = "Replay Ledger Test Co"
+        if not frappe.db.exists("Customer", customer):
+            frappe.get_doc({
+                "doctype": "Customer",
+                "customer_name": customer,
+                "customer_type": "Company",
+                "customer_group": "All Customer Groups",
+                "territory": "All Territories",
+            }).insert(ignore_permissions=True)
+
+        self.K = frappe.db.get_value("Customer Warehouse", {"customer": customer}, "name")
+        if not self.K:
+            kho_doc = frappe.get_doc({
+                "doctype": "Customer Warehouse",
+                "customer": customer,
+                "ten_kho": "Kho test replay",
+                "ma_kho": "RPL",
+                "ngay_bat_dau": "2026-01-01",
+            })
+            kho_doc.insert(ignore_permissions=True)
+            self.K = kho_doc.name
+
+        self.VT = frappe.db.get_value("Customer Warehouse Item", {"kho": self.K, "ma_vat_tu": "RPL-01"}, "name")
+        if not self.VT:
+            vt_doc = frappe.get_doc({
+                "doctype": "Customer Warehouse Item",
+                "kho": self.K, "ma_vat_tu": "RPL-01", "ten_vat_tu": "Vật tư test replay", "dvt": "Cái",
+            })
+            vt_doc.insert(ignore_permissions=True)
+            self.VT = vt_doc.name
+
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.K})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.K})
+
+    def _nhap_doc(self, so_luong, don_gia, so_lo="LO-A", ngay="2026-02-01"):
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Receipt",
+            "kho": self.K, "ngay": ngay, "loai_nhap": "Nhập khác",
+            "nguoi_giao": "Test",
+            "items": [{
+                "vat_tu": self.VT, "so_lo": so_lo, "han_su_dung": "2030-01-01",
+                "so_luong": so_luong, "don_gia": don_gia,
+            }],
+        })
+        doc.insert(ignore_permissions=True)
+        doc.submit()
+        return doc
+
+    def _xuat_doc(self, so_luong, so_lo="LO-A", ngay="2026-03-01"):
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Issue",
+            "kho": self.K, "ngay": ngay, "loai_xuat": "Xuất sử dụng",
+            "noi_nhan": "Test", "nguoi_nhan": "Test",
+            "items": [{"vat_tu": self.VT, "so_lo": so_lo, "so_luong": so_luong}],
+        })
+        doc.insert(ignore_permissions=True)
+        doc.submit()
+        return doc
+
+    def test_rebuilds_ledger_and_lot_balance_from_existing_vouchers(self):
+        """Đếm theo `so_lo` RIÊNG của test này, không theo tổng `len(created)`
+        toàn kho: FrappeTestCase chỉ rollback cuối CLASS, nên các phiếu do
+        CÁC TEST KHÁC trong cùng lớp tạo ra vẫn còn nguyên khi test này chạy
+        — `so_lo` riêng cách ly khỏi điều đó, đếm tổng thì không."""
+        so_lo = "LO-REBUILD"
+        self._nhap_doc(100, 50000, so_lo=so_lo)
+        self._xuat_doc(30, so_lo=so_lo)
+
+        # Mô phỏng đúng sự cố: sổ và cache bị xoá sạch nhưng PHIẾU vẫn còn.
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.K})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.K})
+        self.assertEqual(frappe.db.count("Customer Stock Ledger Entry", {"kho": self.K}), 0)
+
+        ledger.replay_vouchers_into_ledger(kho=self.K)
+
+        entries = frappe.get_all(
+            "Customer Stock Ledger Entry", filters={"kho": self.K, "so_lo": so_lo}, fields=["name"]
+        )
+        self.assertEqual(len(entries), 2, "phải ghi lại đúng 2 dòng của LÔ NÀY: 1 nhập + 1 xuất")
+
+        bal = ledger.get_lot_balance(self.K, self.VT, so_lo)
+        self.assertEqual(bal["so_luong"], 70)
+        self.assertEqual(bal["don_gia"], 50000)
+
+    def test_calling_twice_creates_nothing_new(self):
+        so_lo = "LO-TWICE"
+        self._nhap_doc(40, 20000, so_lo=so_lo)
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.K})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.K})
+
+        ledger.replay_vouchers_into_ledger(kho=self.K)
+        after_first = frappe.db.count("Customer Stock Ledger Entry", {"kho": self.K, "so_lo": so_lo})
+        self.assertEqual(after_first, 1)
+
+        ledger.replay_vouchers_into_ledger(kho=self.K)
+        after_second = frappe.db.count("Customer Stock Ledger Entry", {"kho": self.K, "so_lo": so_lo})
+        self.assertEqual(
+            after_second, 1,
+            "chung_tu_row đã có dòng sổ -> gọi lại không được ghi thêm cho lô này",
+        )
+
+    def test_cancelled_receipt_original_line_is_replayed_and_marked_reversed(self):
+        """Phiếu bị huỷ vẫn phải có dòng GỐC trong sổ (chỉ đánh dấu da_dao=1),
+        và phiếu đảo tự sinh khi huỷ cũng phải được replay — cả hai đều là
+        Customer Stock Receipt thật trong DB, thứ tự tên đảm bảo dòng gốc
+        được ghi trước dòng đảo."""
+        pn = self._nhap_doc(20, 10000, so_lo="LO-HUY")
+        pn.reload()
+        pn.cancel()  # sinh phiếu đảo, tồn về 0
+
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.K})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.K})
+
+        ledger.replay_vouchers_into_ledger(kho=self.K)
+
+        entries = frappe.get_all(
+            "Customer Stock Ledger Entry",
+            filters={"kho": self.K, "so_lo": "LO-HUY"},
+            fields=["so_luong", "da_dao", "chung_tu"],
+            order_by="creation asc",
+        )
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["so_luong"], 20)
+        self.assertEqual(entries[0]["da_dao"], 1, "dòng gốc phải được đánh dấu đã đảo")
+        self.assertEqual(entries[1]["so_luong"], -20)
+        self.assertEqual(entries[1]["da_dao"], 0)
+
+        bal = ledger.get_lot_balance(self.K, self.VT, "LO-HUY")
+        self.assertAlmostEqual(float(bal["so_luong"]), 0, delta=ledger.EPS)

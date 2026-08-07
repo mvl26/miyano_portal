@@ -242,3 +242,61 @@ def rebuild_lot_balance(kho: str | None = None) -> int:
 			float(e["so_luong"]), float(e["don_gia"] or 0),
 		)
 	return frappe.db.count("Customer Stock Lot Balance", filters)
+
+
+# he_so_dau mirrors _he_so_dau()/on_submit() of the two voucher controllers —
+# duplicated here (not imported) because pulling in the controller classes
+# would create an import cycle (controllers import `ledger`, not the reverse).
+_HE_SO_DAU = {
+	"Customer Stock Receipt": lambda loai: -1.0 if loai == "Phiếu đảo" else 1.0,
+	"Customer Stock Issue": lambda loai: 1.0 if loai == "Phiếu đảo" else -1.0,
+}
+_LOAI_FIELD = {"Customer Stock Receipt": "loai_nhap", "Customer Stock Issue": "loai_xuat"}
+
+
+def replay_vouchers_into_ledger(doctype: str | None = None, kho: str | None = None) -> list[str]:
+	"""Ghi lại Sổ Kho Khách (`Customer Stock Ledger Entry`) từ CHÍNH CÁC PHIẾU
+	đã tồn tại (`Customer Stock Receipt`/`Customer Stock Issue`), dùng khi sổ
+	bị mất/trống nhưng chứng từ nguồn vẫn còn nguyên vẹn.
+
+	Bổ sung cho `rebuild_lot_balance()`, không thay thế: hàm đó dựng lại TỒN
+	THEO LÔ từ SỔ; hàm này dựng lại chính SỔ từ CHỨNG TỪ GỐC — cần khi sự cố
+	xoá mất cả sổ (không chỉ cache tồn). `post_lines()` đã idempotent theo
+	`chung_tu_row`, nên gọi hàm này trên một site đã có đủ sổ là vô hại,
+	không ghi thêm dòng nào.
+
+	Phải replay theo ĐÚNG THỨ TỰ TẠO CHỨNG TỪ (autoname `name` tăng đơn điệu
+	theo (kho, năm) — xem `voucher.next_voucher_name`): một phiếu ĐẢO luôn
+	được tạo SAU phiếu gốc, nên nếu xử lý theo thứ tự `name` tăng dần thì
+	dòng dương của phiếu gốc luôn được ghi trước dòng âm bù trừ của nó —
+	đảo thứ tự sẽ khiến `_ensure_non_negative()` chặn dòng đảo vì tồn tạm
+	thời âm.
+
+	Chứng từ ĐÃ HUỶ (`docstatus=2`) vẫn phải được replay: sổ vẫn phải chứa
+	dòng gốc của nó (chỉ đánh dấu `da_dao=1`), đúng bất biến "sổ append-only,
+	huỷ không xoá dòng nào" — hàm này tự đánh dấu lại sau khi ghi.
+
+	Chạy được từ dòng lệnh:
+	    bench --site <site> execute miyano_portal.kho.ledger.replay_vouchers_into_ledger
+	"""
+	created: list[str] = []
+	for dt in (doctype,) if doctype else ("Customer Stock Receipt", "Customer Stock Issue"):
+		loai_field = _LOAI_FIELD[dt]
+		he_so_fn = _HE_SO_DAU[dt]
+		filters = {"kho": kho} if kho else {}
+		names = frappe.get_all(dt, filters=filters, fields=["name"], order_by="name asc", pluck="name")
+		for name in names:
+			doc = frappe.get_doc(dt, name)
+			he_so = he_so_fn(doc.get(loai_field))
+			lines = [{
+				"vat_tu": r.vat_tu,
+				"so_lo": r.so_lo,
+				"han_su_dung": r.han_su_dung,
+				"so_luong": he_so * float(r.so_luong),
+				"don_gia": float(r.don_gia or 0),
+				"chung_tu_row": r.name,
+			} for r in doc.items]
+			created += post_lines(doc, lines)
+			if doc.docstatus == 2:
+				mark_reversed(dt, doc.name)
+	return created
