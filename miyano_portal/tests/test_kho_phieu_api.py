@@ -503,6 +503,48 @@ class TestKhoPhieuPdf(_KhoApiFixture):
         content = frappe.local.response.filecontent
         self.assertTrue(content[:4] == b"%PDF", "phải là PDF thật, không phải trang trắng lỗi")
 
+    def test_all_four_formats_render_through_standard_desk_printview(self):
+        """Nhân viên Miyano (System Manager/Sales Manager, có print=1 trên hai
+        doctype này) in từ desk đi qua frappe.www.printview.get_html_and_style(),
+        KHÔNG phải qua _render_phieu_html() của portal — và get_html_and_style
+        chỉ truyền đúng {"doc", "frappe"} vào context.
+
+        Bài học thật: bản đầu của bốn mẫu này tham chiếu biến `kho`/`rows_html`
+        mà CHỈ _render_phieu_html() tự bơm thêm, nên portal thì xanh (đường đó
+        có bơm) trong khi desk vỡ với PrintFormatError "'kho' is undefined" —
+        đo trực tiếp bằng chính get_html_and_style() thật, không phải suy diễn.
+        Bài test này khoá đúng đường desk đó lại, để một biến ngoài-ngữ-cảnh
+        tương tự không lọt qua lần nữa mà bộ test còn lại không hề biết.
+        """
+        from frappe.www.printview import get_html_and_style
+        from miyano_portal.setup.install_kho_print_formats import (
+            NAME_NHAP_TT107, NAME_NHAP_TT200, NAME_XUAT_TT107, NAME_XUAT_TT200,
+        )
+
+        receipt = self._nhap(so_lo="LO-A", so_luong=10, don_gia=1000)
+        issue = frappe.get_doc({
+            "doctype": "Customer Stock Issue",
+            "kho": self.kho["kho_bm"], "ngay": "2026-03-01",
+            "loai_xuat": "Xuất sử dụng", "noi_nhan": "Khoa test", "nguoi_nhan": "A",
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-A", "so_luong": 2}],
+        })
+        issue.insert(ignore_permissions=True)
+        issue.submit()
+
+        cases = [
+            (receipt, NAME_NHAP_TT107, "PHIẾU NHẬP KHO"),
+            (receipt, NAME_NHAP_TT200, "PHIẾU NHẬP KHO"),
+            (issue, NAME_XUAT_TT107, "PHIẾU XUẤT KHO"),
+            (issue, NAME_XUAT_TT200, "PHIẾU XUẤT KHO"),
+        ]
+        for doc, print_format, heading in cases:
+            with self.subTest(print_format=print_format):
+                html = get_html_and_style(doc=doc.as_json(), print_format=print_format)["html"]
+                self.assertIn(heading, html)
+                self.assertIn(doc.name, html)
+                # Dòng vật tư phải thật sự có mặt, không chỉ khung trống.
+                self.assertIn("<tr>", html)
+
     def test_pdf_denied_for_other_customer(self):
         doc = self._nhap(kho=self.kho["kho_pxn"], vat_tu=self.kho["vt_pxn"])
         frappe.set_user(BM_USER)
