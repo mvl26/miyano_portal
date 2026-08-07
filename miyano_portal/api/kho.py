@@ -28,9 +28,15 @@ import frappe
 
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
+from miyano_portal.kho import reports
 from miyano_portal.kho import voucher
 from miyano_portal.portal_context import get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
+
+# Ba loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
+# khuôn _LOAI_TO_DOCTYPE ở trên: tham số `loai` do client gửi không bao giờ
+# được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
+_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -576,3 +582,94 @@ def kho_phieu_pdf(doctype: str, name: str) -> None:
 	frappe.local.response.filename = f"{name}.pdf"
 	frappe.local.response.filecontent = get_pdf(html)
 	frappe.local.response.type = "pdf"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: báo cáo Nhập-Xuất-Tồn, thẻ kho, cảnh báo hạn dùng, xuất Excel.
+# Toàn bộ phép tính nằm ở miyano_portal/kho/reports.py — các hàm dưới đây chỉ
+# suy kho từ phiên, kiểm sở hữu tham số do client gửi (`vat_tu`), rồi giao lại
+# cho reports.py, đúng khuôn phân lớp của ledger.py/import_ton_dau.py.
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def kho_bao_cao_nxt(tu_ngay, den_ngay, tim=None, vat_tu=None) -> dict:
+	"""Báo cáo Nhập-Xuất-Tồn. Không truyền `vat_tu`: một dòng cho mỗi vật tư.
+	Có truyền `vat_tu`: bung xuống mức lô CỦA CHÍNH vật tư đó — `vat_tu` do
+	client gửi nên phải qua _vat_tu_cua_kho() trước khi chạm ledger, đúng
+	nguyên tắc đầu file (đây là tham số duy nhất của cả ba báo cáo Phase 5 mà
+	client tự chọn giá trị).
+	"""
+	kho = get_portal_kho()
+	if vat_tu:
+		_vat_tu_cua_kho(vat_tu, kho)
+		return {"muc": "lo", "vat_tu": vat_tu, "rows": reports.nxt_lot_rows(kho, vat_tu, tu_ngay, den_ngay)}
+	return {"muc": "vat_tu", "rows": reports.nxt_item_rows(kho, tu_ngay, den_ngay, tim)}
+
+
+@frappe.whitelist()
+def kho_the_kho(vat_tu: str, tu_ngay, den_ngay) -> list:
+	"""Thẻ kho của một vật tư trong khoảng ngày."""
+	kho = get_portal_kho()
+	_vat_tu_cua_kho(vat_tu, kho)
+	return reports.the_kho_rows(kho, vat_tu, tu_ngay, den_ngay)
+
+
+@frappe.whitelist()
+def kho_canh_bao_han(so_ngay=90) -> list:
+	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
+	kho = get_portal_kho()
+	try:
+		so_ngay = int(so_ngay)
+	except (TypeError, ValueError):
+		frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
+	if so_ngay < 0:
+		frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
+	return reports.canh_bao_han_rows(kho, so_ngay)
+
+
+@frappe.whitelist()
+def kho_bao_cao_excel(loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=None, so_ngay=90) -> None:
+	"""Xuất báo cáo ĐANG XEM ra .xlsx — CÙNG bộ cột, CÙNG dữ liệu mà endpoint
+	JSON tương ứng vừa trả cho màn hình, không có đường dữ liệu riêng nào
+	khác: `loai` chọn ĐÚNG MỘT trong ba hàm reports.*_rows() mà các endpoint
+	JSON ở trên cũng gọi, nên "cột khớp màn hình" là một tính chất CẤU TRÚC,
+	không phải một lời hứa phải tự kiểm tra tay mỗi khi sửa cột.
+	"""
+	kho = get_portal_kho()
+	if loai not in _BAO_CAO_LOAI:
+		frappe.throw("Loại báo cáo không hợp lệ.", frappe.ValidationError)
+
+	if loai == "nxt":
+		if not (tu_ngay and den_ngay):
+			frappe.throw("Thiếu khoảng ngày để xuất báo cáo.", frappe.ValidationError)
+		if vat_tu:
+			_vat_tu_cua_kho(vat_tu, kho)
+			rows = reports.nxt_lot_rows(kho, vat_tu, tu_ngay, den_ngay)
+			columns = reports.NXT_LOT_COLUMNS
+		else:
+			rows = reports.nxt_item_rows(kho, tu_ngay, den_ngay, tim)
+			columns = reports.NXT_COLUMNS
+		filename, sheet = "bao_cao_nhap_xuat_ton.xlsx", "N-X-T"
+	elif loai == "the_kho":
+		if not (vat_tu and tu_ngay and den_ngay):
+			frappe.throw("Thiếu vật tư hoặc khoảng ngày để xuất thẻ kho.", frappe.ValidationError)
+		_vat_tu_cua_kho(vat_tu, kho)
+		rows = reports.the_kho_rows(kho, vat_tu, tu_ngay, den_ngay)
+		columns = reports.THE_KHO_COLUMNS
+		filename, sheet = "the_kho.xlsx", "The kho"
+	else:
+		try:
+			so_ngay = int(so_ngay)
+		except (TypeError, ValueError):
+			so_ngay = 90
+		rows = reports.canh_bao_han_rows(kho, so_ngay)
+		columns = reports.CANH_BAO_COLUMNS
+		filename, sheet = "canh_bao_han_dung.xlsx", "Canh bao han dung"
+
+	frappe.local.response.filename = filename
+	frappe.local.response.filecontent = reports.build_xlsx(columns, rows, sheet)
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = (
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	)
