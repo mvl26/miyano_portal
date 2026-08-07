@@ -22,11 +22,89 @@ khối comment trong hooks.py). Hệ quả trực tiếp cho file này:
     qua một guard kiểu _vat_tu_cua_kho() trước.
 """
 
+import functools
+
 import frappe
 
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
+from miyano_portal.kho import voucher
 from miyano_portal.portal_context import get_portal_kho
+from miyano_portal.setup.install_kho_print_formats import (
+    DEFAULT_NHAP,
+    DEFAULT_XUAT,
+    _rows_html,
+)
+
+# Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
+# bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
+# giá trị này được chấp nhận.
+_LOAI_TO_DOCTYPE = {"nhap": "Customer Stock Receipt", "xuat": "Customer Stock Issue"}
+
+# docstatus -> nhãn tiếng Việt hiển thị trên portal.
+_TRANG_THAI = {0: "Nháp", 1: "Đã ghi sổ", 2: "Đã huỷ"}
+
+_LOAI_FIELD = {
+    "Customer Stock Receipt": "loai_nhap",
+    "Customer Stock Issue": "loai_xuat",
+}
+
+
+def _doctype_tu_loai(loai: str) -> str:
+    dt = _LOAI_TO_DOCTYPE.get(loai)
+    if not dt:
+        frappe.throw(
+            "Loại phiếu không hợp lệ. Chỉ chấp nhận \"nhap\" hoặc \"xuat\".",
+            frappe.ValidationError,
+        )
+    return dt
+
+
+def _phieu_cua_kho(doctype: str, name: str, kho: str) -> None:
+    """Xác nhận một PHIẾU (nhập hoặc xuất) do client gửi tên đúng là của kho
+    người gọi, TRƯỚC khi bất kỳ frappe.get_doc/db.get_value nào khác chạm vào
+    nó. Cùng khuôn với _vat_tu_cua_kho(): frappe.get_doc không tự kiểm
+    has_permission ở build này.
+
+    `doctype` cũng do client gửi ở các endpoint kho_phieu_* (theo đúng chữ ký
+    trong yêu cầu) — kiểm nó nằm trong danh sách trắng TRƯỚC, nếu không
+    kho_phieu_submit(doctype, name) sẽ là một cách gọi submit() trên BẤT KỲ
+    doctype submittable nào trên site.
+
+    Tên không tồn tại thì frappe.db.get_value trả None, tự động khác `kho` và
+    rơi vào đúng nhánh PermissionError tiếng Việt bên dưới — không bao giờ lộ
+    ra DoesNotExistError bằng tiếng Anh nêu tên doctype.
+    """
+    if doctype not in voucher.VOUCHER_DOCTYPES:
+        frappe.throw("Loại chứng từ không hợp lệ.", frappe.ValidationError)
+    if not name or frappe.db.get_value(doctype, name, "kho") != kho:
+        raise frappe.PermissionError("Phiếu không thuộc kho của đơn vị bạn.")
+
+
+def _phieu_action(fn):
+    """Mọi ngoại lệ KHÔNG PHẢI lỗi nghiệp vụ của chính chúng ta (ValidationError
+    do voucher.py/controller ném ra với thông điệp tiếng Việt đã soạn sẵn, hoặc
+    PermissionError của các guard cách ly) phải được dịch sang một thông điệp
+    tiếng Việt chung chung trước khi tới người dùng — không bao giờ để lộ
+    traceback hay tên lớp lỗi tiếng Anh của framework. Lỗi gốc vẫn được ghi
+    vào Error Log để nhân viên kỹ thuật tra được.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except (frappe.ValidationError, frappe.PermissionError):
+            raise
+        except Exception:
+            frappe.log_error(title=f"kho_phieu: lỗi trong {fn.__name__}")
+            frappe.throw(
+                "Có lỗi xảy ra khi xử lý phiếu. Vui lòng thử lại hoặc liên hệ "
+                "nhân viên kinh doanh Miyano.",
+                frappe.ValidationError,
+            )
+
+    return wrapper
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -116,6 +194,26 @@ def kho_lo(vat_tu) -> list:
 	return [{k: v for k, v in row.items() if k != "name"} for row in ledger.get_lot_balances(kho, vat_tu)]
 
 
+@frappe.whitelist()
+def kho_vat_tu_list() -> list:
+	"""Danh mục vật tư đang dùng của kho — dùng để chọn vật tư khi lập phiếu
+	nhập/xuất. Không nằm trong đặc tả API gốc (mục 5 chỉ liệt kê
+	kho_vat_tu_list/kho_vat_tu_upsert như việc của một phase khác), nhưng màn
+	hình lập phiếu của Phase 3 không thể hoạt động nếu không có cách liệt kê
+	vật tư — bổ sung tối thiểu, chỉ đọc, cùng khuôn cách ly với kho_ton():
+	lọc tường minh theo kho lấy từ phiên, KHÔNG dùng kho_ton() làm nguồn vì nó
+	chỉ trả các vật tư đang CÒN TỒN (so_luong > 0) — một vật tư đã bán hết vẫn
+	phải chọn được để nhập thêm.
+	"""
+	kho = get_portal_kho()
+	return frappe.get_all(
+		"Customer Warehouse Item",
+		filters={"kho": kho, "active": 1},
+		fields=["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code"],
+		order_by="ten_vat_tu asc",
+	)
+
+
 def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 	"""Nạp nội dung một file .xlsx do CHÍNH người gọi vừa upload.
 
@@ -186,3 +284,297 @@ def kho_import_commit(file_url) -> dict:
 	kho = get_portal_kho()
 	content = _resolve_owned_spreadsheet(file_url)
 	return import_ton_dau.commit_workbook(content, kho)
+
+
+# ---------------------------------------------------------------------------
+# Phiếu nhập / xuất kho (Phase 3): danh sách, chi tiết, tạo/sửa nháp, ghi sổ,
+# huỷ, gợi ý lô FEFO, in PDF.
+# ---------------------------------------------------------------------------
+
+
+def _phieu_to_dict(doc) -> dict:
+	out = doc.as_dict()
+	# as_dict() giữ nguyên mọi field nội bộ (owner, creation, docstatus dạng
+	# DocStatus...). Portal chỉ cần các field hiển thị — không có gì nhạy cảm
+	# ở đây (đây là DỮ LIỆU CỦA CHÍNH NGƯỜI GỌI, đã qua _phieu_cua_kho), nhưng
+	# vẫn ép docstatus về int thường để JSON hoá gọn và thêm nhãn trạng thái.
+	out["docstatus"] = int(doc.docstatus)
+	out["trang_thai"] = _TRANG_THAI.get(int(doc.docstatus), "")
+	out["items"] = [row.as_dict() for row in doc.items]
+	return out
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_list(loai: str, limit: int = 20, start: int = 0) -> list:
+	kho = get_portal_kho()
+	doctype = _doctype_tu_loai(loai)
+	loai_field = _LOAI_FIELD[doctype]
+	fields = ["name", "ngay", loai_field, "tong_tien", "docstatus", "modified"]
+	if doctype == "Customer Stock Receipt":
+		fields.append("nguoi_giao")
+	else:
+		fields += ["noi_nhan", "nguoi_nhan"]
+	rows = frappe.get_all(
+		doctype,
+		filters={"kho": kho},
+		fields=fields,
+		order_by="creation desc",
+		limit_page_length=int(limit) if limit else 20,
+		limit_start=int(start) if start else 0,
+	)
+	for row in rows:
+		row["trang_thai"] = _TRANG_THAI.get(int(row["docstatus"]), "")
+	return rows
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_get(doctype: str, name: str) -> dict:
+	kho = get_portal_kho()
+	_phieu_cua_kho(doctype, name, kho)
+	doc = frappe.get_doc(doctype, name)
+	return _phieu_to_dict(doc)
+
+
+def _parse_payload(payload) -> dict:
+	if isinstance(payload, str):
+		payload = frappe.parse_json(payload)
+	if not isinstance(payload, dict):
+		frappe.throw("Dữ liệu phiếu không hợp lệ.", frappe.ValidationError)
+	return payload
+
+
+def _validate_items_present(items) -> list:
+	if not items:
+		frappe.throw("Phiếu phải có ít nhất một dòng vật tư.", frappe.ValidationError)
+	for idx, row in enumerate(items, start=1):
+		if not (row.get("vat_tu") if isinstance(row, dict) else row.vat_tu):
+			frappe.throw(f"Dòng {idx}: chưa chọn vật tư.", frappe.ValidationError)
+		if not (row.get("so_lo") if isinstance(row, dict) else row.so_lo):
+			frappe.throw(f"Dòng {idx}: chưa nhập số lô.", frappe.ValidationError)
+	return items
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_nhap_save(payload) -> dict:
+	kho = get_portal_kho()
+	payload = _parse_payload(payload)
+	name = payload.get("name")
+
+	if name:
+		_phieu_cua_kho("Customer Stock Receipt", name, kho)
+		doc = frappe.get_doc("Customer Stock Receipt", name)
+		if doc.docstatus != 0:
+			frappe.throw(
+				"Phiếu đã được ghi sổ hoặc đã huỷ, không thể sửa. Chỉ có thể "
+				"sửa khi phiếu còn ở trạng thái nháp.",
+				frappe.ValidationError,
+			)
+	else:
+		doc = frappe.new_doc("Customer Stock Receipt")
+
+	items = _validate_items_present(payload.get("items"))
+
+	# `kho` LUÔN lấy từ phiên đăng nhập, không bao giờ từ payload — kể cả khi
+	# client cố tình gửi kèm kho của khách khác.
+	doc.kho = kho
+	doc.ngay = payload.get("ngay") or doc.ngay or frappe.utils.today()
+	doc.loai_nhap = payload.get("loai_nhap") or doc.loai_nhap or "Nhập khác"
+	doc.nguoi_giao = payload.get("nguoi_giao")
+	doc.chung_tu_kem = payload.get("chung_tu_kem")
+	doc.dien_giai = payload.get("dien_giai")
+
+	doc.set("items", [])
+	for row in items:
+		doc.append("items", {
+			"vat_tu": row.get("vat_tu"),
+			"so_lo": row.get("so_lo"),
+			"han_su_dung": row.get("han_su_dung"),
+			"so_luong": row.get("so_luong"),
+			"don_gia": row.get("don_gia"),
+			"ghi_chu": row.get("ghi_chu"),
+		})
+
+	doc.flags.ignore_permissions = True
+	if doc.is_new():
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+	return _phieu_to_dict(doc)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_xuat_save(payload) -> dict:
+	kho = get_portal_kho()
+	payload = _parse_payload(payload)
+	name = payload.get("name")
+
+	if name:
+		_phieu_cua_kho("Customer Stock Issue", name, kho)
+		doc = frappe.get_doc("Customer Stock Issue", name)
+		if doc.docstatus != 0:
+			frappe.throw(
+				"Phiếu đã được ghi sổ hoặc đã huỷ, không thể sửa. Chỉ có thể "
+				"sửa khi phiếu còn ở trạng thái nháp.",
+				frappe.ValidationError,
+			)
+	else:
+		doc = frappe.new_doc("Customer Stock Issue")
+
+	items = _validate_items_present(payload.get("items"))
+
+	doc.kho = kho
+	doc.ngay = payload.get("ngay") or doc.ngay or frappe.utils.today()
+	doc.loai_xuat = payload.get("loai_xuat") or doc.loai_xuat or "Xuất sử dụng"
+	doc.noi_nhan = payload.get("noi_nhan")
+	doc.nguoi_nhan = payload.get("nguoi_nhan")
+	doc.dien_giai = payload.get("dien_giai")
+
+	doc.set("items", [])
+	for row in items:
+		# don_gia và han_su_dung KHÔNG nhận từ client dù có gửi kèm: controller
+		# (_lay_gia_va_han_tu_lo) luôn ghi đè bằng giá/hạn hiện hành của lô ở
+		# validate(), đúng như test_price_taken_from_lot_not_user đã khẳng định.
+		doc.append("items", {
+			"vat_tu": row.get("vat_tu"),
+			"so_lo": row.get("so_lo"),
+			"so_luong": row.get("so_luong"),
+			"xac_nhan_het_han": 1 if row.get("xac_nhan_het_han") else 0,
+			"ghi_chu": row.get("ghi_chu"),
+		})
+
+	doc.flags.ignore_permissions = True
+	if doc.is_new():
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+	return _phieu_to_dict(doc)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_submit(doctype: str, name: str) -> dict:
+	kho = get_portal_kho()
+	_phieu_cua_kho(doctype, name, kho)
+	doc = frappe.get_doc(doctype, name)
+	if doc.docstatus != 0:
+		frappe.throw(
+			"Chỉ có thể ghi sổ phiếu đang ở trạng thái nháp.",
+			frappe.ValidationError,
+		)
+	doc.flags.ignore_permissions = True
+	doc.submit()
+	return _phieu_to_dict(doc)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_cancel(doctype: str, name: str) -> dict:
+	kho = get_portal_kho()
+	_phieu_cua_kho(doctype, name, kho)
+	doc = frappe.get_doc(doctype, name)
+	if doc.docstatus != 1:
+		frappe.throw(
+			"Chỉ có thể huỷ phiếu đã được ghi sổ.", frappe.ValidationError
+		)
+	doc.flags.ignore_permissions = True
+	doc.cancel()
+	return _phieu_to_dict(doc)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_lo_goi_y(vat_tu: str, so_luong) -> dict:
+	"""Gợi ý lô theo FEFO cho một dòng xuất: đi từ lô hết hạn gần nhất, lô
+	không có hạn xếp cuối (ledger.get_lot_balances đã sắp đúng thứ tự này),
+	và phân bổ tham lam (greedy) số lượng cần xuất qua từng lô cho tới khi đủ.
+
+	Đây CHỈ là gợi ý hiển thị trên form — không ném lỗi khi không đủ tồn, vì
+	người dùng có thể đang xem trước hoặc sẽ đổi số lượng; chốt chặn thật nằm
+	ở before_submit của Customer Stock Issue (_chan_xuat_qua_ton).
+	"""
+	kho = get_portal_kho()
+	_vat_tu_cua_kho(vat_tu, kho)
+	try:
+		can = float(so_luong)
+	except (TypeError, ValueError):
+		frappe.throw("Số lượng không hợp lệ.", frappe.ValidationError)
+	if can < 0:
+		frappe.throw("Số lượng không hợp lệ.", frappe.ValidationError)
+
+	hom_nay = frappe.utils.getdate(frappe.utils.today())
+	con_lai = can
+	lots = []
+	for lot in ledger.get_lot_balances(kho, vat_tu):
+		ton = float(lot["so_luong"])
+		de_xuat = min(con_lai, ton) if con_lai > 0 else 0.0
+		con_lai = max(0.0, con_lai - de_xuat)
+		han = lot["han_su_dung"]
+		lots.append({
+			"so_lo": lot["so_lo"],
+			"han_su_dung": han,
+			"so_luong_ton": ton,
+			"don_gia": float(lot["don_gia"] or 0),
+			"het_han": bool(han and frappe.utils.getdate(han) < hom_nay),
+			"de_xuat": de_xuat,
+		})
+	return {"lots": lots, "thieu": con_lai}
+
+
+def _print_format_cho_kho(doctype: str, kho: str) -> str:
+	"""Chọn mẫu in: mẫu riêng của kho nếu có VÀ đúng loại chứng từ, ngược lại
+	dùng mẫu TT107 mặc định. Một Print Format cấu hình sai loại doc_type (ví
+	dụ trỏ nhầm sang "Miyano - Hoá đơn") sẽ bị bỏ qua thay vì render rác hoặc
+	ném lỗi tiếng Anh của framework.
+	"""
+	field = "mau_phieu_nhap" if doctype == "Customer Stock Receipt" else "mau_phieu_xuat"
+	default = DEFAULT_NHAP if doctype == "Customer Stock Receipt" else DEFAULT_XUAT
+	chosen = frappe.db.get_value("Customer Warehouse", kho, field)
+	if chosen:
+		doc_type_cua_mau = frappe.db.get_value("Print Format", chosen, "doc_type")
+		if doc_type_cua_mau == doctype:
+			return chosen
+	return default
+
+
+def _render_phieu_html(doctype: str, name: str, kho: str) -> str:
+	"""Dựng HTML của phiếu bằng CHÍNH mẫu Print Format đã cài, nhưng KHÔNG đi
+	qua frappe.www.printview.get_html_and_style(): hàm đó tự kiểm quyền bên
+	trong (đã đo thực nghiệm — ném PermissionError cho user portal dù đã gọi
+	doc.check_permission("read") thành công trước đó không giúp gì, vì
+	get_html_and_style tự làm lại việc kiểm tra bằng cơ chế module-level mà
+	role Customer luôn trượt, đúng như spec mục 6 mô tả).
+
+	Thay vào đó: sau khi TỰ kiểm sở hữu bằng _phieu_cua_kho() (đã làm ở nơi
+	gọi), nạp doc bằng frappe.get_doc (an toàn ở đây vì sở hữu đã được xác
+	nhận tường minh) rồi tự render template của Print Format bằng
+	frappe.render_template — hàm thuần render, không có tầng kiểm quyền nào
+	chen vào giữa.
+	"""
+	doc = frappe.get_doc(doctype, name)
+	kho_info = frappe.db.get_value(
+		"Customer Warehouse", kho,
+		["name", "ten_kho", "ten_don_vi_in", "bo_phan_in", "thu_kho", "dia_chi_kho"],
+		as_dict=True,
+	)
+	print_format = _print_format_cho_kho(doctype, kho)
+	html_template = frappe.db.get_value("Print Format", print_format, "html")
+	rows_html = _rows_html(doc.items)
+	return frappe.render_template(
+		html_template, {"doc": doc, "kho": kho_info, "rows_html": rows_html, "frappe": frappe}
+	)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_phieu_pdf(doctype: str, name: str) -> None:
+	kho = get_portal_kho()
+	_phieu_cua_kho(doctype, name, kho)
+	html = _render_phieu_html(doctype, name, kho)
+	from frappe.utils.pdf import get_pdf
+	frappe.local.response.filename = f"{name}.pdf"
+	frappe.local.response.filecontent = get_pdf(html)
+	frappe.local.response.type = "pdf"

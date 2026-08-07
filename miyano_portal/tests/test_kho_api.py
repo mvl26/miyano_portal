@@ -164,6 +164,30 @@ class TestKhoApi(FrappeTestCase):
         self.assertTrue(any(r["vat_tu"] == self.kho["vt_pxn"] for r in pxn_rows))
         self.assertTrue(all(r["vat_tu"] != self.kho["vt_bm"] for r in pxn_rows))
 
+    def test_kho_vat_tu_list_includes_zero_stock_items(self):
+        """kho_vat_tu_list phải liệt kê được vật tư KHÔNG CÒN tồn (khác với
+        kho_ton, vốn lọc so_luong > 0) — nếu không, thủ kho không thể chọn lại
+        một vật tư đã bán hết để lập phiếu nhập thêm.
+        """
+        frappe.db.delete(
+            "Customer Stock Lot Balance",
+            {"vat_tu": self.kho["vt_bm"]},
+        )
+        frappe.set_user(BM_USER)
+        rows = kho_api.kho_vat_tu_list()
+        codes = [r["ma_vat_tu"] for r in rows]
+        self.assertIn("MYN-GLOVE-M", codes)
+        ton = kho_api.kho_ton()
+        self.assertFalse(any(r["vat_tu"] == self.kho["vt_bm"] for r in ton))
+
+    def test_kho_vat_tu_list_isolated_per_customer(self):
+        frappe.set_user(BM_USER)
+        rows = kho_api.kho_vat_tu_list()
+        self.assertTrue(all(r["name"] != self.kho["vt_pxn"] for r in rows))
+        frappe.set_user(PXN_USER)
+        rows = kho_api.kho_vat_tu_list()
+        self.assertTrue(all(r["name"] != self.kho["vt_bm"] for r in rows))
+
     def test_customer_without_warehouse_gets_specific_message(self):
         """A customer whose account/user exists but has no Customer
         Warehouse provisioned must get the specific "chưa được mở kho"
