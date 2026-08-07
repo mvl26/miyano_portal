@@ -10,10 +10,11 @@ function csrfToken() {
 }
 
 const API_PREFIX = '/api/method/miyano_portal.api.portal.'
+const KHO_PREFIX = '/api/method/miyano_portal.api.kho.'
 
-// Gọi một whitelist method của backend portal. Trả về d.message (payload thật).
-export async function call(method, args) {
-  const res = await fetch(API_PREFIX + method, {
+// Gọi thẳng một method whitelist theo đường dẫn đầy đủ (đã có prefix).
+async function callUrl(url, args) {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -23,10 +24,34 @@ export async function call(method, args) {
   })
   const data = await res.json()
   if (!res.ok) {
-    const msg = data && (data.exception || data._server_messages || data.message)
-    throw new Error(msg || ('HTTP ' + res.status))
+    // exception thường dạng "frappe.exceptions.PermissionError: <thông điệp>"
+    // — bỏ phần tên lớp lỗi để chỉ hiển thị thông điệp tiếng Việt, nhưng giữ
+    // lại tên lớp ở err.name để nơi gọi phân biệt được PermissionError (vd.
+    // "chưa có kho") với lỗi hệ thống thật sự.
+    let msg = data && (data.exception || data._server_messages || data.message)
+    let errName = ''
+    if (msg && typeof msg === 'string') {
+      const m = msg.match(/^([\w.]*Error):\s*(.+)$/s)
+      if (m) {
+        errName = m[1].split('.').pop()
+        msg = m[2]
+      }
+    }
+    const err = new Error(msg || ('HTTP ' + res.status))
+    if (errName) err.name = errName
+    throw err
   }
   return data.message
+}
+
+// Gọi một whitelist method của backend portal. Trả về d.message (payload thật).
+export async function call(method, args) {
+  return callUrl(API_PREFIX + method, args)
+}
+
+// Gọi một whitelist method của module kho (miyano_portal.api.kho).
+export async function callKho(method, args) {
+  return callUrl(KHO_PREFIX + method, args)
 }
 
 // Đăng nhập qua endpoint chuẩn của Frappe (form-encoded).
@@ -53,4 +78,4 @@ export async function logout() {
   })
 }
 
-export default { call, login, logout }
+export default { call, callKho, login, logout }

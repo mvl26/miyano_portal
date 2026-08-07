@@ -12,16 +12,18 @@ const NAV = [
   { to: '/catalog', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'catalog' },
   { to: '/cart', icon: '📦', label: 'Giỏ hàng', short: 'Giỏ', key: 'cart', cart: true },
   { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
+  { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
   { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
   { to: '/profile', icon: '🏥', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile' },
 ]
 
-// Bottom nav (mobile): 5 mục — Hoá đơn truy cập qua "Thêm" (Hồ sơ) như mockup.
+// Bottom nav (mobile): 6 mục — Hoá đơn truy cập qua "Thêm" (Hồ sơ) như mockup.
 const BNAV = [
   { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
   { to: '/catalog', icon: '🛒', short: 'Đặt hàng', key: 'catalog' },
   { to: '/cart', icon: '🧺', short: 'Giỏ hàng', key: 'cart', cart: true },
   { to: '/orders', icon: '📋', short: 'Đơn hàng', key: 'orders' },
+  { to: '/kho', icon: '🏭', short: 'Kho', key: 'kho' },
   { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile' },
 ]
 
