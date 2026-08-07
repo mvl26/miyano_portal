@@ -54,6 +54,32 @@ export async function callKho(method, args) {
   return callUrl(KHO_PREFIX + method, args)
 }
 
+// URL tải file (GET, mở tab mới hoặc gán vào href) của một method kho trả về
+// nội dung nhị phân (vd. kho_import_template).
+export function khoDownloadUrl(method) {
+  return KHO_PREFIX + method
+}
+
+// Upload một file lên Frappe (endpoint chuẩn /api/method/upload_file), dùng
+// cho bước "chọn tệp" của import. KHÔNG dùng callUrl(): trình duyệt phải tự
+// đặt Content-Type multipart kèm boundary, nên header đó KHÔNG được set tay.
+export async function uploadFile(file) {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('is_private', '1')
+  const res = await fetch('/api/method/upload_file', {
+    method: 'POST',
+    headers: { 'X-Frappe-CSRF-Token': csrfToken() },
+    body,
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const msg = (data && (data.exception || data._server_messages || data.message)) || 'Tải tệp lên thất bại.'
+    throw new Error(typeof msg === 'string' ? msg.replace(/^[\w.]*Error:\s*/, '') : 'Tải tệp lên thất bại.')
+  }
+  return data.message // { file_url, file_name, ... }
+}
+
 // Đăng nhập qua endpoint chuẩn của Frappe (form-encoded).
 export async function login(usr, pwd) {
   const body = new URLSearchParams({ usr, pwd })
@@ -78,4 +104,4 @@ export async function logout() {
   })
 }
 
-export default { call, callKho, login, logout }
+export default { call, callKho, khoDownloadUrl, uploadFile, login, logout }

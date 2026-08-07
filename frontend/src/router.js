@@ -7,6 +7,7 @@ import Orders from './views/Orders.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
+import ImportTonDau from './views/ImportTonDau.vue'
 import Profile from './views/Profile.vue'
 
 const routes = [
@@ -18,6 +19,7 @@ const routes = [
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   { path: '/kho', name: 'kho', component: Kho, meta: { title: 'Kho của tôi' } },
+  { path: '/kho/import', name: 'kho-import', component: ImportTonDau, meta: { title: 'Nhập tồn đầu kỳ' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
 ]
 

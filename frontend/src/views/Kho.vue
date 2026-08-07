@@ -104,6 +104,7 @@ onUnmounted(() => clearTimeout(searchTimer))
         <h2>Kho của tôi</h2>
         <div class="sub" v-if="me">{{ me.ten_kho }} · Thủ kho: {{ me.thu_kho || '—' }}</div>
       </div>
+      <router-link v-if="!noWarehouse" to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
     </div>
 
     <div v-if="meLoading" class="loading">Đang tải…</div>
@@ -117,7 +118,10 @@ onUnmounted(() => clearTimeout(searchTimer))
     <template v-else>
       <!-- Header gọn: tên kho + thủ kho (mobile, vì topbar desktop đã ẩn) -->
       <div class="card mb10" v-if="isMobile">
-        <b>{{ me?.ten_kho }}</b>
+        <div class="sb">
+          <b>{{ me?.ten_kho }}</b>
+          <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
+        </div>
         <p class="tag" style="margin-top: 4px">Thủ kho: {{ me?.thu_kho || '—' }}</p>
       </div>
 

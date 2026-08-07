@@ -33,6 +33,7 @@ const cartCount = computed(() => store.cartCount)
 function isActive(key) {
   const name = route.name || ''
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
+  if (key === 'kho') return name === 'kho' || name === 'kho-import'
   if (key === 'profile') return name === 'profile' || name === 'invoices'
   return name === key
 }
