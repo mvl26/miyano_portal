@@ -94,6 +94,38 @@ class TestKhoPhieuList(_KhoApiFixture):
         self.assertIn("không hợp lệ", msg)
         self.assertNotIn("Traceback", msg)
 
+    def test_limit_and_start_accept_string_params_like_real_http_request(self):
+        """`limit`/`start` tới từ HTTP luôn là CHUỖI (query string), không
+        phải int như mọi lời gọi trực tiếp khác trong file này — mô phỏng
+        đúng dạng dữ liệu một client thật gửi lên, không phải giá trị Python
+        tiện tay của test."""
+        self._nhap(so_lo="LO-A")
+        self._nhap(so_lo="LO-B")
+        self._nhap(so_lo="LO-C")
+        frappe.set_user(BM_USER)
+        rows = kho_api.kho_phieu_list("nhap", limit="1", start="0")
+        self.assertEqual(len(rows), 1, "limit=\"1\" (chuỗi) phải giới hạn còn đúng 1 dòng")
+        rows_trang_2 = kho_api.kho_phieu_list("nhap", limit="1", start="1")
+        self.assertEqual(len(rows_trang_2), 1)
+        self.assertNotEqual(rows[0]["name"], rows_trang_2[0]["name"], "start=\"1\" phải lật trang")
+
+    def test_non_numeric_limit_rejected_with_specific_vietnamese_message(self):
+        """Khẳng định đúng câu chữ của `_so_nguyen()`, không chỉ đúng KIỂU lỗi:
+        `kho_phieu_list` chạy dưới `_phieu_action`, vốn tự dịch một `ValueError`
+        trần bất kỳ thành ValidationError CHUNG CHUNG ("Có lỗi xảy ra khi xử
+        lý phiếu..."). Nếu guard `_so_nguyen()` bị xoá, `int("abc")` vẫn ném
+        ValueError, `_phieu_action` vẫn bắt được, và một assertion chỉ kiểm
+        `assertRaises(ValidationError)` sẽ xanh GIẢ — đúng bẫy đã ghi trong
+        docstring của test_invalid_loai_rejected_in_vietnamese ở trên. Chỉ có
+        khẳng định đúng câu chữ mới bắt được guard cụ thể này."""
+        self._nhap(so_lo="LO-A")
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            kho_api.kho_phieu_list("nhap", limit="khong-phai-so")
+        msg = str(ctx.exception)
+        self.assertIn("Số dòng mỗi trang không hợp lệ", msg)
+        self.assertNotIn("Traceback", msg)
+
 
 class TestKhoPhieuGet(_KhoApiFixture):
     def test_get_own_voucher(self):
@@ -477,6 +509,21 @@ class TestKhoLoGoiY(_KhoApiFixture):
         out = kho_api.kho_lo_goi_y(self.kho["vt_bm"], 1)
         row = next(l for l in out["lots"] if l["so_lo"] == "LO-HH")
         self.assertTrue(row["het_han"])
+
+    def test_so_luong_accepts_string_param_like_real_http_request(self):
+        """`so_luong` tới từ HTTP luôn là chuỗi — review Item 4."""
+        self._nhap(so_lo="LO-A", so_luong=50, don_gia=1000)
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_lo_goi_y(self.kho["vt_bm"], "40")
+        self.assertEqual(out["lots"][0]["de_xuat"], 40)
+
+    def test_so_luong_non_numeric_rejected_with_specific_vietnamese_message(self):
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            kho_api.kho_lo_goi_y(self.kho["vt_bm"], "khong-phai-so")
+        msg = str(ctx.exception)
+        self.assertIn("Số lượng không hợp lệ", msg)
+        self.assertNotIn("Traceback", msg)
 
     def test_rejects_other_customers_item(self):
         frappe.set_user(BM_USER)

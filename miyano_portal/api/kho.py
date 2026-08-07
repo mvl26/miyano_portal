@@ -52,6 +52,54 @@ _LOAI_FIELD = {
 }
 
 
+def _so_nguyen(gia_tri, nhan: str, mac_dinh: int | None = None) -> int:
+    """Ép một tham số whitelisted về số nguyên.
+
+    Một client HTTP thật gửi tham số qua query string/form-data dưới dạng
+    CHUỖI. `int("20")` chạy được nên phần lớn test hiện có vẫn xanh dù gọi
+    thẳng bằng số nguyên Python, nhưng một client gửi `limit=abc` sẽ làm
+    `int()` trần ném `ValueError`.
+
+    QUAN TRỌNG — lý do các tham số dùng hàm này (`limit`, `start` của
+    kho_phieu_list) KHÔNG được gắn type hint `int` trên chữ ký hàm: build này
+    (Frappe v15.113) tự validate kiểu tham số của MỌI hàm whitelist có type
+    hint, qua `frappe.utils.typing_validations.validate_argument_types`, và
+    điều kiện kích hoạt là `in_request_or_test` — tức là chạy CẢ trong test,
+    không chỉ khi có HTTP request thật (đã đo thực nghiệm: gọi thẳng
+    `kho_phieu_list(loai, limit="abc")` trong test vẫn kích hoạt lớp này).
+    Một giá trị không parse được thành `int` sẽ bị lớp đó chặn TRƯỚC KHI hàm
+    này kịp chạy, và lỗi ném ra là `FrappeTypeError` với thông điệp TIẾNG ANH
+    ("Argument 'limit' should be of type 'int'...") — vi phạm quy tắc "mọi
+    lỗi ra tiếng Việt", và `_phieu_action` không cứu được vì lớp typing nằm
+    NGOÀI nó. Bỏ type hint để tham số luôn tới tay hàm này ở dạng thô (chuỗi),
+    rồi tự ép ở đây với thông điệp tiếng Việt — đúng khuôn mà `kho_lo_goi_y`/
+    `kho_canh_bao_han` vốn đã dùng cho `so_luong`/`so_ngay` (cả hai tham số đó
+    cũng cố ý không có type hint số, cùng một lý do).
+
+    Rỗng/`None`: dùng `mac_dinh` nếu có, không thì báo thiếu tham số. Có giá
+    trị nhưng không parse được thành số nguyên: báo lỗi tiếng Việt nêu đúng
+    tên tham số, không bao giờ để `ValueError` lọt ra ngoài.
+    """
+    if gia_tri in (None, ""):
+        if mac_dinh is not None:
+            return mac_dinh
+        frappe.throw(f"Thiếu {nhan}.", frappe.ValidationError)
+    try:
+        return int(gia_tri)
+    except (TypeError, ValueError):
+        frappe.throw(f"{nhan} không hợp lệ.", frappe.ValidationError)
+
+
+def _so_thuc(gia_tri, nhan: str) -> float:
+    """Bản số thực của _so_nguyen(), dùng cho tham số có thể có phần lẻ
+    (số lượng). Không có `mac_dinh`: các tham số dùng hàm này trong module là
+    tham số bắt buộc, thiếu thì cũng là một giá trị "không hợp lệ"."""
+    try:
+        return float(gia_tri)
+    except (TypeError, ValueError):
+        frappe.throw(f"{nhan} không hợp lệ.", frappe.ValidationError)
+
+
 def _doctype_tu_loai(loai: str) -> str:
     dt = _LOAI_TO_DOCTYPE.get(loai)
     if not dt:
@@ -276,7 +324,18 @@ def _phieu_to_dict(doc) -> dict:
 
 @frappe.whitelist()
 @_phieu_action
-def kho_phieu_list(loai: str, limit: int = 20, start: int = 0) -> list:
+def kho_phieu_list(loai: str, limit=20, start=0) -> list:
+	# `limit`/`start` CỐ Ý không gắn type hint `int`: build này (Frappe
+	# v15.113) tự validate kiểu tham số của hàm whitelist theo type hint qua
+	# `frappe.utils.typing_validations` — kể cả khi gọi trực tiếp trong test
+	# (điều kiện kích hoạt là `in_request_or_test`, không phải chỉ HTTP thật).
+	# Nếu khai `limit: int`, một giá trị không parse được sẽ bị chặn ở lớp đó
+	# TRƯỚC KHI hàm này chạy, và lỗi ném ra là `FrappeTypeError` với thông điệp
+	# TIẾNG ANH ("Argument 'limit' should be of type...") — vi phạm quy tắc
+	# "mọi lỗi ra tiếng Việt" của cả dự án, và `_phieu_action` không cứu được
+	# vì lớp đó nằm NGOÀI nó. Bỏ type hint để tham số tới tay hàm ở dạng thô,
+	# rồi tự ép bằng `_so_nguyen()` bên dưới với thông điệp tiếng Việt — đúng
+	# khuôn mà `kho_lo_goi_y`/`kho_canh_bao_han` đã dùng cho `so_luong`/`so_ngay`.
 	kho = get_portal_kho()
 	doctype = _doctype_tu_loai(loai)
 	loai_field = _LOAI_FIELD[doctype]
@@ -290,8 +349,8 @@ def kho_phieu_list(loai: str, limit: int = 20, start: int = 0) -> list:
 		filters={"kho": kho},
 		fields=fields,
 		order_by="creation desc",
-		limit_page_length=int(limit) if limit else 20,
-		limit_start=int(start) if start else 0,
+		limit_page_length=_so_nguyen(limit, "Số dòng mỗi trang", 20),
+		limit_start=_so_nguyen(start, "Vị trí bắt đầu", 0),
 	)
 	for row in rows:
 		row["trang_thai"] = _TRANG_THAI.get(int(row["docstatus"]), "")
@@ -468,10 +527,7 @@ def kho_lo_goi_y(vat_tu: str, so_luong) -> dict:
 	"""
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(vat_tu, kho)
-	try:
-		can = float(so_luong)
-	except (TypeError, ValueError):
-		frappe.throw("Số lượng không hợp lệ.", frappe.ValidationError)
+	can = _so_thuc(so_luong, "Số lượng")
 	if can < 0:
 		frappe.throw("Số lượng không hợp lệ.", frappe.ValidationError)
 
@@ -587,10 +643,7 @@ def kho_the_kho(vat_tu: str, tu_ngay, den_ngay) -> list:
 def kho_canh_bao_han(so_ngay=90) -> list:
 	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
 	kho = get_portal_kho()
-	try:
-		so_ngay = int(so_ngay)
-	except (TypeError, ValueError):
-		frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
+	so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 	if so_ngay < 0:
 		frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
 	return reports.canh_bao_han_rows(kho, so_ngay)
@@ -627,10 +680,9 @@ def kho_bao_cao_excel(loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=N
 		columns = reports.THE_KHO_COLUMNS
 		filename, sheet = "the_kho.xlsx", "The kho"
 	else:
-		try:
-			so_ngay = int(so_ngay)
-		except (TypeError, ValueError):
-			so_ngay = 90
+		so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
+		if so_ngay < 0:
+			frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
 		rows = reports.canh_bao_han_rows(kho, so_ngay)
 		columns = reports.CANH_BAO_COLUMNS
 		filename, sheet = "canh_bao_han_dung.xlsx", "Canh bao han dung"

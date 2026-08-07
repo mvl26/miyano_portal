@@ -309,6 +309,48 @@ class TestKhoCanhBaoHan(_KhoBmTestCase):
 		self.assertFalse(any(r["so_lo"] == "LO-BAN-HET" for r in rows))
 
 
+class TestKhoCanhBaoHanApiSoNgayCoercion(_KhoBmTestCase):
+	"""`kho_api.kho_canh_bao_han` chưa được test qua ĐÚNG cổng portal ở đâu
+	khác trong dự án (lớp trên chỉ gọi thẳng `reports.canh_bao_han_rows()`) —
+	đây là chỗ phủ việc ép kiểu tham số `so_ngay` khi tới từ HTTP thật dưới
+	dạng chuỗi (review Item 4)."""
+
+	def test_so_ngay_accepts_string_param_like_real_http_request(self):
+		today = _today()
+		_nhap(self.K, self.VT, 5, 1000, frappe.utils.add_days(today, -10),
+			  so_lo="LO-SAP-HET", han=frappe.utils.add_days(today, 20))
+		frappe.set_user(BM_USER)
+		try:
+			rows = kho_api.kho_canh_bao_han(so_ngay="30")
+		finally:
+			frappe.set_user("Administrator")
+		self.assertTrue(
+			any(r["so_lo"] == "LO-SAP-HET" for r in rows),
+			"so_ngay=\"30\" (chuỗi) phải được hiểu đúng như số nguyên 30",
+		)
+
+	def test_so_ngay_non_numeric_rejected_with_specific_vietnamese_message(self):
+		frappe.set_user(BM_USER)
+		try:
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				kho_api.kho_canh_bao_han(so_ngay="khong-phai-so")
+		finally:
+			frappe.set_user("Administrator")
+		msg = str(ctx.exception)
+		self.assertIn("Số ngày không hợp lệ", msg)
+		self.assertNotIn("Traceback", msg)
+
+	def test_so_ngay_blank_string_falls_back_to_default(self):
+		"""Chuỗi rỗng (ô input HTML trống gửi lên) phải rơi về mặc định 90,
+		không bị coi là "không hợp lệ"."""
+		frappe.set_user(BM_USER)
+		try:
+			rows = kho_api.kho_canh_bao_han(so_ngay="")
+		finally:
+			frappe.set_user("Administrator")
+		self.assertIsInstance(rows, list)
+
+
 class TestKhoBaoCaoExcel(_KhoBmTestCase):
 	_LABEL_FILE = (
 		Path(__file__).resolve().parents[2]
