@@ -12,3 +12,6 @@ miyano_portal.patches.v1_0.install_portal_print_formats
 miyano_portal.patches.v1_0.install_portal_print_formats_extra
 miyano_portal.patches.v1_0.install_portal_notifications_extra
 miyano_portal.patches.v1_1.install_kho_print_formats
+miyano_portal.patches.v1_2.install_kho_desk_reports
+miyano_portal.patches.v1_2.install_kho_desk_workspace
+miyano_portal.patches.v1_2.repair_kho_ledger_replay
