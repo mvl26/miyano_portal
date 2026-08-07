@@ -229,13 +229,26 @@ has_permission = {
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	# Kho khách hàng, thiết kế §4.3. Miyano giao hàng → sinh Phiếu Nhập Kho
+	# NHÁP trong kho của khách mua.
+	#
+	# CỐ Ý dùng on_submit / on_cancel chứ không phải before_*, và điều này
+	# KHÔNG mâu thuẫn với quy tắc "validation thuộc về before_*": hook này
+	# không validate gì cả, nó chỉ sinh hiệu ứng phụ, và nó KHÔNG BAO GIỜ ném
+	# lỗi ra ngoài (xem delivery_hook._chay_an_toan). Đặt nó ở before_submit
+	# sẽ biến mọi trục trặc phía kho khách thành một lỗi chặn Miyano giao
+	# hàng — đúng thứ ràng buộc cao nhất của tính năng này cấm.
+	#
+	# Hook của app chạy SAU method cùng tên của chính doctype
+	# (frappe.model.document.Document.hook → compose(fn, *hooks)), nên tới lúc
+	# hook này chạy thì Delivery Note đã ghi sổ kho ERPNext, đã ghi GL Entry,
+	# và đã có bundle lô do ERPNext tự sinh từ `batch_no`.
+	"Delivery Note": {
+		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
+		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
