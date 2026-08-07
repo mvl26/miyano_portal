@@ -234,8 +234,10 @@ lượng trên phiếu nháp trước khi submit.
 
 - **Chống trùng:** trước khi tạo, kiểm tra đã có phiếu nào (docstatus < 2) mang
   `delivery_note` đó chưa. Có rồi thì bỏ qua.
-- **Khách chưa mở kho:** bỏ qua im lặng, ghi log. Delivery Note không được phép fail
-  vì lý do này.
+- **Khách chưa mở kho:** bỏ qua im lặng, KHÔNG ghi log — đây là trạng thái bình thường
+  (đa số khách của Miyano chưa dùng kho khách hàng), không phải sự cố, nên không đáng
+  một dòng Error Log cho mỗi lần giao hàng. Delivery Note không được phép fail vì lý
+  do này.
 - **Kho đã `active = 0`:** bỏ qua im lặng, giống hệt "khách chưa mở kho" — `active`
   là công tắc thủ công để ngừng tính năng cho một khách (ví dụ khách ngừng dùng dịch
   vụ kho khách hàng nhưng vẫn còn mua hàng của Miyano bình thường); một kho đã tắt mà
