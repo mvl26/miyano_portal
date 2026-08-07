@@ -492,18 +492,23 @@ class TestKhoIsolationDeep(FrappeTestCase):
     def test_staff_user_sees_all_customers(self):
         staff = self._ensure_staff_user()
         frappe.set_user(staff)
-        for dt, name in self.pxn_records.items():
-            with self.subTest(doctype=dt):
-                # assertIn, not assertEqual: Customer Stock Ledger Entry gets
-                # one row from the receipt and another from the issue in
-                # this same setUp, so "exactly one row" is not the invariant
-                # — "the PXN row is visible to staff" is.
-                rows = frappe.get_list(
-                    dt, filters=self._pxn_filter(dt), pluck="name"
-                )
-                self.assertIn(name, rows)
-                doc = frappe.get_doc(dt, name)
-                doc.check_permission("read")  # không được ném lỗi
+        # FINDING I1 (review cuối): tên nói "all customers" nên phải chạy CẢ
+        # HAI khách, không chỉ PXN. Bản trước chỉ lặp pxn_records — một lỗi
+        # chặn riêng dữ liệu của BM ở phía desk sẽ lọt qua.
+        for label, records, flt in (
+            ("PXN", self.pxn_records, self._pxn_filter),
+            ("BM", self.bm_records, self._bm_filter),
+        ):
+            for dt, name in records.items():
+                with self.subTest(customer=label, doctype=dt):
+                    # assertIn, not assertEqual: Customer Stock Ledger Entry
+                    # gets one row from the receipt and another from the issue
+                    # in this same setUp, so "exactly one row" is not the
+                    # invariant — "the row is visible to staff" is.
+                    rows = frappe.get_list(dt, filters=flt(dt), pluck="name")
+                    self.assertIn(name, rows)
+                    doc = frappe.get_doc(dt, name)
+                    doc.check_permission("read")  # không được ném lỗi
 
 
 # ---------------------------------------------------------------------------

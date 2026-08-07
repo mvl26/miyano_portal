@@ -9,11 +9,24 @@ class TestKhoWarehouse(FrappeTestCase):
         self.kho = seed_kho_demo()
 
     def test_seed_creates_one_warehouse_per_customer(self):
-        self.assertTrue(frappe.db.exists("Customer Warehouse", self.kho["kho_bm"]))
-        self.assertEqual(
-            frappe.db.get_value("Customer Warehouse", self.kho["kho_bm"], "customer"),
-            "Bệnh viện Bạch Mai",
-        )
+        # "per customer" nghĩa là CẢ HAI khách trong seed, không chỉ Bạch Mai:
+        # bản trước chỉ assert kho_bm nên một seed quên hẳn PXN vẫn pass (minor
+        # đã ghi nhận ở progress.md, Task 1).
+        for kho_key, customer in (
+            ("kho_bm", "Bệnh viện Bạch Mai"),
+            ("kho_pxn", "PXN ABC"),
+        ):
+            with self.subTest(customer=customer):
+                self.assertTrue(frappe.db.exists("Customer Warehouse", self.kho[kho_key]))
+                self.assertEqual(
+                    frappe.db.get_value(
+                        "Customer Warehouse", self.kho[kho_key], "customer"
+                    ),
+                    customer,
+                )
+                self.assertEqual(
+                    frappe.db.count("Customer Warehouse", {"customer": customer}), 1
+                )
 
     def test_seed_is_idempotent(self):
         again = seed_kho_demo()
@@ -225,7 +238,17 @@ class TestKhoLedger(FrappeTestCase):
         self.assertTrue(flags)  # assertTrue(all([])) là True một cách vô nghĩa
         self.assertTrue(all(flags))
 
-    def test_rebuild_lot_balance_matches_ledger(self):
+    def test_rebuild_recreates_one_row_per_lot_with_ledger_quantities(self):
+        """FINDING I1 (review cuối) — tên cũ là `..._matches_ledger`, hứa nhiều
+        hơn thân hàm.
+
+        Test này KHÔNG so cache với sổ: nó chỉ kiểm rằng rebuild dựng lại đúng
+        MỘT dòng cho mỗi lô có trong sổ, với đúng số lượng đã ghi. Bất biến
+        giá trị thật sự (tổng `gia_tri` của sổ == `gia_tri` của cache) là hợp
+        đồng của `TestKhoBatBienGiaTri` ở cuối file, nơi nó được khẳng định
+        trên chứng từ thật ở từng bước vòng đời và cả sau rebuild — cố ý không
+        nhân đôi ở đây.
+        """
         self._nhap(100, 50000)
         self._nhap(50, 50000, so_lo="LO-B", han="2026-12-01", row="r2",
                    name="TEST-PN-002")
@@ -241,10 +264,14 @@ class TestKhoLedger(FrappeTestCase):
                 self.kho["kho_bm"], self.kho["vt_bm"], "LO-B")["so_luong"], 50
         )
 
-    def test_rebuild_lot_balance_matches_ledger_with_mixed_price_and_issue(self):
-        """Phần khó của bất biến: rebuild phải cho đúng cả don_gia bình quân
-        gia quyền, không chỉ so_luong. Hai lần nhập cùng lô khác giá cộng một
-        lần xuất — kết quả tái dựng phải khớp với kết quả đường ghi tuần tự.
+    def test_rebuild_reproduces_incremental_cache_with_mixed_price_and_issue(self):
+        """FINDING I1 — tên cũ là `..._matches_ledger_with_...`, nhưng phép so
+        ở đây là cache-tái-dựng vs cache-ghi-tuần-tự, KHÔNG phải cache vs sổ.
+
+        Cái được chốt là tính XÁC ĐỊNH của rebuild: replay từ sổ phải cho ra
+        đúng con số mà đường ghi tăng dần đã cho, kể cả don_gia bình quân gia
+        quyền chứ không chỉ so_luong (hai lần nhập cùng lô khác giá cộng một
+        lần xuất). Phép so cache-vs-sổ nằm ở `TestKhoBatBienGiaTri`.
         """
         self._nhap(100, 50000, row="r1", name="TEST-PN-001")
         self._nhap(100, 70000, row="r2", name="TEST-PN-002")
