@@ -68,6 +68,10 @@ button { cursor: pointer; font-size: 14px; }
   font-weight: 600;
 }
 .btn-sm { padding: 5px 12px; border-radius: 6px; font-size: 13px; }
+/* Chỉ dùng cho hành động huỷ/không đảo ngược được (Huỷ phiếu kho) — giữ màu
+   đỏ hiếm để nó còn ý nghĩa cảnh báo, không lạm dụng cho mọi nút phụ. */
+.btn-o.btn-danger { color: var(--red); border-color: var(--red); }
+.btn.btn-danger { background: var(--red); }
 
 /* ---------- Cards & tables ---------- */
 .card {

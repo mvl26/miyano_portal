@@ -104,7 +104,11 @@ onUnmounted(() => clearTimeout(searchTimer))
         <h2>Kho của tôi</h2>
         <div class="sub" v-if="me">{{ me.ten_kho }} · Thủ kho: {{ me.thu_kho || '—' }}</div>
       </div>
-      <router-link v-if="!noWarehouse" to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
+      <div class="flex" v-if="!noWarehouse" style="gap: 8px">
+        <router-link to="/kho/nhap" class="btn-o btn-sm">Phiếu nhập</router-link>
+        <router-link to="/kho/xuat" class="btn-o btn-sm">Phiếu xuất</router-link>
+        <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
+      </div>
     </div>
 
     <div v-if="meLoading" class="loading">Đang tải…</div>
@@ -120,9 +124,13 @@ onUnmounted(() => clearTimeout(searchTimer))
       <div class="card mb10" v-if="isMobile">
         <div class="sb">
           <b>{{ me?.ten_kho }}</b>
-          <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
         </div>
         <p class="tag" style="margin-top: 4px">Thủ kho: {{ me?.thu_kho || '—' }}</p>
+        <div class="flex" style="gap: 8px; margin-top: 10px; flex-wrap: wrap">
+          <router-link to="/kho/nhap" class="btn-o btn-sm">Phiếu nhập</router-link>
+          <router-link to="/kho/xuat" class="btn-o btn-sm">Phiếu xuất</router-link>
+          <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
+        </div>
       </div>
 
       <div class="field" style="max-width: 360px">
