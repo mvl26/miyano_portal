@@ -143,44 +143,12 @@ def kho_me() -> dict:
 
 @frappe.whitelist()
 def kho_ton(tim=None) -> list:
-	"""Tồn hiện tại, gộp các lô về một dòng cho mỗi vật tư."""
-	kho = get_portal_kho()
-	lots = frappe.get_all(
-		"Customer Stock Lot Balance",
-		filters={"kho": kho, "so_luong": [">", ledger.EPS]},
-		fields=["vat_tu", "so_lo", "han_su_dung", "so_luong", "gia_tri"],
-	)
+	"""Tồn hiện tại, gộp các lô về một dòng cho mỗi vật tư.
 
-	gop = {}
-	for lot in lots:
-		g = gop.setdefault(lot["vat_tu"], {
-			"vat_tu": lot["vat_tu"], "so_luong": 0.0, "gia_tri": 0.0,
-			"so_lo_count": 0, "han_gan_nhat": None,
-		})
-		g["so_luong"] += float(lot["so_luong"])
-		g["gia_tri"] += float(lot["gia_tri"] or 0)
-		g["so_lo_count"] += 1
-		han = lot["han_su_dung"]
-		if han and (g["han_gan_nhat"] is None or han < g["han_gan_nhat"]):
-			g["han_gan_nhat"] = han
-
-	out = []
-	for vat_tu, g in gop.items():
-		vt = frappe.db.get_value(
-			"Customer Warehouse Item", vat_tu,
-			["ma_vat_tu", "ten_vat_tu", "dvt", "item_code"], as_dict=True,
-		)
-		if not vt:
-			continue
-		if tim:
-			hay = f"{vt.ma_vat_tu} {vt.ten_vat_tu}".lower()
-			if tim.lower() not in hay:
-				continue
-		out.append({**g, **{
-			"ma_vat_tu": vt.ma_vat_tu, "ten_vat_tu": vt.ten_vat_tu,
-			"dvt": vt.dvt, "item_code": vt.item_code or "",
-		}})
-	return sorted(out, key=lambda r: r["ten_vat_tu"])
+	Phép gộp thật sự sống ở `reports.ton_hien_tai_rows()` — dùng chung với báo
+	cáo "Tồn kho khách hàng" phía desk (Phase 6), vốn gọi lại đúng hàm này cho
+	từng kho rồi gắn thêm khách hàng, chứ không viết lại phép cộng lần hai."""
+	return reports.ton_hien_tai_rows(get_portal_kho(), tim)
 
 
 @frappe.whitelist()

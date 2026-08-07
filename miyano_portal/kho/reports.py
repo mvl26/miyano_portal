@@ -124,6 +124,55 @@ def _vat_tu_info(kho: str) -> dict:
 	return {r["name"]: r for r in rows}
 
 
+def ton_hien_tai_rows(kho: str, tim: str | None = None) -> list[dict]:
+	"""Tồn hiện tại của MỘT kho, gộp các lô về một dòng cho mỗi vật tư.
+
+	Chuyển từ `api/kho.py::kho_ton()` (Phase 2) sang đây nguyên trạng — cùng
+	một phép gộp, giờ dùng chung bởi cả `kho_ton()` (portal, một kho suy từ
+	phiên đăng nhập) và `kho.desk_reports.ton_kho_khach_hang_rows()` (desk,
+	Phase 6, lặp qua NHIỀU kho rồi gọi lại đúng hàm này cho từng kho). Không
+	được viết lại phép cộng này lần thứ hai ở bất cứ đâu khác.
+
+	Đọc từ `Customer Stock Lot Balance` — đây là câu hỏi VỀ HIỆN TẠI, giống
+	`canh_bao_han_rows()`, không phải lịch sử."""
+	lots = frappe.get_all(
+		"Customer Stock Lot Balance",
+		filters={"kho": kho, "so_luong": [">", EPS]},
+		fields=["vat_tu", "so_lo", "han_su_dung", "so_luong", "gia_tri"],
+	)
+
+	gop = {}
+	for lot in lots:
+		g = gop.setdefault(lot["vat_tu"], {
+			"vat_tu": lot["vat_tu"], "so_luong": 0.0, "gia_tri": 0.0,
+			"so_lo_count": 0, "han_gan_nhat": None,
+		})
+		g["so_luong"] += float(lot["so_luong"])
+		g["gia_tri"] += float(lot["gia_tri"] or 0)
+		g["so_lo_count"] += 1
+		han = lot["han_su_dung"]
+		if han and (g["han_gan_nhat"] is None or han < g["han_gan_nhat"]):
+			g["han_gan_nhat"] = han
+
+	out = []
+	for vat_tu, g in gop.items():
+		vt = frappe.db.get_value(
+			"Customer Warehouse Item", vat_tu,
+			["ma_vat_tu", "ten_vat_tu", "dvt", "item_code"], as_dict=True,
+		)
+		if not vt:
+			continue
+		if tim:
+			hay = f"{vt.ma_vat_tu} {vt.ten_vat_tu}".lower()
+			if tim.lower() not in hay:
+				continue
+		out.append({**g, **{
+			"ma_vat_tu": vt.ma_vat_tu, "ten_vat_tu": vt.ten_vat_tu,
+			"dvt": vt.dvt, "item_code": vt.item_code or "",
+		}})
+	return sorted(out, key=lambda r: r["ten_vat_tu"])
+
+
 def nxt_data(kho: str, tu_ngay, den_ngay) -> dict:
 	"""Gộp sổ kho theo từng vật tư VÀ theo từng lô trong một lượt quét.
 
