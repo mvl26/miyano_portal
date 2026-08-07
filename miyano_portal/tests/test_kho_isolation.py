@@ -1,11 +1,44 @@
+"""Cách ly dữ liệu kho — HỢP ĐỒNG HIỆN HÀNH (vòng 4).
+
+Hợp đồng cũ (vòng 1-3) là: "khách A gọi get_list thấy đúng các dòng của A".
+Hợp đồng MỚI mạnh hơn hẳn: tài khoản portal KHÔNG đọc được tám doctype kho qua
+bất kỳ đường trực tiếp nào — get_list, REST v1/v2, /printview, download_pdf,
+frappe.client.* đều ném PermissionError, KỂ CẢ cho dữ liệu của chính họ. Lý do:
+role `Customer` không còn DocPerm nào trên sáu doctype cha, nên không còn grant
+nền để bất kỳ đường nào tụt về. Cổng duy nhất là API whitelist
+miyano_portal/api/kho.py, nơi kho được suy từ phiên và lọc tường minh.
+
+Vì mọi assertion phủ định ở đây giờ đều pass dưới một lỗi "cấm tiệt tất cả",
+mỗi nhóm test phủ định BẮT BUỘC đi kèm positive control tương ứng:
+  * TestKhoApiDoorStillOpen — API kho vẫn trả đúng dữ liệu của người gọi;
+  * TestKhoStaffDeskAccess  — System Manager vẫn có toàn quyền desk;
+  * các test `..._staff_...` rải trong TestKhoPortalDoorClosed.
+Xoá một trong các positive control đó là biến cả file này thành vô nghĩa.
+"""
+
 import frappe
+from frappe import client as frappe_client
 from frappe.tests.utils import FrappeTestCase
+from frappe.www import printview
+from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import permissions as kho_perms
 from miyano_portal.portal_context import get_portal_kho
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
 BM_USER = "bvbm@demo.miyano"
 PXN_USER = "pxnabc@demo.miyano"
+
+# Sáu doctype cha. Đây chính là danh sách phải KHÔNG có DocPerm nào cho role
+# `Customer` — xem TestKhoDocPermConfig.
+SIX_PARENT_DOCTYPES = [
+    "Customer Warehouse", "Customer Warehouse Item",
+    "Customer Stock Receipt", "Customer Stock Issue",
+    "Customer Stock Ledger Entry", "Customer Stock Lot Balance",
+]
+
+# Ba role nhân viên Miyano PHẢI giữ nguyên quyền desk. Assert sự có mặt của
+# chúng để một bản vá "xoá sạch mảng permissions" không lọt qua bộ test này.
+STAFF_ROLES = ["System Manager", "Sales Manager", "Sales User"]
 
 # Sáu doctype gốc (Task 6 ban đầu) cộng hai bảng item con của Receipt/Issue
 # (vá theo review) — tổng cộng tám doctype phải có mặt trong
@@ -89,12 +122,16 @@ def _ensure_staff_user():
 
 
 def _ensure_orphan_user():
-    """Website User có role Customer (nên có base doctype-level read, đúng
-    như một tài khoản portal thật) nhưng Contact không link tới Customer nào
-    — đúng kịch bản review đã khai thác: get_allowed_khos() trả về [], các
-    hàm _kho_condition/_child_condition phải render "1=0", KHÔNG PHẢI để
-    trần ra một PermissionError từ vòng kiểm tra role cơ bản (điều sẽ xảy ra
-    nếu thiếu role Customer, che mất chính cái cần kiểm ở đây)."""
+    """Website User có role Customer, đúng hình dạng một tài khoản portal
+    thật, nhưng Contact không link tới Customer nào — đúng kịch bản review đã
+    khai thác (tài khoản này từng render được /printview chứng từ của MỌI
+    khách hàng).
+
+    Vai trò Customer được giữ nguyên sau vòng 4 dù nó không còn cấp quyền gì
+    trên tám doctype kho: mục đích là mô phỏng đúng tài khoản portal xấu nhất
+    có thể tồn tại trên site, chứ không phải để vượt qua vòng kiểm role. Với
+    các test unit gọi thẳng _kho_condition/_child_condition, role không ảnh
+    hưởng: chúng vẫn phải render "1=0" vì get_allowed_khos() trả về []."""
     u = "orphan@demo.miyano"
     if not frappe.db.exists("User", u):
         frappe.get_doc({
@@ -355,6 +392,12 @@ class TestKhoIsolationDeep(FrappeTestCase):
         return {"kho": self.kho["kho_bm"]}
 
     # -- 1. check_permission() phải chặn cho CẢ SÁU doctype ------------------
+    #
+    # Vẫn pass sau vòng 4, nhưng CƠ CHẾ đã đổi: trước đây lỗi đến từ hook
+    # kho_has_permission/kho_child_has_permission (đã qua vòng kiểm role nhờ
+    # DocPerm read=1 của `Customer`); giờ lỗi đến sớm hơn, ngay ở vòng kiểm
+    # role, vì `Customer` không còn DocPerm nào. Giữ nguyên test vì hợp đồng
+    # "khách A không đọc được bản ghi của khách B" không đổi — chỉ mạnh thêm.
 
     def test_check_permission_blocks_other_customer_for_all_six_doctypes(self):
         frappe.set_user(BM_USER)
@@ -364,35 +407,69 @@ class TestKhoIsolationDeep(FrappeTestCase):
                 with self.assertRaises(frappe.PermissionError):
                     doc.check_permission("read")
 
-    # -- 2. frappe.get_list() không rò rỉ bản ghi của khách khác, mọi doctype -
+    # -- 2. frappe.get_list() — HỢP ĐỒNG MỚI (vòng 4) -------------------------
+    #
+    # Bản cũ assert `get_list(... filters=PXN ...) == []`, tức "khách A gọi
+    # get_list thì lọc mất dòng của B". Hợp đồng đó KHÔNG CÒN ĐÚNG và cũng
+    # không còn là thứ ta muốn: role `Customer` không còn DocPerm nào trên sáu
+    # doctype, nên get_list ném PermissionError trước khi tới bước lọc. Đây là
+    # cách ly MẠNH HƠN, không phải regression — một danh sách rỗng vẫn xác
+    # nhận doctype tồn tại và truy vấn được; một PermissionError thì không.
+    #
+    # Assert luôn cả hai chiều bộ lọc (của PXN và của chính BM) vì hợp đồng
+    # mới nói "portal không có cửa trực tiếp nào hết", chứ không phải "cửa
+    # trực tiếp có nhưng đã lọc". Nếu chỉ assert chiều PXN, một ngày nào đó ai
+    # đó cấp lại DocPerm cho `Customer` thì test vẫn pass (nhờ
+    # permission_query_conditions còn nguyên) và ta mất cảnh báo về việc mô
+    # hình bảo vệ đã âm thầm tụt về mô hình cũ vốn để hở /printview.
+    #
+    # Rủi ro "test thoái hoá thành pass dưới lỗi cấm tiệt": xem
+    # TestKhoApiDoorStillOpen + TestKhoStaffDeskAccess, và test 2b ngay dưới.
 
-    def test_get_list_excludes_other_customer_for_all_six_doctypes(self):
+    def test_get_list_denied_for_portal_user_for_all_six_doctypes(self):
         frappe.set_user(BM_USER)
         for dt in self.pxn_records:
-            with self.subTest(doctype=dt):
-                rows = frappe.get_list(
-                    dt, filters=self._pxn_filter(dt), pluck="name"
-                )
-                self.assertEqual(rows, [])
+            for label, flt in (
+                ("dữ liệu khách khác", self._pxn_filter(dt)),
+                ("dữ liệu của chính mình", self._bm_filter(dt)),
+            ):
+                with self.subTest(doctype=dt, filters=label):
+                    with self.assertRaises(frappe.PermissionError):
+                        frappe.get_list(dt, filters=flt, pluck="name")
 
-    # -- 2b. Chiều ngược lại: BM vẫn phải thấy được DỮ LIỆU CỦA CHÍNH MÌNH ----
+    # -- 2b. Chiều ngược lại: BM vẫn phải LẤY ĐƯỢC dữ liệu của chính mình -----
     #
-    # Test #2 ở trên chỉ chứng minh "PXN không lộ ra". Một hook trả "1=0" vô
-    # điều kiện cho mọi Website User (không phân biệt khách nào) sẽ làm toàn
-    # bộ test phía trên PASS trong khi thực ra đã khoá luôn cổng của BM. Phải
-    # kiểm cả hai chiều mới chứng minh được cách ly ĐÚNG khách, không phải
-    # cách ly-tất-cả.
+    # Không còn qua get_list, mà qua ĐÚNG khuôn mẫu mà api/kho.py dùng: suy
+    # kho từ phiên bằng get_portal_kho(), rồi lọc tường minh theo kho đó bằng
+    # frappe.get_all (bỏ qua phân quyền — an toàn nhờ cấu trúc truy vấn).
+    #
+    # GIỚI HẠN, nói thẳng: đây là PATTERN CONTROL, KHÔNG phải endpoint
+    # coverage. api/kho.py hiện chỉ có kho_me/kho_ton/kho_lo, phủ ba doctype
+    # (Customer Warehouse, Customer Warehouse Item, Customer Stock Lot
+    # Balance) — xem TestKhoApiDoorStillOpen cho phần endpoint thật. Ba
+    # doctype còn lại (Stock Receipt / Stock Issue / Stock Ledger Entry) CHƯA
+    # có endpoint portal nào, đúng theo thiết kế Phase 1. Với chúng, test này
+    # chứng minh khuôn mẫu sẽ dùng khi có endpoint vẫn chạy được và vẫn đúng
+    # kho; positive control thật của chúng là TestKhoStaffDeskAccess (desk đọc
+    # được) và test_kho_ledger/receipt/issue (engine ghi/đọc được).
+    #
+    # Test này là cái bắt lỗi "cấm tiệt": nếu get_portal_kho()/get_allowed_khos
+    # hỏng hoặc trả rỗng, nó fail ngay, trong khi mọi assertRaises ở trên vẫn
+    # pass.
 
-    def test_get_list_and_check_permission_allow_own_customer_for_all_six_doctypes(self):
+    def test_own_data_reachable_via_sanctioned_pattern_for_all_six_doctypes(self):
         frappe.set_user(BM_USER)
+        kho = get_portal_kho()
+        self.assertEqual(kho, self.kho["kho_bm"])
         for dt, name in self.bm_records.items():
             with self.subTest(doctype=dt):
-                rows = frappe.get_list(
-                    dt, filters=self._bm_filter(dt), pluck="name"
-                )
+                if dt == "Customer Warehouse":
+                    rows = frappe.get_all(dt, filters={"name": kho}, pluck="name")
+                else:
+                    rows = frappe.get_all(dt, filters={"kho": kho}, pluck="name")
                 self.assertIn(name, rows)
-                doc = frappe.get_doc(dt, name)
-                doc.check_permission("read")  # không được ném lỗi
+                # ...và khuôn mẫu đó không kéo theo dòng nào của khách khác.
+                self.assertNotIn(self.pxn_records[dt], rows)
 
     # -- 3. Nhân viên Miyano (System Manager) vẫn thấy toàn bộ ----------------
 
@@ -516,25 +593,40 @@ class TestKhoIsolationChildItems(FrappeTestCase):
             limit_page_length=0,
         )
 
-    # -- 1. Khách A không thấy dòng con thuộc chứng từ của khách B -----------
+    # -- 1. Khách A không đọc được bảng con qua get_list ---------------------
+    #
+    # Bản cũ assert "danh sách trả về không chứa parent của PXN" — tức bảng
+    # con VẪN liệt kê được, chỉ đã lọc. Hợp đồng vòng 4: get_list trên bảng
+    # con kiểm quyền ở doctype CHA (has_child_permission), và `Customer` không
+    # còn DocPerm nào trên cha, nên nó ném PermissionError — không danh sách
+    # nào để mà lọc. Mạnh hơn: bản cũ chỉ chứng minh "không thấy dòng của B",
+    # bản mới chứng minh "không mở được bảng".
+    #
+    # Đây chính là lỗ /printview được đóng tận gốc: cùng một vòng kiểm role
+    # trên doctype cha mà cả get_list lẫn frappe.has_permission module-level
+    # đều quy về.
 
-    def test_get_list_excludes_other_customers_child_rows(self):
+    def test_get_list_denied_for_portal_user_child_rows(self):
         frappe.set_user(BM_USER)
         for dt, info in self.child_map.items():
             with self.subTest(doctype=dt):
-                rows = self._rows(dt, info["parent_doctype"])
-                parents = {r.parent for r in rows}
-                self.assertNotIn(info["pxn_parent"], parents)
+                with self.assertRaises(frappe.PermissionError):
+                    self._rows(dt, info["parent_doctype"])
 
-    # -- 2. User không gắn khách hàng nào thấy đúng 0 dòng ở cả hai bảng -----
+    # -- 2. User không gắn khách hàng nào cũng bị chặn hẳn -------------------
+    #
+    # Bản cũ assert `== []`. Danh sách rỗng và PermissionError khác nhau về
+    # chất: rỗng nghĩa là "bạn được phép hỏi, chỉ là không có gì", và nó
+    # KHÔNG phân biệt được "hook lọc đúng" với "hook chưa chạy nhưng chưa có
+    # dữ liệu". PermissionError thì không mơ hồ.
 
-    def test_orphan_user_sees_zero_rows(self):
+    def test_orphan_user_denied_child_rows(self):
         u = _ensure_orphan_user()
         frappe.set_user(u)
         for dt, info in self.child_map.items():
             with self.subTest(doctype=dt):
-                rows = self._rows(dt, info["parent_doctype"])
-                self.assertEqual(rows, [])
+                with self.assertRaises(frappe.PermissionError):
+                    self._rows(dt, info["parent_doctype"])
 
     # -- 3. check_permission() phải ném lỗi cho dòng con của khách khác ------
     #
@@ -566,47 +658,71 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 with self.assertRaises(frappe.PermissionError):
                     parent.items[0].check_permission("read")
 
-    # -- 4. Positive control: khách A vẫn thấy dòng con CỦA CHÍNH MÌNH -------
+    # -- 4. Vòng 4: dòng con CỦA CHÍNH MÌNH cũng không đọc trực tiếp được ----
     #
-    # Không có test này thì một hook "1=0" vô điều kiện cho mọi Website User
-    # sẽ làm test #1-#3 pass hết trong khi phá luôn portal của chính BM.
+    # Bản cũ là positive control ("BM vẫn đọc được dòng của BM"), và nó ĐÚNG
+    # dưới mô hình cũ. Dưới mô hình mới nó sai theo đúng chủ đích: portal
+    # không có cửa trực tiếp nào vào bảng con, kể cả cửa của chính mình.
+    # Đảo chiều assertion, và ghi rõ vì sao đây không phải regression: dữ liệu
+    # tồn kho mà portal cần vẫn tới được qua api/kho.py (xem
+    # TestKhoApiDoorStillOpen); còn dòng chi tiết chứng từ thì Phase 1 chưa
+    # phát hành ra portal, đúng thiết kế đã duyệt.
+    #
+    # Positive control cho nhóm này chuyển hẳn sang
+    # test_staff_user_sees_all_customers_child_rows và
+    # test_staff_can_still_delete_and_write_child_rows bên dưới — không được
+    # xoá cả hai, nếu không cả class này pass dưới lỗi "cấm tiệt tất cả".
 
-    def test_get_list_and_check_permission_allow_own_child_rows(self):
+    def test_own_child_rows_also_denied_directly(self):
         frappe.set_user(BM_USER)
         for dt, info in self.child_map.items():
-            with self.subTest(doctype=dt):
-                rows = self._rows(dt, info["parent_doctype"])
-                parents = {r.parent for r in rows}
-                self.assertIn(info["bm_parent"], parents)
-                # Cả hai hình thức load đều phải KHÔNG ném lỗi.
-                frappe.get_doc(dt, info["bm_row"]).check_permission("read")
-                parent = frappe.get_doc(info["parent_doctype"], info["bm_parent"])
-                parent.items[0].check_permission("read")
-
-    # -- 4b. FINDING 8 offshoot (vòng review 3): "print" cũng phải bị thu hẹp
-    #    theo kho giống hệt "read" -----------------------------------------
-    #
-    # Customer role có print=1 trên chứng từ cha giống hệt read=1
-    # (customer_stock_receipt.json / customer_stock_issue.json), và
-    # frappe.utils.weasyprint.get_html() gọi thẳng doc.check_permission("print")
-    # — một lời gọi INSTANCE, đi qua đúng has_permission() override này (khác
-    # với lỗ printview module-level vẫn còn mở, xem comment ở đầu class
-    # controller và task-6-report.md addendum vòng 3). Nếu override chỉ thu
-    # hẹp "read" mà bỏ quên "print", get_html() sẽ render được nội dung của
-    # khách khác qua đường print_format_builder_beta.
-
-    def test_check_permission_narrows_print_too(self):
-        frappe.set_user(BM_USER)
-        for dt, info in self.child_map.items():
-            with self.subTest(doctype=dt, customer="other"):
-                doc = frappe.get_doc(dt, info["pxn_row"])
-                self.assertFalse(doc.has_permission("print"))
+            with self.subTest(doctype=dt, form="standalone"):
+                doc = frappe.get_doc(dt, info["bm_row"])
+                self.assertFalse(doc.has_permission("read"))
                 with self.assertRaises(frappe.PermissionError):
-                    doc.check_permission("print")
-            with self.subTest(doctype=dt, customer="own"):
-                own_doc = frappe.get_doc(dt, info["bm_row"])
-                self.assertTrue(own_doc.has_permission("print"))
-                own_doc.check_permission("print")  # không được ném lỗi
+                    doc.check_permission("read")
+            with self.subTest(doctype=dt, form="attached"):
+                parent = frappe.get_doc(info["parent_doctype"], info["bm_parent"])
+                with self.assertRaises(frappe.PermissionError):
+                    parent.items[0].check_permission("read")
+
+    # -- 4b. "print" cũng đóng, cho cả hai khách ----------------------------
+    #
+    # Vòng 3 phát hiện role Customer có print=1 trên chứng từ cha giống hệt
+    # read=1, nên `doc.check_permission("print")` (đường
+    # frappe.utils.weasyprint.get_html) từng trả True cho dòng của khách
+    # khác; bản vá khi đó là thu hẹp "print" trong override controller. Vòng 4
+    # gỡ luôn cả entry DocPerm `Customer` (cả read lẫn print), nên print đóng
+    # ở tầng sâu hơn và đóng cho CẢ dòng của chính mình.
+    #
+    # Assertion vì thế đổi: bản cũ khẳng định `own_doc.has_permission("print")`
+    # là True — điều đó giờ sai. Positive control tương ứng chuyển sang nhân
+    # viên desk (dưới đây), nơi print PHẢI vẫn chạy được; thiếu nó thì test
+    # này pass cả dưới lỗi tắt print của toàn hệ thống.
+
+    def test_print_permission_denied_for_portal_user_both_customers(self):
+        frappe.set_user(BM_USER)
+        for dt, info in self.child_map.items():
+            for label, row in (("khách khác", info["pxn_row"]),
+                               ("của chính mình", info["bm_row"])):
+                with self.subTest(doctype=dt, row=label):
+                    doc = frappe.get_doc(dt, row)
+                    self.assertFalse(doc.has_permission("print"))
+                    self.assertFalse(
+                        frappe.has_permission(dt, "print", doc)
+                    )
+                    with self.assertRaises(frappe.PermissionError):
+                        doc.check_permission("print")
+
+    def test_staff_can_still_print_child_rows(self):
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        for dt, info in self.child_map.items():
+            for label, row in (("PXN", info["pxn_row"]), ("BM", info["bm_row"])):
+                with self.subTest(doctype=dt, row=label):
+                    doc = frappe.get_doc(dt, row)
+                    self.assertTrue(doc.has_permission("print"))
+                    doc.check_permission("print")  # không được ném lỗi
 
     # -- 5. Nhân viên Miyano (System Manager) vẫn thấy dòng con của mọi khách -
 
@@ -680,3 +796,363 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 doc.don_gia = 1
                 doc.save()
                 self.assertEqual(frappe.db.get_value(dt, row_name, "don_gia"), 1)
+
+
+# ---------------------------------------------------------------------------
+# VÒNG 4 — cơ chế bảo vệ MỚI và các đường thoát mà ba vòng trước không đóng
+# nổi ở tầng class/hook.
+#
+# Bối cảnh (đo được ở vòng 3, trước thay đổi này):
+#     doc.has_permission("read")                      -> False  (override chạy)
+#     frappe.has_permission(doc.doctype, "read", doc) -> True   (override bị bỏ qua)
+# và /printview render ra số lô, số lượng, đơn giá của khách khác cho một
+# Website User. Nguyên nhân: với doctype istable=1, hàm module-level
+# frappe.has_permission() rẽ vào has_child_permission(), hàm này quy về kiểm
+# ROLE THUẦN trên doctype CHA và không bao giờ chạm tới controller của con.
+#
+# Vòng 4 đóng ở đúng chỗ mà mọi đường đó quy về: gỡ hết DocPerm của role
+# `Customer` trên sáu doctype cha. Các test dưới đây bám đúng những route đã
+# từng hở.
+# ---------------------------------------------------------------------------
+
+
+class TestKhoDocPermConfig(FrappeTestCase):
+    """Cơ chế bảo vệ chính giờ là CẤU HÌNH QUYỀN, nên nó phải được test như
+    một hợp đồng, không phải như một chi tiết cài đặt."""
+
+    def test_customer_role_has_no_docperm_on_any_kho_doctype(self):
+        # Kiểm CẢ tabDocPerm (từ JSON doctype) LẪN tabCustom DocPerm (từ Role
+        # Permission Manager). Custom DocPerm che hoàn toàn DocPerm khi tồn
+        # tại, nên chỉ kiểm một bảng là để hở đúng đường mà một lần chỉnh tay
+        # trên desk có thể mở lại.
+        for table in ("DocPerm", "Custom DocPerm"):
+            rows = frappe.get_all(
+                table,
+                filters={"parent": ["in", ALL_EIGHT_DOCTYPES], "role": "Customer"},
+                fields=["parent", "role"],
+            )
+            self.assertEqual(
+                rows, [],
+                f"{table}: role Customer không được có quyền trên doctype kho — "
+                "đây là cơ chế cách ly chính của vòng 4, xem hooks.py",
+            )
+
+    def test_staff_roles_keep_desk_permissions(self):
+        """Guard chống bản vá 'xoá sạch mảng permissions'. Nếu chỉ assert
+        Customer vắng mặt, một commit xoá luôn System Manager/Sales Manager/
+        Sales User vẫn pass — và desk Miyano sẽ chết."""
+        for dt in SIX_PARENT_DOCTYPES:
+            roles = {
+                r.role for r in frappe.get_all(
+                    "DocPerm", filters={"parent": dt}, fields=["role"]
+                )
+            }
+            with self.subTest(doctype=dt):
+                for role in STAFF_ROLES:
+                    self.assertIn(role, roles, f"{dt} phải giữ quyền desk cho {role}")
+
+    def test_portal_user_has_no_doctype_level_read(self):
+        """Mức doctype (không kèm doc cụ thể) — đây chính là vòng kiểm mà
+        has_child_permission() quy về cho hai bảng con istable=1, và cũng là
+        vòng kiểm mà validate_print_permission() đi qua."""
+        for user in (BM_USER, PXN_USER):
+            for dt in SIX_PARENT_DOCTYPES:
+                with self.subTest(user=user, doctype=dt):
+                    self.assertFalse(
+                        frappe.has_permission(dt, "read", user=user),
+                        f"{user} không được có quyền đọc mức doctype trên {dt}",
+                    )
+
+
+class _KhoVoucherFixture(FrappeTestCase):
+    """setUp dùng chung: một Receipt + một Issue đã submit cho mỗi kho, và
+    tên dòng con tương ứng."""
+
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        frappe.db.delete(
+            "Customer Stock Ledger Entry",
+            {"kho": ["in", [self.kho["kho_bm"], self.kho["kho_pxn"]]]},
+        )
+        frappe.db.delete(
+            "Customer Stock Lot Balance",
+            {"kho": ["in", [self.kho["kho_bm"], self.kho["kho_pxn"]]]},
+        )
+        self.receipt_bm = _make_receipt(self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A")
+        self.receipt_pxn = _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
+        self.issue_bm = _make_issue(self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A")
+        self.issue_pxn = _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
+
+        self.child_rows = {
+            "Customer Stock Receipt Item": {
+                "pxn": self.receipt_pxn.items[0].name,
+                "bm": self.receipt_bm.items[0].name,
+            },
+            "Customer Stock Issue Item": {
+                "pxn": self.issue_pxn.items[0].name,
+                "bm": self.issue_bm.items[0].name,
+            },
+        }
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+
+class TestKhoPortalDoorClosed(_KhoVoucherFixture):
+    def setUp(self):
+        super().setUp()
+        # printview chỉ kiểm quyền khi cờ này falsy. Nếu một test khác trong
+        # cùng process để sót cờ bật, mọi assertRaises dưới đây sẽ fail-open
+        # (pass vì lý do sai). Kiểm rồi ép về trạng thái sạch.
+        self._orig_ignore_print = frappe.flags.ignore_print_permissions
+        self.assertFalse(
+            self._orig_ignore_print,
+            "frappe.flags.ignore_print_permissions bị để sót — test printview "
+            "sẽ vô nghĩa",
+        )
+        frappe.flags.ignore_print_permissions = False
+        self._orig_form_dict = frappe.local.form_dict
+
+    def tearDown(self):
+        # form_dict và disable_traceback nằm trên frappe.local / frappe.flags,
+        # KHÔNG được rollback giữa các test method của suite này (xem
+        # task-6-report.md, "Deviations" #2). Trả nguyên trạng bằng tay.
+        frappe.local.form_dict = self._orig_form_dict
+        frappe.flags.ignore_print_permissions = self._orig_ignore_print
+        frappe.flags.disable_traceback = False
+        super().tearDown()
+
+    def _printview(self, doctype, name):
+        """Gọi đúng frappe/www/printview.py:get_context — route /printview."""
+        frappe.local.form_dict = frappe._dict({"doctype": doctype, "name": name})
+        try:
+            return printview.get_context({})
+        finally:
+            frappe.local.form_dict = self._orig_form_dict
+
+    # -- A. /printview: lỗ đã đo được ở vòng 3, giờ phải đóng ---------------
+    #
+    # Bằng chứng "trước" (vòng 3, cùng dòng dữ liệu, cùng user): get_context
+    # trả về body chứa "Số lô: MANUAL-PXN ... Số lượng: 50 ... Đơn giá:
+    # VND 20.000,00" cho bvbm@demo.miyano. Xem task-6-report.md addendum
+    # vòng 4 để có bản in nguyên văn.
+
+    def test_printview_denied_for_portal_user_on_other_customers_child_row(self):
+        frappe.set_user(BM_USER)
+        for dt, rows in self.child_rows.items():
+            with self.subTest(doctype=dt):
+                with self.assertRaises(frappe.PermissionError):
+                    self._printview(dt, rows["pxn"])
+
+    def test_printview_denied_for_orphan_website_user(self):
+        """Website User có role Customer nhưng Contact không link tới khách
+        hàng nào — tài khoản này từng render được chứng từ của MỌI khách."""
+        u = _ensure_orphan_user()
+        frappe.set_user(u)
+        for dt, rows in self.child_rows.items():
+            for label, row in (("PXN", rows["pxn"]), ("BM", rows["bm"])):
+                with self.subTest(doctype=dt, row=label):
+                    with self.assertRaises(frappe.PermissionError):
+                        self._printview(dt, row)
+
+    def test_printview_denied_for_portal_user_on_parent_vouchers_too(self):
+        """Không chỉ bảng con: chính chứng từ cha cũng không in được từ
+        portal nữa (role Customer từng có print=1 trên cả hai)."""
+        frappe.set_user(BM_USER)
+        for dt, name in (
+            ("Customer Stock Receipt", self.receipt_pxn.name),
+            ("Customer Stock Issue", self.issue_pxn.name),
+            ("Customer Stock Receipt", self.receipt_bm.name),
+            ("Customer Stock Issue", self.issue_bm.name),
+        ):
+            with self.subTest(doctype=dt, name=name):
+                with self.assertRaises(frappe.PermissionError):
+                    self._printview(dt, name)
+
+    def test_printview_still_renders_for_staff(self):
+        """Positive control bắt buộc: nếu thiếu, mọi test printview ở trên
+        pass ngay cả khi /printview bị hỏng hoàn toàn cho tất cả mọi người."""
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        for dt, rows in self.child_rows.items():
+            with self.subTest(doctype=dt):
+                ctx = self._printview(dt, rows["pxn"])
+                self.assertTrue(ctx.get("body"), "staff phải render được body")
+
+    # -- B. frappe.has_permission() MODULE-LEVEL ----------------------------
+    #
+    # Đây đúng là API mà has_permission() override trên controller KHÔNG BAO
+    # GIỜ với tới (frappe/permissions.py: `if frappe.is_table(doctype): return
+    # has_child_permission(...)`, ngay đầu hàm). Vòng 3 đo được True; phải là
+    # False.
+
+    def test_module_level_has_permission_false_on_other_customers_child_row(self):
+        frappe.set_user(BM_USER)
+        for dt, rows in self.child_rows.items():
+            with self.subTest(doctype=dt, form="doc"):
+                doc = frappe.get_doc(dt, rows["pxn"])
+                self.assertFalse(frappe.has_permission(dt, "read", doc))
+            with self.subTest(doctype=dt, form="docname"):
+                # Dạng chuỗi docname — đường mà frappe.client.has_permission
+                # dùng; vòng 3 cũng đo được True ở đây.
+                self.assertFalse(frappe.has_permission(dt, "read", rows["pxn"]))
+
+    def test_module_level_has_permission_true_for_staff(self):
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        for dt, rows in self.child_rows.items():
+            with self.subTest(doctype=dt):
+                doc = frappe.get_doc(dt, rows["pxn"])
+                self.assertTrue(frappe.has_permission(dt, "read", doc))
+                self.assertTrue(frappe.has_permission(dt, "read", rows["pxn"]))
+
+    # -- C. frappe.client.has_permission — oracle "dòng này có phải của tôi" -
+
+    def test_client_has_permission_false_for_portal_user(self):
+        frappe.set_user(BM_USER)
+        for dt, rows in self.child_rows.items():
+            for label, row in (("PXN", rows["pxn"]), ("BM", rows["bm"])):
+                with self.subTest(doctype=dt, row=label):
+                    self.assertEqual(
+                        frappe_client.has_permission(dt, row, "read"),
+                        {"has_permission": False},
+                    )
+
+    # -- D. frappe.client.get_list trên sáu doctype cha ---------------------
+
+    def test_client_get_list_raises_for_portal_user_on_six_doctypes(self):
+        for user in (BM_USER, PXN_USER):
+            frappe.set_user(user)
+            for dt in SIX_PARENT_DOCTYPES:
+                with self.subTest(user=user, doctype=dt):
+                    with self.assertRaises(frappe.PermissionError):
+                        frappe_client.get_list(dt, limit_page_length=0)
+
+    def test_client_get_list_still_works_for_staff_on_six_doctypes(self):
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        for dt in SIX_PARENT_DOCTYPES:
+            with self.subTest(doctype=dt):
+                rows = frappe_client.get_list(dt, limit_page_length=0)
+                self.assertTrue(rows, f"staff phải đọc được {dt}")
+
+
+class TestKhoApiDoorStillOpen(FrappeTestCase):
+    """POSITIVE CONTROL TRUNG TÂM của vòng 4.
+
+    Sau khi gỡ hết DocPerm của `Customer`, cổng duy nhất còn lại là
+    miyano_portal/api/kho.py. Nếu class này fail thì thay đổi đã đóng luôn cả
+    cửa hợp lệ — và mọi assertRaises ở các class khác trở thành bằng chứng
+    của một lỗi, chứ không phải của cách ly.
+
+    Phủ ĐỦ ba endpoint hiện có, cho CẢ HAI khách hàng (không chỉ BM): một lỗi
+    "luôn trả kho của khách đầu tiên" sẽ lọt nếu chỉ test một phía.
+    """
+
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        for k in (self.kho["kho_bm"], self.kho["kho_pxn"]):
+            frappe.db.delete("Customer Stock Ledger Entry", {"kho": k})
+            frappe.db.delete("Customer Stock Lot Balance", {"kho": k})
+        _make_receipt(self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A")
+        _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_kho_me_returns_callers_own_warehouse(self):
+        for user, kho_key, customer in (
+            (BM_USER, "kho_bm", "Bệnh viện Bạch Mai"),
+            (PXN_USER, "kho_pxn", "PXN ABC"),
+        ):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                out = kho_api.kho_me()
+                self.assertEqual(out["kho"], self.kho[kho_key])
+                self.assertEqual(out["customer"], customer)
+
+    def test_kho_ton_returns_own_stock_and_only_own(self):
+        for user, own_vt, other_vt in (
+            (BM_USER, "vt_bm", "vt_pxn"),
+            (PXN_USER, "vt_pxn", "vt_bm"),
+        ):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                rows = kho_api.kho_ton()
+                vat_tus = {r["vat_tu"] for r in rows}
+                self.assertIn(self.kho[own_vt], vat_tus)
+                self.assertNotIn(self.kho[other_vt], vat_tus)
+
+    def test_kho_lo_returns_own_lots_and_rejects_other_customers_item(self):
+        for user, own_vt, other_vt, own_lot in (
+            (BM_USER, "vt_bm", "vt_pxn", "LO-BM-A"),
+            (PXN_USER, "vt_pxn", "vt_bm", "LO-PXN-A"),
+        ):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                lots = kho_api.kho_lo(self.kho[own_vt])
+                self.assertIn(own_lot, [l["so_lo"] for l in lots])
+                with self.assertRaises(frappe.PermissionError) as cm:
+                    kho_api.kho_lo(self.kho[other_vt])
+                # Lỗi tiếng Việt, không lộ tên doctype tiếng Anh, không traceback.
+                msg = str(cm.exception)
+                self.assertIn("không thuộc kho", msg)
+                self.assertNotIn("Customer Warehouse", msg)
+                self.assertNotIn("Traceback", msg)
+
+
+class TestKhoStaffDeskAccess(_KhoVoucherFixture):
+    """Positive control cho phía nhân viên: gỡ quyền của `Customer` không
+    được đụng tới desk Miyano. Dùng một System Manager THẬT (không phải
+    Administrator — Administrator bỏ qua mọi kiểm tra nên sẽ không chứng minh
+    được gì)."""
+
+    def test_system_manager_has_full_read_on_all_six_doctypes(self):
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        records = {
+            "Customer Warehouse": (self.kho["kho_bm"], self.kho["kho_pxn"]),
+            "Customer Warehouse Item": (self.kho["vt_bm"], self.kho["vt_pxn"]),
+            "Customer Stock Receipt": (self.receipt_bm.name, self.receipt_pxn.name),
+            "Customer Stock Issue": (self.issue_bm.name, self.issue_pxn.name),
+            "Customer Stock Ledger Entry": (
+                frappe.db.get_value("Customer Stock Ledger Entry",
+                                    {"kho": self.kho["kho_bm"]}, "name"),
+                frappe.db.get_value("Customer Stock Ledger Entry",
+                                    {"kho": self.kho["kho_pxn"]}, "name"),
+            ),
+            "Customer Stock Lot Balance": (
+                frappe.db.get_value("Customer Stock Lot Balance",
+                                    {"kho": self.kho["kho_bm"]}, "name"),
+                frappe.db.get_value("Customer Stock Lot Balance",
+                                    {"kho": self.kho["kho_pxn"]}, "name"),
+            ),
+        }
+        for dt, (bm_name, pxn_name) in records.items():
+            with self.subTest(doctype=dt):
+                self.assertTrue(frappe.has_permission(dt, "read"))
+                rows = frappe.get_list(dt, pluck="name", limit_page_length=0)
+                self.assertIn(bm_name, rows)
+                self.assertIn(pxn_name, rows, "desk phải thấy CẢ hai khách hàng")
+                frappe.get_doc(dt, bm_name).check_permission("read")
+                frappe.get_doc(dt, pxn_name).check_permission("read")
+
+    def test_system_manager_can_still_write_and_submit_vouchers(self):
+        """Không chỉ đọc: gỡ DocPerm không được làm hỏng luồng nghiệp vụ desk."""
+        staff = _ensure_staff_user()
+        frappe.set_user(staff)
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Receipt",
+            "kho": self.kho["kho_bm"], "ngay": "2026-04-01",
+            "loai_nhap": "Nhập khác", "nguoi_giao": "Nhân viên desk",
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-DESK",
+                       "han_su_dung": "2027-06-01", "so_luong": 7,
+                       "don_gia": 15000}],
+        })
+        doc.insert()           # không ignore_permissions — phải qua quyền thật
+        doc.submit()
+        self.assertEqual(doc.docstatus, 1)
+        self.assertTrue(frappe.db.exists(
+            "Customer Stock Ledger Entry",
+            {"chung_tu": doc.name, "so_lo": "LO-DESK"},
+        ))

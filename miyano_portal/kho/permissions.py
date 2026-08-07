@@ -1,10 +1,26 @@
-"""Cách ly dữ liệu kho giữa các khách hàng.
+"""Cách ly dữ liệu kho giữa các khách hàng — LỚP PHÒNG THỦ THỨ HAI.
+
+ĐỌC ĐOẠN NÀY TRƯỚC. Kể từ vòng 4, không hàm nào trong file này là cơ chế cách
+ly chính. Cách ly chính là: role `Customer` KHÔNG còn DocPerm nào trên sáu
+doctype kho (xem mảng "permissions" của sáu file JSON, và khối comment dài
+trong hooks.py). Không có grant nền thì Frappe chặn Website User ngay ở vòng
+kiểm role, trước khi bất kỳ permission_query_conditions / has_permission nào
+được gọi — nên với cấu hình hiện tại các hàm dưới đây không bao giờ chạy cho
+một tài khoản portal.
+
+Portal đọc dữ liệu kho DUY NHẤT qua miyano_portal/api/kho.py, nơi kho được suy
+từ phiên đăng nhập bằng get_portal_kho() rồi lọc tường minh — an toàn nhờ cấu
+trúc truy vấn, không nhờ tầng phân quyền.
+
+Vì sao vẫn giữ file này: nếu ai đó cấp lại DocPerm cho `Customer` (sửa JSON,
+hoặc Role Permission Manager tạo Custom DocPerm), các hàm này lập tức sống lại
+và hạ mức thiệt hại từ "rò rỉ mọi khách hàng" xuống "vẫn chỉ thấy kho của
+mình". Đừng xoá chúng, nhưng cũng đừng viện dẫn chúng như bằng chứng an toàn.
 
 Kho Khách Hàng lọc theo `customer`; năm doctype còn lại đều mang field `kho`
-nên lọc theo danh sách kho mà user được phép thấy.
-
-Chỉ Website User bị ràng buộc — nhân viên Miyano ngồi desk thấy toàn bộ, giống
-cơ chế đã dùng cho Sales Order ở miyano_portal/permissions.py.
+nên lọc theo danh sách kho mà user được phép thấy. Chỉ Website User bị ràng
+buộc — nhân viên Miyano ngồi desk thấy toàn bộ, giống cơ chế đã dùng cho Sales
+Order ở miyano_portal/permissions.py.
 """
 
 import frappe
@@ -145,11 +161,14 @@ def issue_item_query(user=None) -> str:
 # hàm hoàn toàn nằm trong Frappe core, tự suy `parent_doc` (luôn resolve về
 # None cho cả doc-instance lẫn docname-string) rồi tự đệ quy kiểm ROLE THUẦN
 # trên doctype cha — không có bước nào trong đường đó gọi `doc.has_permission()`.
-# `frappe/www/printview.py` (`validate_print_permission`) gọi đúng dạng
-# module-level này, nên `/printview` vẫn render được dòng của khách khác dù
-# override này có mặt. Không có cách đóng lỗ đó ở tầng class/hook của riêng
-# doctype con trong Frappe 15.113.4 — xem task-6-report.md, addendum vòng 3,
-# để biết vì sao và các phương án đã cân nhắc.
+#
+# CÁCH LỖ ĐÓ ĐƯỢC ĐÓNG (vòng 4): chính vì đường module-level luôn quy về
+# "kiểm role trên doctype CHA", gỡ hết DocPerm của role `Customer` trên hai
+# chứng từ cha làm bước kiểm đó trả False cho mọi Website User — và vì thế
+# `/printview`, `download_pdf`, `frappe.client.has_permission` đều bị chặn.
+# Nói cách khác: lỗ này KHÔNG được đóng bởi hàm dưới đây, mà bởi cấu hình
+# quyền. Hàm dưới đây chỉ còn giá trị nếu grant `Customer` quay trở lại.
+# Đo trước/sau, xem task-6-report.md, addendum vòng 4.
 def voucher_item_readable(doc, ptype=None, user=None) -> bool:
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):

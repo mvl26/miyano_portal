@@ -6,8 +6,20 @@ from miyano_portal.kho.permissions import voucher_item_readable
 class CustomerStockReceiptItem(Document):
 	def has_permission(self, permtype="read", *, debug=False, user=None):
 		"""Ghi đè has_permission() ở mức CLASS cho hai permtype "read" và
-		"print" — KHÔNG chặn được mọi đường gọi, xem "Phạm vi thật sự" bên
-		dưới trước khi tin rằng doctype này đã an toàn tuyệt đối.
+		"print" — LỚP PHÒNG THỦ THỨ HAI, KHÔNG phải cơ chế cách ly chính.
+
+		CƠ CHẾ CHÍNH (vòng 4): role `Customer` không còn DocPerm nào trên
+		`Customer Stock Receipt` (doctype CHA). Vì mọi đường kiểm quyền của
+		một doctype istable=1 — kể cả đường module-level mà override này
+		không với tới — cuối cùng đều quy về kiểm role trên doctype cha, việc
+		gỡ grant đó chặn Website User trên MỌI đường gọi, kể cả `/printview`.
+		Portal đọc dữ liệu kho duy nhất qua miyano_portal/api/kho.py. Xem
+		khối comment trong hooks.py và task-6-report.md, addendum vòng 4.
+
+		Override này vì thế chỉ còn ý nghĩa nếu ai đó cấp lại DocPerm cho
+		`Customer` trên chứng từ cha: khi đó nó lại là thứ chặn các đường gọi
+		đi qua INSTANCE. Đừng viện dẫn nó như bằng chứng doctype này an toàn
+		— đọc "PHẠM VI THẬT SỰ" bên dưới để biết nó KHÔNG chặn được gì.
 
 		`frappe.permissions.has_child_permission()` không kiểm được theo TỪNG
 		DÒNG cho bảng con (istable=1): nó suy ra parent_doctype rồi kiểm quyền
@@ -36,16 +48,21 @@ class CustomerStockReceiptItem(Document):
 		  resolve-về-None như trên, xảy ra trên CẢ đường doc-instance LẪN
 		  đường docname-string) rồi tự đệ quy kiểm ROLE THUẦN trên doctype
 		  cha, hoàn toàn không đụng tới class này. `frappe/www/printview.py`
-		  (`validate_print_permission`) gọi đúng dạng module-level này — nên
-		  `/printview?doctype=Customer Stock Receipt Item&name=<dòng của
-		  khách khác>` vẫn render được cho một Website User khác khách hàng,
-		  DÙ override này đã có mặt. Xác nhận thực nghiệm:
+		  (`validate_print_permission`), `frappe/utils/print_format.py`
+		  (`download_pdf`) và `frappe/client.py` (`has_permission`) đều gọi
+		  đúng dạng module-level này. Đo thực nghiệm ở vòng 3, KHI role
+		  `Customer` còn read=1 trên chứng từ cha:
 		  `doc.has_permission("read")` → False (override chạy đúng),
 		  `frappe.has_permission(doc.doctype, "read", doc)` → True (override
-		  không được gọi tới). Không có cách đóng lỗ này ở tầng class/hook
-		  của riêng doctype con trong Frappe 15.113.4 — cần chặn ở tầng
-		  route/request, việc đó nằm ngoài phạm vi override này (xem
-		  task-6-report.md, addendum vòng 3).
+		  không được gọi tới) — và `/printview` render ra số lô, số lượng,
+		  đơn giá của khách khác.
+
+		  Lỗ đó KHÔNG đóng được ở tầng class/hook của riêng doctype con
+		  trong Frappe 15.113.4. Vòng 4 đóng nó ở tầng cấu hình quyền: bỏ
+		  DocPerm của `Customer` trên doctype CHA, đúng chỗ mà
+		  has_child_permission() quy về. Sau thay đổi đó, cả ba đường trên
+		  đều trả PermissionError cho tài khoản portal — không nhờ override
+		  này, mà nhờ không còn grant nền nào để tụt về.
 
 		FINDING 4 (vòng review 2, CRITICAL — đã vá): bản trước trả kết quả
 		kho-check cho MỌI permtype như nhau, nên role Customer (chỉ có

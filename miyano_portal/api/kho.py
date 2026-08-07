@@ -1,8 +1,25 @@
-"""Endpoint kho cho cổng khách hàng.
+"""Endpoint kho cho cổng khách hàng — CỔNG DUY NHẤT.
 
 Nguyên tắc bất di bất dịch: KHÔNG endpoint nào nhận tên kho hay tên khách hàng
 từ client. Kho luôn được suy ra từ phiên đăng nhập qua get_portal_kho(), và mọi
 tham số do client gửi (ví dụ `vat_tu`) đều phải kiểm tra là thuộc kho đó.
+
+Kể từ vòng 4, đây không còn là "cách khuyến nghị" mà là ĐƯỜNG DUY NHẤT còn lại:
+role `Customer` đã bị gỡ hết DocPerm trên tám doctype kho, nên tài khoản portal
+không thể đọc chúng qua get_list / REST / printview / frappe.client.* nữa (xem
+khối comment trong hooks.py). Hệ quả trực tiếp cho file này:
+
+  * Mọi truy vấn ở đây PHẢI an toàn nhờ CẤU TRÚC (lọc tường minh theo kho lấy
+    từ phiên), không được trông cậy vào tầng phân quyền của framework — tầng đó
+    giờ chỉ biết nói "không" cho user portal.
+  * Vì thế `frappe.get_all` và `frappe.db.get_value` (cả hai đều BỎ QUA phân
+    quyền) là lựa chọn đúng ở đây, không phải lỗ hổng: mỗi lời gọi đều bị ràng
+    vào `kho` do get_portal_kho() trả về. Ngược lại, `frappe.get_list` sẽ chỉ
+    ném PermissionError cho user portal — nếu ai đó dùng nó ở đây, endpoint sẽ
+    vỡ, chứ không phải rò rỉ.
+  * TUYỆT ĐỐI không "sửa" bằng ignore_permissions=True trên một truy vấn nhận
+    định danh từ client mà chưa kiểm sở hữu. Định danh do client gửi phải đi
+    qua một guard kiểu _vat_tu_cua_kho() trước.
 """
 
 import frappe

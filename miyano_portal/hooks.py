@@ -133,7 +133,16 @@ permission_query_conditions = {
 	"Delivery Note": "miyano_portal.permissions.delivery_query",
 	"Sales Invoice": "miyano_portal.permissions.invoice_query",
 	"Blanket Order": "miyano_portal.permissions.blanket_query",
-	# Kho khách hàng — xem miyano_portal/kho/permissions.py
+	# ---------------------------------------------------------------------
+	# Kho khách hàng — ĐỌC comment ở khối has_permission bên dưới trước khi
+	# tin rằng các entry dưới đây là thứ đang bảo vệ dữ liệu kho. Kể từ vòng
+	# 4, cơ chế bảo vệ CHÍNH là: role `Customer` KHÔNG còn bất kỳ DocPerm nào
+	# trên tám doctype kho, nên Website User không bao giờ qua nổi vòng kiểm
+	# role cơ bản và các hàm dưới đây KHÔNG BAO GIỜ được gọi tới cho họ.
+	# Giữ lại làm lớp phòng thủ thứ hai: nếu ai đó cấp lại DocPerm cho
+	# `Customer` (qua JSON doctype hoặc Role Permission Manager), các điều
+	# kiện này lập tức có hiệu lực trở lại và giới hạn list view theo kho.
+	# ---------------------------------------------------------------------
 	"Customer Warehouse": "miyano_portal.kho.permissions.kho_query",
 	"Customer Warehouse Item": "miyano_portal.kho.permissions.vat_tu_query",
 	"Customer Stock Receipt": "miyano_portal.kho.permissions.receipt_query",
@@ -156,27 +165,56 @@ has_permission = {
 	"Customer Stock Issue": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Ledger Entry": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
+	# =====================================================================
+	# CÁI GÌ ĐANG THẬT SỰ BẢO VỆ TÁM DOCTYPE KHO (vòng 4 — mô hình hiện tại)
+	# =====================================================================
+	# Role `Customer` KHÔNG có DocPerm nào trên sáu doctype cha (Customer
+	# Warehouse / Warehouse Item / Stock Receipt / Stock Issue / Stock Ledger
+	# Entry / Stock Lot Balance) — xem mảng "permissions" trong sáu file JSON
+	# tương ứng, chỉ còn System Manager / Sales Manager / Sales User. Đó là
+	# TOÀN BỘ cơ chế cách ly ở phía đọc trực tiếp doctype: không có grant nền,
+	# mọi Website User bị chặn ngay ở vòng kiểm role, trên MỌI đường gọi —
+	# /printview, download_pdf, frappe.client.has_permission,
+	# frappe.client.get_list, REST v1/v2, desk. Hai bảng con istable=1 cũng
+	# được đóng theo, vì has_child_permission() quy chiếu ngược về đúng role
+	# check trên doctype CHA (đó chính là lý do vòng 1-3 không đóng nổi lỗ
+	# /printview ở tầng class/hook: chừng nào cha còn read=1 cho `Customer`
+	# thì con vẫn lọt).
+	#
+	# Cổng duy nhất được phép của portal là API whitelist
+	# miyano_portal/api/kho.py: nó suy kho từ phiên đăng nhập qua
+	# get_portal_kho() rồi lọc tường minh theo kho đó, tức an toàn NHỜ CẤU
+	# TRÚC TRUY VẤN chứ không nhờ tầng phân quyền của framework. Đúng như
+	# thiết kế đã duyệt: portal không bao giờ chạm thẳng vào các doctype này.
+	#
+	# Các entry has_permission còn lại ở trên, và toàn bộ khối
+	# permission_query_conditions, giờ là LỚP PHÒNG THỦ THỨ HAI: với role
+	# `Customer` hiện tại chúng không bao giờ được gọi tới (không có grant
+	# nền thì framework chặn trước khi tới hook). Chúng chỉ có ý nghĩa nếu ai
+	# đó cấp lại DocPerm cho `Customer`, hoặc cấp cho một role Website User
+	# khác. Giữ lại vì rẻ và vì chúng biến một sai lầm cấu hình tương lai từ
+	# "rò rỉ toàn bộ" thành "vẫn lọc theo kho".
+	#
 	# Customer Stock Receipt Item / Customer Stock Issue Item CỐ Ý không có
 	# entry ở đây (dù CÓ entry trong permission_query_conditions ở trên).
-	# Lý do: chúng là istable=1, và frappe.permissions.has_child_permission()
-	# rẽ nhánh sang kiểm PARENT trước khi bất kỳ hook has_permission nào đăng
-	# ký cho CHÍNH doctype con có cơ hội chạy — một entry ở đây sẽ không bao
-	# giờ được gọi (đã xác minh thực nghiệm, xem task-6-report.md phần
-	# "Deviation"). ĐỪNG thêm lại hai dòng đó — một entry has_permission "có
-	# vẻ đúng" nhưng chết là một decoy: nó khiến người đọc sau tin rằng hai
-	# bảng này đã được hook bảo vệ trong khi thực ra không phải.
+	# Đây là loại "chết" KHÁC HẲN với đoạn trên, đừng gộp hai thứ làm một:
+	# chúng là istable=1, và frappe.permissions.has_child_permission() rẽ
+	# nhánh sang kiểm PARENT trước khi bất kỳ hook has_permission nào đăng ký
+	# cho CHÍNH doctype con có cơ hội chạy — một entry ở đây KHÔNG BAO GIỜ
+	# được gọi, bất kể cấu hình DocPerm thế nào, kể cả sau khi ai đó cấp lại
+	# quyền cho `Customer` (đã xác minh thực nghiệm, xem task-6-report.md
+	# phần "Deviation"). Tức là: các entry khác ở khối này "chết có điều
+	# kiện" (sống lại nếu grant quay lại), hai entry này thì "chết cấu trúc"
+	# (không bao giờ sống). ĐỪNG thêm lại chúng — một entry has_permission
+	# "có vẻ đúng" nhưng chết là một decoy.
 	#
-	# Cách ly THẬT SỰ nằm ở has_permission() ghi đè trực tiếp trên class
-	# controller (customer_stock_receipt_item.py / customer_stock_issue_item.py)
-	# — nhưng CHỈ cho lời gọi đi qua INSTANCE của document
-	# (doc.check_permission()/doc.has_permission()), KHÔNG PHẢI "mọi đường
-	# gọi". Lời gọi MODULE-LEVEL frappe.has_permission(doctype, ptype, doc)
-	# (hàm tự do, không phải instance method — dùng bởi
-	# frappe/www/printview.py và một số nơi khác trong Frappe core) KHÔNG
-	# BAO GIỜ chạm tới class controller đó, nên vẫn tụt về kiểm ROLE THUẦN
-	# trên chứng từ cha cho cả hai doctype này (FINDING 8, vòng review 3 —
-	# xem task-6-report.md, addendum vòng 3, để biết phạm vi chính xác và vì
-	# sao chưa có bản vá đầy đủ cho lỗ này).
+	# has_permission() ghi đè trên class controller
+	# (customer_stock_receipt_item.py / customer_stock_issue_item.py) cũng
+	# thuộc lớp phòng thủ thứ hai, KHÔNG phải cơ chế chính: nó chỉ chặn được
+	# lời gọi qua INSTANCE (doc.check_permission()/doc.has_permission()),
+	# không chặn được lời gọi MODULE-LEVEL frappe.has_permission(doctype,
+	# ptype, doc) mà /printview dùng. Lỗ /printview được đóng bởi việc gỡ
+	# DocPerm ở trên, KHÔNG phải bởi override đó.
 }
 
 # DocType Class
