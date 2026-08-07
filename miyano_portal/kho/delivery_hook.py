@@ -12,8 +12,11 @@ Ba điều dễ làm sai mà đã được cố định ở đây:
    nên không sửa lại được.
 2. **Nuốt lỗi phải kèm rollback tới savepoint.** Nuốt suông sẽ để lại dữ liệu
    nửa vời (ví dụ đã tạo Customer Warehouse Item rồi mới hỏng ở bước tạo
-   phiếu). Rollback phải chạy TRƯỚC `frappe.log_error` vì log_error insert
-   thẳng chứ không tự đặt savepoint — log trước thì bản ghi log bị cuốn theo.
+   phiếu). Bản ghi Error Log thì KHÔNG bị rollback cuốn theo dù đặt trước hay
+   sau — `tabError Log` khai `"engine": "MyISAM"`, tức là bảng phi giao dịch
+   (đã đo: insert rồi `rollback to savepoint`, dòng log vẫn còn). Vẫn rollback
+   trước rồi mới log, vì nếu chính lời gọi log hỏng thì dữ liệu nửa vời đã kịp
+   biến mất.
 3. **Đọc lô: bundle TRƯỚC, `batch_no` sau.** Build này bật cả hai cơ chế của
    ERPNext v15. Hơn nữa `StockController.make_bundle_using_old_serial_batch_fields()`
    chạy trong `DeliveryNote.on_submit`, tức là TRƯỚC hook này, nên một dòng chỉ
@@ -57,9 +60,9 @@ def _chay_an_toan(doc, fn, title: str) -> None:
 	try:
 		fn(doc)
 	except Exception:
-		# Thứ tự bắt buộc: rollback TRƯỚC, log SAU. log_error() gọi insert()
-		# trần, không có savepoint riêng, nên nếu log trước thì bản ghi Error
-		# Log nằm sau savepoint và bị chính rollback này xoá đi.
+		# Rollback TRƯỚC, log SAU — để nếu chính lời gọi log hỏng thì dữ liệu
+		# nửa vời đã kịp biến mất. (Bản thân dòng Error Log không phụ thuộc
+		# thứ tự này: `tabError Log` là MyISAM nên rollback không đụng tới nó.)
 		try:
 			frappe.db.rollback(save_point=_SAVEPOINT)
 		except Exception:

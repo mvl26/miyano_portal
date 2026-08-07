@@ -57,6 +57,12 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		self._nap_ton(ITEM, 500)
 		self._nap_ton(ITEM_2, 500)
 		self._nap_ton(ITEM_MOI, 500)
+		# `tabError Log` khai engine MyISAM — bảng PHI GIAO DỊCH, nên các dòng
+		# log do test ép lỗi sinh ra KHÔNG bị rollback cuối class cuốn đi mà ở
+		# lại vĩnh viễn trên site. Tự dọn đúng những dòng của hook này.
+		self.addCleanup(
+			frappe.db.delete, "Error Log", {"method": ["like", "Kho khách:%"]}
+		)
 
 	# ------------------------------------------------------------------ setup
 	def _nap_ton(self, item_code, qty, batch_no=None):
@@ -241,7 +247,6 @@ class TestDeliveryNoteHook(FrappeTestCase):
 
 	def test_loi_ben_trong_khong_chan_delivery_note(self):
 		"""Ép hook hỏng từ bên trong: DN vẫn phải submit, lỗi phải vào Error Log."""
-		truoc = frappe.db.count("Error Log")
 		with unittest.mock.patch.object(
 			delivery_hook, "_kho_cua_khach", side_effect=RuntimeError("hỏng có chủ ý")
 		):
@@ -249,7 +254,18 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		self.assertEqual(dn.docstatus, 1, "Delivery Note PHẢI submit được dù hook hỏng")
 		self.assertEqual(frappe.db.get_value("Delivery Note", dn.name, "docstatus"), 1)
 		self.assertEqual(self._phieu_cua(dn.name), [])
-		self.assertGreater(frappe.db.count("Error Log"), truoc, "Lỗi phải được log lại")
+
+		# Đếm tổng số dòng Error Log là một assert rỗng: bất kỳ lỗi nào khác
+		# xảy ra trong test cũng làm nó tăng. Phải soi ĐÚNG dòng log của hook
+		# này, đúng Delivery Note này, và đúng lỗi đã ép ra.
+		log = frappe.get_all(
+			"Error Log",
+			filters={"reference_doctype": "Delivery Note", "reference_name": dn.name},
+			fields=["method", "error"],
+		)
+		self.assertEqual(len(log), 1, "Lỗi bị nuốt phải để lại đúng một dòng Error Log")
+		self.assertIn("Kho khách", log[0].method)
+		self.assertIn("hỏng có chủ ý", log[0].error)
 
 	def test_loi_giua_chung_khong_de_lai_du_lieu_nua_voi(self):
 		"""Hỏng SAU khi đã tạo Customer Warehouse Item → savepoint phải cuốn lại."""
@@ -418,12 +434,27 @@ class TestDeliveryNoteHook(FrappeTestCase):
 			frappe.db.count("Item"), item_truoc, "Hook KHÔNG được tạo Item của ERPNext"
 		)
 
-	def test_vat_tu_da_co_duoc_dung_lai_khong_nhan_ban(self):
+	def test_vat_tu_da_co_duoc_dung_lai_dung_ban_ghi_do(self):
+		"""Vật tư đã có trong danh mục kho phải được DÙNG LẠI, đúng bản ghi đó.
+
+		Cố ý KHÔNG kiểm bằng mỗi số đếm bản ghi. `CustomerWarehouseItem
+		._unique_within_warehouse()` đã chặn trùng mã ở tầng doctype, nên số
+		đếm vẫn y nguyên KỂ CẢ khi hook tra cứu sai hoàn toàn — lúc đó hook chỉ
+		ném lỗi rồi bị `_chay_an_toan` nuốt, và một assert đếm sẽ xanh trong khi
+		tính năng đã hỏng. Phải soi đúng bản ghi mà dòng phiếu trỏ tới.
+		"""
+		co_san = frappe.db.get_value(
+			"Customer Warehouse Item", {"kho": self.kho_bm, "ma_vat_tu": ITEM}, "name"
+		)
+		self.assertTrue(co_san, "Tiền đề của test: vật tư này đã có sẵn trong kho.")
 		truoc = frappe.db.count("Customer Warehouse Item", {"kho": self.kho_bm})
-		self._dn(rows=[
+
+		dn = self._dn(rows=[
 			{"item_code": ITEM, "qty": 2, "rate": 95000},
 			{"item_code": ITEM, "qty": 3, "rate": 95000},
 		])
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual([r.vat_tu for r in phieu.items], [co_san, co_san])
 		self.assertEqual(
 			frappe.db.count("Customer Warehouse Item", {"kho": self.kho_bm}), truoc
 		)
