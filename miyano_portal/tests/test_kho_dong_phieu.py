@@ -137,6 +137,23 @@ class TestDocFileXuat(FrappeTestCase):
 		)
 		self.assertNotIn("don_gia", kq["rows"][0])
 
+	def test_so_lo_trong_tep_duoc_giu_nguyen_o_dong_khop(self):
+		"""Số lô trên dòng "khop" là DỮ LIỆU người dùng nhập, không phải một gợi
+		ý được phép thay bằng lô khác.
+
+		Chốt phía backend của thiết kế §4.5: kho này truy xuất theo lô, xuất
+		nhầm lô làm hỏng vết thu hồi mà số dư vẫn đúng nên không có gì tự lộ ra.
+		Giao diện phiếu xuất từng ghi đè giá trị này bằng lô FEFO đầu tiên ngay
+		sau khi đọc tệp; ca này khoá đầu backend của hợp đồng đó.
+		"""
+		kq = dong_phieu.doc_file(
+			_xlsx("xuat", [["MYN-GLOVE-M", "", "", "LO-TU-TEP-01", 3, "", "", ""]]),
+			self.kho_bm, "xuat",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "khop")
+		self.assertEqual(row["so_lo"], "LO-TU-TEP-01")
+
 	def test_loai_la_bi_chan(self):
 		with self.assertRaises(frappe.ValidationError):
 			dong_phieu.doc_file(b"", self.kho_bm, "linh tinh")
@@ -169,6 +186,28 @@ class TestExportDong(FrappeTestCase):
 		kq = dong_phieu.doc_file(content, self.kho["kho_bm"], "nhap")
 		self.assertEqual(kq["rows"][0]["trang_thai"], "khop")
 		self.assertEqual(kq["rows"][0]["so_luong"], 7)
+
+	def test_export_phieu_xuat_roi_nap_lai_giu_nguyen_so_lo(self):
+		"""Vòng xuất → nạp lại của PHIẾU XUẤT phải trả về ĐÚNG số lô đã ghi.
+
+		Ca anh em ở trên chạy trên phiếu nhập nên không phủ được chỗ này: chỉ
+		phiếu xuất mới có bước gợi ý lô FEFO, tức chỉ ở đó số lô mới có thể bị
+		một lô khác thay mất trên đường đi.
+		"""
+		phieu_xuat = frappe.get_doc({
+			"doctype": "Customer Stock Issue",
+			"kho": self.kho["kho_bm"],
+			"ngay": frappe.utils.today(),
+			"loai_xuat": "Xuất sử dụng",
+			"items": [{
+				"vat_tu": self.kho["vt_bm"], "so_lo": "LO-XUAT-01", "so_luong": 2,
+			}],
+		})
+		phieu_xuat.insert(ignore_permissions=True)  # nháp: chốt tồn chỉ chạy ở before_submit
+		content = dong_phieu.build_export_xlsx("Customer Stock Issue", phieu_xuat.name)
+		kq = dong_phieu.doc_file(content, self.kho["kho_bm"], "xuat")
+		self.assertEqual(kq["rows"][0]["trang_thai"], "khop")
+		self.assertEqual(kq["rows"][0]["so_lo"], "LO-XUAT-01")
 
 
 from miyano_portal.api import kho as kho_api

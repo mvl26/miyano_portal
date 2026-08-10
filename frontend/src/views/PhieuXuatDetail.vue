@@ -107,11 +107,36 @@ async function loadLotsForRow(row) {
     const out = await api.callKho('kho_lo_goi_y', { vat_tu: row.vat_tu, so_luong: row.so_luong || 0 })
     row._lots = out.lots || []
     if (row._lots.length) {
-      // Giữ lựa chọn cũ nếu lô đó vẫn còn trong danh sách (đổi so_luong không
-      // nên tự đổi lô người dùng đã chọn); nếu chưa chọn hoặc lô cũ hết
-      // tồn thì mặc định lô đầu tiên (gần hết hạn nhất).
-      const stillThere = row._lots.some((l) => l.so_lo === row.so_lo)
-      applyLotToRow(row, stillThere ? row.so_lo : row._lots[0].so_lo)
+      // BA nhánh, không phải hai — gộp nhánh 3 vào nhánh 1 (mặc định lô đầu
+      // tiên) là cách số lô THẬT của người dùng bị thay bằng lô FEFO một cách
+      // âm thầm:
+      //   (1) dòng CHƯA gắn với lô nào (dòng mới gõ tay, hoặc vừa đổi vật tư
+      //       nên resetLotState đã xoá so_lo, hoặc đang mang sentinel
+      //       LOT_KHONG_CO của một lần tải trước khi kho chưa có tồn) → mặc
+      //       định lô đầu tiên, tức lô gần hết hạn nhất. Đây là tính năng gợi
+      //       ý FEFO, phải giữ.
+      //   (2) lô đang chọn vẫn còn trong danh sách → giữ nguyên, và đọc lại
+      //       hạn/giá/cờ hết hạn từ lô đó (đổi Số lượng không được tự đổi lô
+      //       người dùng đã chọn).
+      //   (3) dòng ĐÃ mang một số lô thật mà lô đó không còn trong danh sách
+      //       (đọc từ tệp Excel, hoặc mở lại nháp cũ sau khi lô đã xuất hết)
+      //       → GIỮ NGUYÊN số lô đó và để loCanhBao() cảnh báo tại dòng
+      //       (thiết kế §4.5). Ghi đè bằng _lots[0] ở đây là xuất một lô khác
+      //       lô bệnh viện đã ghi mà không có gì tự lộ ra: số dư vẫn đúng vì
+      //       lô thay thế chắc chắn còn tồn, chỉ vết truy xuất lô là sai.
+      const chuaChonLo = !row.so_lo || row.so_lo === LOT_KHONG_CO
+      if (chuaChonLo) {
+        applyLotToRow(row, row._lots[0].so_lo)
+      } else if (row._lots.some((l) => l.so_lo === row.so_lo)) {
+        applyLotToRow(row, row.so_lo)
+      } else {
+        // Không biết gì về hạn/giá của một lô không còn tồn: xoá phần xem
+        // trước của lô CŨ thay vì để nó nằm lại trên dòng này. Không đụng tới
+        // xac_nhan_het_han — tick đó vẫn thuộc đúng số lô đang giữ.
+        row.han_su_dung = null
+        row.don_gia = 0
+        row._hetHan = false
+      }
     } else {
       // Nhánh này chạy cho HAI tình huống khác nhau, không được gộp làm một:
       // (1) vật tư chưa từng có lô nào (vừa tạo nhanh, hoặc dòng import mới
@@ -134,6 +159,24 @@ async function loadLotsForRow(row) {
   } finally {
     row._lotsLoading = false
   }
+}
+
+// Cảnh báo lô của MỘT dòng, TÍNH RA từ _lots chứ không lưu thành cờ trên dòng
+// (thiết kế §4.5: "số lô không tồn tại hoặc đã hết tồn → cảnh báo tại dòng;
+// vẫn lưu nháp được, vẫn bị _chan_xuat_qua_ton chặn ở bước ghi sổ").
+//
+// Vì sao tính ra chứ không lưu: một cờ đặt lúc import sẽ vẫn còn đó sau khi
+// người dùng đổi sang lô khác — đúng loại trạng thái ôi thiu đã làm dòng đỏ
+// không bao giờ xoá được. Hàm này tự đúng lại sau MỌI thay đổi so_lo/_lots.
+// Trả về chuỗi rỗng khi không có gì để cảnh báo, để dùng luôn làm điều kiện
+// v-if trong <template>.
+function loCanhBao(r) {
+  if (!r.vat_tu || r._lotsLoading) return ''
+  // Chưa gắn lô nào: ô chọn đã tự nói ("Chọn vật tư trước" / "chưa còn tồn lô
+  // nào"), không chồng thêm một câu nữa.
+  if (!r.so_lo || r.so_lo === LOT_KHONG_CO) return ''
+  if ((r._lots || []).some((l) => l.so_lo === r.so_lo)) return ''
+  return `Lô ${r.so_lo} không còn tồn trong kho. Vẫn lưu nháp được, nhưng ghi sổ sẽ bị chặn — chọn lô khác hoặc nhập kho lô này trước.`
 }
 
 function onVatTuChange(row) {
@@ -204,8 +247,16 @@ const {
   // xong (qua onVatTuAssigned). Composable gọi callback này cho MỌI dòng —
   // việc lọc theo vat_tu là trách nhiệm của chính callback, không phải
   // composable.
+  //
+  // Gọi THẲNG loadLotsForRow, KHÔNG qua onVatTuChange: hợp đồng của
+  // onVatTuChange là "người dùng vừa đổi sang vật tư khác, bỏ hết trạng thái
+  // của vật tư cũ", nên việc đầu tiên nó làm là resetLotState() — xoá luôn số
+  // lô vừa đọc từ tệp. Dùng nó làm móc import là đem nguyên nghĩa "bỏ hết"
+  // đó áp lên một dòng mà số lô CHÍNH LÀ dữ liệu người dùng vừa nhập vào.
+  // loadLotsForRow() giữ nguyên so_lo và tự xử lý cả ba tình huống (lô còn
+  // tồn / lô hết tồn / ô Số lô để trống → sentinel → mặc định FEFO).
   onRowImported: (row) => {
-    if (row.vat_tu) onVatTuChange(row)
+    if (row.vat_tu) loadLotsForRow(row)
   },
 })
 
@@ -214,7 +265,16 @@ function onSoLuongChange(row, val) {
   loadLotsForRow(row)
 }
 function onSoLoChange(row) {
-  applyLotToRow(row, row.so_lo)
+  // Ô chọn có thể đang chứa cả mục "không còn tồn" (số lô đọc từ tệp hoặc từ
+  // nháp cũ mà lô đã hết) — applyLotToRow() không tìm thấy lô đó nên tự thoát,
+  // để lại hạn/giá của lô TRƯỚC ĐÓ trên dòng. Xoá tường minh ở đây.
+  if (row._lots.some((l) => l.so_lo === row.so_lo)) {
+    applyLotToRow(row, row.so_lo)
+  } else {
+    row.han_su_dung = null
+    row.don_gia = 0
+    row._hetHan = false
+  }
 }
 
 function rowThanhTien(row) {
@@ -511,6 +571,12 @@ onMounted(async () => {
                       {{ l.han_su_dung ? '· HSD ' + fmtDate(l.han_su_dung) : '· không hạn' }}
                       {{ l.het_han ? ' ⚠ QUÁ HẠN' : '' }}
                     </option>
+                    <!-- Số lô đang giữ nhưng không còn tồn (đọc từ tệp, hoặc
+                         nháp cũ có lô đã xuất hết): phải có mặt trong danh
+                         sách, nếu không v-model không khớp option nào và ô
+                         chọn hiện trống — trông như dòng chưa chọn lô trong
+                         khi dữ liệu vẫn mang đúng số lô đó. -->
+                    <option v-if="loCanhBao(r)" :value="r.so_lo">{{ r.so_lo }} · không còn tồn</option>
                   </select>
                   <span v-else-if="r.vat_tu" class="tag">
                     Vật tư này chưa còn tồn lô nào.
@@ -519,6 +585,7 @@ onMounted(async () => {
                     </template>
                   </span>
                   <span v-else class="tag">Chọn vật tư trước</span>
+                  <div v-if="loCanhBao(r)" class="warn" style="margin-top: 4px">⚠ {{ loCanhBao(r) }}</div>
                   <div v-if="r._hetHan" class="warn" style="margin-top: 4px; display: flex; align-items: center; gap: 4px">
                     <label style="display: flex; align-items: center; gap: 4px; font-weight: 600">
                       <input type="checkbox" v-model="r.xac_nhan_het_han" />
