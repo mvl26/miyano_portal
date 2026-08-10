@@ -135,11 +135,55 @@ function onVatTuChange(row) {
 // modal và xử lý gán dùng chung với PhieuNhapDetail, xem useDongPhieu.js.
 // Khác PhieuNhapDetail ở một điểm: vật tư vừa tạo chưa có lô nào, nên sau khi
 // gán phải nạp lô cho dòng đó như khi người dùng tự đổi ô chọn (onVatTuChange)
-// — để cảnh báo "chưa có tồn" hiện ra từ chính dữ liệu trả về.
-const { MUC_TAO_MOI, modalOpen, modalInitial, onVatTuSelect, onVatTuSaved } = useDongPhieu({
+// — để cảnh báo "chưa có tồn" hiện ra từ chính dữ liệu trả về. Đồng thời đánh
+// dấu row._vua_tao = true: modal luôn ở mode="tao" nên mọi lần onAssigned
+// được gọi đều là vừa tạo vật tư mới, chưa từng nhập kho lần nào.
+function onVatTuAssigned(row) {
+  row._vua_tao = true
+  onVatTuChange(row)
+}
+
+// Task 11: nối luồng import/export Excel — dùng chung composable với
+// PhieuNhapDetail (xem useDongPhieu.js). Khác phiếu nhập: dòng đọc từ tệp
+// KHÔNG mang don_gia/han_su_dung (controller Customer Stock Issue luôn lấy
+// hai giá trị đó từ lô đã chọn), nên extraRowFields ở đây không đụng tới hai
+// trường đó, chỉ khởi tạo bốn trường trạng thái lô mà bảng dòng cần cho MỌI
+// dòng import (kể cả "ma_moi"/"loi", vat_tu rỗng) — <template> đọc
+// r._lots.length không phòng thủ ở ô chọn lô, thiếu bốn trường này là vỡ
+// render ngay khi Vue vẽ dòng đó, trước khi bất kỳ callback nào kịp chạy.
+const {
+  MUC_TAO_MOI,
+  modalOpen,
+  modalInitial,
+  onVatTuSelect,
+  onVatTuSaved,
+  importing,
+  importInput,
+  mauUrl,
+  exportUrl,
+  dongChuaXuLy,
+  onImportFile,
+  moTaoTuDong,
+} = useDongPhieu({
   doc,
   vatTuList,
-  onAssigned: onVatTuChange,
+  onAssigned: onVatTuAssigned,
+  loai: 'xuat',
+  DOCTYPE,
+  extraRowFields: () => ({
+    xac_nhan_het_han: false,
+    _lots: [],
+    _lotsLoading: false,
+    _hetHan: false,
+  }),
+  // Nạp lô ngay cho dòng đã khớp mã (có vat_tu) để người dùng thấy lô nào còn
+  // tồn; dòng "ma_moi"/"loi" chưa có vat_tu thì bỏ qua, sẽ nạp khi tạo nhanh
+  // xong (qua onVatTuAssigned). Composable gọi callback này cho MỌI dòng —
+  // việc lọc theo vat_tu là trách nhiệm của chính callback, không phải
+  // composable.
+  onRowImported: (row) => {
+    if (row.vat_tu) onVatTuChange(row)
+  },
 })
 
 function onSoLuongChange(row, val) {
@@ -229,6 +273,10 @@ function payload() {
 }
 
 async function save({ silent } = {}) {
+  if (dongChuaXuLy.value) {
+    showToast(`Còn ${dongChuaXuLy.value} dòng chưa xử lý (thiếu vật tư hoặc sai dữ liệu).`, 'error')
+    return null
+  }
   if (!validateClient()) return null
   saving.value = true
   try {
@@ -375,6 +423,15 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="editable" class="flex mb10" style="gap: 8px; flex-wrap: wrap">
+        <a class="btn-o btn-sm" :href="mauUrl">Tải file mẫu</a>
+        <button class="btn-o btn-sm" :disabled="importing" @click="importInput.click()">
+          {{ importing ? 'Đang đọc…' : '⬆ Nhập từ Excel' }}
+        </button>
+        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl">⬇ Xuất Excel</a>
+        <input ref="importInput" type="file" accept=".xlsx" style="display: none" @change="onImportFile" />
+      </div>
+
       <div class="card" style="padding: 0; overflow-x: auto">
         <table>
           <thead>
@@ -390,7 +447,11 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, idx) in doc.items" :key="idx">
+            <tr
+              v-for="(r, idx) in doc.items"
+              :key="idx"
+              :style="r._trang_thai === 'loi' ? 'background:#fff1f0' : (r._trang_thai === 'ma_moi' ? 'background:#fffbe6' : '')"
+            >
               <td>
                 <select
                   v-if="editable"
@@ -405,6 +466,14 @@ onMounted(async () => {
                   <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu }}</span>
+
+                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn" style="margin-top: 4px">
+                  ⚠ Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.
+                  <button class="btn-o btn-sm" @click="moTaoTuDong(r, idx)">Tạo vật tư mới</button>
+                </div>
+                <div v-if="r._loi && r._loi.length" class="tag" style="color: #cf1322; margin-top: 4px">
+                  ✗ Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
+                </div>
               </td>
               <td>
                 <template v-if="editable">
@@ -416,7 +485,12 @@ onMounted(async () => {
                       {{ l.het_han ? ' ⚠ QUÁ HẠN' : '' }}
                     </option>
                   </select>
-                  <span v-else-if="r.vat_tu" class="tag">Vật tư này chưa còn tồn lô nào.</span>
+                  <span v-else-if="r.vat_tu" class="tag">
+                    Vật tư này chưa còn tồn lô nào.
+                    <template v-if="r._vua_tao">
+                      Đây là vật tư vừa tạo — phải nhập kho trước khi ghi sổ phiếu xuất này.
+                    </template>
+                  </span>
                   <span v-else class="tag">Chọn vật tư trước</span>
                   <div v-if="r._hetHan" class="warn" style="margin-top: 4px; display: flex; align-items: center; gap: 4px">
                     <label style="display: flex; align-items: center; gap: 4px; font-weight: 600">
