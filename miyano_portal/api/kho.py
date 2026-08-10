@@ -267,6 +267,33 @@ def kho_vat_tu_sua(name: str, payload) -> dict:
 	return vat_tu_mod.sua(kho, name, _parse_payload(payload))
 
 
+@frappe.whitelist()
+def kho_vat_tu_export() -> None:
+	kho = get_portal_kho()
+	frappe.local.response.filename = "danh_muc_vat_tu.xlsx"
+	frappe.local.response.filecontent = vat_tu_mod.build_danh_muc_xlsx(kho)
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = (
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	)
+
+
+@frappe.whitelist()
+def kho_vat_tu_import_preview(file_url) -> dict:
+	"""Đọc và phân tích file danh mục, KHÔNG GHI GÌ."""
+	kho = get_portal_kho()
+	content = _resolve_owned_spreadsheet(file_url)
+	return vat_tu_mod.parse_danh_muc(content, kho)
+
+
+@frappe.whitelist()
+def kho_vat_tu_import_commit(file_url) -> dict:
+	"""Đọc lại VÀ kiểm tra lại từ đầu ở server rồi mới ghi."""
+	kho = get_portal_kho()
+	content = _resolve_owned_spreadsheet(file_url)
+	return vat_tu_mod.commit_danh_muc(content, kho)
+
+
 def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 	"""Nạp nội dung một file .xlsx do CHÍNH người gọi vừa upload.
 

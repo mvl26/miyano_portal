@@ -168,3 +168,32 @@ class TestDanhMucFile(FrappeTestCase):
 		})
 		doc.insert(ignore_permissions=True)
 		doc.submit()
+
+
+from miyano_portal.api import kho as kho_api
+
+BM_USER = "bvbm@demo.miyano"
+
+
+class TestDanhMucEndpoint(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		frappe.set_user(BM_USER)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_export_dat_response_dung_dinh_dang(self):
+		kho_api.kho_vat_tu_export()
+		self.assertEqual(frappe.local.response.filename, "danh_muc_vat_tu.xlsx")
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filecontent)
+
+	def test_preview_file_cua_nguoi_khac_bi_chan(self):
+		f = frappe.get_doc({
+			"doctype": "File", "file_name": "cua_nguoi_khac.xlsx",
+			"content": "x", "is_private": 1,
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("File", f.name, "owner", "Administrator")
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_vat_tu_import_preview(f.file_url)
