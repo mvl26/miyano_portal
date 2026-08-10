@@ -114,7 +114,20 @@ async function loadLotsForRow(row) {
 }
 
 function onVatTuChange(row) {
-  row.so_lo = ''
+  // Đổi hẳn sang vật tư khác: lô/hạn dùng/đơn giá của vật tư CŨ hết ý nghĩa
+  // — và quan trọng hơn, một tick "đã xác nhận hết hạn" của lô cũ không được
+  // sống sót sang một lô hoàn toàn khác mà người dùng chưa từng nhìn thấy,
+  // KỂ CẢ khi lô mới cũng hết hạn. Chỉ dựa vào guard trong applyLotToRow()
+  // (`if (!row._hetHan) ...`) là không đủ: guard đó chỉ tự xoá tick khi lô
+  // MỚI còn hạn, nên nếu lô mới cũng hết hạn thì tick cũ lọt qua. Xoá thẳng
+  // ở đây — TRƯỚC khi nạp lô mới — để applyLotToRow() luôn khởi động từ
+  // xac_nhan_het_han = false, không phụ thuộc lô mới hết hạn hay không.
+  //
+  // KHÔNG đặt reset này trong loadLotsForRow(): hàm đó còn được gọi từ
+  // onSoLuongChange() khi người dùng chỉ sửa SỐ LƯỢNG trên CÙNG một lô — lúc
+  // đó phải GIỮ NGUYÊN tick đã xác nhận cho đúng lô đang chọn, không phải
+  // xoá vô điều kiện.
+  resetLotState(row)
   loadLotsForRow(row)
 }
 
