@@ -1,0 +1,130 @@
+"""Import/export bảng dòng của phiếu nhập và phiếu xuất."""
+
+import io
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from openpyxl import Workbook, load_workbook
+
+from miyano_portal.kho import dong_phieu
+from miyano_portal.setup.seed_kho_demo import seed_kho_demo
+
+
+def _xlsx(loai, rows):
+	wb = Workbook()
+	ws = wb.active
+	ws.append([label for label, _ in dong_phieu.COLUMNS[loai]])
+	for r in rows:
+		ws.append(r)
+	buf = io.BytesIO()
+	wb.save(buf)
+	return buf.getvalue()
+
+
+class TestDocFileNhap(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		self.kho_bm = self.kho["kho_bm"]
+
+	def test_ma_da_co_thi_trang_thai_khop_va_gan_san_vat_tu(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["MYN-GLOVE-M", "", "", "LO-1", None, 10, 1000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "khop")
+		self.assertEqual(row["vat_tu"], self.kho["vt_bm"])
+
+	def test_ma_la_thi_trang_thai_ma_moi(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["BM-LA-01", "Vật tư lạ", "Cái", "LO-2", None, 5, 2000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "ma_moi")
+		self.assertEqual(row["vat_tu"], "")
+		self.assertEqual(row["ten_vat_tu"], "Vật tư lạ")
+
+	def test_so_luong_sai_thi_trang_thai_loi_neu_dung_so_dong(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["MYN-GLOVE-M", "", "", "LO-1", None, "abc", 1000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "loi")
+		self.assertEqual(row["line"], 2)  # header ở dòng 1
+		self.assertIn("Số lượng", " ".join(row["loi"]))
+
+	def test_ma_moi_thieu_ten_hoac_dvt_thi_loi(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["BM-LA-02", "", "", "LO-3", None, 5, 2000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		self.assertEqual(kq["rows"][0]["trang_thai"], "loi")
+
+	def test_ma_da_co_thi_bo_qua_ten_va_dvt_trong_file(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["MYN-GLOVE-M", "TÊN SAI", "ĐVT SAI", "LO-1", None, 10, 1000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["ten_vat_tu"], "Găng tay y tế size M")
+		self.assertNotEqual(row["dvt"], "ĐVT SAI")
+
+	def test_so_lo_trong_thi_nhan_lo_mac_dinh(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["MYN-GLOVE-M", "", "", "", None, 10, 1000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		self.assertEqual(kq["rows"][0]["so_lo"], "KHONG-LO")
+
+
+class TestDocFileXuat(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		self.kho_bm = self.kho["kho_bm"]
+
+	def test_file_xuat_khong_co_cot_don_gia(self):
+		labels = [label for label, _ in dong_phieu.COLUMNS["xuat"]]
+		self.assertNotIn("Đơn giá", labels)
+		self.assertNotIn("Hạn sử dụng", labels)
+
+	def test_doc_file_xuat_khong_tra_don_gia(self):
+		kq = dong_phieu.doc_file(
+			_xlsx("xuat", [["MYN-GLOVE-M", "", "", "LO-1", 3, "", "", ""]]),
+			self.kho_bm, "xuat",
+		)
+		self.assertNotIn("don_gia", kq["rows"][0])
+
+	def test_loai_la_bi_chan(self):
+		with self.assertRaises(frappe.ValidationError):
+			dong_phieu.doc_file(b"", self.kho_bm, "linh tinh")
+
+
+class TestExportDong(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		self.phieu = frappe.get_doc({
+			"doctype": "Customer Stock Receipt",
+			"kho": self.kho["kho_bm"],
+			"ngay": frappe.utils.today(),
+			"loai_nhap": "Nhập khác",
+			"items": [{
+				"vat_tu": self.kho["vt_bm"], "so_lo": "LO-EXP-01",
+				"so_luong": 7, "don_gia": 1234,
+			}],
+		})
+		self.phieu.insert(ignore_permissions=True)
+
+	def test_export_ra_dung_bo_cot_va_du_lieu(self):
+		content = dong_phieu.build_export_xlsx("Customer Stock Receipt", self.phieu.name)
+		ws = load_workbook(io.BytesIO(content), data_only=True).active
+		self.assertEqual([c.value for c in ws[1]], [label for label, _ in dong_phieu.COLUMNS["nhap"]])
+		self.assertEqual(ws.cell(row=2, column=1).value, "MYN-GLOVE-M")
+		self.assertEqual(ws.cell(row=2, column=6).value, 7)
+
+	def test_export_roi_nap_lai_ra_dong_khop(self):
+		content = dong_phieu.build_export_xlsx("Customer Stock Receipt", self.phieu.name)
+		kq = dong_phieu.doc_file(content, self.kho["kho_bm"], "nhap")
+		self.assertEqual(kq["rows"][0]["trang_thai"], "khop")
+		self.assertEqual(kq["rows"][0]["so_luong"], 7)
