@@ -17,6 +17,15 @@ const DOCTYPE = 'Customer Stock Issue'
 const LOAI_OPTIONS = ['Xuất sử dụng', 'Xuất huỷ - hết hạn', 'Xuất trả lại', 'Điều chỉnh kiểm kê']
 // "Phiếu đảo" CỐ Ý không có trong danh sách — cùng lý do với PhieuNhapDetail.
 
+// Phải khớp ledger.LOT_KHONG_CO ở backend (miyano_portal/kho/ledger.py) —
+// sentinel gán cho so_lo khi vật tư CÓ (r.vat_tu hợp lệ) nhưng CHƯA CÒN tồn
+// lô nào (vừa tạo nhanh, hoặc đã xuất hết). so_lo là trường reqd ở cả
+// _validate_items_present (api/kho.py) lẫn Customer Stock Issue Item, nên để
+// trống sẽ bị chặn ngay từ Lưu nháp — chốt tồn thật sự chỉ chạy ở
+// before_submit (_chan_xuat_qua_ton), đúng như constraint "lưu nháp được,
+// ghi sổ mới bị chặn".
+const LOT_KHONG_CO = 'KHONG-LO'
+
 const isNew = computed(() => route.params.name === 'moi')
 
 const loading = ref(true)
@@ -105,6 +114,12 @@ async function loadLotsForRow(row) {
       applyLotToRow(row, stillThere ? row.so_lo : row._lots[0].so_lo)
     } else {
       resetLotState(row)
+      // Vật tư có thật (row.vat_tu đã set — hàm đã return sớm nếu không) mà
+      // chưa còn tồn lô nào: gán sentinel để Lưu nháp qua được cả rào client
+      // (!r.so_lo) lẫn rào server (_validate_items_present) — người dùng vẫn
+      // thấy đúng cảnh báo "chưa còn tồn lô nào" ở ô Lô vì nhánh hiển thị dựa
+      // vào r._lots.length, không dựa vào r.so_lo.
+      row.so_lo = LOT_KHONG_CO
     }
   } catch (e) {
     showToast(e.message || 'Không tải được danh sách lô.', 'error')
@@ -294,6 +309,10 @@ async function save({ silent } = {}) {
         _lots: cu ? cu._lots : [],
         _lotsLoading: false,
         _hetHan: cu ? cu._hetHan : false,
+        // Giữ cờ "vừa tạo" qua vòng lưu — không thì cảnh báo "phải nhập kho
+        // trước khi ghi sổ" biến mất ngay lúc người dùng cần thấy nó nhất:
+        // vừa lưu nháp xong, đang nhìn phiếu chưa ghi sổ được.
+        _vua_tao: cu ? cu._vua_tao : false,
       }
     })
     if (doc.docstatus === 0) {
