@@ -1,6 +1,7 @@
 """Import/export danh mục vật tư qua cổng."""
 
 import io
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -186,6 +187,40 @@ class TestDanhMucEndpoint(FrappeTestCase):
 	def test_export_dat_response_dung_dinh_dang(self):
 		kho_api.kho_vat_tu_export()
 		self.assertEqual(frappe.local.response.filename, "danh_muc_vat_tu.xlsx")
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filecontent)
+
+	def test_loi_ngoai_du_kien_khi_xuat_thanh_cau_tieng_viet_ve_vat_tu(self):
+		"""Ba endpoint danh mục phải nằm dưới lớp bọc _action, VÀ lớp bọc phải
+		gọi đúng tên thứ đang xử lý.
+
+		Trước bản sửa này chúng không được bọc: một lỗi ngoài dự kiến đi thẳng
+		ra khách dưới dạng traceback tiếng Anh. Bọc bằng _phieu_action cũ thì
+		khách đang nhập DANH MỤC lại đọc được câu "khi xử lý phiếu" và đi tìm
+		phiếu nào vừa hỏng.
+		"""
+		with patch.object(vat_tu_mod, "build_danh_muc_xlsx", side_effect=ValueError("boom")):
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				kho_api.kho_vat_tu_export()
+		self.assertIn("vật tư", str(ctx.exception))
+		self.assertNotIn("phiếu", str(ctx.exception))
+
+	def test_loi_ngoai_du_kien_khi_nap_danh_muc_cung_duoc_boc(self):
+		with patch.object(vat_tu_mod, "commit_danh_muc", side_effect=ValueError("boom")):
+			f = frappe.get_doc({
+				"doctype": "File", "file_name": "danh_muc.xlsx",
+				"content": _xlsx([["BM-NEW-09", "Vật tư mới", "Cái", "", "", "", 1]]),
+				"is_private": 1,
+			}).insert(ignore_permissions=True)
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				kho_api.kho_vat_tu_import_commit(f.file_url)
+		self.assertIn("vật tư", str(ctx.exception))
+
+	def test_boc_khong_nuot_co_che_tra_tep(self):
+		"""Lớp bọc chỉ chuyển tiếp giá trị trả về; frappe.local.response mà
+		endpoint export đặt vào phải còn nguyên sau khi đi qua nó."""
+		frappe.local.response.clear()
+		kho_api.kho_vat_tu_export()
 		self.assertEqual(frappe.local.response.type, "download")
 		self.assertTrue(frappe.local.response.filecontent)
 

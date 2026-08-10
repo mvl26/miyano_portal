@@ -133,30 +133,51 @@ def _phieu_cua_kho(doctype: str, name: str, kho: str) -> None:
         raise frappe.PermissionError("Phiếu không thuộc kho của đơn vị bạn.")
 
 
-def _phieu_action(fn):
-    """Mọi ngoại lệ KHÔNG PHẢI lỗi nghiệp vụ của chính chúng ta (ValidationError
+def _action(danh_tu: str):
+    """Nhà máy sinh decorator bọc lỗi cho endpoint cổng, tham số hoá bằng DANH TỪ
+    của thứ đang được xử lý ("phiếu", "vật tư").
+
+    Mọi ngoại lệ KHÔNG PHẢI lỗi nghiệp vụ của chính chúng ta (ValidationError
     do voucher.py/controller ném ra với thông điệp tiếng Việt đã soạn sẵn, hoặc
     PermissionError của các guard cách ly) phải được dịch sang một thông điệp
     tiếng Việt chung chung trước khi tới người dùng — không bao giờ để lộ
     traceback hay tên lớp lỗi tiếng Anh của framework. Lỗi gốc vẫn được ghi
     vào Error Log để nhân viên kỹ thuật tra được.
+
+    Danh từ là tham số chứ không phải chuỗi cứng "phiếu" vì các endpoint danh
+    mục vật tư (kho_vat_tu_*) dùng CHUNG lớp bọc này: một câu "Có lỗi xảy ra khi
+    xử lý phiếu" hiện ra lúc người dùng đang nhập DANH MỤC khiến họ đi tìm phiếu
+    nào vừa hỏng, và tệ hơn là báo sai cho nhân viên hỗ trợ.
+
+    Lưu ý cho endpoint trả tệp (kho_*_export, kho_dong_phieu_mau): wrapper chỉ
+    chuyển tiếp giá trị trả về, KHÔNG đụng tới frappe.local.response — cơ chế
+    tải tệp (response.type = "download") vẫn chạy nguyên vẹn qua lớp bọc.
     """
 
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except (frappe.ValidationError, frappe.PermissionError):
-            raise
-        except Exception:
-            frappe.log_error(title=f"kho_phieu: lỗi trong {fn.__name__}")
-            frappe.throw(
-                "Có lỗi xảy ra khi xử lý phiếu. Vui lòng thử lại hoặc liên hệ "
-                "nhân viên kinh doanh Miyano.",
-                frappe.ValidationError,
-            )
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except (frappe.ValidationError, frappe.PermissionError):
+                raise
+            except Exception:
+                frappe.log_error(title=f"kho: lỗi trong {fn.__name__}")
+                frappe.throw(
+                    f"Có lỗi xảy ra khi xử lý {danh_tu}. Vui lòng thử lại hoặc "
+                    "liên hệ nhân viên kinh doanh Miyano.",
+                    frappe.ValidationError,
+                )
 
-    return wrapper
+        return wrapper
+
+    return deco
+
+
+# Hai lớp bọc đang dùng. Tên `_phieu_action` giữ nguyên vì đã có mười endpoint
+# và nhiều test tham chiếu tới nó.
+_phieu_action = _action("phiếu")
+_vat_tu_action = _action("vật tư")
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -247,7 +268,7 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 
 
 @frappe.whitelist()
-@_phieu_action
+@_vat_tu_action
 def kho_vat_tu_tao(payload) -> dict:
 	"""Tạo một vật tư trong kho của người gọi.
 
@@ -261,7 +282,7 @@ def kho_vat_tu_tao(payload) -> dict:
 
 
 @frappe.whitelist()
-@_phieu_action
+@_vat_tu_action
 def kho_vat_tu_sua(name: str, payload) -> dict:
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(name, kho)
@@ -269,6 +290,7 @@ def kho_vat_tu_sua(name: str, payload) -> dict:
 
 
 @frappe.whitelist()
+@_vat_tu_action
 def kho_vat_tu_export() -> None:
 	kho = get_portal_kho()
 	frappe.local.response.filename = "danh_muc_vat_tu.xlsx"
@@ -280,6 +302,7 @@ def kho_vat_tu_export() -> None:
 
 
 @frappe.whitelist()
+@_vat_tu_action
 def kho_vat_tu_import_preview(file_url) -> dict:
 	"""Đọc và phân tích file danh mục, KHÔNG GHI GÌ."""
 	kho = get_portal_kho()
@@ -288,6 +311,7 @@ def kho_vat_tu_import_preview(file_url) -> dict:
 
 
 @frappe.whitelist()
+@_vat_tu_action
 def kho_vat_tu_import_commit(file_url) -> dict:
 	"""Đọc lại VÀ kiểm tra lại từ đầu ở server rồi mới ghi."""
 	kho = get_portal_kho()
