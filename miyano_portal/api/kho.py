@@ -26,6 +26,7 @@ import functools
 
 import frappe
 
+from miyano_portal.kho import dong_phieu
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import reports
@@ -574,6 +575,42 @@ def kho_phieu_cancel(doctype: str, name: str) -> dict:
 	doc.flags.ignore_permissions = True
 	doc.cancel()
 	return _phieu_to_dict(doc)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_dong_phieu_mau(loai: str) -> None:
+	"""Tệp .xlsx rỗng đúng bộ cột của loại phiếu, để khách điền rồi nạp vào."""
+	get_portal_kho()  # khách chưa mở kho nhận cùng thông báo như mọi endpoint kho
+	frappe.local.response.filename = f"mau_dong_phieu_{loai}.xlsx"
+	frappe.local.response.filecontent = dong_phieu.build_mau_xlsx(loai)
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = (
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_dong_phieu_doc_file(loai: str, file_url) -> dict:
+	"""Đọc tệp thành các dòng phiếu. KHÔNG GHI GÌ — việc ghi vẫn đi qua
+	kho_phieu_nhap_save / kho_phieu_xuat_save như dòng gõ tay."""
+	kho = get_portal_kho()
+	content = _resolve_owned_spreadsheet(file_url)
+	return dong_phieu.doc_file(content, kho, loai)
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_dong_phieu_export(doctype: str, name: str) -> None:
+	kho = get_portal_kho()
+	_phieu_cua_kho(doctype, name, kho)
+	frappe.local.response.filename = f"{name}-dong.xlsx"
+	frappe.local.response.filecontent = dong_phieu.build_export_xlsx(doctype, name)
+	frappe.local.response.type = "download"
+	frappe.local.response.content_type = (
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	)
 
 
 @frappe.whitelist()

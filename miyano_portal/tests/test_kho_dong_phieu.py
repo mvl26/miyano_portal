@@ -169,3 +169,52 @@ class TestExportDong(FrappeTestCase):
 		kq = dong_phieu.doc_file(content, self.kho["kho_bm"], "nhap")
 		self.assertEqual(kq["rows"][0]["trang_thai"], "khop")
 		self.assertEqual(kq["rows"][0]["so_luong"], 7)
+
+
+from miyano_portal.api import kho as kho_api
+
+BM_USER = "bvbm@demo.miyano"
+PXN_USER = "pxnabc@demo.miyano"
+
+
+class TestDongPhieuEndpoint(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		self.phieu_bm = frappe.get_doc({
+			"doctype": "Customer Stock Receipt",
+			"kho": self.kho["kho_bm"],
+			"ngay": frappe.utils.today(),
+			"loai_nhap": "Nhập khác",
+			"items": [{
+				"vat_tu": self.kho["vt_bm"], "so_lo": "LO-EP-01",
+				"so_luong": 2, "don_gia": 100,
+			}],
+		})
+		self.phieu_bm.insert(ignore_permissions=True)
+		frappe.set_user(BM_USER)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_mau_tra_ve_file(self):
+		kho_api.kho_dong_phieu_mau("nhap")
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filecontent)
+
+	def test_export_phieu_cua_kho_khac_bi_chan(self):
+		frappe.set_user(PXN_USER)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_dong_phieu_export("Customer Stock Receipt", self.phieu_bm.name)
+
+	def test_export_doctype_ngoai_danh_sach_trang_bi_chan(self):
+		with self.assertRaises(frappe.ValidationError):
+			kho_api.kho_dong_phieu_export("Sales Invoice", self.phieu_bm.name)
+
+	def test_luu_phieu_co_dong_thieu_vat_tu_bi_chan_o_server(self):
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			kho_api.kho_phieu_nhap_save({
+				"ngay": frappe.utils.today(),
+				"loai_nhap": "Nhập khác",
+				"items": [{"vat_tu": "", "so_lo": "LO-X", "so_luong": 1, "don_gia": 100}],
+			})
+		self.assertIn("chưa chọn vật tư", str(ctx.exception))
