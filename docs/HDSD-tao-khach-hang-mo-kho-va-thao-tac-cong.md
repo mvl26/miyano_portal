@@ -1,7 +1,7 @@
 # Hướng dẫn vận hành: tạo khách hàng · mở kho · thao tác trên cổng
 
 Áp dụng cho app `miyano_portal` (supplycore v2) trên site **erptest.local**.
-Cập nhật: 07/08/2026.
+Cập nhật: 10/08/2026.
 
 Tài liệu này có ba phần cho ba việc khác nhau, làm bởi hai loại người khác nhau:
 
@@ -303,6 +303,30 @@ lô, hạn dùng, số lượng, đơn giá). Lô không có hạn dùng hiện 
 
 Bốn nút ở đầu màn hình: **Phiếu nhập · Phiếu xuất · Nhập tồn đầu kỳ · Báo cáo**.
 
+### C5b. Danh mục vật tư
+
+**Kho của tôi › Danh mục vật tư** liệt kê mọi vật tư của kho: mã · tên · ĐVT ·
+mã hàng Miyano · quy cách · nhóm · đang dùng. Ô tìm kiếm lọc theo mã/tên; tick
+**Hiện cả vật tư đã tắt** để xem cả vật tư đã ngừng dùng.
+
+- **+ Thêm vật tư** — mã trùng một mặt hàng của Miyano thì hệ thống tự nối
+  (cột *Mã hàng Miyano* có giá trị); mã lạ thì thành mã riêng của bệnh viện.
+- **Sửa** — mở lại đúng modal của "+ Thêm vật tư". Tên, quy cách, nhóm, ghi chú
+  sửa lúc nào cũng được; tick **Đang dùng** cũng nằm trong màn này (bỏ tick để
+  ngừng dùng — không tắt được vật tư còn tồn, phải xuất hết trước). **Mã vật
+  tư và ĐVT bị khoá 🔒 khi vật tư đã có phát sinh trong sổ**: số liệu cũ đã
+  tính theo giá trị hiện tại và hệ thống không quy đổi.
+- **⬇ Xuất danh mục / ⬆ Nhập danh mục** — tệp xuất ra sửa rồi nạp lại được. Mã
+  đã có thì **cập nhật**, mã chưa có thì **tạo mới**; bản xem trước báo rõ
+  từng dòng là *Tạo mới* hay *Cập nhật* trước khi xác nhận, và **hoặc ghi hết
+  tệp hoặc không ghi gì** nếu còn dòng lỗi. Hai điều cần nhớ khi điền tệp:
+  - **Mã trùng nhau trong cùng một tệp là lỗi**, chặn nạp cả tệp — bản xem
+    trước nêu rõ trùng với dòng nào, không tự gộp âm thầm.
+  - Cột *Mã hàng Miyano* trong tệp chỉ để đối chiếu, nạp vào sẽ bị bỏ qua (hệ
+    thống tự suy từ mã) — cột này cũng không xuất hiện lại ở bảng xem trước.
+  - Cột **Đang dùng** để trống (kể cả ô chỉ có khoảng trắng) được hiểu là
+    **đang dùng**; phải ghi rõ 0 / "không" / "tắt" mới thành ngừng dùng.
+
 ### C6. Nhập tồn đầu kỳ (làm một lần, khi mới mở kho)
 
 1. **Kho của tôi › Nhập tồn đầu kỳ › Bước 1 · Tải tệp mẫu › ⬇ Tải mẫu Excel** —
@@ -358,6 +382,31 @@ sổ sẽ được **đảo** bằng một phiếu ngược dấu (mục C10).
 chọn vật tư, nhập số lô, hạn dùng, số lượng, đơn giá → **Lưu nháp** rồi **Ghi sổ**.
 
 Ngày phiếu không được trước *Ngày bắt đầu quản lý* của kho.
+
+### C8b. Nhập bảng dòng từ Excel
+
+Trong màn lập phiếu nhập hoặc phiếu xuất: **Tải file mẫu** → điền → **⬆ Nhập từ
+Excel**. Các dòng đọc được **nối vào cuối bảng**, không xoá dòng đã gõ tay.
+
+| Màu dòng | Nghĩa | Việc cần làm |
+|---|---|---|
+| bình thường | mã đã có trong kho | không phải làm gì |
+| nền vàng | mã chưa có trong kho | bấm **Tạo vật tư mới** — điền sẵn từ chính dòng đó |
+| nền đỏ | sai dữ liệu | sửa tại ô; lý do và số dòng trong tệp hiện ngay dưới |
+
+Còn dòng đỏ hoặc dòng chưa gán được vật tư thì **Lưu nháp bị chặn** — hệ thống
+báo còn bao nhiêu dòng chưa xử lý khi bấm.
+
+Bấm **Tạo vật tư mới** một lần là mọi dòng khác đọc được cùng mã cũng tự khớp
+theo, không phải lặp lại cho từng dòng.
+
+**⬇ Xuất Excel** chỉ hiện khi phiếu đã lưu (đã có số phiếu) — tệp xuất ra nạp
+lại được.
+
+Riêng phiếu xuất: tệp **không có** cột Đơn giá và Hạn dùng (hệ thống luôn lấy
+theo lô đã chọn khi ghi sổ), và vật tư vừa tạo nhanh từ dòng import sẽ hiện
+*"Vật tư này chưa còn tồn lô nào"* — lưu nháp được nhưng phải nhập kho trước
+khi ghi sổ phiếu xuất đó.
 
 ### C9. Xuất kho
 
