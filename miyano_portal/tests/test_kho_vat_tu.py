@@ -117,3 +117,58 @@ class TestVatTuSua(FrappeTestCase):
 		})
 		doc.insert(ignore_permissions=True)
 		doc.submit()
+
+
+from miyano_portal.api import kho as kho_api
+
+BM_USER = "bvbm@demo.miyano"
+PXN_USER = "pxnabc@demo.miyano"
+
+
+class TestVatTuEndpoint(FrappeTestCase):
+	def setUp(self):
+		self.kho = seed_kho_demo()
+		frappe.set_user(BM_USER)
+		self._da_tao = []
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		for name in self._da_tao:
+			if frappe.db.exists("Customer Warehouse Item", name):
+				frappe.delete_doc("Customer Warehouse Item", name, force=True, ignore_permissions=True)
+
+	def test_tao_qua_endpoint_gan_vao_kho_cua_phien(self):
+		row = kho_api.kho_vat_tu_tao({
+			"ma_vat_tu": "BM-API-01", "ten_vat_tu": "Vật tư API", "dvt": "Cái",
+		})
+		self._da_tao.append(row["name"])
+		self.assertEqual(
+			frappe.db.get_value("Customer Warehouse Item", row["name"], "kho"),
+			self.kho["kho_bm"],
+		)
+
+	def test_khong_sua_duoc_vat_tu_cua_kho_khac(self):
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_vat_tu_sua(self.kho["vt_pxn"], {"ten_vat_tu": "Đổi trộm"})
+
+	def test_list_tra_them_co_phat_sinh_va_active(self):
+		rows = kho_api.kho_vat_tu_list()
+		self.assertTrue(rows)
+		for r in rows:
+			self.assertIn("co_phat_sinh", r)
+			self.assertIn("active", r)
+			self.assertIn("quy_cach", r)
+
+	def test_list_mac_dinh_chi_tra_vat_tu_dang_dung(self):
+		row = kho_api.kho_vat_tu_tao({
+			"ma_vat_tu": "BM-TAT-01", "ten_vat_tu": "Sẽ tắt", "dvt": "Cái",
+		})
+		self._da_tao.append(row["name"])
+		kho_api.kho_vat_tu_sua(row["name"], {"active": 0})
+		self.assertNotIn(row["name"], [r["name"] for r in kho_api.kho_vat_tu_list()])
+		self.assertIn(row["name"], [r["name"] for r in kho_api.kho_vat_tu_list(ca_tat=1)])
+
+	def test_tim_loc_theo_ma_va_ten(self):
+		rows = kho_api.kho_vat_tu_list(tim="glove")
+		self.assertTrue(rows)
+		self.assertTrue(all("glove" in f"{r['ma_vat_tu']} {r['ten_vat_tu']}".lower() for r in rows))

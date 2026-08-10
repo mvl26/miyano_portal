@@ -30,6 +30,7 @@ from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import reports
 from miyano_portal.kho import voucher
+from miyano_portal.kho import vat_tu as vat_tu_mod
 from miyano_portal.portal_context import get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
@@ -213,23 +214,61 @@ def kho_lo(vat_tu) -> list:
 
 
 @frappe.whitelist()
-def kho_vat_tu_list() -> list:
-	"""Danh mục vật tư đang dùng của kho — dùng để chọn vật tư khi lập phiếu
-	nhập/xuất. Không nằm trong đặc tả API gốc (mục 5 chỉ liệt kê
-	kho_vat_tu_list/kho_vat_tu_upsert như việc của một phase khác), nhưng màn
-	hình lập phiếu của Phase 3 không thể hoạt động nếu không có cách liệt kê
-	vật tư — bổ sung tối thiểu, chỉ đọc, cùng khuôn cách ly với kho_ton():
-	lọc tường minh theo kho lấy từ phiên, KHÔNG dùng kho_ton() làm nguồn vì nó
-	chỉ trả các vật tư đang CÒN TỒN (so_luong > 0) — một vật tư đã bán hết vẫn
-	phải chọn được để nhập thêm.
+def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
+	"""Danh mục vật tư của kho — nguồn cho ô chọn vật tư ở hai màn phiếu VÀ
+	cho màn danh mục.
+
+	`ca_tat` CỐ Ý không có type hint (xem _so_nguyen): tham số số có type hint
+	bị lớp typing của Frappe chặn bằng thông điệp tiếng Anh trước khi hàm chạy.
+	Mặc định 0 nên hành vi cũ (chỉ trả vật tư đang dùng) giữ nguyên cho hai màn
+	phiếu vốn gọi hàm này không tham số.
 	"""
 	kho = get_portal_kho()
-	return frappe.get_all(
+	filters = {"kho": kho}
+	if not _so_nguyen(ca_tat, "Tham số hiển thị vật tư đã tắt", 0):
+		filters["active"] = 1
+	rows = frappe.get_all(
 		"Customer Warehouse Item",
-		filters={"kho": kho, "active": 1},
-		fields=["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code"],
+		filters=filters,
+		fields=["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code",
+		        "quy_cach", "nhom", "ghi_chu", "active"],
 		order_by="ten_vat_tu asc",
 	)
+	if tim:
+		hay = str(tim).strip().lower()
+		rows = [r for r in rows if hay in f"{r['ma_vat_tu']} {r['ten_vat_tu']}".lower()]
+	# MỘT truy vấn cho cả danh mục, không phải mỗi dòng một truy vấn.
+	co_ps = vat_tu_mod.cac_vat_tu_co_phat_sinh(kho)
+	for r in rows:
+		r["item_code"] = r["item_code"] or ""
+		r["quy_cach"] = r["quy_cach"] or ""
+		r["nhom"] = r["nhom"] or ""
+		r["ghi_chu"] = r["ghi_chu"] or ""
+		r["active"] = int(r["active"] or 0)
+		r["co_phat_sinh"] = r["name"] in co_ps
+	return rows
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_vat_tu_tao(payload) -> dict:
+	"""Tạo một vật tư trong kho của người gọi.
+
+	`kho` lấy từ phiên; `item_code` KHÔNG nhận từ client mà do vat_tu.tao() tự
+	suy từ mã — nhận item_code từ client cho phép khách nối vật tư của mình vào
+	một mặt hàng Miyano bất kỳ, và từ đó hook Delivery Note cộng hàng vào đúng
+	dòng danh mục sai đó.
+	"""
+	kho = get_portal_kho()
+	return vat_tu_mod.tao(kho, _parse_payload(payload))
+
+
+@frappe.whitelist()
+@_phieu_action
+def kho_vat_tu_sua(name: str, payload) -> dict:
+	kho = get_portal_kho()
+	_vat_tu_cua_kho(name, kho)
+	return vat_tu_mod.sua(kho, name, _parse_payload(payload))
 
 
 def _resolve_owned_spreadsheet(file_url: str) -> bytes:
