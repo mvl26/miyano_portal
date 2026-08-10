@@ -8,6 +8,8 @@ import OrderDetail from './views/OrderDetail.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
 import ImportTonDau from './views/ImportTonDau.vue'
+import DanhMucVatTu from './views/DanhMucVatTu.vue'
+import ImportDanhMuc from './views/ImportDanhMuc.vue'
 import PhieuNhap from './views/PhieuNhap.vue'
 import PhieuNhapDetail from './views/PhieuNhapDetail.vue'
 import PhieuXuat from './views/PhieuXuat.vue'
@@ -25,6 +27,8 @@ const routes = [
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   { path: '/kho', name: 'kho', component: Kho, meta: { title: 'Kho của tôi' } },
   { path: '/kho/import', name: 'kho-import', component: ImportTonDau, meta: { title: 'Nhập tồn đầu kỳ' } },
+  { path: '/kho/vat-tu', name: 'kho-vat-tu', component: DanhMucVatTu, meta: { title: 'Danh mục vật tư' } },
+  { path: '/kho/vat-tu/import', name: 'kho-vat-tu-import', component: ImportDanhMuc, meta: { title: 'Nhập danh mục vật tư' } },
   { path: '/kho/nhap', name: 'kho-nhap', component: PhieuNhap, meta: { title: 'Phiếu nhập kho' } },
   { path: '/kho/nhap/:name', name: 'kho-nhap-detail', component: PhieuNhapDetail, meta: { title: 'Chi tiết phiếu nhập' } },
   { path: '/kho/xuat', name: 'kho-xuat', component: PhieuXuat, meta: { title: 'Phiếu xuất kho' } },

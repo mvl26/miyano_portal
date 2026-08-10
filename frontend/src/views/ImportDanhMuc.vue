@@ -1,7 +1,6 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import api from '../api'
-import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import { useImportWizard } from '../useImportWizard'
 import ImportErrorRows from '../components/ImportErrorRows.vue'
@@ -9,27 +8,26 @@ import ImportErrorRows from '../components/ImportErrorRows.vue'
 const router = useRouter()
 const isMobile = useIsMobile()
 
-const templateUrl = api.khoDownloadUrl('kho_import_template')
+const templateUrl = api.khoDownloadUrl('kho_vat_tu_export') // "mẫu" = chính danh mục hiện tại
 
 const {
   fileInput, selectedFile,
   previewing, committing, previewError, preview, result,
   canConfirm, onPickFile, onPreview, onCommit, startOver,
 } = useImportWizard({
-  previewMethod: 'kho_import_preview',
-  commitMethod: 'kho_import_commit',
-  successMsg: 'Đã nhập tồn đầu kỳ thành công.',
-  failMsg: 'Nhập tồn đầu kỳ thất bại.',
+  previewMethod: 'kho_vat_tu_import_preview',
+  commitMethod: 'kho_vat_tu_import_commit',
+  successMsg: 'Đã nhập danh mục vật tư thành công.',
+  failMsg: 'Nhập danh mục vật tư thất bại.',
 })
 
-const MATCH_LABEL = {
-  miyano: { text: 'Khớp mã Miyano', cls: 'b-blue' },
-  private: { text: 'Mã riêng — tạo mới', cls: 'b-gray' },
-  existing: { text: 'Đã có trong kho', cls: 'b-green' },
+const HANH_DONG_LABEL = {
+  tao_moi: { text: 'Tạo mới', cls: 'b-blue' },
+  cap_nhat: { text: 'Cập nhật', cls: 'b-green' },
 }
 
-function goToKho() {
-  router.push('/kho')
+function goToDanhMuc() {
+  router.push('/kho/vat-tu')
 }
 </script>
 
@@ -37,22 +35,21 @@ function goToKho() {
   <div>
     <div class="topbar" v-if="!isMobile">
       <div>
-        <h2>Nhập tồn đầu kỳ</h2>
-        <div class="sub">Tải mẫu Excel, điền vật tư, xem trước rồi xác nhận — không có gì được ghi cho tới khi bạn xác nhận.</div>
+        <h2>Nhập danh mục vật tư</h2>
+        <div class="sub">Tải mẫu Excel, sửa vật tư, xem trước rồi xác nhận — không có gì được ghi cho tới khi bạn xác nhận.</div>
       </div>
     </div>
-    <h2 v-else style="margin-bottom: 4px">Nhập tồn đầu kỳ</h2>
+    <h2 v-else style="margin-bottom: 4px">Nhập danh mục vật tư</h2>
     <p class="tag" v-if="isMobile" style="margin-bottom: 16px">
-      Tải mẫu, điền vật tư, xem trước rồi xác nhận.
+      Tải mẫu, sửa vật tư, xem trước rồi xác nhận.
     </p>
 
     <!-- Đã nhập xong -->
     <div v-if="result" class="card">
-      <h3 style="margin-bottom: 8px">✅ Đã nhập tồn đầu kỳ thành công</h3>
-      <p>Phiếu nhập: <b>{{ result.receipt }}</b></p>
-      <p>Đã ghi {{ result.rows_written }} dòng vật tư, tạo mới {{ result.created_items }} mã vật tư trong kho.</p>
+      <h3 style="margin-bottom: 8px">✅ Đã nhập danh mục vật tư thành công</h3>
+      <p>Tạo mới: <b>{{ result.tao_moi }}</b> · Cập nhật: <b>{{ result.cap_nhat }}</b></p>
       <div class="flex" style="margin-top: 16px">
-        <button class="btn" @click="goToKho">Xem tồn kho</button>
+        <button class="btn" @click="goToDanhMuc">Xem danh mục</button>
         <button class="btn-o" @click="startOver">Nhập thêm tệp khác</button>
       </div>
     </div>
@@ -64,7 +61,8 @@ function goToKho() {
           <div>
             <b>Bước 1 · Tải tệp mẫu</b>
             <p class="tag" style="margin-top: 4px">
-              Gồm các cột: Mã vật tư, Tên vật tư, ĐVT, Số lô, Hạn sử dụng, Số lượng, Đơn giá, Quy cách, Nhóm.
+              Gồm các cột: Mã vật tư, Tên vật tư, ĐVT, Mã hàng Miyano, Quy cách, Nhóm, Đang dùng.
+              Mẫu chính là bản xuất danh mục hiện tại — sửa trực tiếp trên đó rồi tải lên lại.
             </p>
           </div>
           <a :href="templateUrl" class="btn-o btn-sm" download>⬇ Tải mẫu Excel</a>
@@ -73,7 +71,7 @@ function goToKho() {
 
       <!-- Bước 2: chọn & xem trước -->
       <div class="card mb10">
-        <b>Bước 2 · Chọn tệp đã điền và xem trước</b>
+        <b>Bước 2 · Chọn tệp đã sửa và xem trước</b>
         <div class="flex" style="margin-top: 10px; flex-wrap: wrap">
           <input ref="fileInput" type="file" accept=".xlsx" @change="onPickFile" />
           <button class="btn" :disabled="!selectedFile || previewing" @click="onPreview">
@@ -88,9 +86,8 @@ function goToKho() {
         <b>Bước 3 · Kết quả xem trước</b>
 
         <div class="flex" style="margin-top: 10px; flex-wrap: wrap; gap: 8px">
-          <span class="badge b-blue">{{ preview.summary.matched_miyano }} dòng khớp mã Miyano</span>
-          <span class="badge b-gray">{{ preview.summary.private_new }} dòng mã riêng (tạo mới)</span>
-          <span class="badge b-green">{{ preview.summary.existing_in_kho }} dòng đã có trong kho</span>
+          <span class="badge b-blue">{{ preview.summary.tao_moi }} dòng tạo mới</span>
+          <span class="badge b-green">{{ preview.summary.cap_nhat }} dòng cập nhật</span>
           <span v-if="preview.error_count" class="badge b-red">{{ preview.error_count }} dòng lỗi</span>
         </div>
 
@@ -106,11 +103,10 @@ function goToKho() {
                 <th>Mã vật tư</th>
                 <th>Tên vật tư</th>
                 <th>ĐVT</th>
-                <th>Số lô</th>
-                <th>Hạn dùng</th>
-                <th class="right">Số lượng</th>
-                <th class="right">Đơn giá</th>
-                <th>Phân loại</th>
+                <th>Quy cách</th>
+                <th>Nhóm</th>
+                <th>Đang dùng</th>
+                <th>Hành động</th>
               </tr>
             </thead>
             <tbody>
@@ -119,13 +115,12 @@ function goToKho() {
                 <td><b>{{ row.ma_vat_tu }}</b></td>
                 <td>{{ row.ten_vat_tu }}</td>
                 <td>{{ row.dvt }}</td>
-                <td>{{ row.so_lo }}</td>
-                <td>{{ row.han_su_dung ? fmtDate(row.han_su_dung) : '—' }}</td>
-                <td class="right">{{ Number(row.so_luong).toLocaleString('vi-VN') }}</td>
-                <td class="right">{{ fmtVND(row.don_gia) }}</td>
+                <td>{{ row.quy_cach || '—' }}</td>
+                <td>{{ row.nhom || '—' }}</td>
+                <td>{{ row.active ? 'Có' : 'Không' }}</td>
                 <td>
-                  <span class="badge" :class="MATCH_LABEL[row.match_type].cls">
-                    {{ MATCH_LABEL[row.match_type].text }}
+                  <span class="badge" :class="HANH_DONG_LABEL[row.hanh_dong].cls">
+                    {{ HANH_DONG_LABEL[row.hanh_dong].text }}
                   </span>
                 </td>
               </tr>
@@ -139,11 +134,12 @@ function goToKho() {
       <div v-if="preview" class="card">
         <b>Bước 4 · Xác nhận nhập</b>
         <p class="tag" style="margin-top: 4px">
-          Xác nhận sẽ tạo các mã vật tư còn thiếu và một phiếu nhập "Tồn đầu kỳ" đã ghi sổ.
-          Không thể sửa lại sau khi xác nhận — chỉ có thể huỷ phiếu.
+          Xác nhận sẽ tạo mới hoặc cập nhật các vật tư trong danh mục theo tệp đã tải lên.
+          Mã vật tư không đổi được qua tệp này; vật tư đã có phát sinh trong sổ mà tệp ghi ĐVT
+          khác sẽ bị báo lỗi ngay ở bước xem trước.
         </p>
         <button class="btn" style="margin-top: 10px" :disabled="!canConfirm || committing" @click="onCommit">
-          {{ committing ? 'Đang ghi sổ…' : 'Xác nhận nhập' }}
+          {{ committing ? 'Đang ghi…' : 'Xác nhận nhập' }}
         </button>
         <span v-if="preview.error_count" class="warn" style="margin-left: 10px">
           Còn {{ preview.error_count }} dòng lỗi — sửa tệp và xem trước lại trước khi xác nhận.
