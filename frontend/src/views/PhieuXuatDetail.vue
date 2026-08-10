@@ -139,14 +139,16 @@ async function loadLotsForRow(row) {
       }
     } else {
       // Nhánh này chạy cho HAI tình huống khác nhau, không được gộp làm một:
-      // (1) vật tư chưa từng có lô nào (vừa tạo nhanh, hoặc dòng import mới
-      //     khớp mã) — row.so_lo đang rỗng vì onVatTuChange đã resetLotState
-      //     trước khi gọi hàm này.
-      // (2) dòng ĐÃ có lô thật từ trước (đang mở lại nháp cũ, hoặc vừa lưu
-      //     xong) mà lô đó vừa hết tồn — kho_lo_goi_y lọc so_luong > EPS nên
-      //     lô không còn xuất hiện trong _lots nữa, nhưng row.so_lo vẫn đang
-      //     giữ số lô thật đó (loadLotsForRow được gọi trực tiếp từ load()/
-      //     save()/onSoLuongChange(), KHÔNG qua resetLotState trước).
+      // (1) vật tư chưa từng có lô nào (vừa tạo nhanh, hoặc dòng đọc từ tệp mà
+      //     ô Số lô để trống) — row.so_lo đang rỗng vì onVatTuChange đã
+      //     resetLotState trước khi gọi hàm này, hoặc đang mang sentinel
+      //     LOT_KHONG_CO do backend gán cho ô Số lô trống.
+      // (2) dòng ĐÃ có lô thật từ trước (đang mở lại nháp cũ, vừa lưu xong,
+      //     hoặc vừa đọc số lô đó từ tệp) mà lô đó không còn tồn —
+      //     kho_lo_goi_y lọc so_luong > EPS nên lô không còn xuất hiện trong
+      //     _lots nữa, nhưng row.so_lo vẫn đang giữ số lô thật đó
+      //     (loadLotsForRow được gọi trực tiếp từ load()/save()/
+      //     onSoLuongChange()/onRowImported, KHÔNG qua resetLotState trước).
       // Phải lưu lại so_lo TRƯỚC khi resetLotState xoá nó, rồi chỉ thay bằng
       // sentinel ở tình huống (1) — nếu không, tình huống (2) sẽ bị GHI ĐÈ
       // mất số lô thật ngay khi Lưu nháp, dù trước đó dòng vẫn hợp lệ.
