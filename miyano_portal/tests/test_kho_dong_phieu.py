@@ -191,12 +191,16 @@ class TestDongPhieuEndpoint(FrappeTestCase):
 			}],
 		})
 		self.phieu_bm.insert(ignore_permissions=True)
+		self._files_created = []
 		frappe.set_user(BM_USER)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
+		for name in self._files_created:
+			frappe.delete_doc("File", name, ignore_permissions=True, force=True)
 
 	def test_mau_tra_ve_file(self):
+		frappe.local.response.clear()  # tránh dựa vào trạng thái sót lại từ test khác
 		kho_api.kho_dong_phieu_mau("nhap")
 		self.assertEqual(frappe.local.response.type, "download")
 		self.assertTrue(frappe.local.response.filecontent)
@@ -206,7 +210,12 @@ class TestDongPhieuEndpoint(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			kho_api.kho_dong_phieu_export("Customer Stock Receipt", self.phieu_bm.name)
 
-	def test_export_doctype_ngoai_danh_sach_trang_bi_chan(self):
+	def test_export_doctype_ngoai_danh_sach_trang_nem_loi(self):
+		# Không khoá THỨ TỰ guard (dong_phieu.build_export_xlsx cũng tự chặn
+		# doctype lạ, nên ca này vẫn xanh kể cả khi gỡ _phieu_cua_kho) — thứ
+		# tự "_phieu_cua_kho chạy trước" được khoá bởi ca anh em
+		# test_export_phieu_cua_kho_khac_bi_chan. Ca này chỉ khoá tính chất:
+		# doctype ngoài danh sách trắng luôn bị chặn bằng lỗi tiếng Việt.
 		with self.assertRaises(frappe.ValidationError):
 			kho_api.kho_dong_phieu_export("Sales Invoice", self.phieu_bm.name)
 
@@ -218,3 +227,38 @@ class TestDongPhieuEndpoint(FrappeTestCase):
 				"items": [{"vat_tu": "", "so_lo": "LO-X", "so_luong": 1, "don_gia": 100}],
 			})
 		self.assertIn("chưa chọn vật tư", str(ctx.exception))
+
+	def test_doc_file_qua_endpoint_tra_dung_dong(self):
+		"""Phép ghép đầy đủ của kho_dong_phieu_doc_file: suy kho từ phiên ->
+		kiểm sở hữu tệp (_resolve_owned_spreadsheet) -> giao cho
+		dong_phieu.doc_file(). Một dòng mã đã có (khớp self.kho["vt_bm"] —
+		vật tư của CHÍNH kho người gọi) và một dòng mã lạ, để khẳng định
+		endpoint không chỉ đọc được file mà còn gán đúng vat_tu theo kho."""
+		content = _xlsx("nhap", [
+			["MYN-GLOVE-M", "", "", "LO-1", None, 10, 1000, "", "", ""],
+			["BM-LA-01", "Vật tư lạ", "Cái", "LO-2", None, 5, 2000, "", "", ""],
+		])
+		f = frappe.get_doc({
+			"doctype": "File", "file_name": "dong_nhap.xlsx",
+			"content": content, "is_private": 1,
+		}).insert(ignore_permissions=True)
+		self._files_created.append(f.name)
+
+		kq = kho_api.kho_dong_phieu_doc_file("nhap", f.file_url)
+
+		self.assertEqual(len(kq["rows"]), 2)
+		khop, ma_moi = kq["rows"]
+		self.assertEqual(khop["trang_thai"], "khop")
+		self.assertEqual(khop["vat_tu"], self.kho["vt_bm"])
+		self.assertEqual(ma_moi["trang_thai"], "ma_moi")
+		self.assertEqual(ma_moi["vat_tu"], "")
+
+	def test_doc_file_tep_cua_nguoi_khac_bi_chan(self):
+		f = frappe.get_doc({
+			"doctype": "File", "file_name": "cua_nguoi_khac.xlsx",
+			"content": "x", "is_private": 1,
+		}).insert(ignore_permissions=True)
+		self._files_created.append(f.name)
+		frappe.db.set_value("File", f.name, "owner", "Administrator")
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_dong_phieu_doc_file("nhap", f.file_url)
