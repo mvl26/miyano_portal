@@ -198,18 +198,25 @@ DANH_MUC_COLUMNS = [
 DANH_MUC_REQUIRED = {"ma_vat_tu", "ten_vat_tu", "dvt"}
 
 _TRUE_VALUES = {"1", "x", "co", "có", "true", "yes", "y", "dang dung", "đang dùng"}
-_FALSE_VALUES = {"", "0", "khong", "không", "false", "no", "n", "tat", "tắt"}
+# "" KHÔNG nằm trong tập này — nó được xử lý riêng bằng nhánh `not s` bên dưới,
+# gộp chung None, "" và một ô chỉ chứa khoảng trắng (dữ liệu dán từ Excel rất
+# hay dính dấu cách thừa) về đúng MỘT quy tắc "trống = đang dùng". Trước đây
+# "" nằm trong _FALSE_VALUES nên chỉ None/"" thật được `value in (None, "")`
+# chặn trước, còn " " lọt qua rồi fold về "" và ăn nhầm nhánh FALSE — âm thầm
+# tắt một vật tư mà người dùng không hề định đụng tới cột này.
+_FALSE_VALUES = {"0", "khong", "không", "false", "no", "n", "tat", "tắt"}
 
 
 def _coerce_bool(value) -> tuple[int | None, str | None]:
-	"""Cột 'Đang dùng': nhận 1/0, x, có/không, true/false. Trống = đang dùng."""
-	if value in (None, ""):
-		return 1, None
+	"""Cột 'Đang dùng': nhận 1/0, x, có/không, true/false. Trống (kể cả ô chỉ
+	có khoảng trắng) = đang dùng."""
 	if isinstance(value, bool):
 		return int(value), None
 	if isinstance(value, (int, float)):
 		return int(bool(value)), None
 	s = _norm(value).lower()
+	if not s:
+		return 1, None
 	if s in _TRUE_VALUES:
 		return 1, None
 	if s in _FALSE_VALUES:
@@ -253,16 +260,34 @@ def parse_danh_muc(content: bytes, kho: str) -> dict:
 	ws = mo_workbook(content)
 	header_row, col_index = read_header(ws, DANH_MUC_COLUMNS, DANH_MUC_REQUIRED)
 
-	rows_ok: list[dict] = []
-	rows_error: list[dict] = []
-
+	# Đọc hết dữ liệu thành danh sách TRƯỚC khi xử lý từng dòng, để phát hiện
+	# mã trùng NGAY TRONG CÙNG TỆP (không phân biệt hoa/thường, giống mọi so
+	# khớp mã khác trong module này). Xử lý độc lập từng dòng như trước đây sẽ
+	# khiến hai dòng cùng mã (kể cả hai mã mới hoàn toàn) đi lọt qua preview
+	# sạch sẽ, rồi ở bước ghi dòng sau âm thầm đè lên dòng trước — tao() dòng
+	# 2 gặp lại "existing" do chính dòng 1 vừa tạo nên trả về nguyên bản ghi
+	# cũ, không lỗi, không ai biết nội dung dòng 2 đã biến mất. Coi mã trùng
+	# LÀ LỖI ngay từ đây, nêu rõ trùng với dòng nào, thay vì đoán xem dòng nào
+	# nên thắng.
+	raw_rows: list[tuple[int, dict]] = []
 	for line, row_cells in enumerate(
 		ws.iter_rows(min_row=header_row + 1, max_row=ws.max_row), start=header_row + 1
 	):
 		raw = {field: _cell_value(row_cells, col) for field, col in col_index.items()}
 		if all(v is None or (isinstance(v, str) and not v.strip()) for v in raw.values()):
 			continue
+		raw_rows.append((line, raw))
 
+	dup_lines: dict[str, list[int]] = {}
+	for line, raw in raw_rows:
+		ma_fold = _norm(raw.get("ma_vat_tu")).lower()
+		if ma_fold:
+			dup_lines.setdefault(ma_fold, []).append(line)
+
+	rows_ok: list[dict] = []
+	rows_error: list[dict] = []
+
+	for line, raw in raw_rows:
 		errors: list[str] = []
 		ma = _norm(raw.get("ma_vat_tu"))
 		ten = _norm(raw.get("ten_vat_tu"))
@@ -273,6 +298,14 @@ def parse_danh_muc(content: bytes, kho: str) -> dict:
 			errors.append("Thiếu Tên vật tư")
 		if not dvt:
 			errors.append("Thiếu ĐVT")
+
+		if ma:
+			trung = [l for l in dup_lines.get(ma.lower(), []) if l != line]
+			if trung:
+				errors.append(
+					"Mã vật tư trùng với dòng " + ", ".join(str(l) for l in trung)
+					+ " trong cùng tệp — mỗi mã chỉ được xuất hiện một lần."
+				)
 
 		active, bool_err = _coerce_bool(raw.get("active"))
 		if bool_err:
