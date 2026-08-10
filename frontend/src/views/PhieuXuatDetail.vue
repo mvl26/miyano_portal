@@ -6,6 +6,8 @@ import { fmtVND, fmtDate } from '../format'
 import { showToast } from '../toast'
 import { phieuActions, trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
+import { useDongPhieu } from '../useDongPhieu'
+import VatTuModal from '../components/VatTuModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -100,6 +102,18 @@ function onVatTuChange(row) {
   row.so_lo = ''
   loadLotsForRow(row)
 }
+
+// Tạo nhanh vật tư ngay trong ô chọn (mục "➕ Tạo vật tư mới…") — trạng thái
+// modal và xử lý gán dùng chung với PhieuNhapDetail, xem useDongPhieu.js.
+// Khác PhieuNhapDetail ở một điểm: vật tư vừa tạo chưa có lô nào, nên sau khi
+// gán phải nạp lô cho dòng đó như khi người dùng tự đổi ô chọn (onVatTuChange)
+// — để cảnh báo "chưa có tồn" hiện ra từ chính dữ liệu trả về.
+const { MUC_TAO_MOI, modalOpen, modalInitial, onVatTuSelect, onVatTuSaved } = useDongPhieu({
+  doc,
+  vatTuList,
+  onAssigned: onVatTuChange,
+})
+
 function onSoLuongChange(row, val) {
   row.so_luong = Number(val) || 0
   loadLotsForRow(row)
@@ -350,11 +364,17 @@ onMounted(async () => {
           <tbody>
             <tr v-for="(r, idx) in doc.items" :key="idx">
               <td>
-                <select v-if="editable" v-model="r.vat_tu" style="width: 100%" @change="onVatTuChange(r)">
+                <select
+                  v-if="editable"
+                  v-model="r.vat_tu"
+                  style="width: 100%"
+                  @change="onVatTuSelect(r, idx); onVatTuChange(r)"
+                >
                   <option value="" disabled>-- Chọn vật tư --</option>
                   <option v-for="v in vatTuList" :key="v.name" :value="v.name">
                     {{ v.ma_vat_tu }} — {{ v.ten_vat_tu }}
                   </option>
+                  <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu }}</span>
               </td>
@@ -435,6 +455,14 @@ onMounted(async () => {
           {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
       </div>
+
+      <VatTuModal
+        :open="modalOpen"
+        :initial="modalInitial"
+        mode="tao"
+        @saved="onVatTuSaved"
+        @close="modalOpen = false"
+      />
     </template>
   </div>
 </template>

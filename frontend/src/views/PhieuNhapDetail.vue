@@ -6,6 +6,8 @@ import { fmtVND, fmtDate } from '../format'
 import { showToast } from '../toast'
 import { phieuActions, trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
+import { useDongPhieu } from '../useDongPhieu'
+import VatTuModal from '../components/VatTuModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +42,14 @@ const doc = reactive({
 
 const vatTuList = ref([])
 const vatTuLoading = ref(true)
+
+// Tạo nhanh vật tư ngay trong ô chọn (mục "➕ Tạo vật tư mới…") — trạng thái
+// modal và xử lý gán dùng chung với PhieuXuatDetail, xem useDongPhieu.js.
+// Phiếu nhập không cần bước gì thêm sau khi gán nên không truyền onAssigned.
+const { MUC_TAO_MOI, modalOpen, modalInitial, onVatTuSelect, onVatTuSaved } = useDongPhieu({
+  doc,
+  vatTuList,
+})
 
 const editable = computed(() => isNew.value || doc.docstatus === 0)
 const actions = computed(() => phieuActions(doc))
@@ -277,11 +287,12 @@ onMounted(async () => {
           <tbody>
             <tr v-for="(r, idx) in doc.items" :key="idx">
               <td>
-                <select v-if="editable" v-model="r.vat_tu" style="width: 100%">
+                <select v-if="editable" v-model="r.vat_tu" style="width: 100%" @change="onVatTuSelect(r, idx)">
                   <option value="" disabled>-- Chọn vật tư --</option>
                   <option v-for="v in vatTuList" :key="v.name" :value="v.name">
                     {{ v.ma_vat_tu }} — {{ v.ten_vat_tu }}
                   </option>
+                  <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu || tenVatTu(r.vat_tu) }}</span>
               </td>
@@ -346,6 +357,14 @@ onMounted(async () => {
           {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
       </div>
+
+      <VatTuModal
+        :open="modalOpen"
+        :initial="modalInitial"
+        mode="tao"
+        @saved="onVatTuSaved"
+        @close="modalOpen = false"
+      />
     </template>
   </div>
 </template>
