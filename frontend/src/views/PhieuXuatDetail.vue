@@ -331,6 +331,13 @@ function validateClient() {
       showToast(`Dòng ${i + 1}: chưa chọn lô.`, 'error')
       return false
     }
+    // Xem chú thích cùng chốt này ở PhieuNhapDetail.vue: dòng đọc từ tệp có
+    // thể mang Số lượng ≤ 0, và sau khi người dùng sửa dòng đỏ tại chỗ thì
+    // danh sách lý do lỗi của tệp đã được xoá — chốt này thay chỗ cho nó.
+    if (!(Number(r.so_luong) > 0)) {
+      showToast(`Dòng ${i + 1}: số lượng phải lớn hơn 0.`, 'error')
+      return false
+    }
     if (r._hetHan && !r.xac_nhan_het_han) {
       showToast(`Dòng ${i + 1}: lô ${r.so_lo} đã hết hạn — tích xác nhận trước khi xuất.`, 'error')
       return false
@@ -357,7 +364,7 @@ function payload() {
 
 async function save({ silent } = {}) {
   if (dongChuaXuLy.value) {
-    showToast(`Còn ${dongChuaXuLy.value} dòng chưa xử lý (thiếu vật tư hoặc sai dữ liệu).`, 'error')
+    showToast(`Còn ${dongChuaXuLy.value} dòng chưa chọn được vật tư.`, 'error')
     return null
   }
   if (!validateClient()) return null

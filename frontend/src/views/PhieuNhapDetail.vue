@@ -140,6 +140,14 @@ function validateClient() {
       showToast(`Dòng ${i + 1}: chưa nhập số lô.`, 'error')
       return false
     }
+    // Dòng đọc từ tệp có thể mang Số lượng ≤ 0 (ô trống thành 0, hoặc số âm).
+    // Server đã chặn bằng voucher._check_so_luong; kiểm ở đây để người dùng
+    // đang sửa một dòng đỏ tại chỗ biết ngay còn thiếu gì, không phải đợi một
+    // vòng gọi mạng.
+    if (!(Number(r.so_luong) > 0)) {
+      showToast(`Dòng ${i + 1}: số lượng phải lớn hơn 0.`, 'error')
+      return false
+    }
   }
   return true
 }
@@ -162,7 +170,7 @@ function payload() {
 
 async function save({ silent } = {}) {
   if (dongChuaXuLy.value) {
-    showToast(`Còn ${dongChuaXuLy.value} dòng chưa xử lý (thiếu vật tư hoặc sai dữ liệu).`, 'error')
+    showToast(`Còn ${dongChuaXuLy.value} dòng chưa chọn được vật tư.`, 'error')
     return null
   }
   if (!validateClient()) return null

@@ -395,8 +395,13 @@ Excel**. Các dòng đọc được **nối vào cuối bảng**, không xoá d�
 | nền vàng | mã chưa có trong kho | bấm **Tạo vật tư mới** — điền sẵn từ chính dòng đó |
 | nền đỏ | sai dữ liệu | sửa tại ô; lý do và số dòng trong tệp hiện ngay dưới |
 
-Còn dòng đỏ hoặc dòng chưa gán được vật tư thì **Lưu nháp bị chặn** — hệ thống
-báo còn bao nhiêu dòng chưa xử lý khi bấm.
+Sửa xong một dòng đỏ thì **chọn lại vật tư trong ô** — dòng hết đỏ và phần lý do
+lỗi đọc từ tệp biến mất, vì nó chỉ mô tả dòng trong tệp chứ không còn mô tả dòng
+bạn vừa sửa.
+
+Còn dòng chưa gán được vật tư thì **Lưu nháp bị chặn** — hệ thống báo còn bao
+nhiêu dòng khi bấm. Các lỗi còn lại (số lượng phải lớn hơn 0, chưa nhập số lô)
+được báo theo từng dòng ngay khi bấm **Lưu nháp**.
 
 Bấm **Tạo vật tư mới** một lần là mọi dòng khác đọc được cùng mã cũng tự khớp
 theo, không phải lặp lại cho từng dòng.
@@ -408,6 +413,12 @@ Riêng phiếu xuất: tệp **không có** cột Đơn giá và Hạn dùng (h�
 theo lô đã chọn khi ghi sổ), và vật tư vừa tạo nhanh từ dòng import sẽ hiện
 *"Vật tư này chưa còn tồn lô nào"* — lưu nháp được nhưng phải nhập kho trước
 khi ghi sổ phiếu xuất đó.
+
+Cột **Số lô** của tệp được giữ nguyên như bạn điền, hệ thống không tự đổi sang lô
+khác. Nếu số lô đó không còn tồn trong kho, dòng hiện cảnh báo *"Lô … không còn
+tồn trong kho"* và ô chọn lô có thêm mục *"… · không còn tồn"*: vẫn **lưu nháp
+được**, nhưng **ghi sổ sẽ bị chặn** cho tới khi bạn chọn lô khác hoặc nhập kho lô
+đó. Để trống ô Số lô thì hệ thống mới tự chọn lô sắp hết hạn nhất (FEFO).
 
 ### C9. Xuất kho
 
