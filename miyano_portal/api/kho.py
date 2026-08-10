@@ -240,11 +240,7 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 	# MỘT truy vấn cho cả danh mục, không phải mỗi dòng một truy vấn.
 	co_ps = vat_tu_mod.cac_vat_tu_co_phat_sinh(kho)
 	for r in rows:
-		r["item_code"] = r["item_code"] or ""
-		r["quy_cach"] = r["quy_cach"] or ""
-		r["nhom"] = r["nhom"] or ""
-		r["ghi_chu"] = r["ghi_chu"] or ""
-		r["active"] = int(r["active"] or 0)
+		vat_tu_mod._chuan_hoa_row(r)
 		r["co_phat_sinh"] = r["name"] in co_ps
 	return rows
 

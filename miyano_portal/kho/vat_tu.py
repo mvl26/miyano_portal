@@ -53,6 +53,28 @@ def _item_miyano(ma_vat_tu: str) -> str | None:
 	return row[0][0] if row else None
 
 
+def _chuan_hoa_row(row: dict) -> dict:
+	"""Chuẩn hoá TẠI CHỖ một dòng vật tư đọc thẳng từ DB: cột trống trong
+	MariaDB là NULL (Python `None`), nhưng client (cả modal tạo nhanh lẫn màn
+	danh mục) luôn cần chuỗi rỗng để bind vào input mà không hiện "null", và
+	`active` cần về int thường (không phải Decimal/None) để so sánh được ở
+	frontend.
+
+	Đây là nguồn DUY NHẤT của phép chuẩn hoá này — `ra_dict()` (một bản ghi,
+	dùng bởi kho_vat_tu_tao/sua) và `kho_vat_tu_list()` bên api/kho.py (cả
+	danh sách) đều gọi lại đúng hàm này thay vì tự lặp khối gán, để thêm một
+	trường vào danh mục vật tư chỉ phải sửa một chỗ — trước khi tách, hai nơi
+	chép tay từng dòng y hệt nhau và rất dễ lệch khi ai đó sửa một bên mà quên
+	bên kia.
+	"""
+	row["item_code"] = row["item_code"] or ""
+	row["quy_cach"] = row["quy_cach"] or ""
+	row["nhom"] = row["nhom"] or ""
+	row["ghi_chu"] = row["ghi_chu"] or ""
+	row["active"] = int(row["active"] or 0)
+	return row
+
+
 def ra_dict(name: str, da_co: bool = False) -> dict:
 	row = frappe.db.get_value(
 		"Customer Warehouse Item", name,
@@ -60,11 +82,7 @@ def ra_dict(name: str, da_co: bool = False) -> dict:
 		 "quy_cach", "nhom", "ghi_chu", "active"],
 		as_dict=True,
 	)
-	row["item_code"] = row["item_code"] or ""
-	row["quy_cach"] = row["quy_cach"] or ""
-	row["nhom"] = row["nhom"] or ""
-	row["ghi_chu"] = row["ghi_chu"] or ""
-	row["active"] = int(row["active"] or 0)
+	_chuan_hoa_row(row)
 	row["co_phat_sinh"] = co_phat_sinh(name)
 	# `da_co` cho giao diện biết đây là vật tư đã tồn tại chứ không phải vừa
 	# tạo — nút "Tạo vật tư" ở dòng thứ hai cùng mã không được báo lỗi.
