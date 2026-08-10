@@ -32,6 +32,13 @@ export const MUC_TAO_MOI = '__tao_moi__'
 // Task 10/11 sẽ mở rộng composable NÀY thêm luồng import Excel (chưa viết ở
 // đây) — vì vậy state được đặt tên theo "dòng phiếu" nói chung, không riêng
 // cho luồng chọn thủ công trong ô select.
+//
+// Ba trường đọc/ghi trên `row` bên dưới — `row._ma_vat_tu` (đọc, prefill mã
+// khi mở modal), `row._trang_thai` và `row._loi` (ghi, đánh dấu dòng "khớp"
+// sau khi gán) — hiện KHÔNG có màn nào đọc lại (đã grep xác nhận). Đây là chỗ
+// móc sẵn cho luồng import Excel của Task 10/11 (dòng đọc từ file mang mã thô
+// chưa khớp danh mục, và trạng thái khớp/lỗi của từng dòng); vô hại ở luồng
+// chọn thủ công hiện tại vì không <template> nào tham chiếu tới chúng.
 export function useDongPhieu({ doc, vatTuList, onAssigned } = {}) {
   const modalOpen = ref(false)
   const modalInitial = ref({})

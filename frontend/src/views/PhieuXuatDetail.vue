@@ -67,12 +67,30 @@ function applyLotToRow(row, soLo) {
   if (!row._hetHan) row.xac_nhan_het_han = false
 }
 
+// Đặt lại TOÀN BỘ trạng thái phụ thuộc lô của một dòng về mặc định — dùng ở
+// mọi nơi dòng không còn gắn với đúng một lô cụ thể (chưa có vật tư, hoặc
+// vật tư vừa chọn không còn tồn lô nào). Reset từng phần riêng lẻ (như bản
+// trước chỉ xoá _lots) để sót _hetHan/xac_nhan_het_han của vật tư CŨ: dòng
+// vừa hiện "Chọn vật tư trước" vừa hiện sẵn checkbox "Xác nhận xuất lô đã
+// hết hạn" đã tích, và nếu vật tư gán sau đó (kể cả vật tư "đã có sẵn" khi
+// tạo nhanh) cũng có lô hết hạn, applyLotToRow() không tự xoá được cờ tích
+// sẵn đó (guard của nó chỉ chạy khi lô MỚI còn hạn) — vô hiệu hoá chốt an
+// toàn ở validateClient() cho một lô người dùng chưa từng nhìn thấy.
+function resetLotState(row) {
+  row._lots = []
+  row.so_lo = ''
+  row.han_su_dung = null
+  row.don_gia = 0
+  row._hetHan = false
+  row.xac_nhan_het_han = false
+}
+
 // Gọi kho_lo_goi_y() để lấy danh sách lô theo thứ tự FEFO (hạn gần nhất
 // trước, lô không hạn xếp cuối) kèm số lượng đề xuất lấy từ mỗi lô — và mặc
 // định chọn lô đầu tiên trả về, tức lô gần hết hạn nhất.
 async function loadLotsForRow(row) {
   if (!row.vat_tu) {
-    row._lots = []
+    resetLotState(row)
     return
   }
   row._lotsLoading = true
@@ -86,10 +104,7 @@ async function loadLotsForRow(row) {
       const stillThere = row._lots.some((l) => l.so_lo === row.so_lo)
       applyLotToRow(row, stillThere ? row.so_lo : row._lots[0].so_lo)
     } else {
-      row.so_lo = ''
-      row.han_su_dung = null
-      row.don_gia = 0
-      row._hetHan = false
+      resetLotState(row)
     }
   } catch (e) {
     showToast(e.message || 'Không tải được danh sách lô.', 'error')
