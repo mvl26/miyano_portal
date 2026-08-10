@@ -170,7 +170,7 @@ function payload() {
 
 async function save({ silent } = {}) {
   if (dongChuaXuLy.value) {
-    showToast(`Còn ${dongChuaXuLy.value} dòng chưa chọn được vật tư.`, 'error')
+    showToast(`Còn ${dongChuaXuLy.value} dòng lỗi trong tệp chưa được xử lý — chọn vật tư cho dòng đó, hoặc xoá dòng.`, 'error')
     return null
   }
   if (!validateClient()) return null

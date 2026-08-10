@@ -94,34 +94,48 @@ export function useDongPhieu({
   const modalInitial = ref({})
   const modalRowIdx = ref(-1)
 
-  // Chạy MỖI LẦN ô chọn vật tư của một dòng đổi giá trị. Hai việc:
+  // Chọn "➕ Tạo vật tư mới…" trong ô chọn: mở modal cho ĐÚNG dòng đó và trả
+  // ô chọn về rỗng, để dòng không bị kẹt ở một giá trị không phải vật tư nào.
   //
-  // 1. Chọn "➕ Tạo vật tư mới…": mở modal cho ĐÚNG dòng đó và trả ô chọn về
-  //    rỗng, để dòng không bị kẹt ở một giá trị không phải vật tư nào.
-  // 2. Chọn một vật tư THẬT cho một dòng đọc từ tệp: xoá trạng thái import của
-  //    dòng ('ma_moi'/'loi' + danh sách lý do lỗi). Đây là đường DUY NHẤT để
-  //    một dòng đỏ được sửa tại chỗ — nút "Tạo vật tư mới" chỉ hiện trên dòng
-  //    'ma_moi', nên trước bản sửa này một dòng 'loi' giữ cờ đó vĩnh viễn và
-  //    khoá "Lưu nháp" cho tới khi người dùng xoá hẳn dòng, trái với hướng dẫn
-  //    sử dụng ("nền đỏ · sai dữ liệu · sửa tại ô").
-  //    Xoá cả `_loi` vì danh sách đó mô tả DÒNG TRONG TỆP ("Dòng 7: Thiếu Mã
-  //    vật tư"); một khi người dùng đã sửa tay thì nó không còn mô tả dòng
-  //    đang hiển thị nữa. Lỗi dữ liệu còn sót được validateClient() của mỗi màn
-  //    bắt ngay và voucher._check_so_luong bắt lại ở server. Cách làm này khớp
-  //    với onVatTuSaved() bên dưới, vốn đã xoá đúng hai trường này khi gán vật
-  //    tư vừa tạo vào dòng.
+  // CỐ Ý KHÔNG xoá `_trang_thai`/`_loi` khi người dùng chọn một vật tư thật
+  // cho một dòng đọc từ tệp. `_loi` là toàn bộ bằng chứng mà bước đọc tệp thu
+  // được, còn client chỉ kiểm lại được một lớp (số lượng > 0). Xoá nó đi thì
+  // hai lớp lỗi lọt qua cả client lẫn server:
+  //   - "Hạn sử dụng không hợp lệ" → han_su_dung = null → lô vào sổ KHÔNG CÓ
+  //     hạn dùng. ledger.get_lot_balances() xếp lô không hạn xuống CUỐI FEFO
+  //     và _chan_lo_het_han_chua_xac_nhan() bỏ qua dòng không có han_su_dung,
+  //     nên lô đó vĩnh viễn miễn chốt hạn dùng ở mọi lần xuất về sau — chỉ gỡ
+  //     được bằng huỷ phiếu + phiếu đảo. Không trường nào ở server bắt lại:
+  //     han_su_dung không reqd, _validate_items_present chỉ kiểm vat_tu/so_lo.
+  //   - "Thiếu/sai Đơn giá" → don_gia = 0, dòng nhập giá 0.
+  // Dòng vẫn LƯU NHÁP ĐƯỢC (xem dongChuaXuLy bên dưới) — nền đỏ và danh sách
+  // lý do chỉ ở lại để người dùng còn thấy dòng đó có gì chưa xử lý, cho tới
+  // khi họ sửa tệp và nạp lại.
   function onVatTuSelect(row, idx) {
-    if (row.vat_tu === MUC_TAO_MOI) {
-      row.vat_tu = ''
-      modalRowIdx.value = idx
-      modalInitial.value = { ma_vat_tu: row._ma_vat_tu || '', ten_vat_tu: '', dvt: '' }
-      modalOpen.value = true
-      return
-    }
-    if (row.vat_tu && row._trang_thai) {
+    if (row.vat_tu !== MUC_TAO_MOI) return
+    row.vat_tu = ''
+    modalRowIdx.value = idx
+    modalInitial.value = { ma_vat_tu: row._ma_vat_tu || '', ten_vat_tu: '', dvt: '' }
+    modalOpen.value = true
+  }
+
+  // Gán vật tư vừa tạo vào một dòng.
+  //
+  // Chỉ dòng 'ma_moi' mới được xoá trạng thái import: với dòng đó, MÃ LẠ là
+  // vấn đề duy nhất và nó vừa được giải quyết, nên nền vàng và cờ phải biến
+  // mất. Dòng 'loi' thì khác — nó lọt vào đây khi mã của nó trùng mã vừa tạo
+  // (một tệp có hai dòng cùng mã mới, một dòng sạch một dòng sai hạn dùng là
+  // đủ) và nó CÒN mang những lý do khác mà client không kiểm lại được; xoá
+  // `_loi` ở đó là vứt đúng bằng chứng nói ở onVatTuSelect(). Vẫn gán
+  // `vat_tu` — công người dùng bấm "Tạo vật tư mới" không mất, và dòng thành
+  // lưu nháp được — chỉ giữ nguyên nền đỏ + lý do.
+  function ganVatTuVaoDong(row, vt) {
+    row.vat_tu = vt.name
+    if (row._trang_thai !== 'loi') {
       row._trang_thai = 'khop'
       row._loi = []
     }
+    if (onAssigned) onAssigned(row)
   }
 
   function onVatTuSaved(vt) {
@@ -135,10 +149,7 @@ export function useDongPhieu({
     if (ma) {
       for (const r of doc.items) {
         if (!r.vat_tu && (r._ma_vat_tu || '').toLowerCase() === ma) {
-          r.vat_tu = vt.name
-          r._trang_thai = 'khop'
-          r._loi = []
-          if (onAssigned) onAssigned(r)
+          ganVatTuVaoDong(r, vt)
         }
       }
     }
@@ -149,10 +160,7 @@ export function useDongPhieu({
     if (modalRowIdx.value >= 0) {
       const row = doc.items[modalRowIdx.value]
       if (row && row.vat_tu !== vt.name) {
-        row.vat_tu = vt.name
-        row._trang_thai = 'khop'
-        row._loi = []
-        if (onAssigned) onAssigned(row)
+        ganVatTuVaoDong(row, vt)
       }
     }
     modalOpen.value = false
@@ -168,19 +176,23 @@ export function useDongPhieu({
       `?doctype=${encodeURIComponent(DOCTYPE)}&name=${encodeURIComponent(doc.name)}`
   )
 
-  // Dòng chưa gán được vật tư thì không cho lưu. Server chặn lần nữa
-  // (_validate_items_present) — đây chỉ là lớp phản hồi nhanh.
+  // Dòng đọc từ tệp bị lỗi mà CHƯA gán được vật tư thì không cho lưu.
   //
-  // Điều kiện cũ còn có `r._trang_thai === 'loi'` và chính nó là cái bẫy: một
-  // dòng đỏ sửa tại chỗ (chọn vật tư trong ô, sửa Số lượng) vẫn mang cờ 'loi'
-  // nên "Lưu nháp" bị chặn vĩnh viễn, chỉ thoát được bằng cách xoá dòng. Vế
-  // đó nay là THỪA chứ không phải bị nới lỏng: bất biến của backend là dòng
-  // 'loi' LUÔN có `vat_tu == ""`, nên mọi dòng đỏ vừa đọc từ tệp vẫn bị vế
-  // `!r.vat_tu` đếm — nó chỉ thôi chặn sau khi dòng đã có vật tư, tức sau khi
-  // onVatTuSelect() đã xoá cờ 'loi' đi rồi. Lỗi dữ liệu còn lại (Số lượng ≤ 0)
-  // do validateClient() của từng màn bắt tại client và voucher._check_so_luong
-  // bắt lại ở server bằng thông điệp tiếng Việt nêu đúng số dòng.
-  const dongChuaXuLy = computed(() => doc.items.filter((r) => !r.vat_tu).length)
+  // Điều kiện cũ (`r._trang_thai === 'loi' || !r.vat_tu`) chặn theo cờ 'loi'
+  // bất kể dòng đã được sửa hay chưa, mà không có đường nào xoá cờ đó cho một
+  // dòng sửa tại chỗ — "Lưu nháp" bị khoá vĩnh viễn, chỉ thoát bằng cách xoá
+  // dòng. Vế `&& !r.vat_tu` mở đúng chỗ đó ra: người dùng chọn được vật tư cho
+  // dòng đỏ là lưu nháp được ngay, TRONG KHI cờ 'loi' và `_loi` vẫn nằm
+  // nguyên trên màn hình làm bằng chứng (xem onVatTuSelect). Đây là lý do
+  // không đơn giản hoá được thành `!r.vat_tu`.
+  //
+  // Dòng 'ma_moi' và dòng gõ tay còn trống KHÔNG lọt: chúng rơi vào chốt
+  // `!r.vat_tu` của validateClient() ở mỗi màn, vốn nêu đúng số dòng
+  // ("Dòng 3: chưa chọn vật tư."). Server chặn lần thứ ba bằng
+  // _validate_items_present.
+  const dongChuaXuLy = computed(
+    () => doc.items.filter((r) => r._trang_thai === 'loi' && !r.vat_tu).length
+  )
 
   async function onImportFile(e) {
     const f = e.target.files && e.target.files[0]

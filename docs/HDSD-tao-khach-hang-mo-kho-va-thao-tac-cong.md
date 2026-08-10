@@ -395,13 +395,19 @@ Excel**. Các dòng đọc được **nối vào cuối bảng**, không xoá d�
 | nền vàng | mã chưa có trong kho | bấm **Tạo vật tư mới** — điền sẵn từ chính dòng đó |
 | nền đỏ | sai dữ liệu | sửa tại ô; lý do và số dòng trong tệp hiện ngay dưới |
 
-Sửa xong một dòng đỏ thì **chọn lại vật tư trong ô** — dòng hết đỏ và phần lý do
-lỗi đọc từ tệp biến mất, vì nó chỉ mô tả dòng trong tệp chứ không còn mô tả dòng
-bạn vừa sửa.
+Dòng đỏ: sửa các ô ngay trên bảng rồi **chọn vật tư trong ô** là **Lưu nháp được**.
+**Nền đỏ và danh sách lý do vẫn ở lại** cho tới khi bạn sửa tệp và nạp lại — đó là
+chủ ý: hệ thống chỉ kiểm lại được một phần lỗi trên màn hình (số lượng, số lô, vật
+tư), còn những lỗi như **hạn dùng sai định dạng** thì không, nên nó giữ nguyên lý
+do đọc được từ tệp để bạn còn đối chiếu. Đặc biệt lưu ý dòng báo *"Hạn sử dụng
+không hợp lệ"*: nếu lưu và ghi sổ luôn, lô đó vào sổ **không có hạn dùng** và sẽ
+không bao giờ được cảnh báo hết hạn ở các phiếu xuất sau; hãy điền lại hạn dùng
+trên bảng trước khi ghi sổ.
 
-Còn dòng chưa gán được vật tư thì **Lưu nháp bị chặn** — hệ thống báo còn bao
-nhiêu dòng khi bấm. Các lỗi còn lại (số lượng phải lớn hơn 0, chưa nhập số lô)
-được báo theo từng dòng ngay khi bấm **Lưu nháp**.
+Còn dòng đỏ **chưa chọn được vật tư** thì **Lưu nháp bị chặn** — hệ thống báo còn
+bao nhiêu dòng khi bấm. Dòng nền vàng và dòng gõ tay còn trống cũng bị chặn, báo
+theo từng dòng ("Dòng 3: chưa chọn vật tư."). Các lỗi còn lại (số lượng phải lớn
+hơn 0, chưa nhập số lô) cũng báo theo từng dòng khi bấm **Lưu nháp**.
 
 Bấm **Tạo vật tư mới** một lần là mọi dòng khác đọc được cùng mã cũng tự khớp
 theo, không phải lặp lại cho từng dòng.
