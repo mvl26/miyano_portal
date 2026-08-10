@@ -55,6 +55,21 @@ class TestDocFileNhap(FrappeTestCase):
 		self.assertEqual(row["line"], 2)  # header ở dòng 1
 		self.assertIn("Số lượng", " ".join(row["loi"]))
 
+	def test_dong_loi_co_ma_khop_vat_tu_that_thi_van_khong_lo_vat_tu(self):
+		# Khoá lỗ hổng round 2: bỏ chặn `not loi` (round 1) khiến _match_vat_tu
+		# chạy cả trên dòng đã có lỗi định dạng khác. Nếu mã khớp một Customer
+		# Warehouse Item thật, `vat_tu_name` bị gán rồi lọt ra ngoài dù trạng
+		# thái cuối là "loi" — một consumer rẽ nhánh theo "vat_tu có giá trị
+		# hay không" thay vì theo trang_thai sẽ âm thầm coi dòng lỗi là khớp.
+		# Bất biến bắt buộc: dòng "loi" không bao giờ mang định danh vat_tu thật.
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["MYN-GLOVE-M", "", "", "LO-1", None, "abc", 1000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "loi")
+		self.assertEqual(row["vat_tu"], "")
+
 	def test_ma_moi_thieu_ten_hoac_dvt_thi_loi(self):
 		kq = dong_phieu.doc_file(
 			_xlsx("nhap", [["BM-LA-02", "", "", "LO-3", None, 5, 2000, "", "", ""]]),

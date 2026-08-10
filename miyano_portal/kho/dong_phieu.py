@@ -93,6 +93,12 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 	               điền sẵn. Bắt buộc phải có Tên và ĐVT, không thì thành "loi".
 	  * "loi"    — thiếu trường bắt buộc hoặc sai định dạng; `loi` liệt kê MỌI
 	               lý do của dòng đó, kèm số dòng thật trong tệp.
+
+	BẤT BIẾN cho consumer: `vat_tu` CHỈ khác rỗng khi `trang_thai == "khop"`.
+	Một dòng "loi" không bao giờ mang định danh `vat_tu` thật, kể cả khi mã
+	trên dòng đó trùng một Customer Warehouse Item đang tồn tại — rẽ nhánh
+	PHẢI dựa vào `trang_thai`, không được suy luận từ `vat_tu` có giá trị
+	hay không.
 	"""
 	_kiem_loai(loai)
 	ws = mo_workbook(content)
@@ -163,10 +169,17 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 				if not dvt:
 					loi.append("Mã chưa có trong kho — cần ĐVT để tạo mới")
 
+		trang_thai_cuoi = "loi" if loi else trang_thai
 		row = {
 			"line": line,
-			"trang_thai": "loi" if loi else trang_thai,
-			"vat_tu": vat_tu_name,
+			"trang_thai": trang_thai_cuoi,
+			# Chỉ tin `vat_tu_name` khi dòng thật sự "khop": `_match_vat_tu` có
+			# thể chạy và tìm thấy một bản ghi thật ngay cả trên một dòng đã có
+			# lỗi định dạng khác (Số lượng/Đơn giá/Hạn) — bất biến bắt buộc là
+			# dòng "loi" KHÔNG BAO GIỜ mang một định danh vat_tu thật, nếu không
+			# một consumer sau này rẽ nhánh theo "có vat_tu hay không" thay vì
+			# theo trang_thai sẽ âm thầm coi dòng lỗi là dòng đã khớp.
+			"vat_tu": vat_tu_name if trang_thai_cuoi == "khop" else "",
 			"ma_vat_tu": ma,
 			"ten_vat_tu": ten,
 			"dvt": dvt,
