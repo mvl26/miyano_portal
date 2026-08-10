@@ -43,12 +43,33 @@ const doc = reactive({
 const vatTuList = ref([])
 const vatTuLoading = ref(true)
 
-// Tạo nhanh vật tư ngay trong ô chọn (mục "➕ Tạo vật tư mới…") — trạng thái
-// modal và xử lý gán dùng chung với PhieuXuatDetail, xem useDongPhieu.js.
-// Phiếu nhập không cần bước gì thêm sau khi gán nên không truyền onAssigned.
-const { MUC_TAO_MOI, modalOpen, modalInitial, onVatTuSelect, onVatTuSaved } = useDongPhieu({
+// Tạo nhanh vật tư ngay trong ô chọn (mục "➕ Tạo vật tư mới…") VÀ toàn bộ
+// luồng import/export Excel của bảng dòng — dùng chung với PhieuXuatDetail,
+// xem useDongPhieu.js. Phiếu nhập không cần bước gì thêm sau khi gán vật tư
+// nên không truyền onAssigned/onRowImported; điểm riêng của phiếu nhập là
+// don_gia/han_su_dung đọc được từ tệp, tiêm vào qua extraRowFields.
+const {
+  MUC_TAO_MOI,
+  modalOpen,
+  modalInitial,
+  onVatTuSelect,
+  onVatTuSaved,
+  importing,
+  importInput,
+  mauUrl,
+  exportUrl,
+  dongChuaXuLy,
+  onImportFile,
+  moTaoTuDong,
+} = useDongPhieu({
   doc,
   vatTuList,
+  loai: 'nhap',
+  DOCTYPE,
+  extraRowFields: (r) => ({
+    han_su_dung: r.han_su_dung || '',
+    don_gia: r.don_gia || 0,
+  }),
 })
 
 const editable = computed(() => isNew.value || doc.docstatus === 0)
@@ -140,6 +161,10 @@ function payload() {
 }
 
 async function save({ silent } = {}) {
+  if (dongChuaXuLy.value) {
+    showToast(`Còn ${dongChuaXuLy.value} dòng chưa xử lý (thiếu vật tư hoặc sai dữ liệu).`, 'error')
+    return null
+  }
   if (!validateClient()) return null
   saving.value = true
   try {
@@ -271,6 +296,15 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="editable" class="flex mb10" style="gap: 8px; flex-wrap: wrap">
+        <a class="btn-o btn-sm" :href="mauUrl">Tải file mẫu</a>
+        <button class="btn-o btn-sm" :disabled="importing" @click="importInput.click()">
+          {{ importing ? 'Đang đọc…' : '⬆ Nhập từ Excel' }}
+        </button>
+        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl">⬇ Xuất Excel</a>
+        <input ref="importInput" type="file" accept=".xlsx" style="display: none" @change="onImportFile" />
+      </div>
+
       <div class="card" style="padding: 0; overflow-x: auto">
         <table>
           <thead>
@@ -285,7 +319,11 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(r, idx) in doc.items" :key="idx">
+            <tr
+              v-for="(r, idx) in doc.items"
+              :key="idx"
+              :style="r._trang_thai === 'loi' ? 'background:#fff1f0' : (r._trang_thai === 'ma_moi' ? 'background:#fffbe6' : '')"
+            >
               <td>
                 <select v-if="editable" v-model="r.vat_tu" style="width: 100%" @change="onVatTuSelect(r, idx)">
                   <option value="" disabled>-- Chọn vật tư --</option>
@@ -295,6 +333,14 @@ onMounted(async () => {
                   <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu || tenVatTu(r.vat_tu) }}</span>
+
+                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn" style="margin-top: 4px">
+                  ⚠ Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.
+                  <button class="btn-o btn-sm" @click="moTaoTuDong(r, idx)">Tạo vật tư mới</button>
+                </div>
+                <div v-if="r._loi && r._loi.length" class="tag" style="color: #cf1322; margin-top: 4px">
+                  ✗ Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
+                </div>
               </td>
               <td>
                 <input v-if="editable" v-model="r.so_lo" style="width: 110px" />
