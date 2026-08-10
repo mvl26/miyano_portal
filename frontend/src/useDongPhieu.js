@@ -21,15 +21,36 @@ export const MUC_TAO_MOI = '__tao_moi__'
 //                           onVatTuChange(row) vào để nạp lô cho dòng đó.
 //   - extraRowFields(r)   : nhận một dòng thô từ kho_dong_phieu_doc_file, trả
 //                           về các trường CHỈ riêng màn đó cần gộp thêm vào
-//                           dòng chung. Phiếu nhập có don_gia/han_su_dung;
-//                           phiếu xuất (Task 11) không cần don_gia/han_su_dung
-//                           lấy từ tệp — số này server luôn tính lại từ lô.
-//   - onRowImported(row)  : chạy MỘT LẦN cho mỗi dòng vừa nối vào bảng sau
-//                           import, nhận đúng dòng đó. Phiếu nhập không cần
-//                           bước gì thêm. Phiếu xuất (Task 11) là nơi cần nạp
-//                           lô cho dòng đã khớp mã (trang_thai == "khop") vì
-//                           dòng import không đi qua ô chọn thủ công nên
-//                           onVatTuChange() không tự chạy.
+//                           dòng chung. Phiếu nhập có don_gia/han_su_dung.
+//
+//                           ĐÂY LÀ KÊNH DUY NHẤT để một màn bơm trường riêng
+//                           vào dòng import — composable KHÔNG biết gì về
+//                           trường nào template của màn đó cần. Mọi trường mà
+//                           <template> của màn đọc KHÔNG PHÒNG THỦ (không có
+//                           `v-if`/`?? default`/optional-chaining bọc ngoài)
+//                           BẮT BUỘC phải có mặt trên MỌI dòng ngay từ khi
+//                           push, kể cả dòng `trang_thai` là "ma_moi"/"loi" —
+//                           nếu không dòng đó sẽ thiếu trường và ném lỗi
+//                           render ngay khi Vue vẽ nó, TRƯỚC khi bất kỳ
+//                           callback nào (kể cả onRowImported) có cơ hội chạy.
+//                           Ví dụ cụ thể: PhieuXuatDetail.vue có
+//                           `v-else-if="r._lots.length"` không phòng thủ ở
+//                           dòng chọn lô — Task 11 PHẢI trả `_lots: []`,
+//                           `_lotsLoading: false`, `_hetHan: false`,
+//                           `xac_nhan_het_han: false` từ extraRowFields (y hệt
+//                           blankRow() hiện có), KHÔNG được trông cậy vào
+//                           onRowImported để khởi tạo các trường này — dòng đã
+//                           render (và có thể đã vỡ) trước khi onRowImported
+//                           kịp chạy.
+//   - onRowImported(row)  : chạy MỘT LẦN cho MỌI dòng vừa nối vào bảng sau
+//                           import — kể cả dòng "ma_moi"/"loi" chưa có
+//                           vat_tu, KHÔNG được gác lại bằng `if (row.vat_tu)`
+//                           hay tương tự bên trong hàm truyền vào. Phiếu nhập
+//                           không cần bước gì thêm nên không truyền. Phiếu
+//                           xuất (Task 11) dùng để nạp lô cho dòng đã khớp
+//                           mã (trang_thai == "khop") — nhưng chính callback
+//                           đó, không phải composable, chịu trách nhiệm tự
+//                           kiểm tra row.vat_tu trước khi gọi kho_lo_goi_y().
 //
 // Tham số (đối tượng):
 //   doc            - đối tượng reactive của phiếu (PhieuNhapDetail/
@@ -120,7 +141,7 @@ export function useDongPhieu({
 
   const importing = ref(false)
   const importInput = ref(null)
-  const mauUrl = api.khoDownloadUrl('kho_dong_phieu_mau') + '?loai=' + loai
+  const mauUrl = api.khoDownloadUrl('kho_dong_phieu_mau') + '?loai=' + encodeURIComponent(loai)
   const exportUrl = computed(
     () =>
       api.khoDownloadUrl('kho_dong_phieu_export') +
