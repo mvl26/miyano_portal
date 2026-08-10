@@ -144,7 +144,11 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 
 		vat_tu_name = ""
 		trang_thai = "ma_moi"
-		if ma and not loi:
+		if ma:
+			# Chạy VÔ ĐIỀU KIỆN khi có mã — không gate theo `not loi`: nếu không,
+			# một dòng vừa sai định dạng (Số lượng/Đơn giá/Hạn) VỪA mang mã mới
+			# thiếu Tên/ĐVT sẽ chỉ báo lỗi định dạng, nuốt mất lý do "cần Tên/ĐVT
+			# để tạo mới" — vi phạm thẳng yêu cầu "loi liệt kê MỌI lý do".
 			match_type, _item_code, found = _match_vat_tu(kho, ma)
 			if match_type == "existing":
 				trang_thai = "khop"

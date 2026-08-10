@@ -78,6 +78,24 @@ class TestDocFileNhap(FrappeTestCase):
 		)
 		self.assertEqual(kq["rows"][0]["so_lo"], "KHONG-LO")
 
+	def test_dong_vua_sai_so_luong_vua_ma_moi_thieu_ten_dvt_thi_gom_du_loi(self):
+		# Khoá lỗ hổng round 1: trước sửa, khối kiểm mã mới (thiếu Tên/ĐVT) chỉ
+		# chạy khi `not loi`, nên lỗi Số lượng đứng trước sẽ nuốt mất hai lý do
+		# kia. Dòng này cố tình phạm CẢ BA lỗi cùng lúc: mã "BM-NEW-01" chưa có
+		# trong kho (không phải "MYN-*" nên cũng không khớp Item Miyano), Số
+		# lượng "abc" không phải số, và Tên/ĐVT đều bỏ trống.
+		kq = dong_phieu.doc_file(
+			_xlsx("nhap", [["BM-NEW-01", "", "", "", None, "abc", 2000, "", "", ""]]),
+			self.kho_bm, "nhap",
+		)
+		row = kq["rows"][0]
+		self.assertEqual(row["trang_thai"], "loi")
+		loi_gop = " ".join(row["loi"])
+		self.assertIn("Số lượng", loi_gop)
+		self.assertIn("Tên vật tư", loi_gop)
+		self.assertIn("ĐVT", loi_gop)
+		self.assertEqual(len(row["loi"]), 3)
+
 
 class TestDocFileXuat(FrappeTestCase):
 	def setUp(self):
@@ -88,6 +106,14 @@ class TestDocFileXuat(FrappeTestCase):
 		labels = [label for label, _ in dong_phieu.COLUMNS["xuat"]]
 		self.assertNotIn("Đơn giá", labels)
 		self.assertNotIn("Hạn sử dụng", labels)
+
+	def test_file_xuat_co_quy_cach_va_nhom(self):
+		# Chốt hợp đồng: dòng xuất VẪN mang Quy cách/Nhóm dù không có giá/hạn —
+		# modal tạo nhanh cho mã mới cần hai trường này. Khoá lại để không ai vô
+		# tình bỏ chúng khỏi COLUMNS["xuat"] sau này.
+		labels = [label for label, _ in dong_phieu.COLUMNS["xuat"]]
+		self.assertIn("Quy cách", labels)
+		self.assertIn("Nhóm", labels)
 
 	def test_doc_file_xuat_khong_tra_don_gia(self):
 		kq = dong_phieu.doc_file(
