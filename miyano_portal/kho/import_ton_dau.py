@@ -55,9 +55,6 @@ def build_aliases(columns: list[tuple[str, str]]) -> dict[str, str]:
 	return aliases
 
 
-_ALIASES = build_aliases(COLUMNS)
-
-
 def _norm(value) -> str:
 	if value is None:
 		return ""
