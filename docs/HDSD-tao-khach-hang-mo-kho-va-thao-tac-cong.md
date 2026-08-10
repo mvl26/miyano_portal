@@ -301,7 +301,8 @@ Liệt kê hoá đơn: ngày, hạn thanh toán, tổng tiền, **còn phải tr
 giá trị · số lô · hạn gần nhất. Bấm vào một dòng để **bung xuống từng lô** (số
 lô, hạn dùng, số lượng, đơn giá). Lô không có hạn dùng hiện là **"Không thời hạn"**.
 
-Bốn nút ở đầu màn hình: **Phiếu nhập · Phiếu xuất · Nhập tồn đầu kỳ · Báo cáo**.
+Năm nút ở đầu màn hình: **Phiếu nhập · Phiếu xuất · Nhập tồn đầu kỳ · Danh mục
+vật tư · Báo cáo**.
 
 ### C5b. Danh mục vật tư
 
