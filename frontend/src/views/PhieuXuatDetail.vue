@@ -113,13 +113,21 @@ async function loadLotsForRow(row) {
       const stillThere = row._lots.some((l) => l.so_lo === row.so_lo)
       applyLotToRow(row, stillThere ? row.so_lo : row._lots[0].so_lo)
     } else {
+      // Nhánh này chạy cho HAI tình huống khác nhau, không được gộp làm một:
+      // (1) vật tư chưa từng có lô nào (vừa tạo nhanh, hoặc dòng import mới
+      //     khớp mã) — row.so_lo đang rỗng vì onVatTuChange đã resetLotState
+      //     trước khi gọi hàm này.
+      // (2) dòng ĐÃ có lô thật từ trước (đang mở lại nháp cũ, hoặc vừa lưu
+      //     xong) mà lô đó vừa hết tồn — kho_lo_goi_y lọc so_luong > EPS nên
+      //     lô không còn xuất hiện trong _lots nữa, nhưng row.so_lo vẫn đang
+      //     giữ số lô thật đó (loadLotsForRow được gọi trực tiếp từ load()/
+      //     save()/onSoLuongChange(), KHÔNG qua resetLotState trước).
+      // Phải lưu lại so_lo TRƯỚC khi resetLotState xoá nó, rồi chỉ thay bằng
+      // sentinel ở tình huống (1) — nếu không, tình huống (2) sẽ bị GHI ĐÈ
+      // mất số lô thật ngay khi Lưu nháp, dù trước đó dòng vẫn hợp lệ.
+      const soLoTruoc = row.so_lo
       resetLotState(row)
-      // Vật tư có thật (row.vat_tu đã set — hàm đã return sớm nếu không) mà
-      // chưa còn tồn lô nào: gán sentinel để Lưu nháp qua được cả rào client
-      // (!r.so_lo) lẫn rào server (_validate_items_present) — người dùng vẫn
-      // thấy đúng cảnh báo "chưa còn tồn lô nào" ở ô Lô vì nhánh hiển thị dựa
-      // vào r._lots.length, không dựa vào r.so_lo.
-      row.so_lo = LOT_KHONG_CO
+      row.so_lo = soLoTruoc && soLoTruoc !== LOT_KHONG_CO ? soLoTruoc : LOT_KHONG_CO
     }
   } catch (e) {
     showToast(e.message || 'Không tải được danh sách lô.', 'error')
