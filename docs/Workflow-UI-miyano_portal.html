@@ -1,0 +1,1141 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Miyano Portal — Mô phỏng thao tác workflow trên giao diện</title>
+<style>
+/* ===========================================================================
+   Design system lấy đúng từ miyano_portal/public/css/portal.css để màn mô phỏng
+   trông giống cổng thật. Chỉ dựng nhánh desktop — tài liệu đào tạo không xem
+   trên điện thoại.
+   =========================================================================== */
+:root{
+  --blue:#1f4e79; --blue2:#2d6da3; --bg:#f4f6f9; --line:#e2e8f0;
+  --gray:#64748b; --dark:#1e293b; --green:#16a34a; --orange:#ea580c; --red:#dc2626;
+  --miyano:#8a5a1d; --miyano2:#a97230; --miyano-bg:#f7efe3;
+  --guide:#0f6b5f; --guide-bg:#e8f2f0;
+  --rail-h:196px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Segoe UI',Roboto,Arial,sans-serif;color:var(--dark);font-size:14px;
+  background:#0e1a1f;overflow:hidden;
+}
+a{text-decoration:none}
+button{cursor:pointer;font-size:14px;font-family:inherit}
+
+/* ---------- Khung ngoài: màn hình mô phỏng + thanh hướng dẫn ---------- */
+#stage{position:fixed;left:0;right:0;top:0;bottom:var(--rail-h);overflow:auto;background:var(--bg)}
+#rail{position:fixed;left:0;right:0;bottom:0;height:var(--rail-h);background:#0e1a1f;color:#e2e8f0;
+      border-top:3px solid var(--guide);display:flex;z-index:200}
+
+/* ---------- Thanh hướng dẫn ---------- */
+.rail-main{flex:1;padding:14px 22px;display:flex;flex-direction:column;min-width:0}
+.rail-top{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.stepno{font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.08em;
+        background:var(--guide);color:#fff;padding:3px 9px;border-radius:5px;white-space:nowrap}
+.actor{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;padding:3px 9px;border-radius:20px}
+.actor.khach{background:#dbeafe;color:#1d4ed8}
+.actor.miyano{background:#fde9c8;color:#8a5a1d}
+.actor.auto{background:#cbd5e1;color:#334155}
+.rail-title{font-size:16px;font-weight:700;color:#fff;line-height:1.35}
+.rail-desc{font-size:13.5px;color:#b6c4c2;line-height:1.55;overflow-y:auto;flex:1}
+.rail-desc b{color:#fff}
+.rail-desc code{font-family:ui-monospace,monospace;font-size:12px;background:#1c2f35;color:#8fd3c6;padding:1px 5px;border-radius:4px}
+.br{display:inline-block;font-family:ui-monospace,monospace;font-size:11px;font-weight:700;
+    background:#12403a;color:#6ee7b7;border:1px solid #1d5b52;padding:1px 6px;border-radius:4px;margin-right:5px}
+.br.warnbr{background:#4a1f1a;color:#fca5a5;border-color:#7a2f26}
+
+.rail-side{width:300px;flex:0 0 300px;border-left:1px solid #1c2f35;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.railbtns{display:flex;gap:8px}
+.railbtns button{flex:1;border:none;border-radius:8px;padding:10px 8px;font-weight:700}
+#btnPrev{background:#1c2f35;color:#cbd5e1}
+#btnPrev:hover:not(:disabled){background:#26424a}
+#btnNext{background:var(--guide);color:#fff}
+#btnNext:hover:not(:disabled){background:#12897a}
+.railbtns button:disabled{opacity:.35;cursor:not-allowed}
+.progress{height:6px;background:#1c2f35;border-radius:6px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--guide);transition:width .25s}
+.railmeta{font-size:11.5px;color:#7b8a87;line-height:1.5}
+.railmeta a{color:#6ee7b7}
+.chip-jump{display:flex;flex-wrap:wrap;gap:4px}
+.chip-jump button{border:1px solid #1c2f35;background:transparent;color:#7b8a87;border-radius:5px;
+                  padding:2px 7px;font-size:11px;font-family:ui-monospace,monospace}
+.chip-jump button.on{background:var(--guide);color:#fff;border-color:var(--guide)}
+.chip-jump button:hover{color:#fff}
+
+/* ---------- Chỉ dẫn bấm ---------- */
+[data-hl].hl{position:relative;outline:3px solid #0f6b5f;outline-offset:3px;border-radius:8px;
+             animation:pulse 1.7s infinite;cursor:pointer;z-index:5}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(15,107,95,.45)}50%{box-shadow:0 0 0 9px rgba(15,107,95,0)}}
+.tipline{font-size:12.5px;color:#8fd3c6;background:#12403a;border:1px solid #1d5b52;
+         border-radius:6px;padding:5px 10px;line-height:1.4}
+.tipline b{color:#fff}
+
+/* ---------- Vỏ cổng khách hàng ---------- */
+.side{position:absolute;left:0;top:0;bottom:0;width:230px;background:var(--blue);color:#fff;padding:20px 0;display:flex;flex-direction:column;z-index:10}
+.side .logo{font-size:20px;font-weight:800;color:#fff;padding:0 20px 18px;border-bottom:1px solid rgba(255,255,255,.15)}
+.side .logo span{color:#fca5a5}
+.nav{margin-top:12px;flex:1}
+.nav a{display:flex;justify-content:space-between;align-items:center;color:#cbd5e1;padding:11px 20px;font-weight:500;gap:8px}
+.nav a:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav a.on{background:rgba(255,255,255,.15);color:#fff;border-left:3px solid #fff}
+.cartn{background:#e11d48;color:#fff;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:700;min-width:20px;text-align:center}
+.who{padding:14px 20px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;color:#cbd5e1;line-height:1.5}
+.main{margin-left:230px;padding:22px 26px 40px;max-width:1180px}
+
+/* Vỏ Desk của Miyano — khác hẳn để không ai nhầm đang xem màn của ai */
+.side.desk{background:var(--miyano)}
+.side.desk .logo span{color:#fcd9a1}
+.deskbar{margin-left:230px;background:var(--miyano-bg);border-bottom:1px solid #e0cba6;color:#7a4f18;
+         padding:9px 26px;font-size:12.5px;font-weight:600;letter-spacing:.02em}
+.deskbar b{color:#5c3a10}
+
+.actorbar{margin-left:230px;background:#dbeafe;border-bottom:1px solid #bfdbfe;color:#1d4ed8;
+          padding:9px 26px;font-size:12.5px;font-weight:600}
+
+/* ---------- Thành phần dùng chung (theo portal.css) ---------- */
+h2{font-size:20px;margin-bottom:4px;color:var(--dark)}
+h3{font-size:16px}
+.sub{color:var(--gray);font-size:13px;margin-bottom:18px}
+.tag{font-size:11px;color:var(--gray)}
+.right{text-align:right}
+.muted{color:var(--gray)}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+.card.flush{padding:0;overflow-x:auto}
+table{width:100%;border-collapse:collapse;background:#fff}
+th{background:#f1f5f9;text-align:left;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#475569;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr.clickable:hover td{background:#f8fafc;cursor:pointer}
+input,select,textarea{border:1px solid #cbd5e1;border-radius:8px;padding:9px 12px;font-size:14px;width:100%;background:#fff;font-family:inherit;color:var(--dark)}
+input:disabled,select:disabled,textarea:disabled{background:#f8fafc;color:#94a3b8}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+.flex{display:flex;gap:10px;align-items:center}
+.sb{display:flex;justify-content:space-between;align-items:center}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.b-gray{background:#e2e8f0;color:#475569}
+.b-blue{background:#dbeafe;color:#1d4ed8}
+.b-orange{background:#ffedd5;color:#c2410c}
+.b-green{background:#dcfce7;color:#15803d}
+.b-red{background:#fee2e2;color:#b91c1c}
+.btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:var(--blue2)}
+.btn-o{background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:9px 16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn-o:hover{background:#f1f5f9}
+.btn-sm{padding:6px 12px;border-radius:6px;font-size:13px}
+.btn-danger{color:var(--red);border-color:var(--red);background:#fff}
+.btn-danger:hover{background:#fef2f2}
+.btn:disabled,.btn-o:disabled{opacity:.45;cursor:not-allowed}
+.btn.desk{background:var(--miyano)}.btn.desk:hover{background:var(--miyano2)}
+.btn-o.desk{color:var(--miyano);border-color:var(--miyano)}
+.bar{height:8px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--blue2)}
+.warn{color:var(--red);font-size:12px;font-weight:600}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin:12px 0}
+.note.red{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+.note.gr{background:#f0fdf4;border-color:#bbf7d0;color:#15803d}
+hr{border:none;border-top:1px solid var(--line);margin:10px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px}
+.kpi .n{font-size:26px;font-weight:800;color:var(--blue)}
+.kpi .t{color:var(--gray);font-size:13px;margin-top:2px}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start}
+.step{display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#fff}
+.step button{border:none;background:#f1f5f9;width:30px;height:34px;font-size:16px;color:#475569}
+.step input{border:none;width:56px;text-align:center;border-radius:0;padding:8px 2px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:20px;padding:6px 14px;font-size:13px;color:#475569}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.success{text-align:center;padding:40px 24px}
+
+/* Modal */
+.modal{position:fixed;left:0;right:0;top:0;bottom:var(--rail-h);background:rgba(15,23,42,.5);
+       display:flex;align-items:center;justify-content:center;z-index:120;padding:20px}
+.modal .card{max-width:520px;width:100%;margin:0;max-height:100%;overflow:auto}
+
+/* Toast */
+#toast{position:fixed;right:22px;bottom:calc(var(--rail-h) + 18px);z-index:180;max-width:420px}
+.toast{border-radius:10px;padding:12px 16px;font-size:13.5px;margin-top:8px;box-shadow:0 8px 26px rgba(0,0,0,.25);line-height:1.5}
+.toast.err{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c}
+.toast.ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d}
+.toast b{display:block;margin-bottom:2px}
+
+/* Bảng phụ trong ô mở rộng */
+.subtable{background:#f8fafc;padding:12px 16px}
+.subtable table{background:transparent}
+.subtable th{background:#eef2f7}
+</style>
+</head>
+<body>
+
+<div id="stage"><div id="app"></div></div>
+<div id="toast"></div>
+
+<div id="rail">
+  <div class="rail-main">
+    <div class="rail-top">
+      <span class="stepno" id="stepno">BƯỚC 1/24</span>
+      <span class="actor khach" id="actor">Khách hàng</span>
+      <span class="rail-title" id="title">…</span>
+    </div>
+    <div class="rail-desc" id="desc">…</div>
+  </div>
+  <div class="rail-side">
+    <div class="progress"><i id="prog" style="width:0%"></i></div>
+    <div class="tipline" id="tip">…</div>
+    <div class="railbtns">
+      <button id="btnPrev">← Lùi</button>
+      <button id="btnNext">Tiếp →</button>
+    </div>
+    <div class="chip-jump" id="jump"></div>
+    <div class="railmeta">← → để chuyển bước · dữ liệu demo trùng <code style="color:#8fd3c6">setup/demo_kho_flow.py</code></div>
+  </div>
+</div>
+
+<script>
+/* ===========================================================================
+   DỮ LIỆU DEMO — khai báo MỘT chỗ, mọi màn hình đọc từ đây.
+   Trùng với setup/demo_kho_flow.py: khách "Bệnh viện Đa khoa Minh Đức (DEMO)",
+   kho "Kho Khoa Dược" mã MD, bốn vật tư, các lô trải theo ba mốc hạn dùng.
+   =========================================================================== */
+const DEMO = {
+  khach: 'Bệnh viện Đa khoa Minh Đức (DEMO)',
+  khachCode: 'CUST-2026-00018',
+  email: 'bvminhduc@demo.miyano',
+  kho: 'KKH-00007',
+  tenKho: 'Kho Khoa Dược',
+  maKho: 'MD',
+  thuKho: 'Trần Thị Bích Ngọc',
+  hdnt: 'BO-2026-00007',
+  hdntFrom: '2026-01-01', hdntTo: '2026-12-31',
+  diaChi: '88 Nguyễn Trãi, Thanh Xuân, Hà Nội',
+  soDon: 'SAL-ORD-2026-00042',
+  soDN: 'MAT-DN-2026-00031',
+  soPN: 'PN-MD-2026-00009',
+  soPNdao: 'PN-MD-2026-00010',
+  soPX: 'PX-MD-2026-00004',
+  po: 'DT-2026-0715',
+  ngayGiao: '2026-08-14',
+  homNay: '2026-08-10',
+}
+
+// Danh mục theo hợp đồng nguyên tắc (giá + hạn mức).
+const CATALOG = [
+  { code:'MYN-GLOVE-M', name:'Găng tay khám nitrile size M – hộp 100 cái', nhom:'Vật tư tiêu hao', uom:'Hộp', vat:5,  rate:78000,   total:2000, remaining:1240 },
+  { code:'MYN-SYR-10',  name:'Bơm tiêm 10ml G21 – hộp 100 cái',            nhom:'Vật tư tiêu hao', uom:'Hộp', vat:5,  rate:72000,   total:1500, remaining:890  },
+  { code:'MYN-ALT',     name:'Hoá chất sinh hoá ALT (GPT) – hộp 4×50ml',   nhom:'Hoá chất xét nghiệm', uom:'Hộp', vat:8, rate:1050000, total:60,   remaining:6 },
+]
+
+// Danh mục vật tư của kho khách. MD-BONG-01 là mã RIÊNG của bệnh viện —
+// item_code rỗng, không hề có Item nào bên ERPNext.
+const VATTU = {
+  'MYN-GLOVE-M':{ ten:'Găng tay khám nitrile size M – hộp 100 cái', dvt:'Hộp',  item:'MYN-GLOVE-M' },
+  'MYN-SYR-10' :{ ten:'Bơm tiêm 10ml G21 – hộp 100 cái',            dvt:'Hộp',  item:'MYN-SYR-10'  },
+  'MYN-ALT'    :{ ten:'Hoá chất sinh hoá ALT (GPT) – hộp 4×50ml',   dvt:'Hộp',  item:'MYN-ALT'     },
+  'MD-BONG-01' :{ ten:'Bông y tế cuộn 500g (bệnh viện tự mua)',     dvt:'Cuộn', item:null          },
+}
+
+// Tồn đầu kỳ theo lô — cố ý trải: đã hết hạn / sắp hết hạn / còn hạn dài.
+function tonBanDau() {
+  return [
+    { vt:'MYN-GLOVE-M', lo:'GL2504-A',     han:'2026-07-16', sl:18,  gia:68000  },
+    { vt:'MYN-GLOVE-M', lo:'GL2508-B',     han:'2026-09-19', sl:60,  gia:70000  },
+    { vt:'MYN-GLOVE-M', lo:'GL2601-C',     han:'2028-02-01', sl:120, gia:72000  },
+    { vt:'MYN-SYR-10',  lo:'SY2506-A',     han:'2026-10-24', sl:40,  gia:64000  },
+    { vt:'MYN-SYR-10',  lo:'SY2512-B',     han:'2027-10-05', sl:90,  gia:66000  },
+    { vt:'MYN-ALT',     lo:'ALT2505-A',    han:'2026-07-31', sl:3,   gia:940000 },
+    { vt:'MYN-ALT',     lo:'ALT2509-B',    han:'2026-10-09', sl:12,  gia:950000 },
+    { vt:'MD-BONG-01',  lo:'BONG-2026-01', han:'2027-06-06', sl:50,  gia:45000  },
+  ]
+}
+
+/* ---------- Định dạng: lấy đúng từ frontend/src/format.js ---------- */
+const fmtVND = v => Number(v||0).toLocaleString('vi-VN') + ' ₫'
+const fmtQty = v => Number(v||0).toLocaleString('vi-VN')
+function fmtDate(v){ if(!v) return ''; const p=String(v).slice(0,10).split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:v }
+function daysUntil(iso){ if(!iso) return null
+  return Math.round((new Date(iso+'T00:00:00') - new Date(DEMO.homNay+'T00:00:00'))/86400000) }
+function expiryInfo(han){
+  if(!han) return {label:'',cls:''}
+  const d = daysUntil(han)
+  if(d < 0)  return {label:'Đã hết hạn', cls:'b-red',    icon:'⛔'}
+  if(d <= 90) return {label:'Sắp hết hạn', cls:'b-orange', icon:'⚠'}
+  return {label:'',cls:''}
+}
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+
+/* ===========================================================================
+   TRẠNG THÁI MÔ PHỎNG. Mọi bước đều `apply(S)` lên trạng thái này; khi nhảy
+   bước, S được dựng lại từ đầu rồi phát lại — không có đường "hoàn tác" nào
+   để lệch.
+   =========================================================================== */
+function initState(){
+  return {
+    chrome:'portal', screen:'catalog', modal:null, toasts:[],
+    qtys:{}, cart:[],
+    order:null, dn:null,
+    pnList:[], pxDoc:null, pnDoc:null,
+    ton: tonBanDau(),
+    pxSL:0, pxLo:null, pxXacNhanHetHan:false, pxThieu:0,
+    khoNote:null,
+  }
+}
+let S = initState()
+let cur = 0
+
+/* ---------- Trợ giúp trạng thái ---------- */
+const tonCua = (S, vt) => S.ton.filter(l => l.vt===vt && l.sl > 0)
+const tongTon = (S, vt) => tonCua(S,vt).reduce((a,l)=>a+l.sl,0)
+function lotsFEFO(S, vt){
+  // FEFO: hạn gần nhất trước, lô KHÔNG có hạn xếp cuối (ledger.get_lot_balances).
+  return tonCua(S,vt).slice().sort((a,b)=>{
+    if(!a.han && !b.han) return a.lo < b.lo ? -1 : 1
+    if(!a.han) return 1
+    if(!b.han) return -1
+    return a.han < b.han ? -1 : (a.han > b.han ? 1 : 0)
+  })
+}
+function goiYFEFO(S, vt, can){
+  let conLai = can
+  const rows = lotsFEFO(S,vt).map(l => {
+    const deXuat = conLai > 0 ? Math.min(conLai, l.sl) : 0
+    conLai = Math.max(0, conLai - deXuat)
+    return {...l, deXuat}
+  })
+  return { rows, thieu: conLai }
+}
+const cartLines = S => S.cart.map(c => ({...CATALOG.find(i=>i.code===c.code), qty:c.qty}))
+const cartSub   = S => cartLines(S).reduce((a,l)=>a+l.qty*l.rate, 0)
+const cartVat   = S => Math.round(cartLines(S).reduce((a,l)=>a+l.qty*l.rate*l.vat/100, 0))
+const cartTotal = S => cartSub(S) + cartVat(S)
+
+function toast(S, kind, title, msg){ S.toasts.push({kind, title, msg}) }
+
+/* ===========================================================================
+   KỊCH BẢN — mỗi bước: ai thao tác, màn nào, giải thích gì, quy tắc nào,
+   và bấm vào đâu để đi tiếp.
+   =========================================================================== */
+const STEPS = [
+
+/* ---------------------------- QT1 · Đặt hàng ---------------------------- */
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'sel-hdnt', tip:'Chọn hợp đồng',
+  title:'Chọn hợp đồng nguyên tắc',
+  desc:`Khách đăng nhập bằng tài khoản <code>${DEMO.email}</code> và vào màn <b>Đặt hàng</b>.
+        Danh mục hàng, đơn giá và hạn mức đều lấy từ <b>hợp đồng nguyên tắc</b> (<code>Blanket Order</code>)
+        của chính đơn vị mình — không có mặt hàng nào ngoài hợp đồng.
+        <span class="br">BR-O1</span> Hợp đồng phải thuộc đúng đơn vị đang đăng nhập; cổng kiểm lại điều này
+        ở phía máy chủ chứ không tin vào lựa chọn gửi lên.`,
+  apply(S){ S.screen='catalog' },
+},
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'quota-MYN-ALT', tip:'Nhìn hạn mức',
+  title:'Hạn mức còn lại hiện ngay trên từng mặt hàng',
+  desc:`Mỗi dòng hiển thị <b>còn / tổng</b> theo hợp đồng. Hoá chất ALT chỉ còn <b>6/60 hộp</b> nên thanh
+        hạn mức chuyển đỏ kèm cảnh báo “Sắp hết hạn mức”.
+        <span class="br">BR-O6</span> Hạn mức không do cổng tự tính: mỗi dòng đơn hàng được gắn
+        <code>against_blanket_order = 1</code> để chính ERPNext trừ hạn mức của hợp đồng.`,
+},
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'add-MYN-ALT', tip:'Thử đặt 10 hộp',
+  title:'Thử đặt vượt hạn mức — hệ thống chặn',
+  desc:`Khách gõ <b>10 hộp</b> ALT trong khi hạn mức chỉ còn <b>6</b>. Bấm “+ Giỏ” và cổng từ chối,
+        báo rõ còn bao nhiêu.
+        <span class="br">BR-O3</span> Vượt hạn mức thì chặn, và <b>gom tất cả mã hàng sai để báo một lần</b>
+        kèm số còn lại — không bắt khách sửa từng cái rồi thử lại từng lần.`,
+  apply(S){ S.qtys['MYN-ALT']=10 },
+  onClick(S){
+    toast(S,'err','Không thể thêm vào giỏ','MYN-ALT: vượt hạn mức (còn 6)')
+  },
+},
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'add-MYN-GLOVE-M', tip:'Thêm vào giỏ',
+  title:'Đặt trong hạn mức — 200 hộp găng tay',
+  desc:`Sửa lại cho đúng và thêm mặt hàng đầu tiên vào giỏ. Số trên biểu tượng giỏ ở thanh trái tăng lên.
+        <span class="br">BR-O5</span> Nếu mặt hàng không có giá trong bảng giá riêng của đơn vị,
+        cổng chặn ngay tại bước đặt chứ không để đơn sinh ra rồi mới phát hiện thiếu giá.`,
+  apply(S){ S.qtys['MYN-ALT']=0; S.qtys['MYN-GLOVE-M']=200 },
+  onClick(S){ S.cart.push({code:'MYN-GLOVE-M', qty:200}); toast(S,'ok','Đã thêm vào giỏ','Găng tay khám nitrile size M · 200 Hộp') },
+},
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'add-MYN-SYR-10', tip:'Thêm vào giỏ',
+  title:'Thêm mặt hàng thứ hai',
+  desc:`Thêm 100 hộp bơm tiêm. Giỏ hàng chỉ là trạng thái trên trình duyệt — chưa có chứng từ nào
+        được tạo bên ERPNext cho tới khi khách bấm xác nhận ở bước sau.`,
+  apply(S){ S.qtys['MYN-SYR-10']=100 },
+  onClick(S){ S.cart.push({code:'MYN-SYR-10', qty:100}); toast(S,'ok','Đã thêm vào giỏ','Bơm tiêm 10ml G21 · 100 Hộp') },
+},
+{
+  act:'khach', mua:'QT1', screen:'catalog', hl:'nav-cart', tip:'Mở giỏ hàng',
+  title:'Mở giỏ hàng',
+  desc:`<span class="br">BR-O2</span> Nếu giỏ có <b>hai dòng cùng một mã hàng</b>, máy chủ <b>cộng dồn chúng
+        lại trước</b> rồi mới kiểm hạn mức. Kiểm từng dòng riêng lẻ thì cả hai đều “lọt” trong khi tổng
+        vượt hạn mức — đây là một đường vòng thật đã được bịt.`,
+  apply(S){ S.screen='cart' },
+},
+{
+  act:'khach', mua:'QT1', screen:'cart', hl:'po-field', tip:'Nhập số dự trù',
+  title:'Điền thông tin giao hàng',
+  desc:`Ngày giao mong muốn, địa chỉ giao, số dự trù/PO nội bộ của bệnh viện và ghi chú.
+        Bốn thông tin này được ghi vào đơn hàng ở các trường riêng
+        (<code>custom_so_po_khach</code>, <code>custom_yeu_cau_khach</code>…) để hai bên đối chiếu về sau.
+        <span class="br">BR-O1</span> Địa chỉ giao cũng phải thuộc đúng đơn vị — máy chủ kiểm lại danh sách
+        địa chỉ hợp lệ chứ không nhận bừa giá trị gửi lên.`,
+  apply(S){ S.screen='cart' },
+},
+{
+  act:'khach', mua:'QT1', screen:'cart', hl:'btn-place', tip:'Bấm để gửi đơn',
+  title:'Xác nhận đặt hàng',
+  desc:`Cổng hỏi lại một lần nữa trước khi tạo chứng từ thật. Tổng cộng
+        <b>${'{{total}}'}</b> theo đơn giá của hợp đồng nguyên tắc.`,
+  onClick(S){ S.modal='confirm' },
+},
+{
+  act:'khach', mua:'QT1', screen:'cart', modal:'confirm', hl:'btn-confirm', tip:'Xác nhận',
+  title:'Gửi đơn về hệ thống',
+  desc:`Đây là lúc <code>portal_order_place</code> chạy: kiểm hợp đồng → kiểm địa chỉ → gộp dòng trùng →
+        kiểm hạn mức → lấy giá → <b>chọn kho xuất theo từng mặt hàng</b> → tạo đơn.
+        <span class="br">BR-O4</span> Mỗi dòng xuất từ kho mặc định <b>của chính mặt hàng đó</b>, không ép cả
+        đơn về một kho — nếu ép, mặt hàng để ở kho khác sẽ làm phiếu giao hàng báo âm kho.`,
+  apply(S){ S.modal='confirm' },
+  onClick(S){
+    S.modal=null; S.screen='success'
+    S.order={ name:DEMO.soDon, state:'Chờ xác nhận', docstatus:0, total:cartTotal(S), delivered:0 }
+  },
+},
+{
+  act:'auto', mua:'QT1', screen:'success', hl:null,
+  title:'Đơn hàng đã được ghi nhận',
+  desc:`Một <code>Sales Order</code> <b>nháp</b> ra đời với <code>custom_nguon_don = "Client Portal"</code>
+        và <code>workflow_state = "Chờ xác nhận"</code> — trạng thái đầu của workflow, do Frappe gán mặc định
+        chứ mã của cổng không đặt trường này. Email “Portal - Đơn mới” gửi tới người liên hệ của đơn vị.`,
+},
+
+/* -------------------- QT2 · Miyano xử lý đơn (Desk) -------------------- */
+{
+  act:'miyano', mua:'QT2', chrome:'desk', screen:'desk-so', hl:'wf-guiduyet', tip:'Gửi duyệt',
+  title:'Chuyển sang màn của Miyano — ERPNext Desk',
+  desc:`<b>Từ bước này trở đi là nhân viên Miyano thao tác</b>, trên Desk của ERPNext chứ không phải trên
+        cổng — thanh bên đổi sang màu nâu để không ai nhầm. Đơn đang ở <b>Chờ xác nhận</b>,
+        hành động đầu tiên của workflow là <b>Gửi duyệt</b>.`,
+  apply(S){ S.chrome='desk'; S.screen='desk-so' },
+  onClick(S){ S.order.state='Chờ Miyano xác nhận' },
+},
+{
+  act:'miyano', mua:'QT2', chrome:'desk', screen:'desk-so', hl:'wf-xacnhan', tip:'Xác nhận đơn',
+  title:'Xác nhận đơn — đơn được ghi sổ',
+  desc:`“Xác nhận” đưa đơn sang <b>Đã xác nhận</b> và <code>docstatus = 1</code>. Đây là trạng thái duy nhất
+        đã ghi sổ trong workflow; “Từ chối” vẫn giữ đơn ở dạng nháp.
+        <span class="br warnbr">VĐ-3</span> <b>Hiện chưa có duyệt hai tầng:</b> cả ba chuyển tiếp đều mở cho
+        <code>Sales User</code>, kể cả chuyển tiếp đi vào hai trạng thái mà quyền sửa lại thuộc
+        <code>Sales Manager</code>. Nhân viên kinh doanh tự xác nhận được đơn của mình — cần chủ đầu tư quyết
+        giữ nguyên hay siết lại.`,
+  apply(S){ S.order.state='Chờ Miyano xác nhận' },
+  onClick(S){ S.order.state='Đã xác nhận'; S.order.docstatus=1; toast(S,'ok','Đã xác nhận đơn hàng','Email “Portal - Đơn xác nhận” đã gửi cho khách.') },
+},
+
+/* ----------------- QT3 · Giao hàng → phiếu nhập tự sinh ----------------- */
+{
+  act:'miyano', mua:'QT3', chrome:'desk', screen:'desk-so', hl:'btn-taodn', tip:'Tạo phiếu giao hàng',
+  title:'Lập phiếu giao hàng',
+  desc:`Đơn đã xác nhận thì lập <code>Delivery Note</code> theo cơ chế sẵn có của ERPNext.
+        Ở bước này chưa có gì chạm tới kho của bệnh viện.`,
+  apply(S){ S.order.state='Đã xác nhận'; S.order.docstatus=1 },
+  onClick(S){ S.screen='desk-dn'; S.dn={ name:DEMO.soDN, docstatus:0 } },
+},
+{
+  act:'miyano', mua:'QT3', chrome:'desk', screen:'desk-dn', hl:'btn-submitdn', tip:'Ghi sổ phiếu giao',
+  title:'Ghi sổ phiếu giao hàng — móc sang kho khách chạy ở đây',
+  desc:`Khi phiếu giao được <b>ghi sổ</b>, móc <code>on_submit</code> của <code>miyano_portal</code> chạy và
+        sinh phiếu nhập trong kho của bệnh viện.
+        <span class="br">BR-K12</span> Móc này <b>không bao giờ ném lỗi ra ngoài</b>: trục trặc phía kho khách
+        không được phép chặn việc giao hàng của Miyano. Đó cũng là lý do nó đặt ở <code>on_submit</code>
+        chứ không phải <code>before_submit</code>.`,
+  apply(S){ S.screen='desk-dn'; S.dn={ name:DEMO.soDN, docstatus:0 } },
+  onClick(S){
+    S.dn.docstatus=1; S.order.delivered=100
+    S.pnList.unshift({ name:DEMO.soPN, ngay:DEMO.homNay, loai:'Từ đơn hàng Miyano', docstatus:0,
+                       dn:DEMO.soDN, so:DEMO.soDon, rows:[
+      { vt:'MYN-GLOVE-M', lo:'KHONG-LO', han:null, sl:200, gia:78000 },
+      { vt:'MYN-SYR-10',  lo:'KHONG-LO', han:null, sl:100, gia:72000 },
+    ]})
+    toast(S,'ok','Đã ghi sổ phiếu giao hàng','Kho khách hàng: đã sinh phiếu nhập nháp ' + DEMO.soPN)
+  },
+},
+{
+  act:'auto', mua:'QT3', chrome:'desk', screen:'desk-dn', hl:null,
+  title:'Phiếu nhập sinh ra ở trạng thái NHÁP',
+  desc:`<span class="br">BR-K11</span> Một phiếu giao chỉ sinh <b>một</b> phiếu nhập — tính cả phiếu đã được
+        thủ kho ghi sổ, nếu không thì chạy lại móc sẽ cộng tồn lần thứ hai.
+        <span class="br">BR-K10</span> Ngày phiếu được chọn sao cho không rơi trước ngày bắt đầu quản lý của kho.
+        <br><b>Quan trọng:</b> phiếu ở trạng thái <b>nháp</b>, nên tồn kho của bệnh viện <b>chưa</b> thay đổi.
+        Hàng chưa kiểm nhận mà tồn đã tăng là sai nghiệp vụ.`,
+},
+
+/* -------------- QT4 · Thủ kho bệnh viện ghi sổ phiếu nhập -------------- */
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'kho', hl:'nav-kho', tip:'Kho của tôi',
+  title:'Quay lại cổng — kho của bệnh viện',
+  desc:`Thanh bên trở lại màu xanh: <b>thủ kho bệnh viện</b> đang thao tác. Màn “Kho của tôi” hiển thị tồn
+        theo vật tư, bấm vào một dòng sẽ xổ ra tồn theo từng lô.
+        Chú ý tồn găng tay lúc này vẫn là <b>198 Hộp</b> — phiếu nhập còn nháp.`,
+  apply(S){ S.chrome='portal'; S.screen='kho' },
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'pn-list', hl:'pn-row', tip:'Mở phiếu nháp',
+  title:'Phiếu nhập chờ kiểm nhận',
+  desc:`Phiếu <code>${DEMO.soPN}</code> loại <b>“Từ đơn hàng Miyano”</b> đang ở trạng thái <b>Nháp</b>,
+        có ghi lại số phiếu giao và số đơn hàng để truy vết ngược.
+        Số phiếu theo dạng <code>PN-{mã kho}-{năm}-{số thứ tự}</code>, đếm riêng cho từng kho và từng năm.`,
+  apply(S){ S.screen='pn-list' },
+  onClick(S){ S.screen='pn-detail'; S.pnDoc=S.pnList[0] },
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'pn-detail', hl:'btn-ghiso-pn', tip:'Ghi sổ phiếu',
+  title:'Kiểm hàng thực tế rồi ghi sổ',
+  desc:`Thủ kho đối chiếu hàng thật với phiếu, sửa số lượng hoặc bổ sung số lô nếu cần, rồi mới <b>Ghi sổ</b>.
+        <br>Trên site này các mặt hàng chưa bật quản lý lô bên ERPNext nên phiếu tự sinh mang lô
+        <code>KHONG-LO</code> và không có hạn dùng — thủ kho có thể điền lại số lô thật của bệnh viện tại đây.
+        <span class="br">BR-K14</span> Bảng dòng cũng nhập được từ Excel, luôn theo lối
+        <b>xem trước rồi mới ghi</b>.`,
+  apply(S){ S.screen='pn-detail'; S.pnDoc=S.pnList[0] },
+  onClick(S){
+    S.pnList[0].docstatus=1; S.pnDoc=S.pnList[0]
+    S.pnList[0].rows.forEach(r => S.ton.push({ vt:r.vt, lo:r.lo, han:r.han, sl:r.sl, gia:r.gia }))
+    toast(S,'ok','Đã ghi sổ phiếu nhập','Sổ kho đã ghi thêm 2 dòng. Tồn kho đã cập nhật.')
+  },
+},
+{
+  act:'auto', mua:'QT4', chrome:'portal', screen:'pn-detail', hl:null,
+  title:'Ghi sổ = sinh dòng sổ, không sửa gì trong quá khứ',
+  desc:`<span class="br">BR-K4</span> Sổ kho (<code>Customer Stock Ledger Entry</code>) là <b>chỉ ghi thêm</b>
+        và là nguồn sự thật duy nhất. Bảng tồn theo lô chỉ là bản cache dẫn xuất, dựng lại được từ sổ bất cứ lúc nào.
+        <br>Đơn giá đi theo <b>lô</b>, nên định giá không cần đến engine tính giá vốn nào cả.`,
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'kho', hl:'ton-MYN-GLOVE-M', tip:'Tồn đã tăng',
+  title:'Tồn kho đã tăng — 398 Hộp, 4 lô',
+  desc:`Găng tay từ 198 lên <b>398 Hộp</b>, có thêm lô <code>KHONG-LO</code> không thời hạn.
+        Bấm vào dòng để xem chi tiết từng lô: một lô <b>đã hết hạn</b>, một lô <b>sắp hết hạn</b>,
+        một lô còn hạn dài và một lô không thời hạn.`,
+  apply(S){ S.screen='kho'; S.khoNote='expand:MYN-GLOVE-M' },
+},
+
+/* ---------------------- QT4b · Xuất kho theo FEFO ---------------------- */
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'px-detail', hl:'px-sl', tip:'Nhập số lượng',
+  title:'Lập phiếu xuất — xuất sử dụng cho khoa phòng',
+  desc:`Thủ kho tạo phiếu xuất, chọn vật tư và nhập số lượng cần xuất. Ở đây cố ý nhập <b>500 Hộp</b>
+        trong khi tồn chỉ có 398 — để thấy hệ thống phản ứng thế nào.`,
+  apply(S){
+    S.screen='px-detail'
+    S.pxDoc={ name:'Phiếu xuất mới', docstatus:0, loai:'Xuất sử dụng', noiNhan:'Khoa Hồi sức tích cực', nguoiNhan:'Nguyễn Văn Sơn' }
+    S.pxSL=500
+    const g = goiYFEFO(S,'MYN-GLOVE-M',500); S.pxThieu=g.thieu
+  },
+},
+{
+  act:'auto', mua:'QT4', chrome:'portal', screen:'px-detail', hl:'fefo-panel',
+  title:'Gợi ý lô theo FEFO — gợi ý, không phải chốt chặn',
+  desc:`<span class="br">BR-K13</span> Hệ thống gợi ý phân bổ theo <b>FEFO</b> — hết hạn trước thì xuất trước,
+        lô không có hạn xếp cuối — và báo còn <b>thiếu ${'{{thieu}}'} Hộp</b>.
+        <br>Nhưng nó <b>không chặn ở đây</b>: người dùng có thể đang xem thử hoặc sắp sửa số lượng.
+        Chốt chặn thật nằm ở bước ghi sổ.`,
+  apply(S){ S.screen='px-detail'
+    S.pxDoc={ name:'Phiếu xuất mới', docstatus:0, loai:'Xuất sử dụng', noiNhan:'Khoa Hồi sức tích cực', nguoiNhan:'Nguyễn Văn Sơn' }
+    S.pxSL=500; S.pxThieu=goiYFEFO(S,'MYN-GLOVE-M',500).thieu },
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'px-detail', hl:'btn-ghiso-px', tip:'Thử ghi sổ',
+  title:'Ghi sổ bị chặn — không cho tồn âm',
+  desc:`<span class="br">BR-K5</span> Sổ kho <b>không chấp nhận tồn âm</b>. Chốt chặn đặt ở bước ghi sổ
+        (<code>before_submit</code>) chứ không ở màn nhập liệu, nên không có đường nào lách qua giao diện.`,
+  apply(S){ S.screen='px-detail'
+    S.pxDoc={ name:'Phiếu xuất mới', docstatus:0, loai:'Xuất sử dụng', noiNhan:'Khoa Hồi sức tích cực', nguoiNhan:'Nguyễn Văn Sơn' }
+    S.pxSL=500; S.pxThieu=goiYFEFO(S,'MYN-GLOVE-M',500).thieu },
+  onClick(S){ toast(S,'err','Không thể ghi sổ phiếu xuất',
+    'Găng tay khám nitrile size M: cần xuất 500 Hộp nhưng tồn chỉ còn 398 Hộp.') },
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'px-detail', hl:'chk-hethan', tip:'Xác nhận lô hết hạn',
+  title:'Sửa về 80 Hộp — và phải xác nhận lô đã hết hạn',
+  desc:`Với 80 Hộp, FEFO phân bổ: <b>18 từ lô GL2504-A (đã hết hạn)</b>, <b>60 từ GL2508-B (sắp hết hạn)</b>,
+        <b>2 từ GL2601-C</b>.
+        <br>Lô đã hết hạn vẫn xuất được — thực tế bệnh viện có thể xuất huỷ — nhưng phải <b>tích xác nhận</b>
+        để không ai xuất nhầm lô hết hạn vào sử dụng.`,
+  apply(S){ S.screen='px-detail'
+    S.pxDoc={ name:'Phiếu xuất mới', docstatus:0, loai:'Xuất sử dụng', noiNhan:'Khoa Hồi sức tích cực', nguoiNhan:'Nguyễn Văn Sơn' }
+    S.pxSL=80; S.pxThieu=goiYFEFO(S,'MYN-GLOVE-M',80).thieu },
+  onClick(S){ S.pxXacNhanHetHan=true },
+},
+{
+  act:'khach', mua:'QT4', chrome:'portal', screen:'px-detail', hl:'btn-ghiso-px', tip:'Ghi sổ phiếu xuất',
+  title:'Ghi sổ phiếu xuất',
+  desc:`Sổ kho ghi thêm ba dòng số lượng âm, tồn theo lô giảm tương ứng. Số phiếu
+        <code>${DEMO.soPX}</code> cũng đếm riêng theo kho và theo năm như phiếu nhập.`,
+  apply(S){ S.screen='px-detail'
+    S.pxDoc={ name:'Phiếu xuất mới', docstatus:0, loai:'Xuất sử dụng', noiNhan:'Khoa Hồi sức tích cực', nguoiNhan:'Nguyễn Văn Sơn' }
+    S.pxSL=80; S.pxXacNhanHetHan=true; S.pxThieu=goiYFEFO(S,'MYN-GLOVE-M',80).thieu },
+  onClick(S){
+    const g = goiYFEFO(S,'MYN-GLOVE-M',80)
+    g.rows.forEach(r => { if(r.deXuat>0){ const l=S.ton.find(x=>x.vt===r.vt&&x.lo===r.lo); l.sl-=r.deXuat } })
+    S.pxDoc={...S.pxDoc, name:DEMO.soPX, docstatus:1}
+    toast(S,'ok','Đã ghi sổ phiếu xuất','Xuất 80 Hộp qua 3 lô theo FEFO. Tồn còn 318 Hộp.')
+  },
+},
+
+/* -------------------- QT5 · Huỷ phiếu → phiếu đảo -------------------- */
+{
+  act:'khach', mua:'QT5', chrome:'portal', screen:'pn-detail', hl:'btn-huy-pn', tip:'Huỷ phiếu',
+  title:'Phát hiện nhập nhầm — huỷ phiếu nhập đã ghi sổ',
+  desc:`Giả sử thủ kho phát hiện phiếu nhập ghi sai và muốn huỷ.
+        <span class="br">BR-K8</span> Trước khi huỷ, hệ thống kiểm: nếu hàng của lô đó <b>đã bị xuất mất rồi</b>
+        thì chặn, vì đảo lại sẽ kéo tồn xuống âm — phải huỷ phiếu xuất tương ứng trước.
+        Ở đây phiếu xuất lấy hàng từ ba lô tồn đầu kỳ chứ không đụng vào lô <code>KHONG-LO</code>, nên huỷ được.`,
+  apply(S){ S.screen='pn-detail'; S.pnDoc=S.pnList.find(p=>p.name===DEMO.soPN) },
+  onClick(S){ S.modal='huy-pn' },
+},
+{
+  act:'khach', mua:'QT5', chrome:'portal', screen:'pn-detail', modal:'huy-pn', hl:'btn-huy-xacnhan', tip:'Xác nhận huỷ',
+  title:'Huỷ không xoá dòng sổ nào',
+  desc:`<span class="br">BR-K7</span> Huỷ một phiếu đã ghi sổ <b>không xoá dòng sổ</b>. Hệ thống sinh
+        <b>một phiếu đảo</b> mới, đã ghi sổ, số lượng ngược dấu, rồi đánh dấu các dòng sổ gốc là
+        <code>da_dao = 1</code>. Sổ vẫn cộng dồn ra đúng tồn và lịch sử vẫn đọc được đầy đủ.`,
+  apply(S){ S.screen='pn-detail'; S.pnDoc=S.pnList.find(p=>p.name===DEMO.soPN); S.modal='huy-pn' },
+  onClick(S){
+    S.modal=null
+    const goc = S.pnList.find(p=>p.name===DEMO.soPN)
+    goc.docstatus=2; goc.daDao=true
+    goc.rows.forEach(r => { const l=S.ton.find(x=>x.vt===r.vt&&x.lo===r.lo); if(l) l.sl-=r.sl })
+    S.pnList.unshift({ name:DEMO.soPNdao, ngay:DEMO.homNay, loai:'Phiếu đảo', docstatus:1,
+                       phieuGoc:DEMO.soPN, rows:goc.rows.map(r=>({...r})) })
+    S.pnDoc = S.pnList.find(p=>p.name===DEMO.soPN)
+    toast(S,'ok','Đã huỷ phiếu nhập','Đã sinh phiếu đảo ' + DEMO.soPNdao + ' và đánh dấu các dòng sổ gốc.')
+  },
+},
+{
+  act:'auto', mua:'QT5', chrome:'portal', screen:'pn-list', hl:'pn-row-dao',
+  title:'Phiếu đảo — và chốt chặn cuối cùng',
+  desc:`Danh sách giờ có <code>${DEMO.soPNdao}</code> loại <b>“Phiếu đảo”</b>, đã ghi sổ, trỏ về phiếu gốc.
+        <span class="br">BR-K7</span> Phiếu đảo <b>không huỷ được</b> — nó tồn tại để bù trừ một phiếu khác.
+        <span class="br">BR-K9</span> Và <b>không ai tạo được phiếu đảo bằng tay</b>: “Phiếu đảo” là một lựa chọn
+        nhìn thấy được trong dropdown loại phiếu, nếu để lọt thì người dùng tự chọn nó sẽ ghi số lượng âm vào sổ
+        như thể bù trừ một phiếu gốc <i>không hề tồn tại</i> — tức là một cách rút kho, và phiếu đó vĩnh viễn
+        không huỷ lại được. Chốt chặn dựa trên một cờ trong bộ nhớ mà chỉ mã sinh phiếu đảo đặt được.`,
+  apply(S){ S.screen='pn-list' },
+},
+{
+  act:'auto', mua:'—', chrome:'portal', screen:'kho', hl:null,
+  title:'Hết kịch bản — tồn kho khớp lại',
+  desc:`Găng tay trở về <b>118 Hộp</b>: 198 tồn đầu kỳ + 200 nhập − 80 xuất − 200 đảo.
+        Không dòng sổ nào bị xoá trong suốt quá trình; mọi thay đổi tồn đều truy ngược được về một chứng từ.
+        <br><br>Chi tiết đầy đủ xem <b>BA-miyano_portal.md</b> (phân tích nghiệp vụ) và
+        <b>Workflow-miyano_portal.html</b> (sơ đồ quy trình).`,
+  apply(S){ S.screen='kho' },
+},
+]
+
+/* ===========================================================================
+   RENDER
+   =========================================================================== */
+function navHTML(S){
+  const items = [
+    ['dashboard','🏠','Tổng quan',['dashboard']],
+    ['catalog','🛒','Đặt hàng',['catalog']],
+    ['cart','📦','Giỏ hàng',['cart','success']],
+    ['orders','📋','Đơn hàng của tôi',['orders']],
+    ['kho','🏭','Kho của tôi',['kho','pn-list','pn-detail','px-detail']],
+    ['invoices','🧾','Hoá đơn & công nợ',['invoices']],
+    ['profile','🏥','Hồ sơ đơn vị',['profile']],
+  ]
+  return `<aside class="side">
+    <div class="logo">MIYANO<span>◆</span> Portal</div>
+    <nav class="nav">${items.map(([k,ic,lb,screens])=>`
+      <a class="${screens.includes(S.screen)?'on':''}" data-hl="nav-${k}">
+        <span>${ic} ${lb}</span>
+        ${k==='cart'&&S.cart.length?`<span class="cartn">${S.cart.length}</span>`:''}
+      </a>`).join('')}
+    </nav>
+    <div class="who">
+      <div>👤 ${esc(DEMO.khach)}</div>
+      <div class="tag" style="color:#cbd5e1">${DEMO.khachCode}</div>
+      <a href="#" style="color:#fca5a5">Đăng xuất</a>
+    </div>
+  </aside>`
+}
+function deskNavHTML(S){
+  const items = [['🏠','Trang chủ',false],['📄','Sales Order',S.screen==='desk-so'],
+                 ['🚚','Delivery Note',S.screen==='desk-dn'],['🧾','Sales Invoice',false],
+                 ['🏭','Kho khách hàng',false],['⚙','Cài đặt',false]]
+  return `<aside class="side desk">
+    <div class="logo">ERPNext<span>◆</span> Miyano</div>
+    <nav class="nav">${items.map(([ic,lb,on])=>`<a class="${on?'on':''}"><span>${ic} ${lb}</span></a>`).join('')}</nav>
+    <div class="who">
+      <div>👤 Lê Minh Hạnh</div>
+      <div class="tag" style="color:#e7d3b4">Sales User · Miyano</div>
+    </div>
+  </aside>`
+}
+
+function scCatalog(S){
+  return `<div class="topbar"><div>
+      <h2>Đặt hàng theo Hợp đồng nguyên tắc</h2>
+      <div class="sub">Giá &amp; danh mục theo hợp đồng đã ký – không áp dụng cho mặt hàng ngoài hợp đồng</div>
+    </div></div>
+    <div class="card">
+      <div class="flex" style="flex-wrap:wrap;align-items:flex-end">
+        <div style="min-width:300px;flex:1">
+          <label class="tag">Hợp đồng nguyên tắc</label>
+          <select data-hl="sel-hdnt"><option>${DEMO.hdnt} (${fmtDate(DEMO.hdntFrom)}–${fmtDate(DEMO.hdntTo)}) – còn hiệu lực</option></select>
+        </div>
+        <div style="min-width:220px;flex:1">
+          <label class="tag">Tìm kiếm</label>
+          <input placeholder="Mã hoặc tên mặt hàng...">
+        </div>
+      </div>
+      <div class="chips" style="margin-top:12px;margin-bottom:0">
+        <button class="chip on">Tất cả</button>
+        <button class="chip">Vật tư tiêu hao</button>
+        <button class="chip">Hoá chất xét nghiệm</button>
+      </div>
+    </div>
+    <div class="card flush"><table>
+      <thead><tr><th>Mã</th><th>Tên mặt hàng / quy cách</th><th>ĐVT</th>
+        <th class="right">Đơn giá (chưa VAT)</th><th style="min-width:170px">Hạn mức còn lại</th>
+        <th style="width:130px">Số lượng</th><th></th></tr></thead>
+      <tbody>${CATALOG.map(it=>{
+        const used = Math.round((it.total-it.remaining)/it.total*100)
+        const hot = used>=80
+        const qty = S.qtys[it.code]||0
+        return `<tr>
+          <td><b>${it.code}</b></td>
+          <td>${esc(it.name)}<br><span class="tag">${it.nhom} · VAT ${it.vat}%</span></td>
+          <td>${it.uom}</td>
+          <td class="right">${fmtVND(it.rate)}</td>
+          <td data-hl="quota-${it.code}">
+            còn ${fmtQty(it.remaining)}/${fmtQty(it.total)} ${it.uom}
+            <div class="bar"><i style="width:${Math.min(used,100)}%${hot?';background:var(--red)':''}"></i></div>
+            ${hot?'<span class="warn">Sắp hết hạn mức</span>':''}
+          </td>
+          <td><div class="step"><button>−</button><input value="${qty}" readonly><button>+</button></div></td>
+          <td><button class="btn btn-sm" data-hl="add-${it.code}">+ Giỏ</button></td>
+        </tr>`}).join('')}
+      </tbody></table></div>`
+}
+
+function scCart(S){
+  const lines = cartLines(S)
+  return `<div class="topbar"><div>
+      <h2>Giỏ hàng &amp; xác nhận đơn</h2>
+      <div class="sub">${DEMO.hdnt} – ${esc(DEMO.khach)}</div>
+    </div></div>
+    <div class="grid2">
+      <div><div class="card flush"><table>
+        <thead><tr><th>Mã</th><th>Tên vật tư</th><th>ĐVT</th><th class="right">Đơn giá</th>
+          <th style="width:130px">SL</th><th class="right">Thành tiền</th><th></th></tr></thead>
+        <tbody>${lines.map(l=>`<tr>
+          <td><b>${l.code}</b></td><td>${esc(l.name)}</td><td>${l.uom}</td>
+          <td class="right">${fmtVND(l.rate)}</td>
+          <td><div class="step"><button>−</button><input value="${l.qty}" readonly><button>+</button></div></td>
+          <td class="right"><b>${fmtVND(l.qty*l.rate)}</b></td>
+          <td><button class="btn-o btn-sm" style="color:var(--red);border-color:var(--red)">✕</button></td>
+        </tr>`).join('')}</tbody></table></div></div>
+      <div>
+        <div class="card">
+          <h3 style="margin-bottom:10px">Thông tin giao hàng</h3>
+          <div class="field"><label>Ngày giao mong muốn</label><input value="${fmtDate(DEMO.ngayGiao)}" readonly></div>
+          <div class="field"><label>Địa chỉ giao hàng</label><select><option>${esc(DEMO.diaChi)}</option></select></div>
+          <div class="field" data-hl="po-field"><label>Số dự trù / PO của đơn vị</label><input value="${DEMO.po}" readonly></div>
+          <div class="field"><label>Ghi chú</label><textarea rows="2" readonly>Giao giờ hành chính, liên hệ Khoa Dược trước 30 phút.</textarea></div>
+        </div>
+        <div class="card">
+          <div class="sb"><span>Tạm tính</span><b>${fmtVND(cartSub(S))}</b></div>
+          <div class="sb" style="margin-top:6px"><span>VAT (5–8%)</span><b>${fmtVND(cartVat(S))}</b></div>
+          <hr>
+          <div class="sb" style="font-size:17px"><span><b>Tổng cộng</b></span><b style="color:var(--blue)">${fmtVND(cartTotal(S))}</b></div>
+          <button class="btn" style="width:100%;margin-top:14px" data-hl="btn-place">Xác nhận đặt hàng →</button>
+          <p class="tag" style="margin-top:8px">Đơn sẽ được gửi về hệ thống Supplycore và tạo Đơn bán hàng (Sales Order) chờ Miyano xác nhận.</p>
+        </div>
+      </div>
+    </div>`
+}
+
+function scSuccess(S){
+  return `<div class="card success">
+    <div style="font-size:52px">✅</div>
+    <h2 style="margin:10px 0 6px">Đặt hàng thành công!</h2>
+    <p>Đơn hàng của quý khách đã được gửi về hệ thống Supplycore.</p>
+    <p style="margin:14px 0;font-size:17px">Mã đơn: <b style="color:var(--blue)">${S.order.name}</b>
+      <span class="badge b-gray">Chờ xác nhận</span></p>
+    <p class="tag">Nhân viên Miyano sẽ kiểm tra và xác nhận trong giờ làm việc.</p>
+    <div class="flex" style="justify-content:center;margin-top:20px">
+      <button class="btn-o">Xem đơn hàng</button><button class="btn">Tiếp tục đặt hàng</button>
+    </div>
+  </div>`
+}
+
+function scDeskSO(S){
+  const o = S.order
+  const badge = o.state==='Đã xác nhận' ? 'b-green' : (o.state==='Từ chối' ? 'b-red' : 'b-gray')
+  const acts = o.state==='Chờ xác nhận'
+      ? `<button class="btn desk" data-hl="wf-guiduyet">Gửi duyệt</button>`
+      : o.state==='Chờ Miyano xác nhận'
+      ? `<button class="btn desk" data-hl="wf-xacnhan">Xác nhận</button>
+         <button class="btn-o btn-danger">Từ chối</button>`
+      : `<button class="btn desk" data-hl="btn-taodn">＋ Tạo phiếu giao hàng</button>
+         <button class="btn-o desk">＋ Tạo hoá đơn</button>`
+  const lines = cartLines(S)
+  return `<div class="topbar">
+      <div><h2>${o.name}</h2>
+        <div class="sub">
+          <span class="badge ${badge}">${o.state}</span>
+          <span class="badge ${o.docstatus?'b-blue':'b-gray'}" style="margin-left:6px">docstatus ${o.docstatus} · ${o.docstatus?'đã ghi sổ':'nháp'}</span>
+        </div></div>
+      <div class="flex">${acts}</div>
+    </div>
+    <div class="card">
+      <div class="grid2" style="grid-template-columns:1fr 1fr">
+        <div>
+          <div class="field"><label>Khách hàng</label><input value="${esc(DEMO.khach)}" disabled></div>
+          <div class="field"><label>Ngày đặt</label><input value="${fmtDate(DEMO.homNay)}" disabled></div>
+          <div class="field"><label>Ngày giao</label><input value="${fmtDate(DEMO.ngayGiao)}" disabled></div>
+        </div>
+        <div>
+          <div class="field"><label>Nguồn đơn (custom_nguon_don)</label><input value="Client Portal" disabled></div>
+          <div class="field"><label>HĐNT (custom_hdnt)</label><input value="${DEMO.hdnt}" disabled></div>
+          <div class="field"><label>Số PO khách (custom_so_po_khach)</label><input value="${DEMO.po}" disabled></div>
+        </div>
+      </div>
+    </div>
+    <div class="card flush"><table>
+      <thead><tr><th>Mã hàng</th><th>Tên</th><th class="right">SL</th><th class="right">Đơn giá</th>
+        <th class="right">Thành tiền</th><th>Kho xuất</th><th>Hạn mức</th></tr></thead>
+      <tbody>${lines.map(l=>`<tr>
+        <td><b>${l.code}</b></td><td>${esc(l.name)}</td>
+        <td class="right">${fmtQty(l.qty)} ${l.uom}</td>
+        <td class="right">${fmtVND(l.rate)}</td>
+        <td class="right"><b>${fmtVND(l.qty*l.rate)}</b></td>
+        <td class="tag">Kho Miyano - MYN</td>
+        <td><span class="badge b-blue">against_blanket_order = 1</span></td>
+      </tr>`).join('')}</tbody></table></div>
+    <div class="note">Workflow <b>Sales Order - Client Portal</b> áp cho <b>mọi</b> Sales Order, không riêng đơn từ cổng —
+      Frappe Workflow gắn theo doctype, không lọc theo điều kiện được.</div>`
+}
+
+function scDeskDN(S){
+  const submitted = S.dn.docstatus===1
+  const lines = cartLines(S)
+  return `<div class="topbar">
+      <div><h2>${S.dn.name}</h2>
+        <div class="sub"><span class="badge ${submitted?'b-blue':'b-gray'}">docstatus ${S.dn.docstatus} · ${submitted?'đã ghi sổ':'nháp'}</span></div></div>
+      <div class="flex">${submitted
+        ? `<button class="btn-o btn-danger">Huỷ phiếu</button>`
+        : `<button class="btn desk" data-hl="btn-submitdn">Ghi sổ (Submit)</button>`}</div>
+    </div>
+    <div class="card">
+      <div class="grid2" style="grid-template-columns:1fr 1fr">
+        <div><div class="field"><label>Khách hàng</label><input value="${esc(DEMO.khach)}" disabled></div>
+          <div class="field"><label>Đơn hàng</label><input value="${S.order.name}" disabled></div></div>
+        <div><div class="field"><label>Ngày giao</label><input value="${fmtDate(DEMO.homNay)}" disabled></div>
+          <div class="field"><label>Địa chỉ giao</label><input value="${esc(DEMO.diaChi)}" disabled></div></div>
+      </div>
+    </div>
+    <div class="card flush"><table>
+      <thead><tr><th>Mã hàng</th><th>Tên</th><th class="right">SL giao</th><th>Số lô</th><th>Kho xuất</th></tr></thead>
+      <tbody>${lines.map(l=>`<tr><td><b>${l.code}</b></td><td>${esc(l.name)}</td>
+        <td class="right">${fmtQty(l.qty)} ${l.uom}</td><td class="tag">— (Item chưa bật quản lý lô)</td>
+        <td class="tag">Kho Miyano - MYN</td></tr>`).join('')}</tbody></table></div>
+    ${submitted ? `<div class="note gr" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d">
+       ⚙ <b>Móc <code>on_submit</code> đã chạy:</b> đã sinh phiếu nhập <b>${DEMO.soPN}</b> ở trạng thái
+       <b>NHÁP</b> trong kho <i>${DEMO.tenKho}</i> của bệnh viện. Tồn kho bên khách <b>chưa</b> thay đổi.</div>` : ''}`
+}
+
+function scKho(S){
+  const rows = Object.keys(VATTU).map(vt => {
+    const lots = tonCua(S,vt)
+    const sl = lots.reduce((a,l)=>a+l.sl,0)
+    const gt = lots.reduce((a,l)=>a+l.sl*l.gia,0)
+    const cohan = lots.filter(l=>l.han).map(l=>l.han).sort()
+    return { vt, sl, gt, soLo:lots.length, han:cohan[0]||null, lots }
+  })
+  const expand = (S.khoNote||'').startsWith('expand:') ? S.khoNote.split(':')[1] : null
+  return `<div class="topbar">
+      <div><h2>Kho của tôi</h2><div class="sub">${DEMO.tenKho} · Thủ kho: ${DEMO.thuKho}</div></div>
+      <div class="flex" style="gap:8px">
+        <button class="btn-o btn-sm">Phiếu nhập</button><button class="btn-o btn-sm">Phiếu xuất</button>
+        <button class="btn-o btn-sm">Nhập tồn đầu kỳ</button><button class="btn-o btn-sm">Danh mục vật tư</button>
+        <button class="btn-o btn-sm">Báo cáo</button></div>
+    </div>
+    <div class="field" style="max-width:360px"><input placeholder="Tìm theo mã hoặc tên vật tư…"></div>
+    <div class="card flush"><table>
+      <thead><tr><th>Mã vật tư</th><th>Tên vật tư</th><th>ĐVT</th><th class="right">SL tồn</th>
+        <th class="right">Giá trị</th><th class="right">Số lô</th><th>Hạn gần nhất</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>{
+        const ei = expiryInfo(r.han)
+        const open = expand===r.vt
+        return `<tr class="clickable" data-hl="ton-${r.vt}">
+          <td><b>${r.vt}</b></td><td>${esc(VATTU[r.vt].ten)}</td><td>${VATTU[r.vt].dvt}</td>
+          <td class="right"><b>${fmtQty(r.sl)}</b></td><td class="right">${fmtVND(r.gt)}</td>
+          <td class="right">${r.soLo}</td>
+          <td>${r.han?`${fmtDate(r.han)}${ei.label?` <span class="badge ${ei.cls}" style="margin-left:6px">${ei.icon} ${ei.label}</span>`:''}`:'<span class="tag">—</span>'}</td>
+          <td>${open?'▾':'▸'}</td></tr>
+        ${open?`<tr><td colspan="8" class="subtable"><table>
+            <thead><tr><th>Số lô</th><th>Hạn sử dụng</th><th class="right">Số lượng</th><th class="right">Đơn giá</th></tr></thead>
+            <tbody>${lotsFEFO(S,r.vt).map(l=>{const e=expiryInfo(l.han);return `<tr>
+              <td>${l.lo}</td>
+              <td>${l.han?`${fmtDate(l.han)}${e.label?` <span class="badge ${e.cls}" style="margin-left:6px">${e.icon} ${e.label}</span>`:''}`:'<span class="tag">Không thời hạn</span>'}</td>
+              <td class="right">${fmtQty(l.sl)}</td><td class="right">${fmtVND(l.gia)}</td></tr>`}).join('')}
+            </tbody></table></td></tr>`:''}`
+      }).join('')}</tbody></table></div>`
+}
+
+function scPNList(S){
+  const badge = p => p.docstatus===2 ? ['b-red','Đã huỷ'] : p.docstatus===1 ? ['b-green','Đã ghi sổ'] : ['b-gray','Nháp']
+  return `<div class="topbar">
+      <div><h2>Phiếu nhập kho</h2><div class="sub">${DEMO.tenKho}</div></div>
+      <div class="flex"><button class="btn">＋ Tạo phiếu nhập</button></div></div>
+    <div class="card flush"><table>
+      <thead><tr><th>Số phiếu</th><th>Ngày</th><th>Loại nhập</th><th>Tham chiếu</th>
+        <th class="right">Số dòng</th><th class="right">Tổng tiền</th><th>Trạng thái</th></tr></thead>
+      <tbody>${S.pnList.length? S.pnList.map(p=>{
+        const [cls,lb]=badge(p)
+        const tien=p.rows.reduce((a,r)=>a+r.sl*r.gia,0)
+        const hl = p.loai==='Phiếu đảo' ? 'pn-row-dao' : (p.docstatus===0 ? 'pn-row' : '')
+        return `<tr class="clickable" ${hl?`data-hl="${hl}"`:''}>
+          <td><b>${p.name}</b></td><td>${fmtDate(p.ngay)}</td>
+          <td>${p.loai}</td>
+          <td class="tag">${p.dn?`${p.dn}<br>${p.so}`:(p.phieuGoc?`Phiếu gốc: ${p.phieuGoc}`:'—')}</td>
+          <td class="right">${p.rows.length}</td><td class="right">${fmtVND(tien)}</td>
+          <td><span class="badge ${cls}">${lb}</span>${p.daDao?' <span class="badge b-gray">đã đảo</span>':''}</td>
+        </tr>`}).join('') : `<tr><td colspan="7" class="tag" style="padding:18px">Chưa có phiếu nhập nào.</td></tr>`}
+      </tbody></table></div>`
+}
+
+function scPNDetail(S){
+  const p = S.pnDoc
+  const [cls,lb] = p.docstatus===2?['b-red','Đã huỷ']:p.docstatus===1?['b-green','Đã ghi sổ']:['b-gray','Nháp']
+  const tien = p.rows.reduce((a,r)=>a+r.sl*r.gia,0)
+  const acts = p.docstatus===0
+    ? `<button class="btn" data-hl="btn-ghiso-pn">Ghi sổ</button><button class="btn-o">Lưu nháp</button>`
+    : p.docstatus===1
+    ? `<button class="btn-o btn-danger" data-hl="btn-huy-pn">Huỷ phiếu</button><button class="btn-o">⬇ In phiếu (PDF)</button>`
+    : `<button class="btn-o" disabled>Phiếu đã huỷ</button>`
+  return `<div class="topbar">
+      <div><h2>${p.name}</h2><div class="sub"><span class="badge ${cls}">${lb}</span>
+        ${p.daDao?' <span class="badge b-gray">đã sinh phiếu đảo</span>':''}</div></div>
+      <div class="flex">${acts}<button class="btn-o">Quay lại</button></div></div>
+    <div class="card">
+      <div class="grid2" style="grid-template-columns:1fr 1fr">
+        <div><div class="field"><label>Ngày</label><input value="${fmtDate(p.ngay)}" ${p.docstatus?'disabled':''}></div>
+          <div class="field"><label>Loại nhập</label>
+            <select ${p.docstatus?'disabled':''}><option>${p.loai}</option></select></div></div>
+        <div><div class="field"><label>Phiếu giao hàng Miyano</label><input value="${p.dn||'—'}" disabled></div>
+          <div class="field"><label>Đơn hàng Miyano</label><input value="${p.so||'—'}" disabled></div></div>
+      </div>
+      <div class="field" style="margin-top:6px"><label>Diễn giải</label>
+        <textarea rows="2" ${p.docstatus?'disabled':''}>Nhận hàng theo phiếu giao ${p.dn||''}</textarea></div>
+    </div>
+    ${p.docstatus===0?`<div class="flex" style="gap:8px;margin-bottom:14px">
+      <button class="btn-o btn-sm">Tải file mẫu</button>
+      <button class="btn-o btn-sm">⬆ Nhập từ Excel</button>
+      <button class="btn-o btn-sm">⬇ Xuất Excel</button></div>`:''}
+    <div class="card flush"><table>
+      <thead><tr><th style="min-width:200px">Vật tư</th><th>Số lô</th><th>Hạn dùng</th>
+        <th class="right">Số lượng</th><th class="right">Đơn giá</th><th class="right">Thành tiền</th></tr></thead>
+      <tbody>${p.rows.map(r=>`<tr>
+        <td><b>${r.vt}</b><br><span class="tag">${esc(VATTU[r.vt].ten)}</span></td>
+        <td>${r.lo}</td><td>${r.han?fmtDate(r.han):'<span class="tag">Không thời hạn</span>'}</td>
+        <td class="right">${fmtQty(r.sl)} ${VATTU[r.vt].dvt}</td>
+        <td class="right">${fmtVND(r.gia)}</td><td class="right"><b>${fmtVND(r.sl*r.gia)}</b></td>
+      </tr>`).join('')}
+      <tr><td colspan="5" class="right"><b>Tổng tiền</b></td><td class="right"><b>${fmtVND(tien)}</b></td></tr>
+      </tbody></table></div>
+    ${p.docstatus===0?`<div class="note">Phiếu do hệ thống sinh từ phiếu giao hàng của Miyano, đang ở trạng thái
+      <b>nháp</b>. Tồn kho chỉ thay đổi khi thủ kho bấm <b>Ghi sổ</b>.</div>`:''}`
+}
+
+function scPXDetail(S){
+  const p = S.pxDoc
+  const g = goiYFEFO(S,'MYN-GLOVE-M',S.pxSL)
+  const coHetHan = g.rows.some(r=>r.deXuat>0 && r.han && daysUntil(r.han)<0)
+  const done = p.docstatus===1
+  return `<div class="topbar">
+      <div><h2>${p.name}</h2><div class="sub">
+        <span class="badge ${done?'b-green':'b-gray'}">${done?'Đã ghi sổ':'Nháp'}</span></div></div>
+      <div class="flex">${done
+        ? `<button class="btn-o btn-danger">Huỷ phiếu</button><button class="btn-o">⬇ In phiếu (PDF)</button>`
+        : `<button class="btn" data-hl="btn-ghiso-px">Ghi sổ</button><button class="btn-o">Lưu nháp</button>`}
+        <button class="btn-o">Quay lại</button></div></div>
+    <div class="card">
+      <div class="grid2" style="grid-template-columns:1fr 1fr">
+        <div><div class="field"><label>Ngày</label><input value="${fmtDate(DEMO.homNay)}" ${done?'disabled':''}></div>
+          <div class="field"><label>Loại xuất</label><select ${done?'disabled':''}><option>${p.loai}</option></select></div></div>
+        <div><div class="field"><label>Nơi nhận</label><input value="${esc(p.noiNhan)}" ${done?'disabled':''}></div>
+          <div class="field"><label>Người nhận</label><input value="${esc(p.nguoiNhan)}" ${done?'disabled':''}></div></div>
+      </div>
+    </div>
+    <div class="card flush"><table>
+      <thead><tr><th style="min-width:220px">Vật tư</th><th class="right">Tồn hiện có</th>
+        <th style="width:150px" class="right">Số lượng xuất</th><th>Lô xuất</th></tr></thead>
+      <tbody><tr>
+        <td><b>MYN-GLOVE-M</b><br><span class="tag">${esc(VATTU['MYN-GLOVE-M'].ten)}</span></td>
+        <td class="right">${fmtQty(tongTon(S,'MYN-GLOVE-M'))} Hộp</td>
+        <td class="right"><div class="step" data-hl="px-sl"><button>−</button>
+          <input value="${S.pxSL}" readonly><button>+</button></div></td>
+        <td class="tag">theo gợi ý FEFO bên dưới</td>
+      </tr></tbody></table></div>
+    <div class="card" data-hl="fefo-panel">
+      <div class="sb" style="margin-bottom:10px">
+        <h3>Gợi ý lô theo FEFO — cần xuất ${fmtQty(S.pxSL)} Hộp</h3>
+        ${g.thieu>0?`<span class="badge b-red">Thiếu ${fmtQty(g.thieu)} Hộp</span>`
+                   :`<span class="badge b-green">Đủ tồn</span>`}
+      </div>
+      <table><thead><tr><th>Số lô</th><th>Hạn sử dụng</th><th class="right">Tồn lô</th>
+        <th class="right">Đề xuất xuất</th><th class="right">Đơn giá</th></tr></thead>
+        <tbody>${g.rows.map(r=>{const e=expiryInfo(r.han);return `<tr${r.deXuat>0?' style="background:#f0fdfa"':''}>
+          <td><b>${r.lo}</b></td>
+          <td>${r.han?`${fmtDate(r.han)}${e.label?` <span class="badge ${e.cls}" style="margin-left:6px">${e.icon} ${e.label}</span>`:''}`:'<span class="tag">Không thời hạn</span>'}</td>
+          <td class="right">${fmtQty(r.sl)}</td>
+          <td class="right">${r.deXuat>0?`<b>${fmtQty(r.deXuat)}</b>`:'<span class="tag">0</span>'}</td>
+          <td class="right">${fmtVND(r.gia)}</td></tr>`}).join('')}
+        </tbody></table>
+      ${g.thieu>0?`<div class="note red">Không đủ tồn để xuất ${fmtQty(S.pxSL)} Hộp — còn thiếu
+        <b>${fmtQty(g.thieu)} Hộp</b>. Gợi ý này <b>không chặn</b>; chốt chặn thật nằm ở bước ghi sổ.</div>`:''}
+      ${coHetHan?`<label class="note" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer" data-hl="chk-hethan">
+        <input type="checkbox" style="width:auto;margin-top:2px" ${S.pxXacNhanHetHan?'checked':''}>
+        <span><b>Xác nhận xuất lô đã hết hạn.</b> Dòng phân bổ có lô <b>GL2504-A</b> đã quá hạn
+        ${Math.abs(daysUntil('2026-07-16'))} ngày. Phải tích ô này thì mới ghi sổ được.</span></label>`:''}
+    </div>
+    ${done?`<div class="note gr">Đã ghi sổ. Sổ kho ghi thêm 3 dòng số lượng âm; tồn theo lô giảm tương ứng.
+      Không dòng sổ nào bị sửa hay xoá.</div>`:''}`
+}
+
+function scModal(S){
+  if(S.modal==='confirm') return `<div class="modal"><div class="card">
+    <h3>Xác nhận gửi đơn hàng?</h3>
+    <p style="font-size:13px;margin:10px 0">Đơn hàng theo <b>${DEMO.hdnt}</b>, tổng giá trị
+      <b>${fmtVND(cartTotal(S))}</b> sẽ được gửi về hệ thống Supplycore của Miyano và tạo Đơn bán hàng
+      (Sales Order) chờ xác nhận.</p>
+    <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt hàng theo đơn giá và điều khoản của
+      Hợp đồng nguyên tắc đã ký.</div>
+    <div class="flex" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn-o">Quay lại</button>
+      <button class="btn" data-hl="btn-confirm">Xác nhận đặt hàng</button></div></div></div>`
+  if(S.modal==='huy-pn') return `<div class="modal"><div class="card">
+    <h3>Huỷ phiếu nhập ${DEMO.soPN}?</h3>
+    <p style="font-size:13px;margin:10px 0">Phiếu đã ghi sổ. Huỷ phiếu <b>không xoá</b> dòng sổ nào —
+      hệ thống sẽ sinh một <b>phiếu đảo</b> đã ghi sổ với số lượng ngược dấu và đánh dấu các dòng sổ gốc
+      là đã bị đảo.</p>
+    <div class="note">Đã kiểm: hàng của các lô trong phiếu này vẫn còn đủ trong kho, nên việc đảo không
+      làm tồn xuống âm.</div>
+    <div class="flex" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn-o">Quay lại</button>
+      <button class="btn-o btn-danger" data-hl="btn-huy-xacnhan">Xác nhận huỷ phiếu</button></div></div></div>`
+  return ''
+}
+
+const SCREENS = {
+  catalog:scCatalog, cart:scCart, success:scSuccess, kho:scKho,
+  'pn-list':scPNList, 'pn-detail':scPNDetail, 'px-detail':scPXDetail,
+  'desk-so':scDeskSO, 'desk-dn':scDeskDN,
+}
+
+function render(){
+  const st = STEPS[cur]
+  const body = (SCREENS[S.screen]||(()=>'<div class="card">…</div>'))(S)
+  const bar = S.chrome==='desk'
+    ? `<div class="deskbar">🟤 <b>ERPNext Desk của Miyano</b> — nhân viên kinh doanh đang thao tác. Đây KHÔNG phải màn của bệnh viện.</div>`
+    : `<div class="actorbar">🔵 <b>Cổng khách hàng</b> — ${esc(DEMO.khach)} đang thao tác tại <code>/portal</code></div>`
+  document.getElementById('app').innerHTML =
+    (S.chrome==='desk'?deskNavHTML(S):navHTML(S)) + bar + `<main class="main">${body}</main>` + scModal(S)
+
+  // Toast
+  document.getElementById('toast').innerHTML = S.toasts.map(t =>
+    `<div class="toast ${t.kind==='err'?'err':'ok'}"><b>${esc(t.title)}</b>${esc(t.msg)}</div>`).join('')
+
+  // Thanh hướng dẫn
+  const total = STEPS.length
+  document.getElementById('stepno').textContent = `BƯỚC ${cur+1}/${total}${st.mua&&st.mua!=='—'?' · '+st.mua:''}`
+  const ac = document.getElementById('actor')
+  ac.className = 'actor ' + st.act
+  ac.textContent = st.act==='khach' ? 'Bệnh viện' : st.act==='miyano' ? 'Miyano' : 'Hệ thống'
+  document.getElementById('title').textContent = st.title
+  document.getElementById('desc').innerHTML = st.desc
+    .replace('{{total}}', fmtVND(cartTotal(S)))
+    .replace('{{thieu}}', fmtQty(S.pxThieu))
+  document.getElementById('prog').style.width = ((cur+1)/total*100)+'%'
+  document.getElementById('tip').innerHTML = st.tip
+    ? `👉 Bấm <b>${esc(st.tip)}</b> trên giao diện` : '👀 Bước quan sát — bấm “Tiếp →”'
+  document.getElementById('btnPrev').disabled = cur===0
+  document.getElementById('btnNext').disabled = cur===total-1
+  document.getElementById('jump').innerHTML = ['QT1','QT2','QT3','QT4','QT5']
+    .map(m=>`<button data-jump="${m}" class="${st.mua===m?'on':''}">${m}</button>`).join('')
+
+  // Chỉ dẫn bấm
+  if(st.hl){
+    const el = document.querySelector(`[data-hl="${st.hl}"]`)
+    if(el){
+      el.classList.add('hl')
+      el.addEventListener('click', next, {once:true})
+      el.scrollIntoView({block:'center', behavior:'instant'})
+      // Nhãn "bấm vào đâu" nằm trong thanh hướng dẫn chứ KHÔNG nổi trên giao
+      // diện: một nhãn nổi luôn che mất chính ô dữ liệu mà bước đang nói tới
+      // (đã thử cả bốn phía). Viền xanh nhấp nháy đủ để chỉ chỗ.
+    }
+  }
+  const q = new URL(location.href); q.searchParams.set('step', cur+1)
+  history.replaceState(null,'',q)
+}
+
+function rebuild(n){
+  S = initState()
+  for(let i=0; i<=n; i++){
+    // Giữ lại toast do bước LIỀN TRƯỚC sinh ra (thông báo chặn/thành công là
+    // kết quả của cú bấm vừa rồi), xoá toast của mọi bước cũ hơn. Nếu xoá cả
+    // của bước n-1 thì mở thẳng bằng ?step=N sẽ mất luôn thông báo bị chặn.
+    if(i < n) S.toasts = []
+    if(STEPS[i].chrome) S.chrome = STEPS[i].chrome
+    if(STEPS[i].screen) S.screen = STEPS[i].screen
+    S.modal = STEPS[i].modal || null
+    STEPS[i].apply?.(S)
+    if(i < n) STEPS[i].onClick?.(S)     // bước đã qua thì coi như đã bấm
+  }
+  cur = n
+  document.querySelectorAll('.hl-tip').forEach(e=>e.remove())
+  render()
+}
+function next(){
+  if(cur >= STEPS.length-1) return
+  STEPS[cur].onClick?.(S)
+  cur++
+  document.querySelectorAll('.hl-tip').forEach(e=>e.remove())
+  const st = STEPS[cur]
+  if(st.chrome) S.chrome = st.chrome
+  if(st.screen) S.screen = st.screen
+  S.modal = st.modal || null
+  st.apply?.(S)
+  render()
+}
+function prev(){ if(cur>0) rebuild(cur-1) }
+
+document.getElementById('btnNext').onclick = next
+document.getElementById('btnPrev').onclick = prev
+document.getElementById('jump').onclick = e => {
+  const m = e.target.dataset.jump
+  if(m){ const i = STEPS.findIndex(s=>s.mua===m); if(i>=0) rebuild(i) }
+}
+window.addEventListener('keydown', e => {
+  if(e.key==='ArrowRight'||e.key===' ') { e.preventDefault(); next() }
+  if(e.key==='ArrowLeft') { e.preventDefault(); prev() }
+})
+
+// ?step=N — mở thẳng vào một bước, tiện khi đào tạo hoặc gửi link cho nhau.
+const want = parseInt(new URL(location.href).searchParams.get('step')||'1', 10)
+rebuild(Math.min(Math.max(want,1), STEPS.length) - 1)
+</script>
+</body>
+</html>
