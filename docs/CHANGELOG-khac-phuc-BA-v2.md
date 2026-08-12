@@ -149,7 +149,7 @@ site thật khi cả chín task xong và bundle đã build. Task 1 · 2 · 10 ·
 
 **Kết luận trung thực cho người đọc sổ này (cập nhật sau review round 1 — xem "Fix round 1" bên dưới):** NG-37b đóng đúng hai route mà brief giao (`/api/method`, `/api/v2/method`, cho `get_list`/`get`) — **trên CẢ HAI trục**: trục ROUTE (chỉ hai route đó) VÀ trục DOCTYPE (mọi doctype con `frappe.is_table`, không riêng ba doctype PoC gốc — round 1 chỉ đóng trục route và fail OPEN trên trục doctype, đã sửa thành Critical C1 round 1, xem bên dưới). **Đường HTTP tổng thể để đọc dòng hàng của khách khác VẪN CÒN MỞ trên hai trục KHÁC**, không phụ thuộc doctype nào: REST `/api/resource`/`/api/v2/document` (nay là **Task 1c**, đã duyệt, gộp NG-37c) và `get_value`/`validate_link`/`has_permission` (NG-37d) — một kẻ tấn công biết một trong các route này vẫn khai thác được y hệt PoC gốc, trên bất kỳ doctype con nào, không chỉ ba doctype ban đầu. Đừng báo cáo lỗ "đã đóng" mà không kèm theo hai dòng này.
 
-#### Fix round 1 — review round 1, 2026-08-12 · commit <sha>
+#### Fix round 1 — review round 1, 2026-08-12 · commit 880c032
 
 **Critical C1 — guard fail OPEN trên trục doctype.** Bản vá NG-37b ban đầu (commit
 `0b3cebb`) dùng deny-set liệt kê tên (`_TU_CHOI_DONG_HANG = {"Sales Order Item",
