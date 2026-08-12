@@ -64,6 +64,22 @@ export function addDaysISO(n) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// BR-O13 — cộng NGÀY LÀM VIỆC, bỏ qua Thứ Bảy và Chủ Nhật.
+// Phải khớp `portal_dat_hang.ngay_giao_mac_dinh()` phía server: lệch nhau thì
+// ô nhập điền sẵn một ngày mà chính server vừa từ chối.
+// Cố ý không trừ ngày lễ — server cũng không, và một bảng ngày lễ chỉ có ở
+// một phía là cách chắc chắn để hai bên lệch nhau.
+export function addWorkDaysISO(n) {
+  const d = new Date()
+  let conLai = n
+  while (conLai > 0) {
+    d.setDate(d.getDate() + 1)
+    const thu = d.getDay() // 0 = CN, 6 = T7
+    if (thu !== 0 && thu !== 6) conLai -= 1
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // Số ngày từ hôm nay tới ngày ISO (dương = còn hạn, âm = quá hạn).
 export function daysUntil(iso) {
   if (!iso) return null

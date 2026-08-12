@@ -507,3 +507,28 @@ input:focus, select:focus, textarea:focus {
 }
 
 hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+
+/* ---------- Hạn mức: "Không giới hạn" vs "Hết hạn mức" (BR-O15) ---------- */
+/* Hai trạng thái này trước đây trông y hệt nhau vì API trả cùng số 0. Chúng
+   phải nhìn khác nhau ngay từ xa: một cái là tin tốt (đặt bao nhiêu cũng
+   được), cái kia là đường cụt. */
+.tag-kgh {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: #1f4e79;
+  background: #e8f1fa;
+  border: 1px solid #bcd9f0;
+}
+.tag-het {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+.muted { color: var(--gray); }
+.sm { font-size: 11px; }

@@ -6,6 +6,10 @@ export const store = reactive({
   me: null, // { customer, customer_name, tax_id, outstanding, addresses }
   cart: {},
   contract: null, // HĐNT đang chọn ở Catalog (dùng lại ở Cart)
+  // Mã chống tạo đơn trùng (BR-O12). Sinh MỘT lần khi mở modal xác nhận và
+  // giữ nguyên cho tới khi đơn được tạo xong — đó chính là cơ chế: bấm lại
+  // phải gửi CÙNG một mã thì server mới nhận ra và trả về đơn cũ.
+  requestId: null,
 
   setMe(me) {
     this.me = me
@@ -52,6 +56,37 @@ export const store = reactive({
 
   clearCart() {
     this.cart = {}
+  },
+
+  // --- Chống tạo đơn trùng (BR-O12) ---
+  moModalXacNhan() {
+    // Sinh một lần. Sinh lại mỗi lần bấm sẽ vô hiệu hoá toàn bộ cơ chế.
+    if (!this.requestId) {
+      this.requestId =
+        crypto.randomUUID?.() ||
+        `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+  },
+  ketThucDatHang() {
+    // Chỉ xoá khi đơn đã tạo xong. Đóng modal giữa chừng thì GIỮ mã lại —
+    // khách mở lại và bấm tiếp vẫn phải là cùng một lần đặt hàng.
+    this.requestId = null
+  },
+
+  // --- Đặt lại đơn cũ (UC-14) ---
+  napGio(dongHang) {
+    this.cart = {}
+    dongHang.forEach((d) => {
+      this.cart[d.item_code] = {
+        item_code: d.item_code,
+        item_name: d.item_name || d.item_code,
+        uom: d.uom || '',
+        rate: d.gia_hien_hanh,
+        vat_pct: d.vat_pct || 0,
+        remaining: d.remaining ?? null,
+        qty: d.qty,
+      }
+    })
   },
 })
 

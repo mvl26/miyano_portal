@@ -4,6 +4,18 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate, statusBadge } from '../format'
 import { useIsMobile } from '../useMobile'
+import { store } from '../store'
+import { showToast } from '../toast'
+
+// Mã lý do do server trả về (`30_API_Spec` §5) → thông điệp cho người đọc.
+// Server trả mã chứ không trả câu chữ để một chỗ đổi câu không phải sửa hai nơi.
+const LY_DO = {
+  het_han_muc: 'hết hạn mức',
+  ngoai_hdnt: 'ngoài hợp đồng',
+  thieu_gia: 'chưa có giá',
+}
+
+const dangDatLai = ref(false)
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +36,37 @@ function stepClass(m, idx) {
   if (m.done) return 'done'
   if (idx === currentIdx.value) return 'cur'
   return ''
+}
+
+// UC-14 — điền lại giỏ theo đơn cũ, theo giá hiện hành.
+async function datLai() {
+  if (dangDatLai.value) return
+  dangDatLai.value = true
+  try {
+    const res = await api.call('portal_reorder', { order: name.value })
+    if (!res.gio_hang.length) {
+      showToast('Không mặt hàng nào của đơn này còn đặt lại được.', 'error')
+      return
+    }
+    store.napGio(res.gio_hang)
+    if (data.value?.hdnt) store.setContract(data.value.hdnt)
+    if (res.bi_loai.length) {
+      // Nêu ĐỦ dòng bị loại kèm lý do. Im lặng bỏ bớt là cách chắc chắn
+      // khiến khách đặt thiếu hàng mà không biết.
+      showToast(
+        'Không đưa vào giỏ được: ' +
+          res.bi_loai
+            .map((d) => `${d.item_code} (${LY_DO[d.ly_do] || d.ly_do})`)
+            .join(', '),
+        'error'
+      )
+    }
+    router.push('/cart')
+  } catch (e) {
+    showToast(e.message || 'Không đặt lại được đơn này.', 'error')
+  } finally {
+    dangDatLai.value = false
+  }
 }
 
 function pdfUrl(doctype, docname) {
@@ -163,6 +206,14 @@ onMounted(load)
           <a :href="pdfUrl('Sales Order', data.order)" target="_blank" rel="noopener">
             <button class="btn-o btn-sm">⬇ PDF đơn hàng</button>
           </a>
+          <button
+            class="btn-o btn-sm"
+            style="margin-left: 8px"
+            :disabled="dangDatLai"
+            @click="datLai"
+          >
+            🔁 Đặt lại đơn này
+          </button>
           <button
             v-if="data.status_vi === 'Chờ xác nhận'"
             class="btn-o btn-sm"

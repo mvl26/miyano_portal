@@ -661,10 +661,16 @@ def portal_reorder(order: str) -> dict:
         qty = float(dong.qty)
         if con_lai is not None:
             qty = min(qty, con_lai)
+        # Kèm tên và ĐVT: giỏ hàng dựng thẳng từ payload này, thiếu chúng thì
+        # khách nhìn thấy mã hàng trần và không có đơn vị tính.
         gio_hang.append({
             "item_code": dong.item_code,
+            "item_name": dong.item_name
+            or frappe.db.get_value("Item", dong.item_code, "item_name"),
+            "uom": dong.uom or "",
             "qty": qty,
             "gia_hien_hanh": float(gia),
+            "remaining": None if con_lai is None else con_lai,
         })
 
     return {"gio_hang": gio_hang, "bi_loai": bi_loai}

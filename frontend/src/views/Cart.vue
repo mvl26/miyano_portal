@@ -3,13 +3,18 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
-import { fmtVND, addDaysISO } from '../format'
+import { fmtVND, addDaysISO, addWorkDaysISO, todayISO } from '../format'
 import { useIsMobile } from '../useMobile'
+import { showToast } from '../toast'
 
 const router = useRouter()
 const isMobile = useIsMobile()
 
-const deliveryDate = ref(addDaysISO(2))
+// BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
+// Bản trước dùng addDaysISO(2): đặt hàng chiều thứ Năm sẽ điền sẵn thứ Bảy.
+const deliveryDate = ref(addWorkDaysISO(2))
+// Chặn chọn ngày quá khứ ngay ở date picker. Server vẫn là chốt cuối.
+const ngayGiaoToiThieu = todayISO()
 const address = ref('')
 const po = ref('')
 const note = ref('')
@@ -38,7 +43,17 @@ function onQtyInput(line, e) {
   e.target.value = v
 }
 
+function moXacNhan() {
+  // Sinh request_id tại đây, không phải lúc bấm "Xác nhận" — mọi lần bấm
+  // trong cùng một lần mở modal phải dùng CÙNG một mã (BR-O12).
+  store.moModalXacNhan()
+  confirmOpen.value = true
+}
+
 async function confirmOrder() {
+  // Chống bấm đúp ngay tại nguồn: nút đã `:disabled="placing"`, nhưng một
+  // lần bấm đúp thật nhanh vẫn lọt được hai lần trước khi Vue kịp vẽ lại.
+  if (placing.value) return
   placing.value = true
   error.value = ''
   try {
@@ -50,13 +65,23 @@ async function confirmOrder() {
       delivery_date: deliveryDate.value || null,
       note: note.value || null,
       address: address.value || null,
+      request_id: store.requestId,
     })
+    if (res.da_ton_tai) {
+      // NL-1.8 — KHÔNG phải lỗi. Lần gửi trước đã tới nơi, chỉ là phản hồi
+      // không về được. Đưa khách tới đúng đơn đó thay vì báo trùng.
+      showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
+    }
     placedOrder.value = res
     store.clearCart()
+    store.ketThucDatHang()
     confirmOpen.value = false
   } catch (e) {
     error.value = e.message || 'Không thể đặt hàng. Vui lòng thử lại.'
     confirmOpen.value = false
+    // KHÔNG xoá requestId ở đây: lỗi có thể là mất mạng sau khi server đã
+    // ghi xong. Giữ mã để lần thử lại rơi vào nhánh idempotent thay vì tạo
+    // đơn thứ hai — đúng tình huống NL-1.8 sinh ra để chống.
   } finally {
     placing.value = false
   }
@@ -173,7 +198,7 @@ onMounted(async () => {
           <div class="h3">Thông tin giao hàng</div>
           <div class="field">
             <label>Ngày giao mong muốn</label>
-            <input type="date" v-model="deliveryDate" />
+            <input type="date" v-model="deliveryDate" :min="ngayGiaoToiThieu" />
           </div>
           <div class="field">
             <label>Địa chỉ giao hàng</label>
@@ -195,7 +220,7 @@ onMounted(async () => {
           <div class="sb" style="margin-top: 6px"><span>VAT (5–8%)</span><b>{{ fmtVND(store.cartVat) }}</b></div>
           <hr class="sep" />
           <div class="sb" style="font-size: 17px"><span><b>Tổng cộng</b></span><b style="color: var(--blue)">{{ fmtVND(store.cartTotal) }}</b></div>
-          <button class="btn" style="width: 100%; margin-top: 14px" @click="confirmOpen = true">Xác nhận đặt hàng →</button>
+          <button class="btn" style="width: 100%; margin-top: 14px" @click="moXacNhan">Xác nhận đặt hàng →</button>
           <p class="tag" style="margin-top: 8px">Đơn sẽ được gửi về hệ thống Supplycore và tạo Đơn bán hàng (Sales Order) chờ Miyano xác nhận.</p>
         </div>
       </div>

@@ -45,8 +45,17 @@ function inCart(code) {
   return store.cart[code]?.qty || 0
 }
 // Hạn mức còn có thể thêm = remaining (API) trừ số đã có trong giỏ.
+// `remaining === null` nghĩa là KHÔNG GIỚI HẠN (BR-O15) — trả `null` chứ
+// không phải một con số lớn, để nơi gọi phải xử lý trường hợp này tường minh.
+// Bản trước viết `it.remaining || 0`, biến null thành 0 và khoá sạch mặt hàng
+// khai hạn mức 0 — đúng ngược quy ước.
 function availableToAdd(it) {
+  if (it.khong_gioi_han) return null
   return Math.max(0, (it.remaining || 0) - inCart(it.item_code))
+}
+// Bội số quy cách đóng gói (BR-O11). 0/rỗng = không ràng buộc.
+function boiSo(it) {
+  return parseInt(it.boi_so_dat) || 1
 }
 
 async function loadItems() {
@@ -56,7 +65,9 @@ async function loadItems() {
   try {
     items.value = (await api.call('portal_catalog', { contract: selected.value })) || []
     items.value.forEach((it) => {
-      if (!(it.item_code in qtys)) qtys[it.item_code] = 1
+      // Khởi tạo bằng ĐÚNG một lô: mặt hàng bán theo hộp 10 thì mặc định 1 sẽ
+      // luôn sai bội số ngay từ lần bấm đầu tiên.
+      if (!(it.item_code in qtys)) qtys[it.item_code] = boiSo(it)
     })
     store.setContract(selected.value)
   } catch (e) {
@@ -66,29 +77,44 @@ async function loadItems() {
   }
 }
 
+// Bước nhảy của stepper = bội số quy cách, không phải 1 (BR-O11).
 function stepDown(code) {
-  qtys[code] = Math.max(1, (parseInt(qtys[code]) || 1) - 1)
+  const b = boiSo(itemTheoMa(code))
+  qtys[code] = Math.max(b, (parseInt(qtys[code]) || b) - b)
 }
 function stepUp(code) {
-  qtys[code] = (parseInt(qtys[code]) || 1) + 1
+  const b = boiSo(itemTheoMa(code))
+  qtys[code] = (parseInt(qtys[code]) || 0) + b
 }
+function itemTheoMa(code) {
+  return items.value.find((i) => i.item_code === code) || {}
+}
+// Gõ tay xong thì kéo về bội số hợp lệ gần nhất, LÀM TRÒN LÊN — giống hệt
+// quy tắc server (`portal_dat_hang.kiem_boi_so`). Client chỉ là UX; server
+// vẫn là chốt cuối và sẽ báo cùng một thông điệp nếu lọt qua.
 function normalize(code) {
-  qtys[code] = Math.max(1, parseInt(qtys[code]) || 1)
+  const b = boiSo(itemTheoMa(code))
+  const n = Math.max(b, parseInt(qtys[code]) || b)
+  qtys[code] = Math.ceil(n / b) * b
 }
 
 function add(it) {
-  const qty = Math.max(1, parseInt(qtys[it.item_code]) || 1)
+  normalize(it.item_code)
+  const qty = parseInt(qtys[it.item_code])
   const left = availableToAdd(it)
-  if (qty > left) {
-    window.alert(
-      `Vượt hạn mức HĐNT!\n${it.item_code} chỉ còn được đặt tối đa ${left} ${it.uom} theo hợp đồng.`
+  // `left === null` = không giới hạn, bỏ qua phép so.
+  if (left !== null && qty > left) {
+    // FormSpec §1.3 cấm `alert()` của trình duyệt — lỗi hiển thị bằng toast
+    // và dòng chữ tại chỗ, không phải hộp thoại chặn cả trang.
+    showToast(
+      `Không đặt được: ${it.item_code} chỉ còn ${left} ${it.uom} theo hạn mức HĐNT.`,
+      'error'
     )
-    showToast(`Vượt hạn mức HĐNT · ${it.item_code} chỉ còn ${left} ${it.uom}`, 'error')
     return
   }
   store.addToCart(it, qty)
   showToast(`Đã thêm ${qty} ${it.uom} · ${it.item_name} vào giỏ hàng`)
-  qtys[it.item_code] = 1
+  qtys[it.item_code] = boiSo(it)
 }
 
 onMounted(async () => {
@@ -182,11 +208,23 @@ watch(selected, loadItems)
               <td>{{ it.uom }}</td>
               <td class="right">{{ fmtVND(it.rate) }}</td>
               <td>
-                còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}
-                <div class="bar">
-                  <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
-                </div>
-                <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+                <!-- BR-O15 / NL-1.11: hạn mức khai 0 = KHÔNG GIỚI HẠN, phải
+                     nhìn khác hẳn "Hết hạn mức" (NL-1.2). Không thanh tiến
+                     độ, không cảnh báo 80% — không có trần thì không có % -->
+                <template v-if="it.khong_gioi_han">
+                  <span class="tag tag-kgh">Không giới hạn</span>
+                  <div class="muted sm">đã đặt {{ it.used }} {{ it.uom }}</div>
+                </template>
+                <template v-else-if="it.remaining <= 0">
+                  <span class="tag tag-het">Hết hạn mức</span>
+                </template>
+                <template v-else>
+                  còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}
+                  <div class="bar">
+                    <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+                  </div>
+                  <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+                </template>
               </td>
               <td>
                 <div class="step">
@@ -194,9 +232,14 @@ watch(selected, loadItems)
                   <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
                   <button @click="stepUp(it.item_code)">+</button>
                 </div>
+                <div v-if="boiSo(it) > 1" class="muted sm">bội số {{ boiSo(it) }}</div>
               </td>
               <td>
-                <button class="btn btn-sm" :disabled="availableToAdd(it) <= 0" @click="add(it)">+ Giỏ</button>
+                <button
+                  class="btn btn-sm"
+                  :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
+                  @click="add(it)"
+                >+ Giỏ</button>
               </td>
             </tr>
           </tbody>
@@ -210,20 +253,34 @@ watch(selected, loadItems)
           <div class="tag" style="margin: 2px 0 6px">{{ it.item_group }} · VAT {{ it.vat_pct }}% · {{ it.uom }}</div>
           <div class="sb">
             <span class="pr">{{ fmtVND(it.rate) }}</span>
-            <span class="tag">còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}</span>
+            <span v-if="it.khong_gioi_han" class="tag tag-kgh">Không giới hạn</span>
+            <span v-else-if="it.remaining <= 0" class="tag tag-het">Hết hạn mức</span>
+            <span v-else class="tag">còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}</span>
           </div>
-          <div class="bar" style="margin: 6px 0">
-            <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+          <!-- Không thanh tiến độ cho dòng không giới hạn: không có trần thì
+               không có phần trăm để vẽ (BR-O15). -->
+          <template v-if="!it.khong_gioi_han">
+            <div class="bar" style="margin: 6px 0">
+              <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+            </div>
+            <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+          </template>
+          <div v-else class="muted sm" style="margin: 6px 0">
+            đã đặt {{ it.used }} {{ it.uom }}
           </div>
-          <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
           <div class="sb" style="margin-top: 10px">
             <div class="step">
               <button @click="stepDown(it.item_code)">−</button>
               <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
               <button @click="stepUp(it.item_code)">+</button>
             </div>
-            <button class="btn btn-sm" :disabled="availableToAdd(it) <= 0" @click="add(it)">+ Thêm vào giỏ</button>
+            <button
+              class="btn btn-sm"
+              :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
+              @click="add(it)"
+            >+ Thêm vào giỏ</button>
           </div>
+          <div v-if="boiSo(it) > 1" class="muted sm">Đặt theo bội số {{ boiSo(it) }} {{ it.uom }}</div>
         </div>
       </template>
     </template>

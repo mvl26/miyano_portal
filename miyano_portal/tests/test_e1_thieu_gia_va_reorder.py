@@ -136,6 +136,17 @@ class TestReorder(FrappeTestCase):
             {d["item_code"]: d["ly_do"] for d in kq["bi_loai"]}, {HC: "het_han_muc"}
         )
 
+    def test_gio_hang_du_thong_tin_de_ve_man_hinh(self):
+        """Giỏ dựng thẳng từ payload này — thiếu tên hoặc ĐVT thì khách nhìn
+        thấy mã hàng trần."""
+        kq = portal.portal_reorder(self.don)
+        for d in kq["gio_hang"]:
+            with self.subTest(item=d["item_code"]):
+                self.assertTrue(d["item_name"])
+                self.assertNotEqual(d["item_name"], d["item_code"])
+                self.assertTrue(d["uom"])
+                self.assertIn("remaining", d)
+
     def test_gia_la_gia_hien_hanh_khong_phai_gia_luu_tren_don_cu(self):
         frappe.set_user("Administrator")
         frappe.db.set_value(
