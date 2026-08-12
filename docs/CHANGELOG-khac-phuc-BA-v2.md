@@ -298,7 +298,7 @@ Cả ba **CHƯA sửa trong Task 1c** — đúng brief "nếu còn mở thì ghi
 lặng lẽ mở rộng task". Đã cập nhật bảng tiến độ §1 (NG-37d) với bằng chứng re-probe
 này; mã số NG-37d đã tồn tại từ Step 7 của NG-37b nên không mở số mới.
 
-### Task 0 · Baseline xanh — cách ly của test mã kho — 2026-08-12 · commit <sha>
+### Task 0 · Baseline xanh — cách ly của test mã kho — 2026-08-12 · commit 4c154fb
 **Trước:** `bench run-tests --app miyano_portal` cho 368 test / **1 FAIL**. `TestKhoWarehouse.test_ma_kho_unique_across_customers` mượn khách thật `Himedic` và ngầm giả định khách đó chưa có kho, nên phiếu vấp luật "một khách một kho" (`"đã có kho"`) trước khi kịp chạm tới phép kiểm `ma_kho` (`"đã được dùng"`) mà ca này muốn kiểm. Ca test mất tác dụng bảo vệ, và mọi DoD "test cũ xanh" của mười một task còn lại trở thành vô nghĩa vì không phân biệt được hỏng-do-mình với hỏng-sẵn.
 **Sau:** Ca test tự dựng khách riêng `_Test Khách Chưa Mở Kho` (tiền tố `_Test` nằm ngoài luồng nghiệp vụ nên không ai mở kho cho nó; bản ghi rollback ở cuối class, không tích tụ), cộng một assert nêu thẳng tiền đề "khách này chưa có kho" để lần sau hỏng thì báo đúng lý do. **368/368 xanh**, CSDL không còn bản ghi thừa, số `Customer Warehouse` vẫn là 5.
 **Đụng vào:** `miyano_portal/tests/test_kho_ledger.py` (`TestKhoWarehouse`: thêm `_khach_chua_mo_kho()`, sửa `test_ma_kho_unique_across_customers`) · `docs/superpowers/plans/2026-08-12-dot-1-chan-mau-P0.md` (thêm mục Task 0 và một dòng vào sơ đồ thứ tự task)
