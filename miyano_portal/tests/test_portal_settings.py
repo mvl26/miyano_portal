@@ -57,3 +57,41 @@ class TestMiyanoPortalSettings(FrappeTestCase):
         DocPerm nào — cùng khuôn với tám doctype kho."""
         roles = {p.role for p in frappe.get_meta(TEN).permissions}
         self.assertEqual(roles, {"System Manager"})
+
+
+class TestOverDeliveryAllowance(FrappeTestCase):
+    """QĐ-2 / BR-O10: không cho giao vượt số đặt.
+
+    Kiểm CẤU HÌNH chứ không kiểm hành vi submit Delivery Note — hành vi đó
+    thuộc E3 (TC-E3-01) và cần dựng cả Sales Order lẫn Delivery Note. Ở đây
+    chỉ chốt rằng tham số ERPNext dùng để chặn đang ở đúng giá trị, và không
+    mặt hàng nào mở ngoại lệ.
+
+    Hai test này PASS ngay từ đầu: giá trị mặc định của site vốn đã đúng.
+    Chúng là chốt HỒI QUY — biến "tình cờ đúng" thành thứ không ai lỡ tay đổi
+    mà không bị phát hiện — chứ không phải bằng chứng có bug. Đừng đi tìm một
+    bước RED không tồn tại.
+
+    Trường nằm ở `Stock Settings`, KHÔNG phải `Selling Settings` như PRD E3
+    ghi. `Item` cũng có trường cùng tên, ghi đè theo từng mặt hàng.
+    """
+
+    def test_stock_settings_allowance_bang_0(self):
+        self.assertEqual(
+            frappe.db.get_single_value(
+                "Stock Settings", "over_delivery_receipt_allowance"
+            )
+            or 0,
+            0,
+        )
+
+    def test_khong_item_nao_ghi_de_allowance(self):
+        ngoai_le = frappe.get_all(
+            "Item",
+            filters={"over_delivery_receipt_allowance": [">", 0]},
+            pluck="name",
+            limit=5,
+        )
+        self.assertEqual(
+            ngoai_le, [], f"Các mặt hàng sau mở ngoại lệ giao vượt: {ngoai_le}"
+        )

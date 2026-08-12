@@ -42,12 +42,18 @@ KHO_MODULE = "Miyano Portal"
 KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
-# sách này hiện RỖNG (mọi doctype của module đều là doctype kho) và tồn tại
-# để việc thêm một doctype không-kho vào module trở thành một quyết định TƯỜNG
-# MINH: _nap_doctype_kho() ném lỗi khi gặp một cái tên nó không phân loại
-# được, thay vì âm thầm bỏ qua. Bỏ qua âm thầm chính là cách một doctype kho
-# đặt tên lệch quy ước sẽ ship ra với zero độ phủ cách ly.
-KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ()
+# sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
+# quyết định TƯỜNG MINH: _nap_doctype_kho() ném lỗi khi gặp một cái tên nó
+# không phân loại được, thay vì âm thầm bỏ qua. Bỏ qua âm thầm chính là cách
+# một doctype kho đặt tên lệch quy ước sẽ ship ra với zero độ phủ cách ly.
+#
+# `Miyano Portal Settings` (P0, 2026-08-12) là mục đầu tiên: Single doctype
+# chứa tham số vận hành cổng (ngưỡng duyệt, kỳ ADU, SLA...). Không phải kho,
+# không mang dữ liệu của khách hàng nào, và chỉ `System Manager` có DocPerm —
+# nên nó nằm ngoài mọi vòng kiểm cách ly theo khách bên dưới. Cơ chế lưới an
+# toàn này đã hoạt động đúng như thiết kế: 30 test đỏ ngay khi doctype mới
+# xuất hiện mà chưa được phân loại.
+KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings",)
 
 
 def _nap_doctype_kho() -> dict[str, list[str]]:

@@ -249,6 +249,30 @@ bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.
 ```
 Expected: 4 test PASS.
 
+- [ ] **Step 5b: Khai báo doctype mới là "không phải kho"**
+
+**Bước này thiếu trong bản kế hoạch đầu; bổ sung sau khi nó làm đỏ 30 test.**
+`tests/test_kho_isolation.py::_nap_doctype_kho()` liệt kê doctype kho **động từ
+`tabDocType`** theo `module = "Miyano Portal"`, và **cố ý `frappe.throw`** khi gặp một tên
+không khớp tiền tố kho (`Customer Warehouse`, `Customer Stock`) mà cũng chưa được khai
+trong `KHONG_PHAI_DOCTYPE_KHO`. Lưới an toàn đó tồn tại để một doctype kho đặt tên lệch
+quy ước không ship ra với zero độ phủ cách ly — và nó vừa bắt đúng `Miyano Portal Settings`.
+
+Thêm vào `tests/test_kho_isolation.py:50`:
+
+```python
+KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings",)
+```
+
+kèm một câu giải thích vì sao doctype này nằm ngoài vòng kiểm cách ly theo khách (Single,
+không mang dữ liệu khách nào, chỉ `System Manager` có DocPerm).
+
+> **Áp dụng cho mọi epic sau:** E6 sẽ thêm `Portal Item Request`, E4 thêm
+> `Customer Supplier`, E8 thêm `Customer Department`. Hai cái sau khớp tiền tố
+> `Customer ...` nên **là** doctype kho và phải được nối vào
+> `permission_query_conditions` + `has_permission`; `Portal Item Request` thì không khớp
+> và phải khai vào `KHONG_PHAI_DOCTYPE_KHO`. Dự liệu trước để khỏi mất một vòng chẩn đoán.
+
 - [ ] **Step 6: Kiểm idempotent**
 
 Run: `bench --site erptest.local migrate` lần hai. Expected: không lỗi.
