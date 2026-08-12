@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "creation": "2026-08-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_duyet_don",
+  "nguong_duyet_2_tang",
+  "sla_xu_ly_don_gio",
+  "sec_mua_le",
+  "price_list_ban_le",
+  "hieu_luc_bao_gia_ngay",
+  "sla_yeu_cau_gio",
+  "sec_du_tru",
+  "so_ngay_adu",
+  "so_ngay_du_lieu_toi_thieu",
+  "nguong_cham_luan_chuyen_ngay"
+ ],
+ "fields": [
+  {
+   "fieldname": "sec_duyet_don",
+   "fieldtype": "Section Break",
+   "label": "Duyệt đơn"
+  },
+  {
+   "description": "Đơn từ ngưỡng này trở lên bắt buộc Sales Manager duyệt. Để TRỐNG = một tầng duyệt như hiện tại.",
+   "fieldname": "nguong_duyet_2_tang",
+   "fieldtype": "Currency",
+   "label": "Ngưỡng duyệt 2 tầng",
+   "precision": "0"
+  },
+  {
+   "default": "8",
+   "fieldname": "sla_xu_ly_don_gio",
+   "fieldtype": "Int",
+   "label": "SLA xử lý đơn (giờ làm việc)"
+  },
+  {
+   "fieldname": "sec_mua_le",
+   "fieldtype": "Section Break",
+   "label": "Mua lẻ & yêu cầu hàng hoá"
+  },
+  {
+   "fieldname": "price_list_ban_le",
+   "fieldtype": "Link",
+   "label": "Price List bán lẻ",
+   "options": "Price List"
+  },
+  {
+   "default": "7",
+   "fieldname": "hieu_luc_bao_gia_ngay",
+   "fieldtype": "Int",
+   "label": "Hiệu lực báo giá (ngày)"
+  },
+  {
+   "default": "48",
+   "fieldname": "sla_yeu_cau_gio",
+   "fieldtype": "Int",
+   "label": "SLA yêu cầu hàng hoá (giờ làm việc)"
+  },
+  {
+   "fieldname": "sec_du_tru",
+   "fieldtype": "Section Break",
+   "label": "Dự trù"
+  },
+  {
+   "default": "90",
+   "fieldname": "so_ngay_adu",
+   "fieldtype": "Int",
+   "label": "Kỳ tính ADU (ngày)"
+  },
+  {
+   "default": "30",
+   "fieldname": "so_ngay_du_lieu_toi_thieu",
+   "fieldtype": "Int",
+   "label": "Số ngày dữ liệu tối thiểu"
+  },
+  {
+   "default": "90",
+   "fieldname": "nguong_cham_luan_chuyen_ngay",
+   "fieldtype": "Int",
+   "label": "Ngưỡng chậm luân chuyển (ngày)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Miyano Portal Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

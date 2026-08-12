@@ -232,17 +232,13 @@ class MiyanoPortalSettings(Document):
                 frappe.throw(_("{0} phải lớn hơn 0.").format(nhan))
 ```
 
-- [ ] **Step 4: Thêm thư mục patch v1_3 và đăng ký**
+- [ ] **Step 4: Tạo thư mục patch v1_3**
 
 `miyano_portal/patches/v1_3/__init__.py` — file rỗng.
 
-`patches.txt` — thêm vào cuối khối `[post_model_sync]`:
-
-```
-miyano_portal.patches.v1_3.ghim_over_delivery_zero
-```
-
-> Dòng này thuộc Task 2; thêm sẵn thư mục `v1_3` ở đây để Task 2 không phải tạo lại.
+> **KHÔNG** thêm dòng nào vào `patches.txt` ở task này. `patches.txt` chỉ được nhắc tên
+> một module đã tồn tại — ghi trước tên `ghim_over_delivery_zero` (Task 2) thì `migrate`
+> ở Step 5 sẽ chết vì `ModuleNotFoundError`. Mỗi task tự đăng ký patch của chính nó.
 
 - [ ] **Step 5: Migrate rồi chạy test**
 
@@ -271,6 +267,7 @@ git commit -m "feat(portal): doctype Miyano Portal Settings (P0)"
 
 **Files:**
 - Create: `miyano_portal/patches/v1_3/ghim_over_delivery_zero.py`
+- Modify: `miyano_portal/patches.txt` (đăng ký patch — Task 1 cố ý KHÔNG làm việc này)
 - Test: `miyano_portal/tests/test_portal_settings.py` (thêm class)
 
 **Interfaces:**
