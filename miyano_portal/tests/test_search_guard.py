@@ -7,6 +7,11 @@ from miyano_portal.setup.seed_demo import seed_demo
 BVBM = "Bệnh viện Bạch Mai"
 KHAC = "PXN ABC"
 USER_BVBM = "bvbm@demo.miyano"
+# System User thật (không phải Administrator) để test "không chặn nhầm Desk"
+# thực sự đi qua nhánh user_type của _la_khach_cong() thay vì early-return ở
+# Administrator/Guest — nếu không, test đó vẫn xanh ngay cả khi guard phân
+# loại nhầm MỌI System User thành khách cổng.
+USER_SALES = "sales_user@demo.miyano"
 
 
 def _draft_so(customer: str) -> str:
@@ -45,16 +50,24 @@ class TestSearchGuard(FrappeTestCase):
         self.assertNotIn(self.so_khac, [r.get("value") for r in rows])
 
     def test_filter_fields_khong_keo_duoc_tong_tien(self):
-        """filter_fields là đường lấy grand_total / outstanding_amount."""
+        """filter_fields là đường lấy grand_total / outstanding_amount.
+
+        Tìm bằng self.so_khac (mã đơn PXN ABC) sẽ luôn trả rỗng: search_fields
+        của Sales Order là customer/customer_name/status/... — không trường
+        nào khớp một chuỗi "SAL-ORD-...", nên vòng lặp rỗng không chứng minh
+        được gì (bug đã phát hiện ở lần review trước). Đổi sang tìm bằng
+        self.so_minh (đơn CỦA CHÍNH khách BVBM, tên khách "Bệnh viện Bạch Mai"
+        khớp customer_name) để chắc chắn có dòng trả về, rồi khẳng định dòng
+        đó KHÔNG mang grand_total.
+        """
         frappe.set_user(USER_BVBM)
         rows = search_widget(
-            "Sales Order", self.so_khac,
+            "Sales Order", self.so_minh,
             filter_fields=["name", "grand_total"],
-            as_dict=True, ignore_user_permissions=1,
+            as_dict=True,
         )
-        for r in rows:
-            self.assertNotEqual(r.get("name"), self.so_khac)
-            self.assertNotIn("grand_total", r)
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("grand_total", rows[0])
 
     def test_doctype_kho_tra_rong_chu_khong_nem_loi(self):
         frappe.set_user(USER_BVBM)
@@ -69,7 +82,17 @@ class TestSearchGuard(FrappeTestCase):
 
     # ---------- không chặn nhầm nhân viên Miyano ----------
     def test_desk_user_van_tim_duoc_moi_don(self):
-        frappe.set_user("Administrator")
+        """Dùng System User thật (không phải Administrator).
+
+        Administrator early-return ở nhánh đầu của _la_khach_cong() TRƯỚC khi
+        chạm tới lookup user_type, và frappe.get_list cũng miễn phân quyền
+        cho Administrator theo cách riêng của nó — nên một test dùng
+        Administrator vẫn xanh ngay cả khi guard phân loại NHẦM mọi System
+        User thành khách cổng, đúng cái hồi quy mà test này phải bắt được.
+        sales_user@demo.miyano là System User có thật trên site, role
+        "Sales User", không mang role Customer.
+        """
+        frappe.set_user(USER_SALES)
         rows = search_widget("Sales Order", self.so_khac, ignore_user_permissions=1)
         self.assertIn(self.so_khac, [r[0] for r in rows])
 

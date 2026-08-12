@@ -61,6 +61,14 @@ def search_link(
                 # `query` cho phép chỉ định một hàm truy vấn tuỳ ý; với khách
                 # cổng thì không có nhu cầu nào chính đáng, và mỗi hàm như vậy
                 # là một bộ lọc riêng nằm ngoài permission_query_conditions.
+                # LƯU Ý: ép về None ở đây KHÔNG hẳn là "bỏ hoàn toàn" tham số
+                # này — search.py:86-89 tự nạp lại `query` từ registry
+                # `standard_queries` cho MỘT vài doctype cố định (hiện chỉ có
+                # "User"). Với "User" thì nhánh đó rơi vào user_query() ->
+                # frappe.get_list -> PermissionError cho khách cổng -> bắt ở
+                # `except` bên dưới -> []; nên đường vòng này không khai thác
+                # được, nhưng lý do là hành vi của user_query(), không phải vì
+                # `query=None` đã triệt tiêu registry.
                 query=None,
                 filters=filters,
                 page_length=page_length,
@@ -105,6 +113,19 @@ def search_widget(
                 filters=filters,
                 # `filter_fields` là đường client tự chọn cột trả về — đúng chỗ
                 # `grand_total` và `outstanding_amount` lọt ra ngoài trong BA v2.
+                # LƯU Ý: nulling filter_fields KHÔNG PHẢI cái chặn rò rỉ CHÉO
+                # KHÁCH HÀNG — `searchfield` (tham số client cũng kiểm soát
+                # được) là một đường chiếu cột y hệt: search.py's
+                # get_std_fields_list() nối `searchfield` thẳng vào danh sách
+                # cột SELECT, nên search_widget("Sales Order", <đơn của
+                # CHÍNH khách>, searchfield="grand_total") vẫn trả cột đó cho
+                # ĐƠN CỦA CHÍNH HỌ — đó không phải rò rỉ, chỉ là khách tự xem
+                # số của mình qua một cổng vào khác thường. Cái thật sự chặn
+                # rò rỉ CHÉO KHÁCH HÀNG là dòng lọc theo hàng được khôi phục
+                # (ignore_user_permissions=False bên dưới, giữ
+                # permission_query_conditions sống lại). Null filter_fields ở
+                # đây chỉ là phòng thủ theo chiều sâu (giảm bề mặt cột trả
+                # về), không phải cơ chế chặn chính.
                 filter_fields=None,
                 as_dict=as_dict,
                 reference_doctype=reference_doctype,
