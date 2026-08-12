@@ -47,25 +47,48 @@ class TestKhoWarehouse(FrappeTestCase):
             doc.insert(ignore_permissions=True)
         self.assertIn("đã có kho", str(ctx.exception))
 
-    def test_ma_kho_unique_across_customers(self):
-        if not frappe.db.exists("Customer", "Himedic"):
+    def _khach_chua_mo_kho(self) -> str:
+        """Khách hàng dành riêng cho test, bảo đảm CHƯA có kho.
+
+        Bản trước mượn khách thật "Himedic" và ngầm giả định khách đó chưa
+        được mở kho. Ngày 2026-08-07 có người mở kho cho Himedic trên Desk,
+        thế là test đổ: nó dừng ở luật "một khách một kho" trước khi kịp chạm
+        tới phép kiểm mã kho mà nó muốn kiểm. Một khách mang tiền tố `_Test`
+        không nằm trong luồng nghiệp vụ nên không ai mở kho cho nó, và bản
+        ghi cũng bị rollback ở cuối class nên không tích tụ vào CSDL.
+        """
+        ten = "_Test Khách Chưa Mở Kho"
+        if not frappe.db.exists("Customer", ten):
             frappe.get_doc({
                 "doctype": "Customer",
-                "customer_name": "Himedic",
+                "customer_name": ten,
                 "customer_type": "Company",
                 "customer_group": "All Customer Groups",
                 "territory": "All Territories",
             }).insert(ignore_permissions=True)
+        return ten
 
+    def test_ma_kho_unique_across_customers(self):
+        khach = self._khach_chua_mo_kho()
+        # Nêu thẳng tiền đề. Nếu ngày nào đó khách này có kho, test hỏng vì
+        # lý do rõ ràng chứ không phải vì một thông điệp lỗi không liên quan.
+        self.assertFalse(
+            frappe.db.exists("Customer Warehouse", {"customer": khach}),
+            f"Tiền đề sai: {khach} đã có kho — ca này cần một khách chưa mở kho.",
+        )
+
+        # "BM" là mã kho của Bạch Mai do seed dựng ở setUp.
         doc = frappe.get_doc({
             "doctype": "Customer Warehouse",
-            "customer": "Himedic",
-            "ten_kho": "Kho Himedic",
+            "customer": khach,
+            "ten_kho": "Kho trùng mã",
             "ma_kho": "BM",
             "ngay_bat_dau": "2026-01-01",
         })
         with self.assertRaises(frappe.ValidationError) as ctx:
             doc.insert(ignore_permissions=True)
+        # Thông điệp này chỉ đến từ phép kiểm mã kho; luật "một khách một kho"
+        # nói "đã có kho". Assert vào đúng câu là bằng chứng ta tới đúng chỗ.
         self.assertIn("đã được dùng", str(ctx.exception))
 
 

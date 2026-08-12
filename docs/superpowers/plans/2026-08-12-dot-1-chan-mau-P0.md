@@ -50,7 +50,9 @@ Task 1 và 2 độc lập hoàn toàn — làm song song được. Từ Task 3 t
 phụ thuộc trên cùng vài hàm; đảo thứ tự sẽ phải sửa lại thứ vừa viết.
 
 ```
+Task 0  baseline xanh                ─── CHẶN mọi task khác
 Task 1  NG-37  search guard          ─── độc lập, ship riêng được
+Task 1d NG-37d client.get_value/…    ─── độc lập, cùng họ 1b/1c
 Task 2  NG-12  precision + làm tròn  ─── độc lập
 
 Task 3  NG-10 NG-11  portal_pricing._gia_ban()      ← nền cho mọi thứ sau
@@ -87,6 +89,66 @@ Task 12 frontend: khung bản đồ lỗi (3 mã đầu của UX-08)
 | `miyano_portal/kho/doi_soat.py` | **Tạo.** Báo cáo đối soát phiếu nhập mồ côi | 10 |
 | `frontend/src/store.js`, `views/Cart.vue`, `views/Catalog.vue` | **Sửa.** | 11 |
 | `frontend/src/errors.js`, `api.js` | **Tạo/Sửa.** Khung bản đồ lỗi | 12 |
+
+---
+
+## Task 0: Baseline xanh — sửa cách ly của test mã kho
+
+**Thêm vào kế hoạch ngày 2026-08-12**, sau khi phát hiện suite không xanh trước khi
+Đợt 1 kịp bắt đầu. Chặn mọi task khác: DoD của mười một task còn lại đều đọc là
+"test cũ xanh", mà một test đỏ sẵn thì không phân biệt được "thay đổi của tôi làm
+hỏng" với "trạng thái CSDL vốn đã hỏng".
+
+**Files:**
+- Modify: `miyano_portal/tests/test_kho_ledger.py`
+
+**Triệu chứng.** `bench run-tests --app miyano_portal` → 368 test, 1 FAIL:
+`TestKhoWarehouse.test_ma_kho_unique_across_customers` mong thông điệp `"đã được dùng"`
+nhưng nhận `"Khách hàng Himedic đã có kho KKH-00006 … Mỗi khách hàng chỉ được có một kho."`
+
+**Gốc rễ — KHÔNG phải lỗi code, cũng KHÔNG phải rò rỉ fixture từ test.** Đã loại trừ
+giả thuyết `commit()` vô điều kiện (không test nào save doc `DocType`, không test nào
+gọi `frappe.db.commit()`). Metadata chỉ đúng thủ phạm:
+
+| Bản ghi | owner | creation |
+|---|---|---|
+| `Customer Himedic` | `Administrator` | 2026-07-28 14:26 |
+| `Customer Warehouse KKH-00006` | **`buiviet9802@gmail.com`** | 2026-08-07 16:51 |
+
+Kho đó do **một người thật mở trên Desk**, không phải test tạo ra. Test mượn khách thật
+`Himedic` và ngầm giả định khách đó chưa có kho; thao tác nghiệp vụ bình thường ngày
+07/08 đã làm giả định đó sai. Phiếu vì thế dừng ở luật "một khách một kho" trước khi kịp
+chạm tới phép kiểm `ma_kho` mà ca này muốn kiểm — test mất tác dụng bảo vệ từ lúc đó.
+
+**Không xoá `KKH-00006`.** Nó là dữ liệu của người dùng, và xoá thì test xanh hôm nay,
+mai có người mở kho khác lại đỏ. Sửa ở chỗ sai: cho test tự dựng khách của nó.
+
+- [x] **Step 1: Cho ca test tự dựng khách riêng chưa có kho**
+
+Thêm `_khach_chua_mo_kho()` trả về `"_Test Khách Chưa Mở Kho"`, tạo nếu chưa có. Tiền tố
+`_Test` nằm ngoài luồng nghiệp vụ nên không ai mở kho cho nó; bản ghi bị rollback ở cuối
+class nên không tích tụ vào CSDL.
+
+- [x] **Step 2: Nêu tiền đề thành assert tường minh**
+
+`assertFalse(frappe.db.exists("Customer Warehouse", {"customer": khach}), …)` — nếu ngày
+nào đó tiền đề vẫn hỏng, test báo đúng lý do thay vì một thông điệp lỗi không liên quan.
+
+- [x] **Step 3: Verify**
+
+```bash
+cd /home/hoangvietyeuem/frappe-bench-yhct
+bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_kho_ledger   # 27 OK
+bench --site erptest.local mariadb -N -B -e "select name from tabCustomer where name like '_Test%';"    # rỗng
+bench --site erptest.local run-tests --app miyano_portal                                                # 368 OK
+```
+
+Kết quả: **368/368 xanh**, CSDL không còn bản ghi thừa, số kho vẫn là 5.
+
+**Đính chính con số cho các task sau:** DoD của Đợt 1 ghi "339 test cũ xanh". Mốc đúng
+tại thời điểm này là **368** — phần chênh đúng bằng 29 test mà NG-37/37b/37c đã thêm
+(`test_search_guard` 7 + `test_rest_guard` 11 + `test_client_guard` 11). "339" không sai,
+nó chỉ là ảnh chụp trước nhánh này.
 
 ---
 

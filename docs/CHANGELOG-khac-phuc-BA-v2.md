@@ -38,7 +38,7 @@ Nếu một task đụng vào một hàm mà **task khác cũng sẽ đụng**, 
 |---|---|
 | Nhánh | `develop` |
 | Điểm gốc (chưa sửa gì) | `0ba68b4` — *docs(portal): bộ tài liệu BA và sơ đồ quy trình cho cổng khách hàng* |
-| Đợt đang chạy | **Đợt 1 — Chặn máu (P0)**, chưa bắt đầu |
+| Đợt đang chạy | **Đợt 1 — Chặn máu (P0)** — Task 0, 1, 1b, 1c xong; kế tiếp Task 1d (NG-37d) rồi Task 2 |
 | Cập nhật lần cuối | 2026-08-12 |
 
 ### Bảng tiến độ
@@ -47,6 +47,7 @@ Trạng thái: ⬜ chưa làm · 🟨 đang làm · ✅ xong · ⏸️ hoãn
 
 | Đợt | Mã | Trạng thái | Ghi chú |
 |---|---|---|---|
+| 1 | Task 0 baseline xanh (cách ly test mã kho) | ✅ | Không phải mã NG — điều kiện cần của mọi DoD "test cũ xanh". Mốc đúng từ nay là **368 test**, không phải 339 |
 | 1 | NG-37 rò rỉ sổ hoá đơn | ✅ | Phạm vi rộng hơn BA v2: phải bọc **cả** `search_widget`, không chỉ `search_link` |
 | 1 | NG-37b rò rỉ dòng chi tiết chứng từ qua `frappe.client.get_list`/`get` | ✅ | Round 1 (2026-08-12) đóng **chỉ** trục route (hai route định tuyến bằng chuỗi tên) và fail OPEN trên trục doctype (liệt kê 3 tên → Critical C1, xem §4 "Fix round 1"). Round 2 (cùng ngày, sau review) đóng **cả hai trục**: route (`/api/method`, `/api/v2/method`) VÀ doctype (`frappe.is_table`, mọi doctype con). Route REST (`/api/resource`, `/api/v2/document`) đã đóng riêng ở NG-37c (Task 1c). **CÒN MỞ, ngoài phạm vi NG-37b/NG-37c — trục HÀM `get_value`/`validate_link`/`has_permission`**, xem NG-37d. |
 | 1 | NG-37c rò rỉ cùng họ qua REST `/api/resource` và `/api/v2/document` (list + đọc đơn) | ✅ (cho phiên đăng nhập bằng cookie) | Task 1c (2026-08-12). Chặn ở `before_request` (`miyano_portal/rest_guard.py::chan_rest_doctype_con`), theo THUỘC TÍNH `frappe.is_table(doctype)` — không liệt kê tên (giữ nguyên nguyên tắc NG-37b round 2). Phủ ba prefix `/api/resource/`, `/api/v1/resource/`, `/api/v2/document/`, cả dạng list lẫn dạng `<name>` đơn lẻ. Đã probe thêm case-mismatch/`+`/double-slash/doctype không tồn tại — an toàn, framework tự chặn ở tầng permission role-based (case-sensitive) dù `is_table()` không khớp. **Ngoại lệ đã biết, KHÔNG đóng ở đây:** đăng nhập bằng API key (`Authorization: token`) bỏ qua được hook này hoàn toàn vì thứ tự chạy của framework — xem NG-37g. Xem §4. |
@@ -296,3 +297,14 @@ quả Step 7 của Task 1b:
 Cả ba **CHƯA sửa trong Task 1c** — đúng brief "nếu còn mở thì ghi mã số riêng, đừng
 lặng lẽ mở rộng task". Đã cập nhật bảng tiến độ §1 (NG-37d) với bằng chứng re-probe
 này; mã số NG-37d đã tồn tại từ Step 7 của NG-37b nên không mở số mới.
+
+### Task 0 · Baseline xanh — cách ly của test mã kho — 2026-08-12 · commit <sha>
+**Trước:** `bench run-tests --app miyano_portal` cho 368 test / **1 FAIL**. `TestKhoWarehouse.test_ma_kho_unique_across_customers` mượn khách thật `Himedic` và ngầm giả định khách đó chưa có kho, nên phiếu vấp luật "một khách một kho" (`"đã có kho"`) trước khi kịp chạm tới phép kiểm `ma_kho` (`"đã được dùng"`) mà ca này muốn kiểm. Ca test mất tác dụng bảo vệ, và mọi DoD "test cũ xanh" của mười một task còn lại trở thành vô nghĩa vì không phân biệt được hỏng-do-mình với hỏng-sẵn.
+**Sau:** Ca test tự dựng khách riêng `_Test Khách Chưa Mở Kho` (tiền tố `_Test` nằm ngoài luồng nghiệp vụ nên không ai mở kho cho nó; bản ghi rollback ở cuối class, không tích tụ), cộng một assert nêu thẳng tiền đề "khách này chưa có kho" để lần sau hỏng thì báo đúng lý do. **368/368 xanh**, CSDL không còn bản ghi thừa, số `Customer Warehouse` vẫn là 5.
+**Đụng vào:** `miyano_portal/tests/test_kho_ledger.py` (`TestKhoWarehouse`: thêm `_khach_chua_mo_kho()`, sửa `test_ma_kho_unique_across_customers`) · `docs/superpowers/plans/2026-08-12-dot-1-chan-mau-P0.md` (thêm mục Task 0 và một dòng vào sơ đồ thứ tự task)
+**Phá vỡ:** Không. Không đụng mã sản phẩm — chỉ một ca test.
+**Test:** `miyano_portal.tests.test_kho_ledger` — 27 OK. Toàn suite 368 OK.
+
+**Gốc rễ, ghi lại vì dễ chẩn đoán nhầm:** KHÔNG phải lỗi code, cũng KHÔNG phải rò rỉ fixture từ test. Giả thuyết "`commit()` vô điều kiện làm lọt fixture" (ràng buộc số 24 của kế hoạch) đã bị loại trừ bằng grep: không test nào save một document `DocType`, không test nào gọi `frappe.db.commit()`. Metadata chỉ đúng thủ phạm — `Customer Himedic` do `Administrator` tạo 2026-07-28, còn `Customer Warehouse KKH-00006` do **`buiviet9802@gmail.com`** tạo 2026-08-07 16:51, tức **một người thật mở kho trên Desk**. Đây là lỗi cách ly của chính test (phụ thuộc trạng thái CSDL mà thao tác nghiệp vụ bình thường có quyền thay đổi), không phải dữ liệu bẩn cần dọn. **Đã cân nhắc và bác bỏ việc xoá `KKH-00006`:** nó là dữ liệu của người dùng, và xoá thì xanh hôm nay, mai có người mở kho khác lại đỏ.
+
+**Đính chính con số cho mọi task sau:** DoD của Đợt 1 ghi "339 test cũ xanh". Mốc đúng từ nay là **368**. Phần chênh đúng bằng 29 test do chính Đợt 1 thêm vào (`test_search_guard` 7 + `test_rest_guard` 11 + `test_client_guard` 11 = 29; 339 + 29 = 368). "339" không sai — nó là ảnh chụp trước nhánh này. Đừng đi truy một sai lệch không tồn tại.
