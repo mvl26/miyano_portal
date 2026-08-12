@@ -1,5 +1,5 @@
 import frappe
-from miyano_portal.portal_context import get_portal_customer, remaining_qty
+from miyano_portal.portal_context import get_portal_customer, han_muc_con
 from miyano_portal.portal_dat_hang import (
     kiem_boi_so,
     kiem_ngay_giao,
@@ -144,14 +144,19 @@ def portal_contracts() -> list:
         order_by="to_date asc",
     )
     for r in rows:
+        # `qty > 0` là điểm mấu chốt (BR-O15): dòng khai 0 = KHÔNG GIỚI HẠN
+        # nên không có mẫu số. Để nó vào thì % ra một con số vô nghĩa và cảnh
+        # báo "đã dùng ≥ 80% hạn mức" sẽ báo động sai.
         agg = frappe.db.sql(
-            """select sum(qty) q, sum(ordered_qty) o, count(*) c
-               from `tabBlanket Order Item` where parent=%s""",
+            """select sum(qty) q, sum(ordered_qty) o
+               from `tabBlanket Order Item` where parent=%s and qty > 0""",
             r["name"],
         )[0]
         total, ordered = float(agg[0] or 0), float(agg[1] or 0)
         r["used_pct"] = round(ordered / total * 100, 1) if total else 0
-        r["item_count"] = int(agg[2] or 0)
+        # Số mặt hàng vẫn đếm ĐỦ, kể cả dòng không giới hạn — khách vẫn đặt
+        # được chúng, chỉ là không có trần.
+        r["item_count"] = frappe.db.count("Blanket Order Item", {"parent": r["name"]})
     return rows
 
 
@@ -176,8 +181,7 @@ def portal_catalog(contract: str) -> list:
             {"item_code": row["item_code"], "price_list": price_list, "selling": 1},
             "price_list_rate",
         ) or row["rate"]
-        total = float(row["qty"] or 0)
-        used = float(row["ordered_qty"] or 0)
+        con_lai, da_dat = han_muc_con(contract, row["item_code"])
         out.append({
             "item_code": row["item_code"],
             "item_name": item.item_name if item else row["item_code"],
@@ -185,9 +189,17 @@ def portal_catalog(contract: str) -> list:
             "item_group": (item.item_group if item else "") or "",
             "rate": float(rate),
             "vat_pct": 0,
-            "total": total,
-            "used": used,
-            "remaining": max(total - used, 0.0),
+            "total": float(row["qty"] or 0),
+            "used": da_dat,
+            # `None` chứ không phải 0: giao diện phải phân biệt "không giới
+            # hạn" (NL-1.11) với "hết hạn mức" (NL-1.2) — bản cũ trả
+            # `max(total - used, 0.0)` nên hai trạng thái này trông y hệt
+            # nhau, và mặt hàng khai 0 hiện ra là "Hết hạn mức".
+            "remaining": None if con_lai is None else max(con_lai, 0.0),
+            "khong_gioi_han": con_lai is None,
+            "boi_so_dat": int(
+                frappe.db.get_value("Item", row["item_code"], "custom_boi_so_dat") or 0
+            ),
         })
     return out
 
@@ -258,6 +270,7 @@ def portal_order_place(
         aggregated[item_code] = aggregated.get(item_code, 0) + qty
 
     errors = []
+    khong_gioi_han = set()
     for item_code, qty in aggregated.items():
         if qty <= 0:
             errors.append(f"{item_code}: số lượng phải > 0")
@@ -269,9 +282,17 @@ def portal_order_place(
         if loi_boi_so:
             errors.append(loi_boi_so)
             continue
-        rem = remaining_qty(contract, item_code)
-        if qty > rem:
-            errors.append(f"{item_code}: vượt hạn mức (còn {rem:g})")
+        con_lai, _ = han_muc_con(contract, item_code)
+        if con_lai is None:
+            # BR-O15 — hạn mức khai 0 = KHÔNG GIỚI HẠN. Không kiểm, và ghi
+            # nhớ để lát nữa KHÔNG gắn against_blanket_order cho dòng này.
+            khong_gioi_han.add(item_code)
+            continue
+        if qty > con_lai:
+            # Nguyên văn ma trận FormSpec §5, dòng NL-1.3.
+            errors.append(
+                f"Không đặt được: {item_code} chỉ còn {con_lai:g} theo hạn mức HĐNT."
+            )
     if errors:
         frappe.throw("<br>".join(errors), frappe.ValidationError)
 
@@ -315,15 +336,21 @@ def portal_order_place(
                 f"Không tìm thấy kho giao hàng cho mặt hàng {item_code} tại "
                 f"công ty {so.company}. Vui lòng liên hệ quản trị viên hệ thống."
             )
-        so.append("items", {
+        dong = {
             "item_code": item_code,
             "qty": qty,
             "rate": rate,
             "warehouse": item_warehouse,
             "delivery_date": delivery_date,
-            "blanket_order": contract,
-            "against_blanket_order": 1,
-        })
+        }
+        if item_code not in khong_gioi_han:
+            dong["blanket_order"] = contract
+            dong["against_blanket_order"] = 1
+        # Dòng KHÔNG GIỚI HẠN cố ý bỏ hai khoá trên (BR-O15): cơ chế gốc của
+        # ERPNext đối chiếu `against_blanket_order` với `qty` của Blanket
+        # Order Item, thấy 0 thì hiểu là CẤM ĐẶT và chặn ngay lúc submit.
+        # Truy vết về hợp đồng vẫn còn qua `so.custom_hdnt` ở đầu đơn.
+        so.append("items", dong)
     so.flags.ignore_permissions = True
     try:
         so.insert(ignore_permissions=True)

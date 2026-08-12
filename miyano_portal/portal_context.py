@@ -79,7 +79,25 @@ def get_allowed_khos(user: str | None = None) -> list[str]:
     )
 
 
-def remaining_qty(blanket_order: str, item_code: str) -> float:
+def han_muc_con(blanket_order: str, item_code: str) -> tuple[float | None, float]:
+    """Hạn mức còn lại của một mặt hàng trong HĐNT, và số đã đặt luỹ kế.
+
+    Trả `(None, da_dat)` khi dòng hợp đồng khai `qty = 0`: theo QĐ-8 / BR-O15
+    đó là quy ước **KHÔNG GIỚI HẠN**, không phải "hết hạn mức".
+
+    Phân biệt được ba trạng thái là toàn bộ lý do hàm này trả tuple thay vì
+    một con số:
+
+    - `(None, n)` — không giới hạn, đã đặt n
+    - `(0.0, n)`  — hết hạn mức, hoặc mặt hàng không có trong hợp đồng
+    - `(x, n)`    — còn x
+
+    Bản cũ (`remaining_qty`) trả `qty - ordered_qty` nên gộp hai trạng thái
+    đầu vào cùng một con số ≤ 0. Với dòng khai 0 đã đặt 30 nó ra **-30**, và
+    `portal_order_place` so `qty > rem` khiến mọi số lượng đều bị chặn kèm
+    thông báo "vượt hạn mức (còn -30)" — mặt hàng khai hạn mức 0 không đặt
+    được, đúng ngược quy ước.
+    """
     row = frappe.get_all(
         "Blanket Order Item",
         filters={"parent": blanket_order, "item_code": item_code},
@@ -87,5 +105,23 @@ def remaining_qty(blanket_order: str, item_code: str) -> float:
         limit=1,
     )
     if not row:
-        return 0.0
-    return float(row[0].qty or 0) - float(row[0].ordered_qty or 0)
+        # Không có trong hợp đồng = không đặt được. CỐ Ý khác `None`: gộp hai
+        # thứ này là cách mở toang hạn mức cho mọi mặt hàng lạ.
+        return 0.0, 0.0
+    tong = float(row[0].qty or 0)
+    da_dat = float(row[0].ordered_qty or 0)
+    if tong == 0:
+        return None, da_dat
+    return tong - da_dat, da_dat
+
+
+def remaining_qty(blanket_order: str, item_code: str) -> float:
+    """Chữ ký cũ, giữ cho mã và test đã có.
+
+    KHÔNG phân biệt được "không giới hạn" — nó trả `inf`, đủ để mọi phép so
+    `qty > rem` đi qua, nhưng chỗ nào cần biết ĐÓ LÀ không giới hạn (để bỏ
+    `against_blanket_order`, để loại khỏi mẫu số phần trăm) thì phải gọi
+    thẳng `han_muc_con`.
+    """
+    con_lai, _ = han_muc_con(blanket_order, item_code)
+    return float("inf") if con_lai is None else con_lai
