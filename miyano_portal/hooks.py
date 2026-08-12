@@ -300,24 +300,39 @@ doc_events = {
 # thành gate `frappe.is_table(doctype)` trong `client_get_list`/`client_get`
 # — chặn MỌI doctype con cho Website User, không liệt kê tên.
 #
-# CẢNH BÁO PHẠM VI — hai trục KHÁC vẫn còn mở, không thuộc NG-37b (đã duyệt
-# thành NG-37c, xem `docs/CHANGELOG-khac-phuc-BA-v2.md`):
-#   - Trục ROUTE: hai entry NG-37b dưới đây chỉ đóng được request định tuyến
-#     bằng CHUỖI TÊN qua `frappe.override_whitelisted_method()`
-#     (`/api/method/...`, `/api/v2/method/...`). `/api/resource/<doctype>`
-#     (v1), `/api/v2/document/<doctype>` (v2), và mọi biến thể đọc MỘT bản
-#     ghi qua REST (`/api/resource/<doctype>/<name>/`, `/api/v2/document/
-#     <doctype>/<name>/`) gọi thẳng hàm gốc bằng THAM CHIẾU PYTHON hoặc đi
-#     qua `doc.check_permission()` trực tiếp — KHÔNG đi qua dict này, dù
-#     doctype có phải bảng con hay không.
-#   - Trục HÀM: `frappe.client.get_value`/`validate_link`/`has_permission`
-#     không nằm trong dict này — `get_value`/`validate_link` gọi `get_list`
-#     NỘI BỘ của `client.py` (không phải bản override), `has_permission`
-#     dính một biến thể khác của cùng lỗi `has_child_permission()`.
-# Đã xác nhận CẢ HAI trục còn mở bằng probe HTTP thật (còn rò rỉ) — đọc
-# trước khi tưởng NG-37b đã đóng hẳn lỗ này.
+# CẢNH BÁO PHẠM VI — dict `override_whitelisted_methods` dưới đây KHÔNG PHỦ
+# route REST, đây là kiến thức dễ mất nhất trong cả đợt vá NG-37: người đọc
+# sau thấy dict đã có `frappe.client.get`/`frappe.client.get_list` sẽ dễ
+# tưởng mọi đường đọc doctype con đã bị bịt — KHÔNG PHẢI VẬY.
+#   - Trục ROUTE (đã đóng — NG-37c, xem `miyano_portal/rest_guard.py` +
+#     `before_request` bên dưới): hai entry NG-37b ở dict này chỉ đóng được
+#     request định tuyến bằng CHUỖI TÊN qua
+#     `frappe.override_whitelisted_method()` (`/api/method/...`,
+#     `/api/v2/method/...`). `/api/resource/<doctype>` (v1),
+#     `/api/v1/resource/<doctype>` (v1, submount khác cùng route),
+#     `/api/v2/document/<doctype>` (v2), và mọi biến thể đọc MỘT bản ghi qua
+#     REST (`/api/resource/<doctype>/<name>`, `/api/v2/document/<doctype>/
+#     <name>`) gọi thẳng hàm gốc bằng THAM CHIẾU PYTHON (`frappe.call(frappe.
+#     client.get_list, ...)`) hoặc đi qua `doc.check_permission()` ->
+#     `has_child_permission()` trực tiếp — KHÔNG đi qua dict này, dù doctype
+#     có phải bảng con hay không. `override_whitelisted_methods` không thể
+#     đóng được trục này DÙ thêm bao nhiêu entry — đây là giới hạn theo
+#     THIẾT KẾ của cơ chế, không phải thiếu cấu hình (xem docstring dài ở
+#     `rest_guard.py`). Đã đóng bằng hook `before_request` riêng, chặn ở
+#     tầng định tuyến HTTP, TRƯỚC khi request kịp rẽ vào một trong hai
+#     đường lỗ trên.
+#   - Trục HÀM (còn mở — đã probe HTTP thật 2026-08-12, xem
+#     `task-1c-report.md` mục "Step 7"): `frappe.client.get_value`/
+#     `validate_link`/`has_permission` không nằm trong dict này —
+#     `get_value`/`validate_link` gọi `get_list` NỘI BỘ của `client.py`
+#     (tham chiếu Python trực tiếp trong cùng file, không phải bản đã
+#     override), `has_permission` dính một biến thể khác của cùng lỗi
+#     `has_child_permission()`. Đã mở tracker NG-37d cho những gì probe xác
+#     nhận còn thật sự mở — KHÔNG lặng lẽ mở rộng phạm vi NG-37c để vá luôn
+#     ở đây; xem changelog.
 #
-# Xem miyano_portal/search_guard.py cho toàn bộ bốn hàm.
+# Xem miyano_portal/search_guard.py cho toàn bộ bốn hàm dưới đây,
+# miyano_portal/rest_guard.py cho hook `before_request`.
 # ------------------------------------------------------------------
 override_whitelisted_methods = {
 	"frappe.desk.search.search_link": "miyano_portal.search_guard.search_link",
@@ -340,7 +355,21 @@ override_whitelisted_methods = {
 
 # Request Events
 # ----------------
-# before_request = ["miyano_portal.utils.before_request"]
+# NG-37c (2026-08-12, ngoài BA v2 gốc — xem .superpowers/sdd/
+# 2026-08-12-dot-1-chan-mau-P0/task-1c-brief.md): đóng trục ROUTE mà
+# `override_whitelisted_methods` ở trên KHÔNG PHỦ ĐƯỢC theo thiết kế —
+# `/api/resource/<doctype>` (v1), `/api/v1/resource/<doctype>` (v1, submount
+# khác), `/api/v2/document/<doctype>` (v2) gọi thẳng
+# `frappe.client.get_list`/dispatch tới `has_child_permission()` bằng THAM
+# CHIẾU HÀM, không qua tra cứu chuỗi tên nào cả. `before_request` là cửa sổ
+# duy nhất chặn được cả hai phiên bản API bằng một chỗ: `frappe/app.py::
+# init_request()` gọi hook này SAU KHI session đã resume từ cookie
+# (`frappe.session.user` đã là user thật) và TRƯỚC KHI request được dispatch
+# tới route handler. Đọc docstring dài ở `miyano_portal/rest_guard.py`
+# trước khi sửa gì ở đây.
+before_request = [
+	"miyano_portal.rest_guard.chan_rest_doctype_con",
+]
 # after_request = ["miyano_portal.utils.after_request"]
 
 # Job Events
