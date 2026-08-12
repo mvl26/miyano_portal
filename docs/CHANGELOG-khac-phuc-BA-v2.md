@@ -47,7 +47,7 @@ Trạng thái: ⬜ chưa làm · 🟨 đang làm · ✅ xong · ⏸️ hoãn
 
 | Đợt | Mã | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 1 | NG-37 rò rỉ sổ hoá đơn | ⬜ | Phạm vi rộng hơn BA v2: phải bọc **cả** `search_widget`, không chỉ `search_link` |
+| 1 | NG-37 rò rỉ sổ hoá đơn | ✅ | Phạm vi rộng hơn BA v2: phải bọc **cả** `search_widget`, không chỉ `search_link` |
 | 1 | NG-12 precision tiền | ⬜ | 10 trường / **6** doctype (BA v2 ghi 8 — xem đính chính ở lộ trình §2) |
 | 1 | NG-10 giá không lọc ngày | ⬜ | |
 | 1 | NG-11 giá lấy tuỳ ý | ⬜ | Phải làm cùng NG-10, cùng một hàm |
@@ -113,4 +113,14 @@ site thật khi cả chín task xong và bundle đã build. Task 1 · 2 · 10 ·
 
 ## 4. Nhật ký thay đổi
 
-*(Chưa có mục nào. Mục đầu tiên sẽ được ghi khi Task 1 của đợt 1 hoàn thành.)*
+### NG-37 · Rò rỉ sổ hoá đơn giữa các khách hàng — 2026-08-12 · commit <sha>
+**Trước:** `frappe.desk.search.search_link` và `search_widget` nhận `ignore_user_permissions` từ client và chuyển thẳng xuống `get_list(ignore_permissions=True)`, bỏ qua toàn bộ `permission_query_conditions`. Một tài khoản cổng bất kỳ đọc được `Sales Order` / `Delivery Note` / `Sales Invoice` của khách khác, kèm `grand_total` và `outstanding_amount` qua `filter_fields`.
+**Sau:** Cả hai endpoint được bọc qua `override_whitelisted_methods`. Với Website User: ép `ignore_user_permissions=False`, bỏ `query`, bỏ `filter_fields`, trả `[]` cho 8 doctype kho, nuốt `PermissionError` thành `[]`. Desk user đi thẳng qua bản gốc, không đổi hành vi.
+**Đụng vào:** `miyano_portal/search_guard.py` (mới) · `miyano_portal/hooks.py:279-288` (mở khối `override_whitelisted_methods`)
+**Phá vỡ:** Không. SPA không gọi hai endpoint này (đã grep). Desk không đổi.
+**Test:** `miyano_portal/tests/test_search_guard.py` — 7 test, gồm một test RED đã chứng minh lỗ trước khi vá, một test assert Desk user không bị chặn, một test assert hooks đăng ký đủ cả hai.
+**Cảnh báo chồng lấn:** `override_whitelisted_methods` từ nay **đã mở**. Ai thêm override sau này thì thêm khoá vào cùng dict, đừng khai lại biến.
+**Phát hiện thêm khi quét 38 endpoint:** Grep thô `@frappe.whitelist` ra 41 dòng, nhưng một dòng là chuỗi nằm trong docstring của `search_guard.py` (không phải decorator thật) — số hàm whitelist thật là **40** (11 ở `api/portal.py`, 27 ở `api/kho.py`, 2 ở `search_guard.py`), đúng như kỳ vọng của brief (38 cũ + 2 mới). Đã đọc toàn bộ 40 hàm, trả lời hai câu (a) gọi được từ phiên cổng? (b) có kiểm gì ngoài quyền doctype? cho từng hàm:
+  - Mọi hàm trong `api/portal.py` đều tự suy `customer` qua `get_portal_customer()` (dựa trên `frappe.session.user`), và một trong ba cách: dùng `frappe.get_list` (tôn trọng `permission_query_conditions` của `miyano_portal/permissions.py`), gọi tường minh `doc.check_permission("read")` trước khi trả dữ liệu (`portal_order_track`, `portal_request_cancel`, `portal_document_download`), hoặc kiểm sở hữu tham số client gửi trước khi dùng (`portal_catalog`, `portal_order_place` kiểm `contract`/`address` thuộc đúng khách). `portal_provision` có guard vai trò rõ ràng (chỉ `System Manager`/`Sales Manager`/`Sales User`), nên khách cổng gọi được nhưng bị chặn ngay ở dòng đầu.
+  - Mọi hàm trong `api/kho.py` đều tự suy `kho` qua `get_portal_kho()` và kiểm sở hữu từng định danh do client gửi (`vat_tu`, `name` phiếu, `file_url`) qua `_vat_tu_cua_kho()` / `_phieu_cua_kho()` / so sánh `owner` trước khi chạm `frappe.get_doc`/`frappe.get_all` — đúng nguyên tắc "an toàn nhờ cấu trúc" đã ghi ở đầu file (role `Customer` không còn DocPerm nào trên 8 doctype kho).
+  - **Không tìm thêm lỗ nào ngoài phạm vi NG-37.** Không mở mục sổ theo dõi mới.

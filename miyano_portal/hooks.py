@@ -276,16 +276,19 @@ doc_events = {
 
 # before_tests = "miyano_portal.install.before_tests"
 
-# Overriding Methods
-# ------------------------------
-#
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "miyano_portal.event.get_events"
-# }
-#
-# each overriding function accepts a `data` argument;
-# generated from the base implementation of the doctype dashboard,
-# along with any modifications made in other Frappe apps
+# ------------------------------------------------------------------
+# Overriding Methods — BA v2 §NG-37
+# ------------------------------------------------------------------
+# `search_link` và `search_widget` của Frappe nhận `ignore_user_permissions`
+# TỪ CLIENT và chuyển thẳng xuống `get_list(ignore_permissions=...)`, bỏ qua
+# permission_query_conditions. Phải bọc CẢ HAI: `search_link` chỉ gọi
+# `search_widget`, nên bọc một mình nó vẫn hở đường gọi thẳng.
+# Xem miyano_portal/search_guard.py.
+# ------------------------------------------------------------------
+override_whitelisted_methods = {
+	"frappe.desk.search.search_link": "miyano_portal.search_guard.search_link",
+	"frappe.desk.search.search_widget": "miyano_portal.search_guard.search_widget",
+}
 # override_doctype_dashboards = {
 # 	"Task": "miyano_portal.task.get_dashboard_data"
 # }
