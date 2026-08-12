@@ -277,17 +277,38 @@ doc_events = {
 # before_tests = "miyano_portal.install.before_tests"
 
 # ------------------------------------------------------------------
-# Overriding Methods — BA v2 §NG-37
+# Overriding Methods — BA v2 §NG-37 + NG-37b (NG-37b ngoài BA v2 gốc, thêm
+# 2026-08-12 sau khi review Task 1 chứng minh lỗ bằng probe thật — xem
+# .superpowers/sdd/2026-08-12-dot-1-chan-mau-P0/task-1b-brief.md)
 # ------------------------------------------------------------------
-# `search_link` và `search_widget` của Frappe nhận `ignore_user_permissions`
+# NG-37: `search_link` và `search_widget` của Frappe nhận `ignore_user_permissions`
 # TỪ CLIENT và chuyển thẳng xuống `get_list(ignore_permissions=...)`, bỏ qua
 # permission_query_conditions. Phải bọc CẢ HAI: `search_link` chỉ gọi
 # `search_widget`, nên bọc một mình nó vẫn hở đường gọi thẳng.
-# Xem miyano_portal/search_guard.py.
+#
+# NG-37b: `frappe.client.get_list`/`frappe.client.get` trên ba doctype con
+# (Sales Order Item / Delivery Note Item / Sales Invoice Item) chỉ kiểm
+# quyền cha ở MỨC DOCTYPE (`check_parent_permission`, không kèm `doc`), bỏ
+# qua khách hàng của đơn — CÙNG HỌ với NG-37 nhưng là một endpoint khác hẳn.
+#
+# CẢNH BÁO PHẠM VI: hai entry NG-37b dưới đây chỉ đóng được request định
+# tuyến bằng CHUỖI TÊN qua `frappe.override_whitelisted_method()`
+# (`/api/method/...`, `/api/v2/method/...`). `/api/resource/<doctype>` (v1),
+# `/api/v2/document/<doctype>` (v2), và mọi biến thể đọc MỘT bản ghi qua
+# REST (`/api/resource/<doctype>/<name>/`, `/api/v2/document/<doctype>/
+# <name>/`) gọi thẳng hàm gốc bằng THAM CHIẾU PYTHON hoặc đi qua
+# `doc.check_permission()` trực tiếp — KHÔNG đi qua dict này, nên KHÔNG được
+# hai entry dưới đây bảo vệ. Đã xác nhận bằng probe HTTP thật (còn rò rỉ) và
+# ghi vào `docs/CHANGELOG-khac-phuc-BA-v2.md` như một hạng mục sổ theo dõi
+# riêng, chờ quyết định — đọc trước khi tưởng NG-37b đã đóng hẳn lỗ này.
+#
+# Xem miyano_portal/search_guard.py cho toàn bộ bốn hàm.
 # ------------------------------------------------------------------
 override_whitelisted_methods = {
 	"frappe.desk.search.search_link": "miyano_portal.search_guard.search_link",
 	"frappe.desk.search.search_widget": "miyano_portal.search_guard.search_widget",
+	"frappe.client.get_list": "miyano_portal.search_guard.client_get_list",
+	"frappe.client.get": "miyano_portal.search_guard.client_get",
 }
 # override_doctype_dashboards = {
 # 	"Task": "miyano_portal.task.get_dashboard_data"
