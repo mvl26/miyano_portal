@@ -5,6 +5,7 @@ from miyano_portal.portal_dat_hang import (
     kiem_ngay_giao,
     ngay_giao_mac_dinh,
 )
+from miyano_portal.portal_thong_bao import bao_thieu_gia
 
 
 def _customer_addresses(customer: str) -> list:
@@ -324,7 +325,15 @@ def portal_order_place(
             "price_list_rate",
         )
         if not rate:
-            frappe.throw(f"Không tìm thấy giá bán cho mặt hàng {item_code}.")
+            # US-E1.4 — khách không phải tự đi đòi giá. Báo sales phụ trách
+            # ngay, tối đa một lần mỗi ngày cho mỗi cặp (khách, mặt hàng).
+            bao_thieu_gia(customer, item_code)
+            # Nguyên văn ma trận FormSpec §5, dòng NL-1.4.
+            frappe.throw(
+                f"{item_code} chưa có giá trong hợp đồng. "
+                f"Miyano đã nhận được thông báo để bổ sung.",
+                frappe.ValidationError,
+            )
         # Ship each line from THIS item's own default warehouse (where its
         # stock actually is), never a single warehouse forced onto the whole
         # order - otherwise items stocked elsewhere (e.g. UAT items in "Kho
@@ -605,3 +614,57 @@ def portal_document_download(doctype, name) -> None:
     frappe.local.response.filename = f"{name}.pdf"
     frappe.local.response.filecontent = get_pdf(html)
     frappe.local.response.type = "pdf"
+
+
+@frappe.whitelist()
+def portal_reorder(order: str) -> dict:
+    """UC-14 / US-E1.5 — điền lại giỏ theo một đơn cũ, theo GIÁ HIỆN HÀNH.
+
+    Dòng nào không còn đặt được thì vào `bi_loai` kèm mã lý do để giao diện
+    dịch sang thông điệp FormSpec §5. Im lặng bỏ bớt dòng là cách chắc chắn
+    khiến khách đặt thiếu hàng mà không biết.
+
+    Dòng còn đặt được một phần thì HẠ số lượng xuống phần còn lại chứ không
+    loại cả dòng — còn 1 mà đơn cũ đặt 3 thì khách vẫn nên đặt được 1.
+    """
+    customer = get_portal_customer()
+    so = frappe.get_doc("Sales Order", order)
+    # `frappe.get_doc` KHÔNG chạy hook `has_permission` ở build này — phải
+    # kiểm tường minh trước khi đọc bất cứ thứ gì của tài liệu.
+    so.check_permission("read")
+    if so.customer != customer:
+        raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
+
+    contract = so.custom_hdnt
+    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+    gio_hang, bi_loai = [], []
+
+    for dong in so.items:
+        if not contract:
+            bi_loai.append({"item_code": dong.item_code, "ly_do": "ngoai_hdnt"})
+            continue
+
+        con_lai, _ = han_muc_con(contract, dong.item_code)
+        if con_lai is not None and con_lai <= 0:
+            bi_loai.append({"item_code": dong.item_code, "ly_do": "het_han_muc"})
+            continue
+
+        gia = frappe.db.get_value(
+            "Item Price",
+            {"item_code": dong.item_code, "price_list": price_list, "selling": 1},
+            "price_list_rate",
+        )
+        if not gia:
+            bi_loai.append({"item_code": dong.item_code, "ly_do": "thieu_gia"})
+            continue
+
+        qty = float(dong.qty)
+        if con_lai is not None:
+            qty = min(qty, con_lai)
+        gio_hang.append({
+            "item_code": dong.item_code,
+            "qty": qty,
+            "gia_hien_hanh": float(gia),
+        })
+
+    return {"gio_hang": gio_hang, "bi_loai": bi_loai}
