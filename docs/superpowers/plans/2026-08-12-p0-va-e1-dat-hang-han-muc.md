@@ -1239,14 +1239,30 @@ Bọc `so.insert` (dòng 282):
 ```python
     try:
         so.insert(ignore_permissions=True)
-    except frappe.exceptions.DuplicateEntryError:
+    except frappe.UniqueValidationError:
         # Đua: tiến trình khác vừa ghi xong cùng mã yêu cầu. CSDL là trọng
         # tài, không phải phép kiểm ở trên — đọc lại và trả về đơn của họ.
-        ten = frappe.db.get_value("Sales Order", {"custom_request_id": request_id}, "name")
-        return {"sales_order": ten, "da_ton_tai": True,
-                "total": float(frappe.db.get_value("Sales Order", ten, "grand_total") or 0)}
+        cu = frappe.db.get_value(
+            "Sales Order", {"custom_request_id": request_id},
+            ["name", "grand_total"], as_dict=True,
+        )
+        if not cu:
+            # Một trường unique KHÁC bị vi phạm, không phải mã yêu cầu của ta.
+            raise
+        return {"sales_order": cu.name, "da_ton_tai": True,
+                "total": float(cu.grand_total or 0)}
     return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
 ```
+
+> **`UniqueValidationError`, KHÔNG phải `DuplicateEntryError`.** Bản kế hoạch đầu ghi sai
+> loại và bản cài đặt đầu chép theo. `Document.insert` map lỗi 1062 của MariaDB thành
+> `UniqueValidationError` (`frappe/model/base_document.py:672`); `DuplicateEntryError` dành
+> cho trùng `name`. Bắt nhầm loại thì nhánh này **không bao giờ chạy** và tình huống đua
+> hiện ra thành lỗi 500 — một bug chỉ lộ dưới tải thật. Ca
+> `test_tang_document_map_loi_thanh_UniqueValidationError` khoá lại điều này.
+>
+> Nhánh `if not cu: raise` cũng bắt buộc: nuốt mọi `UniqueValidationError` sẽ biến một lỗi
+> dữ liệu thật ở trường unique khác thành "đơn đã tồn tại".
 
 - [ ] **Step 4: Chạy test**
 

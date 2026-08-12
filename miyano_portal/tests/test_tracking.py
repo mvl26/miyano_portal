@@ -12,7 +12,9 @@ class TestTracking(FrappeTestCase):
         self.addCleanup(frappe.set_user, "Administrator")
         bo = portal.portal_contracts()[0]["name"]
         self.so = portal.portal_order_place(
-            bo, json.dumps([{"item_code": "VT0005", "qty": 10}])
+            bo,
+            json.dumps([{"item_code": "VT0005", "qty": 10}]),
+            request_id=frappe.generate_hash(length=12),
         )["sales_order"]
 
     def test_history_shows_order(self):

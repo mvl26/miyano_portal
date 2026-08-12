@@ -20,6 +20,7 @@ class TestOrderPlace(FrappeTestCase):
         res = portal.portal_order_place(
             self.bo, json.dumps([{"item_code": "VT0005", "qty": 100}]),
             po="PO-123", delivery_date=delivery_date,
+            request_id=frappe.generate_hash(length=12),
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)
@@ -33,6 +34,7 @@ class TestOrderPlace(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             portal.portal_order_place(
                 self.bo, json.dumps([{"item_code": "HC0009", "qty": 999999}]),
+                request_id=frappe.generate_hash(length=12),
             )
 
     def test_duplicate_lines_aggregated_over_quota_rejected(self):
@@ -46,6 +48,7 @@ class TestOrderPlace(FrappeTestCase):
                     {"item_code": "HC0009", "qty": 300},
                     {"item_code": "HC0009", "qty": 300},
                 ]),
+                request_id=frappe.generate_hash(length=12),
             )
 
     def test_migrated_item_without_default_warehouse_gets_delivery_warehouse(self):
@@ -112,6 +115,7 @@ class TestOrderPlace(FrappeTestCase):
 
         res = portal.portal_order_place(
             self.bo, json.dumps([{"item_code": item_code, "qty": 1}]),
+            request_id=frappe.generate_hash(length=12),
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)
@@ -182,6 +186,7 @@ class TestOrderPlace(FrappeTestCase):
 
         res = portal.portal_order_place(
             self.bo, json.dumps([{"item_code": item_code, "qty": 1}]),
+            request_id=frappe.generate_hash(length=12),
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)

@@ -1,5 +1,10 @@
 import frappe
 from miyano_portal.portal_context import get_portal_customer, remaining_qty
+from miyano_portal.portal_dat_hang import (
+    kiem_boi_so,
+    kiem_ngay_giao,
+    ngay_giao_mac_dinh,
+)
 
 
 def _customer_addresses(customer: str) -> list:
@@ -188,8 +193,37 @@ def portal_catalog(contract: str) -> list:
 
 
 @frappe.whitelist()
-def portal_order_place(contract, items, po=None, delivery_date=None, note=None, address=None) -> dict:
+def portal_order_place(
+    contract, items, po=None, delivery_date=None, note=None, address=None,
+    request_id=None,
+) -> dict:
     customer = get_portal_customer()
+
+    # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
+    # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
+    if not request_id:
+        frappe.throw(
+            "Thiếu mã yêu cầu đặt hàng. Tải lại trang rồi thử lại.",
+            frappe.ValidationError,
+        )
+    # Trả lại đơn cũ TRƯỚC khi làm bất cứ việc gì khác — người dùng bấm lại vì
+    # lần trước có vẻ hỏng, không phải vì muốn đặt thêm một đơn nữa.
+    da_co = frappe.db.get_value(
+        "Sales Order",
+        {"custom_request_id": request_id},
+        ["name", "customer", "grand_total"],
+        as_dict=True,
+    )
+    if da_co:
+        if da_co.customer != customer:
+            # Mã yêu cầu của khách khác: không xác nhận cả sự tồn tại của nó.
+            raise frappe.PermissionError("Mã yêu cầu không hợp lệ.")
+        return {
+            "sales_order": da_co.name,
+            "da_ton_tai": True,
+            "total": float(da_co.grand_total or 0),
+        }
+
     bo = frappe.db.get_value(
         "Blanket Order", contract, ["customer", "company"], as_dict=True
     )
@@ -208,7 +242,11 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
         frappe.throw("Giỏ hàng trống.")
 
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
-    delivery_date = delivery_date or frappe.utils.add_days(frappe.utils.today(), 2)
+    # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
+    delivery_date = delivery_date or ngay_giao_mac_dinh()
+    loi_ngay = kiem_ngay_giao(delivery_date)
+    if loi_ngay:
+        frappe.throw(loi_ngay, frappe.ValidationError)
 
     # Aggregate the incoming cart by item_code so duplicate lines for the same
     # item can't each pass the quota check individually while together
@@ -224,6 +262,13 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
         if qty <= 0:
             errors.append(f"{item_code}: số lượng phải > 0")
             continue
+        # BR-O11 — bội số quy cách. Gom vào cùng danh sách lỗi với hạn mức để
+        # khách thấy MỌI dòng sai trong một lần (BR-O3), không phải sửa một
+        # lỗi rồi lại gặp lỗi tiếp theo.
+        loi_boi_so = kiem_boi_so(item_code, qty)
+        if loi_boi_so:
+            errors.append(loi_boi_so)
+            continue
         rem = remaining_qty(contract, item_code)
         if qty > rem:
             errors.append(f"{item_code}: vượt hạn mức (còn {rem:g})")
@@ -238,6 +283,7 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
     so.selling_price_list = price_list
     so.custom_nguon_don = "Client Portal"
     so.custom_hdnt = contract
+    so.custom_request_id = request_id
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
     if address:
@@ -279,8 +325,36 @@ def portal_order_place(contract, items, po=None, delivery_date=None, note=None, 
             "against_blanket_order": 1,
         })
     so.flags.ignore_permissions = True
-    so.insert(ignore_permissions=True)
-    return {"sales_order": so.name, "total": float(so.grand_total)}
+    try:
+        so.insert(ignore_permissions=True)
+    except frappe.UniqueValidationError:
+        # Đua: một tiến trình khác vừa ghi xong cùng mã yêu cầu, giữa lúc ta
+        # kiểm ở đầu hàm và lúc ta ghi. Ràng buộc `unique` của CSDL mới là
+        # trọng tài thật — phép kiểm ở đầu hàm chỉ là đường tắt cho trường
+        # hợp thường gặp.
+        #
+        # `UniqueValidationError` chứ KHÔNG phải `DuplicateEntryError`:
+        # `Document.insert` map lỗi 1062 của MariaDB thành cái trước
+        # (`base_document.py:672`); `DuplicateEntryError` dành cho trùng
+        # `name`. Bắt nhầm loại thì nhánh này không bao giờ chạy và tình
+        # huống đua hiện ra thành lỗi 500 cho khách.
+        cu = frappe.db.get_value(
+            "Sales Order",
+            {"custom_request_id": request_id},
+            ["name", "grand_total"],
+            as_dict=True,
+        )
+        if not cu:
+            # Một trường unique KHÁC trên Sales Order bị vi phạm, không phải
+            # mã yêu cầu của ta. Nuốt nó ở đây sẽ biến một lỗi dữ liệu thật
+            # thành "đơn đã tồn tại" — sai và rất khó truy.
+            raise
+        return {
+            "sales_order": cu.name,
+            "da_ton_tai": True,
+            "total": float(cu.grand_total or 0),
+        }
+    return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
 
 
 def _so_status_vi(so_status, per_delivered=None):

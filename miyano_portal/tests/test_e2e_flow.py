@@ -14,7 +14,11 @@ class TestE2EFlow(FrappeTestCase):
         cat = portal.portal_catalog(bo)
         self.assertTrue(cat)
         res = portal.portal_order_place(
-            bo, json.dumps([{"item_code": "VT0005", "qty": 50}]), po="PO-E2E")
+            bo,
+            json.dumps([{"item_code": "VT0005", "qty": 50}]),
+            po="PO-E2E",
+            request_id=frappe.generate_hash(length=12),
+        )
         so = res["sales_order"]
         track = portal.portal_order_track(so)
         self.assertEqual(track["status_vi"], "Chờ xác nhận")
