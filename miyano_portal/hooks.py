@@ -286,21 +286,36 @@ doc_events = {
 # permission_query_conditions. Phải bọc CẢ HAI: `search_link` chỉ gọi
 # `search_widget`, nên bọc một mình nó vẫn hở đường gọi thẳng.
 #
-# NG-37b: `frappe.client.get_list`/`frappe.client.get` trên ba doctype con
-# (Sales Order Item / Delivery Note Item / Sales Invoice Item) chỉ kiểm
-# quyền cha ở MỨC DOCTYPE (`check_parent_permission`, không kèm `doc`), bỏ
-# qua khách hàng của đơn — CÙNG HỌ với NG-37 nhưng là một endpoint khác hẳn.
+# NG-37b: `frappe.client.get_list`/`frappe.client.get` trên MỌI doctype con
+# (`frappe.is_table(doctype)`, không riêng ba doctype PoC gốc — xem Critical
+# C1 dưới đây) chỉ kiểm quyền cha ở MỨC DOCTYPE (`check_parent_permission`,
+# không kèm `doc`), bỏ qua khách hàng của đơn — CÙNG HỌ với NG-37 nhưng là
+# một endpoint khác hẳn.
 #
-# CẢNH BÁO PHẠM VI: hai entry NG-37b dưới đây chỉ đóng được request định
-# tuyến bằng CHUỖI TÊN qua `frappe.override_whitelisted_method()`
-# (`/api/method/...`, `/api/v2/method/...`). `/api/resource/<doctype>` (v1),
-# `/api/v2/document/<doctype>` (v2), và mọi biến thể đọc MỘT bản ghi qua
-# REST (`/api/resource/<doctype>/<name>/`, `/api/v2/document/<doctype>/
-# <name>/`) gọi thẳng hàm gốc bằng THAM CHIẾU PYTHON hoặc đi qua
-# `doc.check_permission()` trực tiếp — KHÔNG đi qua dict này, nên KHÔNG được
-# hai entry dưới đây bảo vệ. Đã xác nhận bằng probe HTTP thật (còn rò rỉ) và
-# ghi vào `docs/CHANGELOG-khac-phuc-BA-v2.md` như một hạng mục sổ theo dõi
-# riêng, chờ quyết định — đọc trước khi tưởng NG-37b đã đóng hẳn lỗ này.
+# review round 1 (2026-08-12): bản vá đầu tiên chỉ liệt kê ba tên (Sales
+# Order Item / Delivery Note Item / Sales Invoice Item) — allow-by-omission
+# trên TRỤC DOCTYPE, fail OPEN với mọi doctype con khác (`Payment Schedule`,
+# `Sales Taxes and Charges`, `Sales Invoice Payment`, `Sales Invoice
+# Advance`, `Packed Item`, `Sales Team`, `Pricing Rule Detail`, ...). Đã sửa
+# thành gate `frappe.is_table(doctype)` trong `client_get_list`/`client_get`
+# — chặn MỌI doctype con cho Website User, không liệt kê tên.
+#
+# CẢNH BÁO PHẠM VI — hai trục KHÁC vẫn còn mở, không thuộc NG-37b (đã duyệt
+# thành NG-37c, xem `docs/CHANGELOG-khac-phuc-BA-v2.md`):
+#   - Trục ROUTE: hai entry NG-37b dưới đây chỉ đóng được request định tuyến
+#     bằng CHUỖI TÊN qua `frappe.override_whitelisted_method()`
+#     (`/api/method/...`, `/api/v2/method/...`). `/api/resource/<doctype>`
+#     (v1), `/api/v2/document/<doctype>` (v2), và mọi biến thể đọc MỘT bản
+#     ghi qua REST (`/api/resource/<doctype>/<name>/`, `/api/v2/document/
+#     <doctype>/<name>/`) gọi thẳng hàm gốc bằng THAM CHIẾU PYTHON hoặc đi
+#     qua `doc.check_permission()` trực tiếp — KHÔNG đi qua dict này, dù
+#     doctype có phải bảng con hay không.
+#   - Trục HÀM: `frappe.client.get_value`/`validate_link`/`has_permission`
+#     không nằm trong dict này — `get_value`/`validate_link` gọi `get_list`
+#     NỘI BỘ của `client.py` (không phải bản override), `has_permission`
+#     dính một biến thể khác của cùng lỗi `has_child_permission()`.
+# Đã xác nhận CẢ HAI trục còn mở bằng probe HTTP thật (còn rò rỉ) — đọc
+# trước khi tưởng NG-37b đã đóng hẳn lỗ này.
 #
 # Xem miyano_portal/search_guard.py cho toàn bộ bốn hàm.
 # ------------------------------------------------------------------

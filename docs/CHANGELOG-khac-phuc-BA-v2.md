@@ -48,8 +48,8 @@ Trạng thái: ⬜ chưa làm · 🟨 đang làm · ✅ xong · ⏸️ hoãn
 | Đợt | Mã | Trạng thái | Ghi chú |
 |---|---|---|---|
 | 1 | NG-37 rò rỉ sổ hoá đơn | ✅ | Phạm vi rộng hơn BA v2: phải bọc **cả** `search_widget`, không chỉ `search_link` |
-| 1 | NG-37b rò rỉ dòng chi tiết chứng từ qua `frappe.client.get_list`/`get` | ✅ (một phần) | Đóng **chỉ** hai route định tuyến bằng chuỗi tên (`/api/method/...`, `/api/v2/method/...`). **CÒN MỞ, đã xác nhận bằng probe HTTP thật**: `/api/resource/<child>` · `/api/v2/document/<child>` (list, bypass override bằng tham chiếu hàm) và `/api/resource/<child>/<name>/` · `/api/v2/document/<child>/<name>/` (đọc đơn, không hề gọi `frappe.client.get`). Xem NG-37c/NG-37d bên dưới và mục nhật ký §4. |
-| 1 | NG-37c rò rỉ cùng họ qua REST `/api/resource` và `/api/v2/document` (list + đọc đơn) | ⬜ | Phát hiện khi làm NG-37b, KHÔNG thuộc phạm vi NG-37b. Đã xác nhận bằng probe HTTP thật trên `erptest.local` (không phải suy luận) — xem §4. Tiền lệ: `supplycore/supplycore/hooks.py:184-186` (`before_request` chặn `/api/resource/<child>/<name>`, nhưng KHÔNG có tiền lệ cho route list `/api/resource/<child>?parent=`). |
+| 1 | NG-37b rò rỉ dòng chi tiết chứng từ qua `frappe.client.get_list`/`get` | ✅ (một phần) | Round 1 (2026-08-12) đóng **chỉ** trục route (hai route định tuyến bằng chuỗi tên) và fail OPEN trên trục doctype (liệt kê 3 tên → Critical C1, xem §4 "Fix round 1"). Round 2 (cùng ngày, sau review) đóng **cả hai trục**: route (`/api/method`, `/api/v2/method`) VÀ doctype (`frappe.is_table`, mọi doctype con). **CÒN MỞ, đã xác nhận bằng probe HTTP thật, trên hai trục KHÁC (route REST, hàm `get_value`/`validate_link`/`has_permission`)** — không phụ thuộc doctype nào: `/api/resource/<child>` · `/api/v2/document/<child>` (list, bypass override bằng tham chiếu hàm) và `/api/resource/<child>/<name>/` · `/api/v2/document/<child>/<name>/` (đọc đơn, không hề gọi `frappe.client.get`). Xem NG-37d bên dưới và mục nhật ký §4. |
+| 1 | NG-37c rò rỉ cùng họ qua REST `/api/resource` và `/api/v2/document` (list + đọc đơn) | ⬜ → **duyệt thành Task 1c** | Phát hiện khi làm NG-37b, KHÔNG thuộc phạm vi NG-37b. Đã xác nhận bằng probe HTTP thật trên `erptest.local` (không phải suy luận) — xem §4. Tiền lệ: `supplycore/supplycore/hooks.py:184-186` (`before_request` chặn `/api/resource/<child>/<name>`, nhưng KHÔNG có tiền lệ cho route list `/api/resource/<child>?parent=`). Reviewer đã xác minh phân tích đúng theo mã nguồn framework — approved thành Task 1c, chờ lên lịch. |
 | 1 | NG-37d rò rỉ/kết quả sai qua `frappe.client.get_value` · `validate_link` · `has_permission` (docname dạng chuỗi) trên 3 doctype con | ⬜ | Phát hiện khi quét Step 7 của NG-37b, KHÔNG thuộc phạm vi. `get_value`/`validate_link` gọi hàm `get_list` NỘI BỘ của `client.py` (không phải bản override) → rò rỉ field value, đã xác nhận bằng probe (`rate` lộ). `has_permission` dùng nhánh docname-chuỗi của `has_child_permission()`, đi qua `frappe._dict` trung gian — `_dict.__getattr__ = dict.get` không bao giờ ném `AttributeError`, nên `getattr(child_doc, "parent_doc", child_doc.parent)` (`permissions.py:841`) vẫn resolve về `None` dù đầu vào không phải Document instance thật. Đã xác nhận bằng probe: `has_permission:True` sai cho dòng hàng của khách khác. |
 | 1 | NG-37e cùng cơ chế có thể áp dụng cho `Blanket Order Item` | ⬜ | Cha `Blanket Order` đã có `blanket_query`/`generic_has_permission` giống ba doctype con NG-37b, nên lý thuyết cùng một lỗ `check_parent_permission` doctype-level. **Chưa xác nhận bằng probe** (ngoài phạm vi NG-37b, không mở rộng brief). Người sau cần kiểm `frappe.get_meta("Blanket Order Item").fields` xem có trường tiền (`rate`/`amount`) hay chỉ số lượng trước khi xếp mức độ nghiêm trọng. |
 | 1 | NG-37f bảo vệ ghi (`bulk_update`/`save` trên doctype con gọi trực tiếp bằng docname) hiện AN TOÀN nhưng KHÔNG theo thiết kế | ⬜ (ghi nhận, không phải lỗ đang mở) | `set_value`/`insert`/`delete` an toàn NHỜ đi qua `.save()`/`.has_permission()` của DOCTYPE CHA thật (đúng `sales_has_permission`, đã xác nhận bằng probe: `PermissionError`/`DoesNotExistError`). `bulk_update` và `save` khi gọi trực tiếp bằng docname của DOCTYPE CON lại kiểm quyền ở MỨC DOCTYPE CON (role permission thô, không theo khách hàng) — hiện chặn được **chỉ vì** role `Customer` tình cờ không có `write` DocPerm trên `Sales Order Item`/`Delivery Note Item`/`Sales Invoice Item`. Nếu sau này ai cấp `write` cho role đó trên một trong ba doctype con (kể cả vô tình, qua Role Permission Manager) thì `bulk_update` cho phép ghi đè `rate`/`qty` của dòng hàng khách KHÁC mà không kiểm chủ sở hữu — leo thang quyền, không phải rò rỉ đọc. Xác nhận bằng probe (`PermissionError` từ `check_doctype_permission`, không phải từ so khớp khách hàng). |
@@ -147,4 +147,63 @@ site thật khi cả chín task xong và bundle đã build. Task 1 · 2 · 10 ·
 - **NG-37e — `Blanket Order Item` chưa xác nhận.** Cha `Blanket Order` cũng có `blanket_query`/`generic_has_permission` giống ba doctype con NG-37b đã vá, nên lý thuyết cùng họ lỗ. KHÔNG thêm vào deny-list của NG-37b vì đó là mở rộng phạm vi âm thầm ngoài ba doctype brief giao — mở dòng riêng, chưa probe.
 - **NG-37f — bảo vệ GHI hiện an toàn nhưng "tình cờ", không theo thiết kế.** Đã probe (an toàn, trong `FrappeTestCase`, rollback theo lớp): `set_value`/`insert`/`delete` trên dòng hàng của khách khác đều bị chặn (`PermissionError`/`DoesNotExistError`) VÌ cả ba đều load DOCTYPE CHA thật rồi gọi `.save()`/`.has_permission("write")` trên đó — đi đúng qua `sales_has_permission` đã có. Nhưng `bulk_update` và `save` khi được gọi TRỰC TIẾP bằng docname của doctype CON (không qua cha) thì kiểm quyền ở MỨC DOCTYPE CON — hiện bị chặn (`check_doctype_permission` → `PermissionError`) chỉ vì role `Customer` tình cờ không có `write` DocPerm trên ba doctype con này. Nếu sau này ai cấp `write` cho role đó (kể cả vô tình) thì `bulk_update`/`save` sẽ cho ghi đè `rate`/`qty` của dòng hàng THUỘC KHÁCH KHÁC mà không kiểm chủ sở hữu — leo thang quyền, đúng loại "tệ hơn rò rỉ" mà brief cảnh báo. Ghi nhận, không sửa (không có write DocPerm nào đang mở để khai thác ngay bây giờ).
 
-**Kết luận trung thực cho người đọc sổ này:** NG-37b đóng đúng hai route mà brief giao (`/api/method`, `/api/v2/method`, cho `get_list`/`get`). **Đường HTTP tổng thể để đọc dòng hàng của khách khác VẪN CÒN MỞ** qua REST (`NG-37c`) và qua `get_value`/`validate_link`/`has_permission` (`NG-37d`) — một kẻ tấn công biết một trong các route này vẫn khai thác được y hệt PoC gốc. Đừng báo cáo lỗ "đã đóng" mà không kèm theo hai dòng này.
+**Kết luận trung thực cho người đọc sổ này (cập nhật sau review round 1 — xem "Fix round 1" bên dưới):** NG-37b đóng đúng hai route mà brief giao (`/api/method`, `/api/v2/method`, cho `get_list`/`get`) — **trên CẢ HAI trục**: trục ROUTE (chỉ hai route đó) VÀ trục DOCTYPE (mọi doctype con `frappe.is_table`, không riêng ba doctype PoC gốc — round 1 chỉ đóng trục route và fail OPEN trên trục doctype, đã sửa thành Critical C1 round 1, xem bên dưới). **Đường HTTP tổng thể để đọc dòng hàng của khách khác VẪN CÒN MỞ trên hai trục KHÁC**, không phụ thuộc doctype nào: REST `/api/resource`/`/api/v2/document` (nay là **Task 1c**, đã duyệt, gộp NG-37c) và `get_value`/`validate_link`/`has_permission` (NG-37d) — một kẻ tấn công biết một trong các route này vẫn khai thác được y hệt PoC gốc, trên bất kỳ doctype con nào, không chỉ ba doctype ban đầu. Đừng báo cáo lỗ "đã đóng" mà không kèm theo hai dòng này.
+
+#### Fix round 1 — review round 1, 2026-08-12 · commit <sha>
+
+**Critical C1 — guard fail OPEN trên trục doctype.** Bản vá NG-37b ban đầu (commit
+`0b3cebb`) dùng deny-set liệt kê tên (`_TU_CHOI_DONG_HANG = {"Sales Order Item",
+"Delivery Note Item", "Sales Invoice Item"}`) — allow-by-omission: MỌI doctype con
+KHÁC ba tên đó vẫn lọt qua nguyên trạng, dù cùng dính một lỗ `check_parent_
+permission()` y hệt. Reviewer probe thật, gọi thẳng wrapper đã vá:
+```
+client_get_list("Payment Schedule", parent="Sales Invoice",
+                fields=["parent","parenttype","payment_amount","outstanding"],
+                limit_page_length=0)   → 26 rows
+  ACC-SINV-2026-00001  13,900,000 / 13,900,000  → Bệnh viện Đa khoa Miyano
+  SAL-ORD-2026-00018    4,394,000 /  4,394,000  → Bệnh viện Đa khoa Minh Đức
+client_get("Payment Schedule", name="2c95j77b6v", parent="Sales Invoice")
+  → {'parent': 'ACC-SINV-2026-00003', 'payment_amount': 14760000.0, 'outstanding': 14760000.0}
+```
+`outstanding` là chính loại field NG-37 tồn tại để chặn. Cũng còn lộ: `Sales Taxes
+and Charges` (`rate`/`tax_amount`/`total`/`base_total`), `Sales Invoice Payment`,
+`Sales Invoice Advance`, `Packed Item`, `Sales Team`, `Pricing Rule Detail`. Reviewer
+còn chỉ ra: `parent=` do client gửi chỉ là CHÌA KHOÁ TRA QUYỀN cho
+`check_parent_permission()`, không phải điều kiện lọc hàng — một `parenttype` mà
+role có read là đủ mở TOÀN BỘ bảng con dùng chung, kể cả dòng thuộc `parenttype`
+khác mà role không có read (thấy rõ trong output trên: gọi `parent="Sales Invoice"`
+nhưng có dòng `parenttype: Sales Order`).
+
+**Sửa:** đổi gate từ `doctype in _TU_CHOI_DONG_HANG` sang `frappe.is_table(doctype)`
+trong cả `client_get_list` và `client_get` — bỏ hẳn deny-set liệt kê tên. Đúng nguyên
+tắc Step 3 của brief ("deny-list role cổng trên endpoint nội bộ, đừng allow-list
+từng hàm") áp dụng luôn cho trục doctype, không chỉ trục hàm.
+
+**Critical C2 (hệ quả C1) — ba chỗ ghi ngược sự thật, sửa cùng lúc:** cập nhật
+`docs/CHANGELOG-khac-phuc-BA-v2.md` (mục này + bảng tiến độ §1 + "Kết luận trung
+thực" ở trên), `miyano_portal/hooks.py` (khối `CẢNH BÁO PHẠM VI`), và docstring đầu
+`miyano_portal/search_guard.py` — cả ba giờ nêu đủ HAI trục còn mở (route, hàm),
+không chỉ liệt kê theo route/hàm như trước khiến người đọc tưởng trục doctype đã an
+toàn.
+
+**Test:** thêm `TestClientGuardC1Regression` (3 test) vào `test_client_guard.py`,
+dùng `Payment Schedule` — CỐ Ý một doctype ngoài tập ba tên cũ, dữ liệu THẬT có sẵn
+trên site, chỉ đọc — để chứng minh gate mới không phụ thuộc danh sách tên lẫn giá
+trị `parent=` client gửi. RED cho C1 KHÔNG tự tái tạo trong task này (bản vá round 1
+đã bị ghi đè trước khi review tới) — bằng chứng RED là probe thật của reviewer,
+trích nguyên văn ở trên.
+
+**Minor bundle (M2-M4):**
+- M2: sửa câu "ba doctype con của bốn doctype cha" ở `search_guard.py` (số đếm sai
+  từ trước, giờ moot vì gate không còn liệt kê tên, nhưng câu văn đã sửa).
+- M3: sửa comment ở `search_guard.py` nói ngược thứ tự thực thi (tưởng framework
+  role-check chạy TRƯỚC wrapper — thực ra wrapper chạy trước, framework check chỉ
+  chạy bên trong nhánh delegate nếu wrapper không chặn). Với gate mới, mọi doctype
+  con của 8 doctype kho cũng bị wrapper tự chặn trực tiếp (không cần lý luận qua
+  vai trò `Customer` thiếu DocPerm nữa) — đơn giản hơn, comment đã viết lại.
+- M4: `test_client_guard.py` thêm tiền điều kiện `frappe.get_all(...) ` không rỗng
+  trước khi assert `client_get_list(...) == []` cho `Delivery Note Item`/`Sales
+  Invoice Item` — tránh pass vô nghĩa nếu site không có dữ liệu.
+- M1: thêm dòng `frappe.client.get_count` vào bảng Step 7 trong `task-1b-report.md`
+  (đã bỏ sót trong báo cáo trước) — reviewer probe: `PermissionError` khi thiếu
+  `parent`, không rò rỉ.

@@ -15,19 +15,33 @@ Chắn CẢ HAI hàm, không chỉ `search_link`: `search_link` chỉ là lớp 
 `search_widget`, nên bọc một mình nó để hở nguyên đường gọi thẳng.
 
 **NG-37b** — `frappe.client.get_list`/`frappe.client.get` gọi
-`check_parent_permission(parent, doctype)` (`db_query.py:1305-1317`) cho ba
-doctype con `Sales Order Item` / `Delivery Note Item` / `Sales Invoice Item`,
-hàm đó chỉ hỏi `has_permission(parent_doctype)` KHÔNG kèm `doc` cụ thể, nên chỉ
-kiểm ở mức doctype và bỏ qua hoàn toàn khách hàng của đơn. Ba doctype con này
-không có entry riêng trong `permission_query_conditions`
-(`hooks.py:131-155`) — hook đó phân giải theo doctype ĐANG được truy vấn,
-không đi ngược lên cha. Kết quả đã chứng minh bằng probe thật trên
-`erptest.local`: một tài khoản cổng đọc được `rate`/`amount` của dòng hàng
-thuộc NĂM khách hàng khác nhau qua `frappe.client.get_list("Sales Order
-Item", parent="Sales Order")`, dù `frappe.get_list("Sales Order")` ở bảng cha
-đã lọc đúng.
+`check_parent_permission(parent, doctype)` (`db_query.py:1305-1317`) cho MỌI
+doctype con (`frappe.is_table(doctype)` đúng), hàm đó chỉ hỏi
+`has_permission(parent_doctype)` KHÔNG kèm `doc` cụ thể — nên chỉ kiểm ở mức
+doctype, bỏ qua hoàn toàn khách hàng của chứng từ, VÀ bỏ qua luôn việc
+`parent=` do client gửi có thực sự khớp `parenttype` của dòng con hay không
+(`parent=` chỉ là chìa khoá tra quyền, không phải điều kiện lọc hàng — một
+doctype con dùng chung nhiều `parenttype`, ví dụ `Payment Schedule` gắn cả
+`Sales Order` lẫn `Sales Invoice`, chỉ cần MỘT `parenttype` mà role có read
+là đủ mở hết). PoC gốc chứng minh bằng ba doctype `Sales Order Item` /
+`Delivery Note Item` / `Sales Invoice Item` — bản vá ĐẦU TIÊN (round 1) chỉ
+chặn đúng ba tên đó theo kiểu allow-omission và **fail OPEN** với mọi doctype
+con khác (Critical C1, review round 1, 2026-08-12): probe thật cho thấy
+`client_get_list("Payment Schedule", parent="Sales Invoice", ...)` vẫn trả
+`outstanding`/`payment_amount` của khách khác — đúng trường NG-37 tồn tại để
+chặn. Còn lộ: `Payment Schedule`, `Sales Taxes and Charges`, `Sales Invoice
+Payment`, `Sales Invoice Advance`, `Packed Item`, `Sales Team`, `Pricing Rule
+Detail`, và bất kỳ doctype con nào khác của bốn doctype cha đã có
+`permission_query_conditions` (`hooks.py:131-155`).
 
-ĐỪNG đăng ký `has_permission` cho ba doctype con này — đó là một chốt chặn
+**Bản vá hiện tại (round 2) chặn theo TRỤC DOCTYPE bằng `frappe.is_table()`,
+không liệt kê tên** — đúng nguyên tắc "deny-list role cổng, đừng allow-list
+từng hàm/tên" mà brief NG-37b đã nêu ở Step 3, áp dụng luôn cho trục doctype
+chứ không chỉ trục hàm (`get_list`/`get`). Không cần danh sách ba/tám/N tên —
+MỌI doctype con (bảng con của bất kỳ doctype cha nào) đều bị chặn cho Website
+User qua hai hàm này, không phụ thuộc `parent=` client gửi là gì.
+
+ĐỪNG đăng ký `has_permission` cho các doctype con này — đó là một chốt chặn
 giả: `frappe.permissions.has_child_permission()` (khi được gọi từ
 `doc.check_permission()`/`frappe.has_permission(doctype, doc=<instance>)`)
 rẽ nhánh sang kiểm quyền CHA trước khi bất kỳ hook `has_permission` đăng ký
@@ -36,26 +50,31 @@ riêng cho doctype con có cơ hội chạy — xem comment dài ở `hooks.py` 
 chế áp dụng ở đây.
 
 **Phạm vi ĐÃ đóng bởi NG-37b (chỉ đọc, xem `client_get_list`/`client_get`
-bên dưới):** `/api/method/frappe.client.get_list`, `/api/method/
-frappe.client.get`, và tương đương `/api/v2/method/...` — mọi request đi qua
-`frappe.override_whitelisted_method()` (`handler.py:67`, `v2.py:36`), tức
-CHỈ những request định danh hàm đích bằng CHUỖI tên đầy đủ.
+bên dưới):** trên hai route `/api/method/frappe.client.get_list`,
+`/api/method/frappe.client.get` (và tương đương `/api/v2/method/...`, mọi
+request đi qua `frappe.override_whitelisted_method()` — `handler.py:67`,
+`v2.py:36`), Website User bị chặn đọc **MỌI doctype con** (không riêng ba
+doctype PoC gốc) — cả trục hàm (chỉ 2 hàm này) lẫn trục doctype (mọi
+`is_table`) đều đã fail-closed.
 
-**Phạm vi CHƯA đóng (đã xác nhận còn rò rỉ bằng probe HTTP thật, ghi trong
-`docs/CHANGELOG-khac-phuc-BA-v2.md`, KHÔNG thuộc NG-37b):**
-- `/api/resource/<doctype>` (v1) và `/api/v2/document/<doctype>` (v2) — cả
-  hai gọi thẳng `frappe.call(frappe.client.get_list, doctype, **form_dict)`
-  bằng THAM CHIẾU HÀM, không qua tra cứu chuỗi tên, nên
-  `override_whitelisted_method()` không bao giờ được gọi tới.
-- `/api/resource/<doctype>/<name>/` (v1) và `/api/v2/document/<doctype>/
-  <name>/` (v2) — không hề gọi `frappe.client.get`, mà gọi thẳng
+**Phạm vi CHƯA đóng — hai trục khác, không thuộc NG-37b (đã duyệt thành
+NG-37c, xem `docs/CHANGELOG-khac-phuc-BA-v2.md`), đã xác nhận bằng probe HTTP
+thật:**
+- **Trục ROUTE**: `/api/resource/<doctype>` (v1) và `/api/v2/document/
+  <doctype>` (v2) gọi thẳng `frappe.call(frappe.client.get_list, doctype,
+  **form_dict)` bằng THAM CHIẾU HÀM, không qua tra cứu chuỗi tên, nên
+  `override_whitelisted_method()` không bao giờ được gọi tới — wrapper dưới
+  đây KHÔNG chạy trên route này, bất kể doctype gì. Tương tự
+  `/api/resource/<doctype>/<name>/` (v1) và `/api/v2/document/<doctype>/
+  <name>/` (v2) không hề gọi `frappe.client.get`, mà gọi thẳng
   `frappe.get_doc()` rồi `doc.has_permission()`/`check_permission()`, cùng
   dính lỗi `getattr(child_doc, "parent_doc", child_doc.parent)` ở
   `permissions.py:841` (thuộc tính `parent_doc` LUÔN tồn tại trên mọi
   `Document`, nên `getattr` không bao giờ rơi về giá trị mặc định).
-- `frappe.client.get_value` — gọi hàm `get_list` NỘI BỘ của chính module
-  `client.py` (tham chiếu Python trực tiếp trong cùng file), không phải bản
-  đã override, nên bọc `frappe.client.get_list` không có tác dụng với nó.
+- **Trục HÀM**: `frappe.client.get_value` — gọi hàm `get_list` NỘI BỘ của
+  chính module `client.py` (tham chiếu Python trực tiếp trong cùng file,
+  không phải bản đã override), nên bọc `frappe.client.get_list` không có tác
+  dụng với nó, DÙ doctype có `is_table` hay không.
 
 Chỉ siết Website User. Nhân viên Miyano ngồi Desk đi thẳng qua bản gốc — đây là
 casualty thường gặp nhất của loại sửa này và nó phải không xảy ra.
@@ -79,31 +98,21 @@ _TU_CHOI = {
     "Customer Stock Lot Balance",
 }
 
-# NG-37b — ba doctype con của bốn doctype cha đã có permission_query_conditions
-# (`hooks.py:131-155`). Đúng bằng phạm vi đã chứng minh có lỗ trên site (xem
-# docstring module) và đúng bằng phạm vi brief giao — CỐ Ý không thêm
-# "Blanket Order Item" dù nó cùng họ (cha `Blanket Order` cũng có
-# `blanket_query`/`generic_has_permission`, nên cùng cơ chế lỗ về lý thuyết):
-# thêm vào đây là mở rộng phạm vi task một cách âm thầm, việc bị cấm rõ trong
-# brief. Đã mở dòng riêng ở sổ theo dõi cho "Blanket Order Item" thay vì lặng
-# lẽ vá thêm ở đây.
-#
-# KHÔNG dùng chung với `_TU_CHOI` ở trên (8 doctype kho) — hai deny-set này
-# bảo vệ hai thứ khác nhau và KHÔNG được gộp. `_TU_CHOI` tồn tại vì
-# `search_link`/`search_widget` gốc có thể ném `PermissionError` tiếng Anh
-# thô cho khách khi role `Customer` không còn DocPerm nào trên 8 doctype kho
-# (vòng 4 kho khách hàng) — `client_get_list`/`client_get` KHÔNG cần thêm
-# entry cho 8 doctype đó: nếu ai gọi `frappe.client.get_list("Customer
-# Warehouse Item", ...)` qua đường này, role check nền tảng (không có DocPerm
-# nào cấp read) đã tự chặn ở `check_doctype_permission`/`check_parent_permission`
-# TRƯỚC khi tới logic của wrapper, và lỗi `PermissionError` đó là hành vi
-# đúng — không cần dịch sang tiếng Việt ở đây vì `frappe.client.*` không phải
-# một ô tìm kiếm UI mà `search_guard.py`'s `_TU_CHOI` phục vụ.
-_TU_CHOI_DONG_HANG = {
-    "Sales Order Item",
-    "Delivery Note Item",
-    "Sales Invoice Item",
-}
+# NG-37b round 1 (2026-08-12) từng dùng một deny-set liệt kê tên
+# ("Sales Order Item"/"Delivery Note Item"/"Sales Invoice Item") ở đây,
+# giống hệt hình dạng `_TU_CHOI` ở trên. Review round 1 tìm ra Critical C1:
+# đó là allow-by-omission trên TRỤC DOCTYPE — mọi doctype con KHÁC ba tên đó
+# (`Payment Schedule`, `Sales Taxes and Charges`, `Sales Invoice Payment`,
+# `Sales Invoice Advance`, `Packed Item`, `Sales Team`, `Pricing Rule
+# Detail`, ...) vẫn lọt qua nguyên trạng, dù cùng một lỗ `check_parent_
+# permission()` y hệt (xem docstring module). `_TU_CHOI` phía trên KHÔNG mắc
+# lỗi này vì nó liệt kê ĐỦ toàn bộ 8 doctype kho hiện có — nhưng "doctype con
+# của một chứng từ bán hàng" là một tập KHÔNG đóng (ERPNext có thể thêm bảng
+# con mới bất kỳ lúc nào qua Custom Field), nên liệt kê tên không bao giờ an
+# toàn cho trục này. Đã bỏ hẳn deny-set liệt kê tên, thay bằng
+# `frappe.is_table(doctype)` ngay trong `client_get_list`/`client_get` bên
+# dưới — deny-list ĐÚNG NGHĨA là "mọi Website User bị chặn trên MỌI doctype
+# con", không phải "chặn những tên tôi nhớ ra".
 
 
 def _la_khach_cong(user: str | None = None) -> bool:
@@ -216,16 +225,28 @@ def search_widget(
 # ---------------------------------------------------------------------------
 # NG-37b — bọc frappe.client.get_list / frappe.client.get
 # ---------------------------------------------------------------------------
-# Nguyên tắc CHẶN THẲNG, không lọc: cổng không có màn nào cần đọc dòng hàng
-# qua hai hàm framework này (đã grep `www/portal` — SPA dùng riêng
-# `miyano_portal/api/portal.py`/`api/kho.py`, không gọi `frappe.client.*`).
-# Nên với Website User, mọi lời gọi trên ba doctype con
-# (`_TU_CHOI_DONG_HANG`) bị chặn hẳn — trả `[]` cho `get_list` (đúng kiểu dữ
-# liệu client mong đợi), ném `frappe.PermissionError` tiếng Việt cho `get`
-# (khớp hành vi `check_parent_permission` gốc vẫn ném `PermissionError` khi
-# thiếu quyền cha, chỉ đổi thông điệp sang tiếng Việt). Với mọi người khác —
-# hoặc Website User gọi doctype KHÁC ba doctype trên — uỷ quyền nguyên trạng
-# cho bản gốc `frappe.client.*`, không đổi hành vi.
+# Nguyên tắc CHẶN THẲNG, không lọc: cổng không có màn nào cần đọc dòng con
+# qua hai hàm framework này (đã grep `www/portal`/`frontend/src` — SPA dùng
+# riêng `miyano_portal/api/portal.py`/`api/kho.py`, không gọi
+# `frappe.client.*`).
+#
+# CHẶN THEO TRỤC DOCTYPE, KHÔNG LIỆT KÊ TÊN (đã sửa sau Critical C1, review
+# round 1): `check_parent_permission()` (`db_query.py:1305-1317`) chỉ kiểm
+# `has_permission(parent)` ở mức doctype cho BẤT KỲ doctype con nào, không
+# riêng ba tên PoC gốc — nên gate đúng là `frappe.is_table(doctype)`, đúng
+# hệt cách framework tự hỏi "đây có phải bảng con không" ở chính
+# `frappe/client.py:50,99` (`if frappe.is_table(doctype): check_parent_
+# permission(...)`). Với Website User: `get_list` trả `[]` (đúng kiểu dữ
+# liệu client mong đợi) cho MỌI doctype con; `get` ném `frappe.PermissionError`
+# tiếng Việt (khớp hành vi `check_parent_permission` gốc vẫn ném
+# `PermissionError` khi thiếu quyền cha, chỉ đổi thông điệp). Với mọi người
+# khác — hoặc Website User gọi doctype KHÔNG PHẢI bảng con — uỷ quyền nguyên
+# trạng cho bản gốc `frappe.client.*`, không đổi hành vi.
+#
+# `parent=` do client gửi KHÔNG được tin để quyết định block hay không — nó
+# chỉ là chìa khoá tra quyền phía framework (và có thể sai/giả, xem
+# `check_parent_permission()`), không phải điều kiện lọc theo hàng. Gate chỉ
+# nhìn `doctype`, không nhìn `parent`.
 #
 # `@frappe.whitelist()` là bắt buộc, không phải trang trí: `execute_cmd()`
 # (`handler.py:65-86`) resolve chuỗi tên qua `override_whitelisted_method()`
@@ -248,7 +269,7 @@ def client_get_list(
     or_filters=None,
     expand=None,
 ):
-    if _la_khach_cong() and doctype in _TU_CHOI_DONG_HANG:
+    if _la_khach_cong() and frappe.is_table(doctype):
         return []
 
     from frappe.client import get_list as _frappe_client_get_list
@@ -271,7 +292,7 @@ def client_get_list(
 
 @frappe.whitelist()
 def client_get(doctype, name=None, filters=None, parent=None):
-    if _la_khach_cong() and doctype in _TU_CHOI_DONG_HANG:
+    if _la_khach_cong() and frappe.is_table(doctype):
         frappe.throw(
             _("Không có quyền truy cập dữ liệu này"), frappe.PermissionError
         )
