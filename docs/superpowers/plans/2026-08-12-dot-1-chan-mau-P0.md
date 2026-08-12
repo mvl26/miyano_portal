@@ -475,6 +475,120 @@ git commit -m "fix(portal): bịt rò rỉ sổ chứng từ giữa các khách 
 
 ---
 
+## Task 1b: NG-37b — rò rỉ dòng hàng qua `frappe.client` trên doctype con
+
+> **Task này không có trong bản plan gốc.** Nó được thêm ngày 2026-08-12 sau khi
+> reviewer của Task 1 chứng minh bằng probe thật trên site rằng còn một lỗ nữa, cùng họ
+> với NG-37 nhưng BA v2 không nêu. Human đã duyệt đưa vào đợt 1.
+
+**Files:**
+- Modify: `miyano_portal/search_guard.py` (thêm hai wrapper), hoặc tách `miyano_portal/client_guard.py` nếu file đầu đã dài
+- Modify: `miyano_portal/hooks.py` (thêm khoá vào `override_whitelisted_methods` **đã mở sẵn** ở Task 1)
+- Test: `miyano_portal/tests/test_search_guard.py` (mở rộng) hoặc module mới
+
+**Interfaces:**
+- Consumes: `search_guard._la_khach_cong()` (Task 1) — **dùng lại**, đừng viết bản thứ hai
+- Produces: wrapper cho `frappe.client.get_list` và `frappe.client.get`
+
+**Lỗ, đã chứng minh trên site.** Với phiên `bvbm@demo.miyano`:
+
+```python
+frappe.client.get_list("Sales Order Item",
+    fields=["parent", "item_code", "rate", "amount"], parent="Sales Order")
+```
+
+trả về dòng hàng — kèm **`rate` và `amount`** — của **năm** khách hàng khác nhau
+(Bạch Mai · Minh Đức · Hùng Vương · Miyano · Himedic), trong khi cùng phiên đó
+`frappe.get_list("Sales Order")` ở tầng cha lọc đúng, chỉ ra Bạch Mai.
+
+**Cơ chế, ba mảnh ghép lại:**
+1. `db_query.py:1305-1317` — `check_parent_permission("Sales Order", …)` chỉ hỏi
+   `has_permission("Sales Order")` **không kèm doc**, nên nó chỉ kiểm quyền ở mức doctype
+   và bỏ qua hoàn toàn việc đơn đó thuộc khách nào.
+2. `hooks.py:131-155` — `Sales Order Item` / `Delivery Note Item` / `Sales Invoice Item`
+   **không có** entry trong `permission_query_conditions`. Hook phân giải theo **doctype
+   đang được truy vấn**, không đi ngược lên cha.
+3. `db_query.py:1004-1008` — `istable` cắt nhánh shared-only trước khi tới chỗ có thể cứu.
+
+Khớp với điều đã ghi trong `frappe-v15-gotchas`: hook `has_permission` **không bao giờ
+chạy** cho doctype `istable`, vì `has_child_permission()` rẽ nhánh sang kiểm cha trước.
+Nghĩa là **đăng ký `has_permission` cho doctype con là một chốt chặn giả** — đừng làm.
+
+**Tiền lệ trên chính bench này.** `supplycore/supplycore/hooks.py:170-175` đã bọc
+`frappe.client.get` đúng vì lý do này; comment của nó nêu đích danh SO Item / DN Item /
+SI Item. **Đọc nó trước khi viết** — dùng lại hình dạng đã được review ở đó thay vì
+phát minh lại.
+
+- [ ] **Step 1: RED — chứng minh lỗ trước khi vá**
+
+Viết test dựng hai khách hàng, mỗi khách một Sales Order nháp có dòng hàng mang `rate`
+khác nhau; đăng nhập khách A; gọi `frappe.client.get_list("Sales Order Item",
+fields=["parent","item_code","rate","amount"], parent="Sales Order")`; assert **không**
+thấy `parent` của khách B. Chạy và xác nhận **FAIL**.
+
+Lặp cho `Delivery Note Item` và `Sales Invoice Item` nếu seed có dữ liệu; nếu không thì
+ghi rõ trong report là chưa dựng lại được và chỉ suy ra từ cùng cơ chế.
+
+Cũng viết một test cho `frappe.client.get` — nó nạp **một** dòng con theo tên hoặc theo
+`filters`, và `parent_doc` phân giải thành `None` nên rơi về kiểm mức doctype. Đây là
+đường thứ hai, không phải cùng một đường với `get_list`.
+
+- [ ] **Step 2: Chạy để thấy FAIL.** Nếu PASS thì **dừng và báo** — test chưa chạm đường dễ tổn thương.
+
+- [ ] **Step 3: Viết wrapper**
+
+Nguyên tắc: **chặn thẳng, đừng lọc.** Cổng không có màn nào cần đọc dòng con qua
+`frappe.client` (SPA dùng endpoint riêng — grep để xác nhận trước khi tin). Nên với
+Website User, mọi lời gọi hai hàm này trên ba doctype con → ném `frappe.PermissionError`
+với thông điệp tiếng Việt, hoặc trả rỗng với `get_list`. Với mọi người khác → uỷ quyền
+nguyên trạng cho bản gốc.
+
+**Deny-list role cổng trên endpoint nội bộ, đừng allow-list từng hàm** — cách đó khiến
+một endpoint mới mặc định bị **chặn** thay vì mặc định **mở**.
+
+Chữ ký phải khớp bản gốc của Frappe từng tham số một; `execute_cmd` lọc kwargs theo chữ
+ký, nên một tham số lệch là một đường đi vòng.
+
+- [ ] **Step 4: Đăng ký trong hooks**
+
+Thêm vào dict `override_whitelisted_methods` **đã có sẵn** từ Task 1 — đừng khai lại biến:
+```python
+	"frappe.client.get_list": "miyano_portal.search_guard.client_get_list",
+	"frappe.client.get": "miyano_portal.search_guard.client_get",
+```
+
+- [ ] **Step 5: `clear-cache` rồi chạy test** — RED phải chuyển GREEN.
+
+- [ ] **Step 6: Kiểm không chặn nhầm Desk**
+
+`sales_user@demo.miyano` (System User thật, **không** dùng Administrator — Administrator
+đi tắt trước cả bước kiểm `user_type` nên test bằng nó không chứng minh gì) phải vẫn
+`frappe.client.get_list("Sales Order Item", …)` được bình thường.
+
+Chạy lại `test_search_guard`, `test_isolation`, `test_portal_read`, `test_kho_isolation`.
+
+- [ ] **Step 7: Quét nốt họ này**
+
+`frappe.client` còn `get_value`, `get_single_value`, `set_value`, `insert`, `delete`,
+`submit`. Với **mỗi** hàm, trả lời: gọi được từ phiên cổng không? có kiểm gì ngoài quyền
+doctype không? Chú ý riêng các hàm **ghi** — không phải rò rỉ mà là leo thang quyền, tệ
+hơn. Ghi kết quả vào sổ theo dõi; **không** sửa cái ngoài phạm vi, mở mã số mới thay vì
+lặng lẽ mở rộng task.
+
+`get_list` và `get_value` được cho là có đi qua `permission_query_conditions` — **xác minh
+điều đó bằng probe**, đừng tin lời.
+
+- [ ] **Step 8: Ghi sổ theo dõi + commit**
+
+Mục sổ theo dõi phải nói rõ đây là **NG-37b, mã mới, không có trong BA v2**, và ghi lại
+kết quả quét Step 7. Cập nhật dòng tracker mà Task 1 đã thêm.
+
+```bash
+git commit -m "fix(portal): chặn rò rỉ dòng hàng qua frappe.client trên doctype con (NG-37b)"
+```
+
+---
+
 ## Task 2: NG-12 — precision 0 cho tiền VND và làm tròn dữ liệu đã có
 
 **Files:**
