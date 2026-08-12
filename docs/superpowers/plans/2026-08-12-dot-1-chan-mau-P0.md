@@ -589,6 +589,120 @@ git commit -m "fix(portal): chặn rò rỉ dòng hàng qua frappe.client trên 
 
 ---
 
+## Task 1c: NG-37c — chặn REST resource/document cho doctype con
+
+> **Cũng không có trong plan gốc.** Thêm 2026-08-12 sau khi implementer Task 1b dùng
+> **curl thật** chứng minh lỗ vẫn mở qua REST dù `/api/method` đã bị chặn. Human duyệt
+> đưa vào đợt 1.
+
+**Files:**
+- Create: `miyano_portal/rest_guard.py` (hoặc thêm vào `search_guard.py` nếu file còn ngắn)
+- Modify: `miyano_portal/hooks.py` — thêm `before_request`
+- Test: `miyano_portal/tests/test_rest_guard.py`
+
+**Interfaces:**
+- Consumes: `search_guard._la_khach_cong()` — **dùng lại**, đừng viết bản thứ ba
+- Produces: `before_request` hook chặn ở mức đường dẫn HTTP
+
+**Vì sao Task 1b không đủ.** `override_whitelisted_methods` chỉ chặn lời gọi phân giải
+**theo tên chuỗi** (`execute_cmd` tra `frappe.whitelisted` rồi `get_attr`). Route REST
+(`frappe/api/v1.py::read_doc`, `frappe/api/v2.py`) gọi hàm **theo tham chiếu** — không đi
+qua bảng tra tên, nên override không bao giờ được hỏi tới. Đây là hạn chế **theo thiết kế**
+của cơ chế override, không phải lỗi cấu hình. Sửa bằng cách thêm khoá vào dict là vô ích.
+
+PoC đã xác nhận bằng curl (xem `task-1b-report.md`): `/api/resource/Sales Order Item?parent=Sales Order`
+vẫn trả `rate` và `amount` của khách khác.
+
+**Khuôn mẫu đã qua review, ở ngay trên bench này.** `supplycore/supplycore/hooks.py:177-186`
++ `supplycore/supplycore/utils/permissions.py:255-299` (`portal_block_rest_child`). **Đọc
+cả hai trước khi viết.** Đừng phát minh lại — port sang, đổi tên doctype và tên role.
+
+Ba điểm thiết kế của bản supplycore, mỗi điểm đều có lý do, **giữ nguyên cả ba**:
+
+1. **Chặn ở `before_request`, không ở tầng permission.** `frappe/app.py::init_request()`
+   gọi `before_request` **sau khi** `HTTPRequest()` đã resume session từ cookie, nên
+   `frappe.session.user` đã là user thật; và **trước khi** request được dispatch tới
+   route handler. Đó là cửa sổ duy nhất chặn được cả hai phiên bản API bằng một chỗ.
+2. **Hook chạy trên MỌI request**, kể cả file tĩnh. Phải **rẻ và an toàn**: return sớm khi
+   thiếu request/session, khi path không chứa `/api/`, khi prefix không khớp, khi doctype
+   không nằm trong danh sách chặn, khi user là Guest. Chỉ throw ở nhánh cuối cùng.
+3. **`unquote(path)` trước khi so prefix.** Tên doctype có dấu cách (`Sales Order Item`)
+   nên URL thật mang `%20`; so chuỗi trên path thô sẽ trượt. Đây là chỗ dễ sót nhất.
+
+**Ba prefix phải phủ** (v1 có hai submount cùng `url_rules`):
+```
+/api/resource/        /api/v1/resource/        /api/v2/document/
+```
+
+**Ba doctype chặn:** `Sales Order Item` · `Delivery Note Item` · `Sales Invoice Item`.
+**Không** đụng REST của doctype **cha** — chúng đã được `permission_query_conditions`
+lọc đúng, chặn thêm sẽ chặn nhầm.
+
+- [ ] **Step 1: RED — PoC bằng HTTP thật, không phải gọi hàm Python**
+
+Đây là điểm khác biệt quan trọng của task này: lỗ nằm ở **tầng định tuyến HTTP**, nên test
+gọi hàm Python trong tiến trình **không chạm tới nó** và sẽ pass vô nghĩa.
+
+Dựng test đăng nhập bằng HTTP thật (`requests` tới `http://erptest.local:8000` hoặc cổng
+bench đang chạy — kiểm `bench serve` / `Procfile` để lấy cổng đúng), lấy cookie phiên của
+`bvbm@demo.miyano`, rồi GET cả **ba** prefix × cả dạng có `<name>` lẫn dạng `?parent=`.
+Assert không thấy dữ liệu của khách khác.
+
+Nếu môi trường test không cho gọi HTTP ra ngoài, thay bằng `frappe.local.request` giả lập
+rồi gọi thẳng hàm hook — **nhưng phải ghi rõ trong report** rằng đây là mô phỏng, và vẫn
+phải xác minh tay bằng curl một lần, dán output vào report.
+
+- [ ] **Step 2: Chạy để thấy FAIL.** PASS ở đây nghĩa là test chưa chạm đường REST — dừng và báo.
+
+- [ ] **Step 3: Port `portal_block_rest_child` sang**
+
+Giữ nguyên cấu trúc return-sớm của bản gốc. Đổi: role → cách `_la_khach_cong()` phân loại
+(app này dùng `user_type == "Website User"`, không dùng tên role); ba tên doctype; thông
+điệp tiếng Việt. Comment giải thích **vì sao chặn ở `before_request` chứ không ở tầng
+permission** — người đọc sau sẽ hỏi đúng câu đó.
+
+- [ ] **Step 4: Đăng ký hook**
+
+```python
+before_request = [
+	"miyano_portal.rest_guard.chan_rest_doctype_con",
+]
+```
+
+- [ ] **Step 5: `clear-cache`, restart bench, chạy lại PoC.** RED → GREEN.
+
+> Hook `before_request` **cần restart** để có hiệu lực, `clear-cache` không đủ.
+
+- [ ] **Step 6: Kiểm không chặn nhầm**
+
+- Doctype **cha** qua REST: khách vẫn đọc được đơn **của mình** — `/api/resource/Sales Order`
+  phải vẫn hoạt động và vẫn lọc đúng theo `permission_query_conditions`.
+- `sales_user@demo.miyano` (System User thật) đọc được cả ba doctype con qua REST bình thường.
+- SPA không hỏng: `grep -rn "api/resource\|api/v2/document" frontend/src/` — nếu có chỗ dùng,
+  **báo trước khi chặn**.
+- Trang tĩnh và trang đăng nhập vẫn tải (hook chạy trên mọi request).
+
+Chạy lại: `test_search_guard`, `test_client_guard`, `test_isolation`, `test_portal_read`, `test_kho_isolation`.
+
+- [ ] **Step 7: Quét nốt NG-37d/e/f**
+
+`task-1b-report.md` còn ghi `frappe.client.get_value`, `validate_link`, `has_permission`.
+Xác định từng cái: đã bị Task 1b/1c chặn chưa, hay còn mở? Nếu còn mở thì **ghi mã số
+riêng**, đừng lặng lẽ mở rộng task. Với `get_value` — nó *được cho là* đi qua
+`permission_query_conditions`; **probe để xác minh**, đừng tin lời.
+
+- [ ] **Step 8: Ghi sổ theo dõi + commit**
+
+Mục sổ phải nói rõ: cơ chế `override_whitelisted_methods` **không** phủ route REST, và vì
+sao. Đây là kiến thức dễ mất nhất trong cả đợt — người sau thấy dict đã có `frappe.client.get`
+sẽ tưởng mọi đường đã bịt.
+
+```bash
+git commit -m "fix(portal): chặn REST resource/document cho doctype con của chứng từ bán hàng (NG-37c)"
+```
+
+---
+
 ## Task 2: NG-12 — precision 0 cho tiền VND và làm tròn dữ liệu đã có
 
 **Files:**
