@@ -798,6 +798,66 @@ git commit -m "fix(portal): chặn REST resource/document cho doctype con của 
 
 ---
 
+## Task 1d: NG-37d — trục HÀM còn lại của `frappe.client`
+
+**Thêm vào kế hoạch ngày 2026-08-12.** NG-37d/e/f/g được phát hiện *sau* khi kế hoạch
+này viết xong (Step 7 của Task 1b, rồi review Task 1c), nên trong file chỉ có một
+checkbox `Step 7: Quét nốt NG-37d/e/f` nằm lọt trong Task 1c và không có mục nào cho
+37g. Task 1d đóng NG-37d; NG-37g xếp cuối đợt (quyết định của chủ đầu tư, 2026-08-12).
+Độc lập với chuỗi 3→9, ship riêng được — cùng họ với Task 1/1b/1c.
+
+**Files:**
+- Modify: `miyano_portal/search_guard.py` (thêm khối `NG-37d` + 3 hàm)
+- Modify: `miyano_portal/hooks.py` (`override_whitelisted_methods`, +3 khoá)
+- Create: `miyano_portal/tests/test_client_value_guard.py`
+
+**Vì sao NG-37b không cứu được ba hàm này.** Chúng gọi lẫn nhau bằng tham chiếu NỘI BỘ
+trong `frappe/client.py` — `validate_link` → `get_value` → `get_list`, cùng một file —
+nên bọc `frappe.client.get_list` không nằm trên đường đi của chúng. Mỗi tên hàm được
+định tuyến từ ngoài vào phải có một lớp bọc riêng. Riêng `has_permission` hở theo cách
+khác: `docname` dạng chuỗi vào `has_child_permission()`, `frappe._dict.__getattr__` là
+`dict.get` nên `getattr(child_doc, "parent_doc", child_doc.parent)` đọc `parent_doc`
+= `None` "thành công" thay vì rơi về mặc định → `doc=None` → suy biến về kiểm mức doctype.
+
+- [x] **Step 1: RED gate — chứng minh lỗ, đừng suy luận từ đọc mã**
+
+Test tạm gọi thẳng ba hàm GỐC dưới phiên `bvbm@demo.miyano`, trên dòng `Sales Order Item`
+thuộc đơn khách khác. Kết quả (2026-08-12, in-process `FrappeTestCase`):
+
+```
+FAIL test_get_value_khong_duoc_tra_dong_hang_khach_khac    AssertionError: PermissionError not raised
+FAIL test_validate_link_khong_duoc_xac_nhan_...            AssertionError: PermissionError not raised
+FAIL test_has_permission_khong_duoc_tra_true_...           AssertionError: True is not false
+```
+
+Cả ba đỏ → tái lập độc lập probe HTTP đã ghi ở §1 sổ theo dõi. Xoá file tạm sau khi vá.
+
+- [x] **Step 2: Ba lớp bọc, gate `is_table`, không liệt kê tên**
+
+`client_get_value` / `client_validate_link` / `client_has_permission`, gate
+`_la_khach_cong() and frappe.is_table(doctype)` — y hệt NG-37b sau Critical C1. Hai hàm
+đọc dữ liệu ném `PermissionError` tiếng Việt; `has_permission` là oracle trả dict nên
+trả `{"has_permission": False}` thay vì ném, giữ đúng hợp đồng kiểu trả về.
+
+- [x] **Step 3: Đăng ký 3 khoá vào `override_whitelisted_methods`** (dict đã mở từ NG-37 — thêm khoá, đừng khai lại biến; nay là 7 khoá)
+
+- [x] **Step 4: Bộ test GREEN + verify**
+
+`test_client_value_guard.py` — 11 test: chặn cả ba hàm; chặn cả dòng của CHÍNH khách gọi
+(chặn thẳng, không lọc); doctype cha vẫn uỷ quyền và lọc đúng (bắt lỗi chặn quá tay);
+Desk user dùng được cả ba; hooks đăng ký đủ; **dispatch thật** `frappe.override_whitelisted_method`
+resolve đúng ba tên. Toàn suite: **379 OK** (368 + 11).
+
+- [x] **Step 5: Probe NG-37e, đóng kèm nếu đã được phủ**
+
+`Blanket Order Item`: `is_table` → `True`, có trường tiền `rate`, 41 dòng thật,
+`client_get_list` → `[]`, `client_get_value` → `PermissionError`. **Đã được gate `is_table`
+phủ từ NG-37b round 2** — lợi tức của việc bỏ deny-list theo tên. Không thêm mã, không sửa gì.
+
+**Còn mở sau task này:** NG-37f (ghi nhận, chưa khai thác được) · NG-37g (cuối đợt).
+
+---
+
 ## Task 2: NG-12 — precision 0 cho tiền VND và làm tròn dữ liệu đã có
 
 **Files:**

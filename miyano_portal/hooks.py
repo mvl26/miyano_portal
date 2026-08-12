@@ -339,6 +339,14 @@ override_whitelisted_methods = {
 	"frappe.desk.search.search_widget": "miyano_portal.search_guard.search_widget",
 	"frappe.client.get_list": "miyano_portal.search_guard.client_get_list",
 	"frappe.client.get": "miyano_portal.search_guard.client_get",
+	# NG-37d — cùng lỗ check_parent_permission, khác đường vào. Ba hàm này
+	# gọi lẫn nhau bằng tham chiếu NỘI BỘ module `frappe/client.py`
+	# (`validate_link` → `get_value` → `get_list` cùng file), nên bọc
+	# `frappe.client.get_list` ở trên KHÔNG cứu được chúng — mỗi tên hàm
+	# định tuyến từ ngoài vào phải có một lớp bọc riêng.
+	"frappe.client.get_value": "miyano_portal.search_guard.client_get_value",
+	"frappe.client.validate_link": "miyano_portal.search_guard.client_validate_link",
+	"frappe.client.has_permission": "miyano_portal.search_guard.client_has_permission",
 }
 # override_doctype_dashboards = {
 # 	"Task": "miyano_portal.task.get_dashboard_data"

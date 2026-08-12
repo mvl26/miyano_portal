@@ -300,3 +300,78 @@ def client_get(doctype, name=None, filters=None, parent=None):
     from frappe.client import get as _frappe_client_get
 
     return _frappe_client_get(doctype, name, filters, parent)
+
+
+# ---------------------------------------------------------------------------
+# NG-37d — bọc frappe.client.get_value / validate_link / has_permission
+# ---------------------------------------------------------------------------
+# TRỤC HÀM còn hở sau NG-37b/NG-37c. Ba hàm này cùng một lỗ
+# `check_parent_permission()` với `get_list`/`get`, nhưng KHÔNG được bản vá
+# NG-37b chạm tới, vì mỗi hàm hở theo một đường riêng:
+#
+# - `get_value` (client.py:146) gọi hàm `get_list` **nội bộ của chính module
+#   `client.py`** — tham chiếu Python trong cùng file, không phải bản đã
+#   `override_whitelisted_method()`. Bọc `frappe.client.get_list` vì thế
+#   không có tác dụng gì với nó.
+# - `validate_link` (client.py:476) gọi `get_value` — cũng tham chiếu nội bộ
+#   cùng file, nên bọc `get_value` ở đây CŨNG không cứu được nó. Phải bọc
+#   riêng, đúng một lớp cho mỗi tên hàm được định tuyến từ ngoài vào.
+# - `has_permission` truyền `docname` dạng CHUỖI vào `has_child_permission()`.
+#   Nhánh đó tưởng an toàn (tự fetch `parent`/`parenttype` thật từ CSDL) nhưng
+#   kết quả fetch là `frappe._dict`, mà `_dict.__getattr__ = dict.get`
+#   (`frappe/types/frappedict.py:5`) không bao giờ ném `AttributeError` — nên
+#   `getattr(child_doc, "parent_doc", child_doc.parent)` (`permissions.py:841`)
+#   đọc được `parent_doc` = `None` "thành công" thay vì rơi về `child_doc.parent`,
+#   rồi resolve `doc=None` và suy biến về kiểm mức doctype. Oracle trả `True`
+#   cho dòng của khách khác.
+#
+# RED gate 2026-08-12 (in-process, `FrappeTestCase`, phiên `bvbm@demo.miyano`,
+# dòng `Sales Order Item` thuộc đơn của khách khác): `get_value` KHÔNG ném
+# `PermissionError`, `validate_link` KHÔNG ném `PermissionError`,
+# `has_permission` trả `True`. Cả ba đều đỏ trước khi vá — tái lập độc lập
+# probe HTTP đã ghi ở §1 sổ theo dõi.
+#
+# Gate giống hệt NG-37b: `_la_khach_cong() and frappe.is_table(doctype)` —
+# chặn theo THUỘC TÍNH, không liệt kê tên doctype (Critical C1). `parent=` do
+# client gửi tiếp tục KHÔNG được tin để quyết định chặn hay không.
+#
+# Hình dạng trả về bám theo hợp đồng của từng hàm, không đổi kiểu dữ liệu:
+# hai hàm đọc dữ liệu ném `PermissionError` (khớp `client_get`), còn
+# `has_permission` là một oracle trả dict nên trả về câu trả lời ĐÚNG
+# (`False`) thay vì ném — người gọi hợp lệ vẫn nhận đúng kiểu.
+@frappe.whitelist()
+def client_get_value(
+    doctype, fieldname, filters=None, as_dict=True, debug=False, parent=None
+):
+    if _la_khach_cong() and frappe.is_table(doctype):
+        frappe.throw(
+            _("Không có quyền truy cập dữ liệu này"), frappe.PermissionError
+        )
+
+    from frappe.client import get_value as _frappe_client_get_value
+
+    return _frappe_client_get_value(
+        doctype, fieldname, filters=filters, as_dict=as_dict, debug=debug, parent=parent
+    )
+
+
+@frappe.whitelist()
+def client_validate_link(doctype: str, docname: str, fields=None):
+    if _la_khach_cong() and frappe.is_table(doctype):
+        frappe.throw(
+            _("Không có quyền truy cập dữ liệu này"), frappe.PermissionError
+        )
+
+    from frappe.client import validate_link as _frappe_client_validate_link
+
+    return _frappe_client_validate_link(doctype, docname, fields)
+
+
+@frappe.whitelist()
+def client_has_permission(doctype: str, docname: str, perm_type: str = "read"):
+    if _la_khach_cong() and frappe.is_table(doctype):
+        return {"has_permission": False}
+
+    from frappe.client import has_permission as _frappe_client_has_permission
+
+    return _frappe_client_has_permission(doctype, docname, perm_type)
