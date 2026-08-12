@@ -121,7 +121,7 @@ site thật khi cả chín task xong và bundle đã build. Task 1 · 2 · 10 ·
 ### NG-37 · Rò rỉ sổ hoá đơn giữa các khách hàng — 2026-08-12 · commit a062f32
 **Trước:** `frappe.desk.search.search_link` và `search_widget` nhận `ignore_user_permissions` từ client và chuyển thẳng xuống `get_list(ignore_permissions=True)`, bỏ qua toàn bộ `permission_query_conditions`. Một tài khoản cổng bất kỳ đọc được `Sales Order` / `Delivery Note` / `Sales Invoice` của khách khác, kèm `grand_total` và `outstanding_amount` qua `filter_fields`.
 **Sau:** Cả hai endpoint được bọc qua `override_whitelisted_methods`. Với Website User: ép `ignore_user_permissions=False` (đây là dòng bịt lỗ thật sự — khôi phục `permission_query_conditions` theo hàng), null `query`/`filter_fields` như phòng thủ theo chiều sâu bổ sung, trả `[]` cho 8 doctype kho, nuốt `PermissionError` thành `[]`. Desk user đi thẳng qua bản gốc, không đổi hành vi.
-**Đụng vào:** `miyano_portal/search_guard.py` (mới) · `miyano_portal/hooks.py:279-288` (mở khối `override_whitelisted_methods`)
+**Đụng vào:** `miyano_portal/search_guard.py` (mới) · `miyano_portal/hooks.py` khối `override_whitelisted_methods` (số dòng đã lệch khỏi 279-288 ban đầu sau khi NG-37b mở rộng comment — dùng `grep -n override_whitelisted_methods` thay vì số dòng cứng)
 **Phá vỡ:** Không. SPA không gọi hai endpoint này (đã grep). Desk không đổi.
 **Test:** `miyano_portal/tests/test_search_guard.py` — 7 test, gồm một test RED đã chứng minh lỗ trước khi vá, một test assert Desk user không bị chặn, một test assert hooks đăng ký đủ cả hai.
 **Cảnh báo chồng lấn:** `override_whitelisted_methods` từ nay **đã mở**. Ai thêm override sau này thì thêm khoá vào cùng dict, đừng khai lại biến.

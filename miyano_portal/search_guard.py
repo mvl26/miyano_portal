@@ -87,6 +87,18 @@ _TU_CHOI = {
 # thêm vào đây là mở rộng phạm vi task một cách âm thầm, việc bị cấm rõ trong
 # brief. Đã mở dòng riêng ở sổ theo dõi cho "Blanket Order Item" thay vì lặng
 # lẽ vá thêm ở đây.
+#
+# KHÔNG dùng chung với `_TU_CHOI` ở trên (8 doctype kho) — hai deny-set này
+# bảo vệ hai thứ khác nhau và KHÔNG được gộp. `_TU_CHOI` tồn tại vì
+# `search_link`/`search_widget` gốc có thể ném `PermissionError` tiếng Anh
+# thô cho khách khi role `Customer` không còn DocPerm nào trên 8 doctype kho
+# (vòng 4 kho khách hàng) — `client_get_list`/`client_get` KHÔNG cần thêm
+# entry cho 8 doctype đó: nếu ai gọi `frappe.client.get_list("Customer
+# Warehouse Item", ...)` qua đường này, role check nền tảng (không có DocPerm
+# nào cấp read) đã tự chặn ở `check_doctype_permission`/`check_parent_permission`
+# TRƯỚC khi tới logic của wrapper, và lỗi `PermissionError` đó là hành vi
+# đúng — không cần dịch sang tiếng Việt ở đây vì `frappe.client.*` không phải
+# một ô tìm kiếm UI mà `search_guard.py`'s `_TU_CHOI` phục vụ.
 _TU_CHOI_DONG_HANG = {
     "Sales Order Item",
     "Delivery Note Item",
