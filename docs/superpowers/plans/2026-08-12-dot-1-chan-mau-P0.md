@@ -634,9 +634,30 @@ Ba điểm thiết kế của bản supplycore, mỗi điểm đều có lý do,
 /api/resource/        /api/v1/resource/        /api/v2/document/
 ```
 
-**Ba doctype chặn:** `Sales Order Item` · `Delivery Note Item` · `Sales Invoice Item`.
+### ⚠️ Chặn theo THUỘC TÍNH, không theo danh sách tên
+
+Bản supplycore dùng một tuple bốn tên doctype. **Đừng port phần đó.** Task 1b đã vấp đúng
+lỗi này và bị review trả về: nó chặn ba tên, và `Payment Schedule` (mang `outstanding`),
+`Sales Taxes and Charges` (mang `rate`, `tax_amount`, `total`) vẫn rò nguyên.
+
+Cơ chế khiến danh sách tên luôn thiếu: `check_parent_permission` chỉ kiểm
+`has_permission(parent)` ở **mức doctype**. Role `Customer` có read trên Sales Order /
+Delivery Note / Sales Invoice, nên **mọi** bảng con của ba doctype đó đều với tới được —
+liệt kê tên là trò đuổi bắt không bao giờ xong. Tệ hơn: một cha đọc được mở khoá bảng con
+**dùng chung** trên mọi `parenttype`, kể cả cha mà `Customer` không có quyền.
+
+Vì vậy điều kiện chặn phải là:
+
+```python
+if _la_khach_cong() and frappe.is_table(doctype):
+```
+
+Website User không có nhu cầu chính đáng nào đọc **bất kỳ** bảng con nào qua REST — SPA
+dùng endpoint riêng (grep `frontend/src/` để xác nhận trước khi tin). Fail-closed theo
+thuộc tính: một doctype con mới thêm sau này mặc định **bị chặn**, không phải mặc định mở.
+
 **Không** đụng REST của doctype **cha** — chúng đã được `permission_query_conditions`
-lọc đúng, chặn thêm sẽ chặn nhầm.
+lọc đúng, chặn thêm sẽ chặn nhầm. `frappe.is_table()` phân biệt sẵn hai loại này.
 
 - [ ] **Step 1: RED — PoC bằng HTTP thật, không phải gọi hàm Python**
 
@@ -648,6 +669,11 @@ bench đang chạy — kiểm `bench serve` / `Procfile` để lấy cổng đú
 `bvbm@demo.miyano`, rồi GET cả **ba** prefix × cả dạng có `<name>` lẫn dạng `?parent=`.
 Assert không thấy dữ liệu của khách khác.
 
+**Ít nhất một ca RED phải dùng doctype con NGOÀI ba tên quen thuộc** — dùng
+`Payment Schedule` với `fields=["parent","parenttype","payment_amount","outstanding"]`.
+Đây chính là ca đã lật tẩy bản vá fail-open của Task 1b; nếu chỉ test ba tên SO/DN/SI Item
+thì một bản vá theo danh sách tên sẽ pass và lỗ vẫn nguyên.
+
 Nếu môi trường test không cho gọi HTTP ra ngoài, thay bằng `frappe.local.request` giả lập
 rồi gọi thẳng hàm hook — **nhưng phải ghi rõ trong report** rằng đây là mô phỏng, và vẫn
 phải xác minh tay bằng curl một lần, dán output vào report.
@@ -656,10 +682,17 @@ phải xác minh tay bằng curl một lần, dán output vào report.
 
 - [ ] **Step 3: Port `portal_block_rest_child` sang**
 
-Giữ nguyên cấu trúc return-sớm của bản gốc. Đổi: role → cách `_la_khach_cong()` phân loại
-(app này dùng `user_type == "Website User"`, không dùng tên role); ba tên doctype; thông
-điệp tiếng Việt. Comment giải thích **vì sao chặn ở `before_request` chứ không ở tầng
-permission** — người đọc sau sẽ hỏi đúng câu đó.
+Giữ nguyên cấu trúc return-sớm của bản gốc và `unquote()`. Đổi ba thứ: phân loại user →
+`_la_khach_cong()` (app này dùng `user_type == "Website User"`, không dùng tên role);
+danh sách tên doctype → `frappe.is_table(doctype)` (xem khối cảnh báo ở trên); thông điệp
+tiếng Việt.
+
+`frappe.is_table()` đọc từ meta cache nên rẻ, nhưng hook này chạy trên **mọi** request —
+đặt nó **sau** mọi bước return sớm (thiếu request, path không chứa `/api/`, prefix không
+khớp, user là Guest, user không phải khách cổng), để request tĩnh không bao giờ chạm tới nó.
+
+Comment giải thích **vì sao chặn ở `before_request` chứ không ở tầng permission** —
+người đọc sau sẽ hỏi đúng câu đó.
 
 - [ ] **Step 4: Đăng ký hook**
 
