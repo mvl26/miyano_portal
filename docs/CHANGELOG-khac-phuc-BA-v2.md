@@ -208,7 +208,7 @@ trích nguyên văn ở trên.
   (đã bỏ sót trong báo cáo trước) — reviewer probe: `PermissionError` khi thiếu
   `parent`, không rò rỉ.
 
-### NG-37c · Chặn REST resource/document cho doctype con — 2026-08-12 · commit <ĐIỀN-SAU>
+### NG-37c · Chặn REST resource/document cho doctype con — 2026-08-12 · commit 040c929
 
 **Trước:** `/api/resource/<doctype>` (v1, hai submount `/api` và `/api/v1`) và
 `/api/v2/document/<doctype>` (v2) gọi thẳng `frappe.client.get_list`/dispatch tới
