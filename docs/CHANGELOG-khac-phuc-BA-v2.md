@@ -113,7 +113,7 @@ site thật khi cả chín task xong và bundle đã build. Task 1 · 2 · 10 ·
 
 ## 4. Nhật ký thay đổi
 
-### NG-37 · Rò rỉ sổ hoá đơn giữa các khách hàng — 2026-08-12 · commit <sha>
+### NG-37 · Rò rỉ sổ hoá đơn giữa các khách hàng — 2026-08-12 · commit a062f32
 **Trước:** `frappe.desk.search.search_link` và `search_widget` nhận `ignore_user_permissions` từ client và chuyển thẳng xuống `get_list(ignore_permissions=True)`, bỏ qua toàn bộ `permission_query_conditions`. Một tài khoản cổng bất kỳ đọc được `Sales Order` / `Delivery Note` / `Sales Invoice` của khách khác, kèm `grand_total` và `outstanding_amount` qua `filter_fields`.
 **Sau:** Cả hai endpoint được bọc qua `override_whitelisted_methods`. Với Website User: ép `ignore_user_permissions=False`, bỏ `query`, bỏ `filter_fields`, trả `[]` cho 8 doctype kho, nuốt `PermissionError` thành `[]`. Desk user đi thẳng qua bản gốc, không đổi hành vi.
 **Đụng vào:** `miyano_portal/search_guard.py` (mới) · `miyano_portal/hooks.py:279-288` (mở khối `override_whitelisted_methods`)
