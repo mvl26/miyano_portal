@@ -59,7 +59,7 @@ import requests
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.setup.seed_demo import DEMO_PASSWORD, seed_demo
-from miyano_portal.tests.test_search_guard import BVBM, USER_BVBM
+from miyano_portal.tests.test_search_guard import BVBM, USER_BVBM, USER_SALES
 
 # Xác nhận bằng `cat Procfile` ("web: bench serve --port 8002"),
 # `sites/common_site_config.json::webserver_port` (8002), và `ss -tlnp`
@@ -250,3 +250,69 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text[:300])
         self.assertNotIn(self.don_khach_khac, resp.text)
+
+
+class TestRestGuardMoPhongHam(FrappeTestCase):
+    """Gọi thẳng `chan_rest_doctype_con()` với `frappe.local.request` giả lập
+    — KHÔNG đi qua HTTP thật.
+
+    Lớp `TestRestGuardChanDoctypeCon` ở trên là bằng chứng CHÍNH (bắt buộc
+    theo brief, vì lỗ nằm ở tầng định tuyến HTTP thật) nhưng nó `skipTest()`
+    vô điều kiện nếu bench không đang chạy ở `BASE_URL` — trên một máy khác,
+    hoặc nếu ai đó vô tình dừng gunicorn giữa chừng, `bench run-tests` báo
+    "OK" trong khi KHÔNG kiểm tra được gì cả (skip không phải fail). Lớp
+    này là lưới an toàn thứ hai: mô phỏng ĐÚNG những gì `frappe/app.py::
+    init_request()` làm trước khi gọi `before_request` (gán `frappe.local.
+    request`, đã có session từ `FrappeTestCase`), rồi gọi thẳng
+    `chan_rest_doctype_con()` — không cần bench đang serve, không bao giờ
+    skip, nhưng cũng KHÔNG thay thế được lớp HTTP thật ở trên (đây là mô
+    phỏng, đúng như brief Step 1 cho phép làm phương án dự phòng — không
+    chứng minh được override `frappe.api.handle()` có thật sự gọi tới hook
+    theo đúng cách framework gọi hay không, chỉ chứng minh BẢN THÂN hàm xử
+    lý đúng logic khi được gọi với input đúng hình dạng)."""
+
+    def setUp(self):
+        seed_demo()
+        self.addCleanup(frappe.set_user, "Administrator")
+        self.addCleanup(setattr, frappe.local, "request", None)
+
+    def _goi_voi_path(self, path: str):
+        frappe.local.request = frappe._dict(path=path)
+        from miyano_portal.rest_guard import chan_rest_doctype_con
+
+        chan_rest_doctype_con()
+
+    def test_chan_doctype_con_ca_ba_prefix(self):
+        frappe.set_user(USER_BVBM)
+        for prefix in _PREFIXES:
+            with self.subTest(prefix=prefix):
+                with self.assertRaises(frappe.PermissionError):
+                    self._goi_voi_path(f"{prefix}Payment Schedule")
+
+    def test_khong_chan_doctype_cha(self):
+        """`Sales Order` không phải bảng con — `is_table()` False — hàm
+        phải return êm, không throw."""
+        frappe.set_user(USER_BVBM)
+        self._goi_voi_path("/api/resource/Sales Order")  # không raise
+
+    def test_khong_chan_desk_user(self):
+        frappe.set_user(USER_SALES)
+        self._goi_voi_path("/api/resource/Payment Schedule")  # không raise
+
+    def test_khong_chan_guest(self):
+        frappe.set_user("Guest")
+        self._goi_voi_path("/api/resource/Payment Schedule")  # không raise
+
+    def test_khong_chan_path_tinh(self):
+        """Path không chứa `/api/` (file tĩnh, trang SPA) — return sớm nhất,
+        không chạm `frappe.is_table()`."""
+        frappe.set_user(USER_BVBM)
+        self._goi_voi_path("/assets/miyano_portal/css/app.css")  # không raise
+        self._goi_voi_path("/portal/login")  # không raise
+
+    def test_khong_chan_thieu_request(self):
+        frappe.set_user(USER_BVBM)
+        frappe.local.request = None
+        from miyano_portal.rest_guard import chan_rest_doctype_con
+
+        chan_rest_doctype_con()  # không raise — return sớm nhất

@@ -86,6 +86,23 @@ loại này (doctype cha có `istable=0`), và doctype cha đã được
 thêm ở đây sẽ chặn NHẦM khách đọc đơn của chính họ qua
 `/api/resource/Sales Order`.
 
+**Giới hạn đã biết, CHƯA đóng (NG-37g, xem `docs/CHANGELOG-khac-phuc-BA-v2.md`):**
+`frappe/app.py::application()` gọi `init_request(request)` (vòng lặp `before_request`
+nằm TRONG hàm đó) RỒI MỚI gọi `validate_auth()` — hàm phân giải header
+`Authorization: token <api_key>:<api_secret>`. Với request xác thực bằng API key
+(không có cookie `sid`), tại thời điểm hook này chạy, `frappe.session.user` vẫn là
+`"Guest"` (chưa được `validate_auth()` gán) → nhánh return-sớm `user == "Guest"`
+bên dưới tự thoát, KHÔNG chặn. Đã xác nhận bằng probe HTTP thật (cấp API key cho
+`bvbm@demo.miyano` bằng quyền Administrator, gọi REST child doctype kèm header
+`Authorization` thay vì cookie → lộ nguyên vẹn). Rủi ro hiện TIỀM ẨN, không phải
+đang bị khai thác: SPA chỉ dùng cookie, và không portal Website User nào trên
+`erptest.local` có API key trước khi probe (cấp API key đòi `frappe.only_for(
+"System Manager")`, khách cổng không tự cấp được). Kế thừa từ mẫu supplycore
+(`portal_block_rest_child`, docstring gốc không nhắc `validate_auth()`), không
+phải lỗi riêng của lần port này — KHÔNG tự sửa ở đây, đổi thứ tự
+`init_request()`/`validate_auth()` là thay đổi hành vi framework, ngoài phạm vi
+NG-37c.
+
 `before_request` chạy trên MỌI request Frappe xử lý, kể cả file tĩnh (CSS,
 JS, ảnh, trang HTML của SPA) và trang đăng nhập — PHẢI rẻ và an toàn: return
 sớm ở MỌI bước trước khi chạm `frappe.is_table()` (thiếu request, path
