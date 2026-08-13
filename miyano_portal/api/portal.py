@@ -496,6 +496,18 @@ def _invoice_status_vi(status):
     return INVOICE_STATUS_VI.get(status, status)
 
 
+def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
+    """US-E3.4 (FormSpec F-07 khối đợt giao): ba trạng thái đúng nguyên văn
+    AC — "Nháp" (client tự ghép thành "Phiếu nhập PNK-xxx — Nháp, chờ kiểm
+    nhận" kèm link), "Đã ghi sổ", hoặc "Có chênh lệch ⚠" (docstatus=1 VÀ
+    co_chenh_lech — ghi đè "Đã ghi sổ" vì đây là tín hiệu khách CẦN thấy
+    ngay, không phải một chi tiết phụ). docstatus=2 (đã huỷ) không tới được
+    hàm này — receipts_by_dn ở portal_order_track chỉ lấy docstatus < 2."""
+    if docstatus == 0:
+        return "Nháp"
+    return "Có chênh lệch ⚠" if co_chenh_lech else "Đã ghi sổ"
+
+
 @frappe.whitelist()
 def portal_order_history(limit=20, start=0) -> list:
     rows = frappe.get_list(
@@ -532,14 +544,44 @@ def portal_order_track(order) -> dict:
     # Delivery Notes fulfilling this Sales Order. Delivery Note Item carries
     # against_sales_order; distinct parents give the batches ("đợt giao"). The
     # SO was already permission-checked above, so its own DNs are in scope.
+    # order_by=creation: so "Đợt n" (array index, see OrderDetail.vue) reads
+    # in the order the DNs actually happened, not arbitrary row order.
     total_qty = sum(float(i.qty or 0) for i in so.items) or 0
     dn_names = frappe.get_all(
         "Delivery Note Item",
         filters={"against_sales_order": so.name, "docstatus": ["<", 2]},
         pluck="parent",
+        order_by="creation asc",
     )
+    dn_names = list(dict.fromkeys(dn_names))
+
+    # US-E3.4 — trạng thái phiếu nhập chỉ hiện khi khách CÓ kho (không dùng
+    # get_portal_kho(): hàm đó ném PermissionError khi khách chưa mở kho, mà
+    # phần lớn khách hàng portal KHÔNG có kho — đây không phải một tình huống
+    # ngoại lệ cho endpoint này). `active: 1` khớp đúng định nghĩa "có kho"
+    # mà get_portal_kho()/delivery_hook._kho_cua_khach() đã dùng ở mọi nơi
+    # khác trong app — một kho đã tắt được coi như "không có kho" ở đây,
+    # nhất quán với việc hook cũng ngừng tự sinh phiếu cho kho đó.
+    kho = frappe.db.get_value("Customer Warehouse", {"customer": so.customer, "active": 1}, "name")
+    receipts_by_dn = {}
+    if kho and dn_names:
+        for r in frappe.get_all(
+            "Customer Stock Receipt",
+            filters={"kho": kho, "delivery_note": ["in", dn_names], "docstatus": ["<", 2]},
+            fields=["name", "delivery_note", "docstatus", "co_chenh_lech", "so_dot"],
+        ):
+            receipts_by_dn[r.delivery_note] = r
+
+    # `deliveries` (đã có [Hiện có]) và `dot_giao` (mới, đúng chữ ký
+    # `30_API_Spec` §1.2) dựng từ CÙNG một vòng lặp/CÙNG một nguồn — hai key
+    # riêng trên response, không phải `"dot_giao": deliveries` (alias thẳng
+    # object sẽ dính bug nếu một bên bị sửa tại chỗ sau này) và KHÔNG PHẢI
+    # hai khối UI song song: OrderDetail.vue chỉ đọc `deliveries` (đã mở
+    # rộng thêm so_dot/phieu_nhap ở đó), `dot_giao` tồn tại để đúng hợp đồng
+    # API cho các bên gọi khác (client tương lai, kiểm thử theo đặc tả).
     deliveries = []
-    for dn_name in list(dict.fromkeys(dn_names)):
+    dot_giao = []
+    for dn_name in dn_names:
         dn = frappe.db.get_value(
             "Delivery Note", dn_name,
             ["name", "posting_date", "status", "lr_no", "transporter_name"],
@@ -553,14 +595,44 @@ def portal_order_track(order) -> dict:
             (dn_name, so.name),
         )[0][0]
         pct = round(float(dn_qty or 0) / total_qty * 100, 1) if total_qty else 0
-        deliveries.append({
+
+        receipt = receipts_by_dn.get(dn_name)
+        # so_dot lưu DB thành 0 khi "không xác định" (Int không nullable —
+        # bàn giao Phần A), không phải "đợt 0" — trả None cho client thay vì
+        # con số 0 gây hiểu lầm.
+        so_dot = (receipt.so_dot or None) if receipt else None
+        phieu_nhap = None
+        if receipt:
+            phieu_nhap = {
+                "name": receipt.name,
+                "trang_thai": _phieu_nhap_trang_thai_vi(int(receipt.docstatus), receipt.co_chenh_lech),
+                "co_chenh_lech": bool(receipt.co_chenh_lech),
+            }
+
+        row = {
             "name": dn["name"],
             "posting_date": dn.get("posting_date"),
             "status": dn.get("status"),
             "percent": pct,
             "carrier": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
-        })
+        }
+        if receipt:
+            row["so_dot"] = so_dot
+            row["phieu_nhap"] = phieu_nhap
+        deliveries.append(row)
+
+        dot = {
+            "so_dot": so_dot,
+            "delivery_note": dn["name"],
+            "ngay": dn.get("posting_date"),
+            "phan_tram": pct,
+            "van_chuyen": dn.get("transporter_name") or "",
+            "awb": dn.get("lr_no") or "",
+        }
+        if phieu_nhap:
+            dot["phieu_nhap"] = phieu_nhap
+        dot_giao.append(dot)
 
     return {
         "order": so.name,
@@ -580,6 +652,9 @@ def portal_order_track(order) -> dict:
             for i in so.items
         ],
         "deliveries": deliveries,
+        # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
+        # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
+        "dot_giao": dot_giao,
     }
 
 

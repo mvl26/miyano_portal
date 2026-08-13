@@ -195,6 +195,22 @@ onMounted(load)
                 <template v-if="d.carrier"> · {{ d.carrier }}</template>
                 <template v-if="d.awb"> · Vận đơn: {{ d.awb }}</template>
               </p>
+              <!-- US-E3.4 (F-07 khối đợt giao) — chỉ hiện khi khách có kho
+                   (server chỉ trả d.phieu_nhap trong trường hợp đó). -->
+              <p v-if="d.phieu_nhap" class="tag" style="margin-top: 2px">
+                Phiếu nhập:
+                <router-link
+                  v-if="d.phieu_nhap.trang_thai === 'Nháp'"
+                  :to="`/kho/nhap/${d.phieu_nhap.name}`"
+                  style="text-decoration: underline"
+                >
+                  {{ d.phieu_nhap.name }} — Nháp, chờ kiểm nhận
+                </router-link>
+                <span v-else-if="d.phieu_nhap.co_chenh_lech" style="color: var(--red); font-weight: 600">
+                  {{ d.phieu_nhap.name }} — Có chênh lệch ⚠
+                </span>
+                <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
+              </p>
               <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
                 <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ i + 1 }}</button>
               </a>
