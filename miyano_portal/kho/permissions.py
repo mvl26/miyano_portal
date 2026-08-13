@@ -71,6 +71,12 @@ def lot_query(user=None) -> str:
 	return _kho_condition("Customer Stock Lot Balance", user)
 
 
+def ncc_query(user=None) -> str:
+	"""E4: Customer Supplier mang field `kho` riêng (không phải kho tự nó),
+	nên lọc đúng khuôn _kho_condition() như Customer Warehouse Item."""
+	return _kho_condition("Customer Supplier", user)
+
+
 def kho_has_permission(doc, ptype=None, user=None) -> bool:
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):

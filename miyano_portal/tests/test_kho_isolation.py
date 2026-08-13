@@ -39,7 +39,7 @@ STAFF_ROLES = ["System Manager", "Sales Manager", "Sales User"]
 # của tính năng kho — mọi doctype kho, hiện tại và tương lai, đều bắt đầu bằng
 # một trong hai.
 KHO_MODULE = "Miyano Portal"
-KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
+KHO_PREFIXES = ("Customer Warehouse", "Customer Stock", "Customer Supplier")
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
 # sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
@@ -214,6 +214,24 @@ def _make_issue(kho, vat_tu, so_lo):
     return doc
 
 
+def _make_ncc(kho, ten):
+    """Idempotent, giống _ensure_kho/_ensure_vat_tu trong seed_kho_demo.py:
+    FrappeTestCase chỉ rollback một lần mỗi CLASS (không phải mỗi test), nên
+    setUp chạy lại nhiều lần trong cùng một class với cùng tên `ten` — tạo vô
+    điều kiện sẽ tự đụng chốt chặn trùng tên (BR-N3) của chính doctype này ở
+    lần setUp thứ hai."""
+    existing = frappe.db.get_value("Customer Supplier", {"kho": kho, "ten_ncc": ten}, "name")
+    if existing:
+        return frappe.get_doc("Customer Supplier", existing)
+    doc = frappe.get_doc({
+        "doctype": "Customer Supplier",
+        "kho": kho,
+        "ten_ncc": ten,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
 def _ensure_staff_user():
     """Nhân viên Miyano ngồi desk: System User + role System Manager,
     KHÔNG phải Website User và KHÔNG có role Customer."""
@@ -342,7 +360,7 @@ class TestKhoIsolation(FrappeTestCase):
         for fn in [
             kho_perms.kho_query, kho_perms.vat_tu_query,
             kho_perms.receipt_query, kho_perms.issue_query,
-            kho_perms.sle_query, kho_perms.lot_query,
+            kho_perms.sle_query, kho_perms.lot_query, kho_perms.ncc_query,
             kho_perms.receipt_item_query, kho_perms.issue_item_query,
         ]:
             with self.subTest(fn=fn.__name__):
@@ -569,6 +587,10 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Lot Balance", {"kho": self.kho["kho_bm"]}, "name"
         )
 
+        # E4: NCC của kho — doctype kho cha thứ bảy, mang field `kho` riêng.
+        self.ncc_bm = _make_ncc(self.kho["kho_bm"], "NCC BM Test")
+        self.ncc_pxn = _make_ncc(self.kho["kho_pxn"], "NCC PXN Test")
+
         # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
@@ -577,6 +599,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Issue": self.issue_pxn.name,
             "Customer Stock Ledger Entry": self.sle_pxn,
             "Customer Stock Lot Balance": self.lot_pxn,
+            "Customer Supplier": self.ncc_pxn.name,
         }
         # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
@@ -589,6 +612,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Issue": self.issue_bm.name,
             "Customer Stock Ledger Entry": self.sle_bm,
             "Customer Stock Lot Balance": self.lot_bm,
+            "Customer Supplier": self.ncc_bm.name,
         }
         for nhan, m in (("pxn_records", self.pxn_records),
                         ("bm_records", self.bm_records)):
@@ -1118,6 +1142,8 @@ class _KhoVoucherFixture(FrappeTestCase):
         self.receipt_pxn = _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
         self.issue_bm = _make_issue(self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A")
         self.issue_pxn = _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
+        self.ncc_bm = _make_ncc(self.kho["kho_bm"], "NCC BM Test")
+        self.ncc_pxn = _make_ncc(self.kho["kho_pxn"], "NCC PXN Test")
 
         self.child_rows = {
             "Customer Stock Receipt Item": {
@@ -1365,6 +1391,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
                 frappe.db.get_value("Customer Stock Lot Balance",
                                     {"kho": self.kho["kho_pxn"]}, "name"),
             ),
+            "Customer Supplier": (self.ncc_bm.name, self.ncc_pxn.name),
         }
         _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():
