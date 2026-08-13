@@ -263,23 +263,14 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"miyano_portal.tasks.all"
-# 	],
-# 	"daily": [
-# 		"miyano_portal.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"miyano_portal.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"miyano_portal.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"miyano_portal.tasks.monthly"
-# 	],
-# }
+# NL-2.6 / US-E2.3 — đơn treo quá SLA thì leo thang cho Sales Manager.
+# Xem docstring `portal_sla.quet_don_treo` cho quy tắc chống spam (tối đa một
+# lần nhắc mỗi đơn mỗi ngày, dù job này chạy mỗi giờ).
+scheduler_events = {
+	"hourly": [
+		"miyano_portal.portal_sla.quet_don_treo",
+	],
+}
 
 # Testing
 # -------
