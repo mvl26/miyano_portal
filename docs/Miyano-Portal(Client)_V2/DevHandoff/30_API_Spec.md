@@ -83,7 +83,7 @@ Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn 
   "thuoc_hdnt": false, "co_gia": true}] }` — `thuoc_hdnt: true` → client disable (BR-R7);
 `co_gia: false` → hiện nút Yêu cầu báo giá.
 
-### 2.3 `portal_yeu_cau_save(data)` / `portal_yeu_cau_list(trang_thai=None)` / `portal_yeu_cau_cancel(name, ly_do)` / `portal_yeu_cau_tra_loi(name, noi_dung)` (E6)
+### 2.3 `portal_yeu_cau_save(data)` / `portal_yeu_cau_list(trang_thai=None)` / `portal_yeu_cau_detail(name)` / `portal_yeu_cau_cancel(name, ly_do)` / `portal_yeu_cau_tra_loi(name, noi_dung)` / `portal_yeu_cau_file(name, file_name)` (E6)
 ```jsonc
 // save Request (tạo mới hoặc sửa khi trạng thái "Mới"; file_urls: đã tải lên trước qua
 // /api/method/upload_file?is_private=1 chuẩn Frappe, endpoint chỉ kiểm sở hữu/định dạng/
@@ -95,11 +95,23 @@ Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn 
 // save Response: { "name": "YCH-00007", "canh_bao_trung": ["YCH-00003"] }   // NL-11.1, không chặn
 // list Response: [ { "name","ngay","ten_hang","loai","so_luong_du_kien","trang_thai",
 //                    "sla_den_han","qua_sla": false, "don_lien_ket": null } ]
+// detail (BỔ SUNG — review phần A, F-2): F-23 cần đọc phan_hoi/gia_bao/lead_time_ngay/
+// ly_do_khong_dap_ung + chuỗi comment + đính kèm, không field nào có trong list Response.
+// Response: { ...toàn bộ field save Request..., "trang_thai","sla_den_han","phan_hoi","gia_bao",
+//   "lead_time_ngay","item_lien_ket","don_lien_ket","ly_do_khong_dap_ung",
+//   "binh_luan": [{"content","comment_by","owner","creation"}],
+//   "dinh_kem": [{"name": "<File docname>", "file_name": "que-thu-hba1c.pdf"}] }
 // cancel: chỉ khi trạng thái chưa kết thúc; ly_do bắt buộc → trạng thái "Khách huỷ"
 // tra_loi (BỔ SUNG — thiếu ở bản trước của tài liệu này; xem DataDict §1.2 "Comment 2
 // chiều: dùng Comment chuẩn trên doctype, lộ qua endpoint" và BA §4.11/NL-11.3): khách trả
 // lời câu hỏi của Miyano trên F-23; nếu trạng thái đang "Cần thêm thông tin" thì SAU khi ghi
 // comment, tự chuyển về "Đang tìm nguồn" (BR-Y1). Response: { "trang_thai": "Đang tìm nguồn" }
+// file (BỔ SUNG — review phần A, F-3): tải một đính kèm của yêu cầu. `file_name` là File
+// docname lấy từ `dinh_kem[].name` của detail — KHÔNG PHẢI file_url (nhiều File.name có thể
+// trỏ chung một file_url do Frappe gộp theo nội dung trùng, xem F-5 nội bộ). Kiểm theo
+// CUSTOMER của yêu cầu (không theo File.owner) — mọi user portal của cùng khách hàng
+// (portal_provision cấp nhiều user cho một Customer) đọc được, đúng BR-Y5. Trả file nhị phân
+// (Content-Disposition attachment), không trả JSON.
 ```
 
 ### 2.4 `portal_order_accept(order, action, ly_do=None)` (E2/E6)

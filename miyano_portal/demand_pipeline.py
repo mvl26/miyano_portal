@@ -15,9 +15,15 @@ desk khác của app này.
 import frappe
 from frappe.utils import get_datetime
 
-TRANG_THAI_KET_THUC = (
-	"Đã chuyển thành đơn", "Không đáp ứng được", "Khách huỷ", "Hết hạn",
+# F-6 (review) — KHÔNG khai lại tuple này: bản gốc sống trong controller
+# (portal_item_request.py), api/portal.py đã import từ đó cho NL-11.1; một
+# bản sao thứ hai ở đây từng lệch âm thầm nếu ai đó thêm trạng thái kết thúc
+# thứ năm mà quên sửa cả hai chỗ — mẫu số tỷ lệ chuyển đơn sẽ sai trong khi
+# mọi test (dựng dict tay) vẫn xanh.
+from miyano_portal.miyano_portal.doctype.portal_item_request.portal_item_request import (
+	TRANG_THAI_KET_THUC,
 )
+
 TRANG_THAI_CHUYEN_DON = "Đã chuyển thành đơn"
 
 
@@ -84,6 +90,14 @@ def yeu_cau_rows(
 		d["ket_thuc"] = 1 if ket_thuc else 0
 		d["da_chuyen_don"] = 1 if d["trang_thai"] == TRANG_THAI_CHUYEN_DON else 0
 		if ket_thuc:
+			# NỢ ĐÃ BIẾT (review, không sửa ở lần này): `modified` là mốc gần
+			# đúng cho "lúc đóng", không phải mốc THẬT — một nhân viên sửa
+			# ghi chú/field khác SAU KHI yêu cầu đã ở trạng thái kết thúc sẽ
+			# thổi phồng con số này. Muốn đúng tuyệt đối cần một field riêng
+			# ghi lại đúng lúc trang_thai đổi sang kết thúc (event log hoặc
+			# cột `ket_thuc_luc`), ngoài phạm vi bản vá này. Cùng nợ với
+			# "Đơn chậm xử lý" (patches/v1_4/tao_bao_cao_don_cham.py), vốn
+			# cũng dùng timestampdiff trên mốc gần đúng cho mục đích tương tự.
 			gio = (
 				get_datetime(d["modified"]) - get_datetime(d["creation"])
 			).total_seconds() / 3600.0

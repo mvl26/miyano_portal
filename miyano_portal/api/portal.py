@@ -955,6 +955,62 @@ def portal_yeu_cau_list(trang_thai=None) -> list:
     return out
 
 
+@frappe.whitelist()
+def portal_yeu_cau_detail(name) -> dict:
+    """F-2 (review) — F-23 (chi tiết yêu cầu) cần đọc `phan_hoi`, `gia_bao`,
+    `lead_time_ngay`, `ly_do_khong_dap_ung`, chuỗi comment và danh sách đính
+    kèm — không field nào trong số đó có trong `portal_yeu_cau_list`.
+    Không có endpoint này, `portal_yeu_cau_tra_loi` chỉ có chiều GHI: email
+    "Cần thêm thông tin" báo khách "xem chi tiết trên cổng khách hàng" nhưng
+    không API nào trả lại câu hỏi để khách xem trước khi trả lời.
+
+    Đính kèm trả về THEO TÊN FILE (`File.name`), KHÔNG kèm `file_url` — xem
+    `portal_yeu_cau_file` bên dưới: F-5 cho thấy `file_url` không phải khoá
+    tra AN TOÀN cho một bản ghi đính kèm cụ thể (nhiều `File.name` có thể
+    trỏ chung một `file_url` do Frappe gộp theo nội dung), và một `file_url`
+    riêng tư lộ ra ngoài cũng vô dụng với khách: `/private/files/...` chỉ
+    render được cho đúng `File.owner`, trong khi BR-Y5 đòi hỏi MỌI user
+    portal của cùng khách hàng đọc được (F-3)."""
+    customer = get_portal_customer()
+    doc = _yeu_cau_cua_khach(name, customer)
+
+    binh_luan = frappe.get_all(
+        "Comment",
+        filters={"reference_doctype": "Portal Item Request", "reference_name": name},
+        fields=["content", "comment_by", "owner", "creation"],
+        order_by="creation asc",
+    )
+    dinh_kem = frappe.get_all(
+        "File",
+        filters={"attached_to_doctype": "Portal Item Request", "attached_to_name": name},
+        fields=["name", "file_name"],
+        order_by="creation asc",
+    )
+    return {
+        "name": doc.name,
+        "loai": doc.loai,
+        "ten_hang": doc.ten_hang,
+        "quy_cach": doc.quy_cach,
+        "dvt": doc.dvt,
+        "so_luong_du_kien": doc.so_luong_du_kien,
+        "tan_suat": doc.tan_suat,
+        "chu_ky_thang": doc.chu_ky_thang,
+        "ngay_can": doc.ngay_can,
+        "hang_xuat_xu": doc.hang_xuat_xu,
+        "ghi_chu": doc.ghi_chu,
+        "trang_thai": doc.trang_thai,
+        "sla_den_han": doc.sla_den_han,
+        "phan_hoi": doc.phan_hoi,
+        "gia_bao": doc.gia_bao,
+        "lead_time_ngay": doc.lead_time_ngay,
+        "item_lien_ket": doc.item_lien_ket,
+        "don_lien_ket": doc.don_lien_ket,
+        "ly_do_khong_dap_ung": doc.ly_do_khong_dap_ung,
+        "binh_luan": binh_luan,
+        "dinh_kem": dinh_kem,
+    }
+
+
 def _dem_dinh_kem_hien_co(name) -> int:
     if not name:
         return 0
@@ -964,39 +1020,84 @@ def _dem_dinh_kem_hien_co(name) -> int:
     )
 
 
-def _resolve_owned_attachment(file_url: str):
+def _resolve_owned_attachment(file_url: str, doc_name: str | None):
     """NL-11.6/BR-Y5 — nạp một `File` do CHÍNH người gọi vừa tải lên (chuẩn
     Frappe `/api/method/upload_file?is_private=1`), kiểm sở hữu + định dạng +
     kích thước + riêng tư.
 
-    Cùng khuôn `_resolve_owned_spreadsheet` trong api/kho.py: tra `name` bằng
-    `frappe.db.get_value` TRƯỚC `frappe.get_doc` để không lộ lỗi tiếng Anh
-    của DoesNotExistError; sở hữu so bằng `owner` tường minh, KHÔNG bằng
-    `check_permission()` (File dùng tầng quyền chung của Frappe, không thuộc
-    nhóm doctype đã gỡ DocPerm ở app này).
+    `doc_name`: tên `Portal Item Request` đang tạo/sửa (None khi tạo mới).
+    Dùng để phân biệt "đã gắn đúng vào yêu cầu này" (idempotent, cho qua) với
+    "đã gắn vào một yêu cầu KHÁC" (từ chối) — xem giải thích dedup bên dưới.
+
+    F-5 (review) — KHÔNG tra theo `file_url` một mình: `File.
+    validate_duplicate_entry()` gộp NHIỀU `File.name` khác nhau vào CHUNG một
+    `file_url` khi nội dung trùng `content_hash` (không phân biệt owner hay
+    lần upload). Bản trước tra `frappe.db.get_value("File", {"file_url":
+    url}, "name")` không `ORDER BY` — với cùng một khách, hai lần tải lên
+    trùng byte ở hai yêu cầu khác nhau có thể khiến lần sau DỜI đính kèm của
+    yêu cầu trước sang yêu cầu đang sửa (mất dữ liệu âm thầm); với hai khách
+    khác nhau tải trùng một tài liệu công khai của hãng, khách sau có thể bị
+    chặn nhầm bởi bản ghi của khách trước. Sửa bằng CẢ HAI: (1) lọc thêm
+    `owner=phiên hiện tại` — loại hẳn khả năng thấy File của khách khác;
+    (2) trong các File cùng owner+file_url, ưu tiên bản CHƯA gắn vào đâu
+    (`attached_to_name` rỗng — luôn là lần upload mới nhất, vì upload_file
+    không tự gắn), nếu không còn bản nào rỗng thì chỉ chấp nhận bản đã gắn
+    ĐÚNG vào `doc_name` hiện tại (sửa nháp, gửi lại chính danh sách cũ);
+    ngược lại từ chối thẳng thay vì âm thầm dời.
+
+    GIỚI HẠN CÒN LẠI, nói thẳng: nếu CÙNG một khách có HAI File CÙNG CHƯA GẮN
+    VÀO ĐÂU trùng nội dung (ví dụ đang tạo hai yêu cầu khác nhau gần như
+    cùng lúc, mỗi yêu cầu tải lên "cùng một ảnh"), `file_url` không đủ thông
+    tin để biết client muốn nói File.name nào — hàm này chọn bản mới nhất
+    theo `creation`, một lựa chọn tuỳ ý nhưng AN TOÀN (không mất dữ liệu, chỉ
+    có thể "lệch" File.name cụ thể giữa hai bản trùng byte, nội dung phục vụ
+    ra vẫn đúng). Muốn hết mơ hồ hoàn toàn phải đổi giao thức để client gửi
+    `File.name` thay vì `file_url` — ngoài phạm vi bản vá này.
     """
-    file_name = frappe.db.get_value("File", {"file_url": file_url}, "name")
-    if not file_name:
+    rows = frappe.get_all(
+        "File",
+        filters={"file_url": file_url, "owner": frappe.session.user},
+        fields=["name", "file_name", "is_private", "attached_to_doctype", "attached_to_name"],
+        order_by="creation desc",
+    )
+    if not rows:
         frappe.throw(
             "Không tìm thấy tệp đã tải lên. Vui lòng chọn lại tệp và thử lại.",
             frappe.ValidationError,
         )
-    file_doc = frappe.get_doc("File", file_name)
-    if file_doc.owner != frappe.session.user:
-        raise frappe.PermissionError("Bạn không có quyền đọc tệp này.")
 
-    ext = os.path.splitext(file_doc.file_name or "")[1].lower()
+    chua_gan = [r for r in rows if not r.attached_to_name]
+    da_gan_dung_yeu_cau = [r for r in rows if doc_name and r.attached_to_name == doc_name]
+    if chua_gan:
+        file_row = chua_gan[0]
+    elif da_gan_dung_yeu_cau:
+        file_row = da_gan_dung_yeu_cau[0]
+    else:
+        frappe.throw(
+            "Tệp này đã được đính kèm vào một yêu cầu khác. Vui lòng tải lên lại.",
+            frappe.ValidationError,
+        )
+
+    ext = os.path.splitext(file_row.file_name or "")[1].lower()
     if ext not in DINH_KEM_DUOI_HOP_LE:
         frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
 
-    kich_thuoc = file_doc.file_size or 0
-    if not kich_thuoc:
-        # File hiếm khi thiếu file_size (chuẩn upload_file luôn điền), nhưng
-        # đo lại nội dung thật cho chắc thay vì coi thiếu field là "0 byte".
-        try:
-            kich_thuoc = len(file_doc.get_content() or b"")
-        except Exception:
-            kich_thuoc = 0
+    file_doc = frappe.get_doc("File", file_row.name)
+
+    # F-1 (review) — `file_doc.file_size` KHÔNG đáng tin: File.validate() ghi
+    # `self.file_size = frappe.form_dict.file_size or self.file_size` SAU khi
+    # save_file()/check_max_file_size() đã đo kích thước thật, tức giá trị
+    # client tự khai trong multipart form đè lên số đã đo — một field client
+    # kiểm soát hoàn toàn. Đo lại NỘI DUNG THẬT, vô điều kiện, không đọc field
+    # này nữa; đây là chốt chặn 10MB thật, không phải đọc lại một số có thể bị
+    # giả mạo.
+    try:
+        kich_thuoc = len(file_doc.get_content() or b"")
+    except Exception:
+        frappe.throw(
+            "Không đọc được tệp đã tải lên. Vui lòng chọn lại tệp và thử lại.",
+            frappe.ValidationError,
+        )
     if kich_thuoc > DINH_KEM_MB_TOI_DA * 1024 * 1024:
         frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
 
@@ -1011,12 +1112,44 @@ def _resolve_owned_attachment(file_url: str):
     return file_doc
 
 
-def _kiem_va_lay_dinh_kem(file_urls, so_hien_co: int) -> list:
+def _kiem_va_lay_dinh_kem(file_urls, so_hien_co: int, doc_name: str | None) -> list:
     if not file_urls:
         return []
     if so_hien_co + len(file_urls) > DINH_KEM_TOI_DA:
         frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
-    return [_resolve_owned_attachment(u) for u in file_urls]
+    return [_resolve_owned_attachment(u, doc_name) for u in file_urls]
+
+
+def _vat_tu_thuoc_khach(vat_tu_kho: str, customer: str) -> None:
+    """F-4 (review) — `vat_tu_kho` đến thẳng từ payload client (autoname
+    `VTK-.#####`, tuần tự, đoán được). `frappe.get_doc`/`doc.set()` KHÔNG tự
+    kiểm sở hữu của một Link field — client đặt bất kỳ mã nào tồn tại trên
+    site, kể cả vật tư kho của khách hàng KHÁC, vẫn lưu được (link validation
+    chỉ kiểm bản ghi tồn tại). Cùng khuôn `_vat_tu_cua_kho()` trong
+    api/kho.py: xác nhận vật tư đó thuộc kho của CHÍNH khách đang gọi TRƯỚC
+    khi gán vào yêu cầu."""
+    kho_cua_vat_tu = frappe.db.get_value("Customer Warehouse Item", vat_tu_kho, "kho")
+    if not kho_cua_vat_tu:
+        frappe.throw("Không tìm thấy vật tư kho khách đã chọn.", frappe.ValidationError)
+    chu_kho = frappe.db.get_value("Customer Warehouse", kho_cua_vat_tu, "customer")
+    if chu_kho != customer:
+        raise frappe.PermissionError("Vật tư không thuộc kho của đơn vị bạn.")
+
+
+def _yeu_cau_cua_khach(name: str, customer: str):
+    """M-1 (review) — tra sở hữu bằng `frappe.db.get_value` TRƯỚC
+    `frappe.get_doc`, cùng khuôn `_resolve_owned_spreadsheet`/
+    `_phieu_cua_kho` trong api/kho.py. Tên KHÔNG TỒN TẠI và tên CỦA KHÁCH
+    KHÁC giờ trả về CÙNG một `frappe.PermissionError` tiếng Việt — bản trước
+    gọi thẳng `frappe.get_doc(name)` rồi mới so `customer`, nên tên không
+    tồn tại ném `DoesNotExistError` (tiếng Anh, khác loại) TRƯỚC khi kịp so
+    sánh, để lộ qua LOẠI LỖI xem một mã `YCH-nnnnn` có tồn tại hay không —
+    đúng lỗ cách ly mà TC-E6-12 nhắm tới nhưng chưa phủ ở nhánh sửa/huỷ/
+    trả lời/đọc chi tiết."""
+    doc_customer = frappe.db.get_value("Portal Item Request", name, "customer")
+    if doc_customer != customer:
+        raise frappe.PermissionError("Bạn không có quyền truy cập yêu cầu này.")
+    return frappe.get_doc("Portal Item Request", name)
 
 
 def _tim_yeu_cau_trung(customer: str, ten_hang: str, loai_tru: str | None) -> list:
@@ -1050,12 +1183,7 @@ def portal_yeu_cau_save(data, name=None, file_urls=None) -> dict:
     urls = urls or []
 
     if name:
-        doc = frappe.get_doc("Portal Item Request", name)
-        # frappe.get_doc KHÔNG tự kiểm has_permission — tự so sánh sở hữu
-        # (customer không có DocPerm nào trên doctype này, nên check_permission()
-        # sẽ chặn CẢ chủ sở hữu thật — xem hooks.py, khối comment has_permission).
-        if doc.customer != customer:
-            raise frappe.PermissionError("Bạn không có quyền sửa yêu cầu này.")
+        doc = _yeu_cau_cua_khach(name, customer)
         if doc.trang_thai != "Mới":
             frappe.throw(
                 "Chỉ sửa được yêu cầu khi còn ở trạng thái Mới.",
@@ -1078,9 +1206,14 @@ def portal_yeu_cau_save(data, name=None, file_urls=None) -> dict:
     if not doc.ngay_can:
         doc.ngay_can = frappe.utils.add_days(frappe.utils.nowdate(), 7)
 
+    # F-4: vat_tu_kho là Link do CLIENT chọn — xác nhận thuộc kho của chính
+    # khách này TRƯỚC khi ghi, link validation của Frappe chỉ kiểm tồn tại.
+    if doc.vat_tu_kho:
+        _vat_tu_thuoc_khach(doc.vat_tu_kho, customer)
+
     # Kiểm đính kèm TRƯỚC khi ghi bất cứ gì — TC-E6-05 đòi hỏi ba ca lỗi
     # (thiếu dvt / 6 file / file 11MB) đều chặn sạch, không tạo bản ghi rác.
-    dinh_kem_moi = _kiem_va_lay_dinh_kem(urls, _dem_dinh_kem_hien_co(doc.name))
+    dinh_kem_moi = _kiem_va_lay_dinh_kem(urls, _dem_dinh_kem_hien_co(doc.name), doc.name)
 
     la_tao_moi = doc.is_new()
     if la_tao_moi:
@@ -1113,9 +1246,7 @@ def portal_yeu_cau_cancel(name, ly_do) -> dict:
     """API Spec §2.3 — chỉ khi trạng thái chưa kết thúc (BR-Y4: đóng, không
     xoá); `ly_do` bắt buộc, trạng thái đích "Khách huỷ"."""
     customer = get_portal_customer()
-    doc = frappe.get_doc("Portal Item Request", name)
-    if doc.customer != customer:
-        raise frappe.PermissionError("Bạn không có quyền huỷ yêu cầu này.")
+    doc = _yeu_cau_cua_khach(name, customer)
     if doc.trang_thai in TRANG_THAI_KET_THUC:
         frappe.throw(
             "Yêu cầu đã kết thúc, không huỷ được nữa.", frappe.ValidationError
@@ -1144,9 +1275,7 @@ def portal_yeu_cau_tra_loi(name, noi_dung) -> dict:
     là API Spec liệt kê thiếu, không phải chủ ý bỏ tính năng khỏi Phần A.
     """
     customer = get_portal_customer()
-    doc = frappe.get_doc("Portal Item Request", name)
-    if doc.customer != customer:
-        raise frappe.PermissionError("Bạn không có quyền trả lời yêu cầu này.")
+    doc = _yeu_cau_cua_khach(name, customer)
     if doc.trang_thai in TRANG_THAI_KET_THUC:
         frappe.throw(
             "Yêu cầu đã kết thúc, không trả lời được nữa.", frappe.ValidationError
@@ -1161,3 +1290,43 @@ def portal_yeu_cau_tra_loi(name, noi_dung) -> dict:
         doc.trang_thai = "Đang tìm nguồn"
         doc.save(ignore_permissions=True)
     return {"trang_thai": doc.trang_thai}
+
+
+@frappe.whitelist()
+def portal_yeu_cau_file(name, file_name) -> None:
+    """F-3 (review) — tải đính kèm của một yêu cầu. Đường trực tiếp
+    `/private/files/...` chỉ render cho đúng `File.owner` (`File.
+    has_permission`: chủ sở hữu → True; khác chủ → `has_permission("read")`
+    trên `Portal Item Request`, mà role `Customer` không có DocPerm nào —
+    → False). Nhưng `portal_provision` cấp NHIỀU user portal cho MỘT
+    Customer — người thứ hai của cùng bệnh viện (không phải người đã bấm
+    upload) bị 403 khi mở đính kèm của chính yêu cầu đơn vị mình gửi. Kiểm
+    theo CUSTOMER của yêu cầu (đúng nghĩa BR-Y5 "khách sở hữu xem được"),
+    không theo `File.owner`.
+
+    Nhận `file_name` — TÊN File (docname), KHÔNG PHẢI `file_url`: F-5 cho
+    thấy nhiều File.name có thể trỏ chung một file_url (gộp theo nội dung),
+    nên file_url không phải khoá tra an toàn cho một bản ghi đính kèm cụ
+    thể. `portal_yeu_cau_detail` trả `dinh_kem` theo đúng hình dạng này.
+    """
+    customer = get_portal_customer()
+    doc_customer = frappe.db.get_value("Portal Item Request", name, "customer")
+    if doc_customer != customer:
+        raise frappe.PermissionError("Bạn không có quyền tải đính kèm của yêu cầu này.")
+
+    row = frappe.db.get_value(
+        "File", file_name,
+        ["attached_to_doctype", "attached_to_name", "file_name"],
+        as_dict=True,
+    )
+    if (
+        not row
+        or row.attached_to_doctype != "Portal Item Request"
+        or row.attached_to_name != name
+    ):
+        frappe.throw("Không tìm thấy đính kèm.", frappe.ValidationError)
+
+    file_doc = frappe.get_doc("File", file_name)
+    frappe.local.response.filename = file_doc.file_name
+    frappe.local.response.filecontent = file_doc.get_content()
+    frappe.local.response.type = "download"

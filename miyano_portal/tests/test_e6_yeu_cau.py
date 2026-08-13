@@ -6,6 +6,8 @@ Cách ly cơ bản (mã hoá/không nhận `customer` từ client, phủ toàn b
 nghiệp vụ riêng của E6.
 """
 
+import os
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, get_datetime, now_datetime, nowdate
@@ -27,10 +29,6 @@ PXN_USER = "pxnabc@demo.miyano"
 SALES_USER = "sales_user@demo.miyano"  # System User thật, có sẵn trên site,
 # dùng chung với nhiều module test khác (xem test_e1_thieu_gia_va_reorder.py).
 PURCHASE_USER = "purchase_user_e6@demo.miyano"
-
-TRANG_THAI_KET_THUC = (
-    "Đã chuyển thành đơn", "Không đáp ứng được", "Khách huỷ", "Hết hạn",
-)
 
 
 def _payload(**overrides):
@@ -91,7 +89,7 @@ def _anh_jpeg_hop_le() -> bytes:
     return buf.getvalue()
 
 
-def _make_file(owner_user, filename, is_private=1, content=None, file_size=None):
+def _make_file(owner_user, filename, is_private=1, content=None):
     truoc = frappe.session.user
     frappe.set_user(owner_user)
     try:
@@ -104,10 +102,13 @@ def _make_file(owner_user, filename, is_private=1, content=None, file_size=None)
         doc.insert(ignore_permissions=True)
     finally:
         frappe.set_user(truoc)
-    if file_size is not None:
-        frappe.db.set_value("File", doc.name, "file_size", file_size, update_modified=False)
-        doc.reload()
     return doc
+
+
+def _dem_dinh_kem(name) -> int:
+    return frappe.db.count(
+        "File", {"attached_to_doctype": "Portal Item Request", "attached_to_name": name}
+    )
 
 
 def _ensure_purchase_user():
@@ -293,8 +294,28 @@ class TestPortalYeuCauSave(FrappeTestCase):
         )
 
     def test_file_qua_10mb_bi_chan(self):  # TC-E6-05, ca 3
+        """F-1 (review) — chặn phải dựa trên NỘI DUNG thật, không phải field
+        `file_size` (client kiểm soát được qua form_dict, xem docstring
+        `_resolve_owned_attachment`). Tải lên >10MB THẬT — đuôi .xlsx để
+        tránh hai nhánh xác thực nội dung riêng của Frappe (strip EXIF ảnh
+        JPEG, quét JS trong PDF) vốn không liên quan tới thứ đang kiểm ở đây."""
         frappe.set_user(BM_USER)
-        f = _make_file(BM_USER, "qua_lon.jpg", file_size=11 * 1024 * 1024)
+        noi_dung_lon = os.urandom(11 * 1024 * 1024)
+        f = _make_file(BM_USER, "qua_lon.xlsx", content=noi_dung_lon)
+        with self.assertRaises(frappe.ValidationError) as cm:
+            portal.portal_yeu_cau_save(_payload(), file_urls=[f.file_url])
+        self.assertIn("10MB", str(cm.exception))
+
+    def test_file_gia_mao_file_size_van_bi_chan(self):
+        """F-1 (review) — trước bản vá, đặt `File.file_size` nhỏ (giống hệt
+        cách form_dict.file_size của client ghi đè số đã đo) khiến file lớn
+        lọt qua. Giữ test này để khoá đúng ca tấn công: nội dung >10MB thật
+        NHƯNG field file_size bị set sai (nhỏ) trên bản ghi — vẫn phải chặn,
+        vì endpoint không còn đọc field này nữa."""
+        frappe.set_user(BM_USER)
+        noi_dung_lon = os.urandom(11 * 1024 * 1024)
+        f = _make_file(BM_USER, "gia_mao.xlsx", content=noi_dung_lon)
+        frappe.db.set_value("File", f.name, "file_size", 100, update_modified=False)
         with self.assertRaises(frappe.ValidationError) as cm:
             portal.portal_yeu_cau_save(_payload(), file_urls=[f.file_url])
         self.assertIn("10MB", str(cm.exception))
@@ -324,10 +345,158 @@ class TestPortalYeuCauSave(FrappeTestCase):
         self.assertIn("pdf/jpg/png/xlsx", str(cm.exception))
 
     def test_dinh_kem_khong_phai_cua_minh_bi_chan(self):
+        """F-5 (review) đổi CƠ CHẾ tra cứu sang lọc thẳng `owner` trong câu
+        truy vấn (thay vì tra theo file_url rồi mới so owner) — hệ quả là
+        một File của người khác giờ không còn "tìm thấy nhưng bị chặn"
+        (PermissionError) mà "không tìm thấy" (ValidationError) NGAY TỪ ĐẦU,
+        đúng khuôn `_yeu_cau_cua_khach` (M-1): không phân biệt được nữa giữa
+        "tệp không tồn tại" và "tệp của người khác" qua loại lỗi."""
         f = _make_file(PXN_USER, "cua_pxn.jpg")
         frappe.set_user(BM_USER)
-        with self.assertRaises(frappe.PermissionError):
+        with self.assertRaises(frappe.ValidationError) as cm:
             portal.portal_yeu_cau_save(_payload(), file_urls=[f.file_url])
+        self.assertIn("Không tìm thấy tệp", str(cm.exception))
+
+    # -- F-5 (review) — File.validate_duplicate_entry() gộp nhiều File.name
+    # trùng nội dung vào chung một file_url; _resolve_owned_attachment phải
+    # không mất/dời/nhầm đính kèm khi va chạm đó xảy ra. -----------------
+
+    def test_dinh_kem_trung_noi_dung_hai_yeu_cau_khac_khong_bi_doi_chu(self):
+        """GIỚI HẠN THẲNG THẮN: khi HAI File CÙNG CHƯA GẮN VÀO ĐÂU chia sẻ
+        chung một `file_url` (nội dung trùng), giao thức chỉ mang `file_url`
+        — server KHÔNG có cách nào biết client "muốn nói" File.name nào
+        trong hai cái. Không cố giả vờ có một ánh xạ tất định ở đây (đoán
+        sai vẫn là đoán); bất biến ĐÚNG cần giữ là: không có gì bị MẤT — cả
+        hai yêu cầu đều có đúng một đính kèm, và hai File.name gốc được dùng
+        hết, mỗi cái cho đúng MỘT yêu cầu (không cái nào bị bỏ rơi hay dùng
+        chung hai lần)."""
+        frappe.set_user(BM_USER)
+        noi_dung = _anh_jpeg_hop_le()
+        f1 = _make_file(BM_USER, "trung_1.jpg", content=noi_dung)
+        f2 = _make_file(BM_USER, "trung_2.jpg", content=noi_dung)
+        self.assertEqual(f1.file_url, f2.file_url, "tiền đề: hai File dùng CHUNG file_url")
+        self.assertNotEqual(f1.name, f2.name, "nhưng là hai File.name khác nhau")
+
+        out_a = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Yêu cầu A trùng nội dung"), file_urls=[f1.file_url]
+        )
+        out_b = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Yêu cầu B trùng nội dung"), file_urls=[f2.file_url]
+        )
+        f1.reload()
+        f2.reload()
+        # Không có gì bị BỎ RƠI (cả hai vẫn gắn vào MỘT yêu cầu nào đó)...
+        self.assertIn(f1.attached_to_name, (out_a["name"], out_b["name"]))
+        self.assertIn(f2.attached_to_name, (out_a["name"], out_b["name"]))
+        # ...và không có gì bị DÙNG CHUNG cho cả hai yêu cầu.
+        self.assertNotEqual(f1.attached_to_name, f2.attached_to_name)
+        self.assertEqual(
+            {f1.attached_to_name, f2.attached_to_name}, {out_a["name"], out_b["name"]}
+        )
+        self.assertEqual(_dem_dinh_kem(out_a["name"]), 1)
+        self.assertEqual(_dem_dinh_kem(out_b["name"]), 1)
+
+    def test_dinh_kem_da_gan_o_yeu_cau_khac_bi_tu_choi_khong_bi_doi_chu(self):
+        frappe.set_user(BM_USER)
+        noi_dung = _anh_jpeg_hop_le()
+        f1 = _make_file(BM_USER, "da_gan_1.jpg", content=noi_dung)
+        out_a = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Yêu cầu A đã có đính kèm"), file_urls=[f1.file_url]
+        )
+        # Không còn File nào CHƯA gắn mang cùng file_url — client (nhầm hoặc
+        # cố ý) gửi lại đúng file_url đó cho một yêu cầu MỚI KHÁC.
+        with self.assertRaises(frappe.ValidationError) as cm:
+            portal.portal_yeu_cau_save(
+                _payload(ten_hang="Yêu cầu C mượn nhầm đính kèm"),
+                file_urls=[f1.file_url],
+            )
+        self.assertIn("đã được đính kèm", str(cm.exception))
+        # ...và đính kèm gốc của A không hề bị đụng tới.
+        f1.reload()
+        self.assertEqual(f1.attached_to_name, out_a["name"])
+
+    def test_sua_gui_lai_dinh_kem_cu_khong_loi_khong_doi_chu(self):
+        """Idempotent: sửa nháp "Mới", gửi lại NGUYÊN file_url đã gắn từ lần
+        tạo — không được coi là "đính kèm ở yêu cầu khác"."""
+        frappe.set_user(BM_USER)
+        f = _make_file(BM_USER, "giu_nguyen.jpg")
+        out = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Sẽ sửa lại"), file_urls=[f.file_url]
+        )
+        portal.portal_yeu_cau_save(
+            _payload(ten_hang="Sẽ sửa lại — đã cập nhật"),
+            name=out["name"], file_urls=[f.file_url],
+        )
+        f.reload()
+        self.assertEqual(f.attached_to_name, out["name"])
+
+    def test_dinh_kem_trung_noi_dung_khac_khach_khong_bi_chan_nham(self):
+        """Hai khách khác nhau cùng tải lên một tài liệu trùng byte (ví dụ
+        datasheet công khai của hãng) — lọc theo `owner` phải đủ để mỗi
+        khách vẫn resolve ĐÚNG File.name của chính mình, không đụng vào File
+        của khách kia."""
+        noi_dung_chung = _anh_jpeg_hop_le()
+        f_bm = _make_file(BM_USER, "datasheet.jpg", content=noi_dung_chung)
+        f_pxn = _make_file(PXN_USER, "datasheet.jpg", content=noi_dung_chung)
+        self.assertEqual(f_bm.file_url, f_pxn.file_url, "tiền đề: trùng file_url")
+
+        frappe.set_user(BM_USER)
+        out_bm = portal.portal_yeu_cau_save(
+            _payload(ten_hang="BM tải datasheet"), file_urls=[f_bm.file_url]
+        )
+        frappe.set_user(PXN_USER)
+        out_pxn = portal.portal_yeu_cau_save(
+            _payload(ten_hang="PXN tải datasheet"), file_urls=[f_pxn.file_url]
+        )
+        f_bm.reload()
+        f_pxn.reload()
+        self.assertEqual(f_bm.attached_to_name, out_bm["name"])
+        self.assertEqual(f_pxn.attached_to_name, out_pxn["name"])
+        self.assertEqual(f_bm.owner, BM_USER)
+        self.assertEqual(f_pxn.owner, PXN_USER)
+
+    # -- F-4 (review) — vat_tu_kho phải thuộc kho của CHÍNH khách gọi -------
+
+    def test_vat_tu_kho_cua_khach_khac_bi_chan(self):
+        from miyano_portal.setup.seed_kho_demo import seed_kho_demo
+        kho = seed_kho_demo()
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_save(
+                _payload(ten_hang="Mượn vật tư PXN", vat_tu_kho=kho["vt_pxn"])
+            )
+        self.assertFalse(
+            frappe.db.exists(
+                "Portal Item Request",
+                {"customer": CUSTOMER_BM, "ten_hang": "Mượn vật tư PXN"},
+            )
+        )
+
+    def test_vat_tu_kho_cua_chinh_minh_duoc_chap_nhan(self):
+        from miyano_portal.setup.seed_kho_demo import seed_kho_demo
+        kho = seed_kho_demo()
+        frappe.set_user(BM_USER)
+        out = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Dùng vật tư của chính BM", vat_tu_kho=kho["vt_bm"])
+        )
+        doc = frappe.get_doc("Portal Item Request", out["name"])
+        self.assertEqual(doc.vat_tu_kho, kho["vt_bm"])
+
+    # -- M-1 (review) — không lộ "tồn tại hay không" qua LOẠI lỗi -----------
+
+    def test_sua_yeu_cau_khong_ton_tai_va_cua_khach_khac_cung_mot_loi(self):
+        """Trước bản vá: tên không tồn tại -> DoesNotExistError (tiếng Anh);
+        tên của khách khác -> PermissionError. Hai loại lỗi khác nhau đủ để
+        dò xem một mã YCH-nnnnn có tồn tại hay không. Giờ cả hai PHẢI cùng
+        một loại lỗi."""
+        frappe.set_user(PXN_USER)
+        cua_pxn = portal.portal_yeu_cau_save(_payload(ten_hang="Của PXN riêng"))
+
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_save(_payload(), name="YCH-KHONG-TON-TAI-999")
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_save(_payload(), name=cua_pxn["name"])
 
     def test_canh_bao_trung_ten_gan_giong_van_tao_duoc(self):  # TC-E6-06
         frappe.set_user(BM_USER)
@@ -499,6 +668,15 @@ class TestPortalYeuCauCancel(FrappeTestCase):
         with self.assertRaises(frappe.PermissionError):
             portal.portal_yeu_cau_cancel(out["name"], "Muốn huỷ hộ")
 
+    def test_huy_yeu_cau_khong_ton_tai_va_cua_khach_khac_cung_mot_loi(self):  # M-1
+        frappe.set_user(PXN_USER)
+        cua_pxn = portal.portal_yeu_cau_save(_payload(ten_hang="Của PXN riêng"))
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_cancel("YCH-KHONG-TON-TAI-999", "Huỷ")
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_cancel(cua_pxn["name"], "Huỷ")
+
 
 # ---------------------------------------------------------------------------
 # portal_yeu_cau_tra_loi — NL-11.3
@@ -553,6 +731,105 @@ class TestPortalYeuCauTraLoi(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             portal.portal_yeu_cau_tra_loi(doc.name, "Xin mở lại")
 
+    def test_tra_loi_yeu_cau_khong_ton_tai_va_cua_khach_khac_cung_mot_loi(self):  # M-1
+        frappe.set_user(PXN_USER)
+        cua_pxn = portal.portal_yeu_cau_save(_payload(ten_hang="Của PXN riêng"))
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_tra_loi("YCH-KHONG-TON-TAI-999", "Nội dung")
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_tra_loi(cua_pxn["name"], "Nội dung")
+
+
+# ---------------------------------------------------------------------------
+# portal_yeu_cau_detail / portal_yeu_cau_file — F-2, F-3
+# ---------------------------------------------------------------------------
+
+class TestPortalYeuCauDetailVaFile(FrappeTestCase):
+    def setUp(self):
+        seed_demo()
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_detail_tra_du_field_phan_hoi(self):  # F-2
+        doc = _tao_yeu_cau(CUSTOMER_BM, ten_hang="Cần chi tiết")  # bắt đầu "Mới"
+        doc.trang_thai = "Đang tìm nguồn"
+        doc.phan_hoi = "Miyano cần thêm quy cách đóng gói."
+        doc.gia_bao = 150000
+        doc.lead_time_ngay = 10
+        doc.save(ignore_permissions=True)
+
+        frappe.set_user(BM_USER)
+        kq = portal.portal_yeu_cau_detail(doc.name)
+        self.assertEqual(kq["phan_hoi"], "Miyano cần thêm quy cách đóng gói.")
+        self.assertEqual(kq["gia_bao"], 150000)
+        self.assertEqual(kq["lead_time_ngay"], 10)
+        self.assertEqual(kq["trang_thai"], "Đang tìm nguồn")
+
+    def test_detail_tra_ca_comment_va_dinh_kem(self):  # F-2
+        frappe.set_user(BM_USER)
+        f = _make_file(BM_USER, "chi_tiet.jpg")
+        out = portal.portal_yeu_cau_save(_payload(ten_hang="Có bình luận"), file_urls=[f.file_url])
+        portal.portal_yeu_cau_tra_loi(out["name"], "Đây là câu trả lời của tôi.")
+
+        kq = portal.portal_yeu_cau_detail(out["name"])
+        self.assertTrue(
+            any("câu trả lời của tôi" in (c.get("content") or "") for c in kq["binh_luan"])
+        )
+        ten_file = {d["file_name"] for d in kq["dinh_kem"]}
+        self.assertIn("chi_tiet.jpg", ten_file)
+
+    def test_detail_yeu_cau_khach_khac_bi_chan(self):  # TC-E6-12/M-1
+        frappe.set_user(PXN_USER)
+        cua_pxn = portal.portal_yeu_cau_save(_payload(ten_hang="Của PXN"))
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_detail(cua_pxn["name"])
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_detail("YCH-KHONG-TON-TAI-999")
+
+    def test_file_tai_duoc_boi_nguoi_khac_cung_khach(self):  # F-3
+        """Người thứ hai của CÙNG bệnh viện (không phải người đã bấm upload)
+        vẫn phải tải được đính kèm của yêu cầu do đơn vị mình gửi."""
+        second_bm = "second_bm@demo.miyano"
+        frappe.set_user("Administrator")
+        portal.portal_provision(CUSTOMER_BM, second_bm)
+
+        frappe.set_user(BM_USER)
+        f = _make_file(BM_USER, "cho_ca_hai.jpg")
+        out = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Đính kèm dùng chung"), file_urls=[f.file_url]
+        )
+
+        frappe.set_user(second_bm)
+        kq = portal.portal_yeu_cau_detail(out["name"])
+        file_name = kq["dinh_kem"][0]["name"]
+        portal.portal_yeu_cau_file(out["name"], file_name)  # không được ném lỗi
+        self.assertEqual(frappe.local.response.filename, "cho_ca_hai.jpg")
+        self.assertTrue(frappe.local.response.filecontent)
+
+    def test_file_yeu_cau_khach_khac_bi_chan(self):  # F-3/TC-E6-12
+        frappe.set_user(PXN_USER)
+        f = _make_file(PXN_USER, "cua_pxn.jpg")
+        out = portal.portal_yeu_cau_save(_payload(ten_hang="Của PXN"), file_urls=[f.file_url])
+
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_yeu_cau_file(out["name"], f.name)
+
+    def test_file_dinh_kem_khong_thuoc_yeu_cau_bi_chan(self):  # F-3
+        """Đúng khách nhưng SAI yêu cầu (file thuộc YCH-A, đòi tải qua
+        YCH-B) — vẫn phải chặn, không chỉ kiểm khách."""
+        frappe.set_user(BM_USER)
+        f = _make_file(BM_USER, "cua_a.jpg")
+        out_a = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Yêu cầu A"), file_urls=[f.file_url]
+        )
+        out_b = portal.portal_yeu_cau_save(_payload(ten_hang="Yêu cầu B"))
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_yeu_cau_file(out_b["name"], f.name)
+
 
 # ---------------------------------------------------------------------------
 # Job SLA leo thang — TC-E6-07 / NL-11.2
@@ -580,24 +857,38 @@ class TestQuetYeuCauQuaHan(FrappeTestCase):
         )
         return doc
 
-    def test_yeu_cau_qua_sla_o_moi_thi_nhac_manager(self):
-        doc = self._tao_qua_han("2026-08-05 08:00:00", ten_hang="Treo lâu rồi")
-        self.assertEqual(quet_yeu_cau_qua_han(moc=self.MOC), 1)
-        self.assertTrue(
-            frappe.db.exists(
-                "Notification Log", {"subject": ("like", f"%{doc.name}%")}
-            )
+    def _so_lan_nhac(self, doc_name) -> int:
+        """M-5 (review) — đếm Notification Log CHO ĐÚNG TÊN bản ghi của
+        CHÍNH test này, không đọc giá trị trả về (int tuyệt đối) của
+        quet_yeu_cau_qua_han(): giá trị đó phụ thuộc SỐ NGƯỜI có role Sales
+        Manager trên site (job insert một dòng MỖI người nhận — xem
+        _nguoi_nhan() trong portal_sla.py), một con số ngoài tầm kiểm soát
+        của setUp (đúng bẫy #5 của brief). Vì vậy các test dưới đây KHÔNG so
+        con số này với một hằng số tuyệt đối — chỉ so nó TRƯỚC/SAU trong
+        cùng một test (test_moi_yeu_cau_chi_nhac_mot_lan_moi_ngay), hoặc so
+        có/không (>0 hay ==0)."""
+        return frappe.db.count(
+            "Notification Log", {"subject": ("like", f"%{doc_name}%")}
         )
 
+    def test_yeu_cau_qua_sla_o_moi_thi_nhac_manager(self):
+        doc = self._tao_qua_han("2026-08-05 08:00:00", ten_hang="Treo lâu rồi")
+        quet_yeu_cau_qua_han(moc=self.MOC)
+        self.assertGreater(self._so_lan_nhac(doc.name), 0)
+
     def test_yeu_cau_chua_qua_sla_thi_im(self):
-        self._tao_qua_han("2026-08-12 13:00:00", ten_hang="Còn mới nguyên")
-        self.assertEqual(quet_yeu_cau_qua_han(moc=self.MOC), 0)
+        doc = self._tao_qua_han("2026-08-12 13:00:00", ten_hang="Còn mới nguyên")
+        quet_yeu_cau_qua_han(moc=self.MOC)
+        self.assertEqual(self._so_lan_nhac(doc.name), 0)
 
     def test_moi_yeu_cau_chi_nhac_mot_lan_moi_ngay(self):
-        self._tao_qua_han("2026-08-05 08:00:00", ten_hang="Nhắc một lần")
-        self.assertEqual(quet_yeu_cau_qua_han(moc=self.MOC), 1)
+        doc = self._tao_qua_han("2026-08-05 08:00:00", ten_hang="Nhắc một lần")
+        quet_yeu_cau_qua_han(moc=self.MOC)
+        sau_lan_1 = self._so_lan_nhac(doc.name)
+        self.assertGreater(sau_lan_1, 0)
+        quet_yeu_cau_qua_han(moc=self.MOC)
         self.assertEqual(
-            quet_yeu_cau_qua_han(moc=self.MOC), 0,
+            self._so_lan_nhac(doc.name), sau_lan_1,
             "chạy hourly mà nhắc mỗi giờ là spam",
         )
 
@@ -606,7 +897,8 @@ class TestQuetYeuCauQuaHan(FrappeTestCase):
         doc.reload()
         doc.trang_thai = "Đang tìm nguồn"
         doc.save(ignore_permissions=True)
-        self.assertEqual(quet_yeu_cau_qua_han(moc=self.MOC), 0)
+        quet_yeu_cau_qua_han(moc=self.MOC)
+        self.assertEqual(self._so_lan_nhac(doc.name), 0)
 
     def test_sua_nhap_khong_reset_dong_ho_sla(self):
         """LỆCH CÓ CHỦ Ý so với quet_don_treo (dùng `modified`): SLA của yêu
@@ -618,8 +910,9 @@ class TestQuetYeuCauQuaHan(FrappeTestCase):
         portal.portal_yeu_cau_save(_payload(ten_hang="Sắp bị sửa — đã cập nhật"),
                                     name=doc.name)
         frappe.set_user("Administrator")
-        self.assertEqual(
-            quet_yeu_cau_qua_han(moc=self.MOC), 1,
+        quet_yeu_cau_qua_han(moc=self.MOC)
+        self.assertGreater(
+            self._so_lan_nhac(doc.name), 0,
             "sửa nháp không được reset đồng hồ SLA tính từ creation",
         )
 
@@ -732,4 +1025,71 @@ class TestDemandPipelineReport(FrappeTestCase):
         _tao_yeu_cau(CUSTOMER_PXN, ten_hang="Hàng của PXN")
         rows = demand_pipeline.yeu_cau_rows(customer=CUSTOMER_BM)
         self.assertTrue(all(r["customer"] == CUSTOMER_BM for r in rows))
-        self.assertTrue(any(r["ten_hang"] == "Hàng của BM" for r in rows))
+
+    def test_trang_thai_ket_thuc_dung_chung_mot_nguon(self):  # F-6
+        """Không được có bản sao thứ hai của tuple này — xem docstring
+        demand_pipeline.py. Một trạng thái kết thúc thứ năm thêm vào
+        controller mà quên sửa nơi khác sẽ tự động lệch nếu có hai bản độc
+        lập; import chung một object thì không có gì để lệch."""
+        from miyano_portal.miyano_portal.doctype.portal_item_request.portal_item_request import (
+            TRANG_THAI_KET_THUC as tu_controller,
+        )
+        self.assertIs(demand_pipeline.TRANG_THAI_KET_THUC, tu_controller)
+
+    def test_yeu_cau_rows_gan_nhan_va_thoi_gian_xu_ly_dung(self):  # F-6
+        """End-to-end trên bản ghi THẬT (không dựng dict tay như hai test
+        trên) — phủ đúng phần `yeu_cau_rows()` gán nhãn `ket_thuc`/
+        `da_chuyen_don`/`thoi_gian_xu_ly_gio` mà trước bản vá không có test
+        nào chạm tới."""
+        seed_demo()
+        frappe.db.delete(
+            "Portal Item Request",
+            {"customer": CUSTOMER_BM, "ten_hang": ("like", "F6 demand%")},
+        )
+
+        con_mo = _tao_yeu_cau(CUSTOMER_BM, ten_hang="F6 demand - con mo")
+
+        khong_dap_ung = _tao_yeu_cau(CUSTOMER_BM, ten_hang="F6 demand - khong dap ung")
+        frappe.db.sql(
+            "update `tabPortal Item Request` set creation=%s where name=%s",
+            ("2026-08-01 08:00:00", khong_dap_ung.name),
+        )
+        khong_dap_ung.reload()
+        khong_dap_ung.trang_thai = "Đang tìm nguồn"
+        khong_dap_ung.save(ignore_permissions=True)
+        khong_dap_ung.trang_thai = "Không đáp ứng được"
+        khong_dap_ung.ly_do_khong_dap_ung = "Không tìm được nguồn."
+        khong_dap_ung.save(ignore_permissions=True)
+
+        chuyen_don = _tao_yeu_cau(CUSTOMER_BM, ten_hang="F6 demand - chuyen don")
+        frappe.db.sql(
+            "update `tabPortal Item Request` set creation=%s where name=%s",
+            ("2026-08-01 08:00:00", chuyen_don.name),
+        )
+        chuyen_don.reload()
+        chuyen_don.trang_thai = "Đang tìm nguồn"
+        chuyen_don.save(ignore_permissions=True)
+        chuyen_don.trang_thai = "Đã báo giá"
+        chuyen_don.save(ignore_permissions=True)
+        chuyen_don.trang_thai = "Đã chuyển thành đơn"
+        chuyen_don.save(ignore_permissions=True)
+
+        by_name = {
+            r["name"]: r
+            for r in demand_pipeline.yeu_cau_rows(customer=CUSTOMER_BM)
+        }
+
+        r_mo = by_name[con_mo.name]
+        self.assertEqual(r_mo["ket_thuc"], 0)
+        self.assertEqual(r_mo["da_chuyen_don"], 0)
+        self.assertIsNone(r_mo["thoi_gian_xu_ly_gio"])
+
+        r_kdu = by_name[khong_dap_ung.name]
+        self.assertEqual(r_kdu["ket_thuc"], 1)
+        self.assertEqual(r_kdu["da_chuyen_don"], 0)
+        self.assertGreater(r_kdu["thoi_gian_xu_ly_gio"], 0)
+
+        r_cd = by_name[chuyen_don.name]
+        self.assertEqual(r_cd["ket_thuc"], 1)
+        self.assertEqual(r_cd["da_chuyen_don"], 1)
+        self.assertGreater(r_cd["thoi_gian_xu_ly_gio"], 0)
