@@ -8,6 +8,7 @@ import { phieuActions, trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
 import { useDongPhieu } from '../useDongPhieu'
 import VatTuModal from '../components/VatTuModal.vue'
+import NccModal from '../components/NccModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -19,11 +20,19 @@ const isMobile = useIsMobile()
 const EPS = 0.0005
 
 const DOCTYPE = 'Customer Stock Receipt'
-const LOAI_OPTIONS = ['Nhập khác', 'Tồn đầu kỳ', 'Từ đơn hàng Miyano']
+const LOAI_MUA_NGOAI = 'Mua ngoài (NCC khác)'
+const LOAI_OPTIONS = [
+  'Nhập khác', 'Tồn đầu kỳ', 'Từ đơn hàng Miyano', LOAI_MUA_NGOAI, 'Điều chỉnh kiểm kê (tăng)',
+]
 // "Phiếu đảo" CỐ Ý không có trong danh sách: backend chặn tự tạo phiếu loại
 // này bằng flags.dang_tao_dao (in-memory, không thể forge), nên hiện nó ra
 // làm lựa chọn chỉ để rồi báo lỗi khi lưu là đúng kiểu "nút sẽ lỗi khi bấm"
 // mà declaring-document-actions cảnh báo.
+
+// Giá trị đặc biệt cho mục "+ Tạo NCC mới…" trong ô chọn NCC — cùng khuôn
+// MUC_TAO_MOI của useDongPhieu.js nhưng cho NCC (không phải dòng vật tư nên
+// không hợp để nhét chung vào composable đó).
+const MUC_TAO_NCC = '__tao_ncc_moi__'
 
 const isNew = computed(() => route.params.name === 'moi')
 
@@ -43,10 +52,53 @@ const doc = reactive({
   docstatus: 0,
   tong_tien: 0,
   items: [],
+  // E4/BR-N1,N2: chỉ có ý nghĩa khi loai_nhap = "Mua ngoài (NCC khác)" —
+  // server tự xoá ba trường này khi đổi sang loại khác (customer_stock_
+  // receipt.py._validate_ncc), template chỉ ẩn/hiện theo loai_nhap.
+  ncc: '',
+  so_chung_tu_ncc: '',
+  ngay_chung_tu: '',
+  thieu_chung_tu: 0,
 })
 
 const vatTuList = ref([])
 const vatTuLoading = ref(true)
+const nccList = ref([])
+const nccModalOpen = ref(false)
+
+async function loadNcc() {
+  try {
+    // ca_inactive=1: một phiếu CŨ có thể đang trỏ tới một NCC đã bị tắt SAU
+    // khi phiếu được lập — tải cả NCC tắt để ô chọn còn hiển thị đúng tên
+    // (không rơi về rỗng), chỉ disable lựa chọn đó cho phiếu MỚI/còn sửa
+    // (server chặn lại lần nữa nếu client lách qua được — BR-N3).
+    nccList.value = await api.callKho('kho_ncc_list', { ca_inactive: 1 })
+  } catch (e) {
+    showToast(e.message || 'Không tải được danh mục NCC.', 'error')
+  }
+}
+
+function onNccSelect() {
+  if (doc.ncc !== MUC_TAO_NCC) return
+  doc.ncc = ''
+  nccModalOpen.value = true
+}
+
+function onNccSaved(row) {
+  // Nhánh "Đây là trùng — tắt bản này" của NccModal trả về NCC với active=0
+  // (kho_ncc_save không xoá, chỉ tắt) — không được tự gán vào phiếu: server
+  // chặn cứng chọn NCC tắt trên phiếu mới (BR-N3), và ô chọn active-only sẽ
+  // không còn thấy nó ở lần tải lại nào sau này.
+  if (!row.active) {
+    nccList.value = nccList.value.filter((n) => n.name !== row.name)
+    if (doc.ncc === row.name) doc.ncc = ''
+    nccModalOpen.value = false
+    return
+  }
+  if (!nccList.value.some((n) => n.name === row.name)) nccList.value.push(row)
+  doc.ncc = row.name
+  nccModalOpen.value = false
+}
 
 // Tạo nhanh vật tư ngay trong ô chọn (mục "➕ Tạo vật tư mới…") VÀ toàn bộ
 // luồng import/export Excel của bảng dòng — dùng chung với PhieuXuatDetail,
@@ -154,6 +206,12 @@ async function load() {
 }
 
 function validateClient() {
+  // US-E4.2/BR-N1: server chặn cứng thiếu NCC khi Mua ngoài — kiểm sớm ở đây
+  // để lỗi hiện ngay tại chỗ, không đợi một vòng gọi mạng rồi mới biết.
+  if (doc.loai_nhap === LOAI_MUA_NGOAI && !doc.ncc) {
+    showToast('Chọn nhà cung cấp cho phiếu mua ngoài.', 'error')
+    return false
+  }
   if (!doc.items.length) {
     showToast('Phiếu phải có ít nhất một dòng vật tư.', 'error')
     return false
@@ -215,6 +273,11 @@ function payload() {
     nguoi_giao: doc.nguoi_giao,
     chung_tu_kem: doc.chung_tu_kem,
     dien_giai: doc.dien_giai,
+    // E4/BR-N1,N2 — chỉ có ý nghĩa khi loai_nhap = "Mua ngoài (NCC khác)";
+    // server tự xoá lại nếu gửi kèm loại khác (_validate_ncc).
+    ncc: doc.ncc || null,
+    so_chung_tu_ncc: doc.so_chung_tu_ncc || null,
+    ngay_chung_tu: doc.ngay_chung_tu || null,
     items: doc.items.map((r) => ({
       // `name` của dòng con (có sẵn từ lần load qua kho_phieu_get) — server
       // khớp lại mốc đối soát sl_giao/thieu_lo_han theo ĐÚNG danh tính này,
@@ -251,7 +314,17 @@ async function save({ silent } = {}) {
     if (isNew.value) {
       router.replace(`/kho/nhap/${out.name}`)
     }
-    if (!silent) showToast('Đã lưu phiếu nháp.')
+    if (!silent) {
+      // BR-N2 (F-15): "hỏi nhẹ" — KHÔNG chặn lưu, chỉ báo để thủ kho biết
+      // phiếu sẽ mang cờ "Thiếu chứng từ" cho tới khi bổ sung số chứng từ.
+      // Một toast DUY NHẤT (không phải một 'error' chồng lên một 'success')
+      // — save() đã thành công thật, đây chỉ là ghi chú thêm.
+      showToast(
+        out.thieu_chung_tu
+          ? 'Đã lưu phiếu nháp — chưa có số chứng từ NCC nên phiếu sẽ gắn cờ "Thiếu chứng từ" (bổ sung sau được).'
+          : 'Đã lưu phiếu nháp.'
+      )
+    }
     return out
   } catch (e) {
     showToast(e.message || 'Không lưu được phiếu.', 'error')
@@ -303,7 +376,7 @@ function onAction(key) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadVatTu(), load()])
+  await Promise.all([loadVatTu(), loadNcc(), load()])
 })
 </script>
 
@@ -315,6 +388,7 @@ onMounted(async () => {
         <div class="sub" v-if="!isNew">
           <span class="badge" :class="badge.cls">{{ badge.label }}</span>
           <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
+          <span v-if="doc.thieu_chung_tu" class="badge b-orange" style="margin-left: 6px">Thiếu chứng từ</span>
         </div>
       </div>
       <div class="flex" style="gap: 8px">
@@ -339,6 +413,7 @@ onMounted(async () => {
         <h2>{{ isNew ? 'Tạo phiếu nhập' : doc.name }}</h2>
         <span v-if="!isNew" class="badge" :class="badge.cls">{{ badge.label }}</span>
         <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
+        <span v-if="doc.thieu_chung_tu" class="badge b-orange" style="margin-left: 6px">Thiếu chứng từ</span>
       </div>
     </div>
 
@@ -373,6 +448,34 @@ onMounted(async () => {
         <div class="field" style="margin-top: 10px">
           <label>Diễn giải</label>
           <textarea v-model="doc.dien_giai" :disabled="!editable" rows="2"></textarea>
+        </div>
+
+        <!-- US-E4.2/BR-N1,N2 — chỉ hiện khi Mua ngoài (NCC khác), khớp pn-ncc/
+             pn-ct của bản mẫu (pnLoai()). -->
+        <div v-if="doc.loai_nhap === LOAI_MUA_NGOAI" class="grid2" style="margin-top: 10px">
+          <div class="field">
+            <label>NCC (bắt buộc khi Mua ngoài) *</label>
+            <select v-model="doc.ncc" :disabled="!editable" @change="onNccSelect">
+              <option value="" disabled>-- Chọn NCC --</option>
+              <option v-for="n in nccList" :key="n.name" :value="n.name" :disabled="!n.active">
+                {{ n.ten_ncc }}{{ n.active ? '' : ' (đã tắt)' }}
+              </option>
+              <option :value="MUC_TAO_NCC">+ Tạo NCC mới…</option>
+            </select>
+            <p v-if="!nccList.length" class="tag" style="margin-top: 4px">
+              Chưa có NCC nào — chọn "+ Tạo NCC mới…" để thêm.
+            </p>
+          </div>
+          <div class="flex" style="gap: 14px">
+            <div class="field" style="flex: 1">
+              <label>Số chứng từ NCC</label>
+              <input v-model="doc.so_chung_tu_ncc" :disabled="!editable" placeholder="HĐ/PXK của NCC" />
+            </div>
+            <div class="field" style="flex: 1">
+              <label>Ngày chứng từ</label>
+              <input type="date" v-model="doc.ngay_chung_tu" :disabled="!editable" />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -526,6 +629,7 @@ onMounted(async () => {
         @saved="onVatTuSaved"
         @close="modalOpen = false"
       />
+      <NccModal :open="nccModalOpen" mode="tao" @saved="onNccSaved" @close="nccModalOpen = false" />
     </template>
   </div>
 </template>

@@ -12,12 +12,18 @@ const isMobile = useIsMobile()
 const loading = ref(true)
 const error = ref('')
 const rows = ref([])
+// BR-N2/NL-7.2 (F-14): lọc phiếu "thiếu chứng từ NCC" — backend đã hỗ trợ
+// (kho_phieu_list(thieu_chung_tu=1)) nhưng chưa màn nào hiện bộ lọc.
+const chiThieuChungTu = ref(false)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    rows.value = await api.callKho('kho_phieu_list', { loai: 'nhap', limit: 50 })
+    rows.value = await api.callKho('kho_phieu_list', {
+      loai: 'nhap', limit: 50,
+      thieu_chung_tu: chiThieuChungTu.value ? 1 : undefined,
+    })
   } catch (e) {
     error.value = e.message || 'Không tải được danh sách phiếu nhập.'
   } finally {
@@ -54,10 +60,15 @@ onMounted(load)
       <button class="btn btn-sm" @click="taoMoi">+ Tạo phiếu</button>
     </div>
 
+    <label class="card mb10" style="display: flex; align-items: center; gap: 8px; font-size: 13px; width: fit-content">
+      <input type="checkbox" v-model="chiThieuChungTu" @change="load" style="width: auto" />
+      Chỉ phiếu thiếu chứng từ NCC
+    </label>
+
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!rows.length" class="empty">
-      Chưa có phiếu nhập nào. Bấm "Tạo phiếu nhập" để lập phiếu đầu tiên.
+      {{ chiThieuChungTu ? 'Không có phiếu nào thiếu chứng từ NCC.' : 'Chưa có phiếu nhập nào. Bấm "Tạo phiếu nhập" để lập phiếu đầu tiên.' }}
     </div>
 
     <!-- DESKTOP -->
@@ -80,7 +91,10 @@ onMounted(load)
             <td>{{ r.loai_nhap }}</td>
             <td>{{ r.nguoi_giao || '—' }}</td>
             <td class="right">{{ fmtVND(r.tong_tien) }}</td>
-            <td><span class="badge" :class="badge(r.docstatus).cls">{{ badge(r.docstatus).label }}</span></td>
+            <td>
+              <span class="badge" :class="badge(r.docstatus).cls">{{ badge(r.docstatus).label }}</span>
+              <span v-if="r.thieu_chung_tu" class="badge b-orange" style="margin-left: 4px">Thiếu chứng từ</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -98,6 +112,7 @@ onMounted(load)
           <span>Người giao: {{ r.nguoi_giao || '—' }}</span>
           <b>{{ fmtVND(r.tong_tien) }}</b>
         </p>
+        <span v-if="r.thieu_chung_tu" class="badge b-orange" style="margin-top: 6px">Thiếu chứng từ</span>
       </div>
     </template>
   </div>
