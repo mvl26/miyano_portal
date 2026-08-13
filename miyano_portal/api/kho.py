@@ -494,7 +494,7 @@ def _phieu_to_dict(doc) -> dict:
 
 @frappe.whitelist()
 @_phieu_action
-def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None) -> list:
+def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong=None) -> list:
 	# `limit`/`start` CỐ Ý không gắn type hint `int`: build này (Frappe
 	# v15.113) tự validate kiểu tham số của hàm whitelist theo type hint qua
 	# `frappe.utils.typing_validations` — kể cả khi gọi trực tiếp trong test
@@ -518,7 +518,14 @@ def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None) -> list:
 		if thieu_chung_tu not in (None, ""):
 			filters["thieu_chung_tu"] = 1 if frappe.utils.cint(thieu_chung_tu) else 0
 	else:
-		fields += ["noi_nhan", "nguoi_nhan"]
+		fields += ["khoa_phong", "noi_nhan", "nguoi_nhan"]
+		# US-E8.4: danh sách phiếu xuất lọc được theo khoa phòng. `khoa_phong`
+		# do client gửi nên phải qua _khoa_cua_kho() trước, cùng nguyên tắc
+		# đầu file — chỉ áp cho Customer Stock Issue, Customer Stock Receipt
+		# không có field này.
+		if khoa_phong:
+			_khoa_cua_kho(khoa_phong, kho)
+			filters["khoa_phong"] = khoa_phong
 	rows = frappe.get_all(
 		doctype,
 		filters=filters,
@@ -947,14 +954,21 @@ def kho_the_kho(vat_tu: str, tu_ngay, den_ngay) -> list:
 
 
 @frappe.whitelist()
-def kho_nhat_ky(vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1) -> dict:
+def kho_nhat_ky(vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1, khoa_phong=None) -> dict:
 	"""Nhật ký vật tư — US-E4.6/UC-43. `vat_tu` do client gửi nên phải qua
 	_vat_tu_cua_kho() trước, đúng nguyên tắc đầu file. `trang` CỐ Ý không có
-	type hint số — cùng lý do với `limit`/`start` của kho_phieu_list."""
+	type hint số — cùng lý do với `limit`/`start` của kho_phieu_list.
+	`khoa_phong` (E8/US-E8.4) là lọc tuỳ chọn, cũng phải qua _khoa_cua_kho()
+	trước khi lọc."""
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(vat_tu, kho)
+	if khoa_phong:
+		_khoa_cua_kho(khoa_phong, kho)
 	trang = _so_nguyen(trang, "Trang", 1)
-	return reports.nhat_ky_rows(kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=loai, nguon=nguon, trang=trang)
+	return reports.nhat_ky_rows(
+		kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=loai, nguon=nguon,
+		trang=trang, khoa_phong=khoa_phong,
+	)
 
 
 @frappe.whitelist()
@@ -969,6 +983,20 @@ def kho_bao_cao_dot(tu_ngay, den_ngay, vat_tu=None, nguon=None) -> list:
 	if vat_tu:
 		_vat_tu_cua_kho(vat_tu, kho)
 	return reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon)
+
+
+@frappe.whitelist()
+@_khoa_action
+def kho_bao_cao_cap_phat(tu_ngay, den_ngay, khoa_phong=None, vat_tu=None) -> dict:
+	"""Báo cáo cấp phát theo khoa phòng — US-E8.5/UC-56/BR-CP4. `khoa_phong`/
+	`vat_tu` là lọc TUỲ CHỌN do client gửi — kiểm sở hữu TRƯỚC khi lọc, cùng
+	khuôn kho_bao_cao_dot()."""
+	kho = get_portal_kho()
+	if khoa_phong:
+		_khoa_cua_kho(khoa_phong, kho)
+	if vat_tu:
+		_vat_tu_cua_kho(vat_tu, kho)
+	return reports.bao_cao_cap_phat_rows(kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu)
 
 
 @frappe.whitelist()

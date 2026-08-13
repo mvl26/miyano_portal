@@ -385,6 +385,7 @@ _NHAT_KY_TRANG = 50
 def _nhat_ky_filtered_rows(
 	kho: str, vat_tu: str, tu_ngay, den_ngay,
 	so_lo: str | None = None, loai: str | None = None, nguon: str | None = None,
+	khoa_phong: str | None = None,
 ) -> list[dict]:
 	"""Toàn bộ dòng nhật ký khớp bộ lọc, theo thứ tự thời gian, CHƯA phân
 	trang — dùng chung cho cả `nhat_ky_rows()` (màn hình, 50 dòng/trang) và
@@ -460,10 +461,12 @@ def _nhat_ky_filtered_rows(
 	issue_names = {e["chung_tu"] for e in entries if e["chung_tu_type"] == "Customer Stock Issue"}
 	issues = {}
 	if issue_names:
-		issues = dict(frappe.get_all(
-			"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
-			fields=["name", "loai_xuat"], as_list=True,
-		))
+		issues = {
+			r["name"]: r for r in frappe.get_all(
+				"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
+				fields=["name", "loai_xuat", "khoa_phong"],
+			)
+		}
 
 	all_rows = []
 	for e in entries:
@@ -494,7 +497,8 @@ def _nhat_ky_filtered_rows(
 				else:
 					nguon_dong = "Miyano"
 		else:
-			la_dao = issues.get(e["chung_tu"]) == voucher.LOAI_DAO
+			iss = issues.get(e["chung_tu"]) or {}
+			la_dao = iss.get("loai_xuat") == voucher.LOAI_DAO
 		all_rows.append({
 			"ngay": e["ngay"],
 			"phieu": e["chung_tu"],
@@ -515,6 +519,10 @@ def _nhat_ky_filtered_rows(
 			# Trước bản sửa này dòng đảo không mang dấu hiệu nào, hiện ra như
 			# một giao dịch bình thường — client cần cả hai để tô đúng UI.
 			"la_dao": la_dao,
+			# E8/US-E8.4: khoa phòng nhận, để nhật ký lọc được theo khoa
+			# (chỉ có nghĩa cho dòng XUẤT — dòng nhập luôn rỗng, không suy
+			# diễn gán khoa cho một lượt nhập hàng).
+			"khoa_phong": (issues.get(e["chung_tu"]) or {}).get("khoa_phong") if not is_receipt else None,
 		})
 
 	filtered = all_rows
@@ -524,19 +532,24 @@ def _nhat_ky_filtered_rows(
 		filtered = [r for r in filtered if r["loai"] == loai]
 	if nguon:
 		filtered = [r for r in filtered if r["nguon"] == nguon]
+	if khoa_phong:
+		filtered = [r for r in filtered if r["khoa_phong"] == khoa_phong]
 	return filtered
 
 
 def nhat_ky_rows(
 	kho: str, vat_tu: str, tu_ngay, den_ngay,
 	so_lo: str | None = None, loai: str | None = None,
-	nguon: str | None = None, trang: int = 1,
+	nguon: str | None = None, trang: int = 1, khoa_phong: str | None = None,
 ) -> dict:
 	"""Nhật ký vật tư (US-E4.6, UC-43, BR-D2) — bản MÀN HÌNH, phân trang server
 	50 dòng. Phép tính thật nằm ở `_nhat_ky_filtered_rows()`; xem docstring ở
 	đó cho các bất biến (đối chiếu kho_ton, dòng da_dao không bị giấu, luỹ kế
-	tính trước khi lọc)."""
-	filtered = _nhat_ky_filtered_rows(kho, vat_tu, tu_ngay, den_ngay, so_lo, loai, nguon)
+	tính trước khi lọc). `khoa_phong` (E8/US-E8.4) là lọc HIỂN THỊ như
+	so_lo/loai/nguon — không đổi ý nghĩa cột tồn luỹ kế."""
+	filtered = _nhat_ky_filtered_rows(
+		kho, vat_tu, tu_ngay, den_ngay, so_lo, loai, nguon, khoa_phong
+	)
 	trang = max(1, int(trang or 1))
 	start = (trang - 1) * _NHAT_KY_TRANG
 	return {
@@ -550,13 +563,16 @@ def nhat_ky_rows(
 def nhat_ky_rows_export(
 	kho: str, vat_tu: str, tu_ngay, den_ngay,
 	so_lo: str | None = None, loai: str | None = None, nguon: str | None = None,
+	khoa_phong: str | None = None,
 ) -> list[dict]:
 	"""Bản XUẤT EXCEL của nhật ký vật tư (Gap 2, review E4 phần B) — CÙNG bộ
 	lọc và CÙNG phép tính với màn hình (`_nhat_ky_filtered_rows()`), nhưng
 	KHÔNG cắt theo trang: NL-8.3 chỉ bắt buộc chọn kỳ khi xuất, không giới
 	hạn số dòng — 50 dòng/trang là giới hạn HIỂN THỊ, không phải giới hạn dữ
 	liệu."""
-	return _nhat_ky_filtered_rows(kho, vat_tu, tu_ngay, den_ngay, so_lo, loai, nguon)
+	return _nhat_ky_filtered_rows(
+		kho, vat_tu, tu_ngay, den_ngay, so_lo, loai, nguon, khoa_phong
+	)
 
 
 def canh_bao_han_rows(kho: str, so_ngay: int = 90) -> list[dict]:
@@ -851,6 +867,133 @@ def bao_cao_dot_rows(
 			})
 
 	return sorted(out, key=lambda r: (r["vat_tu"], r["lo"], r["ngay_nhan"], r["dot"]))
+
+
+def bao_cao_cap_phat_rows(
+	kho: str, tu_ngay, den_ngay, khoa_phong: str | None = None, vat_tu: str | None = None,
+) -> dict:
+	"""Báo cáo cấp phát theo khoa phòng — US-E8.5, UC-56, BR-CP4.
+
+	Đọc từ SỔ KHO join qua PHIẾU XUẤT (khoa phòng/người nhận nằm trên đầu
+	phiếu, không trên dòng sổ) — KHÔNG đổi schema `Customer Stock Ledger
+	Entry` (BR-CP4 nói rõ điều này).
+
+	LỆCH có chủ đích so với quy ước chung của module này (xem docstring đầu
+	file: "da_dao=1 KHÔNG bị lọc khỏi bất kỳ tổng nào"): báo cáo NXT/thẻ kho
+	trả lời câu hỏi lịch sử kế toán ("mọi biến động trong kỳ, kể cả phần đã
+	bị đảo sau đó"), còn cấp phát trả lời câu hỏi nghiệp vụ khác — "khoa nào
+	ĐANG THỰC SỰ giữ hàng đã cấp phát" — nên PRD E8 nói thẳng "Phiếu bị đảo
+	không tính". Loại trừ HAI LỚP, cố ý không gộp làm một:
+	  * `da_dao=0` ở tầng sổ — bỏ dòng GỐC của một phiếu đã bị huỷ;
+	  * `loai_xuat == "Xuất sử dụng"` ở tầng phiếu — bỏ chính dòng BÙ TRỪ
+	    (loai_xuat="Phiếu đảo", da_dao=0 vì bản thân nó không bị đảo) VÀ
+	    mọi loại xuất khác (huỷ/trả lại/điều chỉnh — không phải cấp phát
+	    thật). Chỉ lọc một lớp sẽ để lọt lớp còn lại.
+
+	Nhóm theo `khoa_phong`; dòng KHÔNG gắn khoa (phiếu tạo khi kho chưa bật
+	`bat_buoc_khoa_phong`, hoặc kho chưa từng bật) tách thành nhóm riêng
+	`khoa_phong=None`/`ten_hien_thi="Chưa gắn khoa"` — KHÔNG bị loại khỏi
+	báo cáo và KHÔNG lẫn vào khoa nào khác (yêu cầu tường minh của US-E8.5:
+	"đừng giấu nó, đó là dữ liệu thật").
+
+	Một dòng "dong" = một (phiếu, vật tư), CỘNG DỒN qua mọi lô của vật tư đó
+	trên cùng phiếu — dvt/tên vật tư không phụ thuộc lô, và bộ số chuẩn của
+	PRD ("Găng M 8 hộp") không tách theo lô.
+	"""
+	tu = frappe.utils.getdate(tu_ngay)
+	den = frappe.utils.getdate(den_ngay)
+	if tu > den:
+		frappe.throw("Từ ngày phải trước hoặc bằng Đến ngày.", frappe.ValidationError)
+
+	filters = {
+		"kho": kho, "chung_tu_type": "Customer Stock Issue",
+		"da_dao": 0, "ngay": ["between", [tu, den]],
+	}
+	if vat_tu:
+		filters["vat_tu"] = vat_tu
+	entries = frappe.get_all(
+		"Customer Stock Ledger Entry", filters=filters,
+		fields=["chung_tu", "vat_tu", "so_luong", "gia_tri", "ngay"],
+	)
+	if not entries:
+		return {"tong_gia_tri": 0.0, "nhom": []}
+
+	issue_names = {e["chung_tu"] for e in entries}
+	issues = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
+			fields=["name", "loai_xuat", "khoa_phong", "nguoi_nhan"],
+		)
+	}
+	vat_tu_names = {e["vat_tu"] for e in entries}
+	vt_info = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Warehouse Item", filters={"name": ["in", list(vat_tu_names)]},
+			fields=["name", "ten_vat_tu", "dvt"],
+		)
+	} if vat_tu_names else {}
+
+	agg: dict[tuple, dict] = {}
+	for e in entries:
+		iss = issues.get(e["chung_tu"])
+		if not iss or iss["loai_xuat"] != "Xuất sử dụng":
+			continue
+		kp = iss["khoa_phong"] or None
+		if khoa_phong and kp != khoa_phong:
+			continue
+		key = (iss["name"], e["vat_tu"])
+		row = agg.setdefault(key, {
+			"khoa_phong": kp, "phieu": iss["name"], "vat_tu": e["vat_tu"],
+			"ngay": e["ngay"], "nguoi_nhan": iss["nguoi_nhan"] or "",
+			"sl": 0.0, "gia_tri": 0.0,
+		})
+		# so_luong/gia_tri của dòng XUẤT mang dấu ÂM (xem docstring
+		# ledger.post_lines) — đảo dấu để hiển thị số dương cho người dùng.
+		row["sl"] += -float(e["so_luong"])
+		row["gia_tri"] += -float(e["gia_tri"] or 0)
+
+	nhom_map: dict = {}
+	for row in agg.values():
+		kp = row["khoa_phong"]
+		nhom = nhom_map.setdefault(kp, {"gia_tri": 0.0, "dong": []})
+		info = vt_info.get(row["vat_tu"]) or {}
+		nhom["dong"].append({
+			"phieu": row["phieu"],
+			"ngay": row["ngay"],
+			"vat_tu": info.get("ten_vat_tu") or row["vat_tu"],
+			"dvt": info.get("dvt") or "",
+			"sl": _r(row["sl"]),
+			"gia_tri": round(row["gia_tri"], 2),
+			"nguoi_nhan": row["nguoi_nhan"],
+		})
+		nhom["gia_tri"] += row["gia_tri"]
+
+	tong_gia_tri = sum(v["gia_tri"] for v in nhom_map.values())
+
+	ten_khoa = {}
+	ten_can_tra = [kp for kp in nhom_map if kp]
+	if ten_can_tra:
+		ten_khoa = dict(frappe.get_all(
+			"Customer Department", filters={"name": ["in", ten_can_tra]},
+			fields=["name", "ten_khoa_phong"], as_list=True,
+		))
+
+	nhom_out = []
+	for kp, v in nhom_map.items():
+		gia_tri = round(v["gia_tri"], 2)
+		nhom_out.append({
+			"khoa_phong": kp,
+			"ten_hien_thi": ten_khoa.get(kp, kp) if kp else "Chưa gắn khoa",
+			"gia_tri": gia_tri,
+			"pct": round(gia_tri / tong_gia_tri * 100, 1) if tong_gia_tri > EPS else 0.0,
+			"dong": sorted(v["dong"], key=lambda r: (r["ngay"], r["phieu"])),
+		})
+	# Khoa có tên sắp trước theo bảng chữ cái; nhóm "Chưa gắn khoa" LUÔN ở
+	# cuối — nó không phải một khoa để so tên, và US-E8.5 muốn nó "tách
+	# riêng", đứng lẫn giữa danh sách khoa sẽ trông như một khoa thật.
+	nhom_out.sort(key=lambda r: (r["khoa_phong"] is None, r["ten_hien_thi"]))
+
+	return {"tong_gia_tri": round(tong_gia_tri, 2), "nhom": nhom_out}
 
 
 def build_xlsx(columns: list[tuple[str, str]], rows: list[dict], sheet_title: str) -> bytes:
