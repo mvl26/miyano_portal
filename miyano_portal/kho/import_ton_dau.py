@@ -208,6 +208,28 @@ def mo_workbook(content: bytes):
 	return wb.active
 
 
+def _chan_neu_da_nhap_ton_dau(kho: str) -> None:
+	"""BR-K21 / NL-4.4 / US-E4.3: tồn đầu kỳ chỉ nhập được MỘT LẦN cho mỗi kho.
+
+	Chặn NGAY TỪ BƯỚC UPLOAD (preview), không phải sau khi đã đọc/xử lý file —
+	đặt ở ĐẦU parse_workbook() nên cả kho_import_preview lẫn kho_import_commit
+	(gọi lại parse_workbook trước khi ghi) đều tự động được chặn qua đúng một
+	chỗ. Chỉ tính phiếu ĐÃ GHI SỔ (docstatus=1) — "đã commit" theo đúng nghĩa
+	của BR-K21; một phiếu nháp bị bỏ dở không tính là đã nhập.
+	"""
+	ngay_da_nhap = frappe.db.get_value(
+		"Customer Stock Receipt",
+		{"kho": kho, "loai_nhap": "Tồn đầu kỳ", "docstatus": 1},
+		"ngay",
+	)
+	if ngay_da_nhap:
+		frappe.throw(
+			f"Kho đã nhập tồn đầu kỳ ngày {frappe.utils.formatdate(ngay_da_nhap)}. "
+			"Dùng phiếu Điều chỉnh kiểm kê cho chênh lệch.",
+			frappe.ValidationError,
+		)
+
+
 def parse_workbook(content: bytes, kho: str) -> dict:
 	"""Đọc và validate toàn bộ file, KHÔNG GHI GÌ vào database.
 
@@ -216,6 +238,7 @@ def parse_workbook(content: bytes, kho: str) -> dict:
 	hai nhóm — mỗi dòng lỗi mang đủ số dòng trong file gốc (1-based, tính cả
 	header) và MỌI lý do lỗi trên dòng đó, không chỉ lý do đầu tiên.
 	"""
+	_chan_neu_da_nhap_ton_dau(kho)
 	ws = mo_workbook(content)
 	header_row, col_index = _read_header(ws)
 

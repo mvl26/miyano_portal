@@ -29,6 +29,7 @@ import frappe
 from miyano_portal.kho import dong_phieu
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
+from miyano_portal.kho import ncc as ncc_mod
 from miyano_portal.kho import reports
 from miyano_portal.kho import voucher
 from miyano_portal.kho import vat_tu as vat_tu_mod
@@ -178,6 +179,7 @@ def _action(danh_tu: str):
 # và nhiều test tham chiếu tới nó.
 _phieu_action = _action("phiếu")
 _vat_tu_action = _action("vật tư")
+_ncc_action = _action("NCC")
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -189,6 +191,14 @@ def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
 	if frappe.db.get_value("Customer Warehouse Item", vat_tu, "kho") != kho:
 		raise frappe.PermissionError("Vật tư không thuộc kho của đơn vị bạn.")
 	return vat_tu
+
+
+def _ncc_cua_kho(ncc: str, kho: str) -> str:
+	"""Cùng khuôn _vat_tu_cua_kho(): xác nhận một NCC do client gửi lên đúng
+	là của kho người gọi TRƯỚC khi get_doc/save chạm vào nó."""
+	if frappe.db.get_value("Customer Supplier", ncc, "kho") != kho:
+		raise frappe.PermissionError("NCC không thuộc kho của đơn vị bạn.")
+	return ncc
 
 
 @frappe.whitelist()
@@ -358,6 +368,30 @@ def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 
 
 @frappe.whitelist()
+def kho_ncc_list(tim_kiem=None, ca_inactive=0) -> list:
+	"""Danh mục NCC của kho — US-E4.1."""
+	return ncc_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive)
+
+
+@frappe.whitelist()
+@_ncc_action
+def kho_ncc_save(data) -> dict:
+	"""Tạo mới (thiếu `name`) hoặc sửa một NCC của kho người gọi.
+
+	`kho` luôn suy từ phiên, KHÔNG BAO GIỜ nhận từ client — kể cả khi sửa,
+	nơi client gửi `name` (một định danh do họ cầm trong tay): _ncc_cua_kho()
+	xác nhận sở hữu TRƯỚC khi ncc.save() chạm tới bản ghi, đúng nguyên tắc đầu
+	file (frappe.get_doc không tự kiểm has_permission ở build này).
+	"""
+	kho = get_portal_kho()
+	du_lieu = _parse_payload(data)
+	name = du_lieu.get("name")
+	if name:
+		_ncc_cua_kho(name, kho)
+	return ncc_mod.save(kho, du_lieu)
+
+
+@frappe.whitelist()
 def kho_import_template() -> None:
 	"""Tải file mẫu import danh mục + tồn đầu kỳ. get_portal_kho() vẫn được
 	gọi dù không dùng kết quả, để nhất quán "mọi endpoint đều tự suy kho từ
@@ -411,7 +445,7 @@ def _phieu_to_dict(doc) -> dict:
 
 @frappe.whitelist()
 @_phieu_action
-def kho_phieu_list(loai: str, limit=20, start=0) -> list:
+def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None) -> list:
 	# `limit`/`start` CỐ Ý không gắn type hint `int`: build này (Frappe
 	# v15.113) tự validate kiểu tham số của hàm whitelist theo type hint qua
 	# `frappe.utils.typing_validations` — kể cả khi gọi trực tiếp trong test
@@ -427,13 +461,18 @@ def kho_phieu_list(loai: str, limit=20, start=0) -> list:
 	doctype = _doctype_tu_loai(loai)
 	loai_field = _LOAI_FIELD[doctype]
 	fields = ["name", "ngay", loai_field, "tong_tien", "docstatus", "modified"]
+	filters = {"kho": kho}
 	if doctype == "Customer Stock Receipt":
-		fields.append("nguoi_giao")
+		fields += ["nguoi_giao", "ncc", "thieu_chung_tu"]
+		# NL-7.2/BR-N2: lọc phiếu theo cờ "thiếu chứng từ NCC". Chỉ có ý nghĩa
+		# cho phiếu nhập — Customer Stock Issue không có field này.
+		if thieu_chung_tu not in (None, ""):
+			filters["thieu_chung_tu"] = 1 if frappe.utils.cint(thieu_chung_tu) else 0
 	else:
 		fields += ["noi_nhan", "nguoi_nhan"]
 	rows = frappe.get_all(
 		doctype,
-		filters={"kho": kho},
+		filters=filters,
 		fields=fields,
 		order_by="creation desc",
 		limit_page_length=_so_nguyen(limit, "Số dòng mỗi trang", 20),
@@ -501,6 +540,15 @@ def kho_phieu_nhap_save(payload) -> dict:
 	doc.nguoi_giao = payload.get("nguoi_giao")
 	doc.chung_tu_kem = payload.get("chung_tu_kem")
 	doc.dien_giai = payload.get("dien_giai")
+	# E4 (BR-N1/N2): NCC/số chứng từ/ngày chứng từ là field HEADER, không phải
+	# dòng con — không dính lỗ "wipe child table xoá field read-only" của E3
+	# (kho_phieu_nhap_save._nguon_field guard bên dưới chỉ áp cho doc.items).
+	# `thieu_chung_tu` KHÔNG nhận ở đây: controller tự tính lại trong
+	# validate() từ so_chung_tu_ncc mỗi lần lưu — nhận từ client sẽ cho phép
+	# giả mạo cờ đó.
+	doc.ncc = payload.get("ncc")
+	doc.so_chung_tu_ncc = payload.get("so_chung_tu_ncc")
+	doc.ngay_chung_tu = payload.get("ngay_chung_tu")
 
 	# `sl_giao`/`thieu_lo_han` (US-E3.2, BR-K16) là mốc đối soát do
 	# delivery_hook điền, KHÔNG BAO GIỜ nhận từ client — cùng nguyên tắc với

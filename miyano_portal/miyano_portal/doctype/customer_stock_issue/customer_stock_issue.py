@@ -73,7 +73,12 @@ class CustomerStockIssue(Document):
 	def before_submit(self):
 		if self.loai_xuat != voucher.LOAI_DAO:
 			self._chan_xuat_qua_ton()
-			self._chan_lo_het_han_chua_xac_nhan()
+			# US-E4.4 / BR-K20: chỉ "Xuất sử dụng" mới bắt xác nhận lô hết hạn.
+			# "Xuất huỷ - hết hạn" đúng nghĩa LÀ để xuất hàng hết hạn — hỏi lại
+			# ở đó là hỏi thừa. Các loại xuất khác (Xuất trả lại, Điều chỉnh
+			# kiểm kê) cũng không hỏi, đúng AC US-E4.4.
+			if self.loai_xuat == "Xuất sử dụng":
+				self._chan_lo_het_han_chua_xac_nhan()
 
 	def _chan_xuat_qua_ton(self):
 		"""Cộng dồn theo (vật tư, lô) TRƯỚC khi so với tồn.

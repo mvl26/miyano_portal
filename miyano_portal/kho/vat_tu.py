@@ -14,7 +14,7 @@ Hai rào của module này tồn tại vì sổ kho không quy đổi đơn vị
 
 import frappe
 
-from miyano_portal.kho import ledger
+from miyano_portal.kho import ledger, similarity
 from miyano_portal.kho.import_ton_dau import _match_vat_tu, _norm
 
 # Trường DUY NHẤT được nhận từ client. Không bao giờ doc.update(payload):
@@ -107,6 +107,12 @@ def tao(kho: str, du_lieu: dict) -> dict:
 	if match_type == "existing":
 		return ra_dict(vat_tu_name, da_co=True)
 
+	# NL-4.5 / US-E4.5: cảnh báo MỀM khi TÊN giống >= 85% (so không dấu) một
+	# vật tư đang có trong kho — liệt kê, KHÔNG chặn cứng. Đây là so tên,
+	# khác hẳn _match_vat_tu() ở trên (so MÃ, khớp tuyệt đối để tái dùng bản
+	# ghi). Một vật tư trùng mã (đã return ở trên) không cần cảnh báo tên nữa.
+	canh_bao_trung = _goi_y_ten_gan_giong(kho, ten)
+
 	doc = frappe.get_doc({
 		"doctype": "Customer Warehouse Item",
 		"kho": kho,
@@ -122,7 +128,21 @@ def tao(kho: str, du_lieu: dict) -> dict:
 		"ghi_chu": _norm(du_lieu.get("ghi_chu")) or None,
 	})
 	doc.insert(ignore_permissions=True)
-	return ra_dict(doc.name)
+	out = ra_dict(doc.name)
+	out["canh_bao_trung"] = canh_bao_trung
+	return out
+
+
+def _goi_y_ten_gan_giong(kho: str, ten: str) -> list[str]:
+	rows = frappe.get_all(
+		"Customer Warehouse Item", filters={"kho": kho},
+		fields=["name", "ten_vat_tu"],
+	)
+	return [
+		f"{r.name}: {r.ten_vat_tu}"
+		for r in rows
+		if similarity.la_gan_giong(ten, r.ten_vat_tu)
+	]
 
 
 def _chan_tat_khi_con_ton(doc) -> None:

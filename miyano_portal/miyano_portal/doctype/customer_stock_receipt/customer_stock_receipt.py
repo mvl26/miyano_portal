@@ -11,6 +11,8 @@ class CustomerStockReceipt(Document):
 			"PN", "Customer Stock Receipt", self.kho, self.ngay
 		)
 
+	LOAI_MUA_NGOAI = "Mua ngoài (NCC khác)"
+
 	def validate(self):
 		self._chan_tu_tao_phieu_dao()
 		voucher.validate_ngay(self)
@@ -18,6 +20,52 @@ class CustomerStockReceipt(Document):
 		voucher.validate_so_luong_don_gia(self)
 		voucher.fill_item_details(self)
 		self._validate_doi_soat_giao_nhan()
+		self._validate_ncc()
+
+	def _validate_ncc(self):
+		"""US-E4.2 / BR-N1, N2, N3.
+
+		BR-N1: `loai_nhap = "Mua ngoài (NCC khác)"` mà thiếu `ncc` → chặn,
+		nguyên văn thông điệp NL-7.1. `so_chung_tu_ncc` KHÔNG bắt buộc (BR-N2)
+		— bỏ trống vẫn lưu/ghi sổ được, chỉ gắn cờ `thieu_chung_tu` để danh
+		sách phiếu lọc ra sau.
+
+		`ncc` được kiểm THUỘC ĐÚNG KHO của phiếu và ĐANG HOẠT ĐỘNG bất kể
+		`loai_nhap` là gì (không chỉ khi Mua ngoài) — đây là chốt chặn
+		server-side cho ràng buộc "Link ncc lọc theo kho + active=1"
+		(30_API_Spec §1.3): dropdown phía client chỉ là UX, không phải chốt
+		chặn duy nhất.
+		"""
+		if self.ncc:
+			ncc_row = frappe.db.get_value(
+				"Customer Supplier", self.ncc, ["kho", "active", "ten_ncc"], as_dict=True
+			)
+			if not ncc_row or ncc_row.kho != self.kho:
+				frappe.throw(
+					"NCC không thuộc kho của đơn vị bạn.", frappe.ValidationError
+				)
+			if not ncc_row.active:
+				frappe.throw(
+					f"NCC {ncc_row.ten_ncc} đã ngừng hoạt động, không chọn được "
+					"trên phiếu mới.",
+					frappe.ValidationError,
+				)
+
+		if self.loai_nhap == self.LOAI_MUA_NGOAI and not self.ncc:
+			frappe.throw(
+				"Chọn nhà cung cấp cho phiếu mua ngoài.", frappe.ValidationError
+			)
+
+		if self.ngay_chung_tu and frappe.utils.getdate(self.ngay_chung_tu) > frappe.utils.getdate(self.ngay):
+			frappe.throw(
+				"Ngày chứng từ NCC không được sau ngày phiếu.",
+				frappe.ValidationError,
+			)
+
+		self.thieu_chung_tu = (
+			1 if self.loai_nhap == self.LOAI_MUA_NGOAI and not (self.so_chung_tu_ncc or "").strip()
+			else 0
+		)
 
 	def _validate_doi_soat_giao_nhan(self):
 		"""US-E3.3 / BR-K17 / NL-3.3, NL-3.10.
