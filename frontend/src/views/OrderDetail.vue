@@ -27,14 +27,13 @@ const error = ref('')
 const data = ref(null)
 const name = computed(() => route.params.name)
 
-// E6/F-07 [MỚI — QĐ-6] — "Đơn mua lẻ": `portal_order_track` KHÔNG trả
-// `custom_loai_don` (chỉ có trên Sales Order thật, không lộ qua endpoint
-// này) — suy bằng heuristic "không gắn HĐNT nào" (`hdnt` rỗng). Đúng cho MỌI
-// đơn đi qua `portal_order_place` (nhánh HĐNT luôn gán `custom_hdnt`, nhánh
-// Mua lẻ không bao giờ gán — xem `_xay_don_hdnt`/`_xay_don_ban_le`), có thể
-// sai với một đơn dựng tay trên Desk không gắn HĐNT vì lý do khác. Xem báo
-// cáo bàn giao — cần `custom_loai_don` thật trong response nếu muốn hết mơ hồ.
-const laDonMuaLe = computed(() => data.value && !data.value.hdnt)
+// E6/F-07 [MỚI — QĐ-6] — "Đơn mua lẻ": `portal_order_track` giờ trả THẲNG
+// `loai_don` (thêm ở review E6 phần B round 1, dọn dẹp ở round 2). Bản
+// trước không có field này nên phải suy bằng heuristic "không gắn HĐNT nào"
+// (`!data.value.hdnt`) — đúng cho MỌI đơn đi qua `portal_order_place`
+// nhưng có thể sai với một đơn dựng tay trên Desk không gắn HĐNT vì lý do
+// khác. Đọc field thật, không còn đoán.
+const laDonMuaLe = computed(() => data.value?.loai_don === 'Mua lẻ')
 
 const acceptOpen = ref(false)
 const rejecting = ref(false)

@@ -14,15 +14,19 @@ const isMobile = useIsMobile()
 
 // ---------------------------------------------------------------------
 // E6/QT10 — bộ chuyển "Theo HĐNT | Mua lẻ" (F-03/F-21). Chỉ hiện khi khách
-// được bật `Customer.custom_cho_phep_mua_le`. `portal_me()` KHÔNG trả cờ
-// này (chỉ trả customer/customer_name/tax_id/outstanding/addresses) nên
-// không có cách nào biết trước mà không gọi thử — dò bằng chính lệnh gọi
-// `portal_catalog_ban_le` lúc vào trang: 403 `khong_duoc_mua_le` (kiểm ở
-// SERVER, NL-10.1) thì ẩn hẳn bộ chuyển, thành công thì vừa biết được phép
-// vừa có sẵn dữ liệu trang đầu. Đây là một khoảng lệch với bản mẫu (bản mẫu
-// giả định có sẵn một cờ) — xem báo cáo bàn giao.
+// được bật `Customer.custom_cho_phep_mua_le`.
+//
+// `portal_me()` giờ TRẢ THẲNG cờ này (`cho_phep_mua_le` — thêm ở review E6
+// phần B round 1, dọn dẹp ở round 2). Bản trước không có cờ này nên phải dò
+// bằng cách gọi thử `portal_catalog_ban_le` lúc vào trang và đọc mã lỗi
+// (403 `khong_duoc_mua_le` → ẩn bộ chuyển) — một round-trip THỪA chỉ để
+// biết có nên hiện một cái nút hay không, và còn sai trong lúc chờ (bộ
+// chuyển nhấp nháy ẩn→hiện nếu API chậm). `mucLeChoPhep` giờ là `computed`
+// từ `store.me`, không còn là state tự quản lý bằng try/catch nữa —
+// `portal_catalog_ban_le` chỉ còn gọi để LẤY DỮ LIỆU khi khách thật sự vào
+// ngăn Mua lẻ (`loadLe()` bên dưới), không còn kiêm luôn việc dò quyền.
 const mode = ref('hd') // 'hd' | 'le'
-const mucLeChoPhep = ref(false)
+const mucLeChoPhep = computed(() => !!store.me?.cho_phep_mua_le)
 
 // ---------------------------------------------------------------------
 // Ngăn Theo HĐNT — [Hiện có], KHÔNG đổi hành vi so với bản trước E6.
@@ -150,6 +154,10 @@ function availableLeQty(code) {
 }
 
 async function loadLe() {
+  // `mucLeChoPhep` giờ đến từ `store.me.cho_phep_mua_le` (dữ liệu THẬT,
+  // không phải suy từ kết quả gọi này) — hàm này chỉ còn việc NẠP DANH MỤC
+  // cho ngăn Mua lẻ, không kiêm việc dò quyền nữa (xem ghi chú ở khai báo
+  // `mucLeChoPhep` phía trên).
   leLoading.value = true
   leError.value = ''
   try {
@@ -160,21 +168,18 @@ async function loadLe() {
     leItems.value.forEach((it) => {
       if (!(it.item_code in leQtys)) leQtys[it.item_code] = 1
     })
-    mucLeChoPhep.value = true
   } catch (e) {
     if (e.name === 'PermissionError') {
-      mucLeChoPhep.value = false
+      // Vẫn có thể xảy ra (hiếm): cờ vừa bị tắt giữa lúc trang đã mở và lúc
+      // khách bấm vào ngăn Mua lẻ (server luôn kiểm lại, NL-10.1) — về lại
+      // ngăn HĐNT thay vì hiện một danh mục rỗng dưới một bộ chuyển vẫn hiện.
       if (mode.value === 'le') mode.value = 'hd'
+      leError.value = e.message || 'Đơn vị của bạn chưa được bật chế độ Mua lẻ.'
     } else {
-      // Bất kỳ lỗi nào KHÁC PermissionError chứng tỏ đã QUA được kiểm quyền
-      // — `portal_catalog_ban_le` kiểm `custom_cho_phep_mua_le` TRƯỚC
-      // `price_list_ban_le()` (VĐ-12: chưa cấu hình Price List bán lẻ ném
-      // ValidationError, không phải PermissionError). Phải BẬT bộ chuyển ở
-      // đây, không giữ `false`: giữ `false` sẽ ẩn hẳn ngăn Mua lẻ và chôn
-      // luôn thông điệp lỗi cấu hình bên trong một nhánh không ai vào được
-      // (chính xác điều `portal_mua_le.price_list_ban_le()` viết ra để
-      // tránh — "KHÔNG rơi về danh mục rỗng lặng lẽ").
-      mucLeChoPhep.value = true
+      // VĐ-12 (Price List bán lẻ chưa cấu hình) hoặc lỗi khác — hiện thông
+      // điệp thật tại ngăn Mua lẻ, không chôn trong một nhánh không ai vào
+      // được (đúng điều `portal_mua_le.price_list_ban_le()` viết ra để tránh
+      // — "KHÔNG rơi về danh mục rỗng lặng lẽ").
       leError.value = e.message || 'Không tải được danh mục mua lẻ.'
     }
   } finally {
@@ -252,7 +257,15 @@ function onYcSaved(res) {
 onMounted(async () => {
   if (route.query.search) search.value = String(route.query.search)
   try {
-    contracts.value = (await api.call('portal_contracts')) || []
+    // `portal_me` (cho cờ `cho_phep_mua_le`) và `portal_contracts` song
+    // song — không còn cần dò quyền mua lẻ bằng cách gọi thử
+    // `portal_catalog_ban_le` nữa (xem ghi chú ở khai báo `mucLeChoPhep`).
+    const [meRes, contractsRes] = await Promise.all([
+      store.me ? Promise.resolve(store.me) : api.call('portal_me'),
+      api.call('portal_contracts'),
+    ])
+    if (!store.me) store.setMe(meRes)
+    contracts.value = contractsRes || []
     if (contracts.value.length) {
       selected.value =
         store.contract && contracts.value.some((c) => c.name === store.contract)
@@ -265,8 +278,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // Dò quyền mua lẻ song song, không chặn hiển thị ngăn HĐNT.
-  loadLe()
+  // Nạp danh mục Mua lẻ CHỈ khi khách thật sự được bật cờ — đỡ một
+  // round-trip (và một lượt 403 vô nghĩa) cho phần lớn khách CHƯA bật.
+  if (mucLeChoPhep.value) loadLe()
 })
 
 watch(selected, loadItems)
