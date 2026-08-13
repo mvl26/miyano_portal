@@ -766,7 +766,30 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     nguoi_bam = frappe.session.user
     from frappe.model.workflow import apply_workflow
 
-    frappe.set_user("Administrator")
+    # CỐ Ý KHÔNG dùng frappe.set_user() ở đây (code review sau lần merge đầu
+    # phát hiện): frappe.local.session LÀ CÙNG MỘT OBJECT với
+    # Session.data trong frappe/sessions.py — set_user() ghi đè
+    # local.session.sid bằng chính chuỗi username (không phải sid thật) và
+    # xoá sạch local.session.data (mất csrf_token...). Session.update()
+    # (app.py, cuối MỌI request thật) vẫn dùng self.sid GỐC (biến riêng của
+    # Session, không đổi) làm khoá `frappe.cache.hset("session", self.sid,
+    # self.data)` — nên nó ghi ĐÈ cache session THẬT của chính khách đang gọi
+    # bằng self.data đã hỏng. Gọi set_user() lần hai để "trả lại" chỉ khiến
+    # nó tệ hơn: sid bị đặt lại thành username (không phải sid gốc), data
+    # thành dict rỗng — không phải dữ liệu session gốc. Kết quả: khách mở
+    # báo giá lâu (vượt threshold update session giữa chừng) rồi bấm Đồng ý
+    # thì mọi POST sau đó trên tab đang mở lỗi CSRF tới khi tải lại trang.
+    #
+    # apply_workflow() chỉ tra vai trò qua frappe.get_roles() ->
+    # frappe.session.user (frappe/model/workflow.py, frappe/permissions.py
+    # get_roles() cache theo user nên an toàn khi đổi qua đổi lại) — không
+    # đọc sid hay session.data ở đâu cả. Nên chỉ cần đổi ĐÚNG MỘT thuộc tính
+    # `session.user`, không đụng `sid`/`data`, là đủ để apply_workflow chạy
+    # dưới quyền hệ thống mà không có gì trên session thật của khách để
+    # khôi phục sai.
+    session = frappe.local.session
+    frappe.local.user_perms = None  # tránh dùng nhầm cache quyền của người cũ
+    session.user = "Administrator"
     try:
         so = apply_workflow(so, hanh_dong)
         noi_dung = f"{hanh_dong} bởi {nguoi_bam}"
@@ -775,7 +798,10 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         so.add_comment("Comment", noi_dung)
     finally:
         # Trả phiên về NGAY, kể cả khi apply_workflow ném: bỏ finally là để
-        # phần còn lại của request chạy dưới quyền Administrator.
-        frappe.set_user(nguoi_bam)
+        # phần còn lại của request chạy dưới quyền Administrator. CHỈ đổi
+        # lại `session.user` — `sid`/`data` của khách chưa từng bị đụng tới
+        # nên không có gì để khôi phục sai (xem giải thích ở trên).
+        session.user = nguoi_bam
+        frappe.local.user_perms = None
 
     return {"trang_thai_moi": so.get("workflow_state")}

@@ -125,3 +125,44 @@ class TestOrderAccept(FrappeTestCase):
         frappe.set_user("bvbm@demo.miyano")
         with self.assertRaises(frappe.ValidationError):
             portal.portal_order_accept(self.so.name, "dong_y")
+
+    # ---------- Code review: session của khách không được hỏng ----------
+    def test_phien_khach_khong_bi_hong_sau_khi_goi(self):
+        """`apply_workflow` chạy dưới quyền hệ thống KHÔNG được để lại dấu
+        vết trên session thật của khách — cụ thể `sid` và `data` phải
+        NGUYÊN VẸN từng byte, không chỉ `user` quay lại đúng tên.
+
+        `frappe.set_user()` (cách làm cũ) ghi đè `local.session.sid` bằng
+        chính chuỗi username và xoá sạch `local.session.data` (mất
+        csrf_token...) — và `Session.update()` ở cuối MỌI request thật
+        (frappe/sessions.py) dùng `sid` GỐC (không đổi) làm khoá ghi cache,
+        nên nó ghi đè cache session THẬT của khách bằng dữ liệu đã hỏng.
+        Gán thẳng `sid`/`data` giả lập ở đây rồi so khớp bit-for-bit sau khi
+        gọi là phép thử phân biệt được hai cách làm — test này FAIL với
+        cách cũ (`frappe.set_user`) và PASS với cách mới (chỉ đổi
+        `session.user`).
+        """
+        frappe.set_user("bvbm@demo.miyano")
+        session = frappe.local.session
+        session.sid = "sid-that-cua-khach-gia-lap-de-kiem-tra"
+        session.data = frappe._dict(
+            {"csrf_token": "token-that-gia-lap", "data": frappe._dict({"hello": "world"})}
+        )
+        sid_truoc = session.sid
+        data_truoc = dict(session.data)
+
+        portal.portal_order_accept(self.so.name, "dong_y")
+
+        self.assertEqual(
+            frappe.session.user, "bvbm@demo.miyano",
+            "phiên phải quay về đúng người bấm, không được dừng lại ở Administrator",
+        )
+        self.assertEqual(
+            frappe.local.session.sid, sid_truoc,
+            "sid của khách bị đổi — sẽ khiến Session.update() ghi cache session thật sai chỗ",
+        )
+        self.assertEqual(
+            dict(frappe.local.session.data), data_truoc,
+            "data của khách (kể cả csrf_token) bị mất — mọi POST sau đó trên "
+            "tab đang mở sẽ lỗi CSRF tới khi tải lại trang",
+        )
