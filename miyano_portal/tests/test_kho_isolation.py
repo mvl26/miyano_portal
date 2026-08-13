@@ -25,11 +25,15 @@ from frappe.www import printview
 from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import permissions as kho_perms
 from miyano_portal.kho.voucher_item import VoucherItemBase
-from miyano_portal.portal_context import get_allowed_khos, get_portal_kho
+from miyano_portal.portal_context import (
+	get_allowed_khos, get_portal_customer, get_portal_kho,
+)
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
 BM_USER = "bvbm@demo.miyano"
 PXN_USER = "pxnabc@demo.miyano"
+CUSTOMER_BM = "Bệnh viện Bạch Mai"
+CUSTOMER_PXN = "PXN ABC"
 
 # Ba role nhân viên Miyano PHẢI giữ nguyên quyền desk. Assert sự có mặt của
 # chúng để một bản vá "xoá sạch mảng permissions" không lọt qua bộ test này.
@@ -55,7 +59,15 @@ KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 # Contact") sẽ lọt qua vô hình, đúng kiểu lưới an toàn mà _nap_doctype_kho()
 # sinh ra để chặn. "Customer Department" (E8) sẽ gặp đúng ngã ba này — thêm
 # nó vào ĐÂY, không phải vào KHO_PREFIXES.
-KHO_DOCTYPES_KHAC: tuple[str, ...] = ("Customer Supplier",)
+# E6: `Portal Item Request` mang dữ liệu của khách (mỗi yêu cầu thuộc một
+# khách qua field `customer`) — KHÔNG được nhét vào KHONG_PHAI_DOCTYPE_KHO.
+# Về HÌNH DẠNG nó gần Sales Order/Delivery Note (permissions.py, lọc theo
+# `customer` trực tiếp) hơn là các doctype "kho" khác trong danh sách này
+# (lọc theo `kho`) — nhưng Sales Order không thuộc module "Miyano Portal" nên
+# không bị _nap_doctype_kho() quét tới; "Portal Item Request" THÌ có, và phải
+# được phân loại vào một trong ba nhóm. Đứng tên ở đây (không chia sẻ tiền tố
+# với ai) vì nó là một danh mục độc lập, giống "Customer Supplier".
+KHO_DOCTYPES_KHAC: tuple[str, ...] = ("Customer Supplier", "Portal Item Request")
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
 # sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
@@ -250,6 +262,29 @@ def _make_ncc(kho, ten):
         "doctype": "Customer Supplier",
         "kho": kho,
         "ten_ncc": ten,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
+def _make_yeu_cau(customer, ten_hang):
+    """E6 — idempotent, cùng lý do với `_make_ncc`: setUp chạy lại nhiều lần
+    trong cùng một class. `Portal Item Request` mang `customer` trực tiếp
+    (không phải `kho`), nên đây là fixture riêng, không dùng chung với
+    `_make_ncc`/`_make_receipt`."""
+    existing = frappe.db.get_value(
+        "Portal Item Request", {"customer": customer, "ten_hang": ten_hang}, "name"
+    )
+    if existing:
+        return frappe.get_doc("Portal Item Request", existing)
+    doc = frappe.get_doc({
+        "doctype": "Portal Item Request",
+        "customer": customer,
+        "nguoi_yeu_cau": "test@demo.miyano",
+        "loai": "Tìm nguồn hàng mới",
+        "ten_hang": ten_hang,
+        "dvt": "Hộp",
+        "so_luong_du_kien": 10,
     })
     doc.insert(ignore_permissions=True)
     return doc
@@ -614,6 +649,11 @@ class TestKhoIsolationDeep(FrappeTestCase):
         self.ncc_bm = _make_ncc(self.kho["kho_bm"], "NCC BM Test")
         self.ncc_pxn = _make_ncc(self.kho["kho_pxn"], "NCC PXN Test")
 
+        # E6: Portal Item Request — doctype kho cha thứ tám, mang `customer`
+        # trực tiếp (không phải `kho`) — xem _pxn_filter/_bm_filter bên dưới.
+        self.yeu_cau_bm = _make_yeu_cau(CUSTOMER_BM, "Yêu cầu test BM")
+        self.yeu_cau_pxn = _make_yeu_cau(CUSTOMER_PXN, "Yêu cầu test PXN")
+
         # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
@@ -623,6 +663,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Ledger Entry": self.sle_pxn,
             "Customer Stock Lot Balance": self.lot_pxn,
             "Customer Supplier": self.ncc_pxn.name,
+            "Portal Item Request": self.yeu_cau_pxn.name,
         }
         # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
@@ -636,6 +677,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Ledger Entry": self.sle_bm,
             "Customer Stock Lot Balance": self.lot_bm,
             "Customer Supplier": self.ncc_bm.name,
+            "Portal Item Request": self.yeu_cau_bm.name,
         }
         for nhan, m in (("pxn_records", self.pxn_records),
                         ("bm_records", self.bm_records)):
@@ -648,13 +690,13 @@ class TestKhoIsolationDeep(FrappeTestCase):
         return _ensure_staff_user()
 
     def _pxn_filter(self, doctype):
-        if doctype == "Customer Warehouse":
-            return {"customer": "PXN ABC"}
+        if doctype in ("Customer Warehouse", "Portal Item Request"):
+            return {"customer": CUSTOMER_PXN}
         return {"kho": self.kho["kho_pxn"]}
 
     def _bm_filter(self, doctype):
-        if doctype == "Customer Warehouse":
-            return {"customer": "Bệnh viện Bạch Mai"}
+        if doctype in ("Customer Warehouse", "Portal Item Request"):
+            return {"customer": CUSTOMER_BM}
         return {"kho": self.kho["kho_bm"]}
 
     # -- 1. check_permission() phải chặn cho MỌI doctype kho cha -------------
@@ -727,10 +769,17 @@ class TestKhoIsolationDeep(FrappeTestCase):
         frappe.set_user(BM_USER)
         kho = get_portal_kho()
         self.assertEqual(kho, self.kho["kho_bm"])
+        # E6: khuôn mẫu sanctioned của Portal Item Request là
+        # get_portal_customer() + lọc theo `customer` (portal_yeu_cau_list),
+        # KHÔNG phải get_portal_kho() + lọc theo `kho` — nó không có field đó.
+        customer = get_portal_customer()
+        self.assertEqual(customer, CUSTOMER_BM)
         for dt, name in self.bm_records.items():
             with self.subTest(doctype=dt):
                 if dt == "Customer Warehouse":
                     rows = frappe.get_all(dt, filters={"name": kho}, pluck="name")
+                elif dt == "Portal Item Request":
+                    rows = frappe.get_all(dt, filters={"customer": customer}, pluck="name")
                 else:
                     rows = frappe.get_all(dt, filters={"kho": kho}, pluck="name")
                 self.assertIn(name, rows)
@@ -1167,6 +1216,11 @@ class _KhoVoucherFixture(FrappeTestCase):
         self.issue_pxn = _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-PXN-A")
         self.ncc_bm = _make_ncc(self.kho["kho_bm"], "NCC BM Test")
         self.ncc_pxn = _make_ncc(self.kho["kho_pxn"], "NCC PXN Test")
+        # E6: bản ghi tối thiểu cho mỗi khách, cùng lý do với ncc_bm/ncc_pxn ở
+        # trên — không nằm trong child_rows (istable), nhưng cần tồn tại để
+        # các test "staff đọc được mọi doctype kho cha" ở dưới có dữ liệu.
+        self.yeu_cau_bm = _make_yeu_cau(CUSTOMER_BM, "Yêu cầu test BM")
+        self.yeu_cau_pxn = _make_yeu_cau(CUSTOMER_PXN, "Yêu cầu test PXN")
 
         self.child_rows = {
             "Customer Stock Receipt Item": {
@@ -1415,6 +1469,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
                                     {"kho": self.kho["kho_pxn"]}, "name"),
             ),
             "Customer Supplier": (self.ncc_bm.name, self.ncc_pxn.name),
+            "Portal Item Request": (self.yeu_cau_bm.name, self.yeu_cau_pxn.name),
         }
         _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():

@@ -47,3 +47,12 @@ def blanket_query(user=None):
 
 def generic_has_permission(doc, ptype=None, user=None):
     return _has_customer_permission(doc, user)
+
+
+def yeu_cau_query(user=None):
+    """E6 — `Portal Item Request` mang `customer` trực tiếp (không phải
+    `kho`), đúng hình dạng Sales Order/Delivery Note/... ở file này, KHÔNG
+    phải hình dạng `kho/permissions.py` (nơi phần lớn doctype lọc theo
+    `kho`). Dùng chung `_customer_condition`/`generic_has_permission` thay vì
+    viết một bản lọc theo customer thứ hai."""
+    return _customer_condition("Portal Item Request", user)

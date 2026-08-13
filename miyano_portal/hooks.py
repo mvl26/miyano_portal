@@ -136,6 +136,11 @@ permission_query_conditions = {
 	"Delivery Note": "miyano_portal.permissions.delivery_query",
 	"Sales Invoice": "miyano_portal.permissions.invoice_query",
 	"Blanket Order": "miyano_portal.permissions.blanket_query",
+	# E6 — Portal Item Request mang `customer` trực tiếp, cùng hình dạng bốn
+	# doctype trên (KHÔNG phải hình dạng kho/permissions.py). Không có
+	# DocPerm nào cho role Customer trên doctype này (xem JSON) nên đây, như
+	# các dòng trên, là lớp phòng thủ thứ hai — cổng thật là api/portal.py.
+	"Portal Item Request": "miyano_portal.permissions.yeu_cau_query",
 	# ---------------------------------------------------------------------
 	# Kho khách hàng — ĐỌC comment ở khối has_permission bên dưới trước khi
 	# tin rằng các entry dưới đây là thứ đang bảo vệ dữ liệu kho. Kể từ vòng
@@ -165,6 +170,9 @@ has_permission = {
 	"Delivery Note": "miyano_portal.permissions.generic_has_permission",
 	"Sales Invoice": "miyano_portal.permissions.generic_has_permission",
 	"Blanket Order": "miyano_portal.permissions.generic_has_permission",
+	# E6 — cùng khuôn Sales Order/Delivery Note/... ở trên (customer trực
+	# tiếp), không phải khuôn kho_child_has_permission (customer qua `kho`).
+	"Portal Item Request": "miyano_portal.permissions.generic_has_permission",
 	"Customer Warehouse": "miyano_portal.kho.permissions.kho_has_permission",
 	"Customer Warehouse Item": "miyano_portal.kho.permissions.kho_child_has_permission",
 	"Customer Stock Receipt": "miyano_portal.kho.permissions.kho_child_has_permission",
@@ -277,6 +285,8 @@ doc_events = {
 scheduler_events = {
 	"hourly": [
 		"miyano_portal.portal_sla.quet_don_treo",
+		# E6/NL-11.2 — leo thang yêu cầu hàng hoá quá SLA còn "Mới".
+		"miyano_portal.portal_sla.quet_yeu_cau_qua_han",
 	],
 }
 

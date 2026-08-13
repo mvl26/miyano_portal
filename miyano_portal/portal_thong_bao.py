@@ -10,6 +10,7 @@ from frappe.utils import today
 
 TIEN_TO = "Portal - Thiếu giá"
 TIEN_TO_CHENH_LECH = "Portal - Chênh lệch nhận hàng"
+TIEN_TO_YEU_CAU_MOI = "Portal - Yêu cầu hàng hoá mới"
 
 
 def _sales_phu_trach(customer: str) -> str | None:
@@ -55,6 +56,54 @@ def bao_thieu_gia(customer: str, item_code: str) -> bool:
         ),
     }).insert(ignore_permissions=True)
     return True
+
+
+def bao_yeu_cau_moi(customer: str, name: str, ten_hang: str) -> int:
+    """US-E6.3 — báo yêu cầu hàng hoá mới cho sales phụ trách VÀ mọi
+    `Purchase User`. Trả số Notification Log vừa tạo.
+
+    Khác `bao_thieu_gia`/`bao_chenh_lech`: không chống spam theo cửa sổ thời
+    gian, vì sự kiện gọi hàm này (tạo `Portal Item Request`) tự nó chỉ xảy ra
+    đúng MỘT lần trong đời một `name` — không có "lần tạo thứ hai" cho cùng
+    một yêu cầu để phải chặn.
+
+    Không bao giờ ném lỗi, cùng lý do với hai hàm trên: đây là hiệu ứng phụ
+    sau khi yêu cầu ĐÃ được ghi nhận thành công, không được phép biến việc đó
+    thành lỗi cho khách.
+    """
+    nguoi_nhan = set()
+    sales = _sales_phu_trach(customer)
+    if sales:
+        nguoi_nhan.add(sales)
+    nguoi_nhan.update(
+        frappe.get_all(
+            "Has Role",
+            filters={"role": "Purchase User", "parenttype": "User"},
+            pluck="parent",
+        )
+    )
+    if not nguoi_nhan:
+        return 0
+
+    chu_de = f"{TIEN_TO_YEU_CAU_MOI}: {name}"
+    dem = 0
+    for u in nguoi_nhan:
+        if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": u}):
+            continue
+        frappe.get_doc({
+            "doctype": "Notification Log",
+            "subject": chu_de,
+            "for_user": u,
+            "type": "Alert",
+            "document_type": "Portal Item Request",
+            "document_name": name,
+            "email_content": (
+                f"Khách hàng <b>{customer}</b> vừa gửi yêu cầu hàng hoá mới: "
+                f"<b>{ten_hang}</b> ({name})."
+            ),
+        }).insert(ignore_permissions=True)
+        dem += 1
+    return dem
 
 
 def bao_chenh_lech(customer: str, phieu: str) -> bool:
