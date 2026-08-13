@@ -56,3 +56,19 @@ def yeu_cau_query(user=None):
     `kho`). Dùng chung `_customer_condition`/`generic_has_permission` thay vì
     viết một bản lọc theo customer thứ hai."""
     return _customer_condition("Portal Item Request", user)
+
+
+def einvoice_query(user=None):
+    """E7 — `Fast EInvoice Document` là doctype của MODULE KHÁC (team Dev,
+    `apps/erpnext/erpnext/einvoice/`), mảng `permissions` của nó chỉ còn
+    `System Manager` (đã kiểm JSON + thực nghiệm
+    `frappe.has_permission(..., user=<khách>)` trả `False`) — role `Customer`
+    KHÔNG có DocPerm nào trên đây, y hệt tám doctype kho ở
+    `kho/permissions.py`. Entry này vì thế "chết có điều kiện" NGAY KHI viết
+    (không Website User nào qua nổi vòng kiểm role cơ bản để hook này được
+    gọi tới) — giữ lại làm lớp phòng thủ thứ hai, sống lại nếu sau này ai đó
+    lỡ cấp DocPerm cho `Customer` trên doctype này. Cổng THẬT đi qua
+    `miyano_portal/einvoice.py::resolve()`, luôn bắt đầu từ `Sales Invoice`
+    (nơi khách có quyền qua `check_permission`), không bao giờ nhận tên
+    `Fast EInvoice Document` trực tiếp từ client."""
+    return _customer_condition("Fast EInvoice Document", user)

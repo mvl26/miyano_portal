@@ -11,6 +11,13 @@ from frappe.utils import today
 TIEN_TO = "Portal - Thiếu giá"
 TIEN_TO_CHENH_LECH = "Portal - Chênh lệch nhận hàng"
 TIEN_TO_YEU_CAU_MOI = "Portal - Yêu cầu hàng hoá mới"
+TIEN_TO_HO_TRO_HDDT = "Portal - Yêu cầu hỗ trợ HĐĐT"
+
+# Hai role của module HĐĐT (team Dev) — tạo bởi
+# `erpnext.einvoice.setup._make_roles()` khi `bench migrate`, KHÔNG phải role
+# của app này. Chỉ THAM CHIẾU tên bằng chuỗi để tìm người nhận, không tạo
+# lại/không cấp quyền gì thêm cho chúng.
+_ROLE_KE_TOAN_HDDT = ("Kế toán HĐĐT", "Kế toán trưởng HĐĐT")
 
 
 def _sales_phu_trach(customer: str) -> str | None:
@@ -100,6 +107,47 @@ def bao_yeu_cau_moi(customer: str, name: str, ten_hang: str) -> int:
             "email_content": (
                 f"Khách hàng <b>{customer}</b> vừa gửi yêu cầu hàng hoá mới: "
                 f"<b>{ten_hang}</b> ({name})."
+            ),
+        }).insert(ignore_permissions=True)
+        dem += 1
+    return dem
+
+
+def bao_yeu_cau_ho_tro_hddt(customer: str, sales_invoice: str, fei: str | None = None) -> int:
+    """NL-12.4 — nút [Yêu cầu hỗ trợ] trên khối HĐĐT tự đính mã hoá đơn, báo
+    cho nhân viên giữ role "Kế toán HĐĐT" / "Kế toán trưởng HĐĐT". Trả số
+    Notification Log vừa tạo (0 nếu chưa ai được gán hai role này — im lặng,
+    KHÔNG ném lỗi, cùng khuôn `bao_yeu_cau_moi`: bản thân yêu cầu hỗ trợ của
+    khách đã được ghi nhận thành công dù chưa có ai để báo).
+
+    Không chống spam theo cửa sổ thời gian như `bao_thieu_gia` — khách bấm
+    "Yêu cầu hỗ trợ" nhiều lần cho cùng hoá đơn (vẫn chưa được xử lý) là tín
+    hiệu THẬT ("vẫn đang chờ"), không phải trùng lặp cần chặn.
+    """
+    nguoi_nhan = set()
+    for role in _ROLE_KE_TOAN_HDDT:
+        nguoi_nhan.update(
+            frappe.get_all(
+                "Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent"
+            )
+        )
+    if not nguoi_nhan:
+        return 0
+
+    dem = 0
+    for u in nguoi_nhan:
+        frappe.get_doc({
+            "doctype": "Notification Log",
+            "subject": f"{TIEN_TO_HO_TRO_HDDT}: {sales_invoice}",
+            "for_user": u,
+            "type": "Alert",
+            "document_type": "Sales Invoice",
+            "document_name": sales_invoice,
+            "email_content": (
+                f"Khách hàng <b>{customer}</b> yêu cầu hỗ trợ hoá đơn điện tử cho "
+                f"<b>{sales_invoice}</b>"
+                + (f" (chứng từ HĐĐT {fei})" if fei else " (chưa có chứng từ HĐĐT)")
+                + "."
             ),
         }).insert(ignore_permissions=True)
         dem += 1

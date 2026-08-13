@@ -1,6 +1,7 @@
 import os
 
 import frappe
+from miyano_portal import einvoice
 from miyano_portal.kho import similarity
 from miyano_portal.miyano_portal.doctype.portal_item_request.portal_item_request import (
     TRANG_THAI_KET_THUC,
@@ -23,7 +24,7 @@ from miyano_portal.portal_mua_le import (
     trang_thai_hang,
 )
 from miyano_portal.portal_sla import cong_gio_lam_viec, gio_lam_viec_troi_qua, sla_yeu_cau_gio
-from miyano_portal.portal_thong_bao import bao_thieu_gia, bao_yeu_cau_moi
+from miyano_portal.portal_thong_bao import bao_thieu_gia, bao_yeu_cau_ho_tro_hddt, bao_yeu_cau_moi
 
 
 def _gia_hien_hanh(item_code: str, price_list: str):
@@ -1026,13 +1027,119 @@ def portal_deliveries(limit=20, start=0) -> list:
 def portal_invoices(limit=20, start=0) -> list:
     rows = frappe.get_list(
         "Sales Invoice",
-        fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+        # `customer` chỉ dùng NỘI BỘ để đối chiếu sở hữu bản ghi HĐĐT
+        # (`einvoice.block_for` — F-08/E7), bị `pop` trước khi trả về, KHÔNG
+        # phải một field mới lộ ra response.
+        fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount",
+                "status", "customer"],
         order_by="posting_date desc",
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
         r["status_vi"] = _invoice_status_vi(r.pop("status"))
+        # E7/F-08 — khối HĐĐT đi kèm NGAY trong danh sách (đúng hành vi bản
+        # mẫu: `toggleEinv()` chỉ ẩn/hiện một dòng đã có sẵn dữ liệu, không
+        # gọi thêm API khi khách bấm xổ dòng). `block_for` tự đối chiếu
+        # `fei.customer == r["customer"]` — một sai sót dữ liệu ở module HĐĐT
+        # (kế toán gõ nhầm `sales_invoice` sang hoá đơn của khách khác) không
+        # lọt ra cổng dù `Sales Invoice` này đọc được là đúng chủ.
+        r["einvoice"] = einvoice.block_for(r["name"], r.pop("customer"))
     return rows
+
+
+@frappe.whitelist()
+def portal_einvoice_download(invoice, loai="pdf") -> None:
+    """US-E7.2/BR-E4 — tải PDF hoá đơn điện tử. `loai` chỉ còn `"pdf"`: module
+    HĐĐT không lưu XML ở đâu cả (không field nào chứa 'xml' trên
+    `Fast EInvoice Document`, đã kiểm JSON) — không có XML để giao.
+
+    Kiểm TỪNG LẦN tải (BR-E4, NL-12.5): hoá đơn thuộc customer của phiên +
+    Fast EInvoice Document khớp thuộc ĐÚNG hoá đơn đó + trạng thái cho phép
+    tải + file thật sự đọc được — không chỉ tin cờ `tai_duoc` đã tính lúc
+    liệt kê (dữ liệu có thể đã đổi giữa hai lần gọi, và đây là chứng từ
+    thuế). Không có URL file công khai: `/printview` hay dán link sang máy
+    khác không đăng nhập đều 403 ở `check_permission`/`get_portal_customer`.
+    """
+    if loai != "pdf":
+        frappe.throw(
+            "Cổng chỉ cung cấp bản PDF thể hiện. Cần bản gốc XML có giá trị "
+            "pháp lý, vui lòng liên hệ kế toán Miyano."
+        )
+
+    customer = get_portal_customer()
+    si = frappe.get_doc("Sales Invoice", invoice)
+    # `frappe.get_doc` KHÔNG tự kiểm quyền — `check_permission` là nơi hook
+    # `has_permission` (miyano_portal.permissions.generic_has_permission)
+    # thực sự chạy.
+    si.check_permission("read")
+    if si.customer != customer:
+        raise frappe.PermissionError("Hoá đơn không thuộc đơn vị của bạn.")
+
+    fei = einvoice.resolve(invoice)
+    if not fei or fei.customer != si.customer:
+        frappe.throw("Chưa có hoá đơn điện tử cho chứng từ này.", frappe.ValidationError)
+    if not einvoice.sua_duoc_tai(fei):
+        frappe.throw(
+            "Hoá đơn điện tử này chưa có file để tải. Bấm [Yêu cầu hỗ trợ] "
+            "nếu cần Miyano hỗ trợ.",
+            frappe.ValidationError,
+        )
+    if not fei.official_pdf:
+        frappe.throw(
+            "File PDF đang được tạo, vui lòng thử lại sau ít phút. Bấm "
+            "[Yêu cầu hỗ trợ] nếu vẫn chưa có sau một thời gian.",
+            frappe.ValidationError,
+        )
+
+    # File có thể đã bị xoá/hỏng dù field `official_pdf` vẫn còn giá trị cũ
+    # (NL-12.4) — kiểm file THẬT SỰ đọc được, không chỉ tin field. Lọc thêm
+    # `attached_to_*` (không chỉ `file_url`): Frappe gộp file trùng nội dung
+    # theo content hash, nên nhiều `File` khác nhau (đính vào chứng từ HĐĐT
+    # khác nhau) có thể trỏ CHUNG một `file_url` — chỉ lọc theo url sẽ tìm
+    # thấy record của chứng từ KHÁC dù bản ghi của CHÍNH chứng từ này đã bị
+    # xoá (đã bắt gặp thật khi hai chứng từ HĐĐT test có PDF trùng byte).
+    file_doc = frappe.db.get_value(
+        "File",
+        {
+            "file_url": fei.official_pdf,
+            "attached_to_doctype": einvoice.FEI,
+            "attached_to_name": fei.name,
+        },
+        "name",
+    )
+    if not file_doc:
+        frappe.throw(
+            "File PDF bị thiếu hoặc hỏng trên hệ thống. Bấm [Yêu cầu hỗ trợ] "
+            "để Miyano xử lý.",
+            frappe.ValidationError,
+        )
+    content = frappe.get_doc("File", file_doc).get_content()
+
+    from frappe.core.doctype.access_log.access_log import make_access_log
+
+    make_access_log(
+        doctype=einvoice.FEI, document=fei.name, file_type="pdf",
+        method="portal_einvoice_download",
+    )
+
+    frappe.local.response.filename = f"{fei.fast_invoice_no or fei.name}.pdf"
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "pdf"
+
+
+@frappe.whitelist()
+def portal_einvoice_ho_tro(invoice) -> dict:
+    """NL-12.4 — nút [Yêu cầu hỗ trợ] trên khối HĐĐT, tự đính mã hoá đơn."""
+    customer = get_portal_customer()
+    si = frappe.get_doc("Sales Invoice", invoice)
+    si.check_permission("read")
+    if si.customer != customer:
+        raise frappe.PermissionError("Hoá đơn không thuộc đơn vị của bạn.")
+
+    fei = einvoice.resolve(invoice)
+    fei_name = fei.name if (fei and fei.customer == si.customer) else None
+    bao_yeu_cau_ho_tro_hddt(customer, invoice, fei_name)
+    return {"ok": True}
 
 
 @frappe.whitelist()
