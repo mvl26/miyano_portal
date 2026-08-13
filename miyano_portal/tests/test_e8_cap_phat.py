@@ -416,6 +416,54 @@ class TestNguoiNhanGoiY(_KhoE8Fixture):
 
 
 # ---------------------------------------------------------------------------
+# US-E8.4/BR-CP5/TC-E8-09 — in phiếu hiển thị khoa phòng + người nhận
+# ---------------------------------------------------------------------------
+
+
+class TestInPhieuKhoaPhong(_KhoE8Fixture):
+    def test_tt107_and_tt200_show_department_name_and_recipient(self):
+        from frappe.www.printview import get_html_and_style
+        from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107, NAME_XUAT_TT200
+
+        khoa = _make_khoa(self.kho["kho_bm"], "Khoa In Phiếu")
+        doc = self._xuat(khoa_phong=khoa.name, nguoi_nhan="BS. In Test")
+        doc.submit()
+
+        for print_format in (NAME_XUAT_TT107, NAME_XUAT_TT200):
+            with self.subTest(print_format=print_format):
+                html = get_html_and_style(doc=doc.as_json(), print_format=print_format)["html"]
+                self.assertIn("Khoa phòng nhận", html)
+                self.assertIn("Khoa In Phiếu", html)
+                self.assertIn("BS. In Test", html)
+
+    def test_tt107_hides_department_line_when_not_set(self):
+        """Chốt ngược của guard `{% if doc.khoa_phong %}`: một phiếu KHÔNG
+        gắn khoa (kho chưa bật bắt buộc) không được hiện một dòng "Khoa
+        phòng nhận:" trống rỗng — client sẽ đọc dòng trống đó như một lỗi
+        dữ liệu thay vì đúng ý nghĩa "chưa gắn khoa"."""
+        from frappe.www.printview import get_html_and_style
+        from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107
+
+        doc = self._xuat(khoa_phong=None)
+        doc.submit()
+        html = get_html_and_style(doc=doc.as_json(), print_format=NAME_XUAT_TT107)["html"]
+        self.assertNotIn("Khoa phòng nhận", html)
+
+    def test_render_phieu_html_portal_route_also_shows_department(self):
+        """`_render_phieu_html()` (cổng portal, KHÔNG đi qua
+        frappe.www.printview) là đường render THẬT SỰ mà kho_phieu_pdf()
+        dùng — phải kiểm riêng, không suy diễn từ đường desk ở trên (hai
+        đường từng lệch context biến, xem test_kho_phieu_api.py)."""
+        khoa = _make_khoa(self.kho["kho_bm"], "Khoa Portal Render")
+        doc = self._xuat(khoa_phong=khoa.name, nguoi_nhan="ĐD. Portal")
+        doc.submit()
+        frappe.set_user(BM_USER)
+        html = kho_api._render_phieu_html("Customer Stock Issue", doc.name, self.kho["kho_bm"])
+        self.assertIn("Khoa Portal Render", html)
+        self.assertIn("ĐD. Portal", html)
+
+
+# ---------------------------------------------------------------------------
 # US-E8.5/BR-CP4/TC-E8-07 — bộ số chuẩn của PRD E8
 # ---------------------------------------------------------------------------
 
