@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
+import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import {
   NXT_COLUMNS, NXT_LOT_COLUMNS, THE_KHO_COLUMNS, CANH_BAO_COLUMNS,
@@ -24,6 +25,7 @@ const TABS = [
   { key: 'nxt', label: 'Nhập - Xuất - Tồn' },
   { key: 'the_kho', label: 'Thẻ kho' },
   { key: 'canh_bao', label: 'Cảnh báo hạn dùng' },
+  { key: 'dot', label: 'NXT theo đợt hàng' },
 ]
 const tab = ref('nxt')
 
@@ -131,10 +133,48 @@ async function loadCanhBao() {
   }
 }
 
+// --- NXT theo đợt hàng (US-E4.7/UC-44) ---
+const dotLoading = ref(false)
+const dotError = ref('')
+const dotRows = ref([])
+const dotVatTuChon = ref('') // '' = tất cả vật tư
+const dotNguon = ref('') // '' = tất cả nguồn
+const nccList = ref([])
+
+async function loadNccList() {
+  try {
+    nccList.value = await api.callKho('kho_ncc_list')
+  } catch (e) {
+    // Chip lọc nguồn theo NCC sẽ chỉ thiếu, không chặn tab.
+  }
+}
+
+function tenVatTu(vt) {
+  const v = vatTuList.value.find((x) => x.name === vt)
+  return v ? `${v.ma_vat_tu} — ${v.ten_vat_tu}` : vt
+}
+
+async function loadDot() {
+  dotLoading.value = true
+  dotError.value = ''
+  try {
+    dotRows.value = await api.callKho('kho_bao_cao_dot', {
+      tu_ngay: tuNgay.value, den_ngay: denNgay.value,
+      vat_tu: dotVatTuChon.value || undefined,
+      nguon: dotNguon.value || undefined,
+    })
+  } catch (e) {
+    dotError.value = e.message || 'Không tải được báo cáo NXT theo đợt.'
+  } finally {
+    dotLoading.value = false
+  }
+}
+
 function reload() {
   if (tab.value === 'nxt') loadNXT()
   else if (tab.value === 'the_kho') loadTheKho()
-  else loadCanhBao()
+  else if (tab.value === 'canh_bao') loadCanhBao()
+  else loadDot()
 }
 
 function chonTab(key) {
@@ -144,6 +184,10 @@ function chonTab(key) {
 
 watch(vatTuChon, () => {
   if (tab.value === 'the_kho') loadTheKho()
+})
+
+watch([dotVatTuChon, dotNguon], () => {
+  if (tab.value === 'dot') loadDot()
 })
 
 // --- Xuất Excel: cùng bộ tham số của tab đang xem, gọi thẳng endpoint (GET,
@@ -162,10 +206,20 @@ function exportUrl() {
     return `${base}?loai=the_kho&vat_tu=${encodeURIComponent(vatTuChon.value)}`
       + `&tu_ngay=${encodeURIComponent(tuNgay.value)}&den_ngay=${encodeURIComponent(denNgay.value)}`
   }
-  return `${base}?loai=canh_bao&so_ngay=${encodeURIComponent(soNgay.value)}`
+  if (tab.value === 'canh_bao') {
+    return `${base}?loai=canh_bao&so_ngay=${encodeURIComponent(soNgay.value)}`
+  }
+  return '' // 'dot': kho_bao_cao_excel chưa hỗ trợ — xem xuatExcel()
 }
 
 function xuatExcel() {
+  // kho_bao_cao_excel chỉ nhận loai trong {nxt, the_kho, canh_bao} — "NXT
+  // theo đợt hàng" chưa có cột Excel riêng ở backend. Báo rõ thay vì mở một
+  // tab sẽ chắc chắn lỗi hoặc âm thầm không làm gì khi bấm.
+  if (tab.value === 'dot') {
+    showToast('Xuất Excel cho "NXT theo đợt hàng" chưa được backend hỗ trợ — báo Miyano để bổ sung.', 'error')
+    return
+  }
   const url = exportUrl()
   if (!url) return
   window.open(url, '_blank')
@@ -173,6 +227,7 @@ function xuatExcel() {
 
 onMounted(() => {
   loadVatTuList()
+  loadNccList()
   loadNXT()
 })
 </script>
@@ -217,6 +272,23 @@ onMounted(() => {
             type="number" min="0" v-model.number="soNgay" @change="loadCanhBao"
             style="width: 100px"
           />
+        </div>
+        <div class="field" style="margin-bottom: 0" v-if="tab === 'dot'">
+          <label>Vật tư</label>
+          <select v-model="dotVatTuChon">
+            <option value="">— Tất cả —</option>
+            <option v-for="vt in vatTuList" :key="vt.name" :value="vt.name">
+              {{ vt.ma_vat_tu }} — {{ vt.ten_vat_tu }}
+            </option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom: 0" v-if="tab === 'dot'">
+          <label>Nguồn</label>
+          <select v-model="dotNguon">
+            <option value="">— Tất cả —</option>
+            <option value="Miyano">Miyano</option>
+            <option v-for="n in nccList" :key="n.name" :value="n.ten_ncc">{{ n.ten_ncc }}</option>
+          </select>
         </div>
         <button class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
           ⬇ Xuất Excel
@@ -322,7 +394,7 @@ onMounted(() => {
     </template>
 
     <!-- ============ TAB: CẢNH BÁO HẠN DÙNG ============ -->
-    <template v-else>
+    <template v-else-if="tab === 'canh_bao'">
       <div v-if="canhBaoLoading" class="loading">Đang tải…</div>
       <div v-else-if="canhBaoError" class="empty">{{ canhBaoError }}</div>
       <div v-else-if="!canhBaoRows.length" class="empty">Không có lô nào hết hạn hoặc sắp hết hạn.</div>
@@ -352,6 +424,55 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+    </template>
+
+    <!-- ============ TAB: NXT THEO ĐỢT HÀNG (US-E4.7) ============ -->
+    <template v-else>
+      <div v-if="dotLoading" class="loading">Đang tải…</div>
+      <div v-else-if="dotError" class="empty">{{ dotError }}</div>
+      <div v-else-if="!dotRows.length" class="empty">Không có đợt hàng nào trong khoảng ngày đã chọn.</div>
+      <template v-else>
+        <div class="card" style="padding: 0; overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Đợt (phiếu nhập)</th>
+                <th>Ngày nhận</th>
+                <th>Nguồn</th>
+                <th>Vật tư / lô</th>
+                <th class="right">SL nhập</th>
+                <th class="right">Đã xuất</th>
+                <th class="right">Còn lại</th>
+                <th class="right">Tuổi tồn</th>
+                <th class="right">%TT</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, idx) in dotRows" :key="idx" :style="r.cham_luan_chuyen ? 'background:#fff7ed' : ''">
+                <td>
+                  <router-link :to="`/kho/nhap/${r.dot}`" class="mono"><b>{{ r.dot }}</b></router-link>
+                </td>
+                <td>{{ fmtDate(r.ngay_nhan) }}</td>
+                <td>{{ r.nguon }}<span v-if="r.chung_tu" class="tag"> · {{ r.chung_tu }}</span></td>
+                <td>{{ tenVatTu(r.vat_tu) }} <span class="mono tag">· {{ r.lo }}</span></td>
+                <td class="right">{{ fmtQty(r.sl_nhap) }}</td>
+                <td class="right">{{ fmtQty(r.da_xuat) }}</td>
+                <td class="right"><b>{{ fmtQty(r.con_lai) }}</b></td>
+                <td class="right">{{ r.tuoi_ton_ngay }} ngày</td>
+                <td class="right">{{ r.pct_tieu_thu }}%</td>
+                <td>
+                  <span v-if="r.cham_luan_chuyen" class="badge b-orange">Chậm luân chuyển</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="tag" style="margin-top: 8px">
+          Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô — BR-D1). Cờ chậm luân chuyển khi
+          tuổi tồn vượt ngưỡng cấu hình của kho (Miyano Portal Settings).
+        </p>
+      </template>
     </template>
   </div>
 </template>
