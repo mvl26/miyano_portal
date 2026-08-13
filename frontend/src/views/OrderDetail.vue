@@ -6,6 +6,7 @@ import { fmtVND, fmtDate, statusBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import { showToast } from '../toast'
+import ReasonModal from '../components/ReasonModal.vue'
 
 // Mã lý do do server trả về (`30_API_Spec` §5) → thông điệp cho người đọc.
 // Server trả mã chứ không trả câu chữ để một chỗ đổi câu không phải sửa hai nơi.
@@ -25,6 +26,19 @@ const loading = ref(true)
 const error = ref('')
 const data = ref(null)
 const name = computed(() => route.params.name)
+
+// E6/F-07 [MỚI — QĐ-6] — "Đơn mua lẻ": `portal_order_track` KHÔNG trả
+// `custom_loai_don` (chỉ có trên Sales Order thật, không lộ qua endpoint
+// này) — suy bằng heuristic "không gắn HĐNT nào" (`hdnt` rỗng). Đúng cho MỌI
+// đơn đi qua `portal_order_place` (nhánh HĐNT luôn gán `custom_hdnt`, nhánh
+// Mua lẻ không bao giờ gán — xem `_xay_don_hdnt`/`_xay_don_ban_le`), có thể
+// sai với một đơn dựng tay trên Desk không gắn HĐNT vì lý do khác. Xem báo
+// cáo bàn giao — cần `custom_loai_don` thật trong response nếu muốn hết mơ hồ.
+const laDonMuaLe = computed(() => data.value && !data.value.hdnt)
+
+const acceptOpen = ref(false)
+const rejecting = ref(false)
+const accepting = ref(false)
 
 // Bước hiện tại = mốc đầu tiên chưa hoàn thành (để tô cam như mockup).
 const currentIdx = computed(() => {
@@ -102,6 +116,38 @@ async function load() {
   }
 }
 
+// E6/F-07 [MỚI — QĐ-6] — "Chờ bạn đồng ý" (pg-accept trong prototype). Nằm
+// TRONG chi tiết đơn (không phải trang riêng): backend mô hình hoá đây là
+// một trạng thái của CHÍNH Sales Order (`workflow_state`), lộ ra qua
+// `portal_order_track().chap_nhan` — không phải một chứng từ khác.
+async function dongY() {
+  if (accepting.value) return
+  accepting.value = true
+  try {
+    await api.call('portal_order_accept', { order: name.value, action: 'dong_y' })
+    showToast('Đã đồng ý — đơn chuyển sang chờ Miyano xác nhận.')
+    load()
+  } catch (e) {
+    showToast(e.message || 'Không ghi nhận được đồng ý. Vui lòng thử lại.', 'error')
+  } finally {
+    accepting.value = false
+  }
+}
+async function khongDongY(lyDo) {
+  if (rejecting.value) return
+  rejecting.value = true
+  try {
+    await api.call('portal_order_accept', { order: name.value, action: 'khong_dong_y', ly_do: lyDo })
+    acceptOpen.value = false
+    showToast('Đã gửi phản hồi không đồng ý — Miyano sẽ liên hệ lại.')
+    load()
+  } catch (e) {
+    showToast(e.message || 'Không gửi được phản hồi. Vui lòng thử lại.', 'error')
+  } finally {
+    rejecting.value = false
+  }
+}
+
 async function requestCancel() {
   const reason = window.prompt('Lý do yêu cầu huỷ / sửa đơn:')
   if (!reason) return
@@ -133,13 +179,42 @@ onMounted(load)
       <div class="card mb10" style="margin-bottom: 14px">
         <div class="sb">
           <b style="font-size: 16px">{{ data.order }}</b>
-          <span class="badge" :class="statusBadge(data.status_vi)">{{ data.status_vi }}</span>
+          <span>
+            <span v-if="laDonMuaLe" class="badge b-purple">Mua lẻ</span>
+            <!-- `status_vi` (từ trạng thái ERPNext gốc) không phân biệt được
+                 "Chờ bạn đồng ý" với "Chờ xác nhận" thường — cả hai đều là
+                 SO nháp (Draft, chưa giao gì). `chap_nhan.can_dong_y` (suy từ
+                 workflow_state thật) mới là tín hiệu đúng, ưu tiên hiển thị
+                 badge này khi có. -->
+            <span v-if="data.chap_nhan && data.chap_nhan.can_dong_y" class="badge b-yellow" style="margin-left: 4px">Chờ bạn đồng ý</span>
+            <span v-else class="badge" :class="statusBadge(data.status_vi)" style="margin-left: 4px">{{ data.status_vi }}</span>
+          </span>
         </div>
         <p class="tag" style="margin-top: 4px">
           Đặt ngày {{ fmtDate(data.order_date) }}
           <template v-if="data.hdnt"> · {{ data.hdnt }}</template>
           <template v-if="data.po_khach"> · Số dự trù: {{ data.po_khach }}</template>
         </p>
+        <p v-if="data.ly_do_tu_choi" class="tag" style="color: var(--red); margin-top: 4px">
+          Lý do từ chối: {{ data.ly_do_tu_choi }}
+        </p>
+      </div>
+
+      <!-- E6/F-07 [MỚI — QĐ-6] — banner "Chờ bạn đồng ý" -->
+      <div v-if="data.chap_nhan && data.chap_nhan.can_dong_y" class="card mb10" style="margin-bottom: 14px">
+        <div class="note" style="background: #fff7ed; border-color: #fed7aa; color: #9a3412">
+          ⏳ <b>Báo giá hiệu lực đến {{ fmtDate(data.chap_nhan.han_hieu_luc) }}.</b>
+          Sau ngày này đơn tự đóng — cần hàng phải yêu cầu báo giá lại. <span class="newtag">MỚI</span>
+        </div>
+        <p style="font-size: 13px; margin: 8px 0 10px">
+          Bấm <b>Đồng ý</b> = chấp nhận đặt hàng theo giá trên. Hệ thống ghi lại người bấm và thời điểm.
+        </p>
+        <div class="flex" style="flex-wrap: wrap">
+          <button class="btn-g" :disabled="accepting" @click="dongY">
+            {{ accepting ? 'Đang gửi…' : '✔ Đồng ý đặt hàng' }}
+          </button>
+          <button class="btn-o btn-danger" :disabled="accepting" @click="acceptOpen = true">✕ Không đồng ý…</button>
+        </div>
       </div>
 
       <!-- Tiến trình -->
@@ -253,5 +328,15 @@ onMounted(load)
         </div>
       </div>
     </template>
+
+    <ReasonModal
+      :open="acceptOpen"
+      title="Không đồng ý báo giá"
+      placeholder="VD: Giá cao hơn dự toán, đề nghị xem lại..."
+      :submitting="rejecting"
+      submit-label="Gửi"
+      @close="acceptOpen = false"
+      @submit="khongDongY"
+    />
   </div>
 </template>

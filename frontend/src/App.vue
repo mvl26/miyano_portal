@@ -12,6 +12,7 @@ const NAV = [
   { to: '/catalog', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'catalog' },
   { to: '/cart', icon: '📦', label: 'Giỏ hàng', short: 'Giỏ', key: 'cart', cart: true },
   { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
+  { to: '/yeu-cau', icon: '📨', label: 'Yêu cầu hàng hoá', short: 'Yêu cầu', key: 'yeu-cau', newtag: true },
   { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
   { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
   { to: '/profile', icon: '🏥', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile' },
@@ -33,13 +34,14 @@ const cartCount = computed(() => store.cartCount)
 function isActive(key) {
   const name = route.name || ''
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
+  if (key === 'yeu-cau') return name === 'yeu-cau' || name === 'yeu-cau-detail'
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',
       'kho-bao-cao', 'kho-ncc', 'kho-nhat-ky', 'kho-vat-tu', 'kho-vat-tu-import',
     ].includes(name)
   }
-  if (key === 'profile') return name === 'profile' || name === 'invoices'
+  if (key === 'profile') return name === 'profile' || name === 'invoices' || name === 'yeu-cau' || name === 'yeu-cau-detail'
   return name === key
 }
 
@@ -61,7 +63,7 @@ async function doLogout() {
           :to="n.to"
           :class="{ on: isActive(n.key) }"
         >
-          <span>{{ n.icon }} {{ n.label }}</span>
+          <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
           <span v-if="n.cart && cartCount" class="cartn">{{ cartCount }}</span>
         </router-link>
       </nav>
