@@ -461,9 +461,12 @@ def tieu_thu_de_xuat_rows(customer: str | None = None, nhom: str | None = None) 
 	vật tư (kể cả vật tư mới, ít dữ liệu) để lên kế hoạch mua/tồn, ẩn bớt sẽ
 	che mất đúng những vật tư họ cần theo dõi sát nhất.
 
-	Gọi lại `dutru.tinh_tieu_thu()`/`dutru.ton_kha_dung()`/`dutru.ngay_phu_ton()`/
-	`dutru.sl_goi_y_dat()` cho từng (kho, vật tư) — không viết lại phép tính
-	ADU/ROP/SL đề xuất lần thứ hai, đúng nguyên tắc đầu file."""
+	Gọi lại `dutru.tieu_thu_theo_kho()`/`dutru.ton_kha_dung_theo_kho()`/
+	`dutru.ngay_phu_ton()`/`dutru.sl_goi_y_dat()` — KHÔNG viết lại phép tính
+	ADU/ROP/SL đề xuất lần thứ hai, đúng nguyên tắc đầu file. Dùng bản GỘP
+	theo kho (hai truy vấn/kho) thay vì gọi `tinh_tieu_thu()`/`ton_kha_dung()`
+	trong vòng lặp từng vật tư — report này là trường hợp XẤU NHẤT của N+1
+	(lặp qua MỌI kho × MỌI vật tư), xem docstring `dutru.tieu_thu_theo_kho()`."""
 	khos = _active_khos(customer)
 	if not khos:
 		return []
@@ -478,9 +481,11 @@ def tieu_thu_de_xuat_rows(customer: str | None = None, nhom: str | None = None) 
 			"Customer Warehouse Item", filters=filters,
 			fields=["name", "ten_vat_tu", "dvt", "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "boi_so_dat"],
 		)
+		tieu_thu_ca_kho = dutru.tieu_thu_theo_kho(k["name"])
+		ton_ca_kho = dutru.ton_kha_dung_theo_kho(k["name"])
 		for it in items:
-			tt = dutru.tinh_tieu_thu(k["name"], it["name"])
-			ton = dutru.ton_kha_dung(k["name"], it["name"])
+			tt = tieu_thu_ca_kho.get(it["name"], dutru.TIEU_THU_RONG)
+			ton = ton_ca_kho.get(it["name"], 0.0)
 			ngay_phu = dutru.ngay_phu_ton(ton, tt["adu_90"])
 			ngay_du_kien_het = (
 				frappe.utils.add_days(frappe.utils.today(), int(ngay_phu))

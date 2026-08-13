@@ -56,7 +56,7 @@ import math
 
 import frappe
 
-from miyano_portal.kho import ledger
+from miyano_portal.kho import ledger, reports
 from miyano_portal.kho.ledger import EPS
 from miyano_portal.portal_mua_le import items_thuoc_hdnt_hieu_luc
 
@@ -157,20 +157,15 @@ def _tong_trong_ky(entries: list[dict], tu: "frappe.utils.getdate", den: "frappe
 	return tong
 
 
-def tinh_tieu_thu(kho: str, vat_tu: str) -> dict:
-	"""ADU30 (đối chiếu, NL-9.2), ADU kỳ N=so_ngay_adu() (dùng cho ROP/ngày
-	phủ, BR-P2), và số ngày dữ liệu đã ghi nhận (BR-P3/NL-9.1) — MỘT lần quét
-	sổ (`_du_lieu_tieu_thu()`), ba con số dẫn xuất.
+TIEU_THU_RONG = {"adu_30": 0.0, "adu_90": 0.0, "so_ngay_du_lieu": 0}
 
-	`so_ngay_du_lieu`: số ngày từ lần "Xuất sử dụng" ĐẦU TIÊN từng ghi (loại
-	trừ dòng đã bị đảo) tới hôm nay, TÍNH CẢ HAI ĐẦU — 0 nếu chưa từng có
-	dòng nào. Đây là "đã quan sát được bao lâu", không phải "có bao nhiêu
-	dòng sổ": một vật tư chỉ xuất một lần duy nhất 91 ngày trước vẫn được
-	coi là đủ dữ liệu, một vật tư xuất mười lần trong ba ngày qua thì chưa.
-	"""
-	hom_nay = frappe.utils.getdate(frappe.utils.today())
-	entries = _du_lieu_tieu_thu(kho, vat_tu)
 
+def _tinh_tieu_thu_tu_entries(entries: list[dict], hom_nay=None) -> dict:
+	"""Lõi thuần tính toán của `tinh_tieu_thu()`/`tieu_thu_theo_kho()` — nhận
+	sẵn danh sách dòng sổ (đã quét), KHÔNG tự truy vấn DB, để hai nơi gọi
+	(một vật tư, cả kho) dùng chung ĐÚNG MỘT công thức mà không viết lại lần
+	thứ hai. Xem `tinh_tieu_thu()` cho ý nghĩa từng con số."""
+	hom_nay = hom_nay or frappe.utils.getdate(frappe.utils.today())
 	n = so_ngay_adu()
 	tu_30 = frappe.utils.add_days(hom_nay, -(_ADU_30_CO_DINH - 1))
 	tu_n = frappe.utils.add_days(hom_nay, -(n - 1))
@@ -186,15 +181,89 @@ def tinh_tieu_thu(kho: str, vat_tu: str) -> dict:
 	return {"adu_30": adu_30, "adu_90": adu_n, "so_ngay_du_lieu": so_ngay_du_lieu}
 
 
+def tinh_tieu_thu(kho: str, vat_tu: str) -> dict:
+	"""ADU30 (đối chiếu, NL-9.2), ADU kỳ N=so_ngay_adu() (dùng cho ROP/ngày
+	phủ, BR-P2), và số ngày dữ liệu đã ghi nhận (BR-P3/NL-9.1) cho MỘT vật
+	tư — MỘT lần quét sổ (`_du_lieu_tieu_thu()`), ba con số dẫn xuất.
+
+	`so_ngay_du_lieu`: số ngày từ lần "Xuất sử dụng" ĐẦU TIÊN từng ghi (loại
+	trừ dòng đã bị đảo) tới hôm nay, TÍNH CẢ HAI ĐẦU — 0 nếu chưa từng có
+	dòng nào. Đây là "đã quan sát được bao lâu", không phải "có bao nhiêu
+	dòng sổ": một vật tư chỉ xuất một lần duy nhất 91 ngày trước vẫn được
+	coi là đủ dữ liệu, một vật tư xuất mười lần trong ba ngày qua thì chưa.
+
+	Dùng cho `kho_min_max_goi_y()` (danh sách vật tư CLIENT TỰ CHỌN, thường
+	vài dòng) — quét MỘT vật tư mỗi lần gọi là đủ rẻ. Với các hàm quét TOÀN
+	KHO (`canh_bao_ton_rows()`/`desk_reports.tieu_thu_de_xuat_rows()`), dùng
+	`tieu_thu_theo_kho()` bên dưới thay vì gọi hàm này trong một vòng lặp —
+	xem docstring hàm đó cho lý do (N+1 truy vấn)."""
+	return _tinh_tieu_thu_tu_entries(_du_lieu_tieu_thu(kho, vat_tu))
+
+
+def tieu_thu_theo_kho(kho: str) -> dict[str, dict]:
+	"""Bản GỘP của `tinh_tieu_thu()` cho MỌI vật tư của một kho trong ĐÚNG
+	HAI truy vấn (danh sách phiếu Xuất sử dụng + toàn bộ dòng sổ của chúng),
+	thay vì hai truy vấn CHO MỖI VẬT TƯ.
+
+	Lý do tồn tại (round review — advisor): `canh_bao_ton_rows()` và
+	`desk_reports.tieu_thu_de_xuat_rows()` đều lặp qua MỌI vật tư đang dùng
+	của (các) kho rồi gọi `tinh_tieu_thu()` — với một kho vài năm dữ liệu,
+	đó là N+1 truy vấn, và với report Desk (lặp qua MỌI kho × MỌI vật tư)
+	đó là trường hợp XẤU NHẤT, không phải màn portal (một kho). Phân trang
+	server của `canh_bao_ton()` KHÔNG cắt được chi phí này vì nó cắt SAU khi
+	`canh_bao_ton_rows()` đã tính xong toàn bộ.
+
+	Trả `{vat_tu: {...}}` — vật tư CHƯA TỪNG có dòng "Xuất sử dụng" nào đơn
+	giản KHÔNG có mặt trong dict (không phải một dict rỗng tốn bộ nhớ cho
+	hàng nghìn vật tư chưa từng xuất); nơi gọi tự rơi về `TIEU_THU_RONG`
+	khi tra `dict.get(vat_tu)` không thấy — xem `canh_bao_ton_rows()`."""
+	issue_names = _xuat_su_dung_issue_names(kho)
+	if not issue_names:
+		return {}
+	entries = frappe.get_all(
+		"Customer Stock Ledger Entry",
+		filters={
+			"kho": kho, "chung_tu_type": "Customer Stock Issue",
+			"chung_tu": ["in", issue_names], "da_dao": 0,
+		},
+		fields=["vat_tu", "ngay", "so_luong"],
+	)
+	theo_vat_tu: dict[str, list[dict]] = {}
+	for e in entries:
+		theo_vat_tu.setdefault(e["vat_tu"], []).append(e)
+
+	hom_nay = frappe.utils.getdate(frappe.utils.today())
+	return {vt: _tinh_tieu_thu_tu_entries(es, hom_nay) for vt, es in theo_vat_tu.items()}
+
+
 def ton_kha_dung(kho: str, vat_tu: str) -> float:
 	"""Tổng tồn CÒN LẠI của một vật tư, cộng qua mọi lô — dùng lại
 	`ledger.get_lot_balances()` (cache tồn theo lô đã có), không viết lại
 	phép cộng lần thứ hai (đã có ở mức CẢ KHO trong
 	`reports.ton_hien_tai_rows()`, nhưng hàm đó gộp nhiều vật tư một lúc còn
 	ở đây chỉ cần MỘT vật tư nên gọi thẳng lô, giống cách
-	`customer_stock_issue.py::_chan_xuat_qua_ton()` đã làm)."""
+	`customer_stock_issue.py::_chan_xuat_qua_ton()` đã làm).
+
+	Dùng cho vật tư ĐƠN LẺ; quét cả kho dùng `ton_kha_dung_theo_kho()`."""
 	lots = ledger.get_lot_balances(kho, vat_tu)
 	return round(sum(float(l["so_luong"]) for l in lots), 6)
+
+
+def ton_kha_dung_theo_kho(kho: str) -> dict[str, float]:
+	"""Bản GỘP của `ton_kha_dung()` cho MỌI vật tư — gọi lại
+	`reports.ton_hien_tai_rows()` (đã MỘT truy vấn `Customer Stock Lot
+	Balance` cho cả kho, gộp theo lô), không viết lại phép cộng lần thứ ba
+	(lần thứ nhất ở `reports.ton_hien_tai_rows()`, lần thứ hai ở
+	`ton_kha_dung()` cho một vật tư).
+
+	`ton_hien_tai_rows()` chỉ trả vật tư CÓ tồn dương (`so_luong > EPS`) —
+	vật tư đã hết sạch (tồn = 0, chính là ca "Thiếu" cấp bách nhất) hay chưa
+	từng nhập không có mặt trong dict trả về. Nơi gọi PHẢI tự rơi về `0.0`
+	khi tra không thấy (`dict.get(vat_tu, 0.0)`) — đây KHÔNG phải một khác
+	biệt hành vi so với `ton_kha_dung()` (hàm đó cũng trả đúng 0.0 cho một
+	vật tư không lô nào), chỉ là cách biểu diễn "0" khác nhau (dòng số 0 vs.
+	dict không có khoá)."""
+	return {r["vat_tu"]: float(r["so_luong"]) for r in reports.ton_hien_tai_rows(kho)}
 
 
 def tinh_rop(adu_n, lead_time_ngay, ton_toi_thieu) -> float | None:
@@ -324,6 +393,11 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 
 	thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
 	nguong_du_lieu = so_ngay_du_lieu_toi_thieu()
+	# MỘT lượt tính cho CẢ KHO (hai truy vấn) thay vì một cặp truy vấn cho
+	# MỖI vật tư — xem docstring `tieu_thu_theo_kho()`/`ton_kha_dung_theo_kho()`
+	# (round review — advisor: N+1 trên kho nhiều năm dữ liệu).
+	tieu_thu_ca_kho = tieu_thu_theo_kho(kho)
+	ton_ca_kho = ton_kha_dung_theo_kho(kho)
 
 	out = []
 	for it in items:
@@ -332,11 +406,11 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 		max_ = None if chua_khai(it["ton_toi_da"]) else it["ton_toi_da"]
 		co_nguong = min_ is not None or rop is not None
 
-		tt = tinh_tieu_thu(kho, it["name"])
+		tt = tieu_thu_ca_kho.get(it["name"], TIEU_THU_RONG)
 		if not co_nguong and tt["so_ngay_du_lieu"] < nguong_du_lieu:
 			continue  # BR-P3 — chưa thiết lập VÀ chưa đủ dữ liệu: không cảnh báo.
 
-		ton = ton_kha_dung(kho, it["name"])
+		ton = ton_ca_kho.get(it["name"], 0.0)
 		trang_thai = _trang_thai_dong(ton, min_, rop, co_nguong)
 		item_code = it["item_code"] or ""
 		out.append({

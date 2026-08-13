@@ -266,7 +266,11 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 		"Customer Warehouse Item",
 		filters=filters,
 		fields=["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code",
-		        "quy_cach", "nhom", "ghi_chu", "active"],
+		        "quy_cach", "nhom", "ghi_chu", "active",
+		        # E5 — ngưỡng dự trù, để màn danh mục/form vật tư hiển thị
+		        # được giá trị ĐANG LƯU trước khi khách bấm sửa.
+		        "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay",
+		        "boi_so_dat", "adu_90"],
 		order_by="ten_vat_tu asc",
 	)
 	if tim:

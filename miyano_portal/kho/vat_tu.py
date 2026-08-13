@@ -19,13 +19,23 @@ from miyano_portal.kho.import_ton_dau import _match_vat_tu, _norm
 
 # Trường DUY NHẤT được nhận từ client. Không bao giờ doc.update(payload):
 # `kho` phải đến từ phiên, và `item_code` phải do server suy ra (xem _item_miyano).
-TRUONG_NHAN_TU_CLIENT = ("ma_vat_tu", "ten_vat_tu", "dvt", "quy_cach", "nhom", "ghi_chu")
+TRUONG_NHAN_TU_CLIENT = (
+	"ma_vat_tu", "ten_vat_tu", "dvt", "quy_cach", "nhom", "ghi_chu",
+	*("ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay", "boi_so_dat"),
+)
 
 # Sửa được kể cả khi đã có phát sinh — chúng chỉ là mô tả, không tham gia phép cộng nào.
 TRUONG_MO_TA = ("ten_vat_tu", "quy_cach", "nhom", "ghi_chu")
 
 # Khoá lại khi đã có phát sinh.
 TRUONG_KHOA = ("ma_vat_tu", "dvt")
+
+# E5/US-E5.1 — ngưỡng min/ROP/max/lead time/bội số đặt. KHÔNG khoá theo phát
+# sinh sổ kho (khác TRUONG_KHOA): đây là NGƯỠNG DỰ TRÙ, không phải đơn vị
+# tính — sửa min/ROP/max sau khi vật tư đã có lịch sử xuất/nhập là chính
+# luồng nghiệp vụ bình thường (khách chỉnh lại sau khi xem gợi ý mới), không
+# phải một rủi ro "quy đổi ngược quá khứ" như `ma_vat_tu`/`dvt`.
+TRUONG_NGUONG_TON = ("ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay", "boi_so_dat")
 
 _NHAN = {"ma_vat_tu": "Mã vật tư", "dvt": "ĐVT"}
 
@@ -53,6 +63,27 @@ def _item_miyano(ma_vat_tu: str) -> str | None:
 	return row[0][0] if row else None
 
 
+def _so_hoac_khong(gia_tri):
+	"""Chuẩn hoá một giá trị ngưỡng tồn (min/ROP/max/lead time/bội số) từ
+	payload client: rỗng/None (ô bị xoá trắng trên form) -> 0, ĐÚNG quy ước
+	"chưa khai" của `kho/dutru.py::chua_khai()` — cột DB các field này luôn
+	NOT NULL DEFAULT 0 (Float/Int chuẩn của Frappe), không có None thật để
+	lưu. Có giá trị thì ép về số thực; `doc.save()` tự cint() lại cho hai
+	field Int (lead_time_ngay/boi_so_dat) theo đúng fieldtype khai trong
+	DocType JSON.
+
+	CỐ Ý dùng `float()` trần thay vì `frappe.utils.flt()`: `flt()` NUỐT mọi
+	lỗi ép kiểu và âm thầm trả 0.0 (`flt("abc") == 0.0`, xem docstring hàm
+	đó) — một client gửi rác sẽ lặng lẽ ghi đè ngưỡng thành "chưa khai" thay
+	vì báo lỗi, đúng khuôn `api/kho.py::_so_thuc()` đã chọn cho lý do y hệt."""
+	if gia_tri in (None, ""):
+		return 0
+	try:
+		return float(gia_tri)
+	except (TypeError, ValueError):
+		frappe.throw(f"Giá trị '{gia_tri}' không hợp lệ.", frappe.ValidationError)
+
+
 def _chuan_hoa_row(row: dict) -> dict:
 	"""Chuẩn hoá TẠI CHỖ một dòng vật tư đọc thẳng từ DB: cột trống trong
 	MariaDB là NULL (Python `None`), nhưng client (cả modal tạo nhanh lẫn màn
@@ -72,6 +103,18 @@ def _chuan_hoa_row(row: dict) -> dict:
 	row["nhom"] = row["nhom"] or ""
 	row["ghi_chu"] = row["ghi_chu"] or ""
 	row["active"] = int(row["active"] or 0)
+	# E5 — ngưỡng dự trù đọc từ DB ra kiểu Decimal (Float)/int (Int); ép về
+	# float/int thường để JSON hoá gọn và để `dutru.chua_khai()`/so sánh phía
+	# client không phải xử lý riêng kiểu Decimal. `in row` (không phải
+	# `.get()`) vì hai nơi gọi hàm này (ra_dict(), kho_vat_tu_list()) đều CỐ
+	# Ý chọn đủ các cột này — thiếu cột là lỗi ở nơi gọi, không phải trường
+	# hợp hợp lệ cần bỏ qua êm.
+	for truong in ("ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "adu_90"):
+		if truong in row:
+			row[truong] = float(row[truong] or 0)
+	for truong in ("lead_time_ngay", "boi_so_dat"):
+		if truong in row:
+			row[truong] = int(row[truong] or 0)
 	return row
 
 
@@ -79,7 +122,8 @@ def ra_dict(name: str, da_co: bool = False) -> dict:
 	row = frappe.db.get_value(
 		"Customer Warehouse Item", name,
 		["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code",
-		 "quy_cach", "nhom", "ghi_chu", "active"],
+		 "quy_cach", "nhom", "ghi_chu", "active",
+		 "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay", "boi_so_dat", "adu_90"],
 		as_dict=True,
 	)
 	_chuan_hoa_row(row)
@@ -208,6 +252,21 @@ def sua(kho: str, vat_tu: str, du_lieu: dict) -> dict:
 			_chan_tat_khi_con_ton(doc)
 		doc.active = active
 
+	# E5/US-E5.1 — lưu min/ROP/max/lead time/bội số do khách tự chốt sau khi
+	# xem gợi ý (kho_min_max_goi_y, CHƯA lưu gì tự động). KHÔNG khoá theo
+	# `da_phat_sinh` (xem docstring TRUONG_NGUONG_TON). `_so_hoac_khong()`
+	# rỗng/None -> 0: field DB là NOT NULL DEFAULT 0 (Float/Int chuẩn của
+	# Frappe, không có kiểu nullable) nên "khách xoá trắng ô" PHẢI ánh xạ về
+	# ĐÚNG giá trị mà `dutru.chua_khai()` coi là "chưa khai" — hai đầu ghi/đọc
+	# phải khớp nhau, không phải một quy ước độc lập ở đây.
+	for truong in TRUONG_NGUONG_TON:
+		if truong in du_lieu:
+			setattr(doc, truong, _so_hoac_khong(du_lieu.get(truong)))
+
+	# `doc.save()` chạy validate() -> CustomerWarehouseItem._validate_nguong_ton()
+	# (min ≤ ROP ≤ max, lead time 1–60, bội số > 0) — không kiểm lại ở đây,
+	# một chốt CHỈ SỐNG Ở MỘT NƠI (doctype controller), endpoint không viết
+	# lại phép kiểm lần thứ hai có thể lệch với chốt gốc.
 	doc.save(ignore_permissions=True)
 	return ra_dict(doc.name)
 

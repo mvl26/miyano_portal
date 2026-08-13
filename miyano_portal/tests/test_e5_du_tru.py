@@ -548,3 +548,88 @@ class TestJobCanhBaoTonDaily(_KhoBmTestCase):
 
 		dem = quet_canh_bao_ton_daily()
 		self.assertEqual(dem, 0)
+
+
+# ============================================================ US-E5.1 (lưu)
+
+class TestLuuNguongTonQuaEndpoint(_KhoBmTestCase):
+	"""US-E5.1 khép vòng: "bấm [Gợi ý từ tiêu thụ] rồi khách TỰ LƯU" — chỗ
+	LƯU đó là `kho_vat_tu_sua`. Trước bản sửa này (advisor round 1),
+	`vat_tu.TRUONG_MO_TA`/`TRUONG_KHOA` không hề nhắc tới năm trường ngưỡng
+	tồn, nên payload gửi `ton_toi_thieu`/`diem_dat_lai`/`ton_toi_da`/
+	`lead_time_ngay`/`boi_so_dat` bị ÂM THẦM BỎ QUA — validate min≤ROP≤max
+	ở CustomerWarehouseItem có thật, nhưng KHÔNG CÓ ĐƯỜNG GHI nào từ cổng
+	khách hàng chạm tới được nó. Toàn bộ US-E5.1 (bên cạnh "gợi ý", còn "tự
+	lưu") chỉ đóng vòng khi test này đi qua ĐÚNG kho_api.kho_vat_tu_sua()."""
+
+	def test_luu_thanh_cong_qua_endpoint(self):
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_vat_tu_sua(self.VT, payload={
+			"ton_toi_thieu": 10, "diem_dat_lai": 25, "ton_toi_da": 60,
+			"lead_time_ngay": 3, "boi_so_dat": 10,
+		})
+		self.assertEqual(out["ton_toi_thieu"], 10)
+		self.assertEqual(out["diem_dat_lai"], 25)
+		self.assertEqual(out["ton_toi_da"], 60)
+		self.assertEqual(out["lead_time_ngay"], 3)
+		self.assertEqual(out["boi_so_dat"], 10)
+
+		# Đọc lại từ DB (không phải chỉ tin giá trị trả về của chính lệnh lưu).
+		luu_lai = frappe.db.get_value(
+			"Customer Warehouse Item", self.VT,
+			["ton_toi_thieu", "diem_dat_lai", "ton_toi_da"], as_dict=True,
+		)
+		self.assertEqual(float(luu_lai.ton_toi_thieu), 10)
+		self.assertEqual(float(luu_lai.diem_dat_lai), 25)
+		self.assertEqual(float(luu_lai.ton_toi_da), 60)
+
+	def test_kho_vat_tu_list_tra_ve_nguong_da_luu(self):
+		"""Màn danh mục/form vật tư phải đọc lại được giá trị vừa lưu — nếu
+		không, khách "lưu xong" nhưng mở lại form vẫn thấy trống."""
+		frappe.set_user(BM_USER)
+		kho_api.kho_vat_tu_sua(self.VT, payload={"ton_toi_thieu": 10, "diem_dat_lai": 25, "ton_toi_da": 60})
+		row = next(r for r in kho_api.kho_vat_tu_list() if r["name"] == self.VT)
+		self.assertEqual(row["ton_toi_thieu"], 10)
+		self.assertEqual(row["diem_dat_lai"], 25)
+		self.assertEqual(row["ton_toi_da"], 60)
+
+	def test_min_lon_hon_rop_bi_chan_qua_endpoint_thong_diep_tieng_viet(self):
+		"""Chốt min≤ROP≤max của CustomerWarehouseItem PHẢI vươn được tới cổng
+		— không phải chỉ đúng khi gọi thẳng frappe.get_doc() trong test."""
+		frappe.set_user(BM_USER)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			kho_api.kho_vat_tu_sua(self.VT, payload={
+				"ton_toi_thieu": 30, "diem_dat_lai": 25, "ton_toi_da": 60,
+			})
+		self.assertIn("Điểm đặt lại", str(ctx.exception))
+
+	def test_vat_tu_kho_khac_bi_tu_choi(self):
+		frappe.set_user(PXN_USER)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_vat_tu_sua(self.VT, payload={"ton_toi_thieu": 10})
+
+	def test_xoa_trang_o_tra_ve_chua_khai(self):
+		"""Xoá trắng một ô đã lưu -> DB ghi 0 (NOT NULL DEFAULT 0), và
+		`kho_min_max_goi_y`/`kho_canh_bao_ton` phải đọc lại đúng là "chưa
+		khai" (dutru.chua_khai(0) == True), không phải "khách chốt min=0"."""
+		frappe.set_user(BM_USER)
+		kho_api.kho_vat_tu_sua(self.VT, payload={"ton_toi_thieu": 10, "diem_dat_lai": 25, "ton_toi_da": 60})
+		kho_api.kho_vat_tu_sua(self.VT, payload={"ton_toi_thieu": ""})
+
+		row = next(r for r in kho_api.kho_vat_tu_list() if r["name"] == self.VT)
+		self.assertEqual(row["ton_toi_thieu"], 0)
+		self.assertTrue(dutru.chua_khai(row["ton_toi_thieu"]))
+
+	def test_khong_lam_hong_gia_tri_khi_khong_gui_truong_nguong(self):
+		"""Sửa TÊN vật tư (không đụng tới ngưỡng) không được vô tình xoá mất
+		ngưỡng đã lưu trước đó — vòng lặp `TRUONG_NGUONG_TON` chỉ set khi
+		field CÓ MẶT trong payload (`if truong in du_lieu`), không phải ghi
+		đè vô điều kiện."""
+		frappe.set_user(BM_USER)
+		kho_api.kho_vat_tu_sua(self.VT, payload={"ton_toi_thieu": 10, "diem_dat_lai": 25, "ton_toi_da": 60})
+		kho_api.kho_vat_tu_sua(self.VT, payload={"ten_vat_tu": "Tên mới"})
+
+		row = next(r for r in kho_api.kho_vat_tu_list() if r["name"] == self.VT)
+		self.assertEqual(row["ten_vat_tu"], "Tên mới")
+		self.assertEqual(row["ton_toi_thieu"], 10)
+		self.assertEqual(row["diem_dat_lai"], 25)
