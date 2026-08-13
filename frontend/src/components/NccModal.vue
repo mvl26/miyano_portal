@@ -38,11 +38,27 @@ watch(
   { immediate: true }
 )
 
+// kho_ncc_list (nguồn của NccList.moSua()) CHỈ trả name/ten_ncc/mst/
+// so_phieu/gia_tri_90n/active — không có dien_thoai/email/dia_chi/ghi_chu
+// (không có endpoint "lấy một NCC" nào khác để đọc đủ 4 trường này). Ở chế
+// độ sửa, form khởi tạo 4 trường đó = '' (giá trị mặc định, KHÔNG phải giá
+// trị thật đang lưu) — nếu gửi nguyên object này lên, kho_ncc_save() sẽ đọc
+// thấy "" cho từng trường VÀ GHI ĐÈ dữ liệu thật thành NULL, xoá sạch SĐT/
+// email/địa chỉ/ghi chú chỉ vì người dùng sửa lại tên. Server chỉ giữ
+// nguyên một trường khi nó HOÀN TOÀN VẮNG MẶT trong payload (`if truong in
+// du_lieu`) — lược các trường này khỏi payload lúc sửa là cách duy nhất
+// tránh mất dữ liệu mà không cần thêm endpoint đọc đầy đủ một NCC.
+const TRUONG_KHONG_DOC_DUOC_LUC_SUA = ['dien_thoai', 'email', 'dia_chi', 'ghi_chu']
+
 async function onSave() {
   if (saving.value) return
   saving.value = true
   try {
-    const out = await api.callKho('kho_ncc_save', { data: { ...form.value } })
+    const payload = { ...form.value }
+    if (props.mode === 'sua') {
+      for (const truong of TRUONG_KHONG_DOC_DUOC_LUC_SUA) delete payload[truong]
+    }
+    const out = await api.callKho('kho_ncc_save', { data: payload })
     if (out.goi_y_trung && out.goi_y_trung.length) {
       duplicateWarning.value = out
     } else {
@@ -107,13 +123,22 @@ async function tatBanNay() {
           <label>Tên NCC *</label>
           <input v-model="form.ten_ncc" placeholder="VD: Công ty TNHH ABC" />
         </div>
-        <div class="grid2">
-          <div class="field"><label>MST</label><input v-model="form.mst" placeholder="10 hoặc 13 số" /></div>
+        <div class="field"><label>MST</label><input v-model="form.mst" placeholder="10 hoặc 13 số" /></div>
+
+        <!-- Bốn trường dưới đây KHÔNG hiện ở chế độ Sửa: kho_ncc_list không trả
+             chúng, nên form không có gì thật để hiển thị (không phải "để trống"
+             — là "không biết") — hiện ô rỗng rồi cho lưu sẽ xoá mất dữ liệu thật
+             (xem TRUONG_KHONG_DOC_DUOC_LUC_SUA ở onSave()). Chỉ sửa được qua một
+             kênh khác khi backend có endpoint đọc đủ một NCC. -->
+        <template v-if="mode !== 'sua'">
           <div class="field"><label>Điện thoại</label><input v-model="form.dien_thoai" /></div>
-        </div>
-        <div class="field"><label>Email</label><input v-model="form.email" type="email" /></div>
-        <div class="field"><label>Địa chỉ</label><input v-model="form.dia_chi" /></div>
-        <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
+          <div class="field"><label>Email</label><input v-model="form.email" type="email" /></div>
+          <div class="field"><label>Địa chỉ</label><input v-model="form.dia_chi" /></div>
+          <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
+        </template>
+        <p v-else class="tag" style="margin-top: -4px; margin-bottom: 12px">
+          Điện thoại/Email/Địa chỉ/Ghi chú không sửa được ở đây (báo cáo cuối phần C).
+        </p>
         <div v-if="mode === 'sua'" class="field">
           <label style="display: flex; align-items: center; gap: 6px">
             <input type="checkbox" :checked="form.active === 1" @change="form.active = $event.target.checked ? 1 : 0" />

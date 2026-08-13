@@ -140,17 +140,34 @@ const dotRows = ref([])
 const dotVatTuChon = ref('') // '' = tất cả vật tư
 const dotNguon = ref('') // '' = tất cả nguồn
 const nccList = ref([])
+// Danh mục vật tư RIÊNG cho tab này (khác vatTuList dùng chung với tab Thẻ
+// kho ở trên) — tải CẢ vật tư đã tắt (ca_tat=1). Một vật tư chỉ tắt được
+// khi hết tồn (vat_tu._chan_tat_khi_con_ton), tức là chính vật tư có sổ đầy
+// đủ nhất; lọc active=1 sẽ khoá đúng những đợt hàng đáng xem nhất ra khỏi ô
+// chọn VÀ khiến tenVatTu() hiện tên trống cho các dòng của nó. Không đụng
+// tới vatTuList/loadVatTuList() (tab Thẻ kho, có sẵn từ trước, ngoài phạm vi).
+const dotVatTuList = ref([])
+
+async function loadDotVatTuList() {
+  try {
+    dotVatTuList.value = await api.callKho('kho_vat_tu_list', { ca_tat: 1 })
+  } catch (e) {
+    // Ô chọn vật tư của tab này sẽ chỉ thiếu, không chặn tab.
+  }
+}
 
 async function loadNccList() {
   try {
-    nccList.value = await api.callKho('kho_ncc_list')
+    // ca_inactive=1: một đợt hàng cũ từ NCC đã tắt vẫn phải lọc được theo
+    // đúng NCC đó — cùng lý do với dotVatTuList ở trên.
+    nccList.value = await api.callKho('kho_ncc_list', { ca_inactive: 1 })
   } catch (e) {
     // Chip lọc nguồn theo NCC sẽ chỉ thiếu, không chặn tab.
   }
 }
 
 function tenVatTu(vt) {
-  const v = vatTuList.value.find((x) => x.name === vt)
+  const v = dotVatTuList.value.find((x) => x.name === vt)
   return v ? `${v.ma_vat_tu} — ${v.ten_vat_tu}` : vt
 }
 
@@ -227,6 +244,7 @@ function xuatExcel() {
 
 onMounted(() => {
   loadVatTuList()
+  loadDotVatTuList()
   loadNccList()
   loadNXT()
 })
@@ -277,8 +295,8 @@ onMounted(() => {
           <label>Vật tư</label>
           <select v-model="dotVatTuChon">
             <option value="">— Tất cả —</option>
-            <option v-for="vt in vatTuList" :key="vt.name" :value="vt.name">
-              {{ vt.ma_vat_tu }} — {{ vt.ten_vat_tu }}
+            <option v-for="vt in dotVatTuList" :key="vt.name" :value="vt.name">
+              {{ vt.ma_vat_tu }} — {{ vt.ten_vat_tu }}{{ vt.active ? '' : ' (đã tắt)' }}
             </option>
           </select>
         </div>
@@ -287,7 +305,9 @@ onMounted(() => {
           <select v-model="dotNguon">
             <option value="">— Tất cả —</option>
             <option value="Miyano">Miyano</option>
-            <option v-for="n in nccList" :key="n.name" :value="n.ten_ncc">{{ n.ten_ncc }}</option>
+            <option v-for="n in nccList" :key="n.name" :value="n.ten_ncc">
+              {{ n.ten_ncc }}{{ n.active ? '' : ' (đã tắt)' }}
+            </option>
           </select>
         </div>
         <button class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">

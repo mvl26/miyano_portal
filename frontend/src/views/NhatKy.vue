@@ -50,7 +50,12 @@ function tenVatTu(vt) {
 
 async function loadVatTu() {
   try {
-    vatTuList.value = await api.callKho('kho_vat_tu_list')
+    // ca_tat=1: đây là màn ĐỌC LỊCH SỬ, không phải nơi tạo dòng phiếu mới —
+    // một vật tư đã tắt (chỉ tắt được khi hết tồn, xem vat_tu._chan_tat_khi_
+    // con_ton) vẫn có sổ, phải tra được nhật ký của nó. Lọc active=1 (mặc
+    // định của kho_vat_tu_list) sẽ khoá đúng những vật tư có sổ đầy đủ nhất
+    // nhưng hết tồn ra khỏi ô chọn.
+    vatTuList.value = await api.callKho('kho_vat_tu_list', { ca_tat: 1 })
   } catch (e) {
     // Chọn vật tư sẽ trống nếu lỗi — không chặn màn hình.
   }
@@ -58,7 +63,9 @@ async function loadVatTu() {
 
 async function loadNcc() {
   try {
-    nccList.value = await api.callKho('kho_ncc_list', {})
+    // ca_inactive=1: cùng lý do trên — một phiếu nhập cũ từ NCC đã tắt vẫn
+    // nằm trong nhật ký, chip "Nguồn" phải lọc được theo đúng NCC đó.
+    nccList.value = await api.callKho('kho_ncc_list', { ca_inactive: 1 })
   } catch (e) {
     // Chip nguồn theo NCC sẽ chỉ thiếu, không chặn màn hình.
   }
@@ -194,7 +201,7 @@ onMounted(() => {
         <button
           v-for="n in nccList" :key="n.name" class="chip" :class="{ on: nguonFilter === n.ten_ncc }"
           @click="chonBoLoc(loaiFilter, n.ten_ncc)"
-        >{{ n.ten_ncc }}</button>
+        >{{ n.ten_ncc }}{{ n.active ? '' : ' (đã tắt)' }}</button>
         <button v-for="lo in lotOptions" :key="lo" class="chip" :class="{ on: loFilter === lo }" @click="chonLo(lo)">
           Lô {{ lo }}
         </button>
