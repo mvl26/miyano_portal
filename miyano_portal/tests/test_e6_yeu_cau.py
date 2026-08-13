@@ -70,12 +70,24 @@ def _anh_jpeg_hop_le() -> bytes:
     """Frappe's File controller strips EXIF from image uploads (before_insert
     -> save_file -> strip_exif_data -> PIL.Image.open) — nội dung giả bất kỳ
     làm PIL ném UnidentifiedImageError trước khi test kịp chạm tới logic của
-    chúng ta. Dựng một ảnh JPEG 2x2 thật, nhỏ nhất có thể, để vượt qua bước
-    đó."""
+    chúng ta. Dựng một ảnh JPEG nhỏ, MÀU NGẪU NHIÊN mỗi lần gọi (không phải
+    hằng số cố định).
+
+    Lý do màu ngẫu nhiên (bắt được bằng chính test cộng dồn đính kèm):
+    `File.validate_duplicate_entry()` coi hai File có cùng `content_hash` là
+    "cùng một file vật lý" và cho hai bản ghi File riêng biệt (hai `name`
+    khác nhau) TRỎ CHUNG một `file_url` trên đĩa. Với nội dung ảnh CỐ ĐỊNH,
+    ba lần gọi `_make_file` trong cùng một test tạo ra ba `File.name` khác
+    nhau nhưng chỉ MỘT `file_url` — `_resolve_owned_attachment` (tra theo
+    file_url) khi đó chỉ thấy một tệp, không phải ba, và test đếm-dồn đính
+    kèm sẽ đỏ sai chỗ. Nội dung ngẫu nhiên giữ mỗi lần gọi là MỘT tệp thật sự
+    khác nhau, đúng với việc khách tải lên nhiều ảnh khác nhau trong đời thật."""
     import io
+    import random
     from PIL import Image
     buf = io.BytesIO()
-    Image.new("RGB", (2, 2), color=(200, 0, 0)).save(buf, format="JPEG")
+    mau = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+    Image.new("RGB", (2, 2), color=mau).save(buf, format="JPEG")
     return buf.getvalue()
 
 
@@ -252,6 +264,33 @@ class TestPortalYeuCauSave(FrappeTestCase):
                 _payload(), file_urls=[f.file_url for f in files]
             )
         self.assertIn("Tối đa 5 file", str(cm.exception))
+
+    def test_qua_5_file_cong_don_giua_tao_va_sua_bi_chan(self):
+        """Giới hạn 5 file là TỔNG số đính kèm của yêu cầu, không phải số
+        file trong một lần gọi — 3 file lúc tạo + 3 file lúc sửa (còn "Mới")
+        phải chặn ở lần sửa, không được cộng dồn vượt quá."""
+        frappe.set_user(BM_USER)
+        dot_1 = [_make_file(BM_USER, f"dot1_{i}.jpg") for i in range(3)]
+        out = portal.portal_yeu_cau_save(
+            _payload(ten_hang="Nhiều đợt đính kèm"),
+            file_urls=[f.file_url for f in dot_1],
+        )
+        dot_2 = [_make_file(BM_USER, f"dot2_{i}.jpg") for i in range(3)]
+        with self.assertRaises(frappe.ValidationError) as cm:
+            portal.portal_yeu_cau_save(
+                _payload(ten_hang="Nhiều đợt đính kèm"),
+                name=out["name"],
+                file_urls=[f.file_url for f in dot_2],
+            )
+        self.assertIn("Tối đa 5 file", str(cm.exception))
+        # 3 file đợt 1 vẫn còn nguyên, không có gì từ đợt 2 được gắn.
+        self.assertEqual(
+            frappe.db.count(
+                "File",
+                {"attached_to_doctype": "Portal Item Request", "attached_to_name": out["name"]},
+            ),
+            3,
+        )
 
     def test_file_qua_10mb_bi_chan(self):  # TC-E6-05, ca 3
         frappe.set_user(BM_USER)
