@@ -42,6 +42,17 @@ REPORTS = [
 		"report_name": "Cảnh báo hạn dùng khách hàng",
 		"ref_doctype": "Customer Stock Lot Balance",
 	},
+	# E3 phần B (US-E3.5/E3.6) — cùng khuôn an ninh: ref_doctype đã có report:1
+	# cho ba role trên và KHÔNG DocPerm nào cho Customer (xem
+	# customer_stock_receipt.json). Cả hai đọc dữ liệu của MỌI khách hàng.
+	{
+		"report_name": "Đối soát giao – nhận",
+		"ref_doctype": "Customer Stock Receipt",
+	},
+	{
+		"report_name": "Chất lượng dữ liệu",
+		"ref_doctype": "Customer Stock Receipt",
+	},
 ]
 
 
