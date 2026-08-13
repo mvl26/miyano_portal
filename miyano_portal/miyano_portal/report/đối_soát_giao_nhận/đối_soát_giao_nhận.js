@@ -1,6 +1,6 @@
-// Report desk "Đối soát giao – nhận" — filter phía client. Xem
-// đối_soát_giao_–_nhận.py cho phép tính; file này chỉ khai báo ô lọc.
-frappe.query_reports["Đối soát giao – nhận"] = {
+// Report desk "Đối soát giao nhận" — filter phía client. Xem
+// đối_soát_giao_nhận.py cho phép tính; file này chỉ khai báo ô lọc.
+frappe.query_reports["Đối soát giao nhận"] = {
 	filters: [
 		{
 			fieldname: "customer",

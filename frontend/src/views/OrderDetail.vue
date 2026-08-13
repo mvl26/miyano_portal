@@ -69,6 +69,18 @@ async function datLai() {
   }
 }
 
+// M3 (E3 phần B review): `so_dot` (BR-K16 — thứ tự DN ĐÃ GHI SỔ của SO) và
+// chỉ số mảng `i+1` KHÔNG PHẢI luôn cùng một con số — `data.deliveries` lọc
+// docstatus < 2 (GỒM CẢ DN nháp chưa ghi sổ), còn so_dot chỉ đếm DN đã ghi
+// sổ (docstatus=1). Một đơn có DN đang soạn (nháp) xen giữa hai DN đã ghi
+// sổ sẽ khiến "Đợt {{i+1}}" và so_dot lệch nhau ngay trên cùng màn hình.
+// Dùng so_dot khi có (khách có kho, DN đã ghi sổ); chỉ số mảng chỉ còn là
+// phương án dự phòng khi chưa có mốc nào (khách không có kho, hoặc DN còn
+// nháp — chưa từng qua delivery_hook).
+function dotLabel(d, i) {
+  return d.so_dot || i + 1
+}
+
 function pdfUrl(doctype, docname) {
   return (
     '/api/method/miyano_portal.api.portal.portal_document_download?doctype=' +
@@ -189,7 +201,7 @@ onMounted(load)
           <div class="h3">Giao hàng</div>
           <template v-if="data.deliveries.length">
             <div v-for="(d, i) in data.deliveries" :key="d.name" style="margin-bottom: 12px">
-              <p style="font-size: 13px"><b>Đợt {{ i + 1 }} – {{ fmtDate(d.posting_date) }} ({{ d.percent }}%)</b></p>
+              <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDate(d.posting_date) }} ({{ d.percent }}%)</b></p>
               <p class="tag">
                 Phiếu giao: {{ d.name }}
                 <template v-if="d.carrier"> · {{ d.carrier }}</template>
@@ -212,7 +224,7 @@ onMounted(load)
                 <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
               </p>
               <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
-                <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ i + 1 }}</button>
+                <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ dotLabel(d, i) }}</button>
               </a>
             </div>
           </template>

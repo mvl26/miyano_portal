@@ -45,12 +45,17 @@ REPORTS = [
 	# E3 phần B (US-E3.5/E3.6) — cùng khuôn an ninh: ref_doctype đã có report:1
 	# cho ba role trên và KHÔNG DocPerm nào cho Customer (xem
 	# customer_stock_receipt.json). Cả hai đọc dữ liệu của MỌI khách hàng.
+	#
+	# (I4/M5, review) Tên KHÔNG dùng en-dash "–" (rủi ro scrub()/gõ nhầm gạch
+	# nối thường — xem docstring đối_soát_giao_nhận.py) và tên thứ hai KHÔNG
+	# còn là "Chất lượng dữ liệu" chung chung (Report docname duy nhất TOÀN
+	# SITE, dễ đụng report app khác).
 	{
-		"report_name": "Đối soát giao – nhận",
+		"report_name": "Đối soát giao nhận",
 		"ref_doctype": "Customer Stock Receipt",
 	},
 	{
-		"report_name": "Chất lượng dữ liệu",
+		"report_name": "Chất lượng dữ liệu kho khách",
 		"ref_doctype": "Customer Stock Receipt",
 	},
 ]

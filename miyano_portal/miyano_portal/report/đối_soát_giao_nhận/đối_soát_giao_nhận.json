@@ -14,11 +14,11 @@
  "modified": "2026-08-13 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
- "name": "Đối soát giao – nhận",
+ "name": "Đối soát giao nhận",
  "owner": "Administrator",
  "prepared_report": 0,
  "ref_doctype": "Customer Stock Receipt",
- "report_name": "Đối soát giao – nhận",
+ "report_name": "Đối soát giao nhận",
  "report_type": "Script Report",
  "roles": [
   {

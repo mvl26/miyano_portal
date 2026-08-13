@@ -1,5 +1,5 @@
 """E3 phần B — giao diện đợt giao (US-E3.4, TC-E3-06) và hai Desk report
-(US-E3.5 "Đối soát giao – nhận", US-E3.6 "Chất lượng dữ liệu").
+(US-E3.5 "Đối soát giao nhận", US-E3.6 "Chất lượng dữ liệu kho khách").
 
 Xem `.superpowers/sdd/e3/brief-B-giao-dien-va-bao-cao.md`,
 `docs/Miyano-Portal(Client)_V2/DevHandoff/12_PRD_E3_GiaoNhieuDot_DoiSoat.md`,
@@ -15,14 +15,15 @@ không có vitest/jest). Backend nhận `ly_do_chenh_lech` qua
 bằng mắt: `payload()` giờ gửi field này, template có ô nhập chỉ hiện khi
 lệch, `yarn build` xanh (xem báo cáo bàn giao).
 
-Hai report dùng module path CÓ DẤU GẠCH NGANG EN-DASH ("–") trong tên
-("Đối soát giao – nhận") — KHÔNG BAO GIỜ viết `import` tĩnh trỏ vào các
-module report đó trong file test (en-dash không phải ký tự hợp lệ cho một
-Python identifier, `import a.b.đối_soát_giao_–_nhận...` là lỗi cú pháp).
-Frappe tự gọi các report này bằng `frappe.get_attr()`/`importlib` (import
-ĐỘNG bằng chuỗi, không parse như identifier) — same as
-`frappe.desk.query_report.run()` dùng bên dưới; test file này đi đúng đường
-đó, không bao giờ tự `import` trực tiếp hai module report.
+(I4/M5, vòng review sau) Tên hai report ĐÃ ĐỔI — bỏ hẳn en-dash "–" khỏi tên
+thứ nhất (rủi ro `frappe.modules.scrub()` chỉ map đúng en-dash, ai gõ nhầm
+gạch nối thường sẽ ra ba gạch dưới liền nhau → ModuleNotFoundError + report
+mở lên không có ô lọc, không lần ngược được) và tên thứ hai không còn chung
+chung "Chất lượng dữ liệu" (Report docname duy nhất TOÀN SITE). Vẫn giữ
+nguyên tắc "không bao giờ `import` tĩnh module report" bên dưới cho chắc,
+dù tên mới không còn ký tự đặc biệt — Frappe luôn gọi các report .py bằng
+`frappe.get_attr()`/`importlib` (import ĐỘNG bằng chuỗi) qua đúng module
+path suy ra từ `scrub(report_name)`, không phải cú pháp `import` tĩnh.
 """
 
 import frappe
@@ -48,17 +49,29 @@ BM_USER = "bvbm@demo.miyano"
 PXN_USER = "pxnabc@demo.miyano"
 SALES_USER = "sales_user@demo.miyano"
 
-REPORT_DOI_SOAT = "Đối soát giao – nhận"
-REPORT_CHAT_LUONG = "Chất lượng dữ liệu"
+REPORT_DOI_SOAT = "Đối soát giao nhận"
+REPORT_CHAT_LUONG = "Chất lượng dữ liệu kho khách"
 
 
 def _ensure_sales_user() -> str:
+	"""M2 (E3 phần B review): PHẢI ensure role kể cả khi user đã tồn tại —
+	`test_e3_doi_soat.py` (cùng module `test_e3_*`, chạy trong CÙNG site
+	trước bản sửa này) tạo đúng email `SALES_USER` này nhưng KHÔNG gán role
+	nào (chỉ cần user tồn tại để làm `account_manager` nhận notification).
+	Nếu hàm này chỉ gán role trong nhánh "vừa tạo mới", một site/thứ tự chạy
+	mà user đã tồn tại từ trước (kể cả do rollback per-CLASS không dọn hết,
+	hay một phiên bản test runner khác) sẽ khiến `TestE3DeskReportPermissions`
+	đỏ theo cách rất khó lần ra: PermissionError trên user tưởng đã có
+	quyền."""
 	if not frappe.db.exists("User", SALES_USER):
 		frappe.get_doc({
 			"doctype": "User", "email": SALES_USER, "first_name": "Sales", "last_name": "User",
 			"user_type": "System User", "send_welcome_email": 0,
-			"roles": [{"role": "Sales User"}],
 		}).insert(ignore_permissions=True)
+	user = frappe.get_doc("User", SALES_USER)
+	if not any(r.role == "Sales User" for r in user.roles):
+		user.append("roles", {"role": "Sales User"})
+		user.save(ignore_permissions=True)
 	return SALES_USER
 
 
@@ -337,6 +350,14 @@ class TestDoiSoatGiaoNhanReport(_KhoDnTestCase):
 		)
 
 	def test_qua_han_ngay_chi_loc_phieu_con_nhap_qua_cu(self):
+		"""M1 (E3 phần B review): KHÔNG khẳng định `len(rows_30_ngay) == 1` —
+		`doi_soat_giao_nhan_rows()` quét `_active_khos()` là MỌI Customer
+		Warehouse TOÀN SITE, không chỉ hai kho `setUp` dọn (kho_bm, kho_pxn).
+		Bench này có `demo_kho_flow.py`/dữ liệu demo khác có thể để lại phiếu
+		nháp cũ ở MỘT KHO KHÁC không liên quan gì tới test này — đếm tổng số
+		dòng là giả định về trạng thái toàn site mà test không kiểm soát
+		được. Khẳng định đúng những gì test NÀY tạo ra: phiếu cũ có mặt,
+		phiếu mới (không "treo") không có mặt."""
 		so = self._sales_order(customer=KHACH_BM, qty=10)
 		dn_cu = self._dn_tu_so(so, 4)
 		phieu_cu = self._phieu_duy_nhat(dn_cu)
@@ -348,14 +369,14 @@ class TestDoiSoatGiaoNhanReport(_KhoDnTestCase):
 		)
 
 		dn_moi = self._dn_tu_so(so, 3)
-		self._phieu_duy_nhat(dn_moi)  # nháp, mới tạo — không "treo"
+		phieu_moi = self._phieu_duy_nhat(dn_moi)  # nháp, mới tạo — không "treo"
 
 		rows_30_ngay = desk_reports.doi_soat_giao_nhan_rows(qua_han_ngay=30)
 		phieu_names = {r["phieu_nhap"] for r in rows_30_ngay}
-		self.assertIn(phieu_cu.name, phieu_names)
-		self.assertEqual(
-			len(rows_30_ngay), 1,
-			"chỉ phiếu CÒN NHÁP và quá hạn mới lọt qua bộ lọc này",
+		self.assertIn(phieu_cu.name, phieu_names, "phiếu nháp quá hạn phải lọt qua bộ lọc")
+		self.assertNotIn(
+			phieu_moi.name, phieu_names,
+			"phiếu nháp mới tạo (không treo) không được lọt qua bộ lọc theo N ngày",
 		)
 
 	def test_isolation_hai_khach_khong_gop_nham(self):
@@ -471,26 +492,46 @@ class TestChatLuongDuLieuReport(_KhoDnTestCase):
 
 # ==================================================== Script filter (.js) tải được
 class TestE3ReportFilterScript(_KhoDnTestCase):
-	"""Tên report chứa en-dash (U+2013, "Đối soát giao – nhận") — chỉ mục
-	Python (`frappe.get_attr`) đã kiểm ở TestE3DeskReportPermissions, nhưng
-	`frappe.desk.query_report.run()` KHÔNG BAO GIỜ đọc file .js (đó là script
-	filter phía CLIENT, nạp riêng qua `query_report.get_script()` khi trang
-	desk mở report). Test phân quyền không chứng minh được gì về đường này —
-	nếu `scrub()` ghép sai đường dẫn vì en-dash, report vẫn CHẠY được (data
-	đúng) nhưng mở lên KHÔNG CÓ Ô LỌC NÀO — "lọc được chỉ dòng chênh lệch /
-	phiếu chưa ghi sổ quá N ngày" (AC US-E3.5) sẽ có mặt trên giấy nhưng
-	không bấm được trên thực tế."""
+	"""`frappe.desk.query_report.run()` (dùng ở TestE3DeskReportPermissions)
+	KHÔNG BAO GIỜ đọc file .js — đó là script filter phía CLIENT, nạp riêng
+	qua `query_report.get_script()` khi trang desk mở report. Test phân
+	quyền không chứng minh được gì về đường này: nếu `scrub()` ghép sai
+	đường dẫn (module path suy từ report_name — nguyên uỷ của test này là
+	tên report cũ dùng en-dash, đã đổi ở I4, nhưng chốt giữ nguyên vì đây là
+	đường dễ vỡ ÂM THẦM cho bất kỳ report nào đặt tên có ký tự đặc biệt
+	trong tương lai), report vẫn CHẠY được (data đúng) nhưng mở lên KHÔNG CÓ
+	Ô LỌC NÀO — "lọc được chỉ dòng chênh lệch / phiếu chưa ghi sổ quá N
+	ngày" (AC US-E3.5) sẽ có mặt trên giấy nhưng không bấm được trên thực
+	tế."""
 
 	def setUp(self):
 		super().setUp()
 		install_kho_desk_reports()
 
 	def test_ca_hai_report_tai_duoc_script_loc_khong_rong(self):
-		for name in (REPORT_DOI_SOAT, REPORT_CHAT_LUONG):
+		"""I2 (E3 phần B review): bản trước chỉ kiểm script "không rỗng" và
+		"có chứa tên report" — CẢ HAI đều đúng trên đúng nhánh HỎNG mà test
+		này sinh ra để bắt, vì `get_script()` khi không tìm thấy file .js
+		trả về đúng một fallback KHÔNG RỖNG và CÓ chứa report_name:
+		`"frappe.query_reports['{name}']={{}}"`. Assert đúng thứ CHỈ CÓ
+		trong file .js thật (tên field filter) mới thật sự phân biệt được
+		hai nhánh."""
+		checks = {
+			REPORT_DOI_SOAT: "chi_chenh_lech",
+			REPORT_CHAT_LUONG: "chi_chua_bat_co",
+		}
+		for name, dau_hieu in checks.items():
 			out = frappe.desk.query_report.get_script(name)
 			script = out.get("script") or ""
-			self.assertTrue(script.strip(), msg=f"report: {name} — script rỗng, ô lọc sẽ không hiện")
-			self.assertIn(name, script, msg=f"report: {name} — script không đăng ký đúng tên report")
+			self.assertIn(
+				dau_hieu, script,
+				msg=(
+					f"report: {name} — script không phải file .js thật (có thể "
+					"đang rơi về fallback rỗng của get_script() khi không tìm "
+					"thấy file, fallback đó VẪN chứa report_name nên không dùng "
+					"assertIn(name, script) để kiểm được)"
+				),
+			)
 
 
 # ================================================================= An ninh

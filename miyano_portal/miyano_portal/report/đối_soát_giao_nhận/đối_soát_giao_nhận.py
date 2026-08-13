@@ -1,4 +1,12 @@
-"""Report desk "Đối soát giao – nhận" — US-E3.5 (UC-48), Phần B của E3.
+"""Report desk "Đối soát giao nhận" — US-E3.5 (UC-48), Phần B của E3.
+
+(I4, E3 phần B review: tên KHÔNG dùng dấu gạch ngang en-dash "–" — trước
+đây tên có "–" khiến `frappe.modules.scrub()` chỉ map ĐÚNG en-dash đó thành
+`_`, còn ai gõ nhầm gạch nối thường "-" (rất dễ khi sửa docname tay trên
+Desk, hoặc autocorrect khi copy) sẽ ra ba gạch dưới liền nhau thay vì một —
+`ModuleNotFoundError` khi report chạy, và `query_report.get_script()` im
+lặng rơi về fallback rỗng nên report mở lên KHÔNG CÓ Ô LỌC NÀO, không một
+dấu vết để lần ngược.)
 
 Toàn bộ số học sống ở `miyano_portal.kho.desk_reports.doi_soat_giao_nhan_rows()`;
 file này chỉ khai báo cột và chuyển tiếp filter — cùng khuôn với ba report

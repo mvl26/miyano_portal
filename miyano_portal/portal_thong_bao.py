@@ -89,7 +89,7 @@ def bao_chenh_lech(customer: str, phieu: str) -> bool:
         "email_content": (
             f"Khách hàng <b>{customer}</b> ghi sổ phiếu nhập <b>{phieu}</b> với "
             "số lượng thực nhận lệch so với số Miyano đã giao. Xem chi tiết "
-            "trên phiếu (cột Lý do chênh lệch) hoặc báo cáo Đối soát giao – nhận."
+            "trên phiếu (cột Lý do chênh lệch) hoặc báo cáo Đối soát giao nhận."
         ),
     }).insert(ignore_permissions=True)
     return True

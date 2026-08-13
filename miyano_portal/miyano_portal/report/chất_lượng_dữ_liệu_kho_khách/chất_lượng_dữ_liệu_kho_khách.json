@@ -14,11 +14,11 @@
  "modified": "2026-08-13 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
- "name": "Chất lượng dữ liệu",
+ "name": "Chất lượng dữ liệu kho khách",
  "owner": "Administrator",
  "prepared_report": 0,
  "ref_doctype": "Customer Stock Receipt",
- "report_name": "Chất lượng dữ liệu",
+ "report_name": "Chất lượng dữ liệu kho khách",
  "report_type": "Script Report",
  "roles": [
   {

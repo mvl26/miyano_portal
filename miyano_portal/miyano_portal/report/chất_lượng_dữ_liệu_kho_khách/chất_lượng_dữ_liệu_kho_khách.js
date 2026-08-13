@@ -1,6 +1,6 @@
-// Report desk "Chất lượng dữ liệu" — filter phía client. Xem
-// chất_lượng_dữ_liệu.py cho phép tính; file này chỉ khai báo ô lọc.
-frappe.query_reports["Chất lượng dữ liệu"] = {
+// Report desk "Chất lượng dữ liệu kho khách" — filter phía client. Xem
+// chất_lượng_dữ_liệu_kho_khách.py cho phép tính; file này chỉ khai báo ô lọc.
+frappe.query_reports["Chất lượng dữ liệu kho khách"] = {
 	filters: [
 		{
 			fieldname: "customer",

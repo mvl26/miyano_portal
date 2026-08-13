@@ -1,11 +1,15 @@
-"""Report desk "Chất lượng dữ liệu" — US-E3.6, Phần B của E3.
+"""Report desk "Chất lượng dữ liệu kho khách" — US-E3.6, Phần B của E3.
+
+(M5, E3 phần B review: đổi tên từ "Chất lượng dữ liệu" — tên Report
+DOCNAME DUY NHẤT TOÀN SITE across mọi app, một tên chung chung như vậy dễ
+đụng report của app khác trong tương lai.)
 
 Liệt kê các Item của Miyano đang sinh ra dòng `thieu_lo_han=1` trên phiếu
 nhập kho khách hàng (NL-3.7: lô rơi về `KHONG-LO` vì Item chưa bật `Has
 Batch No`/`Has Expiry Date`) — số học sống ở
 `miyano_portal.kho.desk_reports.chat_luong_du_lieu_rows()`.
 
-Quyền hạn: cùng khuôn với `đối_soát_giao_–_nhận.py` — `ref_doctype=Customer
+Quyền hạn: cùng khuôn với `đối_soát_giao_nhận.py` — `ref_doctype=Customer
 Stock Receipt`, `roles=System Manager/Sales Manager/Sales User`, KHÔNG có
 role `Customer`.
 """
