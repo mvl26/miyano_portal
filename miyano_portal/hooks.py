@@ -288,6 +288,11 @@ scheduler_events = {
 		# E6/NL-11.2 — leo thang yêu cầu hàng hoá quá SLA còn "Mới".
 		"miyano_portal.portal_sla.quet_yeu_cau_qua_han",
 	],
+	"daily": [
+		# E6 phần B/NL-10.5 — báo giá "Chờ khách đồng ý" quá hạn hiệu lực:
+		# tự đóng + email hai phía + yêu cầu gốc chuyển "Hết hạn".
+		"miyano_portal.portal_bao_gia.quet_bao_gia_het_han",
+	],
 }
 
 # Testing

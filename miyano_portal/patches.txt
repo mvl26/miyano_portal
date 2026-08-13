@@ -25,3 +25,5 @@ miyano_portal.patches.v1_5.install_e3_desk_reports
 miyano_portal.patches.v1_6.seed_portal_settings_defaults
 miyano_portal.patches.v1_7.tao_thong_bao_yeu_cau_hang
 miyano_portal.patches.v1_7.install_e6_desk_reports
+miyano_portal.patches.v1_8.create_e6_mua_le_custom_fields
+miyano_portal.patches.v1_8.mo_rong_workflow_e6
