@@ -18,3 +18,4 @@ miyano_portal.patches.v1_2.repair_kho_ledger_replay
 miyano_portal.patches.v1_3.ghim_over_delivery_zero
 miyano_portal.patches.v1_3.create_e1_custom_fields
 miyano_portal.patches.v1_4.create_e2_custom_fields
+miyano_portal.patches.v1_4.mo_rong_workflow_e2
