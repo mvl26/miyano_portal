@@ -22,3 +22,4 @@ miyano_portal.patches.v1_4.mo_rong_workflow_e2
 miyano_portal.patches.v1_4.sua_mail_tu_choi
 miyano_portal.patches.v1_4.tao_bao_cao_don_cham
 miyano_portal.patches.v1_5.install_e3_desk_reports
+miyano_portal.patches.v1_6.seed_portal_settings_defaults

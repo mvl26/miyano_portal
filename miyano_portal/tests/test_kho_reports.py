@@ -34,6 +34,27 @@ def _iso(d):
 	return frappe.utils.getdate(d).strftime("%Y-%m-%d")
 
 
+def _norm_cell(v):
+	"""Hai đặc điểm của openpyxl khiến so sánh cell-by-cell "ngây thơ" báo lệch
+	dù dữ liệu giống hệt nhau — chuẩn hoá TRƯỚC khi so sánh:
+
+	1. Đọc lại một ô đã ghi `datetime.date` ra `datetime.datetime` (Excel
+	   không phân biệt hai kiểu này ở tầng lưu trữ).
+	2. Đọc lại một ô đã ghi CHUỖI RỖNG `''` ra `None` (openpyxl không ghi gì
+	   cho chuỗi rỗng, nên đọc lại là một ô trống thật sự) — nhiều field
+	   "không áp dụng" của NHAT_KY_COLUMNS/DOT_COLUMNS (nguồn/đợt của dòng
+	   xuất, chứng từ NCC khi nguồn là Miyano...) cố ý là `''`, không phải
+	   `None`. Chỉ chuẩn hoá `None -> ''`, KHÔNG đụng các giá trị falsy khác
+	   (0, 0.0, False) — những giá trị đó có ý nghĩa số/logic thật, không
+	   phải "trống"."""
+	import datetime
+	if isinstance(v, datetime.datetime):
+		return v.date()
+	if v is None:
+		return ""
+	return v
+
+
 def _nhap(kho, vat_tu, so_luong, don_gia, ngay, so_lo="LO-A", han="2030-01-01"):
 	doc = frappe.get_doc({
 		"doctype": "Customer Stock Receipt",
@@ -430,6 +451,90 @@ class TestKhoBaoCaoExcel(_KhoBmTestCase):
 			[label for label, _ in reports.NXT_LOT_COLUMNS],
 			self._js_array("NXT_LOT_COLUMNS"),
 		)
+
+	def test_nhat_ky_excel_columns_match_js_labels(self):
+		"""Gap 2 (review E4 phần B): trước bản này kho_bao_cao_excel không
+		nhận loai="nhat_ky" — hai nút Excel của bản mẫu (NhatKy.vue/
+		BaoCaoNXT.vue) đã bị khoá cứng chờ backend."""
+		self.assertEqual(
+			[label for label, _ in reports.NHAT_KY_COLUMNS],
+			self._js_array("NHAT_KY_COLUMNS"),
+		)
+
+	def test_dot_excel_columns_match_js_labels(self):
+		self.assertEqual(
+			[label for label, _ in reports.DOT_COLUMNS],
+			self._js_array("DOT_COLUMNS"),
+		)
+
+	def test_nhat_ky_excel_exports_beyond_the_fifty_row_screen_page(self):
+		"""Excel KHÔNG được cắt theo trang 50 dòng như màn hình — NL-8.3 chỉ
+		bắt buộc chọn kỳ, không giới hạn số dòng xuất. Dựng 55 dòng nhật ký
+		(giống test_pagination_* của test_e4_nhat_ky.py) rồi khẳng định file
+		xuất ra có ĐỦ 55 dòng, không phải 50."""
+		today = _today()
+		for i in range(55):
+			_nhap(self.K, self.VT, 1, 1000, frappe.utils.add_days(today, -60 + i),
+				  so_lo=f"LO-{i:02d}")
+
+		tu_ngay, den_ngay = _iso(frappe.utils.add_days(today, -60)), _iso(today)
+		frappe.set_user(BM_USER)
+		try:
+			kho_api.kho_bao_cao_excel(
+				loai="nhat_ky", vat_tu=self.VT, tu_ngay=tu_ngay, den_ngay=den_ngay,
+			)
+			content = frappe.local.response.filecontent
+		finally:
+			frappe.local.response.clear()
+			frappe.set_user("Administrator")
+
+		wb = load_workbook(io.BytesIO(content))
+		ws = wb.active
+		header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+		self.assertEqual(header, [label for label, _ in reports.NHAT_KY_COLUMNS])
+		data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+		self.assertEqual(len(data_rows), 55)
+
+		# Cùng dữ liệu với reports.nhat_ky_rows_export() — không một đường
+		# tính riêng nào khác cho Excel.
+		screen_rows = reports.nhat_ky_rows_export(self.K, self.VT, tu_ngay, den_ngay)
+		self.assertEqual(len(screen_rows), 55)
+		field_order = [field for _, field in reports.NHAT_KY_COLUMNS]
+		for excel_row, screen_row in zip(data_rows, screen_rows):
+			for col_idx, field in enumerate(field_order):
+				self.assertEqual(
+					_norm_cell(excel_row[col_idx]), screen_row[field],
+					msg=f"cột {field} lệch giữa Excel và nhat_ky_rows_export",
+				)
+
+	def test_dot_excel_matches_json_endpoint(self):
+		today = _today()
+		_nhap(self.K, self.VT, 100, 1000, frappe.utils.add_days(today, -30), so_lo="L1")
+		tu_ngay, den_ngay = _iso(frappe.utils.add_days(today, -60)), _iso(today)
+
+		screen_rows = reports.bao_cao_dot_rows(self.K, tu_ngay, den_ngay, vat_tu=self.VT)
+		self.assertTrue(screen_rows)
+
+		frappe.set_user(BM_USER)
+		try:
+			kho_api.kho_bao_cao_excel(
+				loai="dot", vat_tu=self.VT, tu_ngay=tu_ngay, den_ngay=den_ngay,
+			)
+			content = frappe.local.response.filecontent
+		finally:
+			frappe.local.response.clear()
+			frappe.set_user("Administrator")
+
+		wb = load_workbook(io.BytesIO(content))
+		ws = wb.active
+		header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+		self.assertEqual(header, [label for label, _ in reports.DOT_COLUMNS])
+		data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+		self.assertEqual(len(data_rows), len(screen_rows))
+		field_order = [field for _, field in reports.DOT_COLUMNS]
+		for excel_row, screen_row in zip(data_rows, screen_rows):
+			for col_idx, field in enumerate(field_order):
+				self.assertEqual(_norm_cell(excel_row[col_idx]), screen_row[field])
 
 	def test_excel_export_rejects_vat_tu_of_another_customer(self):
 		frappe.set_user(BM_USER)

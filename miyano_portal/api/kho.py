@@ -36,10 +36,12 @@ from miyano_portal.kho import vat_tu as vat_tu_mod
 from miyano_portal.portal_context import get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
-# Ba loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
+# Năm loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
 # khuôn _LOAI_TO_DOCTYPE ở trên: tham số `loai` do client gửi không bao giờ
 # được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
-_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao"}
+# "nhat_ky"/"dot" thêm ở Gap 2 (review E4 phần B) — hai nút Excel bị khoá ở
+# NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này.
+_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -926,12 +928,19 @@ def kho_canh_bao_han(so_ngay=90) -> list:
 
 
 @frappe.whitelist()
-def kho_bao_cao_excel(loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=None, so_ngay=90) -> None:
+def kho_bao_cao_excel(
+	loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=None, so_ngay=90,
+	lo=None, nguon=None, dong_loai=None,
+) -> None:
 	"""Xuất báo cáo ĐANG XEM ra .xlsx — CÙNG bộ cột, CÙNG dữ liệu mà endpoint
 	JSON tương ứng vừa trả cho màn hình, không có đường dữ liệu riêng nào
-	khác: `loai` chọn ĐÚNG MỘT trong ba hàm reports.*_rows() mà các endpoint
+	khác: `loai` chọn ĐÚNG MỘT trong các hàm reports.*_rows() mà các endpoint
 	JSON ở trên cũng gọi, nên "cột khớp màn hình" là một tính chất CẤU TRÚC,
 	không phải một lời hứa phải tự kiểm tra tay mỗi khi sửa cột.
+
+	`dong_loai` (Gap 2, review E4 phần B): bộ lọc "Nhập"/"Xuất" của RIÊNG
+	nhật ký vật tư — đặt tên khác `loai` (đang là "loại BÁO CÁO": nxt/the_kho/
+	canh_bao/nhat_ky/dot) để hai tham số không đụng nhau trên cùng querystring.
 	"""
 	kho = get_portal_kho()
 	if loai not in _BAO_CAO_LOAI:
@@ -955,6 +964,26 @@ def kho_bao_cao_excel(loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=N
 		rows = reports.the_kho_rows(kho, vat_tu, tu_ngay, den_ngay)
 		columns = reports.THE_KHO_COLUMNS
 		filename, sheet = "the_kho.xlsx", "The kho"
+	elif loai == "nhat_ky":
+		# NL-8.3: bắt buộc chọn kỳ khi xuất; nhật ký luôn của MỘT vật tư.
+		if not (vat_tu and tu_ngay and den_ngay):
+			frappe.throw(
+				"Thiếu vật tư hoặc khoảng ngày để xuất nhật ký.", frappe.ValidationError
+			)
+		_vat_tu_cua_kho(vat_tu, kho)
+		rows = reports.nhat_ky_rows_export(
+			kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=dong_loai, nguon=nguon
+		)
+		columns = reports.NHAT_KY_COLUMNS
+		filename, sheet = "nhat_ky_vat_tu.xlsx", "Nhat ky vat tu"
+	elif loai == "dot":
+		if not (tu_ngay and den_ngay):
+			frappe.throw("Thiếu khoảng ngày để xuất báo cáo.", frappe.ValidationError)
+		if vat_tu:
+			_vat_tu_cua_kho(vat_tu, kho)
+		rows = reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon)
+		columns = reports.DOT_COLUMNS
+		filename, sheet = "nxt_theo_dot_hang.xlsx", "NXT theo dot"
 	else:
 		so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 		if so_ngay < 0:

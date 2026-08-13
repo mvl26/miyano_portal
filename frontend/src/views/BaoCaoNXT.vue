@@ -225,15 +225,12 @@ function exportUrl() {
   if (tab.value === 'canh_bao') {
     return `${base}?loai=canh_bao&so_ngay=${encodeURIComponent(soNgay.value)}`
   }
-  return '' // 'dot': kho_bao_cao_excel chưa hỗ trợ — xem xuatExcel()
+  // (Review E4 phần B, Gap 2 — ĐÃ SỬA) kho_bao_cao_excel giờ nhận loai="dot".
+  let u = `${base}?loai=dot&tu_ngay=${encodeURIComponent(tuNgay.value)}&den_ngay=${encodeURIComponent(denNgay.value)}`
+  if (dotVatTuChon.value) u += `&vat_tu=${encodeURIComponent(dotVatTuChon.value)}`
+  if (dotNguon.value) u += `&nguon=${encodeURIComponent(dotNguon.value)}`
+  return u
 }
-
-// kho_bao_cao_excel chỉ nhận loai trong {nxt, the_kho, canh_bao} — "NXT
-// theo đợt hàng" chưa có cột Excel riêng ở backend. Nút bị TẮT hẳn ở tab
-// này (không phải bấm rồi mới báo lỗi — declaring-document-actions) kèm
-// title giải thích, thay vì mở một tab chắc chắn lỗi. Xem báo cáo cuối
-// phần C: cần bổ sung "dot" vào _BAO_CAO_LOAI + kho_bao_cao_excel.
-const EXCEL_CHUA_HO_TRO = 'Xuất Excel cho "NXT theo đợt hàng" chưa được backend hỗ trợ — báo Miyano để bổ sung.'
 
 function xuatExcel() {
   const url = exportUrl()
@@ -309,10 +306,7 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <button
-          class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel"
-          :disabled="tab === 'dot'" :title="tab === 'dot' ? EXCEL_CHUA_HO_TRO : ''"
-        >
+        <button class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
           ⬇ Xuất Excel
         </button>
       </div>

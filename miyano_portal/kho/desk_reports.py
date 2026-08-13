@@ -135,8 +135,15 @@ def canh_bao_han_khach_hang_rows(customer: str | None = None, so_ngay: int = 90)
 				"ten_kho": k["ten_kho"],
 				**row,
 			})
+	# Sentinel của nhóm "không hạn" là `today` (một `datetime.date`), KHÔNG
+	# phải chuỗi rỗng (M-4, review E4 phần B) — khớp đúng kiểu dữ liệu mà
+	# `reports.canh_bao_han_rows()` tự dùng cho phép sắp xếp giống hệt của nó
+	# (không mix kiểu `str`/`date` giữa hai nơi làm cùng một việc, dù cả hai
+	# đều không sai — nhánh `is None` luôn chặn trước khi phần tử thứ hai của
+	# khoá bị so sánh chéo kiểu).
+	today = frappe.utils.getdate(frappe.utils.today())
 	return sorted(
-		out, key=lambda r: (r["han_su_dung"] is None, r["han_su_dung"] or "", r["so_lo"])
+		out, key=lambda r: (r["han_su_dung"] is None, r["han_su_dung"] or today, r["so_lo"])
 	)
 
 

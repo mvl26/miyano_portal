@@ -7,9 +7,17 @@ hạn: lô không hạn dùng vào nhóm riêng, VĐ-2).
 Ngày dùng trong các test KHÔNG cancel phiếu (TestBaoCaoDotFifo) là ngày TUYỆT
 ĐỐI, đúng như bộ số PRD yêu cầu (01/08, 10/08, báo cáo 30/09 -> tuổi tồn 51
 ngày là một quan hệ SỐ HỌC cố định, không phải quan hệ với "hôm nay" lúc chạy
-test). Các test có cancel phiếu (phiếu đảo luôn mang ngay=frappe.utils.today(),
-xem customer_stock_receipt.py/_tao_phieu_dao) thì dùng ngày TƯƠNG ĐỐI so với
-frappe.utils.today() — cùng lý do "date rot" đã ghi trong test_kho_reports.py.
+test). MỌI test có cancel phiếu (phiếu đảo luôn mang ngay=frappe.utils.today(),
+xem customer_stock_receipt.py/_tao_phieu_dao) PHẢI dùng ngày TƯƠNG ĐỐI so với
+frappe.utils.today() — cùng lý do "date rot" đã ghi trong test_kho_reports.py,
+và cùng lý do review E4 phần B (M-3) bắt lỗi
+`TestBaoCaoDotPhieuDao` bản trước dùng ngày tuyệt đối: sau khi I-2 sửa
+`bao_cao_dot_rows()` thành kỳ-aware (một phiếu đảo lập SAU `den_ngay` không
+còn được trừ vào SL nhập của đợt), một `den_ngay` tuyệt đối trong quá khứ
+luôn đứng TRƯỚC ngày cancel thật (hôm nay) — đợt không còn bị loại nữa, và
+assertion cũ đỏ. Bài học: bất kỳ test nào gọi `.cancel()` đều gắn với
+`frappe.utils.today()` một cách không thể tránh, nên phải tính mọi mốc ngày
+khác TƯƠNG ĐỐI với nó.
 """
 
 import frappe
@@ -176,6 +184,51 @@ class TestNhatKyVatTu(_KhoBmTestCase):
 		tong_hien_tai = hien_tai.get(self.VT, 0.0)
 		self.assertEqual(result["dong"][-1]["ton_sau"], tong_hien_tai)
 
+		# la_dao: đúng HAI dòng LÀ bút toán bù trừ (dòng đảo mới sinh, khác
+		# `phieu` với dòng gốc) — khác `da_dao` (đánh dấu dòng GỐC đã bị đảo).
+		# Không dòng nào trong 12 dòng vừa đếm ở trên vừa da_dao=True vừa
+		# la_dao=True: một cặp huỷ luôn tách thành đúng một dòng mỗi cờ.
+		la_dao_rows = [r for r in result["dong"] if r["la_dao"]]
+		self.assertEqual(len(la_dao_rows), 2)
+		self.assertEqual({r["phieu"] for r in la_dao_rows} & {r3.name, x2.name}, set())
+		self.assertFalse(any(r["da_dao"] and r["la_dao"] for r in result["dong"]))
+
+	def test_reversal_row_of_a_cancelled_ncc_receipt_is_not_relabelled_as_miyano(self):
+		"""I-1 (review E4 phần B): `_tao_phieu_dao()` không copy `ncc` sang
+		phiếu đảo (`loai_nhap="Phiếu đảo"`, `ncc=None`) — dòng bù trừ của một
+		đợt "Mua ngoài (NCC khác)" bị huỷ KHÔNG được quy về nguồn "Miyano".
+		Nó cũng không phải một đợt hàng thật nên `dot` không mang tên phiếu
+		đảo (không có ý nghĩa mã đợt) mà trỏ ngược về đợt gốc bị huỷ."""
+		ncc = frappe.get_doc({
+			"doctype": "Customer Supplier", "kho": self.K, "ten_ncc": "Cty TNHH ABC",
+		}).insert(ignore_permissions=True)
+
+		today = _today()
+		goc = _nhap(
+			self.K, self.VT, 50, 1000, frappe.utils.add_days(today, -10), so_lo="LO-NCC",
+			loai_nhap="Mua ngoài (NCC khác)", ncc=ncc.name, so_chung_tu_ncc="HD-01",
+		)
+		goc.cancel()
+
+		result = reports.nhat_ky_rows(self.K, self.VT, frappe.utils.add_days(today, -30), today)
+		dong_goc = next(r for r in result["dong"] if r["phieu"] == goc.name)
+		dong_dao = next(r for r in result["dong"] if r["phieu"] != goc.name and r["loai"] == "Nhập")
+
+		# Dòng GỐC không đổi hành vi: vẫn mang đúng nguồn NCC, vẫn là đợt của
+		# chính nó, vẫn mờ đi (da_dao) và KHÔNG phải bút toán bù trừ.
+		self.assertEqual(dong_goc["nguon"], "Cty TNHH ABC")
+		self.assertEqual(dong_goc["dot"], goc.name)
+		self.assertTrue(dong_goc["da_dao"])
+		self.assertFalse(dong_goc["la_dao"])
+
+		# Dòng ĐẢO: không bị quy về "Miyano", trỏ ngược đúng đợt gốc, và tự
+		# mang dấu hiệu la_dao — trước bản sửa nó không có dấu hiệu nào.
+		self.assertNotEqual(dong_dao["nguon"], "Miyano")
+		self.assertEqual(dong_dao["nguon"], "")
+		self.assertEqual(dong_dao["dot"], goc.name)
+		self.assertTrue(dong_dao["la_dao"])
+		self.assertFalse(dong_dao["da_dao"])
+
 	def test_pagination_size_is_fifty_and_page_two_is_the_remainder(self):
 		today = _today()
 		# 55 dòng nhập rời rạc (mỗi dòng 1 đơn vị, số lô khác nhau) -> hai
@@ -269,12 +322,59 @@ class TestBaoCaoDotFifo(_KhoBmTestCase):
 		self.assertTrue(r005["cham_luan_chuyen"])
 
 	def test_zero_or_negative_threshold_means_no_flag(self):
-		"""Brief: ngưỡng <= 0 = "không áp ngưỡng" — kể cả khi tuổi tồn rất lớn."""
-		frappe.db.set_single_value("Miyano Portal Settings", "nguong_cham_luan_chuyen_ngay", 0)
-		_nhap(self.K, self.VT, 10, 1000, "2026-01-01", so_lo="L-CU")
-		rows = reports.bao_cao_dot_rows(self.K, "2026-01-01", "2026-12-31", vat_tu=self.VT)
+		"""Brief: ngưỡng <= 0 = "không áp ngưỡng" — kể cả khi tuổi tồn rất lớn.
+
+		M-1 (review E4 phần B): tên test cũ hứa "zero_or_negative" nhưng chỉ
+		set 0 — thêm ca số ÂM thật (subTest) để tên test không hứa nhiều hơn
+		nó kiểm."""
+		for nguong_dat in (0, -5):
+			with self.subTest(nguong_dat=nguong_dat):
+				frappe.db.set_single_value(
+					"Miyano Portal Settings", "nguong_cham_luan_chuyen_ngay", nguong_dat
+				)
+				so_lo = f"L-CU-{nguong_dat}"
+				_nhap(self.K, self.VT, 10, 1000, "2026-01-01", so_lo=so_lo)
+				rows = reports.bao_cao_dot_rows(self.K, "2026-01-01", "2026-12-31", vat_tu=self.VT)
+				rows = [r for r in rows if r["lo"] == so_lo]
+				self.assertTrue(rows)
+				self.assertFalse(any(r["cham_luan_chuyen"] for r in rows))
+
+	def test_default_threshold_applies_when_settings_never_configured(self):
+		"""C-1 (Critical, review E4 phần B): trên một site/CSDL nơi CHƯA AI mở
+		Miyano Portal Settings ra bấm Lưu, `tabSingles` không có dòng nào cho
+		field này — `get_single_value` trả `None`. `_nguong_cham_luan_chuyen()`
+		PHẢI rơi về mặc định 90 (khớp `20_DataDict.md`), KHÔNG PHẢI 0.
+
+		Đo trực nghiệm TRƯỚC bản sửa này trên `erptest.local`: SINGLES ROW
+		rỗng -> `get_single_value` trả 0 -> `nguong=0` -> cờ "chậm luân
+		chuyển" tắt câm lặng cho MỌI đợt, bất kể tuổi tồn — nửa giá trị
+		nghiệp vụ của US-E4.7 chết im lặng trên đúng tình huống "site khách
+		mới, chưa ai đụng tới Settings".
+
+		Dùng `set_single_value(..., None)` (KHÔNG phải xoá thẳng bằng
+		`frappe.db.delete("Singles", ...)`) để vừa đưa field về đúng trạng
+		thái "rỗng" vừa dọn sạch `frappe.db.value_cache` — `get_single_value`
+		cache theo tiến trình, xoá thẳng bảng mà không qua API này sẽ để lại
+		giá trị cache CŨ của một test khác chạy trước trong cùng phiên, làm
+		test tự dối. Cùng khuôn `test_e2_nguong_duyet.py::
+		test_nguong_de_trong_doc_ra_0` đã dùng cho `nguong_duyet_2_tang`."""
+		frappe.db.set_single_value("Miyano Portal Settings", "nguong_cham_luan_chuyen_ngay", None)
+
+		# -150 ngày, không -400: `Customer Warehouse.ngay_bat_dau` của kho demo
+		# là 2026-01-01 (voucher.validate_ngay chặn phiếu trước mốc đó) —
+		# 150 ngày đã đủ vượt xa ngưỡng mặc định 90 mà vẫn nằm trong khoảng
+		# hợp lệ của kho tại thời điểm chạy test.
+		today = _today()
+		_nhap(self.K, self.VT, 10, 1000, frappe.utils.add_days(today, -150), so_lo="L-CHUA-CAU-HINH")
+		rows = reports.bao_cao_dot_rows(
+			self.K, frappe.utils.add_days(today, -200), today, vat_tu=self.VT
+		)
 		self.assertTrue(rows)
-		self.assertFalse(any(r["cham_luan_chuyen"] for r in rows))
+		self.assertTrue(
+			rows[0]["cham_luan_chuyen"],
+			"một đợt 150 ngày tuổi phải bị gắn cờ chậm luân chuyển kể cả khi "
+			"Settings CHƯA TỪNG được cấu hình (mặc định 90 ngày, không phải 0)",
+		)
 
 	def test_endpoint_reaches_own_data(self):
 		_nhap(self.K, self.VT, 10, 1000, "2026-08-01", so_lo="L1")
@@ -287,22 +387,34 @@ class TestBaoCaoDotFifo(_KhoBmTestCase):
 
 
 class TestBaoCaoDotPhieuDao(_KhoBmTestCase):
-	"""NL-8.2: đợt có phiếu bị đảo -> SL nhập của đợt trừ phần đã đảo. Vì huỷ
-	luôn đảo TOÀN BỘ một phiếu nhập (không có huỷ một phần), "trừ phần đã đảo"
-	tương đương với việc đợt đó biến mất khỏi báo cáo — không phải hiện ra với
-	SL nhập = 0."""
+	"""NL-8.2: đợt có phiếu bị đảo -> SL nhập của đợt trừ phần đã đảo, TÍNH
+	TỚI `den_ngay` của báo cáo (I-2, review E4 phần B — không phải trạng thái
+	`da_dao` hiện tại, xem docstring bao_cao_dot_rows()). Vì huỷ luôn đảo
+	TOÀN BỘ một phiếu nhập (không có huỷ một phần), "trừ phần đã đảo" khi
+	phiếu đảo NẰM TRONG kỳ báo cáo tương đương với việc đợt đó biến mất khỏi
+	báo cáo — không phải hiện ra với SL nhập = 0.
+
+	Mọi ngày ở đây TƯƠNG ĐỐI so với frappe.utils.today() — phiếu đảo do
+	.cancel() sinh ra luôn mang ngay=hôm nay (xem docstring đầu file)."""
 
 	def test_cancelled_receipt_is_excluded_and_its_reversal_is_not_a_batch(self):
-		r1 = _nhap(self.K, self.VT, 40, 1000, "2026-03-01", so_lo="LO-X")
-		r2 = _nhap(self.K, self.VT, 25, 1000, "2026-03-05", so_lo="LO-X")
-		r2.cancel()
+		today = _today()
+		d = lambda n: frappe.utils.add_days(today, n)
 
-		rows = reports.bao_cao_dot_rows(self.K, "2026-01-01", "2026-04-01", vat_tu=self.VT)
+		r1 = _nhap(self.K, self.VT, 40, 1000, d(-60), so_lo="LO-X")
+		r2 = _nhap(self.K, self.VT, 25, 1000, d(-55), so_lo="LO-X")
+		r2.cancel()  # ngay của phiếu đảo = hôm nay
+
+		# den_ngay = hôm nay -> phiếu đảo (ngay=hôm nay) NẰM TRONG kỳ, đợt r2
+		# phải bị trừ ròng về 0 và loại khỏi báo cáo, đúng hành vi "báo cáo
+		# hiện tại" trước khi I-2 từng đúng theo cách khác (xem test dưới cho
+		# trường hợp NGƯỢC LẠI — báo cáo kỳ đã đóng, phiếu đảo đứng SAU).
+		rows = reports.bao_cao_dot_rows(self.K, d(-90), today, vat_tu=self.VT)
 		dots = {r["dot"] for r in rows}
 		self.assertIn(r1.name, dots)
 		self.assertNotIn(
 			r2.name, dots,
-			"đợt đã bị huỷ hoàn toàn không được đếm là hàng còn trong báo cáo (NL-8.2)",
+			"đợt đã bị huỷ hoàn toàn TRONG kỳ báo cáo không được đếm là hàng còn (NL-8.2)",
 		)
 
 		dao_name = frappe.db.get_value(
@@ -317,6 +429,50 @@ class TestBaoCaoDotPhieuDao(_KhoBmTestCase):
 		row1 = next(r for r in rows if r["dot"] == r1.name)
 		self.assertEqual(row1["sl_nhap"], 40)
 		self.assertEqual(row1["con_lai"], 40)
+
+	def test_old_period_report_is_immutable_after_a_later_cancellation(self):
+		"""I-2: huỷ một đợt SAU `den_ngay` không được viết lại một báo cáo của
+		một kỳ ĐÃ ĐÓNG trước đó — chạy lại đúng báo cáo cũ phải ra CÙNG một
+		kết quả trước và sau khi huỷ, vì tại thời điểm `den_ngay`, đợt đó
+		trong thực tế vẫn còn nguyên (chưa ai huỷ gì cả)."""
+		today = _today()
+		d = lambda n: frappe.utils.add_days(today, n)
+
+		a = _nhap(self.K, self.VT, 100, 1000, d(-60), so_lo="L1")
+		_nhap(self.K, self.VT, 50, 1000, d(-50), so_lo="L1")
+		_xuat(self.K, self.VT, 30, d(-40), so_lo="L1")
+
+		tu_cu, den_cu = d(-90), d(-30)
+		truoc = reports.bao_cao_dot_rows(self.K, tu_cu, den_cu, vat_tu=self.VT)
+
+		# Huỷ đợt A NGAY BÂY GIỜ (ngay=hôm nay), tức SAU den_cu (-30 ngày) —
+		# tồn lô L1 lúc này = 100+50-30 = 120 >= 100, đủ để huỷ không đụng
+		# _chan_neu_dao_lam_am_ton.
+		a.cancel()
+
+		sau = reports.bao_cao_dot_rows(self.K, tu_cu, den_cu, vat_tu=self.VT)
+		self.assertEqual(
+			truoc, sau,
+			"báo cáo của một kỳ đã đóng phải bất biến trước một lần huỷ xảy ra SAU kỳ đó",
+		)
+		# Positive control: đúng là đợt A CÓ trong kết quả (không phải cả hai
+		# lần đều rỗng một cách vô nghĩa).
+		self.assertIn(a.name, {r["dot"] for r in truoc})
+		row_a = next(r for r in truoc if r["dot"] == a.name)
+		self.assertEqual(row_a["sl_nhap"], 100)
+		self.assertEqual(row_a["da_xuat"], 30)
+		self.assertEqual(row_a["con_lai"], 70)
+
+		# Đối chứng: báo cáo CHẠY HÔM NAY (den=today, phủ luôn ngày huỷ) PHẢI
+		# loại đợt A và dồn toàn bộ pool xuất còn lại cho đợt B — chứng minh
+		# việc "bất biến với kỳ cũ" ở trên không phải vì code lỡ bỏ qua luôn
+		# việc trừ phần đã đảo.
+		hien_tai = reports.bao_cao_dot_rows(self.K, d(-90), today, vat_tu=self.VT)
+		dots_hien_tai = {r["dot"] for r in hien_tai}
+		self.assertNotIn(a.name, dots_hien_tai)
+		self.assertEqual(len(hien_tai), 1)
+		self.assertEqual(hien_tai[0]["da_xuat"], 30)
+		self.assertEqual(hien_tai[0]["con_lai"], 20)
 
 	def test_endpoint_rejects_vat_tu_of_another_customer(self):
 		frappe.set_user(BM_USER)
@@ -334,6 +490,18 @@ class TestBaoCaoDotPhieuDao(_KhoBmTestCase):
 
 
 class TestPhanBIsolation(_KhoBmTestCase):
+	"""M-2 (review E4 phần B): `_KhoBmTestCase.setUp()` chỉ dọn sổ/tồn của kho
+	BM — hai test dưới đây seed CẢ kho PXN rồi khẳng định `kho_bao_cao_dot()`
+	của KH-B (PXN) chỉ chứa vật tư CỦA CHÍNH PXN
+	(`all(r["vat_tu"] == self.kho["vt_pxn"] ...)`), một khẳng định TUYỆT ĐỐI
+	sẽ đỏ oan nếu kho PXN còn rác từ lần chạy trước trong cùng site — dọn
+	thêm PXN ở đây, đúng khuôn dọn kho BM của lớp cha."""
+
+	def setUp(self):
+		super().setUp()
+		frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.kho["kho_pxn"]})
+		frappe.db.delete("Customer Stock Lot Balance", {"kho": self.kho["kho_pxn"]})
+
 	def test_customer_b_never_sees_customer_a_batches_in_bao_cao_dot(self):
 		"""Positive+negative kết hợp: seed CẢ HAI khách, khẳng định báo cáo
 		của KH-B (không lọc vat_tu) không hề chứa đợt của KH-A."""

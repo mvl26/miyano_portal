@@ -58,3 +58,37 @@ export const CANH_BAO_COLUMNS = [
   { label: 'Số lượng tồn', field: 'so_luong' },
   { label: 'Trạng thái', field: 'trang_thai' },
 ]
+
+// Gap 2 (review E4 phần B): hai bộ cột còn thiếu cho xuất Excel của Nhật ký
+// vật tư và NXT theo đợt hàng — PHẢI khớp reports.NHAT_KY_COLUMNS/DOT_COLUMNS.
+export const NHAT_KY_COLUMNS = [
+  { label: 'Ngày', field: 'ngay' },
+  { label: 'Số phiếu', field: 'phieu' },
+  { label: 'Loại', field: 'loai' },
+  { label: 'Nguồn / NCC', field: 'nguon' },
+  { label: 'Đợt', field: 'dot' },
+  { label: 'Lô', field: 'lo' },
+  { label: 'Hạn dùng', field: 'han' },
+  { label: 'SL nhập', field: 'sl_nhap' },
+  { label: 'SL xuất', field: 'sl_xuat' },
+  { label: 'Đơn giá', field: 'don_gia' },
+  { label: 'Tồn sau giao dịch', field: 'ton_sau' },
+  { label: 'Người ghi sổ', field: 'nguoi_ghi_so' },
+]
+
+export const DOT_COLUMNS = [
+  { label: 'Đợt (phiếu nhập)', field: 'dot' },
+  { label: 'Ngày nhận', field: 'ngay_nhan' },
+  { label: 'Nguồn / NCC', field: 'nguon' },
+  { label: 'Chứng từ', field: 'chung_tu' },
+  { label: 'Vật tư', field: 'vat_tu' },
+  { label: 'Lô', field: 'lo' },
+  { label: 'Hạn dùng', field: 'han_su_dung' },
+  { label: 'SL nhập', field: 'sl_nhap' },
+  { label: 'Giá trị nhập', field: 'gia_tri_nhap' },
+  { label: 'Đã xuất', field: 'da_xuat' },
+  { label: 'Còn lại', field: 'con_lai' },
+  { label: 'Tuổi tồn (ngày)', field: 'tuoi_ton_ngay' },
+  { label: '% tiêu thụ', field: 'pct_tieu_thu' },
+  { label: 'Chậm luân chuyển', field: 'cham_luan_chuyen' },
+]

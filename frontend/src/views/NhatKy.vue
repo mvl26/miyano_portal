@@ -134,12 +134,24 @@ function phieuUrl(r) {
   return r.loai === 'Nhập' ? `/kho/nhap/${r.phieu}` : `/kho/xuat/${r.phieu}`
 }
 
-// Chưa có cột "nhat_ky" trong kho_bao_cao_excel (chỉ hỗ trợ nxt/the_kho/
-// canh_bao) — nút bị TẮT hẳn (không phải bấm rồi mới báo lỗi, đúng nguyên
-// tắc "ẩn/khoá hành động không làm được thay vì hiện nút rồi lỗi khi bấm"
-// của declaring-document-actions) kèm title giải thích. Xem báo cáo cuối
-// phần C: cần bổ sung "nhat_ky" vào _BAO_CAO_LOAI + kho_bao_cao_excel.
-const EXCEL_CHUA_HO_TRO = 'Xuất Excel cho Nhật ký vật tư chưa được backend hỗ trợ — báo Miyano để bổ sung endpoint.'
+// (Review E4 phần B, Gap 2 — ĐÃ SỬA) kho_bao_cao_excel giờ nhận loai="nhat_ky":
+// cùng bộ lọc đang xem (vật tư/kỳ/lô/loại dòng/nguồn), KHÔNG cắt theo trang —
+// khác `kho_nhat_ky` (màn hình, 50 dòng/trang), Excel lấy ĐỦ dữ liệu cả kỳ.
+function excelUrl() {
+  if (!vatTuChon.value) return ''
+  const base = '/api/method/miyano_portal.api.kho.kho_bao_cao_excel'
+  let u = `${base}?loai=nhat_ky&vat_tu=${encodeURIComponent(vatTuChon.value)}`
+    + `&tu_ngay=${encodeURIComponent(tuNgay.value)}&den_ngay=${encodeURIComponent(denNgay.value)}`
+  if (loFilter.value) u += `&lo=${encodeURIComponent(loFilter.value)}`
+  if (loaiFilter.value) u += `&dong_loai=${encodeURIComponent(loaiFilter.value)}`
+  if (nguonFilter.value) u += `&nguon=${encodeURIComponent(nguonFilter.value)}`
+  return u
+}
+function xuatExcel() {
+  const url = excelUrl()
+  if (!url) return
+  window.open(url, '_blank')
+}
 
 onMounted(() => {
   loadVatTu()
@@ -155,13 +167,19 @@ onMounted(() => {
         <div class="sub">Mọi biến động — dựng từ sổ kho, chỉ đọc</div>
       </div>
       <div class="flex" style="gap: 8px">
-        <button class="btn-o btn-sm" disabled :title="EXCEL_CHUA_HO_TRO">⬇ Excel (bắt buộc chọn kỳ)</button>
+        <button
+          class="btn-o btn-sm" :disabled="!vatTuChon"
+          :title="!vatTuChon ? 'Chọn vật tư trước khi xuất' : ''" @click="xuatExcel"
+        >⬇ Excel (bắt buộc chọn kỳ)</button>
         <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
       </div>
     </div>
     <div class="sb" v-else style="margin-bottom: 12px">
       <h2>Nhật ký vật tư</h2>
-      <button class="btn-o btn-sm" disabled :title="EXCEL_CHUA_HO_TRO">⬇ Excel</button>
+      <button
+        class="btn-o btn-sm" :disabled="!vatTuChon"
+        :title="!vatTuChon ? 'Chọn vật tư trước khi xuất' : ''" @click="xuatExcel"
+      >⬇ Excel</button>
     </div>
 
     <div class="card mb10">
