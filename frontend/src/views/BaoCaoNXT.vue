@@ -430,8 +430,15 @@ onMounted(() => {
                 <template v-else-if="c.field === 'han_su_dung'">{{ fmtDate(r.han_su_dung) }}</template>
                 <template v-else-if="c.field === 'so_luong'">{{ fmtQty(r.so_luong) }}</template>
                 <template v-else-if="c.field === 'trang_thai'">
-                  <span class="badge" :class="r.trang_thai === 'Đã hết hạn' ? 'b-red' : 'b-orange'">
-                    {{ r.trang_thai === 'Đã hết hạn' ? '⛔' : '⚠' }} {{ r.trang_thai }}
+                  <!-- VĐ-2: "Không có hạn dùng" là một GHI CHÚ dữ liệu, không
+                       phải một cảnh báo — badge xám trung tính, không icon
+                       cảnh báo, để không lặp lại đúng lỗi "báo động sai" mà
+                       bản sửa canh_bao_han_rows() vừa dọn ở tầng dữ liệu. -->
+                  <span
+                    class="badge"
+                    :class="r.trang_thai === 'Đã hết hạn' ? 'b-red' : r.trang_thai === 'Sắp hết hạn' ? 'b-orange' : 'b-gray'"
+                  >
+                    {{ r.trang_thai === 'Đã hết hạn' ? '⛔' : r.trang_thai === 'Sắp hết hạn' ? '⚠' : '' }} {{ r.trang_thai }}
                   </span>
                 </template>
                 <template v-else>{{ r[c.field] }}</template>

@@ -51,7 +51,19 @@ Validate server: BR-N1 (thiếu NCC → chặn), BR-K17 (`so_luong ≤ sl_giao`,
 BR-K10, BR-K2 như cũ. Ghi sổ đặt cờ `co_chenh_lech`/`thieu_chung_tu` + bắn notification.
 
 ### 1.4 `api.kho.kho_canh_bao_han` — tách nhóm (E4/VĐ-2)
-Response thêm nhóm `khong_han_dung[]` riêng; các nhóm hạn chỉ chứa lô có `han_su_dung` thật.
+**Quyết định triển khai (review E4 phần B, I-3)** — GIỮ response dạng **mảng phẳng** (`list[dict]`)
+như trước E4, KHÔNG đổi sang `{da_het_han, sap_het_han, khong_han_dung}`: `kho_canh_bao_han` và
+`kho_bao_cao_excel(loai="canh_bao")` là một hợp đồng ĐANG SỐNG — frontend (`BaoCaoNXT.vue`,
+tab "Cảnh báo hạn dùng"), report desk (`desk_reports.canh_bao_han_khach_hang_rows`) và bộ xuất
+Excel (`reports.build_xlsx` + `CANH_BAO_COLUMNS`) đều đã tiêu thụ mảng phẳng này TỪ TRƯỚC E4; đổi
+sang dict sẽ vỡ cả ba nơi cùng lúc mà không có gì báo trước (không phải lỗi type, là dữ liệu sai
+hình dạng render thành bảng rác). Mỗi dòng vẫn mang đủ thông tin để CLIENT tự nhóm: `trang_thai`
+nhận đúng BA giá trị `"Đã hết hạn"` / `"Sắp hết hạn"` / `"Không có hạn dùng"`; hai dòng đầu là
+`han_su_dung`/`so_ngay_con_lai` NULL cho nhóm thứ ba.
+
+Ràng buộc dữ liệu (không đổi từ khi sửa VĐ-2): nhóm `"Không có hạn dùng"` **không bị giới hạn** bởi
+tham số `so_ngay` (một lô không khai hạn luôn hiện, bất kể ngưỡng) và **không được tính** vào hai
+nhóm hạn dùng thật — hai nhóm đó CHỈ chứa lô có `han_su_dung` thật, đúng tinh thần câu spec gốc.
 
 ---
 
