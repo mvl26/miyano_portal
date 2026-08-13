@@ -16,12 +16,22 @@ const emit = defineEmits(['saved', 'close'])
 
 const isMobile = useIsMobile()
 const saving = ref(false)
+const deactivating = ref(false)
 const form = ref({ ma_vat_tu: '', ten_vat_tu: '', dvt: '', quy_cach: '', nhom: '', ghi_chu: '', active: 1 })
+
+// US-E4.5/NL-4.5: kho_vat_tu_tao trả canh_bao_trung khi TÊN vừa tạo giống
+// ≥85% (so không dấu) một vật tư đã có trong kho — cảnh báo MỀM, không chặn
+// (vật tư đã được tạo thật khi hàm trả về, không có bước "thử trước"). Cùng
+// khuôn với goi_y_trung của NccModal.vue: "huỷ" ở đây nghĩa là tắt bản vừa
+// tạo (active=0, luôn cho phép vì vật tư mới tạo chưa có phát sinh nào) chứ
+// không phải xoá.
+const duplicateWarning = ref(null)
 
 watch(
   () => props.open,
   (v) => {
     if (!v) return
+    duplicateWarning.value = null
     form.value = {
       ma_vat_tu: '', ten_vat_tu: '', dvt: '', quy_cach: '', nhom: '', ghi_chu: '', active: 1,
       ...props.initial,
@@ -44,6 +54,10 @@ async function onSave() {
       props.mode === 'sua'
         ? await api.callKho('kho_vat_tu_sua', { name: props.vatTu, payload })
         : await api.callKho('kho_vat_tu_tao', { payload })
+    if (row.canh_bao_trung && row.canh_bao_trung.length) {
+      duplicateWarning.value = row
+      return
+    }
     showToast(row.da_co ? `Mã ${row.ma_vat_tu} đã có sẵn — đã chọn vật tư đó.` : 'Đã lưu vật tư.')
     emit('saved', row)
   } catch (e) {
@@ -52,11 +66,52 @@ async function onSave() {
     saving.value = false
   }
 }
+
+function giuLai() {
+  showToast('Đã lưu vật tư.')
+  emit('saved', duplicateWarning.value)
+  duplicateWarning.value = null
+}
+
+async function tatBanNay() {
+  if (deactivating.value) return
+  deactivating.value = true
+  try {
+    const row = await api.callKho('kho_vat_tu_sua', {
+      name: duplicateWarning.value.name, payload: { active: 0 },
+    })
+    showToast('Đã tắt vật tư vừa tạo — chọn vật tư có sẵn thay thế.')
+    emit('saved', row)
+    duplicateWarning.value = null
+  } catch (e) {
+    showToast(e.message || 'Không tắt được vật tư.', 'error')
+  } finally {
+    deactivating.value = false
+  }
+}
 </script>
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
     <div class="card">
+      <template v-if="duplicateWarning">
+        <h3>Có vật tư tên gần giống</h3>
+        <div class="note" style="margin-top: 10px">
+          Đã tạo <b>{{ duplicateWarning.ma_vat_tu }} — {{ duplicateWarning.ten_vat_tu }}</b>. Tên gần giống vật tư có sẵn:
+          <ul style="margin: 6px 0 0 18px">
+            <li v-for="g in duplicateWarning.canh_bao_trung" :key="g">{{ g }}</li>
+          </ul>
+          Nếu đây thực chất là cùng một vật tư, hãy tắt bản vừa tạo và dùng vật tư có sẵn.
+        </div>
+        <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+          <button class="btn-o btn-danger" :disabled="deactivating" @click="tatBanNay">
+            {{ deactivating ? 'Đang tắt…' : 'Đây là trùng — tắt bản này' }}
+          </button>
+          <button class="btn" @click="giuLai">Giữ vật tư mới</button>
+        </div>
+      </template>
+
+      <template v-else>
       <h3>{{ mode === 'sua' ? 'Sửa vật tư' : 'Tạo vật tư mới' }}</h3>
 
       <div class="field">
@@ -91,6 +146,7 @@ async function onSave() {
           {{ saving ? 'Đang lưu…' : 'Lưu' }}
         </button>
       </div>
+      </template>
     </div>
   </div>
 </template>

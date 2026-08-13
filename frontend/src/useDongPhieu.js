@@ -139,6 +139,21 @@ export function useDongPhieu({
   }
 
   function onVatTuSaved(vt) {
+    // US-E4.5: nhánh "Đây là trùng — tắt bản này" của VatTuModal cũng emit
+    // 'saved' (để màn cha biết mà đóng modal), nhưng trả về một vật tư VỪA
+    // BỊ TẮT (active=0) — không được đẩy vào vatTuList (ô chọn chỉ tải vật
+    // tư active) càng không được tự gán vào dòng đang chờ, vì phiếu MỚI
+    // không chọn được vật tư đã tắt (server chặn) và người dùng bấm nút đó
+    // chính là để KHÔNG dùng bản này. Bỏ khỏi danh mục trong bộ nhớ nếu lỡ
+    // đã có (trường hợp sửa một vật tư đang hiện trong ô chọn "ca_tat=1"),
+    // rồi thoát sớm — không chạm doc.items.
+    if (!vt.active) {
+      vatTuList.value = vatTuList.value.filter((v) => v.name !== vt.name)
+      modalOpen.value = false
+      modalRowIdx.value = -1
+      return
+    }
+
     // Cập nhật danh mục trong bộ nhớ TRƯỚC khi gán vào dòng, để mọi dòng khác
     // cùng mã cũng khớp được ngay mà không phải tải lại danh mục.
     if (!vatTuList.value.some((v) => v.name === vt.name)) vatTuList.value.push(vt)
