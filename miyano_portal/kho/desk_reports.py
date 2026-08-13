@@ -487,6 +487,10 @@ def tieu_thu_de_xuat_rows(customer: str | None = None, nhom: str | None = None) 
 			tt = tieu_thu_ca_kho.get(it["name"], dutru.TIEU_THU_RONG)
 			ton = ton_ca_kho.get(it["name"], 0.0)
 			ngay_phu = dutru.ngay_phu_ton(ton, tt["adu_90"])
+			# int() CẮT (floor cho số dương), không làm tròn — CỐ Ý: một cảnh
+			# báo "dự kiến hết hàng" nên nghiêng về phía SỚM HƠN (an toàn hơn)
+			# thay vì làm tròn lên/xuống trung lập; 4,9 ngày phủ báo "còn 4
+			# ngày" vẫn tốt hơn báo "còn 5" rồi hết sớm hơn dự kiến một ngày.
 			ngay_du_kien_het = (
 				frappe.utils.add_days(frappe.utils.today(), int(ngay_phu))
 				if isinstance(ngay_phu, (int, float)) else None
