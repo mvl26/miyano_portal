@@ -59,6 +59,21 @@ AC của US-E2.1 đòi đúng câu *"Đơn ≥ 50.000.000 ₫ — cần Sales Ma
 
 Nên **không được** sửa hai file đó rồi trông chờ migrate áp dụng. Mọi thay đổi E2 phải là **patch mới sửa tại chỗ**, idempotent theo *nội dung* chứ không theo *sự tồn tại*.
 
+### BẪY 4 — không gán `workflow_state` trước `insert()` (phát hiện khi làm Task 1)
+
+`frappe/model/workflow.py::validate_workflow`: với doc **mới**, nếu state đích khác state đầu tiên của workflow và `_doc_before_save` chưa tồn tại, Frappe ném `WorkflowPermissionError` **vô điều kiện**. Mọi helper test muốn dựng Sales Order ở một trạng thái giữa chừng đều phải theo khuôn này:
+
+```python
+    so.insert(ignore_permissions=True)          # để insert tự gán state đầu
+    if so.workflow_state != trang_thai:
+        frappe.db.set_value(                    # ghi thẳng DB, không qua ORM
+            "Sales Order", so.name, "workflow_state", trang_thai, update_modified=False
+        )
+        so.reload()                             # nếu không, .save() sau dính TimestampMismatchError
+```
+
+`update_modified=False` là bắt buộc với Task 6: job SLA đọc `modified` để tính giờ treo, để `set_value` chạm vào nó là hỏng chính thứ đang thử.
+
 ### Giả định phải nêu rõ — "giờ làm việc" của SLA
 
 `sla_xu_ly_don_gio = 8` tính theo **giờ làm việc**, nhưng app không có bảng giờ làm việc lẫn bảng ngày lễ. Theo đúng tiền lệ BR-O13 (`portal_dat_hang.ngay_giao_mac_dinh`): **chỉ bỏ Thứ Bảy và Chủ Nhật, không trừ ngày lễ, không có khung giờ hành chính trong ngày**. Lý do giữ nguyên: một bảng ngày lễ chỉ tồn tại ở một phía sẽ sai lệch âm thầm — tệ hơn là không có, vì nó tạo cảm giác đã được xử lý.
@@ -747,8 +762,15 @@ def _tao_so_cho_khach_duyet():
         "item_code": "VT0005", "qty": 1, "rate": 1200,
         "delivery_date": so.delivery_date,
     })
-    so.workflow_state = "Chờ khách đồng ý"
+    so.taxes = []
+    so.taxes_and_charges = None
     so.insert(ignore_permissions=True)
+    # BẪY 4 — không gán workflow_state trước insert(). Xem Global Constraints.
+    frappe.db.set_value(
+        "Sales Order", so.name, "workflow_state", "Chờ khách đồng ý",
+        update_modified=False,
+    )
+    so.reload()
     return so
 ```
 
@@ -1035,8 +1057,16 @@ def _tao_so_treo(cho_tu_luc: str):
         "item_code": "VT0005", "qty": 1, "rate": 1200,
         "delivery_date": so.delivery_date,
     })
-    so.workflow_state = "Chờ Miyano xác nhận"
+    so.taxes = []
+    so.taxes_and_charges = None
     so.insert(ignore_permissions=True)
+    # BẪY 4 — không gán workflow_state trước insert(). Xem Global Constraints.
+    # `update_modified=False` là BẮT BUỘC ở đây: job SLA tính giờ treo từ
+    # `modified`, để set_value chạm vào nó là phá chính thứ đang thử.
+    frappe.db.set_value(
+        "Sales Order", so.name, "workflow_state", "Chờ Miyano xác nhận",
+        update_modified=False,
+    )
     frappe.db.sql(
         "update `tabSales Order` set modified=%s where name=%s", (cho_tu_luc, so.name)
     )

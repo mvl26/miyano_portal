@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Miyano Client Portal v2.2 – Prototype desktop (F-01…F-23)</title>
+<style>
+:root{--blue:#1f4e79;--blue2:#2d6da3;--bg:#f4f6f9;--line:#e2e8f0;--gray:#64748b;--dark:#1e293b;
+--green:#16a34a;--orange:#ea580c;--red:#dc2626;--accent:#0f6b5f;--purple:#7c3aed}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',Roboto,Arial,sans-serif}
+body{background:var(--bg);color:var(--dark);font-size:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.b-gray{background:#e2e8f0;color:#475569}.b-blue{background:#dbeafe;color:#1d4ed8}
+.b-orange{background:#ffedd5;color:#c2410c}.b-green{background:#dcfce7;color:#15803d}
+.b-red{background:#fee2e2;color:#b91c1c}.b-purple{background:#ede9fe;color:#6d28d9}
+.b-teal{background:#e8f2f0;color:#0f6b5f}.b-yellow{background:#fef9c3;color:#a16207}
+.newtag{background:var(--accent);color:#fff;font-size:10px;font-weight:700;letter-spacing:.08em;
+padding:2px 6px;border-radius:4px;vertical-align:middle;margin-left:6px}
+button{cursor:pointer;font-size:14px}
+.btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-weight:600}
+.btn:hover{background:var(--blue2)}.btn:disabled{background:#cbd5e1;cursor:not-allowed}
+.btn-o{background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:9px 16px;font-weight:600}
+.btn-g{background:var(--green);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-weight:600}
+.btn-sm{padding:5px 12px;border-radius:6px;font-size:13px}
+.btn-danger{background:#fff;color:var(--red);border:1px solid var(--red);border-radius:8px;padding:9px 16px;font-weight:600}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+table{width:100%;border-collapse:collapse;background:#fff}
+th{background:#f1f5f9;text-align:left;padding:10px 12px;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#475569;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:hover td{background:#f8fafc}
+input,select,textarea{border:1px solid #cbd5e1;border-radius:8px;padding:9px 12px;font-size:14px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--blue2)}
+input[readonly]{background:#f1f5f9;color:#475569}
+h2{font-size:20px;margin-bottom:4px}
+h3{font-size:16px}
+.sub{color:var(--gray);font-size:13px;margin-bottom:18px}
+.right{text-align:right}.tag{font-size:11px;color:var(--gray)}
+.warn{color:var(--red);font-size:12px;font-weight:600}
+.flex{display:flex;gap:10px;align-items:center}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+.err{color:var(--red);font-size:12px;margin-top:3px}
+.note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin:12px 0}
+.note-b{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af}
+.note-r{background:#fee2e2;border:1px solid #fecaca;color:#991b1b}
+.bar{height:8px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--blue2)}
+.qty{width:74px;text-align:center}
+/* LOGIN */
+#login{position:fixed;inset:0;background:linear-gradient(135deg,#1f4e79,#2d6da3);display:flex;align-items:center;justify-content:center;z-index:100}
+.login-box{background:#fff;border-radius:16px;padding:36px;width:380px;max-width:92vw}
+.logo{font-size:22px;font-weight:800;color:var(--blue)}
+.logo span{color:#e11d48}
+/* LAYOUT */
+#app{display:none;min-height:100vh}
+.side{position:fixed;left:0;top:0;bottom:0;width:238px;background:var(--blue);color:#fff;padding:16px 0;display:flex;flex-direction:column;overflow-y:auto}
+.side .logo{color:#fff;padding:0 18px 14px;border-bottom:1px solid rgba(255,255,255,.15)}
+.side .logo span{color:#fca5a5}
+.nav{margin-top:8px;flex:1}
+.nav .grp{font-size:10px;letter-spacing:.14em;color:#93b2cc;padding:12px 18px 4px;font-weight:700}
+.nav a{display:flex;justify-content:space-between;align-items:center;color:#cbd5e1;text-decoration:none;padding:8px 18px;font-weight:500;font-size:13.5px}
+.nav a:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav a.on{background:rgba(255,255,255,.15);color:#fff;border-left:3px solid #fff}
+.cartn{background:#e11d48;color:#fff;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:700}
+.who{padding:12px 18px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;color:#cbd5e1}
+.main{margin-left:238px;padding:22px 26px;max-width:1180px}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:12px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:18px}
+.kpi .n{font-size:24px;font-weight:800;color:var(--blue)}
+.kpi .t{color:var(--gray);font-size:13px}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+/* SEGMENT / TABS / CHIPS */
+.seg{display:inline-flex;background:#e2e8f0;border-radius:10px;padding:3px}
+.seg button{border:none;background:transparent;padding:7px 16px;border-radius:8px;font-weight:600;color:#475569}
+.seg button.on{background:#fff;color:var(--blue);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.tabs{display:flex;gap:2px;border-bottom:2px solid var(--line);margin-bottom:14px;flex-wrap:wrap}
+.tabs button{border:none;background:transparent;padding:9px 16px;font-weight:600;color:var(--gray);border-bottom:2px solid transparent;margin-bottom:-2px}
+.tabs button.on{color:var(--blue);border-bottom-color:var(--blue)}
+.chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 13px;font-size:13px;color:#475569}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+/* TIMELINE */
+.tl{display:flex;margin:18px 0 10px}
+.tl .st{flex:1;text-align:center;position:relative}
+.tl .st::before{content:"";position:absolute;top:14px;left:-50%;width:100%;height:3px;background:#e2e8f0;z-index:0}
+.tl .st:first-child::before{display:none}
+.tl .dot{width:30px;height:30px;border-radius:50%;background:#e2e8f0;color:#64748b;display:inline-flex;align-items:center;justify-content:center;font-weight:700;position:relative;z-index:1}
+.tl .st.done .dot{background:var(--green);color:#fff}
+.tl .st.done::before{background:var(--green)}
+.tl .st.cur .dot{background:var(--orange);color:#fff}
+.tl .lb{font-size:12px;margin-top:6px;color:var(--gray)}
+.tl .st.done .lb,.tl .st.cur .lb{color:var(--dark);font-weight:600}
+/* MODAL */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:90}
+.modal .card{width:470px;max-width:92vw;max-height:88vh;overflow:auto}
+.demo{position:fixed;bottom:10px;right:12px;background:#0f172a;color:#fff;font-size:11px;padding:4px 10px;border-radius:6px;opacity:.75;z-index:200}
+.mono{font-family:Consolas,monospace}
+.rowdim td{opacity:.45}
+.stepbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.stepbar .s{flex:1;min-width:120px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12.5px;color:var(--gray)}
+.stepbar .s.on{border-color:var(--blue);color:var(--blue);font-weight:700}
+.stepbar .s.done{border-color:var(--green);color:var(--green)}
+</style>
+</head>
+<body>
+<div class="demo">PROTOTYPE v2.2 – dữ liệu minh hoạ · khớp FormSpec F-01…F-23</div>
+
+<!-- F-01 LOGIN -->
+<div id="login">
+  <div class="login-box">
+    <div class="logo" style="text-align:center;margin-bottom:6px">MIYANO<span>◆</span> Client Portal</div>
+    <p style="text-align:center;color:var(--gray);font-size:13px;margin-bottom:22px">Đặt hàng · theo dõi đơn · quản lý kho vật tư<br>của đơn vị bạn — v2.2</p>
+    <div class="field"><label>Email đăng nhập</label><input value="duoc@benhvienbachmai.vn"></div>
+    <div class="field"><label>Mật khẩu</label><input type="password" value="12345678"></div>
+    <button class="btn" style="width:100%;margin-top:6px" onclick="doLogin()">Đăng nhập</button>
+    <p style="text-align:center;margin-top:14px;font-size:13px"><a href="#" style="color:var(--blue2)">Quên mật khẩu?</a></p>
+    <p style="text-align:center;margin-top:10px;font-size:12px;color:var(--gray)">Chưa có tài khoản? Liên hệ sales Miyano<br>024 xxxx xxxx – sales@miyano.com.vn</p>
+  </div>
+</div>
+
+<div id="app">
+  <div class="side">
+    <div class="logo">MIYANO<span>◆</span> Portal <span style="font-size:10px;color:#93b2cc">v2.2</span></div>
+    <div class="nav" id="nav">
+      <div class="grp">CỔNG MUA HÀNG</div>
+      <a href="#" data-p="dash" onclick="return go('dash')">🏠 Tổng quan</a>
+      <a href="#" data-p="cat" onclick="return go('cat')">🛒 Đặt hàng</a>
+      <a href="#" data-p="cart" onclick="return go('cart')">📦 Giỏ hàng <span class="cartn" id="cartn">3</span></a>
+      <a href="#" data-p="orders" onclick="return go('orders')">📋 Đơn hàng</a>
+      <a href="#" data-p="yeucau" onclick="return go('yeucau')">📨 Yêu cầu hàng hoá <span class="newtag">MỚI</span></a>
+      <a href="#" data-p="inv" onclick="return go('inv')">🧾 Hoá đơn &amp; công nợ</a>
+      <a href="#" data-p="prof" onclick="return go('prof')">🏥 Hồ sơ đơn vị</a>
+      <div class="grp">KHO CỦA TÔI</div>
+      <a href="#" data-p="kton" onclick="return go('kton')">📊 Tồn kho</a>
+      <a href="#" data-p="kvt" onclick="return go('kvt')">🗂 Danh mục vật tư</a>
+      <a href="#" data-p="kplist" onclick="return go('kplist')">📥 Phiếu nhập / xuất</a>
+      <a href="#" data-p="kncc" onclick="return go('kncc')">🏭 NCC của tôi <span class="newtag">MỚI</span></a>
+      <a href="#" data-p="kkp" onclick="return go('kkp')">🚪 Khoa phòng <span class="newtag">MỚI</span></a>
+      <a href="#" data-p="knk" onclick="return go('knk')">📜 Nhật ký vật tư <span class="newtag">MỚI</span></a>
+      <a href="#" data-p="kbc" onclick="return go('kbc')">📈 Báo cáo kho</a>
+      <a href="#" data-p="kdutru" onclick="return go('kdutru')">🎯 Dự trù &amp; mức tồn <span class="newtag">MỚI</span></a>
+    </div>
+    <div class="who">👤 Nguyễn Thị Hoa · Khoa Dược<br>BV Bạch Mai<br><a href="#" style="color:#fca5a5" onclick="location.reload()">Đăng xuất</a></div>
+  </div>
+
+  <div class="main">
+
+    <!-- F-02 DASHBOARD -->
+    <div id="pg-dash">
+      <div class="topbar"><div><h2>Xin chào, chị Hoa 👋</h2><div class="sub">Bệnh viện Bạch Mai · cập nhật 12/08/2026 09:12</div></div>
+        <button class="btn" onclick="go('cat')">+ Đặt hàng mới</button></div>
+      <div class="kpis">
+        <div class="card kpi" onclick="go('orders')"><div class="n">2</div><div class="t">Đơn chờ xác nhận</div></div>
+        <div class="card kpi" onclick="go('orders')"><div class="n">1</div><div class="t">Đơn đang giao</div></div>
+        <div class="card kpi" onclick="go('inv')"><div class="n" style="color:var(--red)">128,4 tr ₫</div><div class="t">Tổng công nợ</div></div>
+        <div class="card kpi" onclick="go('kdutru')"><div class="n" style="color:var(--orange)">3</div><div class="t">Vật tư dưới mức tồn <span class="newtag">MỚI</span></div></div>
+        <div class="card kpi" onclick="go('kplist')"><div class="n" style="color:var(--blue2)">2</div><div class="t">Phiếu nhập chờ ghi sổ <span class="newtag">MỚI</span></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h3 style="margin-bottom:10px">Đơn hàng gần đây</h3>
+          <table>
+            <tr><th>Mã đơn</th><th>Ngày đặt</th><th class="right">Giá trị</th><th>Trạng thái</th></tr>
+            <tr onclick="go('accept')" style="cursor:pointer"><td><b class="mono">SAL-ORD-2026-00150</b> <span class="badge b-purple">Mua lẻ</span></td><td>11/08/2026</td><td class="right">18.700.000 ₫</td><td><span class="badge b-yellow">Chờ bạn đồng ý</span></td></tr>
+            <tr onclick="go('detail')" style="cursor:pointer"><td><b class="mono">SAL-ORD-2026-00142</b></td><td>25/07/2026</td><td class="right">45.870.000 ₫</td><td><span class="badge b-orange">Đang giao</span></td></tr>
+            <tr><td><b class="mono">SAL-ORD-2026-00139</b></td><td>24/07/2026</td><td class="right">12.300.000 ₫</td><td><span class="badge b-gray">Chờ xác nhận</span></td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:10px">Hợp đồng nguyên tắc</h3>
+          <p style="font-weight:600">HĐNT 12/2026/MYN-BM</p>
+          <p class="tag">01/01 – 31/12/2026 · 42 mặt hàng</p>
+          <p style="font-size:13px;margin-top:10px">Hạn mức đã dùng (dòng có hạn mức): <b>46%</b></p>
+          <div class="bar"><i style="width:46%"></i></div>
+          <div class="note" style="margin-top:12px">💡 <b>VT0005 – Bơm tiêm 10ml</b> đã dùng 82% hạn mức.</div>
+          <div class="note note-b">🎯 <b>3 vật tư dưới mức tồn</b> — mở <a href="#" onclick="return go('kdutru')">Dự trù</a> để đặt bổ sung. <span class="newtag">MỚI</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- F-03 + F-21 CATALOG (2 chế độ) -->
+    <div id="pg-cat" style="display:none">
+      <div class="topbar"><div><h2>Đặt hàng</h2><div class="sub" id="cat-sub">Danh mục &amp; giá theo HĐNT 12/2026/MYN-BM</div></div>
+        <div class="seg"><button id="seg-hd" class="on" onclick="setMode('hd')">Theo HĐNT</button><button id="seg-le" onclick="setMode('le')">Mua lẻ <span class="newtag">MỚI</span></button></div></div>
+      <div id="cat-banner-le" class="note" style="display:none">⚠ <b>Giá bán lẻ ngoài HĐNT</b> — đơn cần Miyano xác nhận trước khi giao. Không áp dụng hạn mức.</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="flex" style="flex-wrap:wrap">
+          <div style="min-width:250px;flex:1" id="cat-hdnt-box"><label class="tag">Hợp đồng nguyên tắc</label>
+            <select><option>HĐNT 12/2026/MYN-BM (01/01–31/12/2026) – còn hiệu lực</option><option disabled>HĐNT 05/2025/MYN-BM – hết hiệu lực 31/12/2025</option></select></div>
+          <div style="min-width:220px;flex:1"><label class="tag">Tìm kiếm (không dấu)</label><input placeholder="Mã hoặc tên mặt hàng..."></div>
+          <div style="min-width:170px"><label class="tag">Nhóm hàng</label>
+            <select><option>Tất cả</option><option>Vật tư tiêu hao</option><option>Hoá chất xét nghiệm</option></select></div>
+        </div>
+      </div>
+      <!-- chế độ HĐNT -->
+      <div class="card" style="padding:0;overflow-x:auto" id="cat-hd">
+        <table>
+          <thead><tr><th>Mã</th><th>Tên / quy cách</th><th>ĐVT</th><th class="right">Đơn giá (chưa VAT)</th><th style="min-width:150px">Hạn mức còn lại</th><th style="width:90px">Số lượng</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>VT0001</b></td><td>Găng nitrile không bột size M – hộp 100<br><span class="tag">Vật tư tiêu hao · VAT 5%</span></td><td>hộp</td><td class="right">45.000 ₫</td>
+              <td>400/500 hộp<div class="bar"><i style="width:20%"></i></div></td>
+              <td><input class="qty" type="number" min="1" value="10"></td><td><button class="btn btn-sm" onclick="addCart()">+ Giỏ</button></td></tr>
+            <tr><td><b>VT0002</b></td><td>Bơm tiêm 5ml – hộp 100<br><span class="tag">VAT 5%</span></td><td>hộp</td><td class="right">120.000 ₫</td>
+              <td>5/200 hộp<div class="bar"><i style="width:97.5%;background:#dc2626"></i></div><span class="warn">Sắp hết hạn mức</span></td>
+              <td><input class="qty" type="number" min="1" max="5" value="1"></td><td><button class="btn btn-sm" onclick="addCart()">+ Giỏ</button></td></tr>
+            <tr><td><b>VT0003</b></td><td>Kim luồn 20G – bội số 10<br><span class="tag">VAT 5% · <b>bội số đặt: 10</b></span></td><td>cái</td><td class="right">8.000 ₫</td>
+              <td>5.000/5.000 cái<div class="bar"><i style="width:0%"></i></div></td>
+              <td><input class="qty" type="number" step="10" value="15" style="border-color:var(--red)"><div class="err">Bội số 10 — gợi ý 20</div></td><td><button class="btn btn-sm" disabled>+ Giỏ</button></td></tr>
+            <tr><td><b>VT0009</b></td><td>Khẩu trang y tế 3 lớp – hộp 50<br><span class="tag">VAT 5%</span></td><td>hộp</td><td class="right">25.000 ₫</td>
+              <td><span class="badge b-teal">Không giới hạn</span> <span class="newtag">MỚI</span><br><span class="tag">đã đặt 120 hộp</span></td>
+              <td><input class="qty" type="number" min="1" value="200"></td><td><button class="btn btn-sm" onclick="addCart()">+ Giỏ</button></td></tr>
+            <tr style="opacity:.55"><td><b>HC0002</b></td><td>Hoá chất Cholesterol 4x100ml<br><span class="tag">VAT 8%</span></td><td>hộp</td><td class="right">1.480.000 ₫</td>
+              <td>0/40 hộp — <span class="warn">Hết hạn mức</span></td><td>—</td><td></td></tr>
+            <tr style="opacity:.75"><td><b>VT0031</b></td><td>Dây truyền dịch có kim – thùng 500<br><span class="tag">VAT 5%</span></td><td>thùng</td><td class="right">—</td>
+              <td colspan="3"><span class="badge b-yellow">Chưa có giá — đã báo Miyano</span> <span class="newtag">MỚI</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- chế độ MUA LẺ (F-21) -->
+      <div class="card" style="padding:0;overflow-x:auto;display:none" id="cat-le">
+        <table>
+          <thead><tr><th>Mã</th><th>Tên / quy cách</th><th>ĐVT</th><th class="right">Giá bán lẻ (chưa VAT)</th><th>Tình trạng</th><th style="width:90px">Số lượng</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><b>VT0120</b></td><td>Cồn 70° chai 500ml<br><span class="tag">VAT 5%</span></td><td>chai</td><td class="right">18.000 ₫</td><td><span class="badge b-green">Còn hàng</span></td>
+              <td><input class="qty" type="number" min="1" value="50"></td><td><button class="btn btn-sm" onclick="addCartLe()">+ Giỏ lẻ</button></td></tr>
+            <tr style="opacity:.6"><td><b>VT0001</b></td><td>Găng nitrile size M<br><span class="tag">VAT 5%</span></td><td>hộp</td><td class="right">—</td>
+              <td colspan="3"><span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span> (chống né hạn mức)</td></tr>
+            <tr><td><b>HC0210</b></td><td>Test nhanh HbA1c hộp 25<br><span class="tag">VAT 8%</span></td><td>hộp</td><td class="right">—</td><td><span class="badge b-gray">Chưa có giá lẻ</span></td>
+              <td colspan="2"><button class="btn-o btn-sm" onclick="go('yeucau')">Yêu cầu báo giá →</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tag" style="margin-top:10px">Không tìm thấy hàng cần mua? <a href="#" onclick="return go('yeucau')"><b>Gửi yêu cầu cho Miyano</b></a> <span class="newtag">MỚI</span></p>
+    </div>
+
+    <!-- F-04 CART 2 ngăn -->
+    <div id="pg-cart" style="display:none">
+      <div class="topbar"><div><h2>Giỏ hàng &amp; xác nhận đơn</h2><div class="sub">Bệnh viện Bạch Mai</div></div></div>
+      <div class="tabs"><button class="on" onclick="cartTab(this,'hd')">Theo HĐNT (2)</button><button onclick="cartTab(this,'le')">Mua lẻ (1) <span class="newtag">MỚI</span></button></div>
+      <div id="cart-hd">
+      <div class="grid2">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <thead><tr><th>Mặt hàng</th><th>ĐVT</th><th class="right">Đơn giá</th><th style="width:90px">SL</th><th class="right">Thành tiền</th><th></th></tr></thead>
+            <tr><td><b>VT0001</b> Găng nitrile M</td><td>hộp</td><td class="right">45.000 ₫</td><td><input class="qty" value="10"></td><td class="right"><b>450.000 ₫</b></td><td><button class="btn-o btn-sm" style="color:var(--red);border-color:var(--red)">✕</button></td></tr>
+            <tr><td><b>VT0009</b> Khẩu trang 3 lớp <span class="badge b-teal">KGH</span></td><td>hộp</td><td class="right">25.000 ₫</td><td><input class="qty" value="200"></td><td class="right"><b>5.000.000 ₫</b></td><td><button class="btn-o btn-sm" style="color:var(--red);border-color:var(--red)">✕</button></td></tr>
+          </table>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="field"><label>Ngày giao mong muốn (mặc định +2 ngày làm việc)</label><input type="date" value="2026-08-14"></div>
+            <div class="field"><label>Địa chỉ giao hàng</label>
+              <select><option>Kho Khoa Dược – 78 Giải Phóng, Đống Đa, HN</option><option>Kho Hoá chất PXN – Toà B, 78 Giải Phóng</option></select></div>
+            <div class="field"><label>Số dự trù / PO của đơn vị</label><input placeholder="VD: DT-2026-0815"></div>
+            <div class="field"><label>Ghi chú (≤500)</label><textarea rows="2" placeholder="Giao giờ hành chính..."></textarea></div>
+          </div>
+          <div class="card">
+            <div class="flex" style="justify-content:space-between"><span>Tạm tính</span><b>5.450.000 ₫</b></div>
+            <div class="flex" style="justify-content:space-between;margin-top:6px"><span>VAT 5%</span><b>272.500 ₫</b></div>
+            <hr style="border:none;border-top:1px solid var(--line);margin:10px 0">
+            <div class="flex" style="justify-content:space-between;font-size:17px"><span><b>Tổng cộng</b></span><b style="color:var(--blue)">5.722.500 ₫</b></div>
+            <button class="btn" style="width:100%;margin-top:14px" onclick="openModal('m-confirm')">Xác nhận đặt hàng →</button>
+            <p class="tag" style="margin-top:8px">Chống trùng đơn: request_id sinh khi mở xác nhận (BR-O12)</p>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div id="cart-le" style="display:none">
+        <div class="note">Ngăn <b>Mua lẻ</b> — không thuộc HĐNT, không hạn mức; Miyano sẽ xác nhận giá và lượng trước khi giao. Đặt thành <b>đơn riêng</b>.</div>
+        <div class="grid2">
+          <div class="card" style="padding:0;overflow-x:auto">
+            <table>
+              <thead><tr><th>Mặt hàng</th><th>ĐVT</th><th class="right">Giá lẻ</th><th style="width:90px">SL</th><th class="right">Thành tiền</th><th></th></tr></thead>
+              <tr><td><b>VT0120</b> Cồn 70° 500ml</td><td>chai</td><td class="right">18.000 ₫</td><td><input class="qty" value="50"></td><td class="right"><b>900.000 ₫</b></td><td><button class="btn-o btn-sm" style="color:var(--red);border-color:var(--red)">✕</button></td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <div class="flex" style="justify-content:space-between"><span>Tạm tính</span><b>900.000 ₫</b></div>
+            <div class="flex" style="justify-content:space-between;margin-top:6px"><span>VAT 5%</span><b>45.000 ₫</b></div>
+            <hr style="border:none;border-top:1px solid var(--line);margin:10px 0">
+            <div class="flex" style="justify-content:space-between;font-size:17px"><span><b>Tổng cộng</b></span><b style="color:var(--purple)">945.000 ₫</b></div>
+            <button class="btn" style="width:100%;margin-top:14px;background:var(--purple)" onclick="openModal('m-confirm')">Xác nhận đặt đơn MUA LẺ →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- F-05 SUCCESS -->
+    <div id="pg-done" style="display:none">
+      <div class="card" style="max-width:560px;margin:40px auto;text-align:center;padding:36px">
+        <div style="font-size:52px">✅</div>
+        <h2 style="margin:10px 0 6px">Đặt hàng thành công!</h2>
+        <p style="margin:14px 0;font-size:17px">Mã đơn: <b class="mono" style="color:var(--blue)">SAL-ORD-2026-00152</b> <span class="badge b-gray">Chờ xác nhận</span></p>
+        <p class="tag">Email xác nhận đã gửi tới duoc@benhvienbachmai.vn<br>Bấm lại "Xác nhận" lúc mạng chậm sẽ KHÔNG tạo đơn thứ hai (request_id)</p>
+        <div class="flex" style="justify-content:center;margin-top:20px">
+          <button class="btn-o" onclick="go('orders')">Xem đơn hàng</button>
+          <button class="btn" onclick="go('cat')">Tiếp tục đặt hàng</button>
+        </div>
+      </div>
+    </div>
+    <!-- F-06 ORDERS -->
+    <div id="pg-orders" style="display:none">
+      <div class="topbar"><div><h2>Đơn hàng của tôi</h2><div class="sub">Toàn bộ đơn của Bệnh viện Bạch Mai</div></div>
+        <div class="flex"><select style="width:180px"><option>Tất cả trạng thái</option><option>Chờ xác nhận</option><option>Chờ bạn đồng ý</option><option>Đang xử lý</option><option>Đang giao</option><option>Hoàn thành</option><option>Đã huỷ</option></select>
+        <input style="width:190px" placeholder="Tìm mã đơn..."></div></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Mã đơn</th><th>Loại</th><th>Ngày đặt</th><th>Giao Y/C</th><th class="right">Giá trị</th><th>Đã giao</th><th>Trạng thái</th><th></th></tr>
+          <tr><td><b class="mono">SAL-ORD-2026-00150</b></td><td><span class="badge b-purple">Mua lẻ</span></td><td>11/08</td><td>15/08</td><td class="right">18.700.000 ₫</td><td>–</td><td><span class="badge b-yellow">Chờ bạn đồng ý</span> <span class="newtag">MỚI</span></td><td><button class="btn btn-sm" onclick="go('accept')">Xem &amp; đồng ý</button></td></tr>
+          <tr><td><b class="mono">SAL-ORD-2026-00142</b></td><td>HĐNT</td><td>25/07</td><td>28/07</td><td class="right">45.870.000 ₫</td><td>60% <div class="bar" style="width:60px"><i style="width:60%"></i></div></td><td><span class="badge b-orange">Đang giao</span></td><td><button class="btn-o btn-sm" onclick="go('detail')">Chi tiết</button></td></tr>
+          <tr><td><b class="mono">SAL-ORD-2026-00139</b></td><td>HĐNT</td><td>24/07</td><td>30/07</td><td class="right">12.300.000 ₫</td><td>0%</td><td><span class="badge b-gray">Chờ xác nhận</span></td><td><button class="btn-o btn-sm">Huỷ/Sửa</button></td></tr>
+          <tr><td><b class="mono">SAL-ORD-2026-00131</b></td><td>HĐNT</td><td>18/07</td><td>21/07</td><td class="right">78.545.000 ₫</td><td>100%</td><td><span class="badge b-green">Hoàn thành</span></td><td><button class="btn-o btn-sm" onclick="toast('Giỏ đã điền lại theo giá hiện hành — 1 dòng bị loại (hết hạn mức)')">🔁 Đặt lại</button></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-07 ORDER DETAIL (đang giao, nhiều đợt) -->
+    <div id="pg-detail" style="display:none">
+      <div class="topbar"><div><h2 class="mono" style="font-size:18px">SAL-ORD-2026-00142 <span class="badge b-orange">Đang giao</span></h2>
+        <div class="sub">Đặt 25/07/2026 · HĐNT 12/2026/MYN-BM · Số dự trù DT-2026-0698</div></div>
+        <div class="flex"><button class="btn-o btn-sm">⬇ PDF đơn</button><button class="btn-o btn-sm" onclick="go('orders')">← Quay lại</button></div></div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="tl">
+          <div class="st done"><div class="dot">1</div><div class="lb">Đặt hàng<br>25/07 14:20</div></div>
+          <div class="st done"><div class="dot">2</div><div class="lb">Miyano xác nhận<br>25/07 16:05</div></div>
+          <div class="st done"><div class="dot">3</div><div class="lb">Soạn hàng<br>26/07 09:30</div></div>
+          <div class="st cur"><div class="dot">4</div><div class="lb">Giao hàng<br>2 đợt</div></div>
+          <div class="st"><div class="dot">5</div><div class="lb">Hoá đơn</div></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <tr><th>Mặt hàng</th><th class="right">SL đặt</th><th class="right">Đã giao</th><th class="right">Còn lại</th><th class="right">Đơn giá</th><th class="right">Thành tiền</th></tr>
+            <tr><td><b>VT0005</b> Bơm tiêm 10ml G25</td><td class="right">200</td><td class="right">200</td><td class="right">0</td><td class="right">85.000 ₫</td><td class="right">17.000.000 ₫</td></tr>
+            <tr><td><b>VT0018</b> Găng nitrile M</td><td class="right">150</td><td class="right">60</td><td class="right">90</td><td class="right">92.000 ₫</td><td class="right">13.800.000 ₫</td></tr>
+            <tr><td><b>HC0102</b> Hoá chất ALT (GPT)</td><td class="right">10</td><td class="right">6</td><td class="right">4</td><td class="right">1.250.000 ₫</td><td class="right">12.500.000 ₫</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:10px">Các đợt giao <span class="newtag">MỚI</span></h3>
+          <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <b>Đợt 1 — 27/07/2026 (60%)</b><br>
+            <span class="tag">MAT-DN-2026-00201 · Nhất Tín · AWB NT8829134VN</span><br>
+            <span class="tag">Nhập kho: </span><a href="#" onclick="return go('kpn')" class="mono">PNK-00031</a>
+            <span class="badge b-orange">Có chênh lệch ⚠</span>
+            <div><button class="btn-o btn-sm" style="margin-top:6px">⬇ Phiếu giao đợt 1</button></div>
+          </div>
+          <div style="border:1px dashed var(--line);border-radius:8px;padding:10px 12px">
+            <b>Đợt 2 — dự kiến 14/08/2026 (40%)</b><br><span class="tag">Đang soạn hàng tại kho Miyano</span>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--line);margin:12px 0">
+          <p class="tag">Giao: Kho Khoa Dược – 78 Giải Phóng</p>
+          <button class="btn-o btn-sm" style="margin-top:8px">💬 Yêu cầu hỗ trợ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- F-07 biến thể: CHỜ BẠN ĐỒNG Ý (đơn mua lẻ từ báo giá) -->
+    <div id="pg-accept" style="display:none">
+      <div class="topbar"><div><h2 class="mono" style="font-size:18px">SAL-ORD-2026-00150 <span class="badge b-purple">Mua lẻ</span> <span class="badge b-yellow">Chờ bạn đồng ý</span></h2>
+        <div class="sub">Lập từ yêu cầu <a href="#" onclick="return go('ycdetail')" class="mono">YCH-00007</a> · sales Lê Minh Đức</div></div>
+        <button class="btn-o btn-sm" onclick="go('orders')">← Quay lại</button></div>
+      <div class="note" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412">
+        ⏳ <b>Báo giá hiệu lực đến 18/08/2026.</b> Sau ngày này đơn tự đóng — cần hàng phải yêu cầu báo giá lại. <span class="newtag">MỚI</span>
+      </div>
+      <div class="grid2">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <tr><th>Mặt hàng</th><th>ĐVT</th><th class="right">SL</th><th class="right">Đơn giá (thoả thuận)</th><th class="right">Thành tiền</th></tr>
+            <tr><td><b>HC0210</b> Test nhanh HbA1c hộp 25 (Abbott)</td><td>hộp</td><td class="right">20</td><td class="right">850.000 ₫</td><td class="right">17.000.000 ₫</td></tr>
+            <tr><td colspan="4" class="right">VAT 8%</td><td class="right">1.360.000 ₫</td></tr>
+            <tr><td colspan="4" class="right"><b>Tổng cộng</b></td><td class="right"><b style="color:var(--purple)">18.360.000 ₫</b></td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:8px">Bạn quyết định</h3>
+          <p class="tag" style="margin-bottom:12px">Bấm Đồng ý = chấp nhận đặt theo giá trên. Hệ thống ghi log người bấm và thời điểm.</p>
+          <button class="btn-g" style="width:100%" onclick="toast('Đã đồng ý — đơn chuyển Chờ Miyano xác nhận');go('orders')">✔ Đồng ý đặt hàng</button>
+          <button class="btn-danger" style="width:100%;margin-top:10px" onclick="openModal('m-reject')">✕ Không đồng ý…</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- F-08 INVOICES + khối HĐĐT -->
+    <div id="pg-inv" style="display:none">
+      <div class="topbar"><div><h2>Hoá đơn &amp; công nợ</h2><div class="sub">Bệnh viện Bạch Mai</div></div></div>
+      <div class="kpis">
+        <div class="card kpi"><div class="n" style="color:var(--red)">128.400.000 ₫</div><div class="t">Tổng công nợ hiện tại</div></div>
+        <div class="card kpi"><div class="n" style="color:var(--orange)">31.200.000 ₫</div><div class="t">Quá hạn thanh toán</div></div>
+        <div class="card kpi"><div class="n">1</div><div class="t">Đến hạn trong 7 ngày</div></div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th></th><th>Số hoá đơn</th><th>Ngày</th><th>Đơn hàng</th><th class="right">Giá trị</th><th>Hạn TT</th><th>Thanh toán</th><th>HĐĐT <span class="newtag">MỚI</span></th></tr>
+          <tr onclick="toggleEinv()" style="cursor:pointer"><td>▾</td><td><b class="mono">ACC-SINV-2026-00318</b></td><td>21/07</td><td class="mono">SAL-…-00131</td><td class="right">78.545.000 ₫</td><td>20/08</td><td><span class="badge b-blue">Chưa thanh toán</span></td><td><span class="badge b-green">Đã phát hành</span></td></tr>
+          <tr id="einv-row"><td colspan="8" style="background:#f8fafc">
+            <div class="flex" style="flex-wrap:wrap;gap:18px;padding:4px 8px">
+              <div><span class="tag">Số – ký hiệu</span><br><b class="mono">00001268 · 1C26TAA</b></div>
+              <div><span class="tag">Ngày phát hành</span><br><b>21/07/2026</b></div>
+              <div><span class="tag">Mã tra cứu CQT</span><br><b class="mono">M1-26-ABCDE-00001268</b> <button class="btn-o btn-sm">📋</button></div>
+              <div class="flex" style="margin-left:auto">
+                <button class="btn btn-sm" onclick="toast('Tải XML gốc — kiểm sở hữu từng lần, có log')">⬇ XML gốc</button>
+                <button class="btn-o btn-sm">⬇ PDF</button>
+                <button class="btn-o btn-sm">🔗 Tra cứu CQT</button></div>
+            </div>
+            <p class="tag" style="padding:0 8px 6px">File XML là bản gốc có giá trị pháp lý; PDF là bản thể hiện (NĐ 123/2020 · TT 78/2021). Lịch sử thanh toán: chưa có.</p>
+          </td></tr>
+          <tr><td>▸</td><td><b class="mono">ACC-SINV-2026-00325</b></td><td>05/08</td><td class="mono">SAL-…-00142</td><td class="right">27.500.000 ₫</td><td>04/09</td><td><span class="badge b-blue">Chưa thanh toán</span></td><td><span class="badge b-gray">Đang phát hành HĐĐT</span></td></tr>
+          <tr><td>▸</td><td><b class="mono">ACC-SINV-2026-00271</b></td><td>18/06</td><td class="mono">SAL-…-00104</td><td class="right">31.200.000 ₫</td><td>18/07</td><td><span class="badge b-red">Quá hạn</span></td><td><span class="badge b-red">Đã huỷ — thay bằng 00299</span></td></tr>
+          <tr><td>▸</td><td><b class="mono">ACC-SINV-2026-00250</b></td><td>02/06</td><td class="mono">SAL-…-00089</td><td class="right">−5.200.000 ₫</td><td>—</td><td><span class="badge b-orange">Trả hàng</span></td><td><span class="badge b-green">Đã phát hành</span></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-09 PROFILE -->
+    <div id="pg-prof" style="display:none">
+      <div class="topbar"><div><h2>Hồ sơ đơn vị</h2><div class="sub">Thông tin do Miyano quản lý — liên hệ sales để cập nhật</div></div>
+        <button class="btn-o btn-sm">Đổi mật khẩu</button></div>
+      <div class="grid2">
+        <div class="card">
+          <h3 style="margin-bottom:10px">Bệnh viện Bạch Mai</h3>
+          <p class="tag">MST 0100xxxxxx · 78 Giải Phóng, Đống Đa, Hà Nội · Được bật: Mua lẻ ✓ <span class="newtag">MỚI</span></p>
+          <h4 style="margin:16px 0 8px">Hợp đồng nguyên tắc</h4>
+          <table>
+            <tr><th>Số HĐ</th><th>Hiệu lực</th><th>Mặt hàng</th><th>Hạn mức đã dùng*</th></tr>
+            <tr><td><b>12/2026/MYN-BM</b></td><td>01/01–31/12/2026</td><td>42</td><td>46%<div class="bar"><i style="width:46%"></i></div></td></tr>
+            <tr style="opacity:.55"><td><b>05/2025/MYN-BM</b></td><td>Hết hiệu lực</td><td>38</td><td>91%</td></tr>
+          </table>
+          <p class="tag" style="margin-top:6px">* chỉ tính dòng có hạn mức &gt; 0; dòng "Không giới hạn" không vào mẫu số</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-bottom:8px">Người dùng portal</h4>
+          <p style="font-size:13px">👤 Nguyễn Thị Hoa — Người đặt hàng<br><span class="tag">duoc@benhvienbachmai.vn</span></p>
+          <h4 style="margin:14px 0 8px">Địa chỉ giao hàng</h4>
+          <p style="font-size:13px">• Kho Khoa Dược – 78 Giải Phóng<br>• Kho Hoá chất PXN – Toà B</p>
+          <h4 style="margin:14px 0 8px">Sales phụ trách</h4>
+          <p style="font-size:13px">Lê Minh Đức · 09xx xxx xxx · duc.lm@miyano.com.vn</p>
+        </div>
+      </div>
+    </div>
+    <!-- F-10 KHO TỒN -->
+    <div id="pg-kton" style="display:none">
+      <div class="topbar"><div><h2>Tồn kho — Kho Khoa Dược BV Bạch Mai</h2><div class="sub">Thủ kho: Nguyễn Thị Hoa · bắt đầu quản lý 01/07/2026</div></div>
+        <div class="flex"><button class="btn btn-sm" onclick="go('kpn')">+ Phiếu nhập</button><button class="btn-o btn-sm" onclick="go('kpx')">+ Phiếu xuất</button></div></div>
+      <div class="card" style="margin-bottom:12px"><input placeholder="Tìm vật tư (không dấu)..." style="max-width:340px"></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th></th><th>Mã VT</th><th>Tên vật tư</th><th>ĐVT</th><th class="right">Tồn</th><th class="right">Giá trị tồn</th><th>Số lô</th><th>Cảnh báo</th></tr>
+          <tr onclick="toggleLots()" style="cursor:pointer"><td>▾</td><td><b>VTK-00012</b></td><td>Găng nitrile không bột size M</td><td>hộp</td><td class="right"><b>22</b></td><td class="right">990.000 ₫</td><td>2</td><td><span class="badge b-red">Dưới mức tồn</span> <span class="newtag">MỚI</span></td></tr>
+          <tr id="lots-row"><td colspan="8" style="background:#f8fafc">
+            <table style="background:transparent">
+              <tr><th>Số lô</th><th>Hạn dùng</th><th class="right">Tồn lô</th><th class="right">Đơn giá BQ</th><th class="right">Giá trị</th></tr>
+              <tr><td class="mono">L2405A</td><td style="color:var(--red)">30/09/2026 (49 ngày)</td><td class="right">4</td><td class="right">43.000 ₫</td><td class="right">172.000 ₫</td></tr>
+              <tr><td class="mono">L2408A</td><td>01/02/2027</td><td class="right">18</td><td class="right">45.444 ₫</td><td class="right">818.000 ₫</td></tr>
+            </table>
+          </td></tr>
+          <tr><td>▸</td><td><b>VTK-00015</b></td><td>Bơm tiêm 5ml</td><td>hộp</td><td class="right">140</td><td class="right">16.800.000 ₫</td><td>3</td><td></td></tr>
+          <tr><td>▸</td><td><b>VTK-00021</b></td><td>Cồn 70° chai 500ml <span class="tag">(mua ngoài)</span></td><td>chai</td><td class="right">65</td><td class="right">1.105.000 ₫</td><td>1</td><td><span class="badge b-gray">Không thời hạn</span></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-11 DANH MỤC VẬT TƯ + form min/max -->
+    <div id="pg-kvt" style="display:none">
+      <div class="topbar"><div><h2>Danh mục vật tư của kho</h2><div class="sub">Danh mục riêng của bệnh viện — vật tư Miyano tự khớp khi nhận hàng</div></div>
+        <div class="flex"><button class="btn btn-sm" onclick="openModal('m-vt')">+ Thêm vật tư</button>
+        <button class="btn-o btn-sm" onclick="go('kimport')">⬆ Nhập Excel</button><button class="btn-o btn-sm">⬇ Xuất Excel</button></div></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Mã VT</th><th>Tên</th><th>ĐVT</th><th>Mã Miyano</th><th class="right">Tồn</th><th class="right">Min / ROP / Max <span class="newtag">MỚI</span></th><th></th></tr>
+          <tr><td><b>VTK-00012</b></td><td>Găng nitrile không bột size M</td><td>hộp</td><td class="mono">VT0001</td><td class="right">22</td><td class="right">10 / 25 / 60</td><td><button class="btn-o btn-sm" onclick="openModal('m-vt')">Sửa</button></td></tr>
+          <tr><td><b>VTK-00021</b></td><td>Cồn 70° chai 500ml</td><td>chai</td><td class="tag">— (vật tư riêng)</td><td class="right">65</td><td class="right">30 / 50 / 120</td><td><button class="btn-o btn-sm" onclick="openModal('m-vt')">Sửa</button></td></tr>
+          <tr><td><b>VTK-00034</b></td><td>Que thử nước tiểu 11TS</td><td>hộp</td><td class="mono">HC0131</td><td class="right">12</td><td class="right tag">chưa thiết lập</td><td><button class="btn-o btn-sm" onclick="openModal('m-vt')">Sửa</button></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-12/F-13 IMPORT EXCEL (khuôn 4 bước — đang ở bước 3) -->
+    <div id="pg-kimport" style="display:none">
+      <div class="topbar"><div><h2>Nhập danh mục vật tư từ Excel</h2><div class="sub">Khuôn chung 4 bước — áp dụng cả tồn đầu kỳ và dòng phiếu (BR-K14)</div></div>
+        <button class="btn-o btn-sm" onclick="go('kvt')">← Quay lại</button></div>
+      <div class="stepbar">
+        <div class="s done">1. Tải file mẫu ✓</div><div class="s done">2. Tải lên (danhmuc.xlsx) ✓</div>
+        <div class="s on">3. Xem trước &amp; sửa lỗi</div><div class="s">4. Ghi</div>
+      </div>
+      <div class="note note-b">Đọc được <b>48 dòng</b>: <b style="color:var(--green)">45 hợp lệ</b> · <b style="color:var(--red)">3 lỗi</b>. Sửa trực tiếp trên ô lỗi — dòng lỗi nêu đủ mọi lý do. <label style="margin-left:10px"><input type="checkbox" style="width:auto"> Chỉ xem dòng lỗi</label></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>#</th><th>Tên vật tư</th><th>ĐVT</th><th>Quy cách</th><th>Nhóm</th><th>Lỗi</th></tr>
+          <tr><td>12</td><td>Kim cánh bướm 23G</td><td>cái</td><td>Hộp 50</td><td>VTTH</td><td><span class="badge b-green">OK</span></td></tr>
+          <tr style="background:#fff1f2"><td>13</td><td><input value="" style="border-color:var(--red)"><div class="err">Thiếu tên vật tư</div></td><td><input value="hộp"></td><td>Hộp 25</td><td>VTTH</td><td>⚠ 1 lỗi</td></tr>
+          <tr style="background:#fff1f2"><td>27</td><td>Găng nitrile size M</td><td><input value="" style="border-color:var(--red)"><div class="err">Thiếu ĐVT</div></td><td>Hộp 100</td><td>VTTH</td><td>⚠ 1 lỗi · <span class="tag">trùng gần đúng VTK-00012</span></td></tr>
+        </table>
+      </div>
+      <div class="flex" style="margin-top:14px;justify-content:flex-end">
+        <button class="btn-o">Lưu nháp (không khoá vì còn lỗi)</button>
+        <button class="btn" onclick="toast('Đã ghi 45 dòng hợp lệ — 3 dòng lỗi bỏ qua (đã xác nhận)')">Ghi 45 dòng hợp lệ</button>
+      </div>
+      <p class="tag" style="margin-top:10px">Tồn đầu kỳ dùng cùng khuôn này nhưng CHỈ NHẬP MỘT LẦN — kho đã nhập sẽ bị chặn từ bước 2 (BR-K21).</p>
+    </div>
+
+    <!-- F-14 DANH SÁCH PHIẾU -->
+    <div id="pg-kplist" style="display:none">
+      <div class="topbar"><div><h2>Phiếu nhập / phiếu xuất</h2><div class="sub">Kho Khoa Dược</div></div>
+        <div class="flex"><button class="btn btn-sm" onclick="go('kpn')">+ Phiếu nhập</button><button class="btn-o btn-sm" onclick="go('kpx')">+ Phiếu xuất</button></div></div>
+      <div class="tabs"><button class="on">Phiếu nhập (12)</button><button>Phiếu xuất (28)</button></div>
+      <div class="flex" style="flex-wrap:wrap;margin-bottom:12px">
+        <button class="chip on">Tất cả</button><button class="chip">Nháp (2)</button><button class="chip">Đã ghi sổ</button><button class="chip">Đã huỷ</button>
+        <select style="width:190px"><option>Nguồn: tất cả</option><option>Miyano</option><option>NCC: Cty ABC</option><option>Khác</option></select>
+        <label style="font-size:13px"><input type="checkbox" style="width:auto"> Có chênh lệch</label>
+        <label style="font-size:13px"><input type="checkbox" style="width:auto"> Thiếu chứng từ</label><span class="newtag">MỚI</span>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Số phiếu</th><th>Ngày</th><th>Loại</th><th>Nguồn / NCC</th><th>Tham chiếu</th><th class="right">Giá trị</th><th>Trạng thái</th></tr>
+          <tr onclick="go('kpn')" style="cursor:pointer"><td><b class="mono">PNK-00031</b></td><td>27/07</td><td>Từ đơn hàng Miyano</td><td>Miyano · Đợt 1</td><td class="mono">MAT-DN-00201</td><td class="right">27.520.000 ₫</td><td><span class="badge b-gray">Nháp</span> <span class="badge b-orange">Chênh lệch ⚠</span></td></tr>
+          <tr><td><b class="mono">PNK-00030</b></td><td>26/07</td><td>Mua ngoài (NCC khác) <span class="newtag">MỚI</span></td><td>Cty TNHH ABC</td><td class="tag">HĐ 0004521</td><td class="right">1.170.000 ₫</td><td><span class="badge b-green">Đã ghi sổ</span></td></tr>
+          <tr><td><b class="mono">PNK-00029</b></td><td>25/07</td><td>Mua ngoài (NCC khác)</td><td>Cty Dược XYZ</td><td class="tag">—</td><td class="right">3.400.000 ₫</td><td><span class="badge b-green">Đã ghi sổ</span> <span class="badge b-yellow">Thiếu chứng từ</span></td></tr>
+          <tr><td><b class="mono">PNK-00027</b></td><td>20/07</td><td>Điều chỉnh kiểm kê (tăng) <span class="newtag">MỚI</span></td><td>—</td><td class="tag">Kiểm kê Q3</td><td class="right">450.000 ₫</td><td><span class="badge b-green">Đã ghi sổ</span></td></tr>
+          <tr class="rowdim"><td><b class="mono">PNK-00025</b></td><td>18/07</td><td>Phiếu đảo <span class="tag">(hệ tạo)</span></td><td>—</td><td class="mono">đảo PNK-00024</td><td class="right">−2.100.000 ₫</td><td><span class="badge b-red">Đã ghi sổ (đảo)</span></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-15 PHIẾU NHẬP (biến thể a: từ Miyano, có chênh lệch) -->
+    <div id="pg-kpn" style="display:none">
+      <div class="topbar"><div><h2 class="mono" style="font-size:18px">PNK-00031 <span class="badge b-gray">Nháp</span> <span class="badge b-orange">Có chênh lệch ⚠</span></h2>
+        <div class="sub">Từ đơn hàng Miyano · <span class="mono">SAL-ORD-2026-00142</span> · <span class="mono">MAT-DN-2026-00201</span> · <b>Đợt 1</b> <span class="newtag">MỚI</span></div></div>
+        <div class="flex"><button class="btn-o btn-sm" onclick="go('kplist')">← Danh sách</button><button class="btn-o btn-sm">⬇ In phiếu (TT107)</button></div></div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="flex" style="flex-wrap:wrap">
+          <div style="flex:1;min-width:200px"><label class="tag">Loại nhập</label><select id="pn-loai" onchange="pnLoai()"><option>Từ đơn hàng Miyano</option><option>Mua ngoài (NCC khác)</option><option>Điều chỉnh kiểm kê (tăng)</option><option>Nhập khác</option></select><p class="tag">"Phiếu đảo" không có trong lựa chọn — chỉ hệ thống tạo (BR-K9)</p></div>
+          <div style="width:150px"><label class="tag">Ngày phiếu</label><input type="date" value="2026-07-27"></div>
+          <div style="flex:1;min-width:220px;display:none" id="pn-ncc"><label class="tag">NCC (bắt buộc khi Mua ngoài)</label><select><option>Cty TNHH ABC</option><option>Cty Dược XYZ</option><option>+ Tạo NCC mới…</option></select></div>
+          <div style="width:170px;display:none" id="pn-ct"><label class="tag">Số chứng từ NCC</label><input placeholder="HĐ/PXK của NCC"></div>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Vật tư</th><th>Lô</th><th>Hạn dùng</th><th class="right">SL giao <span class="newtag">MỚI</span></th><th class="right">SL thực nhận</th><th>Lý do chênh lệch</th><th class="right">Đơn giá</th><th class="right">Thành tiền</th></tr>
+          <tr><td><b>VTK-00040</b> Bơm tiêm 10ml G25</td><td class="mono">L2407B</td><td>01/06/2027</td><td class="right">200</td><td class="right"><input class="qty" value="200"></td><td class="tag">—</td><td class="right">85.000 ₫</td><td class="right">17.000.000 ₫</td></tr>
+          <tr style="background:#fff7ed"><td><b>VTK-00012</b> Găng nitrile M</td><td class="mono">L2408A</td><td>01/02/2027</td><td class="right">60</td><td class="right"><input class="qty" value="58" style="border-color:var(--orange)"></td><td><input value="Vỡ 2 hộp khi vận chuyển"></td><td class="right">92.000 ₫</td><td class="right">5.336.000 ₫</td></tr>
+          <tr style="background:#fff1f2"><td><b>VTK-00050</b> Hoá chất ALT (GPT)</td><td class="mono">KHONG-LO</td><td class="tag">thiếu hạn ⚠</td><td class="right">6</td><td class="right"><input class="qty" value="6"></td><td class="tag">—</td><td class="right">1.250.000 ₫</td><td class="right">7.500.000 ₫</td></tr>
+        </table>
+      </div>
+      <div class="note">⚠ Dòng thiếu lô/hạn được đánh dấu — Miyano sẽ thấy trong báo cáo chất lượng dữ liệu (NL-3.7). Thực nhận &lt; SL giao bắt buộc ghi lý do; ghi sổ xong sales Miyano nhận thông báo chênh lệch (BR-K17).</div>
+      <div class="flex" style="justify-content:flex-end;margin-top:10px">
+        <button class="btn-o">⬆ Nhập dòng từ Excel</button><button class="btn-o">Lưu nháp</button>
+        <button class="btn" onclick="openModal('m-ghiso')">Ghi sổ…</button>
+      </div>
+    </div>
+
+    <!-- F-16 PHIẾU XUẤT + FEFO -->
+    <div id="pg-kpx" style="display:none">
+      <div class="topbar"><div><h2>Phiếu xuất kho — mới <span class="badge b-gray">Nháp</span></h2><div class="sub">Kho Khoa Dược</div></div>
+        <button class="btn-o btn-sm" onclick="go('kplist')">← Danh sách</button></div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="flex" style="flex-wrap:wrap">
+          <div style="flex:1;min-width:200px"><label class="tag">Loại xuất</label><select><option>Xuất sử dụng</option><option>Xuất huỷ - hết hạn</option><option>Xuất trả lại</option><option>Điều chỉnh kiểm kê</option></select></div>
+          <div style="width:150px"><label class="tag">Ngày phiếu</label><input type="date" value="2026-08-12"></div>
+          <div style="flex:1;min-width:200px"><label class="tag">Khoa phòng nhận * <span class="newtag">MỚI</span> (kho đang bật bắt buộc)</label>
+            <select><option>Khoa Hồi sức</option><option>Khoa Xét nghiệm</option><option>Khoa Cấp cứu</option><option>+ Tạo khoa phòng…</option></select></div>
+          <div style="flex:1;min-width:200px"><label class="tag">Người nhận (gợi ý theo khoa)</label><input value="BS. Tuấn" list="nn"><datalist id="nn"><option>BS. Tuấn</option><option>ĐD. Lan</option></datalist></div>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Vật tư (tồn khả dụng)</th><th class="right">SL cần xuất</th><th colspan="4">Phân bổ lô — <button class="btn-o btn-sm" onclick="toast('Đã điền gợi ý FEFO — sửa tay được, không chặn')">💡 Gợi ý FEFO</button></th></tr>
+          <tr><td rowspan="3" style="vertical-align:top"><b>VTK-00012</b> Găng nitrile M <span class="tag">(tồn 22)</span></td><td rowspan="3" class="right" style="vertical-align:top"><input class="qty" value="8"></td><th>Lô</th><th>Hạn</th><th class="right">Tồn lô</th><th class="right">SL lấy</th></tr>
+          <tr style="background:#fff7ed"><td class="mono">L2405A</td><td style="color:var(--red)">30/09/2026 — gần hạn</td><td class="right">4</td><td class="right"><input class="qty" value="4"></td></tr>
+          <tr><td class="mono">L2408A</td><td>01/02/2027</td><td class="right">18</td><td class="right"><input class="qty" value="4"></td></tr>
+        </table>
+      </div>
+      <div class="note note-r">Nếu chọn lô đã quá hạn cho "Xuất sử dụng": phải tick <b>"Tôi xác nhận xuất lô quá hạn"</b> khi ghi sổ, hoặc đổi loại "Xuất huỷ - hết hạn" (BR-K20). Xuất quá tồn của lô sẽ bị chặn ở bước ghi sổ (BR-K5).</div>
+      <div class="flex" style="justify-content:flex-end;margin-top:10px">
+        <button class="btn-o">Lưu nháp</button><button class="btn" onclick="openModal('m-ghiso')">Ghi sổ…</button>
+      </div>
+    </div>
+    <!-- F-17 NCC CỦA TÔI -->
+    <div id="pg-kncc" style="display:none">
+      <div class="topbar"><div><h2>NCC của tôi <span class="newtag">MỚI</span></h2><div class="sub">Danh mục nhà cung ứng ngoài Miyano — phục vụ phiếu nhập mua ngoài</div></div>
+        <button class="btn btn-sm" onclick="openModal('m-ncc')">+ Thêm NCC</button></div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Tên NCC</th><th>MST</th><th>Điện thoại</th><th class="right">Số phiếu</th><th class="right">Giá trị 90 ngày</th><th>Trạng thái</th><th></th></tr>
+          <tr><td><b>Cty TNHH ABC</b></td><td class="mono">0101234567</td><td>0243 xxx xxx</td><td class="right">8</td><td class="right">42.300.000 ₫</td><td><span class="badge b-green">Hoạt động</span></td><td><button class="btn-o btn-sm" onclick="openModal('m-ncc')">Sửa</button></td></tr>
+          <tr><td><b>Cty Dược XYZ</b></td><td class="tag">—</td><td>0912 xxx xxx</td><td class="right">3</td><td class="right">9.800.000 ₫</td><td><span class="badge b-green">Hoạt động</span></td><td><button class="btn-o btn-sm">Sửa</button></td></tr>
+          <tr style="opacity:.55"><td><b>NCC Cũ 2025</b></td><td class="tag">—</td><td>—</td><td class="right">12</td><td class="right">0 ₫</td><td><span class="badge b-gray">Đã tắt</span></td><td><span class="tag">đã dùng trên phiếu — không xoá được</span></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-18 NHẬT KÝ VẬT TƯ -->
+    <div id="pg-knk" style="display:none">
+      <div class="topbar"><div><h2>Nhật ký vật tư <span class="newtag">MỚI</span></h2><div class="sub">Mọi biến động — dựng từ sổ kho, chỉ đọc (BR-D2)</div></div>
+        <button class="btn-o btn-sm">⬇ Excel (bắt buộc chọn kỳ)</button></div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="flex" style="flex-wrap:wrap">
+          <div style="min-width:260px;flex:1"><label class="tag">Vật tư (bắt buộc)</label><select><option>VTK-00012 — Găng nitrile không bột size M</option></select></div>
+          <div style="width:260px"><label class="tag">Kỳ</label><div class="flex"><input type="date" value="2026-07-01"><input type="date" value="2026-08-12"></div></div>
+        </div>
+        <div class="flex" style="margin-top:10px;flex-wrap:wrap">
+          <button class="chip on">Tất cả</button><button class="chip">Chỉ nhập</button><button class="chip">Chỉ xuất</button>
+          <button class="chip">Nguồn: Miyano</button><button class="chip">NCC khác</button><button class="chip">Lô L2408A</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Ngày</th><th>Phiếu</th><th>Loại</th><th>Nguồn / đợt</th><th>Lô</th><th class="right">Nhập</th><th class="right">Xuất</th><th class="right">Đơn giá</th><th class="right"><b>Tồn sau GD</b></th><th>Người ghi sổ</th></tr>
+          <tr><td>01/07</td><td class="mono">PNK-00018</td><td>Tồn đầu kỳ</td><td>—</td><td class="mono">L2405A</td><td class="right">30</td><td class="right"></td><td class="right">43.000</td><td class="right"><b>30</b></td><td class="tag">hoa.nt</td></tr>
+          <tr><td>27/07</td><td class="mono">PNK-00020</td><td>Từ đơn Miyano</td><td>Miyano · Đợt 1</td><td class="mono">L2408A</td><td class="right">60</td><td class="right"></td><td class="right">45.000</td><td class="right"><b>90</b></td><td class="tag">hoa.nt</td></tr>
+          <tr class="rowdim"><td>28/07</td><td class="mono">PXK-00041</td><td>Xuất sử dụng <span class="badge b-gray">đã đảo</span></td><td>Khoa HS</td><td class="mono">L2405A</td><td class="right"></td><td class="right">10</td><td class="right">43.000</td><td class="right"><b>80</b></td><td class="tag">hoa.nt</td></tr>
+          <tr><td>28/07</td><td class="mono">PNK-00024</td><td>Phiếu đảo</td><td>đảo PXK-00041</td><td class="mono">L2405A</td><td class="right">10</td><td class="right"></td><td class="right">43.000</td><td class="right"><b>90</b></td><td class="tag">hệ thống</td></tr>
+          <tr><td>30/07–11/08</td><td class="tag">… 9 phiếu xuất sử dụng</td><td>Xuất sử dụng</td><td>các khoa</td><td class="mono">L2405A/L2408A</td><td class="right"></td><td class="right">68</td><td class="right">—</td><td class="right"><b>22</b></td><td class="tag">hoa.nt</td></tr>
+        </table>
+      </div>
+      <p class="tag" style="margin-top:8px">Tồn sau giao dịch dòng cuối = tồn hiện tại (đối chiếu màn Tồn kho). Phân trang 50 dòng/trang.</p>
+    </div>
+
+    <!-- F-19 BÁO CÁO KHO (4 tab) -->
+    <div id="pg-kbc" style="display:none">
+      <div class="topbar"><div><h2>Báo cáo kho</h2><div class="sub">Kỳ 01/08 – 12/08/2026 · xuất Excel được từng tab</div></div>
+        <button class="btn-o btn-sm">⬇ Excel</button></div>
+      <div class="tabs">
+        <button onclick="bcTab(this,'nxt')">NXT theo kỳ</button>
+        <button onclick="bcTab(this,'the')">Thẻ kho</button>
+        <button onclick="bcTab(this,'han')">Cảnh báo hạn dùng</button>
+        <button class="on" onclick="bcTab(this,'dot')">NXT theo đợt hàng <span class="newtag">MỚI</span></button>
+        <button onclick="bcTab(this,'cp')">Cấp phát theo khoa <span class="newtag">MỚI</span></button>
+      </div>
+      <div id="bc-nxt" style="display:none" class="card"><p class="tag">VT · tồn đầu (SL/GT) · nhập · xuất · tồn cuối — như bản hiện có.</p></div>
+      <div id="bc-the" style="display:none" class="card"><p class="tag">Thẻ kho một vật tư theo kỳ — ngày · chứng từ · nhập · xuất · tồn, in theo mẫu.</p></div>
+      <div id="bc-han" style="display:none">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <tr><th>Nhóm</th><th>Lô</th><th>Vật tư</th><th>Hạn dùng</th><th class="right">Tồn</th><th>Còn</th></tr>
+            <tr style="background:#fee2e2"><td><span class="badge b-red">Đã hết hạn</span></td><td class="mono">L2401X</td><td>Que thử 11TS</td><td>31/07/2026</td><td class="right">3</td><td>—</td></tr>
+            <tr style="background:#ffedd5"><td><span class="badge b-orange">≤ 30 ngày</span></td><td class="mono">L2405A</td><td>Găng nitrile M</td><td>30/09/2026</td><td class="right">4</td><td>49 ngày</td></tr>
+            <tr><td><span class="badge b-gray">Không có hạn dùng</span> <span class="newtag">MỚI — tách nhóm riêng (VĐ-2)</span></td><td class="mono">KHONG-LO</td><td>Cồn 70°</td><td class="tag">—</td><td class="right">65</td><td class="tag">không tính sắp hết hạn</td></tr>
+          </table>
+        </div>
+      </div>
+      <div id="bc-dot">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <tr><th>Đợt (phiếu nhập)</th><th>Ngày nhận</th><th>Nguồn</th><th>Vật tư / lô</th><th class="right">SL nhập</th><th class="right">Đã xuất</th><th class="right">Còn lại</th><th class="right">Tuổi tồn</th><th class="right">%TT</th><th></th></tr>
+            <tr><td class="mono">PNK-00020</td><td>27/07</td><td>Miyano · DN-00201</td><td>Găng M · L2408A</td><td class="right">60</td><td class="right">42</td><td class="right">18</td><td class="right">16 ngày</td><td class="right">70%</td><td></td></tr>
+            <tr><td class="mono">PNK-00030</td><td>26/07</td><td>Cty TNHH ABC · HĐ 0004521</td><td>Cồn 70° · KHONG-LO</td><td class="right">65</td><td class="right">0</td><td class="right">65</td><td class="right">17 ngày</td><td class="right">0%</td><td></td></tr>
+            <tr style="background:#fff7ed"><td class="mono">PNK-00011</td><td>05/05</td><td>Cty Dược XYZ</td><td>Que thử 11TS · L2401X</td><td class="right">10</td><td class="right">7</td><td class="right">3</td><td class="right">99 ngày</td><td class="right">70%</td><td><span class="badge b-orange">Chậm luân chuyển</span></td></tr>
+          </table>
+        </div>
+        <p class="tag" style="margin-top:8px">Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô — BR-D1). Cờ chậm khi tuổi tồn &gt; 90 ngày (cấu hình).</p>
+      </div>
+      <div id="bc-cp" style="display:none">
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table>
+            <tr><th>Khoa phòng</th><th>Vật tư</th><th class="right">SL</th><th class="right">Giá trị</th><th>Người nhận</th><th>Phiếu</th></tr>
+            <tr style="background:#f1f5f9"><td colspan="3"><b>Khoa Hồi sức — 40,8%</b></td><td class="right"><b>538.000 ₫</b></td><td colspan="2"></td></tr>
+            <tr><td></td><td>Găng nitrile M</td><td class="right">8 hộp</td><td class="right">368.000 ₫</td><td>BS. Tuấn</td><td class="mono">PXK-00051</td></tr>
+            <tr><td></td><td>Cồn 70° 500ml</td><td class="right">10 chai</td><td class="right">170.000 ₫</td><td>ĐD. Lan</td><td class="mono">PXK-00054</td></tr>
+            <tr style="background:#f1f5f9"><td colspan="3"><b>Khoa Xét nghiệm — 41,8%</b></td><td class="right"><b>552.000 ₫</b></td><td colspan="2"></td></tr>
+            <tr><td></td><td>Găng nitrile M</td><td class="right">12 hộp</td><td class="right">552.000 ₫</td><td>KTV. Hùng</td><td class="mono">PXK-00052</td></tr>
+            <tr style="background:#fffbeb"><td colspan="3"><b>Chưa gắn khoa — 17,4%</b> <span class="tag">(phiếu trước khi bật bắt buộc)</span></td><td class="right"><b>230.000 ₫</b></td><td colspan="2"></td></tr>
+          </table>
+        </div>
+        <p class="tag" style="margin-top:8px">Nhóm theo khoa, drill xuống phiếu; "Chưa gắn khoa" tách riêng — không lẫn vào khoa nào (BR-CP4).</p>
+      </div>
+    </div>
+
+    <!-- F-20 DỰ TRÙ & MỨC TỒN -->
+    <div id="pg-kdutru" style="display:none">
+      <div class="topbar"><div><h2>Dự trù &amp; mức tồn <span class="newtag">MỚI</span></h2><div class="sub">ADU tính từ phiếu "Xuất sử dụng" 90 ngày — mọi nguồn hàng (BR-P1)</div></div>
+        <button class="btn btn-sm" onclick="toast('2 dòng đã chọn → giỏ bổ sung điền sẵn SL gợi ý')">🛒 Thêm các dòng chọn vào giỏ</button></div>
+      <div class="kpis">
+        <div class="card kpi"><div class="n" style="color:var(--red)">1</div><div class="t">Thiếu tồn (dưới min)</div></div>
+        <div class="card kpi"><div class="n" style="color:var(--orange)">2</div><div class="t">Chạm điểm đặt lại</div></div>
+        <div class="card kpi"><div class="n">12</div><div class="t">Chưa thiết lập min/max</div></div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th></th><th>Vật tư</th><th class="right">Tồn</th><th class="right">ADU 30/90</th><th class="right">Ngày phủ</th><th class="right">Min</th><th class="right">ROP</th><th class="right">Max</th><th>Trạng thái</th><th>Hành động</th></tr>
+          <tr style="background:#fff7ed"><td><input type="checkbox" style="width:auto" checked></td><td><b>Găng nitrile M</b> <span class="tag">VT0001 · HĐNT</span></td><td class="right"><b>22</b></td><td class="right">5,2 / 5,0</td><td class="right">4,4</td>
+            <td class="right"><input class="qty" value="10"></td><td class="right"><input class="qty" value="25"></td><td class="right"><input class="qty" value="60"></td>
+            <td><span class="badge b-orange">Sắp thiếu</span></td><td><button class="btn btn-sm" onclick="toast('Giỏ bổ sung: 40 hộp (max 60 − tồn 22, tròn bội số 10)')">🛒 +40 hộp</button></td></tr>
+          <tr style="background:#fee2e2"><td><input type="checkbox" style="width:auto" checked></td><td><b>Que thử 11TS</b> <span class="tag">HC0131 · HĐNT</span></td><td class="right"><b>12</b></td><td class="right">2,1 / 1,8</td><td class="right">6,7</td>
+            <td class="right"><input class="qty" value="15"></td><td class="right"><input class="qty" value="21"></td><td class="right"><input class="qty" value="50"></td>
+            <td><span class="badge b-red">Thiếu</span></td><td><button class="btn btn-sm">🛒 +40 hộp</button></td></tr>
+          <tr><td><input type="checkbox" style="width:auto"></td><td><b>Cồn 70° 500ml</b> <span class="tag">vật tư riêng — mua NCC khác</span></td><td class="right">65</td><td class="right">3,0 / 2,8</td><td class="right">23,2</td>
+            <td class="right"><input class="qty" value="30"></td><td class="right"><input class="qty" value="50"></td><td class="right"><input class="qty" value="120"></td>
+            <td><span class="badge b-green">Đủ</span></td><td><button class="btn-o btn-sm" onclick="go('yeucau')">📨 Nhờ Miyano tìm nguồn</button></td></tr>
+          <tr><td><input type="checkbox" style="width:auto"></td><td><b>Kim cánh bướm 23G</b> <span class="tag">18 ngày dữ liệu</span></td><td class="right">40</td><td class="right tag">chưa đủ dữ liệu</td><td class="right">—</td>
+            <td class="right"><input class="qty" value=""></td><td class="right"><input class="qty" value=""></td><td class="right"><input class="qty" value=""></td>
+            <td><span class="badge b-gray">Chưa thiết lập</span></td><td><button class="btn-o btn-sm" onclick="toast('Chưa đủ 30 ngày dữ liệu — nhập tay nếu cần (NL-9.1)')">💡 Gợi ý</button></td></tr>
+        </table>
+      </div>
+      <p class="tag" style="margin-top:8px">💡 Gợi ý = ADU × lead time + tồn an toàn (BR-P2) — hệ chỉ gợi ý, bạn chốt và Lưu từng dòng. Vật tư thuộc HĐNT có nút giỏ bổ sung; ngoài HĐNT → nhờ Miyano tìm nguồn.</p>
+    </div>
+
+    <!-- F-24 KHOA PHÒNG -->
+    <div id="pg-kkp" style="display:none">
+      <div class="topbar"><div><h2>Danh mục khoa phòng <span class="newtag">MỚI</span></h2><div class="sub">Nơi nhận cấp phát của kho — phiếu Xuất sử dụng chọn từ danh mục này</div></div>
+        <button class="btn btn-sm" onclick="toast('Mở form khoa phòng (tên · mã khoa · ghi chú); trùng gần đúng sẽ gợi ý — NL-4.13')">+ Thêm khoa phòng</button></div>
+      <div class="note note-b">⚙ Cài đặt kho: <b>Bắt buộc chọn khoa phòng khi Xuất sử dụng</b> — <label><input type="checkbox" checked style="width:auto"> đang BẬT</label> (chỉ áp phiếu tạo sau khi bật — BR-CP2)</div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Tên khoa phòng</th><th>Mã khoa</th><th class="right">Phiếu 90 ngày</th><th class="right">Giá trị 90 ngày</th><th>Trạng thái</th><th></th></tr>
+          <tr><td><b>Khoa Hồi sức</b></td><td class="mono">HS</td><td class="right">14</td><td class="right">12.400.000 ₫</td><td><span class="badge b-green">Hoạt động</span></td><td><button class="btn-o btn-sm">Sửa</button></td></tr>
+          <tr><td><b>Khoa Xét nghiệm</b></td><td class="mono">XN</td><td class="right">22</td><td class="right">31.900.000 ₫</td><td><span class="badge b-green">Hoạt động</span></td><td><button class="btn-o btn-sm">Sửa</button></td></tr>
+          <tr><td><b>Khoa Cấp cứu</b></td><td class="mono">CC</td><td class="right">9</td><td class="right">6.100.000 ₫</td><td><span class="badge b-green">Hoạt động</span></td><td><button class="btn-o btn-sm">Sửa</button></td></tr>
+          <tr style="opacity:.55"><td><b>Phòng Vật tư cũ</b></td><td class="mono">VT</td><td class="right">31</td><td class="right">0 ₫</td><td><span class="badge b-gray">Đã tắt</span></td><td><span class="tag">đã dùng trên phiếu — không xoá được</span></td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-22 YÊU CẦU HÀNG HOÁ (list) -->
+    <div id="pg-yeucau" style="display:none">
+      <div class="topbar"><div><h2>Yêu cầu hàng hoá <span class="newtag">MỚI</span></h2><div class="sub">Hàng ngoài HĐNT / cần tìm nguồn / cần báo giá — Miyano phản hồi trong 48h làm việc</div></div>
+        <button class="btn btn-sm" onclick="openModal('m-yc')">+ Gửi yêu cầu</button></div>
+      <div class="flex" style="margin-bottom:12px;flex-wrap:wrap">
+        <button class="chip on">Tất cả (5)</button><button class="chip">Đang xử lý (2)</button><button class="chip">Đã báo giá (1)</button><button class="chip">Kết thúc (2)</button>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto">
+        <table>
+          <tr><th>Mã</th><th>Ngày</th><th>Tên hàng</th><th>Loại</th><th class="right">SL</th><th>Trạng thái</th><th>Hạn phản hồi</th><th></th></tr>
+          <tr onclick="go('ycdetail')" style="cursor:pointer"><td><b class="mono">YCH-00007</b></td><td>08/08</td><td>Test nhanh HbA1c hộp 25 (Abbott)</td><td>Báo giá mua lẻ</td><td class="right">20</td><td><span class="badge b-orange">Đã báo giá</span></td><td class="tag">—</td><td><button class="btn btn-sm" onclick="event.stopPropagation();go('accept')">Xem đơn →</button></td></tr>
+          <tr><td><b class="mono">YCH-00006</b></td><td>10/08</td><td>Máy đo SpO2 cầm tay</td><td>Tìm nguồn hàng mới</td><td class="right">5</td><td><span class="badge b-blue">Đang tìm nguồn</span></td><td>14/08 09:00</td><td></td></tr>
+          <tr><td><b class="mono">YCH-00005</b></td><td>11/08</td><td>Dung dịch rửa tay nhanh 5L <span class="tag">(từ màn Dự trù)</span></td><td>Bổ sung HĐNT</td><td class="right">30</td><td><span class="badge b-yellow">Cần thêm thông tin</span></td><td style="color:var(--red)">quá SLA 3h</td><td><button class="btn-o btn-sm" onclick="go('ycdetail')">Bổ sung</button></td></tr>
+          <tr><td><b class="mono">YCH-00003</b></td><td>28/07</td><td>Kim sinh thiết 18G</td><td>Tìm nguồn hàng mới</td><td class="right">10</td><td><span class="badge b-green">Đã có hàng</span></td><td class="tag">—</td><td><button class="btn btn-sm" onclick="go('cat')">Đặt ngay</button></td></tr>
+          <tr style="opacity:.6"><td><b class="mono">YCH-00002</b></td><td>20/07</td><td>Stent phủ thuốc ABC</td><td>Tìm nguồn hàng mới</td><td class="right">2</td><td><span class="badge b-red">Không đáp ứng được</span></td><td class="tag">—</td><td class="tag">hãng không phân phối VN</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- F-23 CHI TIẾT YÊU CẦU -->
+    <div id="pg-ycdetail" style="display:none">
+      <div class="topbar"><div><h2 class="mono" style="font-size:18px">YCH-00007 <span class="badge b-orange">Đã báo giá</span></h2>
+        <div class="sub">Báo giá mua lẻ · gửi 08/08/2026 14:02 · người gửi: hoa.nt</div></div>
+        <div class="flex"><button class="btn-danger btn-sm" onclick="openModal('m-reject')">Huỷ yêu cầu…</button><button class="btn-o btn-sm" onclick="go('yeucau')">← Danh sách</button></div></div>
+      <div class="grid2">
+        <div>
+          <div class="card" style="margin-bottom:12px">
+            <h3 style="margin-bottom:8px">Nội dung yêu cầu</h3>
+            <table>
+              <tr><td class="tag" style="width:140px">Tên hàng</td><td><b>Test nhanh HbA1c hộp 25</b></td></tr>
+              <tr><td class="tag">Quy cách / ĐVT</td><td>Hộp 25 test · hộp</td></tr>
+              <tr><td class="tag">SL dự kiến · tần suất</td><td>20 · Định kỳ (1 tháng/lần)</td></tr>
+              <tr><td class="tag">Hãng mong muốn</td><td>Abbott</td></tr>
+              <tr><td class="tag">Đính kèm</td><td>📎 nhan-hop.jpg · 📎 catalog.pdf <span class="tag">(private)</span></td></tr>
+            </table>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:8px">Trao đổi</h3>
+            <p style="font-size:13px;margin-bottom:8px"><b>Miyano (Đức):</b> Chị xác nhận cần bản 25 test hay 10 test/hộp? <span class="tag">09/08 10:12</span></p>
+            <p style="font-size:13px;margin-bottom:10px"><b>Bạn:</b> 25 test/hộp nhé. <span class="tag">09/08 10:30</span></p>
+            <div class="flex"><input placeholder="Nhập trả lời..."><button class="btn btn-sm">Gửi</button></div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px">
+            <h3 style="margin-bottom:10px">Tiến trình</h3>
+            <p style="font-size:13px">✅ Mới — 08/08 14:02<br>✅ Đang tìm nguồn — 08/08 16:40<br>✅ Cần thêm thông tin ⇄ — 09/08<br>✅ <b>Đã báo giá — 11/08 09:15</b></p>
+          </div>
+          <div class="card" style="background:#f5f3ff;border-color:#ddd6fe">
+            <h3 style="margin-bottom:6px">Báo giá của Miyano</h3>
+            <p style="font-size:13px">Giá: <b>850.000 ₫/hộp</b> · lead time <b>5 ngày</b><br>Đơn: <a href="#" class="mono" onclick="return go('accept')">SAL-ORD-2026-00150</a></p>
+            <button class="btn" style="width:100%;margin-top:10px;background:var(--purple)" onclick="go('accept')">Xem &amp; đồng ý đơn →</button>
+            <p class="tag" style="margin-top:6px">Hiệu lực đến 18/08/2026</p>
+          </div>
+        </div>
+      </div>
+    </div>
+<!-- PROTO-APPEND-4 -->
+  </div>
+</div>
+<!-- MODALS dùng chung -->
+<div class="modal" id="m-confirm">
+  <div class="card">
+    <h3>Xác nhận gửi đơn hàng?</h3>
+    <p style="font-size:13px;margin:10px 0">Đơn theo <b>HĐNT 12/2026/MYN-BM</b>, tổng <b>5.722.500 ₫</b> sẽ tạo Sales Order chờ Miyano xác nhận. Với đơn <b>Mua lẻ</b>: câu điều khoản riêng, không nhắc HĐNT.</p>
+    <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt hàng theo đơn giá và điều khoản đã thoả thuận. Nút sẽ khoá khi đang gửi (chống bấm đúp — request_id).</div>
+    <div class="flex" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn-o" onclick="closeModal('m-confirm')">Quay lại</button>
+      <button class="btn" onclick="confirmOrder()">Xác nhận đặt hàng</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="m-reject">
+  <div class="card">
+    <h3 style="color:var(--red)">Không đồng ý / Huỷ — cần lý do</h3>
+    <p style="font-size:13px;margin:10px 0">Lý do bắt buộc (≥ 10 ký tự) — được ghi vào chứng từ và gửi cho bên còn lại.</p>
+    <textarea rows="3" placeholder="VD: Giá cao hơn dự toán, đề nghị xem lại..."></textarea>
+    <div class="flex" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn-o" onclick="closeModal('m-reject')">Quay lại</button>
+      <button class="btn-danger" onclick="closeModal('m-reject');toast('Đã gửi — Miyano sẽ xử lý')">Gửi</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="m-ghiso">
+  <div class="card">
+    <h3>Ghi sổ phiếu?</h3>
+    <p style="font-size:13px;margin:10px 0">3 dòng · tổng SL 264 · giá trị <b>29.836.000 ₫</b>. Sau ghi sổ, tồn kho thay đổi và phiếu bị khoá — sửa sai chỉ bằng cách huỷ (sinh <b>phiếu đảo</b>, không xoá dòng sổ).</p>
+    <div class="note">⚠ Phiếu có <b>1 dòng chênh lệch</b> (58/60 — "Vỡ 2 hộp khi vận chuyển"). Sales Miyano sẽ nhận thông báo đối soát.</div>
+    <div class="flex" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn-o" onclick="closeModal('m-ghiso')">Quay lại</button>
+      <button class="btn" onclick="closeModal('m-ghiso');toast('Đã ghi sổ — tồn kho cập nhật; Miyano nhận thông báo chênh lệch')">Ghi sổ</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="m-vt">
+  <div class="card">
+    <h3>Vật tư — VTK-00012</h3>
+    <div class="field" style="margin-top:10px"><label>Tên vật tư *</label><input value="Găng nitrile không bột size M"></div>
+    <div class="flex"><div class="field" style="flex:1"><label>ĐVT *</label><input value="hộp"></div>
+      <div class="field" style="flex:1"><label>Quy cách</label><input value="Hộp 100 cái"></div></div>
+    <div class="flex"><div class="field" style="flex:1"><label>Mã Miyano</label><input value="VT0001" readonly></div>
+      <div class="field" style="flex:1"><label>Bội số đặt</label><input value="10"></div></div>
+    <p style="font-size:12px;font-weight:700;color:#475569;margin:4px 0 6px">MỨC TỒN <span class="newtag">MỚI</span> — <a href="#" onclick="toast('Gợi ý: ADU 90n = 5,0/ngày → min 10 · ROP 25 (chưa lưu — bạn chốt)');return false">💡 Gợi ý từ tiêu thụ</a></p>
+    <div class="flex"><div class="field" style="flex:1"><label>Min</label><input value="10"></div>
+      <div class="field" style="flex:1"><label>ROP</label><input value="25"></div>
+      <div class="field" style="flex:1"><label>Max</label><input value="60"></div>
+      <div class="field" style="flex:1"><label>Lead time (ngày)</label><input value="3"></div></div>
+    <div class="flex" style="justify-content:flex-end;margin-top:8px">
+      <button class="btn-o" onclick="closeModal('m-vt')">Đóng</button>
+      <button class="btn" onclick="closeModal('m-vt');toast('Đã lưu vật tư (validate min ≤ ROP ≤ max)')">Lưu</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="m-ncc">
+  <div class="card">
+    <h3>NCC của kho</h3>
+    <div class="field" style="margin-top:10px"><label>Tên NCC *</label><input value="Công ty ABC" style="border-color:var(--orange)">
+      <div class="err" style="color:#c2410c">Gần giống NCC có sẵn: <b>Cty TNHH ABC</b> — chọn NCC có sẵn hay vẫn tạo mới? (NL-7.3)</div></div>
+    <div class="flex"><div class="field" style="flex:1"><label>MST</label><input placeholder="10 hoặc 13 số"></div>
+      <div class="field" style="flex:1"><label>Điện thoại</label><input></div></div>
+    <div class="field"><label>Email</label><input></div>
+    <div class="field"><label>Địa chỉ</label><input></div>
+    <div class="flex" style="justify-content:flex-end">
+      <button class="btn-o" onclick="closeModal('m-ncc')">Chọn NCC có sẵn</button>
+      <button class="btn" onclick="closeModal('m-ncc');toast('Đã tạo NCC')">Vẫn tạo mới</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="m-yc">
+  <div class="card">
+    <h3>Gửi yêu cầu hàng hoá <span class="newtag">MỚI</span></h3>
+    <div class="field" style="margin-top:10px"><label>Loại yêu cầu *</label>
+      <select><option>Tìm nguồn hàng mới</option><option>Báo giá mua lẻ</option><option>Bổ sung HĐNT</option></select></div>
+    <div class="field"><label>Tên hàng hoá *</label><input value="Máy đo SpO2 cầm tay">
+      <div class="err" style="color:#c2410c">Bạn có yêu cầu YCH-00006 cho hàng tương tự đang xử lý — vẫn gửi mới? (NL-11.1)</div></div>
+    <div class="flex"><div class="field" style="flex:1"><label>Quy cách</label><input placeholder="VD: Hộp 25 test"></div>
+      <div class="field" style="width:110px"><label>ĐVT *</label><input value="cái"></div>
+      <div class="field" style="width:110px"><label>SL dự kiến *</label><input value="5"></div></div>
+    <div class="flex"><div class="field" style="flex:1"><label>Tần suất *</label><select><option>Một lần</option><option>Định kỳ</option></select></div>
+      <div class="field" style="flex:1"><label>Ngày cần hàng</label><input type="date" value="2026-08-19"></div></div>
+    <div class="field"><label>Hãng / xuất xứ mong muốn</label><input placeholder="VD: Abbott"></div>
+    <div class="field"><label>Đính kèm (≤5 file ×10MB — pdf/jpg/png/xlsx)</label><input type="file" multiple></div>
+    <div class="flex" style="justify-content:flex-end">
+      <button class="btn-o" onclick="closeModal('m-yc')">Huỷ</button>
+      <button class="btn" onclick="closeModal('m-yc');toast('Đã gửi YCH-00008 — Miyano phản hồi trong 48h làm việc')">Gửi yêu cầu</button>
+    </div>
+  </div>
+</div>
+<script>
+function doLogin(){document.getElementById('login').style.display='none';document.getElementById('app').style.display='block';go('dash');}
+function go(p){
+  document.querySelectorAll('.main > div[id^="pg-"]').forEach(el=>el.style.display='none');
+  const el=document.getElementById('pg-'+p); if(el) el.style.display='block';
+  document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('on',a.dataset.p===p||(p==='detail'&&a.dataset.p==='orders')||(p==='accept'&&a.dataset.p==='orders')||(p==='ycdetail'&&a.dataset.p==='yeucau')||(p==='done'&&a.dataset.p==='cart')||(p==='kpn'&&a.dataset.p==='kplist')||(p==='kpx'&&a.dataset.p==='kplist')||(p==='kimport'&&a.dataset.p==='kvt')));
+  window.scrollTo(0,0); return false;
+}
+function setMode(m){
+  document.getElementById('seg-hd').classList.toggle('on',m==='hd');
+  document.getElementById('seg-le').classList.toggle('on',m==='le');
+  document.getElementById('cat-hd').style.display=m==='hd'?'block':'none';
+  document.getElementById('cat-le').style.display=m==='le'?'block':'none';
+  document.getElementById('cat-banner-le').style.display=m==='le'?'block':'none';
+  document.getElementById('cat-hdnt-box').style.visibility=m==='le'?'hidden':'visible';
+  document.getElementById('cat-sub').textContent=m==='le'?'Danh mục bán lẻ ngoài HĐNT — chỉ hiện khi đơn vị được Miyano bật quyền':'Danh mục & giá theo HĐNT 12/2026/MYN-BM';
+}
+function cartTab(btn,m){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
+  document.getElementById('cart-hd').style.display=m==='hd'?'block':'none';
+  document.getElementById('cart-le').style.display=m==='le'?'block':'none';
+}
+function addCart(){toast('Đã thêm vào giỏ Theo HĐNT');}
+function addCartLe(){toast('Đã thêm vào giỏ Mua lẻ');}
+function openModal(id){document.getElementById(id).style.display='flex';}
+function closeModal(id){document.getElementById(id).style.display='none';}
+function confirmOrder(){closeModal('m-confirm');go('done');}
+function toggleEinv(){const r=document.getElementById('einv-row');r.style.display=r.style.display==='none'?'table-row':'none';}
+function toggleLots(){const r=document.getElementById('lots-row');r.style.display=r.style.display==='none'?'table-row':'none';}
+function bcTab(btn,id){btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));btn.classList.add('on');
+  ['nxt','the','han','dot','cp'].forEach(x=>document.getElementById('bc-'+x).style.display=x===id?'block':'none');}
+function pnLoai(){const le=document.getElementById('pn-loai').value==='Mua ngoài (NCC khác)';
+  document.getElementById('pn-ncc').style.display=le?'block':'none';
+  document.getElementById('pn-ct').style.display=le?'block':'none';}
+function toast(t){const d=document.createElement('div');d.textContent='✓ '+t;
+  d.style.cssText='position:fixed;top:16px;right:16px;background:#16a34a;color:#fff;padding:10px 16px;border-radius:8px;font-weight:600;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,.2)';
+  document.body.appendChild(d);setTimeout(()=>d.remove(),2500);}
+</script>
+</body>
+</html>

@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Miyano Portal v2 — Quy trình nghiệp vụ &amp; luồng ngoại lệ</title>
+<style>
+  :root {
+    --ink:        #16211f;
+    --ink-soft:   #4a5a57;
+    --ink-faint:  #7b8a87;
+    --paper:      #fbfaf7;
+    --card:       #ffffff;
+    --rule:       #e2ddd3;
+    --accent:     #0f6b5f;
+    --accent-bg:  #e8f2f0;
+    --khach:      #1d5f8a;
+    --khach-bg:   #e6f0f7;
+    --miyano:     #8a5a1d;
+    --miyano-bg:  #f7efe3;
+    --warn:       #a33b2a;
+    --warn-bg:    #fbeceb;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+  /* ---------- Đầu trang ---------- */
+  header.masthead {
+    border-bottom: 3px solid var(--ink);
+    padding: 3rem 0 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .eyebrow {
+    font-size: .74rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 .6rem;
+  }
+  h1 {
+    font-size: clamp(1.75rem, 4.4vw, 2.6rem);
+    line-height: 1.15; margin: 0 0 .8rem; letter-spacing: -.02em; font-weight: 700;
+  }
+  .standfirst { font-size: 1.05rem; color: var(--ink-soft); margin: 0 0 1.4rem; max-width: 48rem; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .4rem 1.6rem;
+    font-size: .82rem; color: var(--ink-faint); font-family: var(--mono);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---------- Mục lục ---------- */
+  nav.toc {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 1.1rem 1.4rem; margin-bottom: 2.75rem;
+  }
+  nav.toc h2 {
+    font-size: .74rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 .7rem; font-weight: 700;
+  }
+  nav.toc ol { margin: 0; padding-left: 1.2rem; columns: 2; column-gap: 2.5rem; }
+  nav.toc li { margin-bottom: .3rem; break-inside: avoid; }
+  nav.toc a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+  nav.toc a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Mục ---------- */
+  section { margin-bottom: 3.5rem; scroll-margin-top: 1.5rem; }
+  h2.step {
+    font-size: 1.4rem; margin: 0 0 .3rem; letter-spacing: -.015em;
+    display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap;
+  }
+  h2.step .num {
+    font-family: var(--mono); font-size: .8rem; font-weight: 700;
+    background: var(--accent); color: #fff; padding: .18rem .55rem;
+    border-radius: 5px; letter-spacing: .04em; white-space: nowrap;
+  }
+  .lede { color: var(--ink-soft); margin: .1rem 0 1.4rem; max-width: 50rem; }
+  h3 { font-size: 1rem; margin: 2rem 0 .6rem; letter-spacing: -.005em; }
+
+  /* ---------- Khung sơ đồ ---------- */
+  .figure {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 1.5rem 1.25rem 1rem; margin: 1.4rem 0;
+    overflow-x: auto;
+  }
+  .figure svg { display: block; width: 100%; height: auto; min-width: 34rem; }
+  .figcap {
+    font-size: .8rem; color: var(--ink-faint); margin: 1rem 0 0;
+    padding-top: .8rem; border-top: 1px solid var(--rule);
+  }
+
+  /* ---------- Chuỗi bước (sơ đồ CSS) ---------- */
+  .chain { display: flex; flex-direction: column; gap: 0; margin: 1.4rem 0; }
+  .chain .node {
+    background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--accent);
+    border-radius: 8px; padding: .85rem 1.1rem;
+  }
+  .chain .node.khach  { border-left-color: var(--khach); }
+  .chain .node.miyano { border-left-color: var(--miyano); }
+  .chain .node.auto   { border-left-color: var(--ink-faint); border-style: dashed; }
+  .chain .node .who {
+    font-size: .68rem; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 700; color: var(--ink-faint); display: block; margin-bottom: .2rem;
+  }
+  .chain .node.khach  .who { color: var(--khach); }
+  .chain .node.miyano .who { color: var(--miyano); }
+  .chain .node .what { font-weight: 600; }
+  .chain .node .how { font-size: .88rem; color: var(--ink-soft); margin-top: .25rem; }
+  .chain .arrow {
+    width: 2px; height: 1.5rem; background: var(--rule); margin-left: 1.6rem;
+    position: relative;
+  }
+  .chain .arrow::after {
+    content: ""; position: absolute; bottom: 0; left: -4px;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 7px solid var(--rule);
+  }
+  .chain .arrow span {
+    position: absolute; left: 1rem; top: 50%; transform: translateY(-50%);
+    font-size: .78rem; color: var(--ink-faint); white-space: nowrap;
+    font-family: var(--mono);
+  }
+
+  /* ---------- Bảng ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: .92rem; }
+  th, td { text-align: left; padding: .6rem .7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint); border-bottom: 2px solid var(--ink); font-weight: 700;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .tablewrap { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 0 1rem; }
+
+  code {
+    font-family: var(--mono); font-size: .87em;
+    background: var(--accent-bg); color: #0b4f46;
+    padding: .1rem .35rem; border-radius: 4px;
+  }
+
+  /* ---------- Hộp ghi chú ---------- */
+  .note {
+    border-left: 4px solid var(--accent); background: var(--accent-bg);
+    padding: .9rem 1.1rem; border-radius: 0 8px 8px 0; margin: 1.3rem 0; font-size: .93rem;
+  }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .note .tag {
+    display: block; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 700; color: var(--accent); margin-bottom: .3rem;
+  }
+  .note.warn .tag { color: var(--warn); }
+  .newb {
+    display:inline-block; background: var(--accent); color:#fff; font-size:.6rem; font-weight:700;
+    letter-spacing:.1em; padding:.14rem .45rem; border-radius:4px; vertical-align:middle; margin-left:.45rem;
+  }
+  .xh3 { margin-top: 2.2rem; }
+  .note p:last-child { margin-bottom: 0; }
+  .note p:first-of-type { margin-top: 0; }
+
+  /* ---------- Chú giải ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; margin: 1rem 0 0; font-size: .84rem; }
+  .legend span { display: flex; align-items: center; gap: .45rem; color: var(--ink-soft); }
+  .swatch { flex: 0 0 1.1rem; width: 1.1rem; height: .55rem; border-radius: 2px; display: inline-block; }
+
+  footer.colophon {
+    border-top: 1px solid var(--rule); margin-top: 4rem; padding-top: 1.5rem;
+    font-size: .85rem; color: var(--ink-faint);
+  }
+  footer.colophon a { color: var(--accent); }
+
+  /* ---------- In A4 ---------- */
+  @media print {
+    @page { size: A4; margin: 16mm 14mm; }
+    body { background: #fff; font-size: 10.5pt; }
+    .wrap { max-width: none; padding: 0; }
+    nav.toc { display: none; }
+    section { page-break-inside: avoid; margin-bottom: 2rem; }
+    .figure { page-break-inside: avoid; border-color: #ccc; overflow: visible; }
+    .figure svg { min-width: 0; }
+    .tablewrap { overflow: visible; border-color: #ccc; }
+    header.masthead { padding-top: 0; }
+    a { text-decoration: none; color: inherit; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Miyano Portal · SupplyCore v2</p>
+  <h1>Quy trình nghiệp vụ v2.0 — trạng thái đích</h1>
+  <p class="standfirst">
+    Mười hai luồng nghiệp vụ của cổng khách hàng Miyano — từ đặt hàng theo HĐNT và <strong>mua lẻ</strong>,
+    giao <strong>nhiều đợt</strong>, nhập kho đa nguồn (Miyano + NCC khác), nhật ký vật tư theo đợt hàng,
+    vòng lặp dự trù Just-in-Time, tới <strong>yêu cầu tìm nguồn hàng</strong> và <strong>hoá đơn
+    điện tử</strong> — kèm <strong>luồng ngoại lệ</strong> của từng quy trình. Phần gắn nhãn
+    <span class="newb">MỚI</span> là thiết kế v2.0, chưa có trong mã nguồn.
+  </p>
+  <div class="meta">
+    <span><b>Ứng dụng:</b> miyano_portal</span>
+    <span><b>Phiên bản:</b> 2.3 (trạng thái đích)</span>
+    <span><b>Ngày:</b> 2026-08-11</span>
+    <span><b>Nền tảng:</b> Frappe v15 + ERPNext</span>
+    <span><b>Tài liệu cha:</b> BA-miyano_portal_v2.md</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>Nội dung</h2>
+  <ol>
+    <li><a href="#tong-quan">Bức tranh toàn cảnh</a></li>
+    <li><a href="#qt1">QT1 — Khách đặt hàng trên cổng</a></li>
+    <li><a href="#qt2">QT2 — Miyano xử lý đơn (máy trạng thái)</a></li>
+    <li><a href="#qt3">QT3 — Giao hàng → phiếu nhập tự sinh</a></li>
+    <li><a href="#qt4">QT4 — Nghiệp vụ kho của khách</a></li>
+    <li><a href="#qt5">QT5 — Huỷ phiếu → phiếu đảo</a></li>
+    <li><a href="#qt6">QT6 — Hoá đơn và công nợ</a></li>
+    <li><a href="#qt7">QT7 — Nhập hàng mua ngoài (NCC khác)</a></li>
+    <li><a href="#qt8">QT8 — Nhật ký vật tư &amp; NXT theo đợt hàng</a></li>
+    <li><a href="#qt9">QT9 — Dự trù &amp; vòng lặp Just-in-Time</a></li>
+    <li><a href="#qt10">QT10 — Mua lẻ ngoài HĐNT</a></li>
+    <li><a href="#qt11">QT11 — Yêu cầu hàng hoá &amp; tìm nguồn</a></li>
+    <li><a href="#qt12">QT12 — Hoá đơn điện tử</a></li>
+    <li><a href="#ai-lam-gi">Ai làm gì, ở đâu</a></li>
+    <li><a href="#chot-chan">Những chốt chặn phải nhớ</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section id="tong-quan">
+  <h2 class="step"><span class="num">0</span> Bức tranh toàn cảnh</h2>
+  <p class="lede">
+    Hệ thống có <strong>hai nửa không nối vào sổ sách của nhau</strong>. Nửa trên là vòng đời
+    bán hàng của Miyano trong ERPNext. Nửa dưới là kho do chính bệnh viện quản lý. Cầu nối
+    duy nhất giữa hai nửa là một móc <strong>một chiều</strong> khi Miyano ghi sổ phiếu giao hàng.
+  </p>
+
+  <div class="figure">
+    <svg viewBox="0 0 780 380" role="img" aria-label="Sơ đồ toàn cảnh: khách hàng đặt hàng trên cổng, Miyano xử lý trong ERPNext, phiếu giao hàng sinh phiếu nhập trong kho khách">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5a57"/>
+        </marker>
+        <marker id="ah-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f6b5f"/>
+        </marker>
+      </defs>
+
+      <!-- Làn 1: cổng khách hàng -->
+      <rect x="8" y="8" width="764" height="96" rx="8" fill="#e6f0f7" stroke="#c3d9e8"/>
+      <text x="22" y="30" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#1d5f8a" letter-spacing="1.2">KHÁCH HÀNG · /portal</text>
+      <rect x="24" y="42" width="150" height="46" rx="6" fill="#fff" stroke="#1d5f8a"/>
+      <text x="99" y="62" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Chọn hợp đồng</text>
+      <text x="99" y="78" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">và đặt hàng</text>
+
+      <rect x="315" y="42" width="150" height="46" rx="6" fill="#fff" stroke="#1d5f8a"/>
+      <text x="390" y="62" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Theo dõi đơn,</text>
+      <text x="390" y="78" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">phiếu giao, hoá đơn</text>
+
+      <rect x="606" y="42" width="150" height="46" rx="6" fill="#fff" stroke="#1d5f8a"/>
+      <text x="681" y="62" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Quản lý kho</text>
+      <text x="681" y="78" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">của bệnh viện</text>
+
+      <!-- Làn 2: ERPNext Miyano -->
+      <rect x="8" y="140" width="500" height="96" rx="8" fill="#f7efe3" stroke="#e0cba6"/>
+      <text x="22" y="162" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#8a5a1d" letter-spacing="1.2">MIYANO · ERPNext Desk</text>
+      <rect x="24" y="174" width="132" height="46" rx="6" fill="#fff" stroke="#8a5a1d"/>
+      <text x="90" y="194" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Sales Order</text>
+      <text x="90" y="210" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">xác nhận</text>
+
+      <rect x="188" y="174" width="132" height="46" rx="6" fill="#fff" stroke="#8a5a1d"/>
+      <text x="254" y="194" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Delivery Note</text>
+      <text x="254" y="210" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">ghi sổ</text>
+
+      <rect x="352" y="174" width="132" height="46" rx="6" fill="#fff" stroke="#8a5a1d"/>
+      <text x="418" y="194" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Sales Invoice</text>
+      <text x="418" y="210" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">phát hành</text>
+
+      <!-- Làn 3: kho khách -->
+      <rect x="8" y="272" width="764" height="96" rx="8" fill="#e8f2f0" stroke="#bcd8d3"/>
+      <text x="22" y="294" font-family="ui-monospace,monospace" font-size="11" font-weight="700" fill="#0f6b5f" letter-spacing="1.2">KHO CỦA BỆNH VIỆN</text>
+      <rect x="180" y="306" width="150" height="46" rx="6" fill="#fff" stroke="#0f6b5f"/>
+      <text x="255" y="326" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Phiếu nhập</text>
+      <text x="255" y="342" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">nháp → ghi sổ</text>
+
+      <rect x="400" y="306" width="150" height="46" rx="6" fill="#fff" stroke="#0f6b5f"/>
+      <text x="475" y="326" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Sổ kho theo lô</text>
+      <text x="475" y="342" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">chỉ ghi thêm</text>
+
+      <rect x="606" y="306" width="150" height="46" rx="6" fill="#fff" stroke="#0f6b5f"/>
+      <text x="681" y="326" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Phiếu xuất</text>
+      <text x="681" y="342" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">gợi ý lô FEFO</text>
+
+      <!-- Mũi tên -->
+      <path d="M 99 90 L 99 174" stroke="#4a5a57" stroke-width="1.6" fill="none" marker-end="url(#ah)"/>
+      <text x="107" y="126" font-family="Segoe UI,sans-serif" font-size="11" fill="#4a5a57">đặt hàng</text>
+
+      <path d="M 418 174 L 400 96" stroke="#4a5a57" stroke-width="1.6" fill="none" marker-end="url(#ah)" stroke-dasharray="4 3"/>
+      <text x="426" y="136" font-family="Segoe UI,sans-serif" font-size="11" fill="#4a5a57">tra cứu</text>
+
+      <path d="M 254 220 L 254 299" stroke="#0f6b5f" stroke-width="2" fill="none" marker-end="url(#ah-accent)"/>
+      <text x="266" y="252" font-family="ui-monospace,monospace" font-size="10.5" fill="#0f6b5f">on_submit → phiếu nhập NHÁP</text>
+
+      <path d="M 330 329 L 393 329" stroke="#4a5a57" stroke-width="1.6" fill="none" marker-end="url(#ah)"/>
+      <path d="M 606 329 L 557 329" stroke="#4a5a57" stroke-width="1.6" fill="none" marker-end="url(#ah)"/>
+      <path d="M 681 306 L 681 96" stroke="#4a5a57" stroke-width="1.6" fill="none" marker-end="url(#ah)" stroke-dasharray="4 3"/>
+    </svg>
+    <p class="figcap">
+      Mũi tên nét liền = luồng chứng từ. Mũi tên nét đứt = tra cứu / hiển thị.
+      Chỉ có <strong>một</strong> mũi tên đi từ nửa Miyano xuống nửa kho khách, và
+      <strong>không có mũi tên nào đi ngược lên</strong>.
+    </p>
+    <div class="legend">
+      <span><i class="swatch" style="background:#1d5f8a"></i> Khách hàng thao tác</span>
+      <span><i class="swatch" style="background:#8a5a1d"></i> Miyano thao tác</span>
+      <span><i class="swatch" style="background:#0f6b5f"></i> Kho khách hàng</span>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Quyết định nền tảng — đừng "gộp lại cho gọn"</span>
+    <p>
+      Kho của bệnh viện <strong>không</strong> dùng <code>Warehouse</code>, <code>Bin</code>,
+      <code>Stock Entry</code> hay <code>Stock Ledger Entry</code> của ERPNext. Cả hai công ty
+      Miyano đều bật <code>enable_perpetual_inventory</code>: một phiếu xuất của bệnh viện đi
+      qua tồn kho ERPNext sẽ ghi <strong>bút toán giá vốn lên sổ sách của Miyano</strong>, và
+      phiếu giao hàng vào kho như vậy trở thành điều chuyển nội bộ, không bao giờ làm giảm tồn
+      kho thật của Miyano.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="tag">Bổ sung v2 — kho đa nguồn <span class="newb">MỚI</span></span>
+    <p>
+      Kho của bệnh viện nhận hàng từ <strong>nhiều nguồn</strong>: Miyano (phiếu nhập tự sinh, QT3)
+      và các NCC khác (phiếu nhập tay, QT7). Tất cả vào cùng một sổ kho — nhờ vậy nhật ký vật tư,
+      NXT theo đợt (QT8) và dự trù Just-in-Time (QT9) tính trên <strong>toàn bộ</strong> tiêu thụ,
+      không chỉ phần mua từ Miyano.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt1">
+  <h2 class="step"><span class="num">QT1</span> Khách đặt hàng trên cổng</h2>
+  <p class="lede">
+    Khách chỉ đặt được những mặt hàng nằm trong hợp đồng nguyên tắc của chính đơn vị mình,
+    theo giá riêng của đơn vị mình, và trong phạm vi hạn mức còn lại.
+  </p>
+
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Chọn hợp đồng nguyên tắc (HĐNT)</span>
+      <div class="how">Màn <code>/portal/catalog</code>. Mỗi HĐNT là một <code>Blanket Order</code> của đơn vị.</div>
+    </div>
+    <div class="arrow"><span>portal_contracts</span></div>
+
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Xem danh mục hàng, giá riêng và hạn mức còn lại</span>
+      <div class="how">Giá lấy từ <code>Price List</code> riêng của khách. Hạn mức còn lại hiển thị ngay trên từng mặt hàng.</div>
+    </div>
+    <div class="arrow"><span>portal_catalog</span></div>
+
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Thêm vào giỏ, nhập số PO nội bộ và ghi chú, chọn địa chỉ giao</span>
+      <div class="how">Màn <code>/portal/cart</code>.</div>
+    </div>
+    <div class="arrow"><span>portal_order_place</span></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống kiểm</span>
+      <span class="what">Năm chốt chặn, chạy theo đúng thứ tự này</span>
+      <div class="how">
+        ① Hợp đồng có thuộc đơn vị này không · ② Địa chỉ giao có thuộc đơn vị này không ·
+        ③ <strong>Gộp các dòng trùng mã hàng</strong> rồi mới kiểm hạn mức ·
+        ④ Vượt hạn mức thì gom <strong>tất cả</strong> lỗi báo một lần, kèm số còn lại ·
+        ⑤ Không có giá bán trong bảng giá của khách thì chặn.
+        Dòng có hạn mức khai <strong>0</strong> = KHÔNG GIỚI HẠN → bỏ qua kiểm ③④ (QĐ-8). <span class="newb">MỚI</span>
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống ghi</span>
+      <span class="what">Tạo <code>Sales Order</code> nháp</span>
+      <div class="how">
+        <code>custom_nguon_don = "Client Portal"</code> · <code>custom_hdnt</code> = hợp đồng ·
+        mỗi dòng gắn <code>against_blanket_order = 1</code> để ERPNext tự trừ hạn mức ·
+        mỗi dòng xuất từ kho mặc định <strong>của chính mặt hàng đó</strong> ·
+        gắn <code>contact_email</code> để thông báo gửi được.
+      </div>
+    </div>
+    <div class="arrow"><span>Notification</span></div>
+
+    <div class="node">
+      <span class="who">Hệ thống gửi</span>
+      <span class="what">Email “Portal - Đơn mới” cho khách</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <span class="tag">Vì sao phải gộp dòng trùng trước khi kiểm hạn mức</span>
+    <p>
+      Nếu kiểm từng dòng giỏ hàng riêng lẻ, hai dòng cùng một mã hàng đều “lọt” khi xét độc lập
+      trong khi tổng hai dòng vượt hạn mức. Đây là một đường vòng thật, đã được bịt bằng cách
+      cộng dồn theo mã hàng trước khi so.
+    </p>
+  </div>
+
+  <h3 class="xh3">Luồng ngoại lệ QT1 <span class="newb">BỔ SUNG V2</span></h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Tình huống</th><th>Hệ thống xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-1.1</td><td>HĐNT hết hiệu lực / không có HĐNT hiệu lực</td><td>Khoá đặt hàng, cảnh báo + đầu mối sales; lịch sử vẫn tra cứu được</td></tr>
+      <tr><td>NL-1.2</td><td>Mặt hàng đã dùng <strong>hết</strong> hạn mức (đã đặt đủ tổng &gt; 0)</td><td>Khoá ô số lượng ngay tại dòng, nhãn "Hết hạn mức" — phân biệt với hạn mức <em>khai</em> 0 (NL-1.11)</td></tr>
+      <tr><td>NL-1.3</td><td>Tổng đặt vượt hạn mức còn lại</td><td>Gộp dòng trùng mã rồi kiểm; chặn và báo <strong>một lần đủ mọi mã sai</strong> kèm số còn được đặt</td></tr>
+      <tr><td>NL-1.4</td><td>Thiếu giá trong Price List của khách</td><td>Chặn đặt, nêu mã hàng; <span class="newb">MỚI</span> thông báo cho sales bổ sung giá</td></tr>
+      <tr><td>NL-1.5</td><td>Địa chỉ giao không thuộc đơn vị</td><td>Chặn — kiểm sở hữu phía server</td></tr>
+      <tr><td>NL-1.6 <span class="newb">MỚI</span></td><td>Sai bội số quy cách đóng gói</td><td>Lỗi tại dòng kèm bội số đúng; server kiểm lần cuối</td></tr>
+      <tr><td>NL-1.7 <span class="newb">MỚI</span></td><td>Ngày giao quá khứ / quá sớm</td><td>Chặn tại trường; mặc định +2 ngày làm việc</td></tr>
+      <tr><td>NL-1.8 <span class="newb">MỚI</span></td><td>Timeout / bấm lại lúc đặt hàng</td><td><code>request_id</code> chống trùng: gửi lại trả về đơn đã tạo, không sinh đơn thứ hai</td></tr>
+      <tr><td>NL-1.9 <span class="newb">MỚI</span></td><td>Phiên hết hạn giữa chừng</td><td>Về đăng nhập; giỏ lưu phía máy chủ nên không mất</td></tr>
+      <tr><td>NL-1.10</td><td>Hai người cùng đơn vị đặt song song, tổng vượt hạn mức</td><td>Chốt hai tầng: lúc đặt và lúc Miyano xác nhận (submit)</td></tr>
+      <tr><td>NL-1.11 <span class="newb">MỚI</span></td><td>Hạn mức trong HĐNT khai bằng 0</td><td>Hiểu là <strong>KHÔNG GIỚI HẠN</strong>: badge "Không giới hạn", không kiểm/không chặn; dòng SO không gắn <code>against_blanket_order</code> (cơ chế gốc ERPNext coi 0 là cấm đặt); vẫn thống kê SL đã đặt qua <code>custom_hdnt</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt2">
+  <h2 class="step"><span class="num">QT2</span> Miyano xử lý đơn — máy trạng thái</h2>
+  <p class="lede">
+    Workflow <code>Sales Order - Client Portal</code> gắn trên doctype <code>Sales Order</code>.
+    Đơn từ cổng sinh ra ở trạng thái đầu tiên; Frappe tự gán, mã của cổng không đặt trường này.
+  </p>
+
+  <div class="figure">
+    <svg viewBox="0 0 780 250" role="img" aria-label="Máy trạng thái đơn hàng: Chờ xác nhận, Gửi duyệt, Chờ Miyano xác nhận, Xác nhận hoặc Từ chối">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#16211f"/>
+        </marker>
+      </defs>
+
+      <!-- Trạng thái đầu -->
+      <rect x="15" y="30" width="170" height="64" rx="8" fill="#fff" stroke="#16211f" stroke-width="2"/>
+      <text x="100" y="55" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="600" fill="#16211f">Chờ xác nhận</text>
+      <text x="100" y="74" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#7b8a87">docstatus 0 · nháp</text>
+      <text x="100" y="18" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" font-weight="700" fill="#1d5f8a" letter-spacing="1">ĐƠN TỪ CỔNG VÀO ĐÂY</text>
+
+      <!-- Trạng thái 2 -->
+      <rect x="265" y="30" width="170" height="64" rx="8" fill="#fff" stroke="#16211f" stroke-width="1.5"/>
+      <text x="350" y="55" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="600" fill="#16211f">Chờ Miyano xác nhận</text>
+      <text x="350" y="74" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#7b8a87">docstatus 0 · nháp</text>
+
+      <!-- Trạng thái 3 -->
+      <rect x="515" y="30" width="170" height="64" rx="8" fill="#e8f2f0" stroke="#0f6b5f" stroke-width="2"/>
+      <text x="600" y="55" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="600" fill="#0b4f46">Đã xác nhận</text>
+      <text x="600" y="74" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#0f6b5f">docstatus 1 · đã ghi sổ</text>
+
+      <!-- Trạng thái từ chối -->
+      <rect x="265" y="155" width="170" height="64" rx="8" fill="#fbeceb" stroke="#a33b2a" stroke-width="1.5"/>
+      <text x="350" y="180" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="14" font-weight="600" fill="#a33b2a">Từ chối</text>
+      <text x="350" y="199" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#a33b2a">docstatus 0 · nháp</text>
+
+      <!-- Chuyển tiếp -->
+      <path d="M 185 62 L 258 62" stroke="#16211f" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="221" y="52" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="600" fill="#16211f">Gửi duyệt</text>
+      <text x="221" y="82" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#7b8a87">Sales User</text>
+
+      <path d="M 435 62 L 508 62" stroke="#16211f" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="471" y="52" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" font-weight="600" fill="#16211f">Xác nhận</text>
+      <text x="471" y="82" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#7b8a87">User &lt; ngưỡng · Manager ≥ ngưỡng</text>
+
+      <path d="M 350 94 L 350 148" stroke="#a33b2a" stroke-width="1.8" fill="none" marker-end="url(#ah2)"/>
+      <text x="362" y="116" font-family="Segoe UI,sans-serif" font-size="12" font-weight="600" fill="#a33b2a">Từ chối</text>
+      <text x="362" y="132" font-family="ui-monospace,monospace" font-size="9" fill="#7b8a87">User &lt; ngưỡng · Manager ≥ ngưỡng</text>
+
+      <!-- Sau khi xác nhận -->
+      <text x="600" y="130" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#4a5a57">↓ tiếp tục sang QT3</text>
+      <text x="600" y="149" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12" fill="#4a5a57">lập phiếu giao hàng</text>
+    </svg>
+    <p class="figcap">Trạng thái “Đã xác nhận” là trạng thái duy nhất đã ghi sổ (<code>docstatus 1</code>).</p>
+  </div>
+
+  <div class="note">
+    <span class="tag">Duyệt theo ngưỡng — quyết định QĐ-1 ngày 2026-08-11 <span class="newb">MỚI</span></span>
+    <p>
+      <strong>Đơn dưới ngưỡng giá trị:</strong> <code>Sales User</code> tự Xác nhận / Từ chối (tinh gọn).
+      <strong>Đơn từ ngưỡng trở lên:</strong> chỉ <code>Sales Manager</code> được Xác nhận / Từ chối.
+      Ngưỡng đặt tại <code>Miyano Portal Settings.nguong_duyet_2_tang</code>; để trống = một tầng như cũ.
+      Từ chối luôn <strong>bắt buộc nhập lý do</strong> — lý do đi thẳng vào email báo khách.
+      Hiện trạng mã nguồn vẫn là một tầng cho mọi đơn — cấu hình này là việc phải làm của v2.
+    </p>
+  </div>
+  <div class="note warn">
+    <span class="tag">Vẫn phải biết</span>
+    <p>
+      <strong>Workflow áp cho mọi <code>Sales Order</code></strong>, không riêng đơn từ cổng.
+      Frappe Workflow gắn theo doctype, không lọc theo điều kiện được. Điều này đã được chấp nhận (VĐ-4).
+    </p>
+  </div>
+
+  <h3>Trạng thái khách nhìn thấy khác với trạng thái workflow</h3>
+  <p>
+    Trên cổng, khách không thấy <code>workflow_state</code>. Họ thấy một nhãn suy ra từ
+    <code>status</code> và tỉ lệ đã giao — vì <code>status</code> gốc của ERPNext gộp lẫn
+    “đang xử lý” với “đang giao”.
+  </p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Khách nhìn thấy</th><th>Suy ra khi</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Chờ xác nhận</strong></td><td><code>status = Draft</code>, chưa giao gì</td></tr>
+      <tr><td><strong>Đang xử lý</strong></td><td>Đã ghi sổ, <code>per_delivered = 0</code></td></tr>
+      <tr><td><strong>Đang giao</strong></td><td><code>per_delivered &gt; 0</code> và chưa hoàn thành</td></tr>
+      <tr><td><strong>Hoàn thành</strong></td><td><code>status = Completed</code></td></tr>
+      <tr><td><strong>Đã huỷ</strong></td><td><code>status = Cancelled</code> hoặc <code>Closed</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Thông báo email tự động</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Sự kiện</th><th>Thông báo</th><th>Điều kiện</th></tr></thead>
+    <tbody>
+      <tr><td>Tạo <code>Sales Order</code></td><td>Portal - Đơn mới</td><td>đơn từ cổng</td></tr>
+      <tr><td>Ghi sổ <code>Sales Order</code></td><td>Portal - Đơn xác nhận</td><td>đơn từ cổng</td></tr>
+      <tr><td>Chuyển sang “Từ chối”</td><td>Portal - Đơn bị từ chối</td><td>đơn từ cổng</td></tr>
+      <tr><td>Ghi sổ <code>Delivery Note</code></td><td>Portal - Xuất giao</td><td>mọi phiếu giao</td></tr>
+      <tr><td>Ghi sổ <code>Sales Invoice</code></td><td>Portal - Hoá đơn phát hành</td><td>mọi hoá đơn</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 class="xh3">Luồng ngoại lệ QT2 <span class="newb">BỔ SUNG V2</span></h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Tình huống</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-2.1</td><td>Miyano từ chối đơn</td><td>Bắt buộc lý do; email cho khách kèm đúng lý do; đơn giữ ở "Từ chối" để truy vết</td></tr>
+      <tr><td>NL-2.2</td><td>Khách yêu cầu huỷ khi còn Chờ xác nhận</td><td>Yêu cầu + lý do ghi vào đơn, báo sales; sales huỷ nháp, hạn mức không bị chiếm</td></tr>
+      <tr><td>NL-2.3</td><td>Khách yêu cầu sửa khi còn Chờ xác nhận</td><td>Sales sửa bản nháp; mọi thay đổi hiển thị lại cho khách trước khi xác nhận</td></tr>
+      <tr><td>NL-2.4</td><td>Vượt hạn mức phát hiện lúc xác nhận (hai nháp song song)</td><td>ERPNext chặn submit; sales liên hệ điều chỉnh hoặc từ chối</td></tr>
+      <tr><td>NL-2.5 <span class="newb">MỚI</span></td><td>Sales User bấm xác nhận đơn ≥ ngưỡng</td><td>Workflow không cho chuyển — cần Sales Manager</td></tr>
+      <tr><td>NL-2.6 <span class="newb">MỚI</span></td><td>Đơn treo quá SLA xử lý</td><td>Job nền nhắc leo thang Sales Manager; vào báo cáo đơn chậm</td></tr>
+      <tr><td>NL-2.7</td><td>Huỷ đơn đã xác nhận, chưa giao</td><td>Cancel SO chuẩn; hạn mức hoàn tự động; email báo khách kèm lý do</td></tr>
+      <tr><td>NL-2.8 <span class="newb">MỚI</span></td><td>Đã giao một phần, phần còn lại không giao nữa</td><td>Close SO; hoàn hạn mức phần chưa giao (cơ chế: VĐ-7); khách thấy "Hoàn thành (đóng sớm)"</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt3">
+  <h2 class="step"><span class="num">QT3</span> Giao hàng nhiều đợt trên một đơn → phiếu nhập tự sinh từng đợt</h2>
+  <p class="lede">
+    Một <code>Sales Order</code> được giao làm <strong>nhiều đợt</strong> — mỗi đợt là một
+    <code>Delivery Note</code>, tổng luỹ kế các đợt không vượt số lượng đặt
+    (QĐ-2, over-delivery allowance = 0 <span class="newb">MỚI</span>). Mỗi lần Miyano
+    <strong>ghi sổ</strong> một phiếu giao, hệ sinh <strong>một phiếu nhập nháp riêng</strong>
+    trong kho khách — vẫn là cầu nối một chiều duy nhất giữa hai nửa hệ thống.
+  </p>
+
+  <div class="chain">
+    <div class="node miyano">
+      <span class="who">Miyano</span>
+      <span class="what">Lập <code>Delivery Note</code> đợt 1, đợt 2… từ đơn đã xác nhận và ghi sổ</span>
+      <div class="how">Cổng hiển thị cho khách từng đợt: % đã giao, số phiếu, hãng vận chuyển/AWB.
+      Giao vượt số còn lại bị chặn ngay khi ghi sổ (BR-O10 <span class="newb">MỚI</span>).</div>
+    </div>
+    <div class="arrow"><span>doc_events → on_submit</span></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống kiểm</span>
+      <span class="what">Khách này có kho đang hoạt động không?</span>
+      <div class="how">Không có kho, hoặc kho đã tắt (<code>active = 0</code>) → <strong>dừng im lặng</strong>, không báo lỗi.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống kiểm</span>
+      <span class="what">Phiếu giao này đã sinh phiếu nhập lần nào chưa?</span>
+      <div class="how">Đã có phiếu còn sống (kể cả phiếu <strong>đã ghi sổ</strong>) → dừng. Nếu không, thủ kho ghi sổ xong sẽ cộng tồn lần thứ hai.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống dựng</span>
+      <span class="what">Từng dòng phiếu giao → dòng phiếu nhập</span>
+      <div class="how">
+        Khớp hoặc tạo mới vật tư trong danh mục của kho khách ·
+        lấy số lô và hạn dùng từ bundle lô ERPNext đã sinh ·
+        chọn ngày phiếu sao cho không rơi trước <code>ngay_bat_dau</code> của kho.
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node">
+      <span class="who">Kết quả</span>
+      <span class="what"><code>Customer Stock Receipt</code> — trạng thái <strong>NHÁP</strong>, một phiếu cho mỗi đợt</span>
+      <div class="how">
+        <code>loai_nhap = "Từ đơn hàng Miyano"</code>, ghi số phiếu giao + số đơn hàng để truy vết;
+        <span class="newb">MỚI</span> ghi thêm <code>sl_giao</code> từng dòng (mốc đối soát) và <code>so_dot</code> (thứ tự đợt trong đơn).
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node khach">
+      <span class="who">Thủ kho bệnh viện</span>
+      <span class="what">Kiểm hàng thực tế → sửa SL thực nhận nếu lệch → <strong>ghi sổ</strong></span>
+      <div class="how">Chỉ tới lúc này tồn kho mới tăng. <span class="newb">MỚI</span> Thực nhận &lt; SL giao
+      → bắt buộc ghi lý do chênh lệch từng dòng; phiếu gắn cờ "Có chênh lệch" và sales Miyano nhận thông báo đối soát.</div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Ràng buộc cao nhất của móc này</span>
+    <p>
+      <strong>Móc không bao giờ được ném lỗi ra ngoài.</strong> Việc giao hàng của Miyano không
+      được phụ thuộc vào tình trạng kho của khách. Mọi trục trặc phía kho khách bị nuốt và ghi
+      log, phiếu giao hàng vẫn ghi sổ bình thường. Đó cũng là lý do móc đặt ở
+      <code>on_submit</code> chứ không phải <code>before_submit</code>.
+    </p>
+  </div>
+
+  <p><strong>Khi Miyano huỷ phiếu giao hàng:</strong> phiếu nhập còn nháp thì bị gỡ; phiếu đã
+  được thủ kho ghi sổ thì bị <strong>đảo</strong> theo đúng cơ chế ở QT5 — không dòng sổ nào bị xoá.</p>
+
+  <h3 class="xh3">Luồng ngoại lệ QT3 <span class="newb">BỔ SUNG V2</span></h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Tình huống</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-3.1</td><td>Khách không có kho / kho tắt</td><td>Móc dừng im lặng — việc giao hàng không bị ảnh hưởng</td></tr>
+      <tr><td>NL-3.2</td><td>DN đã sinh phiếu nhập trước đó</td><td>Không sinh trùng — tránh cộng tồn hai lần</td></tr>
+      <tr><td>NL-3.3 <span class="newb">MỚI</span></td><td>Nhận thiếu / hàng hỏng (thực nhận &lt; giao)</td><td>Bắt lý do chênh lệch từng dòng; cờ "Có chênh lệch"; thông báo sales; vào báo cáo đối soát giao – nhận</td></tr>
+      <tr><td>NL-3.4</td><td>Khách từ chối nhận cả đợt</td><td>Không ghi sổ phiếu nháp; Miyano huỷ DN → phiếu nháp bị gỡ; cần chứng từ trả → Sales Return</td></tr>
+      <tr><td>NL-3.5 / 3.6</td><td>Miyano huỷ DN khi phiếu còn nháp / đã ghi sổ</td><td>Nháp → gỡ; đã ghi sổ → phiếu đảo (QT5), không xoá dòng sổ</td></tr>
+      <tr><td>NL-3.7 <span class="newb">MỚI</span></td><td>Hàng giao không có số lô / hạn dùng</td><td>Vẫn nhận (không chặn giao) nhưng dòng bị đánh dấu "thiếu lô/hạn"; vào báo cáo chất lượng dữ liệu để Miyano bật batch/expiry</td></tr>
+      <tr><td>NL-3.8 <span class="newb">MỚI</span></td><td>Lập DN vượt SL đặt còn lại</td><td>ERPNext chặn ngay khi ghi sổ (allowance = 0)</td></tr>
+      <tr><td>NL-3.9 <span class="newb">MỚI</span></td><td>Trả hàng sau khi đã nhận</td><td>Khách: phiếu xuất "Xuất trả lại"; Miyano: Sales Return / Credit Note; đối soát theo DN gốc; hạn mức: VĐ-7</td></tr>
+      <tr><td>NL-3.10 <span class="newb">MỚI</span></td><td>Sửa tăng SL thực nhận vượt SL giao</td><td>Chặn; nhận thừa thật → phiếu "Nhập khác" kèm ghi chú, không sửa phiếu tự sinh</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt4">
+  <h2 class="step"><span class="num">QT4</span> Nghiệp vụ kho của khách hàng</h2>
+  <p class="lede">
+    Bệnh viện tự quản lý danh mục vật tư, tồn theo lô và hạn dùng của mình. Sổ kho là nguồn
+    sự thật duy nhất; tồn theo lô chỉ là bản cache dựng lại được bất cứ lúc nào.
+  </p>
+
+  <h3>Trình tự khi mở kho mới</h3>
+  <div class="chain">
+    <div class="node miyano">
+      <span class="who">Quản trị viên Miyano</span>
+      <span class="what">Mở kho cho khách hàng</span>
+      <div class="how">Đặt thủ kho, ngày bắt đầu quản lý, thông tin in phiếu và mẫu phiếu nhập/xuất.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Bệnh viện</span>
+      <span class="what">Dựng danh mục vật tư</span>
+      <div class="how">Thêm tay từng vật tư, hoặc nhập cả danh mục từ Excel (xem trước rồi mới ghi).</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Bệnh viện</span>
+      <span class="what">Nhập tồn đầu kỳ — làm <strong>một lần</strong></span>
+      <div class="how">Tải file mẫu → điền → xem trước → ghi. Sinh phiếu nhập <code>loai_nhap = "Tồn đầu kỳ"</code>.</div>
+    </div>
+  </div>
+
+  <h3>Vận hành hằng ngày</h3>
+  <div class="figure">
+    <svg viewBox="0 0 780 280" role="img" aria-label="Sơ đồ: phiếu nhập và phiếu xuất ghi vào sổ kho, sổ kho sinh tồn theo lô, cả hai nuôi các báo cáo">
+      <defs>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#16211f"/>
+        </marker>
+        <marker id="ah3d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b8a87"/>
+        </marker>
+      </defs>
+
+      <rect x="15" y="20" width="180" height="54" rx="8" fill="#fff" stroke="#16211f" stroke-width="1.5"/>
+      <text x="105" y="42" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" font-weight="600" fill="#16211f">Phiếu nhập</text>
+      <text x="105" y="60" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" fill="#4a5a57">tự sinh · tay · Excel · mua ngoài</text>
+
+      <rect x="15" y="110" width="180" height="54" rx="8" fill="#fff" stroke="#16211f" stroke-width="1.5"/>
+      <text x="105" y="132" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13" font-weight="600" fill="#16211f">Phiếu xuất</text>
+      <text x="105" y="150" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" fill="#4a5a57">gợi ý lô theo FEFO</text>
+
+      <rect x="265" y="55" width="210" height="74" rx="8" fill="#e8f2f0" stroke="#0f6b5f" stroke-width="2.2"/>
+      <text x="370" y="80" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13.5" font-weight="700" fill="#0b4f46">SỔ KHO</text>
+      <text x="370" y="98" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#0f6b5f">Customer Stock Ledger Entry</text>
+      <text x="370" y="116" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#0b4f46">chỉ ghi thêm · nguồn sự thật</text>
+
+      <rect x="545" y="55" width="210" height="74" rx="8" fill="#fff" stroke="#7b8a87" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="650" y="80" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="13.5" font-weight="600" fill="#16211f">Tồn theo lô</text>
+      <text x="650" y="98" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10.5" fill="#7b8a87">Customer Stock Lot Balance</text>
+      <text x="650" y="116" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11.5" fill="#4a5a57">cache · dựng lại được</text>
+
+      <rect x="265" y="200" width="210" height="56" rx="8" fill="#fbfaf7" stroke="#e2ddd3"/>
+      <text x="370" y="223" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Báo cáo nhập–xuất–tồn</text>
+      <text x="370" y="241" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Thẻ kho</text>
+
+      <rect x="545" y="200" width="210" height="56" rx="8" fill="#fbfaf7" stroke="#e2ddd3"/>
+      <text x="650" y="223" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Tồn kho hiện tại</text>
+      <text x="650" y="241" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="12.5" fill="#16211f">Cảnh báo hạn dùng</text>
+
+      <path d="M 195 47 L 258 72" stroke="#16211f" stroke-width="1.8" fill="none" marker-end="url(#ah3)"/>
+      <text x="212" y="46" font-family="Segoe UI,sans-serif" font-size="10.5" fill="#4a5a57">ghi sổ</text>
+      <path d="M 195 137 L 258 112" stroke="#16211f" stroke-width="1.8" fill="none" marker-end="url(#ah3)"/>
+      <text x="212" y="148" font-family="Segoe UI,sans-serif" font-size="10.5" fill="#4a5a57">ghi sổ</text>
+
+      <path d="M 475 78 L 538 78" stroke="#16211f" stroke-width="1.8" fill="none" marker-end="url(#ah3)"/>
+      <path d="M 538 112 L 475 112" stroke="#7b8a87" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#ah3d)"/>
+      <text x="506" y="140" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9.5" fill="#7b8a87">rebuild</text>
+
+      <path d="M 370 129 L 370 194" stroke="#16211f" stroke-width="1.5" fill="none" marker-end="url(#ah3)"/>
+      <path d="M 650 129 L 650 194" stroke="#16211f" stroke-width="1.5" fill="none" marker-end="url(#ah3)"/>
+    </svg>
+    <p class="figcap">
+      Báo cáo hỏi <em>“đã xảy ra chuyện gì”</em> thì đọc sổ; báo cáo hỏi <em>“hiện đang còn gì”</em>
+      thì đọc tồn theo lô. Mũi tên đứt là đường dựng lại cache từ sổ khi cần.
+    </p>
+  </div>
+
+  <div class="note">
+    <span class="tag">Vòng đời một phiếu kho</span>
+    <p>
+      <strong>Nháp</strong> → <strong>Đã ghi sổ</strong> → <em>(nếu cần)</em> <strong>Đã huỷ</strong>.
+      Không có bước duyệt trung gian — thủ kho tự chịu trách nhiệm trên phiếu của mình.
+      Chỉ khi <strong>ghi sổ</strong> thì dòng sổ mới sinh ra và tồn mới đổi.
+    </p>
+  </div>
+
+  <h3>Hai quy tắc chi phối phiếu xuất</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Quy tắc</th><th>Chi tiết</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Gợi ý lô theo FEFO</strong></td>
+        <td>Hết hạn trước thì xuất trước; lô không có hạn dùng xếp cuối; phân bổ dần qua từng lô cho tới đủ số lượng cần.
+        Đây <strong>chỉ là gợi ý hiển thị</strong> — không chặn, vì người dùng có thể đang xem thử hoặc sắp đổi số lượng.</td>
+      </tr>
+      <tr>
+        <td><strong>Không cho tồn âm</strong></td>
+        <td>Chốt chặn thật nằm ở bước <strong>ghi sổ</strong> phiếu xuất, không nằm ở màn nhập liệu. Xuất quá tồn của lô bị chặn tại đó.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Nhập liệu từ Excel — luôn xem trước rồi mới ghi</h3>
+  <p>
+    Ba nơi nhập Excel (danh mục vật tư, tồn đầu kỳ, bảng dòng của phiếu) đều theo một nguyên tắc:
+    tải file mẫu → điền → hệ thống đọc và <strong>hiển thị trước</strong> kết quả → dòng lỗi được
+    nêu <strong>đủ mọi lý do</strong> và sửa được tại chỗ → khi ổn mới ghi. Dòng lỗi không khoá
+    vĩnh viễn nút Lưu nháp.
+  </p>
+
+  <h3 class="xh3">Luồng ngoại lệ QT4 <span class="newb">BỔ SUNG V2</span></h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Tình huống</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-4.1</td><td>Xuất quá tồn của lô</td><td>Chặn ở bước ghi sổ, nêu lô nào thiếu bao nhiêu; phiếu vẫn ở nháp để sửa</td></tr>
+      <tr><td>NL-4.2</td><td>Vật tư không thuộc kho của phiếu</td><td>Chặn lưu</td></tr>
+      <tr><td>NL-4.3</td><td>Import Excel có dòng lỗi</td><td>Xem trước, nêu đủ lý do từng dòng, sửa tại chỗ; không khoá nút Lưu nháp</td></tr>
+      <tr><td>NL-4.4 <span class="newb">MỚI</span></td><td>Nhập tồn đầu kỳ lần thứ hai</td><td>Chặn — sai lệch xử lý bằng phiếu "Điều chỉnh kiểm kê"</td></tr>
+      <tr><td>NL-4.5 <span class="newb">MỚI</span></td><td>Tạo vật tư trùng tên gần giống</td><td>Cảnh báo mềm liệt kê vật tư giống, không chặn cứng</td></tr>
+      <tr><td>NL-4.6</td><td>Kiểm kê lệch tồn thực tế</td><td>Phiếu điều chỉnh kiểm kê (tăng <span class="newb">MỚI</span> / giảm); không sửa phiếu quá khứ</td></tr>
+      <tr><td>NL-4.7 / 4.8</td><td>Ngày phiếu trước ngày mở kho · kho bị tắt</td><td>Chặn · phần kho không truy cập, phiếu tự sinh dừng</td></tr>
+      <tr><td>NL-4.9 <span class="newb">MỚI</span></td><td>Xuất sử dụng lô đã hết hạn</td><td>Bắt xác nhận thêm; khuyến nghị chuyển "Xuất huỷ - hết hạn"</td></tr>
+      <tr><td>NL-4.10</td><td>Sửa / xoá phiếu đã ghi sổ</td><td>Không được — con đường duy nhất: huỷ → phiếu đảo (QT5) → lập phiếu mới</td></tr>
+      <tr><td>NL-4.11 <span class="newb">MỚI</span></td><td>Kho bật "bắt buộc khoa phòng" nhưng phiếu Xuất sử dụng chưa chọn khoa</td><td>Chặn ghi sổ; chỉ áp phiếu tạo sau khi bật cờ — nháp tồn trước đó không bị khoá</td></tr>
+      <tr><td>NL-4.12 / 4.13 <span class="newb">MỚI</span></td><td>Khoa phòng bị tắt còn trên nháp · tạo khoa trùng tên</td><td>Cảnh báo chọn lại khoa hoạt động · gợi ý khoa có sẵn, trùng tuyệt đối chặn</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">Cấp phát cho khoa phòng / cá nhân — QĐ-9 <span class="newb">MỚI</span></span>
+    <p>
+      Phiếu <strong>Xuất sử dụng</strong> chính là chứng từ cấp phát — không sinh loại phiếu mới.
+      Phiếu ghi thêm <strong>khoa phòng nhận</strong> (danh mục cứng của kho; bắt buộc theo cờ cấu hình
+      từng kho) và <strong>người nhận</strong> (nhập tự do, gợi ý từ lịch sử của khoa — vết truy xuất
+      quan trọng với hoá chất). In lên mẫu TT107/TT200, ký nhận bản giấy. Báo cáo mới: <strong>Cấp phát
+      theo khoa phòng</strong> (kỳ · khoa · vật tư · SL · giá trị · người nhận, drill xuống phiếu).
+      Phiếu lĩnh online của khoa: backlog (VĐ-14).
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt5">
+  <h2 class="step"><span class="num">QT5</span> Huỷ phiếu đã ghi sổ → phiếu đảo</h2>
+  <p class="lede">
+    Đây là quy tắc kế toán, không phải chi tiết kỹ thuật: <strong>sổ kho không bao giờ bị xoá dòng</strong>.
+    Huỷ một phiếu đã ghi sổ nghĩa là sinh thêm một phiếu bù trừ ngược dấu.
+  </p>
+
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Thủ kho</span>
+      <span class="what">Bấm huỷ một phiếu đã ghi sổ</span>
+    </div>
+    <div class="arrow"><span>chốt chặn 1</span></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống chặn nếu</span>
+      <span class="what">Phiếu này chính là một phiếu đảo</span>
+      <div class="how">Phiếu đảo không huỷ được. Nó tồn tại để bù trừ một phiếu khác; huỷ nó là quay lại vòng lặp không lối ra.</div>
+    </div>
+    <div class="arrow"><span>chốt chặn 2</span></div>
+
+    <div class="node auto">
+      <span class="who">Hệ thống chặn nếu</span>
+      <span class="what">Hàng của lô đó đã bị xuất mất rồi</span>
+      <div class="how">
+        Đảo lại sẽ kéo tồn xuống âm. Thông báo nêu rõ lô nào còn bao nhiêu, phiếu đã nhập bao nhiêu,
+        và yêu cầu huỷ phiếu xuất tương ứng trước.
+      </div>
+    </div>
+    <div class="arrow"><span>qua được cả hai</span></div>
+
+    <div class="node">
+      <span class="who">Hệ thống sinh</span>
+      <span class="what">Một <strong>phiếu đảo</strong> mới, đã ghi sổ, số lượng ngược dấu</span>
+      <div class="how">Trên chứng từ số lượng hiển thị dương cho người đọc dễ hiểu, nhưng ghi vào sổ với dấu âm.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="node">
+      <span class="who">Hệ thống đánh dấu</span>
+      <span class="what">Các dòng sổ gốc: <code>da_dao = 1</code></span>
+      <div class="how">Dòng vẫn nằm nguyên trong sổ, vẫn đọc lại được, chỉ mang thêm dấu “đã bị đảo”.</div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Không ai được tự tạo phiếu đảo bằng tay</span>
+    <p>
+      “Phiếu đảo” là một lựa chọn <strong>nhìn thấy được</strong> trong dropdown loại phiếu, nên
+      phải có chốt. Nếu để lọt, người dùng tự chọn nó sẽ ghi số lượng âm vào sổ như thể đang bù
+      trừ một phiếu gốc <em>không hề tồn tại</em> — tức là một cách rút kho — và phiếu đó vĩnh viễn
+      không huỷ được. Chốt chặn dựa trên một cờ trong bộ nhớ mà chỉ mã sinh phiếu đảo đặt được;
+      mọi chốt chặn dựa trên giá trị trường đều giả được từ bên ngoài.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt6">
+  <h2 class="step"><span class="num">QT6</span> Hoá đơn và công nợ</h2>
+  <p class="lede">Luồng ngắn nhất: cổng chỉ hiển thị, không thu tiền và không sinh chứng từ thanh toán.</p>
+
+  <div class="chain">
+    <div class="node miyano">
+      <span class="who">Miyano</span>
+      <span class="what">Lập và ghi sổ <code>Sales Invoice</code></span>
+    </div>
+    <div class="arrow"><span>Notification</span></div>
+    <div class="node">
+      <span class="who">Hệ thống</span>
+      <span class="what">Email “Portal - Hoá đơn phát hành”</span>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Xem hoá đơn và số còn phải trả tại <code>/portal/invoices</code></span>
+      <div class="how">Trạng thái hoá đơn được Việt hoá riêng: Nháp · Chưa thanh toán · TT một phần · Đã thanh toán · Quá hạn · Trả hàng · Đã huỷ.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Tải PDF chứng từ khi cần</span>
+      <div class="how">Đi qua endpoint riêng có kiểm sở hữu, không qua trang in mặc định của hệ thống.</div>
+    </div>
+  </div>
+
+  <h3 class="xh3">Luồng ngoại lệ QT6 <span class="newb">BỔ SUNG V2</span></h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Tình huống</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-6.1</td><td>Hoá đơn phát hành sai</td><td>Miyano Cancel/Amend chuẩn ERPNext; cổng phản ánh bản mới</td></tr>
+      <tr><td>NL-6.2</td><td>Trả hàng đã xuất hoá đơn</td><td>Credit Note hiển thị giá trị âm, badge "Trả hàng"; công nợ giảm tương ứng</td></tr>
+      <tr><td>NL-6.3</td><td>Hoá đơn quá hạn thanh toán</td><td>Badge đỏ + thẻ nhắc trên Tổng quan; danh sách đến hạn trong 7 ngày</td></tr>
+      <tr><td>NL-6.4 <span class="newb">MỚI</span></td><td>Khách thắc mắc số dư công nợ</td><td>Chi tiết hoá đơn liệt kê các lần thanh toán đã đối trừ</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt7">
+  <h2 class="step"><span class="num">QT7</span> Nhập hàng mua ngoài từ NCC khác <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Khách mua vật tư từ nhiều nhà cung ứng. Mọi đợt hàng — của ai cũng vậy — đều phải vào
+    <strong>cùng một sổ kho</strong> thì tồn mới đúng và số liệu tiêu thụ mới đủ để dự trù.
+    NCC khác chỉ là <strong>danh mục dữ liệu</strong>, không có tài khoản đăng nhập.
+  </p>
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Thủ kho</span>
+      <span class="what">Lập phiếu nhập, loại <code>Mua ngoài (NCC khác)</code></span>
+      <div class="how">Chọn NCC từ danh mục của kho (tạo nhanh tại chỗ nếu chưa có); nhập số + ngày chứng từ NCC.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Thủ kho</span>
+      <span class="what">Nhập dòng hàng: vật tư, lô, hạn dùng, số lượng, đơn giá</span>
+      <div class="how">Vật tư chưa có trong danh mục → tạo nhanh ngay trong phiếu (vật tư riêng của khách).</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Thủ kho</span>
+      <span class="what">Lưu nháp → kiểm hàng → <strong>ghi sổ</strong></span>
+      <div class="how">Thiếu số chứng từ: vẫn ghi sổ được nhưng phiếu mang cờ "thiếu chứng từ" để bổ sung sau.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node">
+      <span class="who">Kết quả</span>
+      <span class="what">Sổ kho ghi nhận đợt hàng nguồn "NCC khác"</span>
+      <div class="how">Báo cáo tách được theo nguồn: Miyano vs từng NCC — đầu vào của share-of-wallet (QT9).</div>
+    </div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Ngoại lệ</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-7.1</td><td>Chọn "Mua ngoài" nhưng không chọn NCC</td><td>Chặn lưu — thiếu NCC thì số liệu nguồn cung vô nghĩa</td></tr>
+      <tr><td>NL-7.2</td><td>Thiếu số chứng từ NCC</td><td>Không chặn; phiếu gắn cờ, lọc được để bổ sung sau</td></tr>
+      <tr><td>NL-7.3</td><td>Tạo NCC trùng tên</td><td>Gợi ý chọn NCC có sẵn; trùng tuyệt đối thì chặn</td></tr>
+      <tr><td>NL-7.4</td><td>Vật tư chưa có trong danh mục kho</td><td>Tạo nhanh ngay trong phiếu</td></tr>
+      <tr><td>NL-7.5</td><td>Nhập nhầm, phát hiện sau ghi sổ</td><td>Huỷ → phiếu đảo (QT5) → lập phiếu đúng</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt8">
+  <h2 class="step"><span class="num">QT8</span> Nhật ký vật tư &amp; NXT theo từng đợt hàng <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Định nghĩa: <strong>một phiếu nhập đã ghi sổ = một đợt hàng</strong> (mã phiếu = mã đợt),
+    bất kể nguồn. Đơn Miyano giao 3 lần → 3 đợt. Hai công cụ trả lời hai câu hỏi khác nhau.
+  </p>
+  <div class="chain">
+    <div class="node">
+      <span class="who">Nhật ký vật tư — "chuyện gì đã xảy ra với vật tư này?"</span>
+      <span class="what">Dòng thời gian đầy đủ mọi biến động, dựng từ sổ kho</span>
+      <div class="how">Ngày · phiếu · loại · nguồn/NCC · đợt · lô · hạn · SL nhập/xuất · đơn giá ·
+      <strong>tồn sau giao dịch</strong> · người ghi sổ. Chỉ đọc; dòng bị đảo hiển thị mờ kèm nhãn, không giấu.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node">
+      <span class="who">NXT theo đợt — "đợt hàng này dùng hết chưa?"</span>
+      <span class="what">Mỗi đợt: SL nhập · đã xuất · còn lại · tuổi tồn · % tiêu thụ</span>
+      <div class="how">Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô) — quy ước phân tích,
+      sổ kho không đổi. Đợt tồn quá ngưỡng (mặc định 90 ngày) gắn cờ <strong>chậm luân chuyển</strong>.</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="tag">Vì sao cần theo đợt</span>
+    <p>
+      Tồn theo lô cho biết <em>còn gì</em>; theo đợt cho biết <em>hàng về đợt nào đang nằm im</em> —
+      căn cứ trực tiếp để giảm lượng đặt, tránh tồn ứ và hàng hết hạn. Đây là dữ liệu đầu vào của QT9.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt9">
+  <h2 class="step"><span class="num">QT9</span> Dự trù &amp; vòng lặp Just-in-Time <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Mục đích cuối của mọi dữ liệu trên cổng: <strong>đặt đúng thứ cần, đúng lúc, đúng số lượng</strong> —
+    cho cả khách hàng lẫn kế hoạch cung ứng của Miyano.
+  </p>
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Kho khách — dữ liệu gốc</span>
+      <span class="what">Phiếu <strong>Xuất sử dụng</strong> hằng ngày (mọi nguồn hàng)</span>
+      <div class="how">Chỉ "Xuất sử dụng" được tính là tiêu thụ; loại trừ xuất huỷ, trả lại, điều chỉnh, phiếu đảo.</div>
+    </div>
+    <div class="arrow"><span>ADU kỳ trượt 90 ngày</span></div>
+    <div class="node auto">
+      <span class="who">Hệ thống tính</span>
+      <span class="what">ADU · ngày phủ tồn · gợi ý min / ROP / max cho từng vật tư</span>
+      <div class="how">ROP = ADU × lead time + tồn an toàn. Hệ thống chỉ <strong>gợi ý</strong> — khách chốt bằng tay;
+      vật tư dưới 30 ngày dữ liệu thì không tự cảnh báo.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Tồn dưới min/ROP → cảnh báo → <strong>giỏ bổ sung 1 chạm</strong></span>
+      <div class="how">Vật tư thuộc HĐNT: số lượng điền sẵn = max − tồn (làm tròn theo bội số) → quay về QT1.
+      Ngoài HĐNT: chỉ cảnh báo — khách tự mua ngoài hoặc đề nghị bổ sung hợp đồng.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node miyano">
+      <span class="who">Miyano — Desk</span>
+      <span class="what">Tiêu thụ theo khách/vật tư · dự báo hết hàng · share-of-wallet · đề xuất dự trù</span>
+      <div class="how">Kế hoạch mua và tồn của Miyano bám tiêu thụ thật của khách → giao Just-in-Time,
+      giảm tồn ứ cả hai phía. Điều kiện: điều khoản chia sẻ dữ liệu trong hợp đồng dịch vụ (VĐ-10).</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt10">
+  <h2 class="step"><span class="num">QT10</span> Mua lẻ ngoài hợp đồng nguyên tắc <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Mua lẻ là <strong>đặc quyền bật theo từng khách</strong> (mặc định tắt — khách công lập chỉ bật
+    khi được phép mua ngoài hợp đồng). Hai nhánh: có giá bán lẻ thì đặt thẳng; chưa có giá thì đi
+    qua báo giá và khách <strong>đồng ý ngay trên cổng</strong>.
+  </p>
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Khách hàng — nhánh A: hàng có giá bán lẻ</span>
+      <span class="what">Chuyển chế độ "Mua lẻ" → thêm vào <strong>giỏ mua lẻ</strong> (ngăn riêng) → đặt hàng</span>
+      <div class="how">Không kiểm hạn mức, không gắn Blanket Order; giá từ Price List bán lẻ, chỉ đọc.
+      Mặt hàng đang thuộc HĐNT còn hiệu lực thì <strong>không mua lẻ được</strong> — chống né hạn mức.</div>
+    </div>
+    <div class="arrow"><span>custom_loai_don = "Mua lẻ"</span></div>
+    <div class="node miyano">
+      <span class="who">Miyano</span>
+      <span class="what">Luôn xác nhận đơn mua lẻ (máy trạng thái QT2 + duyệt ngưỡng)</span>
+      <div class="how">Sau xác nhận: giao nhiều đợt (QT3), hoá đơn (QT6/QT12) như đơn thường.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Khách hàng — nhánh B: chưa có giá</span>
+      <span class="what">Yêu cầu báo giá (QT11) → sales lập đơn nháp giá thương lượng</span>
+      <div class="how">Đơn vào trạng thái <strong>"Chờ khách đồng ý"</strong>: khách thấy giá + hạn hiệu lực
+      báo giá, bấm Đồng ý (có log) → Chờ Miyano xác nhận; Không đồng ý (kèm lý do) → sales sửa;
+      quá hạn hiệu lực → tự đóng.</div>
+    </div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Ngoại lệ</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-10.1</td><td>Khách không được bật mua lẻ gọi API</td><td>403; UI không hiển thị chế độ Mua lẻ từ đầu</td></tr>
+      <tr><td>NL-10.2</td><td>Item bật bán lẻ nhưng thiếu giá</td><td>Không đặt thẳng; nút "Yêu cầu báo giá" thay ô số lượng</td></tr>
+      <tr><td>NL-10.3</td><td>Trộn hàng HĐNT + mua lẻ một đơn</td><td>Không xảy ra: hai ngăn giỏ, hai đơn riêng (khác Price List, khác kiểm soát)</td></tr>
+      <tr><td>NL-10.4</td><td>Khách không đồng ý giá báo</td><td>Bắt lý do; đơn về sales sửa giá hoặc huỷ nháp</td></tr>
+      <tr><td>NL-10.5</td><td>Quá hạn hiệu lực báo giá</td><td>Tự đóng + email hai phía; mua lại → yêu cầu mới</td></tr>
+      <tr><td>NL-10.6</td><td>Đơn lẻ giá trị lớn</td><td>Duyệt ngưỡng BR-O9 áp dụng chung — Sales Manager duyệt</td></tr>
+      <tr><td>NL-10.7</td><td>Né hạn mức bằng mua lẻ</td><td>Mặt hàng thuộc HĐNT hiệu lực → chặn mua lẻ, hướng về giỏ HĐNT</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt11">
+  <h2 class="step"><span class="num">QT11</span> Yêu cầu hàng hoá &amp; tìm nguồn cung <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Bắt trọn nhu cầu cổng đang bỏ rơi: hàng <strong>ngoài Blanket Order</strong>, thậm chí
+    <strong>chưa có Item trong ERPNext</strong>. Nhân viên không còn tiếp nhận qua điện thoại/Zalo
+    rồi quên — purchasing có hàng đợi tìm nguồn tập trung, Miyano có số liệu nhu cầu chưa đáp ứng.
+  </p>
+  <div class="chain">
+    <div class="node khach">
+      <span class="who">Khách hàng — 3 đường vào</span>
+      <span class="what">① Tìm danh mục không thấy · ② Dự trù: vật tư ngoài HĐNT thiếu tồn → "Nhờ Miyano tìm nguồn" · ③ Mua lẻ thiếu giá</span>
+      <div class="how">Đường ② điền sẵn tên/quy cách/ĐVT từ danh mục kho khách + SL gợi ý từ ADU —
+      đường chuyển dần hàng mua ngoài về Miyano.</div>
+    </div>
+    <div class="arrow"><span>Portal Item Request · SLA 48h làm việc</span></div>
+    <div class="node auto">
+      <span class="who">Hệ thống định tuyến</span>
+      <span class="what">Notification cho sales phụ trách + bộ phận mua hàng; quá SLA leo thang Sales Manager</span>
+    </div>
+    <div class="arrow"></div>
+    <div class="node miyano">
+      <span class="who">Miyano xử lý — 3 ngả</span>
+      <span class="what">Đã có Item + giá → "Đã có hàng" · Chưa có → tìm nguồn, tạo Item (qua chuẩn hoá) → "Đã báo giá" · Không tìm được → "Không đáp ứng được" + lý do</span>
+      <div class="how">Item mới bắt buộc qua chuẩn hoá mã/tên/ĐVT/nhóm trước khi mở bán.
+      "Đã báo giá" có thể kèm luôn SO nháp "Chờ khách đồng ý" (QT10-B).</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="node">
+      <span class="who">Kết quả</span>
+      <span class="what">Khách đặt được hàng (QT1 / QT10) — mọi trạng thái đều lưu</span>
+      <div class="how">Báo cáo demand pipeline: tỷ lệ chuyển thành đơn, thời gian xử lý, nhóm nhu cầu
+      định kỳ đề xuất đưa vào HĐNT kỳ tới.</div>
+    </div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Ngoại lệ</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-11.1</td><td>Gửi trùng yêu cầu đang mở</td><td>Cảnh báo kèm mã yêu cầu cũ; vẫn gửi được nếu cố ý</td></tr>
+      <tr><td>NL-11.2</td><td>Quá SLA chưa phản hồi</td><td>Leo thang Sales Manager; vào báo cáo yêu cầu chậm</td></tr>
+      <tr><td>NL-11.3</td><td>Thiếu thông tin để tìm nguồn</td><td>Trạng thái "Cần thêm thông tin" — khách bổ sung ngay trên cổng, trao đổi 2 chiều</td></tr>
+      <tr><td>NL-11.4</td><td>Item mới sai chuẩn mã/ĐVT</td><td>Bước chuẩn hoá dữ liệu bắt buộc trước khi mở bán</td></tr>
+      <tr><td>NL-11.5</td><td>Khách huỷ sau khi đã báo giá</td><td>Đóng "Khách huỷ", giữ lịch sử — dữ liệu đánh giá giá cạnh tranh</td></tr>
+      <tr><td>NL-11.7</td><td>Nhu cầu định kỳ</td><td>Tách nhóm trong báo cáo — đầu vào đàm phán bổ sung HĐNT</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="qt12">
+  <h2 class="step"><span class="num">QT12</span> Hoá đơn điện tử trên cổng <span class="newb">MỚI</span></h2>
+  <p class="lede">
+    Module HĐĐT của team Dev phát hành; cổng <strong>chỉ đọc</strong> kết quả và cho khách tự tải.
+    Theo NĐ 123/2020 &amp; TT 78/2021: <strong>XML là bản gốc có giá trị pháp lý, PDF là bản thể hiện</strong>.
+  </p>
+  <div class="chain">
+    <div class="node miyano">
+      <span class="who">Kế toán Miyano</span>
+      <span class="what">Ghi sổ <code>Sales Invoice</code> → module HĐĐT ký số, cấp mã CQT</span>
+      <div class="how">Module cập nhật trường HĐĐT + đính file XML/PDF (private file) lên hoá đơn.
+      Tên trường theo hợp đồng dữ liệu ở BA mục 7.3 — đối chiếu với team Dev trước khi code (VĐ-11).</div>
+    </div>
+    <div class="arrow"><span>sự kiện "phát hành thành công"</span></div>
+    <div class="node auto">
+      <span class="who">Hệ thống</span>
+      <span class="what">Email cho khách: số + ký hiệu HĐĐT, link vào cổng</span>
+    </div>
+    <div class="arrow"></div>
+    <div class="node khach">
+      <span class="who">Khách hàng</span>
+      <span class="what">Màn Hoá đơn: trạng thái · số + ký hiệu · mã tra cứu · <strong>tải XML gốc + PDF</strong> · link tra cứu CQT</span>
+      <div class="how">Tải qua endpoint kiểm phiên + sở hữu <strong>từng lần</strong>, ghi log lượt tải;
+      không tồn tại URL công khai.</div>
+    </div>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Mã</th><th>Ngoại lệ</th><th>Xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>NL-12.1</td><td>SI ghi sổ, HĐĐT chưa phát hành (chờ ký / lỗi NCC HĐĐT)</td><td>"Đang phát hành HĐĐT", chưa có nút tải; công nợ hiển thị bình thường</td></tr>
+      <tr><td>NL-12.2</td><td>HĐĐT bị huỷ / bị thay thế</td><td>Badge rõ + liên kết hoá đơn thay thế; không giấu hoá đơn cũ</td></tr>
+      <tr><td>NL-12.3</td><td>HĐĐT điều chỉnh tăng/giảm</td><td>Liên kết hai chiều gốc ⇄ điều chỉnh trên cả hai dòng</td></tr>
+      <tr><td>NL-12.4</td><td>File XML/PDF thiếu/hỏng</td><td>Nút disable + yêu cầu hỗ trợ tự đính mã hoá đơn; báo kế toán nội bộ</td></tr>
+      <tr><td>NL-12.5</td><td>Chia sẻ link tải ra ngoài</td><td>Không có URL công khai — mỗi lần tải kiểm phiên + sở hữu, khác phiên → 403</td></tr>
+      <tr><td>NL-12.6</td><td>Hoá đơn cũ trước tính năng</td><td>Job backfill một lần đổ khối HĐĐT cho hoá đơn lịch sử</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ai-lam-gi">
+  <h2 class="step"><span class="num">·</span> Ai làm gì, ở đâu</h2>
+
+  <div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Việc</th><th>Ai làm</th><th>Ở đâu</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Tạo khách hàng, bảng giá, hợp đồng nguyên tắc</td><td>Quản trị viên Miyano</td><td>Desk</td></tr>
+      <tr><td>Cấp tài khoản đăng nhập cổng</td><td>Quản trị viên Miyano</td><td>Desk</td></tr>
+      <tr><td>Mở kho cho khách, chọn mẫu phiếu in, bật/tắt kho</td><td>Quản trị viên Miyano</td><td>Desk</td></tr>
+      <tr><td>Đặt hàng, theo dõi đơn, xem hoá đơn</td><td>Người dùng cổng của bệnh viện</td><td><code>/portal</code></td></tr>
+      <tr><td>Gửi yêu cầu huỷ đơn</td><td>Người dùng cổng</td><td><code>/portal</code></td></tr>
+      <tr><td>Quyết định huỷ đơn</td><td>Miyano</td><td>Desk</td></tr>
+      <tr><td>Xác nhận / từ chối đơn</td><td>Nhân viên kinh doanh</td><td>Desk</td></tr>
+      <tr><td>Lập phiếu giao hàng, hoá đơn</td><td>Nhân viên kinh doanh</td><td>Desk</td></tr>
+      <tr><td>Danh mục vật tư, tồn đầu kỳ, phiếu nhập, phiếu xuất, báo cáo, in phiếu</td><td>Thủ kho bệnh viện</td><td><code>/portal/kho</code></td></tr>
+      <tr><td>Tra cứu kho của khách</td><td>Nhân viên Miyano</td><td>Desk — workspace “Kho khách hàng”</td></tr>
+      <tr><td>Danh mục NCC, phiếu nhập mua ngoài <span class="newb">MỚI</span></td><td>Thủ kho bệnh viện</td><td><code>/portal/kho</code></td></tr>
+      <tr><td>Nhật ký vật tư, báo cáo NXT theo đợt <span class="newb">MỚI</span></td><td>Thủ kho bệnh viện</td><td><code>/portal/kho</code></td></tr>
+      <tr><td>Thiết lập min/max, giỏ bổ sung khi thiếu tồn <span class="newb">MỚI</span></td><td>Thủ kho bệnh viện</td><td><code>/portal/kho/du-tru</code></td></tr>
+      <tr><td>Duyệt đơn từ ngưỡng giá trị trở lên <span class="newb">MỚI</span></td><td>Quản lý kinh doanh</td><td>Desk</td></tr>
+      <tr><td>Đối soát chênh lệch giao – nhận <span class="newb">MỚI</span></td><td>Nhân viên kinh doanh</td><td>Desk</td></tr>
+      <tr><td>Báo cáo tiêu thụ, dự báo, đề xuất dự trù <span class="newb">MỚI</span></td><td>Kế hoạch / cung ứng Miyano</td><td>Desk</td></tr>
+      <tr><td>Cấu hình ngưỡng duyệt, tham số dự trù <span class="newb">MỚI</span></td><td>Quản trị viên Miyano</td><td>Desk</td></tr>
+      <tr><td>Danh mục khoa phòng, cấp phát cho khoa/cá nhân <span class="newb">MỚI</span></td><td>Thủ kho bệnh viện</td><td><code>/portal/kho</code></td></tr>
+      <tr><td>Đặt mua lẻ, đồng ý / từ chối báo giá <span class="newb">MỚI</span></td><td>Người dùng cổng của khách</td><td><code>/portal</code></td></tr>
+      <tr><td>Gửi &amp; theo dõi yêu cầu hàng hoá <span class="newb">MỚI</span></td><td>Người dùng cổng của khách</td><td><code>/portal/yeu-cau</code></td></tr>
+      <tr><td>Tiếp nhận yêu cầu, tìm nguồn, tạo Item, báo giá <span class="newb">MỚI</span></td><td>Sales + purchasing Miyano</td><td>Desk</td></tr>
+      <tr><td>Phát hành HĐĐT (module team Dev) <span class="newb">MỚI</span></td><td>Kế toán Miyano</td><td>Desk</td></tr>
+      <tr><td>Tải HĐĐT: XML gốc + PDF + mã tra cứu <span class="newb">MỚI</span></td><td>Người dùng cổng của khách</td><td><code>/portal/invoices</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="chot-chan">
+  <h2 class="step"><span class="num">!</span> Những chốt chặn phải nhớ</h2>
+  <p class="lede">
+    Rút gọn từ tài liệu phân tích nghiệp vụ. Mỗi dòng ở đây tồn tại vì đã có một sự cố thật
+    hoặc một đường vòng thật.
+  </p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Chốt chặn</th><th>Vì sao</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Gộp dòng trùng mã hàng trước khi kiểm hạn mức</td>
+        <td>Hai dòng cùng mã, xét riêng lẻ đều lọt, cộng lại thì vượt.</td>
+      </tr>
+      <tr>
+        <td>Mỗi dòng đơn xuất từ kho mặc định của <em>chính mặt hàng đó</em></td>
+        <td>Ép cả đơn về một kho làm mặt hàng để nơi khác báo âm kho lúc giao.</td>
+      </tr>
+      <tr>
+        <td>Móc phiếu giao hàng không bao giờ ném lỗi</td>
+        <td>Việc giao hàng của Miyano không được phụ thuộc vào kho của khách.</td>
+      </tr>
+      <tr>
+        <td>Một phiếu giao hàng chỉ sinh <em>một</em> phiếu nhập</td>
+        <td>Sinh trùng khiến thủ kho ghi sổ lần hai và cộng tồn hai lần.</td>
+      </tr>
+      <tr>
+        <td>Phiếu tự sinh ở trạng thái <em>nháp</em></td>
+        <td>Hàng chưa kiểm nhận mà tồn đã tăng là sai nghiệp vụ.</td>
+      </tr>
+      <tr>
+        <td>Huỷ phiếu không xoá dòng sổ, mà sinh phiếu đảo</td>
+        <td>Sổ kho là sổ kế toán: chỉ ghi thêm, không sửa quá khứ.</td>
+      </tr>
+      <tr>
+        <td>Không tạo được phiếu đảo bằng tay</td>
+        <td>Nếu lọt thì đó là một cách rút kho, và phiếu đó không huỷ lại được.</td>
+      </tr>
+      <tr>
+        <td>Không cho tồn âm, chặn ở bước ghi sổ</td>
+        <td>Sổ kho không chấp nhận số dư âm.</td>
+      </tr>
+      <tr>
+        <td>Người dùng cổng không có quyền trên các doctype kho</td>
+        <td>Cách ly dữ liệu giữa các bệnh viện dựa vào việc <em>không có quyền nền</em>, không dựa vào bộ lọc. Hệ quả: khách không dùng được trang in mặc định, PDF phải đi qua endpoint riêng.</td>
+      </tr>
+      <tr>
+        <td>Kho khách hàng không chạm vào tồn kho ERPNext</td>
+        <td>Nếu chạm, phiếu xuất của bệnh viện sẽ ghi giá vốn lên sổ sách của Miyano.</td>
+      </tr>
+      <tr>
+        <td>Không giao vượt số lượng đặt (allowance = 0) <span class="newb">MỚI</span></td>
+        <td>Giao vượt phá hạn mức HĐNT và làm sai số liệu dự trù.</td>
+      </tr>
+      <tr>
+        <td>Thực nhận ≤ số giao; mọi dòng lệch bắt buộc lý do <span class="newb">MỚI</span></td>
+        <td>Chênh lệch không lý do là lỗ hổng thất thoát và nguồn tranh cãi giao – nhận.</td>
+      </tr>
+      <tr>
+        <td>Phiếu mua ngoài bắt buộc gắn NCC <span class="newb">MỚI</span></td>
+        <td>Thiếu NCC thì không tách được nguồn cung — share-of-wallet vô nghĩa.</td>
+      </tr>
+      <tr>
+        <td>Tồn đầu kỳ chỉ nhập một lần <span class="newb">MỚI</span></td>
+        <td>Nhập lại tồn đầu là cách dễ nhất phá toàn bộ số dư sổ.</td>
+      </tr>
+      <tr>
+        <td>ADU chỉ tính từ "Xuất sử dụng" <span class="newb">MỚI</span></td>
+        <td>Đưa xuất huỷ / trả / điều chỉnh vào tiêu thụ là dự trù sai có hệ thống.</td>
+      </tr>
+      <tr>
+        <td>Một request_id chỉ tạo một đơn <span class="newb">MỚI</span></td>
+        <td>Mạng chập chờn cộng bấm lại không được sinh đơn trùng.</td>
+      </tr>
+      <tr>
+        <td>Đơn mua lẻ không trừ hạn mức, luôn qua xác nhận <span class="newb">MỚI</span></td>
+        <td>Mua lẻ không được làm méo hạn mức HĐNT; giá lẻ do Miyano kiểm soát.</td>
+      </tr>
+      <tr>
+        <td>Hàng thuộc HĐNT hiệu lực thì không mua lẻ được <span class="newb">MỚI</span></td>
+        <td>Chặn đường né hạn mức và né giá hợp đồng.</td>
+      </tr>
+      <tr>
+        <td>Đơn từ báo giá phải được khách Đồng ý trên cổng <span class="newb">MỚI</span></td>
+        <td>Chốt giá có log, có hạn hiệu lực — không tranh cãi được về sau.</td>
+      </tr>
+      <tr>
+        <td>Item mới từ yêu cầu phải qua chuẩn hoá dữ liệu <span class="newb">MỚI</span></td>
+        <td>Mã/ĐVT đặt tuỳ tiện hôm nay là nợ dữ liệu vĩnh viễn ngày mai.</td>
+      </tr>
+      <tr>
+        <td>File HĐĐT chỉ đi qua endpoint kiểm sở hữu từng lần <span class="newb">MỚI</span></td>
+        <td>XML/PDF là chứng từ tài chính — không bao giờ có URL công khai.</td>
+      </tr>
+      <tr>
+        <td>Hạn mức 0 = không giới hạn — chú thích ngay trên màn khai HĐNT <span class="newb">MỚI</span></td>
+        <td>Nhập nhầm 0 mà tưởng là "cấm đặt" sẽ mở van đặt hàng vô hạn trong im lặng.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">Trạng thái các vấn đề mở (2026-08-11)</span>
+    <p>
+      <strong>VĐ-1 — rò rỉ dữ liệu tài chính qua ô tìm kiếm liên kết: BẮT BUỘC sửa trước go-live v2.</strong>
+      Một tài khoản cổng bất kỳ đang kéo về được sổ hoá đơn của khách khác, gồm cả tổng tiền và số còn
+      phải trả. Phương án bọc <code>search_link</code> đã nêu trong BA mục 8.
+    </p>
+    <p>
+      <strong>VĐ-2 — cảnh báo hạn dùng nhiễu: đã chốt hướng.</strong> Lô không có hạn dùng tách thành
+      nhóm riêng, không tính "sắp hết hạn"; gốc rễ xử lý bằng yêu cầu Miyano bật lô/hạn dùng khi giao
+      (báo cáo chất lượng dữ liệu). <strong>VĐ-3 — đã quyết (QĐ-1):</strong> duyệt theo ngưỡng.
+      Còn chờ chốt: giá trị ngưỡng duyệt (VĐ-8) và cơ chế hoàn hạn mức khi đóng đơn sớm / trả hàng (VĐ-7).
+    </p>
+  </div>
+</section>
+
+<footer class="colophon">
+  <p>
+    Tài liệu trực quan này là bản rút gọn của
+    <a href="BA-miyano_portal_v2.md">BA-miyano_portal_v2.md</a> — tài liệu phân tích nghiệp vụ v2.3
+    (mục tiêu, phạm vi, 12 quy trình + luồng ngoại lệ, ca sử dụng, quy tắc, mô hình dữ liệu, phân quyền,
+    vấn đề mở). Đặc tả từng trường của từng form nằm ở
+    <a href="FormSpec-miyano_portal_v2.md">FormSpec-miyano_portal_v2.md</a>; hướng dẫn thao tác nằm ở
+    <a href="HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md">HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md</a>.
+  </p>
+  <p>Miyano Portal · SupplyCore v2 · BA v2.3 (trạng thái đích) · 2026-08-12</p>
+</footer>
+
+</div>
+</body>
+</html>
