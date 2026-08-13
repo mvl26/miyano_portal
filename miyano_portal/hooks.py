@@ -299,6 +299,9 @@ scheduler_events = {
 		# E6 phần B/NL-10.5 — báo giá "Chờ khách đồng ý" quá hạn hiệu lực:
 		# tự đóng + email hai phía + yêu cầu gốc chuyển "Hết hạn".
 		"miyano_portal.portal_bao_gia.quet_bao_gia_het_han",
+		# US-E5.4 — vật tư dưới min/ROP: email tổng hợp theo tần suất cấu
+		# hình trên từng kho (mặc định TẮT, bật riêng theo kho).
+		"miyano_portal.portal_du_tru_job.quet_canh_bao_ton_daily",
 	],
 }
 

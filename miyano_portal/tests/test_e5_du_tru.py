@@ -416,3 +416,135 @@ class TestSettingsDefault(FrappeTestCase):
 	def test_da_cau_hinh_gia_tri_khac_thi_doc_dung_gia_tri_do(self):
 		frappe.db.set_single_value("Miyano Portal Settings", "so_ngay_adu", 60)
 		self.assertEqual(dutru.so_ngay_adu(), 60)
+
+
+# ============================================================== US-E5.4 (job)
+
+class TestJobCanhBaoTonDaily(_KhoBmTestCase):
+	"""US-E5.4 — job daily + email tổng hợp, mặc định TẮT, bật theo kho."""
+
+	def setUp(self):
+		super().setUp()
+		# Đảm bảo trạng thái sạch bất kể test khác trong CÙNG class đã bật
+		# email/ghi gui_lan_cuoi trước đó (FrappeTestCase rollback theo CLASS).
+		frappe.db.set_value("Customer Warehouse", self.K, {
+			"canh_bao_ton_email_bat": 0,
+			"canh_bao_ton_email_tan_suat": "Hàng tuần",
+			"canh_bao_ton_email_gui_lan_cuoi": None,
+		})
+		frappe.flags.mute_emails = True
+		self.addCleanup(frappe.flags.pop, "mute_emails", None)
+
+	def _tao_vat_tu_thieu_ton(self):
+		"""Một vật tư "Thiếu" thật (tồn < min) để job có gì mà cảnh báo."""
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100))
+		_xuat(self.K, self.VT, 92, frappe.utils.add_days(today, -50))  # tồn còn 8
+		doc = frappe.get_doc("Customer Warehouse Item", self.VT)
+		doc.ton_toi_thieu = 10
+		doc.diem_dat_lai = 25
+		doc.ton_toi_da = 60
+		doc.save(ignore_permissions=True)
+
+	def test_mac_dinh_tat_khong_gui(self):
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		self._tao_vat_tu_thieu_ton()
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(
+			frappe.db.get_value("Customer Warehouse", self.K, "canh_bao_ton_email_gui_lan_cuoi"),
+			None,
+			"kho chưa bật cảnh báo email không được job đụng tới",
+		)
+		self.assertEqual(dem, 0)
+
+	def test_bat_va_co_vat_tu_thieu_thi_gui_email(self):
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, "canh_bao_ton_email_bat", 1)
+		self._tao_vat_tu_thieu_ton()
+
+		frappe.db.delete("Email Queue", {"reference_name": self.K})
+		quet_canh_bao_ton_daily()
+
+		nguoi_nhan = set(frappe.get_all(
+			"Email Queue Recipient",
+			filters={"parent": ["in", frappe.get_all(
+				"Email Queue", filters={"reference_name": self.K}, pluck="name",
+			)]},
+			pluck="recipient",
+		))
+		self.assertIn(BM_USER, nguoi_nhan)
+		self.assertEqual(
+			frappe.utils.getdate(frappe.db.get_value(
+				"Customer Warehouse", self.K, "canh_bao_ton_email_gui_lan_cuoi",
+			)),
+			_today(),
+		)
+
+	def test_khong_co_vat_tu_thieu_thi_khong_gui(self):
+		"""Kho bật email nhưng KHÔNG có vật tư nào dưới min/ROP — không gửi
+		email rỗng (cùng nguyên tắc BR-P3: cảnh báo trên dữ liệu/tình trạng
+		không đáng báo động là cách nhanh nhất khiến khách tắt hết cảnh báo)."""
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, "canh_bao_ton_email_bat", 1)
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 0)
+		self.assertIsNone(
+			frappe.db.get_value("Customer Warehouse", self.K, "canh_bao_ton_email_gui_lan_cuoi")
+		)
+
+	def test_tan_suat_hang_tuan_khong_gui_lai_trong_vong_7_ngay(self):
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, {
+			"canh_bao_ton_email_bat": 1,
+			"canh_bao_ton_email_tan_suat": "Hàng tuần",
+			"canh_bao_ton_email_gui_lan_cuoi": frappe.utils.add_days(_today(), -3),
+		})
+		self._tao_vat_tu_thieu_ton()
+
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 0, "mới gửi cách đây 3 ngày, tần suất Hàng tuần chưa tới hạn")
+
+	def test_tan_suat_hang_tuan_gui_lai_sau_du_7_ngay(self):
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, {
+			"canh_bao_ton_email_bat": 1,
+			"canh_bao_ton_email_tan_suat": "Hàng tuần",
+			"canh_bao_ton_email_gui_lan_cuoi": frappe.utils.add_days(_today(), -8),
+		})
+		self._tao_vat_tu_thieu_ton()
+
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 1)
+
+	def test_tan_suat_hang_ngay_gui_lai_sau_1_ngay(self):
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, {
+			"canh_bao_ton_email_bat": 1,
+			"canh_bao_ton_email_tan_suat": "Hàng ngày",
+			"canh_bao_ton_email_gui_lan_cuoi": frappe.utils.add_days(_today(), -1),
+		})
+		self._tao_vat_tu_thieu_ton()
+
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 1, "tần suất Hàng ngày: đã gửi HÔM QUA thì hôm nay phải đến hạn")
+
+	def test_da_gui_hom_nay_roi_thi_khong_gui_lai_trong_ngay(self):
+		"""Job chạy `daily` — hai lần gọi trong CÙNG một ngày (ví dụ retry
+		thủ công) không được gửi trùng email, kể cả tần suất "Hàng ngày"."""
+		from miyano_portal.portal_du_tru_job import quet_canh_bao_ton_daily
+
+		frappe.db.set_value("Customer Warehouse", self.K, {
+			"canh_bao_ton_email_bat": 1,
+			"canh_bao_ton_email_tan_suat": "Hàng ngày",
+			"canh_bao_ton_email_gui_lan_cuoi": _today(),
+		})
+		self._tao_vat_tu_thieu_ton()
+
+		dem = quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 0)
