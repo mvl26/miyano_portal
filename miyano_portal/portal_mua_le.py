@@ -15,6 +15,28 @@ from frappe.utils import add_days, getdate
 TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 
 
+def dam_bao_duoc_mua_le(customer: str) -> None:
+    """BR-R1 / NL-10.1 — chốt DUY NHẤT bảo vệ toàn bộ nhánh mua lẻ, cả đọc
+    lẫn ghi. Dùng CHUNG bởi `portal_catalog_ban_le` VÀ
+    `portal_order_place(mode="ban_le")`.
+
+    review C-1: bản trước chỉ gọi phép kiểm này (khi đó viết tay, không tách
+    hàm) từ `portal_catalog_ban_le` — đường ĐỌC. `portal_order_place` không
+    hề gọi tới, vì bốn chốt còn lại của đơn lẻ (sở hữu địa chỉ, request_id,
+    ngày giao, bội số) sống ở THÂN CHUNG của `portal_order_place` nên nhánh
+    `_xay_don_ban_le` thừa hưởng miễn phí — BR-R1 là chốt duy nhất chỉ sống
+    ở endpoint đọc, nên là chốt duy nhất bị bỏ sót. Hậu quả: khách chưa bật
+    cờ vẫn POST thẳng `mode="ban_le"` và nhận về một Sales Order hợp lệ,
+    phá DoD "mặc định TẮT không đổi hành vi khách hiện hữu".
+    """
+    if not frappe.db.get_value("Customer", customer, "custom_cho_phep_mua_le"):
+        frappe.local.response["ly_do"] = "khong_duoc_mua_le"
+        raise frappe.PermissionError(
+            "Đơn vị của bạn chưa được bật chế độ Mua lẻ. Vui lòng liên hệ "
+            "nhân viên kinh doanh Miyano."
+        )
+
+
 def price_list_ban_le() -> str:
     """BR-R3 / VĐ-12 — Price List bán lẻ PHẢI được cấu hình trước khi bật
     nhánh mua lẻ. KHÔNG rơi về danh mục rỗng lặng lẽ: một Settings chưa được
@@ -73,12 +95,25 @@ def items_thuoc_hdnt_hieu_luc(customer: str) -> set:
     vẫn phải nằm trong tập này — đó chính xác là tình huống BR-R7 sinh ra để
     chặn (khách hết hạn mức né sang mua lẻ). Chỉ xét "có mặt trong hợp đồng
     còn hiệu lực hay không", không xét "còn hạn mức hay không".
+
+    review M-1 — thêm `docstatus: 1` và `from_date <= hôm nay`: bản trước
+    không lọc hai điều kiện này, nên một HĐNT còn NHÁP (docstatus=0, chưa
+    ai submit — khách không thể đặt hàng theo nó qua `portal_order_place`,
+    `bo.customer`/kiểm ở đó không đòi docstatus nhưng `portal_contracts()`
+    thực tế chỉ liệt kê hợp đồng đã ký thật ở Desk) hoặc HĐNT **đã huỷ**
+    (docstatus=2) vẫn chặn được mua lẻ — khách rơi vào khe hở "không mua
+    HĐNT được (đã huỷ/chưa ký) mà cũng không mua lẻ được". Fail-closed nên
+    không phải một lỗ an ninh (không né được hạn mức), nhưng đúng ra khách
+    phải mua lẻ được trong tình huống đó. Tương tự, một HĐNT có `from_date`
+    ở TƯƠNG LAI (chưa tới hiệu lực) không nên chặn mua lẻ ngay từ bây giờ.
     """
     bo_names = frappe.get_all(
         "Blanket Order",
         filters={
             "customer": customer,
             "blanket_order_type": "Selling",
+            "docstatus": 1,
+            "from_date": ["<=", frappe.utils.today()],
             "to_date": [">=", frappe.utils.today()],
         },
         pluck="name",
@@ -113,6 +148,15 @@ def resolve_ban_le_company(item_codes: list[str]):
 
     Trả `None` khi không có company nào thoả — người gọi phải báo lỗi cấu
     hình rõ ràng, không được đoán bừa một company.
+
+    review I-3 — TẤT ĐỊNH: bản trước dùng `next(iter(candidates))`, một
+    phần tử TUỲ Ý của `set` — thứ tự lặp của `set` phụ thuộc hash, có thể
+    khác nhau giữa hai lần gọi (khác tiến trình worker, khác lần khởi động
+    Python). Trên site nhiều company, HAI lần đặt CÙNG một giỏ có thể ra
+    HAI `company` khác nhau — sai sổ, sai kho, sai chuỗi số chứng từ. Ưu
+    tiên company mặc định toàn hệ thống (`Global Defaults.default_company`)
+    nếu nó nằm trong tập hợp lệ; nếu không, chọn phần tử NHỎ NHẤT theo thứ
+    tự chữ cái (`sorted()[0]`) — tất định tuyệt đối, không phụ thuộc hash.
     """
     candidates = None
     for item_code in item_codes:
@@ -127,7 +171,40 @@ def resolve_ban_le_company(item_codes: list[str]):
         candidates = companies if candidates is None else (candidates & companies)
         if not candidates:
             return None
-    return next(iter(candidates)) if candidates else None
+    if not candidates:
+        return None
+    mac_dinh = frappe.defaults.get_global_default("company")
+    if mac_dinh in candidates:
+        return mac_dinh
+    return sorted(candidates)[0]
+
+
+def items_san_sang_giao(item_codes: list[str]) -> set:
+    """review I-3 — tập `item_code` CÓ ÍT NHẤT MỘT company với
+    `default_warehouse` cấu hình (`Item Default`).
+
+    Dùng cho `portal_catalog_ban_le` để báo tín hiệu "chưa sẵn sàng giao"
+    NGAY TẠI DANH MỤC, thay vì để khách điền hết giỏ, chọn địa chỉ, bấm
+    Xác nhận rồi mới nhận "Không xác định được công ty giao hàng, liên hệ
+    quản trị viên hệ thống" ở bước cuối phễu — một lỗi CẤU HÌNH (admin quên
+    khai Item Default khi bật bán lẻ + đặt giá cho mã mới) bị đẩy tới đúng
+    người không sửa được nó (khách hàng), ở đúng bước tệ nhất để nhận nó.
+
+    MỘT truy vấn duy nhất cho CẢ danh mục (không lặp `resolve_ban_le_company`
+    cho từng dòng — N+1). Không đồng nghĩa "đặt được": khi thật sự đặt,
+    `resolve_ban_le_company` còn đòi TOÀN GIỎ đồng thuận một company — kiểm
+    đó vẫn chạy lại ở `portal_order_place`, hàm này chỉ là tín hiệu SỚM.
+    """
+    if not item_codes:
+        return set()
+    return set(frappe.get_all(
+        "Item Default",
+        filters={
+            "parent": ["in", item_codes], "parenttype": "Item",
+            "default_warehouse": ["is", "set"],
+        },
+        pluck="parent",
+    ))
 
 
 def cap_nhat_yeu_cau_goc(so, trang_thai_moi: str) -> None:
@@ -144,6 +221,13 @@ def cap_nhat_yeu_cau_goc(so, trang_thai_moi: str) -> None:
     if not ten_yc:
         return
     if not frappe.db.exists("Portal Item Request", ten_yc):
+        # review M-4 — dữ liệu KHÔNG NHẤT QUÁN (Link trỏ tới bản ghi không
+        # còn tồn tại), không phải luồng bình thường. Vẫn không ném lỗi
+        # (không được chặn hành động chính), nhưng phải để lại dấu vết.
+        frappe.log_error(
+            title="cap_nhat_yeu_cau_goc: yêu cầu gốc không tồn tại",
+            message=f"SO {so.name}: custom_yeu_cau_goc={ten_yc} không tìm thấy Portal Item Request.",
+        )
         return
     yc = frappe.get_doc("Portal Item Request", ten_yc)
     if yc.trang_thai == trang_thai_moi:
@@ -152,6 +236,18 @@ def cap_nhat_yeu_cau_goc(so, trang_thai_moi: str) -> None:
         CHUYEN_TRANG_THAI_HOP_LE,
     )
     if trang_thai_moi not in CHUYEN_TRANG_THAI_HOP_LE.get(yc.trang_thai, set()):
+        # review M-4 — bản trước nuốt im lặng. Đây thường là dấu hiệu ai đó
+        # trên Desk đã tự tay đổi trạng thái yêu cầu trước khi SO tới bước
+        # này — vẫn KHÔNG ném lỗi (không được chặn luồng chính: khách đồng
+        # ý / job đóng báo giá đã thành công ở SO), chỉ log để điều tra sau.
+        frappe.log_error(
+            title="cap_nhat_yeu_cau_goc: cạnh chuyển không hợp lệ",
+            message=(
+                f"SO {so.name}: không chuyển được yêu cầu gốc {ten_yc} từ "
+                f"'{yc.trang_thai}' sang '{trang_thai_moi}' — cạnh không có "
+                f"trong CHUYEN_TRANG_THAI_HOP_LE."
+            ),
+        )
         return
     yc.trang_thai = trang_thai_moi
     if trang_thai_moi == "Đã chuyển thành đơn" and not yc.don_lien_ket:

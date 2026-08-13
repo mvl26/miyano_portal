@@ -36,6 +36,12 @@ Ghi chú: `request_id` trùng → trả đơn cũ, `da_ton_tai: true` (không l�
 không gắn `against_blanket_order` (BR-O15). `mode=ban_le`: bỏ kiểm hạn mức, `custom_loai_don="Mua lẻ"`,
 chặn item đang thuộc HĐNT hiệu lực (BR-R7).
 
+**M-5 (review E6 phần B) — LỆCH TÀI LIỆU đã có TỪ TRƯỚC E6, ghi nhận chứ không sửa:** tham số thân
+request thật sự tên là **`contract`**, không phải `hdnt` như JSON mẫu ở trên — `frontend/src/views/
+Cart.vue` (đã chạy thật, từ E1) gọi `portal_order_place({ contract: ..., ... })`. Đổi tên tham số cho
+khớp tài liệu sẽ vỡ SPA đang chạy mà không có gì buộc Phần C phải đổi theo cùng lúc; giữ nguyên `contract`
+là quyết định có chủ đích, không phải nợ kỹ thuật. Khi mode=ban_le, gửi `contract: null`/bỏ trống.
+
 ### 1.2 `api.portal.portal_order_track` — thêm `dot_giao[]`, `chap_nhan{}` (E3, E6)
 ```jsonc
 // Response bổ sung

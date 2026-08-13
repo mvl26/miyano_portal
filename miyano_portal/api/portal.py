@@ -13,7 +13,9 @@ from miyano_portal.portal_dat_hang import (
 )
 from miyano_portal.portal_mua_le import (
     cap_nhat_yeu_cau_goc,
+    dam_bao_duoc_mua_le,
     han_hieu_luc_bao_gia,
+    items_san_sang_giao,
     items_thuoc_hdnt_hieu_luc,
     price_list_ban_le,
     qua_han_hieu_luc,
@@ -151,7 +153,7 @@ def _get_outstanding(customer: str) -> float:
 def portal_me() -> dict:
     customer = get_portal_customer()
     cust = frappe.db.get_value(
-        "Customer", customer, ["customer_name", "tax_id"], as_dict=True
+        "Customer", customer, ["customer_name", "tax_id", "custom_cho_phep_mua_le"], as_dict=True
     ) or {}
     return {
         "customer": customer,
@@ -159,6 +161,11 @@ def portal_me() -> dict:
         "tax_id": cust.get("tax_id"),
         "outstanding": _get_outstanding(customer),
         "addresses": _customer_addresses(customer),
+        # review (Phần C báo thiếu) — không có field này, client phải GỌI
+        # THỬ `portal_catalog_ban_le` mỗi lần chỉ để biết có nên hiện bộ
+        # chuyển "Theo HĐNT | Mua lẻ" hay không (BR-R1) — một vòng round-trip
+        # thừa, và một khách chưa bật cờ tự nhiên nhận 403 ngay từ lúc mở app.
+        "cho_phep_mua_le": bool(cust.get("custom_cho_phep_mua_le")),
     }
 
 
@@ -171,6 +178,17 @@ def portal_contracts() -> list:
         filters={
             "customer": customer,
             "blanket_order_type": "Selling",
+            # review M-1 (E6 phần B) — thêm `docstatus: 1` + `from_date <=
+            # hôm nay`: trước bản này danh sách "hợp đồng của tôi" có thể lẫn
+            # một Blanket Order còn NHÁP (chưa ai ký ở Desk) hoặc chưa tới
+            # ngày hiệu lực, khiến khách tưởng mình đã có hợp đồng đang chạy.
+            # Cùng bộ điều kiện với `portal_mua_le.items_thuoc_hdnt_hieu_luc`
+            # (BR-R7) — hai nơi định nghĩa "HĐNT còn hiệu lực" PHẢI khớp
+            # nhau: lệch nhau nghĩa là khách thấy hợp đồng ở màn này nhưng
+            # BR-R7 lại không (hoặc ngược lại) coi mặt hàng của nó là "thuộc
+            # HĐNT hiệu lực" ở màn mua lẻ.
+            "docstatus": 1,
+            "from_date": ["<=", today],
             "to_date": [">=", today],
         },
         fields=["name", "from_date", "to_date"],
@@ -245,12 +263,7 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None) -> dict:
     chưa bật — kiểm phía SERVER, không tin UI đã ẩn nút chuyển chế độ.
     """
     customer = get_portal_customer()
-    if not frappe.db.get_value("Customer", customer, "custom_cho_phep_mua_le"):
-        frappe.local.response["ly_do"] = "khong_duoc_mua_le"
-        raise frappe.PermissionError(
-            "Đơn vị của bạn chưa được bật chế độ Mua lẻ. Vui lòng liên hệ "
-            "nhân viên kinh doanh Miyano."
-        )
+    dam_bao_duoc_mua_le(customer)  # BR-R1/NL-10.1
 
     price_list = price_list_ban_le()  # VĐ-12 — lỗi rõ nếu Settings chưa cấu hình.
 
@@ -272,18 +285,27 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None) -> dict:
     )
 
     thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
+    # review I-3 — tín hiệu "chưa sẵn sàng giao" NGAY TẠI DANH MỤC, một truy
+    # vấn cho cả trang thay vì gọi resolve_ban_le_company() N lần.
+    san_sang = items_san_sang_giao([r.item_code for r in rows])
 
     out = []
     for r in rows:
         gia = _gia_hien_hanh(r.item_code, price_list)
+        # review M-3 — `Item.description` là Text Editor (HTML) và ERPNext
+        # TỰ ĐỘNG chép `item_name` vào đây làm giá trị khởi tạo khi tạo
+        # Item — bản trước trả thẳng `r.description or ""` nên cột "Quy
+        # cách" trên danh mục lẻ thường hiện lại CHÍNH TÊN HÀNG (hoặc một
+        # đoạn `<div>…</div>` thô nếu ai đó gõ mô tả có định dạng), sai loại
+        # dữ liệu khách nhìn thấy. Bóc HTML rồi bỏ nếu nó chỉ là bản sao của
+        # tên hàng — thà trống còn hơn thông tin sai.
+        quy_cach = frappe.utils.strip_html(r.description or "").strip()
+        if quy_cach == (r.item_name or "").strip():
+            quy_cach = ""
         out.append({
             "item_code": r.item_code,
             "ten": r.item_name,
-            # Item KHÔNG có trường "quy cách đóng gói" riêng (khác Portal
-            # Item Request/Customer Warehouse Item, hai doctype MỚI của E6
-            # CÓ trường này) — dùng `description` làm nguồn gần nhất, không
-            # bịa thêm một custom field chỉ để khớp tên cột trong API Spec.
-            "quy_cach": r.description or "",
+            "quy_cach": quy_cach,
             "dvt": r.stock_uom,
             "gia_ban_le": float(gia) if gia else None,
             # VAT chưa có nguồn dữ liệu thật trong app này — `portal_catalog`
@@ -293,6 +315,11 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None) -> dict:
             "trang_thai_hang": trang_thai_hang(r.item_code),
             "thuoc_hdnt": r.item_code in thuoc_hdnt,
             "co_gia": bool(gia),
+            # review I-3 — False: admin bật bán lẻ + đặt giá nhưng CHƯA khai
+            # Item Default (company/kho) cho mặt hàng này. Phần C nên khoá
+            # nút thêm giỏ và hiện "Miyano đang cập nhật, vui lòng liên hệ"
+            # thay vì để khách điền hết giỏ mới nhận lỗi ở bước Xác nhận.
+            "san_sang_ban": r.item_code in san_sang,
         })
     return {"items": out}
 
@@ -611,6 +638,12 @@ def portal_order_place(
     mode = (mode or "hdnt").strip()
     if mode not in ("hdnt", "ban_le"):
         frappe.throw("Chế độ đặt hàng không hợp lệ.", frappe.ValidationError)
+    if mode == "ban_le":
+        # review C-1 — CHỐT DUY NHẤT của BR-R1 trên đường GHI. Phải gọi
+        # SỚM NHẤT có thể, trước cả kiểm request_id: một khách chưa bật cờ
+        # không được phép tương tác với chế độ mua lẻ theo BẤT KỲ đường nào,
+        # kể cả thử lại một request_id cũ.
+        dam_bao_duoc_mua_le(customer)
 
     # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
     # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
@@ -665,10 +698,37 @@ def portal_order_place(
     # Aggregate the incoming cart by item_code so duplicate lines for the same
     # item can't each pass the quota check individually while together
     # exceeding the remaining quota (duplicate-line quota bypass).
+    #
+    # review C-2 — CHUẨN HOÁ `item_code` VỀ `Item.name` CHÍNH TẮC ngay tại
+    # đây, TRƯỚC khi gộp. `tabItem` chạy collation `utf8mb4_unicode_ci`
+    # (case-insensitive, PAD SPACE): MariaDB coi "VT0005", "vt0005",
+    # "VT0005 " là CÙNG MỘT BẢN GHI, nhưng khoá gộp `aggregated` trước đây
+    # là chuỗi Python thô — "VT0005" và "vt0005" tách thành HAI khoá riêng
+    # trong dict, mỗi khoá đi qua `han_muc_con`/kiểm BR-R7 ĐỘC LẬP trên cùng
+    # một mặt hàng thật. Hai hậu quả của cùng một lỗ:
+    #   (a) nhánh HĐNT — "duplicate-line quota bypass" mà comment ở trên
+    #       tuyên bố đã chặn thực ra CHƯA chặn hết: 2 dòng "VT0005"/"vt0005"
+    #       mỗi dòng dưới hạn mức riêng lẻ vẫn lọt dù tổng vượt hạn mức thật;
+    #   (b) nhánh mua lẻ (BR-R7) — "vt0005" không khớp phần tử "VT0005" của
+    #       set `thuoc_hdnt` (so sánh bằng Python `in`, không qua DB), nên
+    #       một mặt hàng đang thuộc HĐNT hiệu lực lách được BR-R7 chỉ bằng
+    #       cách gõ mã hàng bằng chữ thường — và Frappe vẫn LƯU đơn với
+    #       item_code chính tắc thật (`_validate_links` tự chuẩn hoá Link
+    #       field về `name`), tức đây không phải "đơn rác", mà là một Sales
+    #       Order thật trên đúng mặt hàng BR-R7 phải chặn.
+    # Mã không tra ra Item thật bị từ chối NGAY, không để lọt xuống các
+    # tầng kiểm phía dưới rồi lộ ra một thông điệp khó hiểu (hạn mức/giá của
+    # một mặt hàng không tồn tại).
     aggregated = {}
     for line in items:
+        raw_code = (line.get("item_code") or "").strip()
+        item_code = frappe.db.get_value("Item", raw_code, "name") if raw_code else None
+        if not item_code:
+            frappe.throw(
+                f"Không tìm thấy mặt hàng '{raw_code or '(trống)'}'.",
+                frappe.ValidationError,
+            )
         qty = float(line.get("qty") or 0)
-        item_code = line.get("item_code")
         aggregated[item_code] = aggregated.get(item_code, 0) + qty
 
     if mode == "ban_le":
@@ -706,6 +766,22 @@ def _so_status_vi(so_status, per_delivered=None):
         return "Chờ xác nhận"
     # To Deliver and Bill / To Bill / To Deliver, all with 0 delivered so far.
     return "Đang xử lý"
+
+
+def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
+    """`_so_status_vi` chỉ đọc từ điển trạng thái GỐC của ERPNext
+    (`so.status`), không biết gì về `workflow_state` của Client Portal.
+    Job daily `portal_bao_gia.quet_bao_gia_het_han` chuyển `workflow_state`
+    sang "Báo giá hết hạn" nhưng `docstatus` VẪN 0 (nháp không submit) —
+    không bọc ở đây thì một đơn ĐÃ CHẾT đọc ra y hệt "Chờ xác nhận" đang
+    sống, ở CẢ danh sách đơn (`portal_order_history`) lẫn chi tiết đơn
+    (`portal_order_track`). Một hàm DÙNG CHUNG ở cả hai, không phải hai lần
+    viết tay điều kiện này — lệch nhau là đúng kiểu lỗi đã bắt ở
+    `portal_mua_le.han_hieu_luc_bao_gia`.
+    """
+    if workflow_state == "Báo giá hết hạn":
+        return "Báo giá đã hết hiệu lực"
+    return _so_status_vi(so_status, per_delivered)
 
 
 # Sales Invoice uses a different status vocabulary than Sales Order, so it needs
@@ -747,12 +823,18 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
 def portal_order_history(limit=20, start=0) -> list:
     rows = frappe.get_list(
         "Sales Order",
-        fields=["name", "transaction_date", "grand_total", "status", "per_delivered"],
+        # review (Phần C báo thiếu) — custom_loai_don/workflow_state/
+        # custom_yeu_cau_goc: danh sách đơn không phân biệt được đơn "Mua
+        # lẻ" với "Theo HĐNT" (badge/icon giỏ 2 ngăn), và không biết đơn nào
+        # đang "Chờ khách đồng ý" để hiện banner ngay trên danh sách thay vì
+        # bắt khách mở từng đơn.
+        fields=["name", "transaction_date", "grand_total", "status", "per_delivered",
+                "custom_loai_don", "workflow_state", "custom_yeu_cau_goc"],
         order_by="transaction_date desc, creation desc",
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
-        r["status_vi"] = _so_status_vi(r.pop("status"), r.get("per_delivered"))
+        r["status_vi"] = _so_status_vi_full(r.pop("status"), r.get("per_delivered"), r.get("workflow_state"))
     return rows
 
 
@@ -872,22 +954,41 @@ def portal_order_track(order) -> dict:
     # US-E6.5 / `30_API_Spec` §1.2 — banner "Chờ bạn đồng ý" (F-07) cần biết
     # hạn hiệu lực để hiện "Báo giá hiệu lực đến dd/mm/yyyy"; chỉ có ý nghĩa
     # khi đơn ĐANG ở trạng thái này, các trạng thái khác trả `None`.
+    #
+    # review I-2(b) — `can_dong_y` KHÔNG được là `True` vô điều kiện: đơn có
+    # thể vẫn còn `workflow_state == "Chờ khách đồng ý"` (job daily CHƯA kịp
+    # quét) nhưng đã quá `han_hieu_luc` — client phải biết để tắt nút Đồng ý
+    # ngay, không đợi đến khi khách bấm rồi mới nhận 417.
+    # review I-2(c) — `han_hieu_luc`/hết hạn chỉ có ý nghĩa với đơn "Mua lẻ"
+    # (BR-R5 nằm trong QT10); đơn HĐNT ở "Chờ khách đồng ý" (luồng E2 gốc)
+    # không có khái niệm hiệu lực N ngày.
+    la_mua_le = so.get("custom_loai_don") == "Mua lẻ"
     chap_nhan = None
     if so.get("workflow_state") == "Chờ khách đồng ý":
+        het_han = la_mua_le and qua_han_hieu_luc(so.transaction_date)
         chap_nhan = {
-            "can_dong_y": True,
-            "han_hieu_luc": str(han_hieu_luc_bao_gia(so.transaction_date)),
+            "can_dong_y": not het_han,
+            "han_hieu_luc": str(han_hieu_luc_bao_gia(so.transaction_date)) if la_mua_le else None,
         }
+
+    # `_so_status_vi_full` bọc đúng tình huống job daily chuyển
+    # `workflow_state` sang "Báo giá hết hạn" mà `docstatus` vẫn 0 — dùng
+    # CHUNG với `portal_order_history`, không viết tay điều kiện này hai lần.
+    status_vi = _so_status_vi_full(so.status, so.per_delivered, so.get("workflow_state"))
 
     return {
         "order": so.name,
-        "status_vi": _so_status_vi(so.status, so.per_delivered),
+        "status_vi": status_vi,
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
         # US-E2.2 — khách phải đọc được lý do ngay trên chi tiết đơn, không
         # phải đi tìm lại email.
         "ly_do_tu_choi": so.get("custom_ly_do_tu_choi") or "",
+        # review (Phần C báo thiếu)
+        "loai_don": so.get("custom_loai_don") or "Theo HĐNT",
+        "workflow_state": so.get("workflow_state") or "",
+        "yeu_cau_goc": so.get("custom_yeu_cau_goc") or "",
         "chap_nhan": chap_nhan,
         "milestones": milestones,
         "items": [
@@ -1084,7 +1185,15 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     # đồng ý: một báo giá đã hết hiệu lực không còn gì để khách phản hồi,
     # job daily (`portal_bao_gia.quet_bao_gia_het_han`) sẽ tự đóng nó —
     # khách phải gửi yêu cầu báo giá mới, không phải bấm nút trên đơn cũ.
-    if qua_han_hieu_luc(so.transaction_date):
+    #
+    # review I-2(c) — CHỈ áp cho đơn "Mua lẻ". State "Chờ khách đồng ý"
+    # KHÔNG phải riêng của E6: E2 (US-E2.5, trước cả E6) đã dùng nó cho MỌI
+    # loại đơn cần khách duyệt giá, không có khái niệm hiệu lực N ngày nào.
+    # Thiếu điều kiện `custom_loai_don == "Mua lẻ"` ở đây thì một đơn HĐNT
+    # đang chờ khách duyệt (luồng E2 gốc, có thể mở nhiều tuần) cũng bị chặn
+    # 417 và bị `quet_bao_gia_het_han` tự đóng — một hành vi BR-R5 (nằm
+    # trong §4.10, phạm vi QT10/mua lẻ) chưa từng yêu cầu.
+    if so.get("custom_loai_don") == "Mua lẻ" and qua_han_hieu_luc(so.transaction_date):
         han = han_hieu_luc_bao_gia(so.transaction_date)
         frappe.local.response["ly_do"] = "qua_han_hieu_luc"
         frappe.throw(
@@ -1156,6 +1265,21 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # KHÔNG được để một trục trặc ở đây làm hỏng việc đồng ý đã ghi
         # nhận thành công phía trên (xem docstring của hàm).
         cap_nhat_yeu_cau_goc(so, "Đã chuyển thành đơn")
+    elif action == "khong_dong_y":
+        # review I-5/NL-10.4 — BA §4.10 ghi rõ "lý do lưu vào đơn VÀ yêu
+        # cầu gốc". Bản trước chỉ ghi Comment lên `so` (dòng phía trên) —
+        # `Portal Item Request` liên kết đứng yên ở "Đã báo giá" không dấu
+        # vết, F-23 (màn chi tiết yêu cầu, đọc `binh_luan`) không có gì để
+        # sales thấy khách chê gì. KHÔNG đổi `trang_thai`: máy trạng thái
+        # (portal_item_request.py) không có cạnh nào rời "Đã báo giá" để
+        # "sales sửa giá" — sales sửa thẳng trên SO đã liên kết, yêu cầu gốc
+        # giữ nguyên "Đã báo giá", chỉ thêm dấu vết bằng Comment.
+        ten_yc = so.get("custom_yeu_cau_goc")
+        if ten_yc and frappe.db.exists("Portal Item Request", ten_yc):
+            frappe.get_doc("Portal Item Request", ten_yc).add_comment(
+                "Comment",
+                f"[Portal] Khách không đồng ý báo giá {so.name} — lý do: {ghi_chu}",
+            )
 
     return {"trang_thai_moi": so.get("workflow_state")}
 
@@ -1250,6 +1374,13 @@ def portal_yeu_cau_detail(name) -> dict:
     )
     return {
         "name": doc.name,
+        # review (Phần C báo thiếu) — F-23 hiện đầu trang "Mã + ... ngày gửi"
+        # (xem FormSpec §F-22 "Danh sách yêu cầu" cột "Ngày gửi" đã có ở
+        # `portal_yeu_cau_list`, nhưng chi tiết F-23 lại thiếu) và cần biết
+        # AI đã gửi yêu cầu khi một Customer có nhiều user portal
+        # (`portal_provision` cấp nhiều user/một Customer).
+        "ngay": doc.creation,
+        "nguoi_yeu_cau": doc.nguoi_yeu_cau,
         "loai": doc.loai,
         "ten_hang": doc.ten_hang,
         "quy_cach": doc.quy_cach,

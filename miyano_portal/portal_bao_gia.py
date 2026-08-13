@@ -85,7 +85,17 @@ def quet_bao_gia_het_han(moc=None) -> int:
     dem = 0
     for so_row in frappe.get_all(
         "Sales Order",
-        filters={"workflow_state": TRANG_THAI_CHO_KHACH, "docstatus": 0},
+        # review I-2(c) — CHỈ quét đơn "Mua lẻ". State "Chờ khách đồng ý"
+        # không phải riêng của E6: E2 (US-E2.5) đã dùng nó cho MỌI loại đơn
+        # cần khách duyệt giá, không có khái niệm hiệu lực N ngày. Thiếu
+        # điều kiện này thì một đơn HĐNT đang chờ khách duyệt theo luồng E2
+        # gốc (có thể mở nhiều tuần, không ai coi là "hết hạn") cũng bị job
+        # này tự đóng — một hành vi BR-R5 (phạm vi QT10/mua lẻ) chưa từng
+        # yêu cầu cho nhánh HĐNT.
+        filters={
+            "workflow_state": TRANG_THAI_CHO_KHACH, "docstatus": 0,
+            "custom_loai_don": "Mua lẻ",
+        },
         fields=["name", "customer", "transaction_date", "custom_yeu_cau_goc"],
     ):
         han = han_hieu_luc_bao_gia(so_row.transaction_date)
