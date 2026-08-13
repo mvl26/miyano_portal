@@ -61,15 +61,29 @@ def _thong_ke_90n(name: str) -> tuple[int, float]:
 	(kho_bao_cao_cap_phat, reports.py) thì CÓ lọc riêng "Xuất sử dụng" —
 	hai con số phục vụ hai câu hỏi khác nhau ("khoa này có mặt trên bao
 	nhiêu phiếu xuất nói chung" vs "khoa này được cấp phát bao nhiêu"), cố
-	tình không dùng chung một phép đếm."""
+	tình không dùng chung một phép đếm.
+
+	F-3 (review E8, CHẶN): "không lọc riêng loai_xuat" chỉ hợp lệ cho việc
+	KHÔNG thu hẹp về mỗi "Xuất sử dụng" — nó KHÔNG hợp lệ cho việc đếm cả
+	"Phiếu đảo". Một cặp xuất-huỷ để lại phiếu GỐC docstatus=2 (rớt khỏi
+	`docstatus=1` một cách tự nhiên) NHƯNG phiếu ĐẢO (BR-K9, hệ tự tạo)
+	docstatus=1, mang khoa_phong copy nguyên từ phiếu gốc (xem
+	_tao_phieu_dao) và tong_tien DƯƠNG — nếu không loại, một lần xuất-rồi-
+	huỷ-ngay-vì-nhầm-khoa vẫn cộng đủ cả số phiếu lẫn giá trị vào đúng
+	khoa đó, trong khi báo cáo cấp phát (reports.bao_cao_cap_phat_rows,
+	lọc loai_xuat=="Xuất sử dụng") đúng đắn cho ra 0 — hai con số của CÙNG
+	một khoa, trên hai màn cạnh nhau, chọi nhau."""
 	tu_ngay = frappe.utils.add_days(frappe.utils.today(), -90)
 	so_phieu = frappe.db.count(
-		"Customer Stock Issue", {"khoa_phong": name, "docstatus": 1, "ngay": [">=", tu_ngay]}
+		"Customer Stock Issue", {
+			"khoa_phong": name, "docstatus": 1, "ngay": [">=", tu_ngay],
+			"loai_xuat": ["!=", "Phiếu đảo"],
+		}
 	)
 	tong = frappe.db.sql(
 		"""select coalesce(sum(tong_tien), 0) from `tabCustomer Stock Issue`
-		   where khoa_phong=%s and docstatus=1 and ngay >= %s""",
-		(name, tu_ngay),
+		   where khoa_phong=%s and docstatus=1 and ngay >= %s and loai_xuat != %s""",
+		(name, tu_ngay, "Phiếu đảo"),
 	)
 	return so_phieu, float(tong[0][0] or 0)
 

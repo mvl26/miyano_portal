@@ -147,6 +147,24 @@ class TestKhoaPhongCatalog(_KhoE8Fixture):
         all_rows = khoa_phong_mod.list_rows(self.kho["kho_bm"], ca_inactive=True)
         self.assertIn(khoa["name"], [r["name"] for r in all_rows])
 
+    def test_90n_stats_exclude_cancelled_and_reversal_vouchers(self):
+        """F-3 (review E8, CHẶN): thủ kho xuất rồi huỷ ngay vì nhầm khoa —
+        kịch bản đời thật, không phải tình huống hiếm. Phiếu GỐC rớt khỏi
+        docstatus=1 một cách tự nhiên, nhưng phiếu ĐẢO (hệ tự tạo, BR-K9)
+        docstatus=1 và mang khoa_phong + tong_tien dương y hệt phiếu gốc —
+        nếu _thong_ke_90n không tự loại "Phiếu đảo", màn "Danh mục khoa
+        phòng" sẽ hiện 1 phiếu/giá trị dương cho một khoa mà báo cáo cấp
+        phát (đúng) lại hiện 0 — hai con số của CÙNG một khoa chọi nhau."""
+        khoa = khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "Khoa Xuất Rồi Huỷ"})
+        doc = self._xuat(khoa_phong=khoa["name"], so_luong=10, ngay=frappe.utils.today())
+        doc.submit()
+        doc.cancel()
+
+        rows = khoa_phong_mod.list_rows(self.kho["kho_bm"])
+        row = next(r for r in rows if r["name"] == khoa["name"])
+        self.assertEqual(row["so_phieu_90n"], 0, "phiếu đã huỷ + phiếu đảo không được tính")
+        self.assertEqual(row["gia_tri_90n"], 0.0, "phiếu đã huỷ + phiếu đảo không được tính")
+
     def test_inactive_department_cannot_be_selected_on_new_voucher(self):
         """NL-4.12 nửa còn lại (nửa "kiểm khi ghi sổ" đã có test riêng ở
         TestKhoaPhongInactiveGuard): khoa tắt không xuất hiện trong danh mục
@@ -513,6 +531,24 @@ class TestBaoCaoCapPhat(_KhoE8Fixture):
             self.khoa_hs.name, self.kho["vt_bm"], "LO-GANG", 3, "Sẽ bị huỷ"
         )
         self.doc_se_huy.cancel()
+        self.dao_cua_doc_se_huy = frappe.db.get_value(
+            "Customer Stock Issue", {"phieu_goc": self.doc_se_huy.name}, "name"
+        )
+        # F-2 (review E8, CHẶN): _tao_phieu_dao() luôn đặt `ngay = today()`
+        # (ngày HUỶ THẬT, không phải ngày phiếu gốc) — nếu suite chạy vào một
+        # ngày NGOÀI kỳ báo cáo cố định 01-12/08/2026 (rất có thể, vì đây là
+        # demo data cố định còn "hôm nay" thì trôi), phiếu đảo tự bị BỘ LỌC
+        # NGÀY loại ra trước khi kịp chạm tới chốt `loai_xuat != "Xuất sử
+        # dụng"` mà reports.bao_cao_cap_phat_rows() thực sự dùng để loại nó
+        # (BR-CP4) — nghĩa là chốt ĐÓ không hề được test này chạm tới, và sức
+        # chẩn đoán của cả lớp test phụ thuộc lịch chạy CI. Ép cả phiếu đảo
+        # LẪN dòng sổ của nó vào TRONG kỳ (ngày huỷ 08/08, cùng kỳ với ngày
+        # xuất 05/08 — đúng kịch bản thật "huỷ trong vài ngày") để buộc report
+        # phải tự loại bằng ĐÚNG cơ chế loai_xuat, không nhờ ngày tháng.
+        frappe.db.set_value("Customer Stock Issue", self.dao_cua_doc_se_huy, "ngay", "2026-08-08")
+        frappe.db.set_value(
+            "Customer Stock Ledger Entry", {"chung_tu": self.dao_cua_doc_se_huy}, "ngay", "2026-08-08"
+        )
 
     def _xuat_va_ghi_so(self, khoa_phong, vat_tu, so_lo, so_luong, nguoi_nhan):
         doc = self._xuat(
@@ -539,21 +575,42 @@ class TestBaoCaoCapPhat(_KhoE8Fixture):
         self.assertAlmostEqual(by_ten["Khoa Xét nghiệm"]["pct"], 41.8, places=1)
         self.assertAlmostEqual(by_ten["Chưa gắn khoa"]["pct"], 17.4, places=1)
 
+        # F-2 (review E8): với phiếu đảo giờ nằm TRONG kỳ (setUp), 538.000
+        # đúng bằng số PRD CHỈ KHI report tự loại đúng bằng loai_xuat, không
+        # phải nhờ ngày tháng — nếu chốt đó vỡ (gộp lẫn "Phiếu đảo"), dòng bù
+        # trừ 3 hộp sẽ bị trừ khống vào Khoa Hồi sức (số âm), 538.000 sẽ tụt
+        # xuống ~92.000 và test này tự đỏ vì SỐ sai, không cần biết thêm gì.
+        for n in result["nhom"]:
+            for d in n["dong"]:
+                self.assertGreaterEqual(d["gia_tri"], 0, "không dòng nào được mang giá trị âm")
+                self.assertGreaterEqual(d["sl"], 0, "không dòng nào được mang số lượng âm")
+
     def test_chua_gan_khoa_group_is_separate_not_hidden(self):
         result = self._chay()
         khoa_phong_values = [n["khoa_phong"] for n in result["nhom"]]
         self.assertIn(None, khoa_phong_values, "nhóm Chưa gắn khoa phải có mặt, không bị giấu")
 
     def test_reversed_voucher_excluded(self):
+        """Phiếu đảo (self.dao_cua_doc_se_huy) được ép nằm TRONG kỳ báo cáo ở
+        setUp() — nên phép loại trừ dưới đây chỉ pass được nhờ ĐÚNG chốt
+        `loai_xuat != "Xuất sử dụng"` (BR-CP4), không nhờ bộ lọc ngày (xem
+        F-2, review E8: trước bản sửa, test này xanh vì lý do sai)."""
         result = self._chay()
         all_phieu = {row["phieu"] for n in result["nhom"] for row in n["dong"]}
         self.assertNotIn(self.doc_se_huy.name, all_phieu)
         # Đảo cũng không lẻn vào dưới danh nghĩa "Phiếu đảo" của chính nó.
-        dao_name = frappe.db.get_value(
-            "Customer Stock Issue", {"phieu_goc": self.doc_se_huy.name}, "name"
-        )
-        self.assertIsNotNone(dao_name)
-        self.assertNotIn(dao_name, all_phieu)
+        self.assertIsNotNone(self.dao_cua_doc_se_huy)
+        self.assertNotIn(self.dao_cua_doc_se_huy, all_phieu)
+
+        # Khoa Hồi sức KHÔNG được bị trừ khống bởi dòng bù trừ (3 hộp x
+        # 46.000 = 138.000): nếu chốt loai_xuat vỡ, dòng đảo (so_luong DƯƠNG,
+        # xem docstring ledger.post_lines) sẽ bị hàm đảo dấu (-e["so_luong"])
+        # biến thành ÂM trong bao_cao_cap_phat_rows, kéo tổng của khoa xuống
+        # dưới 538.000 đúng 138.000 — số PRD (538.000, đã khẳng định ở
+        # test_exact_numbers_from_prd) TỰ NÓ là bằng chứng, nhắc lại ở đây để
+        # ý định của test không phụ thuộc test khác.
+        by_ten = {n["ten_hien_thi"]: n for n in result["nhom"]}
+        self.assertAlmostEqual(by_ten["Khoa Hồi sức"]["gia_tri"], 538000, places=2)
 
     def test_drill_down_row_has_receiver_and_voucher(self):
         result = self._chay()
