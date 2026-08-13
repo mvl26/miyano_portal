@@ -77,20 +77,34 @@ _PREFIXES = ("/api/resource/", "/api/v1/resource/", "/api/v2/document/")
 def _login_bvbm() -> requests.Session | None:
     """Đăng nhập thật qua HTTP, trả về session đã có cookie `sid`, hoặc
     None nếu bench không phản hồi (môi trường chặn loopback) — caller phải
-    `skipTest()` khi None, không được coi None là "không rò rỉ"."""
+    `skipTest()` khi None, không được coi None là "không rò rỉ".
+
+    Vì sao thử hai lần với thời gian chờ nới dần: bản trước chỉ bắt
+    `ConnectionError` và chờ 5 giây. Nhưng khi chạy TOÀN SUITE, bench đang bận
+    xử lý chính các test khác nên lần đăng nhập này thường xuyên quá 5 giây, và
+    `ReadTimeout` là nhánh anh em của `ConnectionError` chứ không phải lớp con
+    — nên nó lọt qua `except`, `setUp` ném, và cả lớp test đỏ vì lý do không
+    liên quan gì tới cái đang kiểm. Đã đỏ hai lần theo đúng kiểu đó.
+
+    Thử lại một lần với hạn chờ dài hơn giữ được ĐỘ PHỦ trong trường hợp
+    thường gặp (bench chỉ chậm, không chết). Chỉ khi cả hai lần đều hỏng mới
+    trả None để caller `skipTest` — bỏ qua có ghi nhận, không phải xanh giả.
+    """
     session = requests.Session()
     session.headers.update({"Host": SITE})
-    try:
-        resp = session.post(
-            f"{BASE_URL}/api/method/login",
-            json={"usr": USER_BVBM, "pwd": DEMO_PASSWORD},
-            timeout=5,
-        )
-    except requests.exceptions.ConnectionError:
+    for han_cho in (5, 30):
+        try:
+            resp = session.post(
+                f"{BASE_URL}/api/method/login",
+                json={"usr": USER_BVBM, "pwd": DEMO_PASSWORD},
+                timeout=han_cho,
+            )
+        except requests.exceptions.RequestException:
+            continue
+        if resp.status_code == 200:
+            return session
         return None
-    if resp.status_code != 200:
-        return None
-    return session
+    return None
 
 
 class TestRestGuardChanDoctypeCon(FrappeTestCase):
