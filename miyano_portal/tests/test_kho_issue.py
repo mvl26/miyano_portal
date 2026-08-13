@@ -34,15 +34,22 @@ class TestPhieuXuat(FrappeTestCase):
         doc.submit()
         return doc
 
-    def _xuat(self, so_luong=10, so_lo="LO-A", xac_nhan=0, lines=None):
+    def _xuat(self, so_luong=10, so_lo="LO-A", xac_nhan=0, lines=None, ngay=None, loai_xuat=None):
         items = lines or [{
             "vat_tu": self.kho["vt_bm"], "so_lo": so_lo,
             "so_luong": so_luong, "xac_nhan_het_han": xac_nhan,
         }]
         doc = frappe.get_doc({
             "doctype": "Customer Stock Issue",
-            "kho": self.kho["kho_bm"], "ngay": "2026-03-01",
-            "loai_xuat": "Xuất sử dụng",
+            "kho": self.kho["kho_bm"],
+            # I-1 (review E4 phần A): PHẢI cùng mốc "hôm nay" với
+            # han_con_han/han_da_het ở setUp() — _chan_lo_het_han_chua_xac_nhan
+            # so hạn dùng với NGÀY PHIẾU (self.ngay), không phải ngày hệ thống
+            # chạy test. Một ngày phiếu hardcode ("2026-03-01") lệch khỏi mốc
+            # tương đối của han_da_het/han_con_han sẽ khiến các test hết hạn
+            # dưới đây pass/fail vì SAI LÝ DO, tuỳ ngày chạy test.
+            "ngay": ngay or frappe.utils.today(),
+            "loai_xuat": loai_xuat or "Xuất sử dụng",
             "noi_nhan": "Khoa Hồi sức tích cực",
             "nguoi_nhan": "Điều dưỡng Lan",
             "items": items,
@@ -110,6 +117,32 @@ class TestPhieuXuat(FrappeTestCase):
             self.kho["kho_bm"], self.kho["vt_bm"], "LO-HET-HAN"
         )
         self.assertEqual(bal["so_luong"], 15)
+
+    def test_backdated_issue_not_falsely_blocked_when_lot_was_still_valid_then(self):
+        """I-1 (review E4 phần A) — "chặn nhầm": lô hết hạn HÔM NAY (ngày hệ
+        thống) nhưng phiếu ghi một NGÀY QUÁ KHỨ mà tại đó lô vẫn còn hạn —
+        guard không được đòi xác nhận một điều sai sự thật. So với `self.ngay`
+        (ngày phiếu), không phải `frappe.utils.today()`."""
+        # Hạn hôm nay đã hết (10 ngày trước), nhưng CÒN hạn tại ngày phiếu
+        # lùi về 40 ngày trước (hạn hết SAU ngày phiếu 30 ngày).
+        han = frappe.utils.add_days(frappe.utils.today(), -10)
+        ngay_phieu = frappe.utils.add_days(frappe.utils.today(), -40)
+        self._nhap("LO-BU", 20, 10000, han=han)
+        doc = self._xuat(so_luong=5, so_lo="LO-BU", xac_nhan=0, ngay=ngay_phieu)
+        doc.submit()  # KHÔNG được ném lỗi
+        self.assertEqual(doc.docstatus, 1)
+
+    def test_future_dated_issue_still_blocked_when_lot_expires_by_then(self):
+        """I-1 — "bỏ lọt": lô CÒN hạn hôm nay nhưng phiếu ghi một NGÀY TƯƠNG
+        LAI mà tại đó lô đã hết hạn — guard PHẢI vẫn đòi xác nhận, dù
+        `frappe.utils.today()` (ngày hệ thống) cho kết quả "chưa hết hạn"."""
+        han = frappe.utils.add_days(frappe.utils.today(), 5)
+        ngay_phieu = frappe.utils.add_days(frappe.utils.today(), 20)
+        self._nhap("LO-TL", 20, 10000, han=han)
+        doc = self._xuat(so_luong=5, so_lo="LO-TL", xac_nhan=0, ngay=ngay_phieu)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.submit()
+        self.assertIn("hết hạn", str(ctx.exception))
 
     def test_cancel_returns_stock_via_reversal(self):
         doc = self._xuat(so_luong=30)

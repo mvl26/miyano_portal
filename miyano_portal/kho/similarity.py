@@ -6,19 +6,30 @@ chỉ sửa ở đây, không rải rác giữa kho/ncc.py và kho/vat_tu.py.
 """
 
 import difflib
+import re
 import unicodedata
 
 NGUONG_GAN_GIONG = 0.85
 
+# M-1 (review E4 phần A): "Cty  ABC" (hai dấu cách) và "Cty ABC." đều phải
+# fold về cùng một chuỗi với "Cty ABC" — nếu không, la_trung_tuyet_doi() coi
+# chúng là hai tên KHÁC NHAU và unique (kho, ten_ncc) không chặn được một cặp
+# trùng tên rõ ràng chỉ lệch khoảng trắng/dấu câu.
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_WHITESPACE_RE = re.compile(r"\s+")
+
 
 def khong_dau(value) -> str:
     """Chuẩn hoá: trim, hạ chữ thường, bỏ dấu tiếng Việt (kể cả đ/Đ, vốn
-    KHÔNG decompose qua NFD như các dấu thanh/dấu phụ khác — phải thay tay)."""
+    KHÔNG decompose qua NFD như các dấu thanh/dấu phụ khác — phải thay tay),
+    gộp khoảng trắng liên tiếp, và bỏ dấu câu."""
     s = (value or "").strip()
     s = s.replace("đ", "d").replace("Đ", "D")
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    return unicodedata.normalize("NFC", s).lower()
+    s = unicodedata.normalize("NFC", s).lower()
+    s = _PUNCT_RE.sub("", s)
+    return _WHITESPACE_RE.sub(" ", s).strip()
 
 
 def ty_le_giong(a, b) -> float:

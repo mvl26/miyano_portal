@@ -36,10 +36,26 @@ PXN_USER = "pxnabc@demo.miyano"
 STAFF_ROLES = ["System Manager", "Sales Manager", "Sales User"]
 
 # Module chứa toàn bộ doctype của app. Hai tiền tố dưới đây là quy ước đặt tên
-# của tính năng kho — mọi doctype kho, hiện tại và tương lai, đều bắt đầu bằng
-# một trong hai.
+# của MỘT HỌ chứng từ/danh mục kho nhiều-doctype — mọi doctype kho thuộc họ
+# đó, hiện tại và tương lai, đều bắt đầu bằng một trong hai.
 KHO_MODULE = "Miyano Portal"
-KHO_PREFIXES = ("Customer Warehouse", "Customer Stock", "Customer Supplier")
+KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
+
+# Doctype kho nhưng KHÔNG chia sẻ tiền tố với "anh em" nào — mỗi tên ở đây là
+# một danh mục riêng, độc lập của kho (NCC, khoa phòng...), không phải một họ
+# nhiều-doctype kiểu "Customer Stock *". Khai báo TƯỜNG MINH từng TÊN ĐẦY ĐỦ,
+# so bằng SO KHỚP CHÍNH XÁC (==), khác hẳn cơ chế startswith() của
+# KHO_PREFIXES.
+#
+# M-8 (review E4 phần A): bản trước nhét thẳng "Customer Supplier" vào
+# KHO_PREFIXES. Nhìn giống gọn nhưng SAI VỀ CHẤT: KHO_PREFIXES so bằng
+# startswith(), nên một chuỗi ĐẦY ĐỦ nằm trong đó biến _nap_doctype_kho()
+# thành một allowlist thủ công cho ĐÚNG MỘT tên — bất kỳ doctype tương lai
+# nào tình cờ bắt đầu bằng "Customer Supplier..." (ví dụ "Customer Supplier
+# Contact") sẽ lọt qua vô hình, đúng kiểu lưới an toàn mà _nap_doctype_kho()
+# sinh ra để chặn. "Customer Department" (E8) sẽ gặp đúng ngã ba này — thêm
+# nó vào ĐÂY, không phải vào KHO_PREFIXES.
+KHO_DOCTYPES_KHAC: tuple[str, ...] = ("Customer Supplier",)
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
 # sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
@@ -91,20 +107,27 @@ def _nap_doctype_kho() -> dict[str, list[str]]:
         fields=["name", "istable"],
         order_by="name asc",
     )
-    kho_rows = [r for r in rows if r.name.startswith(KHO_PREFIXES)]
+    def _la_doctype_kho(ten: str) -> bool:
+        return ten.startswith(KHO_PREFIXES) or ten in KHO_DOCTYPES_KHAC
+
+    kho_rows = [r for r in rows if _la_doctype_kho(r.name)]
     la = [
         r.name for r in rows
-        if not r.name.startswith(KHO_PREFIXES)
+        if not _la_doctype_kho(r.name)
         and r.name not in KHONG_PHAI_DOCTYPE_KHO
     ]
     if la:
         frappe.throw(
             f"Doctype {la} thuộc module {KHO_MODULE} nhưng không khớp tiền tố "
-            f"kho nào ({', '.join(KHO_PREFIXES)}) và cũng không nằm trong "
-            "KHONG_PHAI_DOCTYPE_KHO. Suy động chỉ đúng bằng đúng quy ước đặt "
-            "tên của nó, nên trường hợp này phải ĐỎ chứ không được bỏ qua: "
-            "hoặc đổi tên doctype cho đúng quy ước (nếu là doctype kho), hoặc "
-            "khai báo nó vào KHONG_PHAI_DOCTYPE_KHO (nếu không phải)."
+            f"kho nào ({', '.join(KHO_PREFIXES)}), không nằm trong "
+            f"KHO_DOCTYPES_KHAC ({', '.join(KHO_DOCTYPES_KHAC)}), và cũng "
+            "không nằm trong KHONG_PHAI_DOCTYPE_KHO. Suy động chỉ đúng bằng "
+            "đúng quy ước đặt tên của nó, nên trường hợp này phải ĐỎ chứ "
+            "không được bỏ qua: đổi tên doctype cho đúng tiền tố (nếu nó "
+            "thuộc một họ chứng từ/danh mục kho nhiều-doctype), khai báo tên "
+            "đầy đủ vào KHO_DOCTYPES_KHAC (nếu là doctype kho độc lập, không "
+            "chia sẻ tiền tố với ai), hoặc khai báo vào KHONG_PHAI_DOCTYPE_KHO "
+            "(nếu không phải doctype kho)."
         )
     if not kho_rows:
         frappe.throw(

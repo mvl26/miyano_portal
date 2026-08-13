@@ -87,6 +87,17 @@ class TestNccSave(_E4Fixture):
         with self.assertRaises(frappe.ValidationError):
             kho_api.kho_ncc_save({"ten_ncc": "cty abc"})
 
+    def test_exact_duplicate_ignores_whitespace_and_punctuation(self):
+        """M-1 (review): "Cty  ABC" (hai dấu cách) và "Cty ABC." (dấu chấm
+        cuối) đều là cùng một tên với "Cty ABC" — không được lọt thành hai
+        NCC khác nhau chỉ vì lệch khoảng trắng/dấu câu."""
+        frappe.set_user(BM_USER)
+        kho_api.kho_ncc_save({"ten_ncc": "Cty ABC"})
+        with self.assertRaises(frappe.ValidationError):
+            kho_api.kho_ncc_save({"ten_ncc": "Cty  ABC"})
+        with self.assertRaises(frappe.ValidationError):
+            kho_api.kho_ncc_save({"ten_ncc": "Cty ABC."})
+
     def test_near_duplicate_name_suggests_instead_of_blocking(self):
         """TC-E4-01 (B): gần giống >= 85% (không dấu) -> KHÔNG chặn, trả
         goi_y_trung để client gợi ý chọn NCC có sẵn (NL-7.3)."""
@@ -138,8 +149,14 @@ class TestNccSave(_E4Fixture):
         ncc = kho_api.kho_ncc_save({"ten_ncc": "NCC Đã Dùng"})
         self._nhap(loai_nhap="Mua ngoài (NCC khác)", ncc=ncc["name"], so_chung_tu_ncc="HD-01")
 
-        with self.assertRaises(frappe.ValidationError):
+        # M-3 (review): frappe.LinkExistsError LÀ subclass của ValidationError
+        # — assertRaises(ValidationError) trần vẫn pass y hệt nếu on_trash bị
+        # xoá sạch và Frappe tự chặn bằng LinkExistsError của riêng nó (vì
+        # `ncc` là Link field). Assert thêm đúng thông điệp CỦA on_trash để
+        # chốt chặn bị gỡ thì test này thật sự đỏ.
+        with self.assertRaises(frappe.ValidationError) as ctx:
             frappe.delete_doc("Customer Supplier", ncc["name"], ignore_permissions=True)
+        self.assertIn("Hãy tắt", str(ctx.exception))
         self.assertTrue(frappe.db.exists("Customer Supplier", ncc["name"]))
 
         out = kho_api.kho_ncc_save({"name": ncc["name"], "ten_ncc": "NCC Đã Dùng", "active": 0})
@@ -216,17 +233,28 @@ class TestPhieuMuaNgoai(_E4Fixture):
 
     def test_mua_ngoai_missing_chung_tu_still_saves_and_posts_with_flag(self):
         """TC-E4-04 (C): bỏ trống so_chung_tu_ncc -> vẫn lưu/ghi sổ được,
-        gắn thieu_chung_tu=1; kho_phieu_list lọc được theo cờ."""
+        gắn thieu_chung_tu=1; kho_phieu_list lọc được theo cờ.
+
+        I-4 (review): đi qua kho_phieu_nhap_save/kho_phieu_submit (đường lưu
+        thật portal dùng), KHÔNG phải frappe.get_doc — để TC-E4-04 thật sự
+        được phủ qua endpoint, không chỉ qua controller.
+        """
         frappe.set_user(BM_USER)
         ncc = kho_api.kho_ncc_save({"ten_ncc": "NCC Thiếu Chứng Từ"})
-        doc = self._nhap(loai_nhap="Mua ngoài (NCC khác)", ncc=ncc["name"])
-        self.assertEqual(doc.docstatus, 1)
-        self.assertEqual(doc.thieu_chung_tu, 1)
+        out = kho_api.kho_phieu_nhap_save({
+            "ngay": frappe.utils.today(), "loai_nhap": "Mua ngoài (NCC khác)",
+            "ncc": ncc["name"],
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-TCT",
+                       "so_luong": 5, "don_gia": 2000}],
+        })
+        out = kho_api.kho_phieu_submit("Customer Stock Receipt", out["name"])
+        self.assertEqual(out["docstatus"], 1)
+        self.assertEqual(out["thieu_chung_tu"], 1)
 
         rows_thieu = kho_api.kho_phieu_list("nhap", thieu_chung_tu=1)
-        self.assertIn(doc.name, [r["name"] for r in rows_thieu])
+        self.assertIn(out["name"], [r["name"] for r in rows_thieu])
         rows_du = kho_api.kho_phieu_list("nhap", thieu_chung_tu=0)
-        self.assertNotIn(doc.name, [r["name"] for r in rows_du])
+        self.assertNotIn(out["name"], [r["name"] for r in rows_du])
 
     def test_mua_ngoai_with_chung_tu_has_no_flag(self):
         frappe.set_user(BM_USER)
@@ -263,19 +291,56 @@ class TestPhieuMuaNgoai(_E4Fixture):
         self.assertIn("Không thể tạo phiếu đảo bằng tay", str(ctx.exception))
 
     def test_endpoint_accepts_ncc_fields_and_persists_them(self):
-        """Đường lưu thật (kho_phieu_nhap_save), không chỉ frappe.get_doc —
-        bài học E3: field header mới phải sống sót qua đúng endpoint."""
+        """Đường lưu thật (kho_phieu_nhap_save), không chỉ frappe.get_doc.
+
+        I-4 (review): assert trên dict trả về của MỘT lần gọi không chứng
+        minh được gì — dict đó là doc.as_dict() trong bộ nhớ, không đọc lại
+        DB. Bài học E3 là "field chết ở lần lưu THỨ HAI" (kho_phieu_nhap_save
+        dựng lại items từ payload mỗi lần lưu) — nên bài test phải LƯU-SỬA-LƯU
+        rồi đọc lại bằng frappe.db.get_value(), không phải tin dict trả về.
+        """
         frappe.set_user(BM_USER)
         ncc = kho_api.kho_ncc_save({"ten_ncc": "NCC Qua Endpoint"})
+        ngay_phieu = frappe.utils.today()
         out = kho_api.kho_phieu_nhap_save({
-            "ngay": "2026-02-01", "loai_nhap": "Mua ngoài (NCC khác)",
+            "ngay": ngay_phieu, "loai_nhap": "Mua ngoài (NCC khác)",
             "ncc": ncc["name"], "so_chung_tu_ncc": "HD-777",
-            "ngay_chung_tu": "2026-01-30",
+            "ngay_chung_tu": frappe.utils.add_days(ngay_phieu, -1),
             "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-EP", "so_luong": 5, "don_gia": 2000}],
         })
-        self.assertEqual(out["ncc"], ncc["name"])
-        self.assertEqual(out["so_chung_tu_ncc"], "HD-777")
-        self.assertEqual(out["thieu_chung_tu"], 0)
+        # Lần lưu THỨ HAI trên CÙNG phiếu (sửa nháp) — đây chính là chỗ E3 vỡ.
+        out = kho_api.kho_phieu_nhap_save({
+            "name": out["name"],
+            "ngay": ngay_phieu, "loai_nhap": "Mua ngoài (NCC khác)",
+            "ncc": ncc["name"], "so_chung_tu_ncc": "HD-777",
+            "ngay_chung_tu": frappe.utils.add_days(ngay_phieu, -1),
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-EP", "so_luong": 5, "don_gia": 2000}],
+        })
+
+        row = frappe.db.get_value(
+            "Customer Stock Receipt", out["name"],
+            ["ncc", "so_chung_tu_ncc", "ngay_chung_tu", "thieu_chung_tu"], as_dict=True,
+        )
+        self.assertEqual(row.ncc, ncc["name"])
+        self.assertEqual(row.so_chung_tu_ncc, "HD-777")
+        self.assertEqual(row.ngay_chung_tu.isoformat(), frappe.utils.add_days(ngay_phieu, -1))
+        self.assertEqual(row.thieu_chung_tu, 0)
+
+    def test_endpoint_cannot_spoof_thieu_chung_tu_flag(self):
+        """I-4 (review): client gửi thieu_chung_tu=0 kèm so_chung_tu_ncc rỗng
+        — cờ hệ thống KHÔNG được nhận từ client, controller phải tự tính lại
+        bất kể payload nói gì. Đọc lại từ DB, không tin response."""
+        frappe.set_user(BM_USER)
+        ncc = kho_api.kho_ncc_save({"ten_ncc": "NCC Giả Mạo Cờ"})
+        out = kho_api.kho_phieu_nhap_save({
+            "ngay": frappe.utils.today(), "loai_nhap": "Mua ngoài (NCC khác)",
+            "ncc": ncc["name"], "so_chung_tu_ncc": "",
+            "thieu_chung_tu": 0,  # cố giả mạo — phải bị bỏ qua
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-GIA", "so_luong": 5, "don_gia": 2000}],
+        })
+        self.assertEqual(
+            frappe.db.get_value("Customer Stock Receipt", out["name"], "thieu_chung_tu"), 1
+        )
 
     def test_ncc_from_other_kho_rejected(self):
         frappe.set_user(PXN_USER)
@@ -352,6 +417,50 @@ class TestTonDauMotLan(_E4Fixture):
         )
         self.assertEqual(so_phieu_truoc, so_phieu_sau)
 
+    def test_manual_second_ton_dau_via_endpoint_blocked(self):
+        """I-2 (review): BR-K21 KHÔNG chỉ chặn được ở bước upload Excel — thủ
+        kho vẫn có thể mở màn Phiếu nhập, tự chọn loai_nhap="Tồn đầu kỳ" từ
+        dropdown và gõ tay, một đường hoàn toàn không đi qua parse_workbook.
+        Đi qua kho_phieu_nhap_save (endpoint thật), không phải get_doc."""
+        frappe.set_user(BM_USER)
+        f1 = self._upload()
+        result = kho_api.kho_import_commit(f1.file_url)
+        ngay = frappe.db.get_value("Customer Stock Receipt", result["receipt"], "ngay")
+
+        # Chốt chặn nằm trong validate() của controller, nên chạy ngay từ bước
+        # LƯU NHÁP (kho_phieu_nhap_save gọi insert()) — còn sớm hơn cả bước
+        # ghi sổ. Đúng "chặn ngay từ bước upload" nhưng cho đường tay.
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            kho_api.kho_phieu_nhap_save({
+                "ngay": frappe.utils.today(), "loai_nhap": "Tồn đầu kỳ",
+                "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-TAY",
+                           "so_luong": 5, "don_gia": 1000}],
+            })
+        msg = str(ctx.exception)
+        self.assertIn("Kho đã nhập tồn đầu kỳ ngày", msg)
+        self.assertIn(frappe.utils.formatdate(ngay), msg)
+        self.assertEqual(
+            frappe.db.count(
+                "Customer Stock Receipt",
+                {"kho": self.kho["kho_bm"], "loai_nhap": "Tồn đầu kỳ"},
+            ),
+            1,
+            "không được tạo thêm phiếu tồn đầu kỳ nào, kể cả ở trạng thái nháp",
+        )
+
+    def test_cancel_ton_dau_then_reimport_allowed(self):
+        """Huỷ phiếu tồn đầu kỳ là ĐƯỜNG PHỤC HỒI HỢP LỆ DUY NHẤT khi import
+        sai — phải khẳng định bằng test, không để ngầm định."""
+        frappe.set_user(BM_USER)
+        result = kho_api.kho_import_commit(self._upload().file_url)
+        kho_api.kho_phieu_cancel("Customer Stock Receipt", result["receipt"])
+
+        f2 = self._upload()
+        preview = kho_api.kho_import_preview(f2.file_url)
+        self.assertEqual(preview["error_count"], 0)
+        result2 = kho_api.kho_import_commit(f2.file_url)
+        self.assertTrue(frappe.db.exists("Customer Stock Receipt", result2["receipt"]))
+
     def test_draft_ton_dau_kho_does_not_block_reimport(self):
         """Chỉ phiếu ĐÃ GHI SỔ (docstatus=1) mới tính là "đã commit" — một
         phiếu tồn đầu kỳ còn NHÁP không chặn import lại."""
@@ -385,15 +494,23 @@ class TestTonDauMotLan(_E4Fixture):
 class TestCanhBaoXuatHetHan(_E4Fixture):
     def setUp(self):
         super().setUp()
-        self.han_da_het = frappe.utils.add_days(frappe.utils.today(), -10)
+        # I-1 (review): `ngay` của phiếu PHẢI cùng mốc "hôm nay" với
+        # han_da_het — _chan_lo_het_han_chua_xac_nhan so hạn dùng với NGÀY
+        # PHIẾU (self.ngay), không phải frappe.utils.today() tại lúc chạy
+        # validate. Trộn một `han` tương đối với một `ngay` hardcode
+        # ("2026-03-01") làm ý nghĩa test đảo chiều tuỳ ngày chạy — xem
+        # test_lot_date_basis_is_ngay_phieu_not_system_today bên dưới cho hai
+        # ca cụ thể mà lỗi đó gây ra.
+        self.ngay_phieu = frappe.utils.today()
+        self.han_da_het = frappe.utils.add_days(self.ngay_phieu, -10)
         self._nhap(so_lo="LO-HH", so_luong=20, don_gia=10000, han=self.han_da_het)
 
-    def _xuat(self, loai_xuat, xac_nhan=0, so_luong=5):
+    def _xuat(self, loai_xuat, xac_nhan=0, so_luong=5, so_lo="LO-HH", ngay=None):
         doc = frappe.get_doc({
             "doctype": "Customer Stock Issue",
-            "kho": self.kho["kho_bm"], "ngay": "2026-03-01", "loai_xuat": loai_xuat,
+            "kho": self.kho["kho_bm"], "ngay": ngay or self.ngay_phieu, "loai_xuat": loai_xuat,
             "noi_nhan": "Khoa test", "nguoi_nhan": "NV test",
-            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-HH", "so_luong": so_luong,
+            "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": so_lo, "so_luong": so_luong,
                        "xac_nhan_het_han": xac_nhan}],
         })
         doc.insert(ignore_permissions=True)
@@ -429,6 +546,29 @@ class TestCanhBaoXuatHetHan(_E4Fixture):
                 doc = self._xuat(loai, xac_nhan=0, so_luong=1)
                 doc.submit()
                 self.assertEqual(doc.docstatus, 1)
+
+    def test_backdated_issue_not_falsely_blocked(self):
+        """I-1: "chặn nhầm" — lô hết hạn HÔM NAY nhưng phiếu ghi ngày quá khứ
+        mà tại đó lô vẫn còn hạn -> không được đòi xác nhận."""
+        frappe.set_user(BM_USER)
+        han = frappe.utils.add_days(self.ngay_phieu, -10)
+        ngay_bu = frappe.utils.add_days(self.ngay_phieu, -40)
+        self._nhap(so_lo="LO-BU", so_luong=10, don_gia=5000, han=han)
+        doc = self._xuat("Xuất sử dụng", xac_nhan=0, so_lo="LO-BU", ngay=ngay_bu)
+        doc.submit()
+        self.assertEqual(doc.docstatus, 1)
+
+    def test_future_dated_issue_still_blocked(self):
+        """I-1: "bỏ lọt" — lô CÒN hạn hôm nay nhưng phiếu ghi ngày tương lai
+        mà tại đó lô đã hết hạn -> vẫn phải đòi xác nhận."""
+        frappe.set_user(BM_USER)
+        han = frappe.utils.add_days(self.ngay_phieu, 5)
+        ngay_tuong_lai = frappe.utils.add_days(self.ngay_phieu, 20)
+        self._nhap(so_lo="LO-TL", so_luong=10, don_gia=5000, han=han)
+        doc = self._xuat("Xuất sử dụng", xac_nhan=0, so_lo="LO-TL", ngay=ngay_tuong_lai)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            doc.submit()
+        self.assertIn("hết hạn", str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------

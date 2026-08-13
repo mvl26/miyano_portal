@@ -398,7 +398,9 @@ class TestKhoPhieuSubmitCancel(_KhoApiFixture):
         frappe.set_user(BM_USER)
         self._nhap(so_lo="LO-HH", so_luong=20, don_gia=10000, han=self.han_da_het)
         ix = kho_api.kho_phieu_xuat_save({
-            "ngay": "2026-03-01", "loai_xuat": "Xuất sử dụng",
+            # I-1 (review E4 phần A): phải cùng mốc "hôm nay" với han_da_het ở
+            # setUp() — guard so hạn với NGÀY PHIẾU, không phải ngày hệ thống.
+            "ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
             "noi_nhan": "Khoa X", "nguoi_nhan": "A",
             "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-HH", "so_luong": 5,
                        "xac_nhan_het_han": 0}],
@@ -411,7 +413,7 @@ class TestKhoPhieuSubmitCancel(_KhoApiFixture):
         frappe.set_user(BM_USER)
         self._nhap(so_lo="LO-HH", so_luong=20, don_gia=10000, han=self.han_da_het)
         ix = kho_api.kho_phieu_xuat_save({
-            "ngay": "2026-03-01", "loai_xuat": "Xuất sử dụng",
+            "ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
             "noi_nhan": "Khoa X", "nguoi_nhan": "A",
             "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-HH", "so_luong": 5,
                        "xac_nhan_het_han": 1}],
@@ -509,6 +511,21 @@ class TestKhoLoGoiY(_KhoApiFixture):
         out = kho_api.kho_lo_goi_y(self.kho["vt_bm"], 1)
         row = next(l for l in out["lots"] if l["so_lo"] == "LO-HH")
         self.assertTrue(row["het_han"])
+
+    def test_het_han_flag_relative_to_ngay_param_not_system_today(self):
+        """I-3 (review E4 phần A): badge "het_han" hiển thị trên form phải
+        cùng mốc với chốt chặn thật (so với NGÀY PHIẾU — I-1), không phải
+        ngày hệ thống chạy request. `ngay` là tham số TUỲ CHỌN, mặc định vẫn
+        là ngày hệ thống khi không truyền (test_expired_lot_flagged ở trên)."""
+        today = frappe.utils.getdate(frappe.utils.today())
+        # Hết hạn HÔM NAY, nhưng CÒN hạn tại một ngày phiếu lùi về quá khứ.
+        han = frappe.utils.add_days(today, -5)
+        ngay_qua_khu = frappe.utils.add_days(today, -20)
+        self._nhap(so_lo="LO-QK", so_luong=10, don_gia=1000, han=han)
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_lo_goi_y(self.kho["vt_bm"], 1, ngay=ngay_qua_khu)
+        row = next(l for l in out["lots"] if l["so_lo"] == "LO-QK")
+        self.assertFalse(row["het_han"])
 
     def test_so_luong_accepts_string_param_like_real_http_request(self):
         """`so_luong` tới từ HTTP luôn là chuỗi — review Item 4."""
