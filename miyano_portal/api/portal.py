@@ -1,11 +1,18 @@
+import os
+
 import frappe
+from miyano_portal.kho import similarity
+from miyano_portal.miyano_portal.doctype.portal_item_request.portal_item_request import (
+    TRANG_THAI_KET_THUC,
+)
 from miyano_portal.portal_context import get_portal_customer, han_muc_con
 from miyano_portal.portal_dat_hang import (
     kiem_boi_so,
     kiem_ngay_giao,
     ngay_giao_mac_dinh,
 )
-from miyano_portal.portal_thong_bao import bao_thieu_gia
+from miyano_portal.portal_sla import cong_gio_lam_viec, gio_lam_viec_troi_qua, sla_yeu_cau_gio
+from miyano_portal.portal_thong_bao import bao_thieu_gia, bao_yeu_cau_moi
 
 
 def _gia_hien_hanh(item_code: str, price_list: str):
@@ -889,3 +896,268 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         frappe.local.user_perms = None
 
     return {"trang_thai_moi": so.get("workflow_state")}
+
+
+# ---------------------------------------------------------------------------
+# E6/US-E6.3, US-E6.4 — Yêu cầu hàng hoá (`Portal Item Request`). Xem
+# docs/Miyano-Portal(Client)_V2/DevHandoff/15_PRD_E6_MuaLe_YeuCauHang.md,
+# 20_DataDict.md §1.2, 30_API_Spec.md §2.3, BA §4.11 (BR-Y1…Y5, NL-11.x).
+# ---------------------------------------------------------------------------
+
+YEU_CAU_FIELDS = (
+    "loai", "ten_hang", "quy_cach", "dvt", "so_luong_du_kien", "tan_suat",
+    "chu_ky_thang", "ngay_can", "hang_xuat_xu", "ghi_chu", "vat_tu_kho",
+)
+
+DINH_KEM_TOI_DA = 5
+DINH_KEM_MB_TOI_DA = 10
+DINH_KEM_DUOI_HOP_LE = {".pdf", ".jpg", ".jpeg", ".png", ".xlsx"}
+# NL-11.6 — nguyên văn thông điệp trong FormSpec §5.
+THONG_DIEP_DINH_KEM_SAI = "Tối đa 5 file, mỗi file ≤ 10MB, định dạng pdf/jpg/png/xlsx."
+
+
+def _parse_yeu_cau_payload(payload) -> dict:
+    if isinstance(payload, str):
+        payload = frappe.parse_json(payload)
+    if not isinstance(payload, dict):
+        frappe.throw("Dữ liệu yêu cầu không hợp lệ.", frappe.ValidationError)
+    return payload
+
+
+@frappe.whitelist()
+def portal_yeu_cau_list(trang_thai=None) -> list:
+    """API Spec §2.3."""
+    customer = get_portal_customer()
+    filters = {"customer": customer}
+    if trang_thai:
+        filters["trang_thai"] = trang_thai
+    rows = frappe.get_all(
+        "Portal Item Request",
+        filters=filters,
+        fields=[
+            "name", "creation", "ten_hang", "loai", "so_luong_du_kien",
+            "trang_thai", "sla_den_han", "don_lien_ket",
+        ],
+        order_by="creation desc",
+    )
+    sla_gio = sla_yeu_cau_gio()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["ngay"] = d.pop("creation")
+        # SLA phản hồi đầu tiên chỉ còn ý nghĩa trong khi yêu cầu còn "Mới" —
+        # chuyển trạng thái nghĩa là ai đó ĐÃ phản hồi.
+        d["qua_sla"] = (
+            d["trang_thai"] == "Mới"
+            and gio_lam_viec_troi_qua(d["ngay"]) >= sla_gio
+        )
+        out.append(d)
+    return out
+
+
+def _dem_dinh_kem_hien_co(name) -> int:
+    if not name:
+        return 0
+    return frappe.db.count(
+        "File",
+        {"attached_to_doctype": "Portal Item Request", "attached_to_name": name},
+    )
+
+
+def _resolve_owned_attachment(file_url: str):
+    """NL-11.6/BR-Y5 — nạp một `File` do CHÍNH người gọi vừa tải lên (chuẩn
+    Frappe `/api/method/upload_file?is_private=1`), kiểm sở hữu + định dạng +
+    kích thước + riêng tư.
+
+    Cùng khuôn `_resolve_owned_spreadsheet` trong api/kho.py: tra `name` bằng
+    `frappe.db.get_value` TRƯỚC `frappe.get_doc` để không lộ lỗi tiếng Anh
+    của DoesNotExistError; sở hữu so bằng `owner` tường minh, KHÔNG bằng
+    `check_permission()` (File dùng tầng quyền chung của Frappe, không thuộc
+    nhóm doctype đã gỡ DocPerm ở app này).
+    """
+    file_name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+    if not file_name:
+        frappe.throw(
+            "Không tìm thấy tệp đã tải lên. Vui lòng chọn lại tệp và thử lại.",
+            frappe.ValidationError,
+        )
+    file_doc = frappe.get_doc("File", file_name)
+    if file_doc.owner != frappe.session.user:
+        raise frappe.PermissionError("Bạn không có quyền đọc tệp này.")
+
+    ext = os.path.splitext(file_doc.file_name or "")[1].lower()
+    if ext not in DINH_KEM_DUOI_HOP_LE:
+        frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
+
+    kich_thuoc = file_doc.file_size or 0
+    if not kich_thuoc:
+        # File hiếm khi thiếu file_size (chuẩn upload_file luôn điền), nhưng
+        # đo lại nội dung thật cho chắc thay vì coi thiếu field là "0 byte".
+        try:
+            kich_thuoc = len(file_doc.get_content() or b"")
+        except Exception:
+            kich_thuoc = 0
+    if kich_thuoc > DINH_KEM_MB_TOI_DA * 1024 * 1024:
+        frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
+
+    # BR-Y5: đính kèm PHẢI riêng tư — không có URL công khai. Từ chối thẳng
+    # thay vì tự bật lại is_private: việc đó đòi hỏi Frappe di chuyển file
+    # trên đĩa và viết lại file_url, một hiệu ứng phụ không nên xảy ra âm
+    # thầm bên trong một hàm validate. Đường hợp lệ (upload_file?is_private=1)
+    # không bao giờ chạm nhánh này.
+    if not file_doc.is_private:
+        frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
+
+    return file_doc
+
+
+def _kiem_va_lay_dinh_kem(file_urls, so_hien_co: int) -> list:
+    if not file_urls:
+        return []
+    if so_hien_co + len(file_urls) > DINH_KEM_TOI_DA:
+        frappe.throw(THONG_DIEP_DINH_KEM_SAI, frappe.ValidationError)
+    return [_resolve_owned_attachment(u) for u in file_urls]
+
+
+def _tim_yeu_cau_trung(customer: str, ten_hang: str, loai_tru: str | None) -> list:
+    """NL-11.1 — so gần đúng với các yêu cầu ĐANG MỞ (chưa kết thúc) của
+    cùng khách hàng. Dùng lại `kho/similarity.py` (E4) — ngưỡng 85%, so
+    không dấu — thay vì viết một bản so khớp thứ hai."""
+    filters = {
+        "customer": customer,
+        "trang_thai": ["not in", list(TRANG_THAI_KET_THUC)],
+    }
+    if loai_tru:
+        filters["name"] = ["!=", loai_tru]
+    rows = frappe.get_all(
+        "Portal Item Request", filters=filters, fields=["name", "ten_hang"],
+    )
+    return [r.name for r in rows if similarity.la_gan_giong(ten_hang, r.ten_hang)]
+
+
+@frappe.whitelist()
+def portal_yeu_cau_save(data, name=None, file_urls=None) -> dict:
+    """API Spec §2.3 — tạo mới (thiếu `name`) hoặc sửa (kèm `name`, chỉ khi
+    còn ở trạng thái "Mới"). `customer`/`nguoi_yeu_cau` LUÔN suy từ phiên,
+    không bao giờ nhận từ client (xem CLAUDE.md quyết định 7).
+    """
+    customer = get_portal_customer()
+    payload = _parse_yeu_cau_payload(data)
+    name = name or payload.get("name")
+    urls = file_urls if file_urls is not None else payload.get("file_urls")
+    if isinstance(urls, str):
+        urls = frappe.parse_json(urls)
+    urls = urls or []
+
+    if name:
+        doc = frappe.get_doc("Portal Item Request", name)
+        # frappe.get_doc KHÔNG tự kiểm has_permission — tự so sánh sở hữu
+        # (customer không có DocPerm nào trên doctype này, nên check_permission()
+        # sẽ chặn CẢ chủ sở hữu thật — xem hooks.py, khối comment has_permission).
+        if doc.customer != customer:
+            raise frappe.PermissionError("Bạn không có quyền sửa yêu cầu này.")
+        if doc.trang_thai != "Mới":
+            frappe.throw(
+                "Chỉ sửa được yêu cầu khi còn ở trạng thái Mới.",
+                frappe.ValidationError,
+            )
+    else:
+        doc = frappe.new_doc("Portal Item Request")
+        doc.customer = customer
+        doc.nguoi_yeu_cau = frappe.session.user
+        # Gán tường minh trước insert() — Portal Item Request KHÔNG dùng
+        # Frappe Workflow (xem controller), nên đây KHÔNG phải bẫy
+        # WorkflowPermissionError của các epic trước; chỉ để
+        # _kiem_chuyen_trang_thai() thấy is_new() với trang_thai đã đúng.
+        doc.trang_thai = "Mới"
+
+    for f in YEU_CAU_FIELDS:
+        if f in payload:
+            doc.set(f, payload.get(f))
+
+    if not doc.ngay_can:
+        doc.ngay_can = frappe.utils.add_days(frappe.utils.nowdate(), 7)
+
+    # Kiểm đính kèm TRƯỚC khi ghi bất cứ gì — TC-E6-05 đòi hỏi ba ca lỗi
+    # (thiếu dvt / 6 file / file 11MB) đều chặn sạch, không tạo bản ghi rác.
+    dinh_kem_moi = _kiem_va_lay_dinh_kem(urls, _dem_dinh_kem_hien_co(doc.name))
+
+    la_tao_moi = doc.is_new()
+    if la_tao_moi:
+        doc.sla_den_han = cong_gio_lam_viec(frappe.utils.now_datetime(), sla_yeu_cau_gio())
+        doc.insert(ignore_permissions=True)
+    else:
+        doc.save(ignore_permissions=True)
+
+    for f in dinh_kem_moi:
+        frappe.db.set_value(
+            "File", f.name,
+            {"attached_to_doctype": "Portal Item Request", "attached_to_name": doc.name},
+            update_modified=False,
+        )
+
+    # loai_tru=doc.name LUÔN LUÔN, kể cả khi vừa tạo mới: bản ghi vừa insert
+    # đã nằm trong tập "đang mở" của chính khách này, và tên hàng của nó
+    # trùng TUYỆT ĐỐI với chính nó — không loại trừ sẽ khiến MỌI yêu cầu mới
+    # tự báo trùng với chính mình.
+    canh_bao_trung = _tim_yeu_cau_trung(customer, doc.ten_hang, loai_tru=doc.name)
+
+    if la_tao_moi:
+        bao_yeu_cau_moi(customer, doc.name, doc.ten_hang)
+
+    return {"name": doc.name, "canh_bao_trung": canh_bao_trung}
+
+
+@frappe.whitelist()
+def portal_yeu_cau_cancel(name, ly_do) -> dict:
+    """API Spec §2.3 — chỉ khi trạng thái chưa kết thúc (BR-Y4: đóng, không
+    xoá); `ly_do` bắt buộc, trạng thái đích "Khách huỷ"."""
+    customer = get_portal_customer()
+    doc = frappe.get_doc("Portal Item Request", name)
+    if doc.customer != customer:
+        raise frappe.PermissionError("Bạn không có quyền huỷ yêu cầu này.")
+    if doc.trang_thai in TRANG_THAI_KET_THUC:
+        frappe.throw(
+            "Yêu cầu đã kết thúc, không huỷ được nữa.", frappe.ValidationError
+        )
+    ly_do = (ly_do or "").strip()
+    if not ly_do:
+        frappe.throw("Vui lòng nhập lý do huỷ.", frappe.ValidationError)
+
+    doc.add_comment("Comment", f"[Portal] Khách huỷ yêu cầu: {ly_do}")
+    doc.trang_thai = "Khách huỷ"
+    doc.save(ignore_permissions=True)
+    return {"trang_thai": doc.trang_thai}
+
+
+@frappe.whitelist()
+def portal_yeu_cau_tra_loi(name, noi_dung) -> dict:
+    """NL-11.3 — khách trả lời câu hỏi của Miyano trên màn chi tiết (comment
+    hai chiều). Khi yêu cầu đang "Cần thêm thông tin", trả lời xong tự
+    chuyển về "Đang tìm nguồn" (DataDict §1.2: "Comment 2 chiều: dùng Comment
+    chuẩn trên doctype, lộ qua endpoint"; BA §4.11 luồng chính).
+
+    LỆCH SO VỚI 30_API_Spec.md §2.3 (ghi trong báo cáo bàn giao): API Spec chỉ
+    liệt kê `portal_yeu_cau_list/save/cancel`, thiếu route cho hành vi "trả
+    lời" mà chính DataDict/BA cùng epic mô tả là bắt buộc để cạnh "Cần thêm
+    thông tin ⇄ Đang tìm nguồn" của BR-Y1 có thể xảy ra từ phía khách — đây
+    là API Spec liệt kê thiếu, không phải chủ ý bỏ tính năng khỏi Phần A.
+    """
+    customer = get_portal_customer()
+    doc = frappe.get_doc("Portal Item Request", name)
+    if doc.customer != customer:
+        raise frappe.PermissionError("Bạn không có quyền trả lời yêu cầu này.")
+    if doc.trang_thai in TRANG_THAI_KET_THUC:
+        frappe.throw(
+            "Yêu cầu đã kết thúc, không trả lời được nữa.", frappe.ValidationError
+        )
+
+    noi_dung = (noi_dung or "").strip()
+    if not noi_dung:
+        frappe.throw("Vui lòng nhập nội dung trả lời.", frappe.ValidationError)
+
+    doc.add_comment("Comment", f"[Khách hàng] {noi_dung}")
+    if doc.trang_thai == "Cần thêm thông tin":
+        doc.trang_thai = "Đang tìm nguồn"
+        doc.save(ignore_permissions=True)
+    return {"trang_thai": doc.trang_thai}

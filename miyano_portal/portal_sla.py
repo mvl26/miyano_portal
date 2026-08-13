@@ -73,7 +73,7 @@ def _sla_gio() -> float:
     )
 
 
-def _sla_yeu_cau_gio() -> float:
+def sla_yeu_cau_gio() -> float:
     """BR-Y1 — mặc định 48 giờ làm việc.
 
     `frappe.db.get_single_value` đọc thẳng `tabSingles`, KHÔNG rơi về
@@ -155,7 +155,7 @@ def quet_yeu_cau_qua_han(moc=None) -> int:
     Cùng khuôn chống spam với `quet_don_treo`: tối đa một Notification Log
     mỗi yêu cầu mỗi ngày, dù job chạy hourly.
     """
-    sla = _sla_yeu_cau_gio()
+    sla = sla_yeu_cau_gio()
     nguoi_nhan = _nguoi_nhan()
     if not nguoi_nhan:
         return 0
