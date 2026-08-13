@@ -69,20 +69,72 @@ def hieu_luc_bao_gia_ngay() -> int:
     )
 
 
-def han_hieu_luc_bao_gia(transaction_date):
-    """Hạn hiệu lực báo giá = ngày lập (`Sales Order.transaction_date`) +
-    `hieu_luc_bao_gia_ngay`. DÙNG CHUNG bởi `portal_order_accept` (chặn 417
-    `qua_han_hieu_luc`), `portal_order_track` (banner `chap_nhan.han_hieu_luc`)
-    và job daily `portal_bao_gia.quet_bao_gia_het_han` — ba nơi tính ra một
-    con số khác nhau là đúng thứ làm khách thấy hạn một đằng, hệ thống chặn
-    một nẻo.
+def han_hieu_luc_bao_gia(so):
+    """Hạn hiệu lực báo giá = mốc GỬI KHÁCH DUYỆT + `hieu_luc_bao_gia_ngay`.
+    DÙNG CHUNG bởi `portal_order_accept` (chặn 417 `qua_han_hieu_luc`),
+    `portal_order_track` (banner `chap_nhan.han_hieu_luc`) và job daily
+    `portal_bao_gia.quet_bao_gia_het_han` — ba nơi tính ra một con số khác
+    nhau là đúng thứ làm khách thấy hạn một đằng, hệ thống chặn một nẻo.
+
+    `so` là Document HOẶC `_dict` bất kỳ hỗ trợ `.get()` (đủ cho cả doc đầy
+    đủ ở `portal_order_accept`/`portal_order_track` lẫn hàng kết quả
+    `frappe.get_all` ở `quet_bao_gia_het_han`).
+
+    review I-2(a), round 2 — MỐC đổi từ `transaction_date` (ngày lập nháp)
+    sang `custom_ngay_gui_khach_duyet` (ngày báo giá thực sự ĐẾN TAY khách,
+    ghi tự động bởi `ghi_ngay_gui_khach_duyet` mỗi khi workflow chuyển VÀO
+    "Chờ khách đồng ý"). Quyết định của người phụ trách nghiệp vụ (không
+    phải tự suy diễn): "ngày lập báo giá" trong PRD/BA đọc đúng là ngày báo
+    giá được PHÁT HÀNH cho khách — sales chốt giá mất 10 ngày rồi mới gửi
+    thì hiệu lực phải đếm từ NGÀY GỬI. Đọc theo `transaction_date` khiến
+    khách mở báo giá ra đã thấy "hết hiệu lực" và job daily đóng đơn ngay
+    đêm đó — một báo giá không cho khách ngày nào để đồng ý thì không còn
+    là báo giá, đúng hệ quả review round 1 (I-2) đã dựng.
+
+    Rơi về `transaction_date` khi `custom_ngay_gui_khach_duyet` rỗng — CHỈ
+    xảy ra với đơn đã ở "Chờ khách đồng ý" TỪ TRƯỚC khi field này tồn tại
+    (patch mới không backfill được cho quá khứ, và các fixture test dựng
+    trực tiếp bằng `frappe.db.set_value` bỏ qua hook cũng rơi vào nhánh
+    này). Không rơi về `nowdate()`/`None`: đơn cũ sẽ thành "hạn vô tận" hay
+    "hết hạn ngay lập tức", cả hai đều sai hơn dùng `transaction_date`.
     """
-    return getdate(add_days(getdate(transaction_date), hieu_luc_bao_gia_ngay()))
+    diem_moc = so.get("custom_ngay_gui_khach_duyet") or so.get("transaction_date")
+    return getdate(add_days(getdate(diem_moc), hieu_luc_bao_gia_ngay()))
 
 
-def qua_han_hieu_luc(transaction_date, hom_nay=None) -> bool:
+def qua_han_hieu_luc(so, hom_nay=None) -> bool:
     hom_nay = getdate(hom_nay) if hom_nay else getdate(frappe.utils.nowdate())
-    return hom_nay > han_hieu_luc_bao_gia(transaction_date)
+    return hom_nay > han_hieu_luc_bao_gia(so)
+
+
+def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
+    """US-E6.5/BR-R5 (review I-2(a), round 2) — ghi `custom_ngay_gui_khach_
+    duyet` tại HOOK `validate` của Sales Order (đăng ký ở
+    `hooks.py::doc_events["Sales Order"]["validate"]`), KHÔNG ở một endpoint
+    cổng: đường đi CHÍNH của US-E6.5 là sales bấm nút workflow "Gửi khách
+    duyệt" TỪ DESK ("sales lập SO nháp từ yêu cầu... đặt trạng thái Chờ
+    khách đồng ý") — không có endpoint cổng nào cho hành động đó để gắn
+    logic vào; chỉ `validate` mới chắc chắn chạy dù đơn được chuyển trạng
+    thái từ đâu (`apply_workflow` cuối cùng cũng gọi `doc.save()`).
+
+    Ghi lại MỖI LẦN đơn CHUYỂN VÀO "Chờ khách đồng ý", không chỉ lần đầu:
+    khách "Không đồng ý" đưa đơn về "Chờ xác nhận", sales sửa giá rồi gửi
+    lại — hiệu lực phải đếm từ lần GỬI LẠI, không phải lần gửi đầu tiên đã
+    bị khách từ chối.
+    """
+    if doc.get("workflow_state") != TRANG_THAI_CHO_KHACH:
+        return
+    if doc.is_new():
+        # Hiếm gặp (tạo mới đã thẳng ở state này) nhưng vẫn xử lý nhất quán.
+        if not doc.get("custom_ngay_gui_khach_duyet"):
+            doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
+        return
+    truoc = doc.get_doc_before_save()
+    if not truoc or truoc.get("workflow_state") != TRANG_THAI_CHO_KHACH:
+        # Vừa CHUYỂN VÀO state này (từ state khác, hoặc chưa từng ở đó) —
+        # ghi lại NGÀY MỚI, ghi đè giá trị cũ nếu có (xem docstring: gửi
+        # lại sau khi bị từ chối phải reset đồng hồ).
+        doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
 
 
 def items_thuoc_hdnt_hieu_luc(customer: str) -> set:

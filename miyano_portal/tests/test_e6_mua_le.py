@@ -18,6 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
+from miyano_portal.portal_mua_le import han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
 
 BVBM = "Bệnh viện Bạch Mai"
@@ -526,6 +527,99 @@ class TestBaoGiaChoKhachDongY(FrappeTestCase):
         self.assertEqual(
             info["chap_nhan"]["han_hieu_luc"],
             str(frappe.utils.add_days(so.transaction_date, 7)),
+        )
+
+    # ---------- review I-2(a) round 2 — mốc hiệu lực là NGÀY GỬI, không phải NGÀY LẬP ----------
+    def test_han_hieu_luc_tinh_tu_ngay_gui_khach_duyet_khong_phai_ngay_lap(self):
+        """Sales lập nháp 10 ngày trước, HÔM NAY mới bấm 'Gửi khách duyệt'.
+        Dùng transition THẬT qua `apply_workflow` (đúng đường Desk sales
+        dùng, kích hoạt hook `validate`) — không phải `db.set_value` bypass
+        như các fixture khác trong file này (`_tao_so_bao_gia`), vì chính
+        hook đang được kiểm ở đây. Hạn hiệu lực phải tính từ HÔM NAY (ngày
+        gửi), không phải 10 ngày trước (ngày lập) — đúng quyết định nghiệp
+        vụ: "ngày lập báo giá" = ngày báo giá đến tay khách."""
+        from frappe.model.workflow import apply_workflow
+
+        ngay_lap = frappe.utils.add_days(frappe.utils.today(), -10)
+        so = frappe.new_doc("Sales Order")
+        so.customer = BVBM
+        so.company = COMPANY
+        so.transaction_date = ngay_lap
+        so.delivery_date = frappe.utils.add_days(ngay_lap, 20)
+        so.selling_price_list = PRICE_LIST
+        so.custom_nguon_don = "Client Portal"
+        so.custom_loai_don = "Mua lẻ"
+        so.append("items", {
+            "item_code": RETAIL_CO_GIA, "qty": 1, "rate": 25000,
+            "delivery_date": so.delivery_date,
+        })
+        so.taxes = []
+        so.taxes_and_charges = None
+        so.insert(ignore_permissions=True)  # workflow_state mặc định "Chờ xác nhận"
+
+        frappe.set_user("Administrator")
+        so = apply_workflow(so, "Gửi khách duyệt")  # transition THẬT — kích hoạt hook validate
+
+        self.assertEqual(
+            so.custom_ngay_gui_khach_duyet, frappe.utils.today(),
+            "hook validate phải tự ghi NGÀY HÔM NAY khi đơn chuyển vào Chờ khách đồng ý",
+        )
+        # `han_hieu_luc_bao_gia` trả `date` (qua `getdate`); `add_days` giữ
+        # nguyên kiểu chuỗi của `frappe.utils.today()` — bọc `getdate()` ở
+        # vế kỳ vọng để so đúng kiểu, không phải so lệch kiểu ngẫu nhiên.
+        han = han_hieu_luc_bao_gia(so)
+        self.assertEqual(
+            han, frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+            "hạn phải tính từ ngày GỬI (hôm nay), không phải transaction_date",
+        )
+        self.assertNotEqual(
+            han, frappe.utils.getdate(frappe.utils.add_days(ngay_lap, 7)),
+            "phải KHÁC hạn tính từ ngày lập 10 ngày trước — đây chính là bug I-2(a)",
+        )
+
+    def test_ngay_gui_khach_duyet_reset_khi_gui_lai_sau_khi_bi_tu_choi(self):
+        """Khách Không đồng ý -> đơn về 'Chờ xác nhận' -> sales sửa giá rồi
+        gửi lại -> đồng hồ hiệu lực phải RESET theo lần gửi MỚI, không giữ
+        mốc của lần gửi đầu đã bị từ chối."""
+        from frappe.model.workflow import apply_workflow
+
+        so = frappe.new_doc("Sales Order")
+        so.customer = BVBM
+        so.company = COMPANY
+        so.transaction_date = frappe.utils.today()
+        so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 10)
+        so.selling_price_list = PRICE_LIST
+        so.custom_nguon_don = "Client Portal"
+        so.custom_loai_don = "Mua lẻ"
+        so.append("items", {
+            "item_code": RETAIL_CO_GIA, "qty": 1, "rate": 25000,
+            "delivery_date": so.delivery_date,
+        })
+        so.taxes = []
+        so.taxes_and_charges = None
+        so.insert(ignore_permissions=True)
+
+        frappe.set_user("Administrator")
+        so = apply_workflow(so, "Gửi khách duyệt")
+        lan_1 = so.custom_ngay_gui_khach_duyet
+        self.assertEqual(lan_1, frappe.utils.today())
+
+        # Giả lập "vài ngày sau" khách không đồng ý — lùi ngày gửi lần 1 lại
+        # để phân biệt được với lần gửi lại (nếu không reset, hai giá trị
+        # sẽ trùng nhau và test không phân biệt được lỗi).
+        frappe.db.set_value(
+            "Sales Order", so.name, "custom_ngay_gui_khach_duyet",
+            frappe.utils.add_days(frappe.utils.today(), -3), update_modified=False,
+        )
+        so.reload()
+        so = apply_workflow(so, "Khách không đồng ý")
+        self.assertEqual(so.workflow_state, "Chờ xác nhận")
+
+        # Sales sửa giá rồi gửi lại — mốc phải RESET về hôm nay.
+        so = apply_workflow(so, "Gửi khách duyệt")
+        self.assertEqual(
+            so.custom_ngay_gui_khach_duyet, frappe.utils.today(),
+            "gửi lại sau khi bị từ chối phải reset mốc hiệu lực về ngày gửi lại",
         )
 
 

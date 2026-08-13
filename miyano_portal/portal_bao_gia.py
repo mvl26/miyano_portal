@@ -76,8 +76,8 @@ def _gui_email_het_han(so, han_hieu_luc) -> None:
 
 def quet_bao_gia_het_han(moc=None) -> int:
     """Quét MỌI SO còn ở "Chờ khách đồng ý" (nháp, `docstatus=0`) mà
-    `han_hieu_luc_bao_gia(transaction_date)` đã trôi qua so với `moc` (mặc
-    định hôm nay). Trả số đơn vừa đóng.
+    `han_hieu_luc_bao_gia(so)` đã trôi qua so với `moc` (mặc định hôm nay).
+    Trả số đơn vừa đóng.
 
     Đăng ký ở `hooks.py::scheduler_events["daily"]`.
     """
@@ -96,9 +96,12 @@ def quet_bao_gia_het_han(moc=None) -> int:
             "workflow_state": TRANG_THAI_CHO_KHACH, "docstatus": 0,
             "custom_loai_don": "Mua lẻ",
         },
-        fields=["name", "customer", "transaction_date", "custom_yeu_cau_goc"],
+        # review I-2(a) round 2 — thêm custom_ngay_gui_khach_duyet: mốc tính
+        # hạn hiệu lực giờ là ngày GỬI khách duyệt, không phải transaction_date.
+        fields=["name", "customer", "transaction_date", "custom_yeu_cau_goc",
+                "custom_ngay_gui_khach_duyet"],
     ):
-        han = han_hieu_luc_bao_gia(so_row.transaction_date)
+        han = han_hieu_luc_bao_gia(so_row)
         if hom_nay <= han:
             continue
 

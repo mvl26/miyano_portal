@@ -271,7 +271,14 @@ doc_events = {
 	# không ở condition của workflow transition — xem docstring
 	# `kiem_nguong_duyet` trong portal_duyet_don.py.
 	"Sales Order": {
-		"validate": "miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
+		"validate": [
+			"miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
+			# E6 phần B, review I-2(a) round 2 — ghi `custom_ngay_gui_khach_
+			# duyet` mỗi khi đơn CHUYỂN VÀO "Chờ khách đồng ý". Ở `validate`
+			# (không phải một endpoint cổng) vì đường đi CHÍNH của US-E6.5
+			# là sales bấm nút workflow "Gửi khách duyệt" TỪ DESK.
+			"miyano_portal.portal_mua_le.ghi_ngay_gui_khach_duyet",
+		],
 		"before_submit": "miyano_portal.portal_duyet_don.kiem_nguong_duyet",
 	},
 }

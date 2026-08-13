@@ -835,6 +835,13 @@ def portal_order_history(limit=20, start=0) -> list:
     )
     for r in rows:
         r["status_vi"] = _so_status_vi_full(r.pop("status"), r.get("per_delivered"), r.get("workflow_state"))
+        # Đổi tên khoá `custom_loai_don` -> `loai_don`: KHÔNG rò tiền tố nội
+        # bộ `custom_` của Frappe ra response công khai, và khớp đúng tên
+        # khoá `portal_order_track` đã dùng cho CÙNG khái niệm — hai endpoint
+        # trả hai tên khác nhau cho một field là bẫy tiếp theo đang chờ xảy
+        # ra (client đọc đúng ở màn này, sai ở màn kia).
+        r["loai_don"] = r.pop("custom_loai_don") or "Theo HĐNT"
+        r["yeu_cau_goc"] = r.pop("custom_yeu_cau_goc") or ""
     return rows
 
 
@@ -965,10 +972,10 @@ def portal_order_track(order) -> dict:
     la_mua_le = so.get("custom_loai_don") == "Mua lẻ"
     chap_nhan = None
     if so.get("workflow_state") == "Chờ khách đồng ý":
-        het_han = la_mua_le and qua_han_hieu_luc(so.transaction_date)
+        het_han = la_mua_le and qua_han_hieu_luc(so)
         chap_nhan = {
             "can_dong_y": not het_han,
-            "han_hieu_luc": str(han_hieu_luc_bao_gia(so.transaction_date)) if la_mua_le else None,
+            "han_hieu_luc": str(han_hieu_luc_bao_gia(so)) if la_mua_le else None,
         }
 
     # `_so_status_vi_full` bọc đúng tình huống job daily chuyển
@@ -1193,8 +1200,8 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     # đang chờ khách duyệt (luồng E2 gốc, có thể mở nhiều tuần) cũng bị chặn
     # 417 và bị `quet_bao_gia_het_han` tự đóng — một hành vi BR-R5 (nằm
     # trong §4.10, phạm vi QT10/mua lẻ) chưa từng yêu cầu.
-    if so.get("custom_loai_don") == "Mua lẻ" and qua_han_hieu_luc(so.transaction_date):
-        han = han_hieu_luc_bao_gia(so.transaction_date)
+    if so.get("custom_loai_don") == "Mua lẻ" and qua_han_hieu_luc(so):
+        han = han_hieu_luc_bao_gia(so)
         frappe.local.response["ly_do"] = "qua_han_hieu_luc"
         frappe.throw(
             f"Báo giá cho đơn {so.name} đã hết hiệu lực ngày "
