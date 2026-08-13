@@ -1,7 +1,12 @@
-"""US-E2.2 / BR-O14 — từ chối phải có lý do. TC-E2-04."""
+"""US-E2.2 / BR-O14 — từ chối phải có lý do. TC-E2-04.
+US-E2.1 / BR-O9 / NL-2.5 — ngưỡng duyệt hai tầng. TC-E2-01..03.
+"""
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from miyano_portal.portal_duyet_don import nguong_duyet
 from miyano_portal.setup.seed_demo import seed_demo
+
+NGUONG = 50_000_000
 
 
 class TestLyDoTuChoi(FrappeTestCase):
@@ -33,6 +38,82 @@ class TestLyDoTuChoi(FrappeTestCase):
         """Đơn nội bộ đi qua máy trạng thái như cũ — DoD E2."""
         self.so.workflow_state = "Chờ Miyano xác nhận"
         self.so.save()   # không được ném
+
+
+class TestNguongDuyet(FrappeTestCase):
+    def setUp(self):
+        seed_demo()
+        frappe.db.set_single_value("Miyano Portal Settings", "nguong_duyet_2_tang", NGUONG)
+        # Toàn suite có test cũ gọi so.submit() — nếu ngưỡng còn sót giá trị
+        # từ đây thì chúng sẽ đỏ vì lý do chẳng liên quan. Trả ngưỡng về rỗng
+        # sau mỗi test của lớp này.
+        self.addCleanup(
+            frappe.db.set_single_value, "Miyano Portal Settings", "nguong_duyet_2_tang", None
+        )
+        self.addCleanup(frappe.set_user, "Administrator")
+
+        # Đừng giả định seed đã gán đúng vai trò — kiểm và gán nếu thiếu.
+        u = frappe.get_doc("User", "sales_user@demo.miyano")
+        vai = {r.role for r in u.roles}
+        if "Sales User" not in vai:
+            u.append("roles", {"role": "Sales User"})
+            u.save(ignore_permissions=True)
+        if "Sales Manager" in vai:
+            u.roles = [r for r in u.roles if r.role != "Sales Manager"]
+            u.save(ignore_permissions=True)
+
+    # ---------- đọc ngưỡng: BẪY 1 ----------
+    def test_nguong_de_trong_doc_ra_0(self):
+        frappe.db.set_single_value("Miyano Portal Settings", "nguong_duyet_2_tang", None)
+        self.assertEqual(nguong_duyet(), 0.0)
+
+    def test_nguong_bang_0_cung_la_mot_tang(self):
+        """`0` và rỗng PHẢI cư xử giống nhau. Field Currency lưu rỗng thành 0,
+        nên phân biệt hai thứ này là khoá sạch quyền duyệt của Sales User."""
+        frappe.db.set_single_value("Miyano Portal Settings", "nguong_duyet_2_tang", 0)
+        self.assertEqual(nguong_duyet(), 0.0)
+
+    # ---------- TC-E2-01 ----------
+    def test_sales_user_duyet_duoc_don_duoi_nguong(self):
+        so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=49_000_000)
+        frappe.set_user("sales_user@demo.miyano")
+        so.submit()
+        self.assertEqual(so.docstatus, 1)
+
+    def test_sales_user_bi_chan_o_dung_nguong(self):
+        so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=NGUONG)
+        frappe.set_user("sales_user@demo.miyano")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            so.submit()
+        loi = str(ctx.exception)
+        self.assertIn("50.000.000", loi)
+        self.assertIn("Sales Manager", loi)
+
+    def test_don_bi_chan_van_o_nguyen_trang_thai_cu(self):
+        """NL-2.5 — "đơn chờ ở Chờ Miyano xác nhận", không rơi sang trạng thái lửng."""
+        so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=NGUONG)
+        frappe.set_user("sales_user@demo.miyano")
+        with self.assertRaises(frappe.ValidationError):
+            so.submit()
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "docstatus"), 0
+        )
+
+    # ---------- TC-E2-02 ----------
+    def test_sales_manager_duyet_duoc_don_tu_nguong(self):
+        so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=NGUONG)
+        frappe.set_user("buiviet9802@gmail.com")   # có role Sales Manager
+        so.submit()
+        self.assertEqual(so.docstatus, 1)
+
+    # ---------- TC-E2-03 ----------
+    def test_nguong_de_trong_thi_sales_user_duyet_duoc_don_100tr(self):
+        frappe.db.set_single_value("Miyano Portal Settings", "nguong_duyet_2_tang", None)
+        so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=100_000_000)
+        frappe.set_user("sales_user@demo.miyano")
+        so.submit()
+        self.assertEqual(so.docstatus, 1)
 
 
 def _tao_so_nhap(trang_thai: str, tong_muc_tieu: float = 1200):

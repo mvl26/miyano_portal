@@ -250,8 +250,13 @@ doc_events = {
 	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
 	# "Từ chối". Áp cho MỌI Sales Order, không riêng đơn từ cổng.
+	#
+	# BR-O9 / NL-2.5: ngưỡng duyệt hai tầng. CỐ Ý đặt ở before_submit chứ
+	# không ở condition của workflow transition — xem docstring
+	# `kiem_nguong_duyet` trong portal_duyet_don.py.
 	"Sales Order": {
 		"validate": "miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
+		"before_submit": "miyano_portal.portal_duyet_don.kiem_nguong_duyet",
 	},
 }
 
