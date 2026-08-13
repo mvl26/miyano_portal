@@ -18,6 +18,39 @@ class CustomerStockIssue(Document):
 		self._chan_dao_thu_cong()
 		voucher.validate_so_luong(self)
 		self._lay_gia_va_han_tu_lo()
+		self._kiem_do_dai_nguoi_nhan()
+		self._validate_khoa_phong_thuoc_kho()
+
+	def _validate_khoa_phong_thuoc_kho(self):
+		"""E8/BR-CP2 — cùng khuôn voucher.validate_vat_tu_thuoc_kho(): chặn
+		phiếu trỏ tới khoa phòng của một kho khác. Đây vừa là kiểm tra dữ
+		liệu vừa là hàng rào cách ly, chạy ở TẦNG CONTROLLER nên áp dụng cho
+		MỌI đường ghi (kho_phieu_xuat_save lẫn Desk) — endpoint cố tình
+		KHÔNG lặp lại kiểm tra này (xem comment trong api/kho.py).
+		"""
+		if not self.khoa_phong:
+			return
+		kho_cua_khoa = frappe.db.get_value("Customer Department", self.khoa_phong, "kho")
+		if kho_cua_khoa != self.kho:
+			frappe.throw(
+				f"Khoa phòng {self.khoa_phong} không thuộc kho {self.kho}.",
+				frappe.ValidationError,
+			)
+
+	def _kiem_do_dai_nguoi_nhan(self):
+		"""BR-CP3: Người nhận là ô nhập tự do, không quản danh mục, nhưng vẫn
+		giới hạn ≤100 ký tự (US-E8.3). CỐ Ý kiểm ở đây thay vì đánh "length":
+		100 trên field trong JSON: field `nguoi_nhan` đã tồn tại từ trước E8
+		với cột DB varchar(140) và có dữ liệu thật — đổi "length" sẽ khiến
+		`bench migrate` ALTER cột xuống varchar(100), lỗi hoặc cắt cụt bất kỳ
+		giá trị cũ nào đã dài hơn 100. Kiểm bằng tay ở validate() vừa an toàn
+		schema vừa cho thông báo tiếng Việt (JSON constraint vi phạm sẽ ném
+		lỗi MariaDB tiếng Anh, dịch qua _phieu_action trong api/kho.py rồi
+		vẫn không nêu rõ ký tự thứ mấy)."""
+		if self.nguoi_nhan and len(self.nguoi_nhan) > 100:
+			frappe.throw(
+				"Người nhận không được quá 100 ký tự.", frappe.ValidationError
+			)
 
 	def _chan_dao_thu_cong(self):
 		"""Chỉ _tao_phieu_dao mới được đặt loai_xuat = "Phiếu đảo".
@@ -79,6 +112,61 @@ class CustomerStockIssue(Document):
 			# kiểm kê) cũng không hỏi, đúng AC US-E4.4.
 			if self.loai_xuat == "Xuất sử dụng":
 				self._chan_lo_het_han_chua_xac_nhan()
+				self._chan_thieu_khoa_phong()
+			# NL-4.12: khoa phòng đã tắt (active=0) còn nằm trên phiếu nháp —
+			# kiểm ở MỌI loại xuất (không chỉ "Xuất sử dụng") vì field không bị
+			# ràng buộc chỉ dùng cho loại đó; kiểm khi GHI SỔ, không phải khi
+			# lưu nháp, để không khoá một dòng nháp cũ trong lúc thủ kho còn
+			# đang sửa dở. Nằm trong nhánh "khác Phiếu đảo" ở trên: phiếu đảo
+			# (BR-K9, hệ tự tạo trong on_cancel) copy nguyên khoa_phong của
+			# phiếu gốc mà KHÔNG được phép ngã vào chốt này — một khoa bị tắt
+			# GIỮA lúc xuất và lúc huỷ không được làm sập luôn thao tác huỷ
+			# (on_cancel không được phép ném lỗi, xem docstring on_cancel).
+			if self.khoa_phong:
+				self._chan_khoa_phong_da_tat()
+
+	def _chan_thieu_khoa_phong(self):
+		"""US-E8.2/BR-CP2/NL-4.11 — chỉ áp cho loại "Xuất sử dụng", và chỉ cho
+		phiếu TẠO SAU thời điểm kho bật cờ `bat_buoc_khoa_phong` (so với
+		`self.creation`, mốc phiếu được TẠO — tức lần insert() đầu tiên/Lưu
+		nháp — KHÔNG PHẢI thời điểm hàm này chạy, vốn là lúc GHI SỔ). Đây là
+		lý do `Customer Warehouse.bat_buoc_khoa_phong_tu` phải tồn tại: một
+		Check đơn thuần không mang đủ thông tin để so hai mốc thời gian này.
+
+		Xem `_ghi_moc_bat_buoc_khoa_phong()` (customer_warehouse.py) cho quyết
+		định ca biên "cờ bật nhưng thiếu mốc" (áp bắt buộc cho MỌI phiếu).
+		"""
+		bat, moc = frappe.db.get_value(
+			"Customer Warehouse", self.kho,
+			["bat_buoc_khoa_phong", "bat_buoc_khoa_phong_tu"],
+		)
+		if not frappe.utils.cint(bat):
+			return
+		if moc:
+			# self.creation rỗng CHỈ khi phiếu chưa từng insert() — không thể
+			# xảy ra ở before_submit (submit() luôn chạy sau insert() thật),
+			# nhưng phòng thủ bằng `or now()` thay vì để get_datetime(None)
+			# ném lỗi nếu giả định đó có ngày sai.
+			tao_luc = frappe.utils.get_datetime(self.creation or frappe.utils.now_datetime())
+			if tao_luc <= frappe.utils.get_datetime(moc):
+				return
+		if not self.khoa_phong:
+			frappe.throw(
+				"Kho đã bật \"Bắt buộc chọn khoa phòng\" cho phiếu Xuất sử "
+				"dụng tạo sau thời điểm đó. Hãy chọn Khoa phòng nhận trước "
+				"khi ghi sổ.",
+				frappe.ValidationError,
+			)
+
+	def _chan_khoa_phong_da_tat(self):
+		active = frappe.db.get_value("Customer Department", self.khoa_phong, "active")
+		if not frappe.utils.cint(active):
+			ten = frappe.db.get_value("Customer Department", self.khoa_phong, "ten_khoa_phong")
+			frappe.throw(
+				f"Khoa phòng \"{ten or self.khoa_phong}\" đã bị tắt hoạt động. "
+				"Hãy chọn lại một khoa phòng đang hoạt động trước khi ghi sổ.",
+				frappe.ValidationError,
+			)
 
 	def _chan_xuat_qua_ton(self):
 		"""Cộng dồn theo (vật tư, lô) TRƯỚC khi so với tồn.
@@ -157,6 +245,7 @@ class CustomerStockIssue(Document):
 		dao.ngay = frappe.utils.today()
 		dao.loai_xuat = voucher.LOAI_DAO
 		dao.phieu_goc = self.name
+		dao.khoa_phong = self.khoa_phong
 		dao.noi_nhan = self.noi_nhan
 		dao.nguoi_nhan = self.nguoi_nhan
 		dao.dien_giai = f"Đảo phiếu {self.name}"

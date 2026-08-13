@@ -28,6 +28,7 @@ import frappe
 
 from miyano_portal.kho import dong_phieu
 from miyano_portal.kho import dutru
+from miyano_portal.kho import khoa_phong as khoa_phong_mod
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import ncc as ncc_mod
@@ -183,6 +184,7 @@ def _action(danh_tu: str):
 _phieu_action = _action("phiếu")
 _vat_tu_action = _action("vật tư")
 _ncc_action = _action("NCC")
+_khoa_action = _action("khoa phòng")
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -202,6 +204,14 @@ def _ncc_cua_kho(ncc: str, kho: str) -> str:
 	if frappe.db.get_value("Customer Supplier", ncc, "kho") != kho:
 		raise frappe.PermissionError("NCC không thuộc kho của đơn vị bạn.")
 	return ncc
+
+
+def _khoa_cua_kho(khoa_phong: str, kho: str) -> str:
+	"""E8 — cùng khuôn _ncc_cua_kho(): xác nhận một khoa phòng do client gửi
+	lên đúng là của kho người gọi TRƯỚC khi get_doc/save chạm vào nó."""
+	if frappe.db.get_value("Customer Department", khoa_phong, "kho") != kho:
+		raise frappe.PermissionError("Khoa phòng không thuộc kho của đơn vị bạn.")
+	return khoa_phong
 
 
 @frappe.whitelist()
@@ -397,6 +407,37 @@ def kho_ncc_save(data) -> dict:
 	if name:
 		_ncc_cua_kho(name, kho)
 	return ncc_mod.save(kho, du_lieu)
+
+
+@frappe.whitelist()
+@_khoa_action
+def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0) -> list:
+	"""Danh mục khoa phòng của kho — US-E8.1."""
+	return khoa_phong_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive)
+
+
+@frappe.whitelist()
+@_khoa_action
+def kho_khoa_phong_save(data) -> dict:
+	"""Tạo mới (thiếu `name`) hoặc sửa một khoa phòng của kho người gọi.
+	Cùng khuôn kho_ncc_save() ở trên — đọc docstring ở đó."""
+	kho = get_portal_kho()
+	du_lieu = _parse_payload(data)
+	name = du_lieu.get("name")
+	if name:
+		_khoa_cua_kho(name, kho)
+	return khoa_phong_mod.save(kho, du_lieu)
+
+
+@frappe.whitelist()
+@_khoa_action
+def kho_nguoi_nhan_goi_y(khoa_phong: str, tu_khoa=None) -> list:
+	"""US-E8.3/BR-CP3 — gợi ý Người nhận theo lịch sử của CHÍNH khoa phòng
+	được chọn. `khoa_phong` do client gửi lên là một định danh — phải xác
+	nhận sở hữu TRƯỚC khi dùng, cùng nguyên tắc đầu file."""
+	kho = get_portal_kho()
+	_khoa_cua_kho(khoa_phong, kho)
+	return khoa_phong_mod.nguoi_nhan_goi_y(kho, khoa_phong, tu_khoa)
 
 
 @frappe.whitelist()
@@ -672,6 +713,14 @@ def kho_phieu_xuat_save(payload) -> dict:
 	doc.kho = kho
 	doc.ngay = payload.get("ngay") or doc.ngay or frappe.utils.today()
 	doc.loai_xuat = payload.get("loai_xuat") or doc.loai_xuat or "Xuất sử dụng"
+	# E8/BR-CP2: `khoa_phong` là một Link do client gửi lên — KHÔNG kiểm sở
+	# hữu ở TẦNG ENDPOINT này (không gọi _khoa_cua_kho()): cùng đúng khuôn
+	# `vat_tu` của từng dòng phiếu ngay bên dưới, chốt chặn "thuộc kho nào"
+	# nằm ở TẦNG CONTROLLER (customer_stock_issue.py:validate(), hàm
+	# _validate_khoa_phong_thuoc_kho, cùng khuôn
+	# voucher.validate_vat_tu_thuoc_kho()) — vừa chạy trên MỌI đường ghi (kể
+	# cả Desk, không chỉ endpoint này), vừa không lặp logic kiểm hai lần.
+	doc.khoa_phong = payload.get("khoa_phong") or None
 	doc.noi_nhan = payload.get("noi_nhan")
 	doc.nguoi_nhan = payload.get("nguoi_nhan")
 	doc.dien_giai = payload.get("dien_giai")

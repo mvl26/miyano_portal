@@ -6,6 +6,7 @@ class CustomerWarehouse(Document):
 	def validate(self):
 		self._one_per_customer()
 		self._ma_kho_duy_nhat()
+		self._ghi_moc_bat_buoc_khoa_phong()
 		if not self.ten_don_vi_in:
 			self.ten_don_vi_in = frappe.db.get_value(
 				"Customer", self.customer, "customer_name"
@@ -50,3 +51,48 @@ class CustomerWarehouse(Document):
 				f"({existing.customer}). Hãy chọn mã khác.",
 				frappe.ValidationError,
 			)
+
+	def _ghi_moc_bat_buoc_khoa_phong(self):
+		"""US-E8.2/BR-CP2 — điểm tinh tế nhất của E8: một Check đơn thuần
+		("bắt buộc khoa phòng: có/không") không đủ để trả lời "phiếu này có bị
+		chặn hay không", vì chốt chặn phải so MỐC BẬT CỜ với THỜI ĐIỂM TẠO
+		PHIẾU (không phải thời điểm ghi sổ) — "bật lúc 10:00 thì chỉ phiếu tạo
+		SAU 10:00 mới bị chặn; phiếu nháp tạo TRƯỚC đó vẫn ghi sổ được (tránh
+		khoá tồn đọng)". Không có mốc thời gian nào được lưu lại thì không có
+		gì để so — vì vậy kho mang thêm `bat_buoc_khoa_phong_tu` (Datetime,
+		read-only, chỉ hệ ghi), và hàm này là NƠI DUY NHẤT ghi vào đó.
+
+		Tự đặt mốc = now() đúng một lần, tại đúng thời điểm cờ chuyển từ 0
+		sang 1 — bắt được cả hai tình huống:
+		  * kho CŨ đang bật cờ lần đầu (self.is_new() == False, giá trị cũ
+		    trong DB là 0) — đây là ca chính của US-E8.2.
+		  * kho MỚI tạo với cờ đã bật sẵn (self.is_new() == True) — "trước"
+		    coi như 0 vì kho chưa từng tồn tại, nên bước tạo kho CHÍNH LÀ lúc
+		    cờ "bật" — không có phiếu nào tạo trước một kho chưa tồn tại nên
+		    không có gì để ân hạn.
+		Tắt cờ (1 -> 0) không đụng tới mốc: BẬT LẠI sau đó (0 -> 1 lần hai)
+		phải ghi đè bằng mốc MỚI — "mốc bật cờ" luôn là lần bật GẦN NHẤT, mọi
+		phiếu nháp tạo trong khoảng kho tạm tắt cờ đều được coi là "tạo khi
+		cờ đang tắt", đúng tinh thần "không khoá tồn đọng".
+
+		QUYẾT ĐỊNH CHO CA BIÊN (ghi rõ vì đây là chỗ dễ đoán sai): nếu
+		`bat_buoc_khoa_phong=1` mà `bat_buoc_khoa_phong_tu` lại rỗng — chỉ có
+		thể xảy ra khi ai đó bật cờ bằng đường KHÔNG qua validate() (ví dụ
+		`frappe.db.set_value` thẳng, Data Import) — phía kiểm tra
+		(customer_stock_issue.py) coi như MỌI phiếu đều được tạo sau mốc đó,
+		tức áp bắt buộc cho TẤT CẢ, không ân hạn cho phiếu nào. Lý do: không
+		có mốc nghĩa là không biết ranh giới "trước/sau" nằm ở đâu, và giữa
+		"lỡ chặn một phiếu đáng lẽ được ân hạn" với "lỡ bỏ lọt yêu cầu bắt
+		buộc khoa phòng", chọn vế an toàn dữ liệu hơn — đằng nào cờ bật cũng
+		nói rằng khoa phòng NÊN có mặt trên phiếu.
+		"""
+		bat = frappe.utils.cint(self.bat_buoc_khoa_phong)
+		truoc = 0
+		if not self.is_new():
+			truoc = frappe.utils.cint(
+				frappe.db.get_value(
+					"Customer Warehouse", self.name, "bat_buoc_khoa_phong"
+				)
+			)
+		if bat and not truoc:
+			self.bat_buoc_khoa_phong_tu = frappe.utils.now_datetime()

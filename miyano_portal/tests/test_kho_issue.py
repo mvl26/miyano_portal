@@ -159,9 +159,17 @@ class TestPhieuXuat(FrappeTestCase):
         )
 
     def test_noi_nhan_is_free_text(self):
+        # E8 (QĐ-9) đã thêm doctype `Customer Department` + field có cấu
+        # trúc `khoa_phong` (Link) lên chính phiếu này — xem
+        # tests/test_e8_cap_phat.py. `noi_nhan` KHÔNG bị thay thế: nó vẫn là
+        # ô nhập tự do độc lập, giữ nguyên hành vi trước E8 (nhiều report/
+        # print format/test cũ đã phụ thuộc vào nó — xem kho/reports.py,
+        # setup/install_kho_print_formats.py). Assertion cũ ở đây từng khẳng
+        # định "Customer Department chưa tồn tại" như một lưới an toàn chống
+        # thay thế ngầm — E8 đã cố ý tạo doctype đó, nên xoá vế đó thay vì
+        # sửa để pass giả.
         doc = self._xuat()
         self.assertEqual(doc.noi_nhan, "Khoa Hồi sức tích cực")
-        self.assertFalse(frappe.db.exists("DocType", "Customer Department"))
 
     def test_manual_reversal_cannot_be_forged_via_phieu_goc(self):
         """phieu_goc là Data field tự do; đặt nó thủ công tuyệt đối không được

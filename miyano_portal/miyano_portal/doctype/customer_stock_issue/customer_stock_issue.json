@@ -9,7 +9,7 @@
  "is_submittable": 1,
  "field_order": [
   "kho", "ngay", "loai_xuat",
-  "col_1", "noi_nhan", "nguoi_nhan",
+  "col_1", "khoa_phong", "noi_nhan", "nguoi_nhan",
   "sec_ref", "phieu_goc",
   "sec_items", "items", "tong_tien", "dien_giai", "amended_from"
  ],
@@ -18,8 +18,9 @@
   {"fieldname": "ngay", "fieldtype": "Date", "label": "Ngày", "reqd": 1, "default": "Today", "in_list_view": 1},
   {"fieldname": "loai_xuat", "fieldtype": "Select", "label": "Loại xuất", "options": "Xuất sử dụng\nXuất huỷ - hết hạn\nXuất trả lại\nĐiều chỉnh kiểm kê\nPhiếu đảo", "reqd": 1, "default": "Xuất sử dụng", "in_list_view": 1},
   {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "khoa_phong", "fieldtype": "Link", "label": "Khoa phòng nhận", "options": "Customer Department", "description": "E8/BR-CP2 — bắt buộc khi kho bật \"Bắt buộc khoa phòng\" và loại xuất là \"Xuất sử dụng\" (chỉ áp cho phiếu tạo sau khi bật cờ)"},
   {"fieldname": "noi_nhan", "fieldtype": "Data", "label": "Nơi nhận", "description": "Ghi tự do, ví dụ: Khoa Hồi sức tích cực"},
-  {"fieldname": "nguoi_nhan", "fieldtype": "Data", "label": "Người nhận"},
+  {"fieldname": "nguoi_nhan", "fieldtype": "Data", "label": "Người nhận", "description": "≤100 ký tự; gợi ý theo lịch sử của khoa phòng đã chọn (BR-CP3)"},
   {"fieldname": "sec_ref", "fieldtype": "Section Break", "label": "Tham chiếu", "collapsible": 1},
   {"fieldname": "phieu_goc", "fieldtype": "Data", "label": "Phiếu gốc", "read_only": 1, "description": "Data chứ không phải Link: phiếu đảo trỏ ngược về phiếu gốc vừa bị huỷ, mà Link tới doctype submittable đang docstatus=2 sẽ ném CancelledLinkError, rồi chính phiếu đảo lại chặn phiếu gốc huỷ qua LinkExistsError. Dùng Data cắt vòng đó mà không phải tắt ignore_links."},
   {"fieldname": "sec_items", "fieldtype": "Section Break", "label": "Chi tiết"},

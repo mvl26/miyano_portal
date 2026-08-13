@@ -11,7 +11,8 @@
   "dia_chi_kho", "ngay_bat_dau", "sec_in", "ten_don_vi_in", "bo_phan_in",
   "col_2", "mau_phieu_nhap", "mau_phieu_xuat",
   "sec_canh_bao_ton", "canh_bao_ton_email_bat", "canh_bao_ton_email_tan_suat",
-  "col_canh_bao_ton", "canh_bao_ton_email_gui_lan_cuoi"
+  "col_canh_bao_ton", "canh_bao_ton_email_gui_lan_cuoi",
+  "sec_cap_phat", "bat_buoc_khoa_phong", "col_cap_phat", "bat_buoc_khoa_phong_tu"
  ],
  "fields": [
   {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "unique": 1, "in_list_view": 1},
@@ -32,7 +33,11 @@
   {"fieldname": "canh_bao_ton_email_bat", "fieldtype": "Check", "label": "Gửi email cảnh báo thiếu tồn", "default": "0", "description": "US-E5.4 — mặc định TẮT, bật riêng theo từng kho"},
   {"fieldname": "canh_bao_ton_email_tan_suat", "fieldtype": "Select", "label": "Tần suất email", "options": "Hàng ngày\nHàng tuần", "default": "Hàng tuần", "depends_on": "eval:doc.canh_bao_ton_email_bat"},
   {"fieldname": "col_canh_bao_ton", "fieldtype": "Column Break"},
-  {"fieldname": "canh_bao_ton_email_gui_lan_cuoi", "fieldtype": "Date", "label": "Lần gửi email gần nhất", "read_only": 1}
+  {"fieldname": "canh_bao_ton_email_gui_lan_cuoi", "fieldtype": "Date", "label": "Lần gửi email gần nhất", "read_only": 1},
+  {"fieldname": "sec_cap_phat", "fieldtype": "Section Break", "label": "Cấp phát khoa phòng (E8)"},
+  {"fieldname": "bat_buoc_khoa_phong", "fieldtype": "Check", "label": "Bắt buộc chọn khoa phòng khi Xuất sử dụng", "default": "0", "description": "US-E8.2/BR-CP2 — chỉ áp cho phiếu \"Xuất sử dụng\" TẠO SAU thời điểm bật cờ này (xem Bắt buộc từ). Phiếu nháp tạo trước đó vẫn ghi sổ được không cần khoa."},
+  {"fieldname": "col_cap_phat", "fieldtype": "Column Break"},
+  {"fieldname": "bat_buoc_khoa_phong_tu", "fieldtype": "Datetime", "label": "Bắt buộc từ", "read_only": 1, "description": "Hệ tự ghi thời điểm cờ bên trái chuyển từ tắt sang bật — không sửa tay được."}
  ],
  "index_web_pages_for_search": 0,
  "links": [],
