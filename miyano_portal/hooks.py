@@ -94,7 +94,10 @@ website_route_rules = [
 # ------------
 
 # before_install = "miyano_portal.install.before_install"
-# after_install = "miyano_portal.install.after_install"
+# BẮT BUỘC bật: `install_app()` đánh dấu MỌI patch là đã chạy (frappe/installer.py:324)
+# rồi mới gọi hook này, nên site mới không có workflow/custom field/notification
+# nào nếu không chạy lại patch ở đây. Xem `miyano_portal/install.py`.
+after_install = "miyano_portal.install.after_install"
 
 # Uninstallation
 # ------------
