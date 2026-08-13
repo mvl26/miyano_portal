@@ -83,16 +83,23 @@ Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn 
   "thuoc_hdnt": false, "co_gia": true}] }` — `thuoc_hdnt: true` → client disable (BR-R7);
 `co_gia: false` → hiện nút Yêu cầu báo giá.
 
-### 2.3 `portal_yeu_cau_save(data)` / `portal_yeu_cau_list(trang_thai=None)` / `portal_yeu_cau_cancel(name, ly_do)` (E6)
+### 2.3 `portal_yeu_cau_save(data)` / `portal_yeu_cau_list(trang_thai=None)` / `portal_yeu_cau_cancel(name, ly_do)` / `portal_yeu_cau_tra_loi(name, noi_dung)` (E6)
 ```jsonc
-// save Request (tạo mới hoặc sửa khi trạng thái "Mới"; kèm files upload chuẩn Frappe, is_private=1)
+// save Request (tạo mới hoặc sửa khi trạng thái "Mới"; file_urls: đã tải lên trước qua
+// /api/method/upload_file?is_private=1 chuẩn Frappe, endpoint chỉ kiểm sở hữu/định dạng/
+// kích thước rồi gắn vào yêu cầu — is_private=1 bắt buộc, không có URL công khai)
 { "loai": "Tìm nguồn hàng mới", "ten_hang": "Que thử HbA1c", "quy_cach": "Hộp 25 test",
   "dvt": "Hộp", "so_luong_du_kien": 20, "tan_suat": "Định kỳ", "chu_ky_thang": 1,
-  "ngay_can": "2026-08-25", "hang_xuat_xu": "Abbott", "ghi_chu": "", "vat_tu_kho": "VTK-00012" }
+  "ngay_can": "2026-08-25", "hang_xuat_xu": "Abbott", "ghi_chu": "", "vat_tu_kho": "VTK-00012",
+  "file_urls": ["/private/files/que-thu-hba1c.pdf"] }
 // save Response: { "name": "YCH-00007", "canh_bao_trung": ["YCH-00003"] }   // NL-11.1, không chặn
 // list Response: [ { "name","ngay","ten_hang","loai","so_luong_du_kien","trang_thai",
 //                    "sla_den_han","qua_sla": false, "don_lien_ket": null } ]
 // cancel: chỉ khi trạng thái chưa kết thúc; ly_do bắt buộc → trạng thái "Khách huỷ"
+// tra_loi (BỔ SUNG — thiếu ở bản trước của tài liệu này; xem DataDict §1.2 "Comment 2
+// chiều: dùng Comment chuẩn trên doctype, lộ qua endpoint" và BA §4.11/NL-11.3): khách trả
+// lời câu hỏi của Miyano trên F-23; nếu trạng thái đang "Cần thêm thông tin" thì SAU khi ghi
+// comment, tự chuyển về "Đang tìm nguồn" (BR-Y1). Response: { "trang_thai": "Đang tìm nguồn" }
 ```
 
 ### 2.4 `portal_order_accept(order, action, ly_do=None)` (E2/E6)
