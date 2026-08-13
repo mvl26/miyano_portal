@@ -11,6 +11,15 @@ from miyano_portal.portal_dat_hang import (
     kiem_ngay_giao,
     ngay_giao_mac_dinh,
 )
+from miyano_portal.portal_mua_le import (
+    cap_nhat_yeu_cau_goc,
+    han_hieu_luc_bao_gia,
+    items_thuoc_hdnt_hieu_luc,
+    price_list_ban_le,
+    qua_han_hieu_luc,
+    resolve_ban_le_company,
+    trang_thai_hang,
+)
 from miyano_portal.portal_sla import cong_gio_lam_viec, gio_lam_viec_troi_qua, sla_yeu_cau_gio
 from miyano_portal.portal_thong_bao import bao_thieu_gia, bao_yeu_cau_moi
 
@@ -229,66 +238,109 @@ def portal_catalog(contract: str) -> list:
 
 
 @frappe.whitelist()
-def portal_order_place(
-    contract, items, po=None, delivery_date=None, note=None, address=None,
-    request_id=None,
-) -> dict:
+def portal_catalog_ban_le(tim_kiem=None, nhom=None) -> dict:
+    """API Spec §2.2 / US-E6.1 — danh mục mua lẻ (QT10 nhánh A).
+
+    403 `khong_duoc_mua_le` (NL-10.1) nếu `Customer.custom_cho_phep_mua_le`
+    chưa bật — kiểm phía SERVER, không tin UI đã ẩn nút chuyển chế độ.
+    """
     customer = get_portal_customer()
-
-    # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
-    # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
-    if not request_id:
-        frappe.throw(
-            "Thiếu mã yêu cầu đặt hàng. Tải lại trang rồi thử lại.",
-            frappe.ValidationError,
+    if not frappe.db.get_value("Customer", customer, "custom_cho_phep_mua_le"):
+        frappe.local.response["ly_do"] = "khong_duoc_mua_le"
+        raise frappe.PermissionError(
+            "Đơn vị của bạn chưa được bật chế độ Mua lẻ. Vui lòng liên hệ "
+            "nhân viên kinh doanh Miyano."
         )
-    # Trả lại đơn cũ TRƯỚC khi làm bất cứ việc gì khác — người dùng bấm lại vì
-    # lần trước có vẻ hỏng, không phải vì muốn đặt thêm một đơn nữa.
-    da_co = frappe.db.get_value(
-        "Sales Order",
-        {"custom_request_id": request_id},
-        ["name", "customer", "grand_total"],
-        as_dict=True,
+
+    price_list = price_list_ban_le()  # VĐ-12 — lỗi rõ nếu Settings chưa cấu hình.
+
+    filters = {"custom_ban_le_portal": 1, "disabled": 0}
+    if nhom:
+        filters["item_group"] = nhom
+    or_filters = None
+    if tim_kiem:
+        # Tìm theo cả mã lẫn tên — `filters` của `get_all` AND với nhau, nên
+        # điều kiện "khớp mã HOẶC tên" phải đi qua `or_filters`.
+        or_filters = [
+            ["item_code", "like", f"%{tim_kiem}%"],
+            ["item_name", "like", f"%{tim_kiem}%"],
+        ]
+    rows = frappe.get_all(
+        "Item", filters=filters, or_filters=or_filters,
+        fields=["item_code", "item_name", "description", "stock_uom"],
+        order_by="item_name asc",
     )
-    if da_co:
-        if da_co.customer != customer:
-            # Mã yêu cầu của khách khác: không xác nhận cả sự tồn tại của nó.
-            raise frappe.PermissionError("Mã yêu cầu không hợp lệ.")
+
+    thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
+
+    out = []
+    for r in rows:
+        gia = _gia_hien_hanh(r.item_code, price_list)
+        out.append({
+            "item_code": r.item_code,
+            "ten": r.item_name,
+            # Item KHÔNG có trường "quy cách đóng gói" riêng (khác Portal
+            # Item Request/Customer Warehouse Item, hai doctype MỚI của E6
+            # CÓ trường này) — dùng `description` làm nguồn gần nhất, không
+            # bịa thêm một custom field chỉ để khớp tên cột trong API Spec.
+            "quy_cach": r.description or "",
+            "dvt": r.stock_uom,
+            "gia_ban_le": float(gia) if gia else None,
+            # VAT chưa có nguồn dữ liệu thật trong app này — `portal_catalog`
+            # (nhánh HĐNT, [Hiện có]) cũng hardcode 0 cho `vat_pct`, giữ nhất
+            # quán chứ không phải một khiếm khuyết mới của nhánh lẻ.
+            "vat": 0,
+            "trang_thai_hang": trang_thai_hang(r.item_code),
+            "thuoc_hdnt": r.item_code in thuoc_hdnt,
+            "co_gia": bool(gia),
+        })
+    return {"items": out}
+
+
+def _insert_so_idempotent(so, request_id) -> dict:
+    """Ghi `so` (chưa insert) rồi trả phong bì chuẩn — dùng CHUNG bởi cả hai
+    nhánh HĐNT và Mua lẻ của `portal_order_place`, đúng một khuôn xử lý đua
+    `UniqueValidationError` (xem giải thích gốc ở khối này trước khi tách).
+    """
+    so.flags.ignore_permissions = True
+    try:
+        so.insert(ignore_permissions=True)
+    except frappe.UniqueValidationError:
+        # Đua: một tiến trình khác vừa ghi xong cùng mã yêu cầu, giữa lúc ta
+        # kiểm ở đầu hàm và lúc ta ghi. Ràng buộc `unique` của CSDL mới là
+        # trọng tài thật — phép kiểm ở đầu hàm chỉ là đường tắt cho trường
+        # hợp thường gặp.
+        #
+        # `UniqueValidationError` chứ KHÔNG phải `DuplicateEntryError`:
+        # `Document.insert` map lỗi 1062 của MariaDB thành cái trước
+        # (`base_document.py:672`); `DuplicateEntryError` dành cho trùng
+        # `name`. Bắt nhầm loại thì nhánh này không bao giờ chạy và tình
+        # huống đua hiện ra thành lỗi 500 cho khách.
+        cu = frappe.db.get_value(
+            "Sales Order",
+            {"custom_request_id": request_id},
+            ["name", "grand_total"],
+            as_dict=True,
+        )
+        if not cu:
+            # Một trường unique KHÁC trên Sales Order bị vi phạm, không phải
+            # mã yêu cầu của ta. Nuốt nó ở đây sẽ biến một lỗi dữ liệu thật
+            # thành "đơn đã tồn tại" — sai và rất khó truy.
+            raise
         return {
-            "sales_order": da_co.name,
+            "sales_order": cu.name,
             "da_ton_tai": True,
-            "total": float(da_co.grand_total or 0),
+            "total": float(cu.grand_total or 0),
         }
+    return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
 
-    bo = frappe.db.get_value(
-        "Blanket Order", contract, ["customer", "company"], as_dict=True
-    )
-    if not bo or bo.customer != customer:
-        raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
 
-    # Validate the optional shipping address actually belongs to this customer
-    # (isolation) before it is written onto the Sales Order.
-    if address:
-        allowed = {a["name"] for a in _customer_addresses(customer)}
-        if address not in allowed:
-            raise frappe.PermissionError("Địa chỉ giao hàng không thuộc đơn vị của bạn.")
-    if isinstance(items, str):
-        items = frappe.parse_json(items)
-    if not items:
-        frappe.throw("Giỏ hàng trống.")
-
+def _xay_don_hdnt(customer, contract, bo, aggregated, delivery_date, address, po, note, request_id):
+    """Nhánh Theo HĐNT [Hiện có, tách nguyên khối khỏi `portal_order_place`
+    để đứng cạnh `_xay_don_ban_le` — hành vi giữ NGUYÊN VẸN, không đổi một
+    dòng logic nào so với bản trước khi tách (E6 phần B chỉ THÊM nhánh mới,
+    không viết lại nhánh cũ)."""
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
-    # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
-    delivery_date = delivery_date or ngay_giao_mac_dinh()
-
-    # Aggregate the incoming cart by item_code so duplicate lines for the same
-    # item can't each pass the quota check individually while together
-    # exceeding the remaining quota (duplicate-line quota bypass).
-    aggregated = {}
-    for line in items:
-        qty = float(line.get("qty") or 0)
-        item_code = line.get("item_code")
-        aggregated[item_code] = aggregated.get(item_code, 0) + qty
 
     # BR-O3 — báo HẾT trong một lần. `loi` là phong bì máy đọc được theo
     # `30_API_Spec` §1.1 (`ly_do` + số liệu kèm theo); văn xuôi cho `frappe.throw`
@@ -375,6 +427,7 @@ def portal_order_place(
     so.selling_price_list = price_list
     so.custom_nguon_don = "Client Portal"
     so.custom_hdnt = contract
+    so.custom_loai_don = "Theo HĐNT"
     so.custom_request_id = request_id
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
@@ -418,37 +471,212 @@ def portal_order_place(
         # Order Item, thấy 0 thì hiểu là CẤM ĐẶT và chặn ngay lúc submit.
         # Truy vết về hợp đồng vẫn còn qua `so.custom_hdnt` ở đầu đơn.
         so.append("items", dong)
-    so.flags.ignore_permissions = True
-    try:
-        so.insert(ignore_permissions=True)
-    except frappe.UniqueValidationError:
-        # Đua: một tiến trình khác vừa ghi xong cùng mã yêu cầu, giữa lúc ta
-        # kiểm ở đầu hàm và lúc ta ghi. Ràng buộc `unique` của CSDL mới là
-        # trọng tài thật — phép kiểm ở đầu hàm chỉ là đường tắt cho trường
-        # hợp thường gặp.
-        #
-        # `UniqueValidationError` chứ KHÔNG phải `DuplicateEntryError`:
-        # `Document.insert` map lỗi 1062 của MariaDB thành cái trước
-        # (`base_document.py:672`); `DuplicateEntryError` dành cho trùng
-        # `name`. Bắt nhầm loại thì nhánh này không bao giờ chạy và tình
-        # huống đua hiện ra thành lỗi 500 cho khách.
-        cu = frappe.db.get_value(
-            "Sales Order",
-            {"custom_request_id": request_id},
-            ["name", "grand_total"],
-            as_dict=True,
+    return so
+
+
+def _xay_don_ban_le(customer, aggregated, delivery_date, address, po, note, request_id):
+    """Nhánh Mua lẻ (US-E6.2, BR-R2/R3/R4/R7) — [MỚI].
+
+    KHÔNG kiểm hạn mức, KHÔNG gắn `blanket_order`/`against_blanket_order`
+    (BR-R4). VẪN kiểm bội số/ngày giao/địa chỉ/request_id — những chốt đó
+    không đặc thù cho HĐNT, chúng bảo vệ cả hai lối.
+    """
+    price_list = price_list_ban_le()  # VĐ-12 — ném lỗi rõ nếu chưa cấu hình.
+    thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
+
+    loi: list[dict] = []
+    loi_ngay = kiem_ngay_giao(delivery_date)
+    if loi_ngay:
+        loi.append(loi_ngay)
+
+    gia: dict[str, float] = {}
+    for item_code, qty in aggregated.items():
+        if qty <= 0:
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "so_luong_khong_hop_le",
+                "thong_diep": f"{item_code}: số lượng phải > 0",
+            })
+            continue
+        loi_boi_so = kiem_boi_so(item_code, qty)
+        if loi_boi_so:
+            loi.append(loi_boi_so)
+            continue
+        # BR-R6, phòng thủ tầng hai: danh mục `portal_catalog_ban_le` đã lọc
+        # `custom_ban_le_portal=1`, nhưng client có thể gửi THẲNG một mã hàng
+        # bất kỳ tới đây — không được tin payload, phải tự kiểm lại (NL-10.3:
+        # đây chính là chốt chặn "trộn dòng" khi ai đó nhét một mã không
+        # thuộc danh mục lẻ vào giỏ Mua lẻ).
+        if not frappe.db.get_value("Item", item_code, "custom_ban_le_portal"):
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "khong_thuoc_danh_muc_le",
+                "thong_diep": f"{item_code} không thuộc danh mục mua lẻ.",
+            })
+            continue
+        # BR-R7 — CHỐT AN NINH NGHIỆP VỤ CỦA E6 PHẦN B: mặt hàng đang thuộc
+        # HĐNT còn hiệu lực của khách phải đặt ở giỏ Theo HĐNT. Thiếu chốt
+        # này thì khách hết hạn mức chỉ cần bấm sang Mua lẻ là mua tiếp cùng
+        # mặt hàng — vô hiệu hoá toàn bộ cơ chế hạn mức của E1 (NL-10.7).
+        if item_code in thuoc_hdnt:
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "thuoc_hdnt_hieu_luc",
+                # Nguyên văn ma trận FormSpec §5, dòng NL-10.7.
+                "thong_diep": (
+                    f"{item_code} đang thuộc HĐNT — vui lòng đặt ở chế độ "
+                    f"Theo HĐNT để hưởng giá hợp đồng."
+                ),
+            })
+            continue
+        rate = _gia_hien_hanh(item_code, price_list)
+        if not rate:
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "thieu_gia",
+                # Nguyên văn ma trận FormSpec §5, dòng NL-10.2.
+                "thong_diep": (
+                    f"{item_code} chưa có giá bán lẻ. Gửi yêu cầu báo giá — "
+                    f"Miyano sẽ phản hồi trong thời gian SLA quy định."
+                ),
+            })
+            continue
+        gia[item_code] = rate
+
+    if loi:
+        frappe.local.response["loi"] = loi
+        frappe.throw(
+            "<br>".join(d["thong_diep"] for d in loi), frappe.ValidationError
         )
-        if not cu:
-            # Một trường unique KHÁC trên Sales Order bị vi phạm, không phải
-            # mã yêu cầu của ta. Nuốt nó ở đây sẽ biến một lỗi dữ liệu thật
-            # thành "đơn đã tồn tại" — sai và rất khó truy.
-            raise
+    frappe.local.response.pop("loi", None)
+
+    company = resolve_ban_le_company(list(aggregated.keys()))
+    if not company:
+        frappe.throw(
+            "Không xác định được công ty giao hàng cho giỏ mua lẻ này. "
+            "Vui lòng liên hệ quản trị viên hệ thống.",
+        )
+
+    so = frappe.new_doc("Sales Order")
+    so.customer = customer
+    so.company = company
+    so.transaction_date = frappe.utils.today()
+    so.delivery_date = delivery_date
+    so.selling_price_list = price_list
+    so.custom_nguon_don = "Client Portal"
+    so.custom_loai_don = "Mua lẻ"
+    so.custom_request_id = request_id
+    so.custom_so_po_khach = po
+    so.custom_yeu_cau_khach = note
+    if address:
+        so.shipping_address_name = address
+        so.customer_address = address
+    contact_name = frappe.db.get_value("Contact", {"user": frappe.session.user})
+    if contact_name:
+        so.contact_person = contact_name
+        so.contact_email = frappe.session.user
+    for item_code, qty in aggregated.items():
+        rate = gia[item_code]
+        item_warehouse = _resolve_item_warehouse(item_code, company)
+        if not item_warehouse:
+            frappe.throw(
+                f"Không tìm thấy kho giao hàng cho mặt hàng {item_code} tại "
+                f"công ty {company}. Vui lòng liên hệ quản trị viên hệ thống."
+            )
+        # BR-R4 — KHÔNG gắn blanket_order/against_blanket_order: đơn mua lẻ
+        # không thuộc hạn mức HĐNT nào.
+        so.append("items", {
+            "item_code": item_code,
+            "qty": qty,
+            "rate": rate,
+            "warehouse": item_warehouse,
+            "delivery_date": delivery_date,
+        })
+    return so
+
+
+@frappe.whitelist()
+def portal_order_place(
+    contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
+    request_id=None, mode="hdnt",
+) -> dict:
+    """API Spec §1.1 — `mode`: `"hdnt"` (mặc định, [Hiện có]) | `"ban_le"`
+    (E6 phần B, [MỚI]). Tham số vẫn tên `contract` (không phải `hdnt` như
+    JSON mẫu của API Spec) để KHÔNG đổi chữ ký mà `frontend/src/views/
+    Cart.vue` (đã chạy thật) đang gọi — đổi tên tham số ở đây là đổi API mà
+    không có gì buộc phần C phải đổi theo, một chỗ lệch tài liệu đã có từ
+    trước E6, không phải lỗi tạo mới ở đây.
+    """
+    customer = get_portal_customer()
+    mode = (mode or "hdnt").strip()
+    if mode not in ("hdnt", "ban_le"):
+        frappe.throw("Chế độ đặt hàng không hợp lệ.", frappe.ValidationError)
+
+    # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
+    # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
+    # Áp dụng CHUNG cho cả hai chế độ — mỗi lần bấm xác nhận (dù ngăn HĐNT
+    # hay ngăn Mua lẻ) đều mang một request_id riêng (30_API_Spec §2 — "mỗi
+    # ngăn xác nhận riêng → hai Sales Order riêng, mỗi cái một request_id").
+    if not request_id:
+        frappe.throw(
+            "Thiếu mã yêu cầu đặt hàng. Tải lại trang rồi thử lại.",
+            frappe.ValidationError,
+        )
+    # Trả lại đơn cũ TRƯỚC khi làm bất cứ việc gì khác — người dùng bấm lại vì
+    # lần trước có vẻ hỏng, không phải vì muốn đặt thêm một đơn nữa.
+    da_co = frappe.db.get_value(
+        "Sales Order",
+        {"custom_request_id": request_id},
+        ["name", "customer", "grand_total"],
+        as_dict=True,
+    )
+    if da_co:
+        if da_co.customer != customer:
+            # Mã yêu cầu của khách khác: không xác nhận cả sự tồn tại của nó.
+            raise frappe.PermissionError("Mã yêu cầu không hợp lệ.")
         return {
-            "sales_order": cu.name,
+            "sales_order": da_co.name,
             "da_ton_tai": True,
-            "total": float(cu.grand_total or 0),
+            "total": float(da_co.grand_total or 0),
         }
-    return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
+
+    bo = None
+    if mode == "hdnt":
+        bo = frappe.db.get_value(
+            "Blanket Order", contract, ["customer", "company"], as_dict=True
+        )
+        if not bo or bo.customer != customer:
+            raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
+
+    # Validate the optional shipping address actually belongs to this customer
+    # (isolation) before it is written onto the Sales Order.
+    if address:
+        allowed = {a["name"] for a in _customer_addresses(customer)}
+        if address not in allowed:
+            raise frappe.PermissionError("Địa chỉ giao hàng không thuộc đơn vị của bạn.")
+    if isinstance(items, str):
+        items = frappe.parse_json(items)
+    if not items:
+        frappe.throw("Giỏ hàng trống.")
+
+    # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
+    delivery_date = delivery_date or ngay_giao_mac_dinh()
+
+    # Aggregate the incoming cart by item_code so duplicate lines for the same
+    # item can't each pass the quota check individually while together
+    # exceeding the remaining quota (duplicate-line quota bypass).
+    aggregated = {}
+    for line in items:
+        qty = float(line.get("qty") or 0)
+        item_code = line.get("item_code")
+        aggregated[item_code] = aggregated.get(item_code, 0) + qty
+
+    if mode == "ban_le":
+        so = _xay_don_ban_le(customer, aggregated, delivery_date, address, po, note, request_id)
+    else:
+        so = _xay_don_hdnt(customer, contract, bo, aggregated, delivery_date, address, po, note, request_id)
+
+    return _insert_so_idempotent(so, request_id)
 
 
 def _so_status_vi(so_status, per_delivered=None):
@@ -641,6 +869,16 @@ def portal_order_track(order) -> dict:
             dot["phieu_nhap"] = phieu_nhap
         dot_giao.append(dot)
 
+    # US-E6.5 / `30_API_Spec` §1.2 — banner "Chờ bạn đồng ý" (F-07) cần biết
+    # hạn hiệu lực để hiện "Báo giá hiệu lực đến dd/mm/yyyy"; chỉ có ý nghĩa
+    # khi đơn ĐANG ở trạng thái này, các trạng thái khác trả `None`.
+    chap_nhan = None
+    if so.get("workflow_state") == "Chờ khách đồng ý":
+        chap_nhan = {
+            "can_dong_y": True,
+            "han_hieu_luc": str(han_hieu_luc_bao_gia(so.transaction_date)),
+        }
+
     return {
         "order": so.name,
         "status_vi": _so_status_vi(so.status, so.per_delivered),
@@ -650,6 +888,7 @@ def portal_order_track(order) -> dict:
         # US-E2.2 — khách phải đọc được lý do ngay trên chi tiết đơn, không
         # phải đi tìm lại email.
         "ly_do_tu_choi": so.get("custom_ly_do_tu_choi") or "",
+        "chap_nhan": chap_nhan,
         "milestones": milestones,
         "items": [
             {"item_code": i.item_code,
@@ -840,6 +1079,20 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         frappe.throw(
             "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
         )
+    # US-E6.5/BR-R5 — báo giá có hiệu lực N ngày kể từ ngày lập
+    # (Settings.hieu_luc_bao_gia_ngay, mặc định 7). Chặn CẢ đồng ý lẫn không
+    # đồng ý: một báo giá đã hết hiệu lực không còn gì để khách phản hồi,
+    # job daily (`portal_bao_gia.quet_bao_gia_het_han`) sẽ tự đóng nó —
+    # khách phải gửi yêu cầu báo giá mới, không phải bấm nút trên đơn cũ.
+    if qua_han_hieu_luc(so.transaction_date):
+        han = han_hieu_luc_bao_gia(so.transaction_date)
+        frappe.local.response["ly_do"] = "qua_han_hieu_luc"
+        frappe.throw(
+            f"Báo giá cho đơn {so.name} đã hết hiệu lực ngày "
+            f"{frappe.utils.formatdate(han, 'dd/mm/yyyy')}. Gửi yêu cầu báo "
+            f"giá mới nếu vẫn cần hàng.",
+            frappe.ValidationError,
+        )
 
     if action == "dong_y":
         hanh_dong, ghi_chu = "Khách đồng ý", ""
@@ -894,6 +1147,15 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # nên không có gì để khôi phục sai (xem giải thích ở trên).
         session.user = nguoi_bam
         frappe.local.user_perms = None
+
+    if action == "dong_y":
+        # US-E6.5 — cạnh "Đã chuyển thành đơn" mà Phần A đã dựng sẵn trong
+        # máy trạng thái Portal Item Request nhưng chưa ai ghi. Chạy SAU khi
+        # phiên khách đã được trả lại (không cần ignore_permissions cảnh báo
+        # giả — `cap_nhat_yeu_cau_goc` tự `ignore_permissions=True`), và
+        # KHÔNG được để một trục trặc ở đây làm hỏng việc đồng ý đã ghi
+        # nhận thành công phía trên (xem docstring của hàm).
+        cap_nhat_yeu_cau_goc(so, "Đã chuyển thành đơn")
 
     return {"trang_thai_moi": so.get("workflow_state")}
 
