@@ -85,9 +85,9 @@ class TestNguongDuyet(FrappeTestCase):
         frappe.set_user("sales_user@demo.miyano")
         with self.assertRaises(frappe.ValidationError) as ctx:
             so.submit()
-        loi = str(ctx.exception)
-        self.assertIn("50.000.000", loi)
-        self.assertIn("Sales Manager", loi)
+        self.assertEqual(
+            str(ctx.exception), "Đơn ≥ 50.000.000 ₫ — cần Sales Manager xác nhận."
+        )
 
     def test_don_bi_chan_van_o_nguyen_trang_thai_cu(self):
         """NL-2.5 — "đơn chờ ở Chờ Miyano xác nhận", không rơi sang trạng thái lửng."""
@@ -99,11 +99,19 @@ class TestNguongDuyet(FrappeTestCase):
         self.assertEqual(
             frappe.db.get_value("Sales Order", so.name, "docstatus"), 0
         )
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"),
+            "Chờ Miyano xác nhận",
+        )
 
     # ---------- TC-E2-02 ----------
     def test_sales_manager_duyet_duoc_don_tu_nguong(self):
         so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=NGUONG)
-        frappe.set_user("buiviet9802@gmail.com")   # có role Sales Manager
+        # Administrator: frappe/permissions.py:506-507 cho Administrator MỌI
+        # role vô điều kiện, nên đủ để đại diện "user có Sales Manager" mà
+        # không phụ thuộc tài khoản demo cụ thể nào — test tự bảo đảm tiền đề
+        # của nó, không cần seed_demo() tạo thêm user.
+        frappe.set_user("Administrator")
         so.submit()
         self.assertEqual(so.docstatus, 1)
 
