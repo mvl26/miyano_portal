@@ -22,6 +22,12 @@ const note = ref('')
 const confirmOpen = ref(false)
 const placing = ref(false)
 const error = ref('')
+// Từng dòng sai, lấy từ `err.loi` (`30_API_Spec` §1.1). Hiển thị `thong_diep`
+// của server chứ không dịch lại từ `ly_do`: câu chữ FormSpec §5 đã nằm ở
+// server rồi, chép thêm một bản ở client là tạo ra hai bản để lệch nhau.
+// `ly_do` dùng cho hành vi — đánh dấu đúng dòng trong giỏ.
+const loiDong = ref([])
+const maLoi = computed(() => new Set(loiDong.value.map((d) => d.item_code).filter(Boolean)))
 const placedOrder = ref(null) // { sales_order, total }
 
 const lines = computed(() => store.cartLines)
@@ -56,6 +62,7 @@ async function confirmOrder() {
   if (placing.value) return
   placing.value = true
   error.value = ''
+  loiDong.value = []
   try {
     const items = lines.value.map((l) => ({ item_code: l.item_code, qty: l.qty }))
     const res = await api.call('portal_order_place', {
@@ -77,7 +84,12 @@ async function confirmOrder() {
     store.ketThucDatHang()
     confirmOpen.value = false
   } catch (e) {
-    error.value = e.message || 'Không thể đặt hàng. Vui lòng thử lại.'
+    if (e.loi && e.loi.length) {
+      loiDong.value = e.loi
+      error.value = ''
+    } else {
+      error.value = e.message || 'Không thể đặt hàng. Vui lòng thử lại.'
+    }
     confirmOpen.value = false
     // KHÔNG xoá requestId ở đây: lỗi có thể là mất mạng sau khi server đã
     // ghi xong. Giữ mã để lần thử lại rơi vào nhánh idempotent thay vì tạo
@@ -131,6 +143,14 @@ onMounted(async () => {
 
     <div v-if="error" class="note" style="color: var(--red); border-color: #fecaca; background: #fef2f2">{{ error }}</div>
 
+    <!-- BR-O3 — mọi dòng sai của cả giỏ, liệt kê MỘT lần. -->
+    <div v-if="loiDong.length" class="note note-loi">
+      <b>Chưa gửi được đơn — cần sửa {{ loiDong.length }} mục:</b>
+      <ul class="ds-loi">
+        <li v-for="(d, i) in loiDong" :key="i">{{ d.thong_diep }}</li>
+      </ul>
+    </div>
+
     <!-- EMPTY -->
     <div v-if="isEmpty" class="card" style="color: var(--gray)">
       Giỏ hàng trống – vào mục
@@ -151,7 +171,7 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="l in lines" :key="l.item_code">
+              <tr v-for="l in lines" :key="l.item_code" :class="{ 'dong-loi': maLoi.has(l.item_code) }">
                 <td><b>{{ l.item_code }}</b></td>
                 <td>{{ l.item_name }}</td>
                 <td>{{ l.uom }}</td>
@@ -174,7 +194,7 @@ onMounted(async () => {
 
         <!-- MOBILE: thẻ -->
         <template v-else>
-          <div v-for="l in lines" :key="l.item_code" class="card mb10">
+          <div v-for="l in lines" :key="l.item_code" class="card mb10" :class="{ 'dong-loi': maLoi.has(l.item_code) }">
             <div class="sb">
               <span><b>{{ l.item_code }}</b><br /><span style="font-size: 13px">{{ l.item_name }}</span></span>
               <button class="btn-o btn-sm" style="color: var(--red); border-color: var(--red)" @click="store.removeFromCart(l.item_code)">✕</button>

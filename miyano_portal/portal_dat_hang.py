@@ -5,10 +5,15 @@ quy tắc mới đều muốn chen vào giữa nó. Và hai nhóm hàm dưới �
 thuần: kiểm được mà không cần phiên đăng nhập, Blanket Order hay Sales Order
 nào — thứ nào kiểm được rẻ thì nên kiểm được rẻ.
 
-Cả hai đều trả **thông điệp lỗi** thay vì ném: `portal_order_place` gom mọi
-lỗi của cả giỏ hàng rồi báo một lần (BR-O3), nên hàm con ném ngay lập tức sẽ
-phá đúng tính chất đó — khách sửa một lỗi lại gặp lỗi tiếp theo, hết lần này
-đến lần khác.
+Cả hai đều **trả về mô tả lỗi** thay vì ném: `portal_order_place` gom mọi lỗi
+của cả giỏ hàng rồi báo một lần (BR-O3), nên hàm con ném ngay lập tức sẽ phá
+đúng tính chất đó — khách sửa một lỗi lại gặp lỗi tiếp theo, hết lần này đến
+lần khác.
+
+Mô tả lỗi là **dict** chứ không phải chuỗi, theo `30_API_Spec` §1.1: mảng
+`loi[]` mang mã `ly_do` cùng số liệu kèm theo (`boi_so`, `goi_y`, …) để client
+tự dịch ra câu chữ. `thong_diep` vẫn đi kèm nguyên văn FormSpec §5 — nơi gọi
+không phải SPA (desk, script cũ) chỉ có chỗ đó để hiển thị.
 """
 
 import math
@@ -18,8 +23,8 @@ from frappe import _
 from frappe.utils import add_days, getdate
 
 
-def kiem_boi_so(item_code: str, qty) -> str | None:
-    """BR-O11 / NL-1.6. Trả thông điệp lỗi nếu sai bội số, `None` nếu hợp lệ.
+def kiem_boi_so(item_code: str, qty) -> dict | None:
+    """BR-O11 / NL-1.6. Trả mô tả lỗi nếu sai bội số, `None` nếu hợp lệ.
 
     Gợi ý luôn LÀM TRÒN LÊN chứ không chọn bội số gần nhất theo khoảng cách:
     khách gõ 11 nghĩa là họ cần ít nhất 11, đề nghị 10 là đề nghị thiếu so
@@ -36,9 +41,16 @@ def kiem_boi_so(item_code: str, qty) -> str | None:
     if qty % boi_so == 0:
         return None
     goi_y = int(math.ceil(qty / boi_so) * boi_so)
-    # Nguyên văn ma trận FormSpec §5, dòng NL-1.6. Giao diện hiển thị thẳng
-    # chuỗi này, không dịch lại — sửa ở đây là sửa cả hai nơi.
-    return _("Số lượng phải là bội số của {0}. Gần nhất: {1}.").format(boi_so, goi_y)
+    return {
+        "item_code": item_code,
+        "ly_do": "sai_boi_so",
+        "boi_so": boi_so,
+        "goi_y": goi_y,
+        # Nguyên văn ma trận FormSpec §5, dòng NL-1.6.
+        "thong_diep": _("Số lượng phải là bội số của {0}. Gần nhất: {1}.").format(
+            boi_so, goi_y
+        ),
+    }
 
 
 def ngay_giao_mac_dinh(tu_ngay=None):
@@ -57,8 +69,8 @@ def ngay_giao_mac_dinh(tu_ngay=None):
     return ngay
 
 
-def kiem_ngay_giao(delivery_date) -> str | None:
-    """BR-O13 / NL-1.7. Trả thông điệp lỗi nếu ngày giao ở quá khứ.
+def kiem_ngay_giao(delivery_date) -> dict | None:
+    """BR-O13 / NL-1.7. Trả mô tả lỗi nếu ngày giao ở quá khứ.
 
     Chỉ chặn QUÁ KHỨ. Hôm nay và ngày mai đều đi qua: "+2 ngày làm việc" là
     giá trị MẶC ĐỊNH của ô nhập, không phải sàn cứng. Khách chủ động chọn
@@ -66,8 +78,13 @@ def kiem_ngay_giao(delivery_date) -> str | None:
     """
     if getdate(delivery_date) < getdate(frappe.utils.today()):
         som_nhat = ngay_giao_mac_dinh()
-        # Nguyên văn ma trận FormSpec §5, dòng NL-1.7.
-        return _("Ngày giao sớm nhất là {0} (sau 2 ngày làm việc).").format(
-            som_nhat.strftime("%d/%m/%Y")
-        )
+        # Cố ý KHÔNG có `item_code`: đây là lỗi của cả đơn, không của một dòng.
+        return {
+            "ly_do": "ngay_giao_khong_hop_le",
+            "som_nhat": str(som_nhat),
+            # Nguyên văn ma trận FormSpec §5, dòng NL-1.7.
+            "thong_diep": _(
+                "Ngày giao sớm nhất là {0} (sau 2 ngày làm việc)."
+            ).format(som_nhat.strftime("%d/%m/%Y")),
+        }
     return None

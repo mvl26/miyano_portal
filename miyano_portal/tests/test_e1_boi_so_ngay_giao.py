@@ -43,11 +43,17 @@ class TestBoiSoQuyCach(FrappeTestCase):
         self.assertIsNone(kiem_boi_so(VT_BOI_SO, 10))
 
     def test_sai_boi_so_bao_dung_nguyen_van_formspec(self):
-        """Thông điệp phải khớp ĐÚNG NGUYÊN VĂN ma trận FormSpec §5 dòng
-        NL-1.6 — giao diện không dịch lại, nó hiển thị thẳng chuỗi này."""
+        """Mã `ly_do` cho client dịch (`30_API_Spec` §5), kèm `thong_diep`
+        nguyên văn ma trận FormSpec §5 dòng NL-1.6 cho nơi gọi không phải SPA."""
         self.assertEqual(
             kiem_boi_so(VT_BOI_SO, 15),
-            "Số lượng phải là bội số của 10. Gần nhất: 20.",
+            {
+                "item_code": VT_BOI_SO,
+                "ly_do": "sai_boi_so",
+                "boi_so": 10,
+                "goi_y": 20,
+                "thong_diep": "Số lượng phải là bội số của 10. Gần nhất: 20.",
+            },
         )
 
     def test_goi_y_lam_tron_LEN_khong_phai_gan_nhat_theo_khoang_cach(self):
@@ -56,9 +62,10 @@ class TestBoiSoQuyCach(FrappeTestCase):
         Khách gõ 11 nghĩa là họ cần ít nhất 11; đề nghị 10 là đề nghị thiếu
         hàng so với nhu cầu họ vừa nói ra.
         """
+        loi = kiem_boi_so(VT_BOI_SO, 11)
+        self.assertEqual(loi["goi_y"], 20)
         self.assertEqual(
-            kiem_boi_so(VT_BOI_SO, 11),
-            "Số lượng phải là bội số của 10. Gần nhất: 20.",
+            loi["thong_diep"], "Số lượng phải là bội số của 10. Gần nhất: 20."
         )
 
     def test_item_khong_khai_boi_so_thi_khong_rang_buoc(self):
@@ -96,11 +103,16 @@ class TestNgayGiaoLamViec(FrappeTestCase):
         hom_qua = frappe.utils.add_days(frappe.utils.today(), -1)
         loi = kiem_ngay_giao(hom_qua)
         self.assertIsNotNone(loi)
-        self.assertTrue(
-            loi.startswith("Ngày giao sớm nhất là "),
-            f"thông điệp không khớp FormSpec §5 NL-1.7: {loi!r}",
+        self.assertEqual(loi["ly_do"], "ngay_giao_khong_hop_le")
+        self.assertIsNone(
+            loi.get("item_code"), "lỗi của cả đơn, không gắn vào dòng nào"
         )
-        self.assertIn("(sau 2 ngày làm việc).", loi)
+        thong_diep = loi["thong_diep"]
+        self.assertTrue(
+            thong_diep.startswith("Ngày giao sớm nhất là "),
+            f"thông điệp không khớp FormSpec §5 NL-1.7: {thong_diep!r}",
+        )
+        self.assertIn("(sau 2 ngày làm việc).", thong_diep)
 
     def test_hom_nay_va_tuong_lai_deu_di_qua(self):
         """Hôm nay KHÔNG bị chặn: quy tắc là 'không nhận ngày quá khứ'

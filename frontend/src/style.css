@@ -508,6 +508,23 @@ input:focus, select:focus, textarea:focus {
 
 hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 
+/* ---------- BR-O3: liệt kê mọi dòng sai của giỏ trong một lần ---------- */
+/* `.note` mặc định màu hổ phách = "lưu ý". Đây là lỗi chặn gửi đơn, phải đỏ
+   để không bị lướt qua. */
+.note-loi {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.ds-loi {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+.ds-loi li { margin-top: 3px; }
+/* Dòng trong giỏ bị server từ chối — nối thông báo ở trên với đúng hàng bên
+   dưới, để giỏ nhiều dòng không bắt khách tự dò theo mã hàng. */
+.dong-loi { background: #fef2f2; }
+
 /* ---------- Hạn mức: "Không giới hạn" vs "Hết hạn mức" (BR-O15) ---------- */
 /* Hai trạng thái này trước đây trông y hệt nhau vì API trả cùng số 0. Chúng
    phải nhìn khác nhau ngay từ xa: một cái là tin tốt (đặt bao nhiêu cũng

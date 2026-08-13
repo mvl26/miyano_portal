@@ -8,6 +8,22 @@ from miyano_portal.portal_dat_hang import (
 from miyano_portal.portal_thong_bao import bao_thieu_gia
 
 
+def _gia_hien_hanh(item_code: str, price_list: str):
+    """Đơn giá bán hiện hành của một mặt hàng trong bảng giá của hợp đồng.
+
+    Tách ra để vòng gom lỗi và vòng dựng đơn dùng CHUNG một phép tra: hai chỗ
+    tra riêng là hai chỗ có thể lệch nhau khi một bên được sửa.
+
+    Nợ đã biết, cố ý giữ nguyên hành vi cũ ở lần tách này: chưa lọc
+    `valid_from`/`valid_upto`, nhiều bản ghi thì lấy tuỳ ý.
+    """
+    return frappe.db.get_value(
+        "Item Price",
+        {"item_code": item_code, "price_list": price_list, "selling": 1},
+        "price_list_rate",
+    )
+
+
 def _customer_addresses(customer: str) -> list:
     """Addresses linked to this Customer via Dynamic Link.
 
@@ -257,9 +273,6 @@ def portal_order_place(
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
     # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
     delivery_date = delivery_date or ngay_giao_mac_dinh()
-    loi_ngay = kiem_ngay_giao(delivery_date)
-    if loi_ngay:
-        frappe.throw(loi_ngay, frappe.ValidationError)
 
     # Aggregate the incoming cart by item_code so duplicate lines for the same
     # item can't each pass the quota check individually while together
@@ -270,32 +283,82 @@ def portal_order_place(
         item_code = line.get("item_code")
         aggregated[item_code] = aggregated.get(item_code, 0) + qty
 
-    errors = []
+    # BR-O3 — báo HẾT trong một lần. `loi` là phong bì máy đọc được theo
+    # `30_API_Spec` §1.1 (`ly_do` + số liệu kèm theo); văn xuôi cho `frappe.throw`
+    # dựng từ chính `thong_diep` của các mục này, nên hai đường không thể lệch
+    # nội dung nhau.
+    loi: list[dict] = []
+    loi_ngay = kiem_ngay_giao(delivery_date)
+    if loi_ngay:
+        loi.append(loi_ngay)
+
+    gia: dict[str, float] = {}
     khong_gioi_han = set()
     for item_code, qty in aggregated.items():
         if qty <= 0:
-            errors.append(f"{item_code}: số lượng phải > 0")
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "so_luong_khong_hop_le",
+                "thong_diep": f"{item_code}: số lượng phải > 0",
+            })
             continue
-        # BR-O11 — bội số quy cách. Gom vào cùng danh sách lỗi với hạn mức để
-        # khách thấy MỌI dòng sai trong một lần (BR-O3), không phải sửa một
-        # lỗi rồi lại gặp lỗi tiếp theo.
+        # Mỗi mặt hàng chỉ báo MỘT lý do, xét theo thứ tự này:
+        #   bội số  — lỗi nhập liệu, khách sửa được ngay; và kiểm hạn mức trên
+        #             một số lượng sai bội số cho ra `con_lai` gây hiểu nhầm;
+        #   giá     — bế tắc tuyệt đối, giảm số lượng không cứu được;
+        #   hạn mức — xét sau cùng, khi số lượng đã hợp lệ và hàng đã có giá.
         loi_boi_so = kiem_boi_so(item_code, qty)
         if loi_boi_so:
-            errors.append(loi_boi_so)
+            loi.append(loi_boi_so)
             continue
-        con_lai, _ = han_muc_con(contract, item_code)
+        # US-E1.4 — kiểm giá phải nằm TRONG vòng gom này. Bản trước ném ngay ở
+        # mặt hàng thiếu giá đầu tiên tại vòng dựng đơn phía dưới, nên giỏ vừa
+        # vượt hạn mức vừa thiếu giá bắt khách gửi hai lần — đúng thứ BR-O3 cấm.
+        rate = _gia_hien_hanh(item_code, price_list)
+        if not rate:
+            # Khách không phải tự đi đòi giá. Báo sales phụ trách ngay, tối đa
+            # một lần mỗi ngày cho mỗi cặp (khách, mặt hàng).
+            bao_thieu_gia(customer, item_code)
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "thieu_gia",
+                # Nguyên văn ma trận FormSpec §5, dòng NL-1.4.
+                "thong_diep": (
+                    f"{item_code} chưa có giá trong hợp đồng. "
+                    f"Miyano đã nhận được thông báo để bổ sung."
+                ),
+            })
+            continue
+        gia[item_code] = rate
+        con_lai, _da_dat = han_muc_con(contract, item_code)
         if con_lai is None:
             # BR-O15 — hạn mức khai 0 = KHÔNG GIỚI HẠN. Không kiểm, và ghi
             # nhớ để lát nữa KHÔNG gắn against_blanket_order cho dòng này.
             khong_gioi_han.add(item_code)
             continue
         if qty > con_lai:
-            # Nguyên văn ma trận FormSpec §5, dòng NL-1.3.
-            errors.append(
-                f"Không đặt được: {item_code} chỉ còn {con_lai:g} theo hạn mức HĐNT."
-            )
-    if errors:
-        frappe.throw("<br>".join(errors), frappe.ValidationError)
+            loi.append({
+                "item_code": item_code,
+                # §5 tách hai mã: hết sạch là `het_han_muc`, còn ít hơn số
+                # khách đòi là `vuot_han_muc` — giao diện xử lý khác nhau.
+                "ly_do": "het_han_muc" if con_lai <= 0 else "vuot_han_muc",
+                "con_lai": con_lai,
+                # Nguyên văn ma trận FormSpec §5, dòng NL-1.3.
+                "thong_diep": (
+                    f"Không đặt được: {item_code} chỉ còn {con_lai:g} "
+                    f"theo hạn mức HĐNT."
+                ),
+            })
+    if loi:
+        # `report_error` không xoá `frappe.local.response` và `as_json`
+        # serialize cả dict, nên khoá này về tới client cùng với HTTP 417.
+        frappe.local.response["loi"] = loi
+        frappe.throw(
+            "<br>".join(d["thong_diep"] for d in loi), frappe.ValidationError
+        )
+    # Lần gọi trước trong cùng request có thể đã để lại `loi`; sót lại thì giao
+    # diện báo lỗi trên một đơn vừa tạo thành công.
+    frappe.local.response.pop("loi", None)
 
     so = frappe.new_doc("Sales Order")
     so.customer = customer
@@ -319,21 +382,9 @@ def portal_order_place(
         so.contact_person = contact_name
         so.contact_email = frappe.session.user
     for item_code, qty in aggregated.items():
-        rate = frappe.db.get_value(
-            "Item Price",
-            {"item_code": item_code, "price_list": price_list, "selling": 1},
-            "price_list_rate",
-        )
-        if not rate:
-            # US-E1.4 — khách không phải tự đi đòi giá. Báo sales phụ trách
-            # ngay, tối đa một lần mỗi ngày cho mỗi cặp (khách, mặt hàng).
-            bao_thieu_gia(customer, item_code)
-            # Nguyên văn ma trận FormSpec §5, dòng NL-1.4.
-            frappe.throw(
-                f"{item_code} chưa có giá trong hợp đồng. "
-                f"Miyano đã nhận được thông báo để bổ sung.",
-                frappe.ValidationError,
-            )
+        # Giá đã tra ở vòng gom lỗi phía trên — tới đây mọi mặt hàng còn lại
+        # chắc chắn có giá, vì thiếu giá đã thành một mục trong `loi`.
+        rate = gia[item_code]
         # Ship each line from THIS item's own default warehouse (where its
         # stock actually is), never a single warehouse forced onto the whole
         # order - otherwise items stocked elsewhere (e.g. UAT items in "Kho

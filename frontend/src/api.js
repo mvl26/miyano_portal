@@ -39,6 +39,11 @@ async function callUrl(url, args) {
     }
     const err = new Error(msg || ('HTTP ' + res.status))
     if (errName) err.name = errName
+    // Phong bì lỗi máy đọc được (`30_API_Spec` §1.1): mảng `{item_code, ly_do,
+    // con_lai|boi_so|goi_y, thong_diep}`. Server gửi kèm 417 qua
+    // `frappe.local.response`. Nơi gọi nào biết dùng thì liệt kê từng dòng sai
+    // thay vì đổ một chuỗi nối bằng <br> vào thẻ text.
+    if (data && Array.isArray(data.loi)) err.loi = data.loi
     throw err
   }
   return data.message
