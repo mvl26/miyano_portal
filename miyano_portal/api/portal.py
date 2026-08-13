@@ -1043,7 +1043,21 @@ def portal_invoices(limit=20, start=0) -> list:
         # `fei.customer == r["customer"]` — một sai sót dữ liệu ở module HĐĐT
         # (kế toán gõ nhầm `sales_invoice` sang hoá đơn của khách khác) không
         # lọt ra cổng dù `Sales Invoice` này đọc được là đúng chủ.
-        r["einvoice"] = einvoice.block_for(r["name"], r.pop("customer"))
+        #
+        # Bọc lỗi CỐ Ý (cùng nguyên tắc `delivery_hook._chay_an_toan`: "giao
+        # hàng của Miyano không được phụ thuộc kho khách" — ở đây là "danh
+        # sách hoá đơn + công nợ không được phụ thuộc module HĐĐT của team
+        # khác"). Module đó đổi tên field/cấu trúc không được phép biến MẤT
+        # cả danh sách hoá đơn (NL-12.1: công nợ vẫn hiển thị bình thường dù
+        # HĐĐT có chuyện gì). KHÔNG bọc kiểu này ở `portal_einvoice_download`
+        # — đó là hành động khách chủ động bấm, lỗi phải lộ ra chứ không được
+        # nuốt thành "im lặng không tải được gì".
+        customer = r.pop("customer")
+        try:
+            r["einvoice"] = einvoice.block_for(r["name"], customer)
+        except Exception:
+            frappe.log_error(title=f"HĐĐT: không dựng được khối cho {r['name']}")
+            r["einvoice"] = einvoice.khoi_mac_dinh()
     return rows
 
 
@@ -1078,7 +1092,7 @@ def portal_einvoice_download(invoice, loai="pdf") -> None:
     fei = einvoice.resolve(invoice)
     if not fei or fei.customer != si.customer:
         frappe.throw("Chưa có hoá đơn điện tử cho chứng từ này.", frappe.ValidationError)
-    if not einvoice.sua_duoc_tai(fei):
+    if not einvoice.co_the_tai(fei):
         frappe.throw(
             "Hoá đơn điện tử này chưa có file để tải. Bấm [Yêu cầu hỗ trợ] "
             "nếu cần Miyano hỗ trợ.",

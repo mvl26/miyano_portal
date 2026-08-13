@@ -171,6 +171,19 @@ def _lineage_ref(fei_name, customer):
     }
 
 
+def khoi_mac_dinh():
+    """Khối "chưa có gì để hiện" — dùng khi chưa có `Fast EInvoice Document`
+    khớp, VÀ khi `portal_invoices` phải tự bọc lỗi quanh `block_for` (xem
+    ghi chú ở đó): một trường đổi tên/module HĐĐT đổi cấu trúc không được
+    phép biến MẤT cả danh sách hoá đơn + công nợ của khách — đúng ràng buộc
+    NL-12.1 (công nợ vẫn hiển thị bình thường bất kể trạng thái HĐĐT)."""
+    group, label, badge = _MAC_DINH
+    return {
+        "fei": None, "trang_thai": group, "nhan": label, "badge": badge,
+        "tai_duoc": False, "ho_tro": False,
+    }
+
+
 def block_for(sales_invoice_name, sales_invoice_customer):
     """Khối HĐĐT cho MỘT hoá đơn — trả dict JSON-hoá được thẳng cho SPA.
 
@@ -187,11 +200,7 @@ def block_for(sales_invoice_name, sales_invoice_customer):
     """
     fei = resolve(sales_invoice_name)
     if not fei or fei.customer != sales_invoice_customer:
-        group, label, badge = _MAC_DINH
-        return {
-            "fei": None, "trang_thai": group, "nhan": label, "badge": badge,
-            "tai_duoc": False, "ho_tro": False,
-        }
+        return khoi_mac_dinh()
 
     group, label, badge = _meta(fei.status)
     ho_tro = group in _NHOM_LOI
@@ -225,10 +234,18 @@ def block_for(sales_invoice_name, sales_invoice_customer):
     moi = _lineage_ref(fei.amended_from_fei, sales_invoice_customer)
     if moi:
         block["hoa_don_moi"] = moi
+        # Bản mẫu (id `einv-row`) đặt số hoá đơn thay thế NGAY TRONG BADGE
+        # thu gọn: "Đã huỷ — thay bằng 00299", không phải một nhãn tĩnh —
+        # khớp lại đúng chữ đó cho hai nhóm có `hoa_don_moi` (10/11), thay vì
+        # buộc khách bấm xổ dòng mới biết số hoá đơn nào đã thay thế nó.
+        if group == "da_thay_the":
+            block["nhan"] = f"Đã huỷ — thay bằng {moi['so'] or moi['fei']}"
+        elif group == "da_dieu_chinh":
+            block["nhan"] = f"Bị điều chỉnh — xem {moi['so'] or moi['fei']}"
     return block
 
 
-def sua_duoc_tai(fei_row):
+def co_the_tai(fei_row):
     """`True` nếu nhóm hiển thị của bản ghi cho phép tải — dùng lại đúng quy
     tắc của `block_for` ở `portal_einvoice_download` (không viết lại logic
     lần hai, tránh hai nơi lệch nhau)."""
