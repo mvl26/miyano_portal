@@ -2,7 +2,6 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
-import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import {
   NXT_COLUMNS, NXT_LOT_COLUMNS, THE_KHO_COLUMNS, CANH_BAO_COLUMNS,
@@ -229,14 +228,14 @@ function exportUrl() {
   return '' // 'dot': kho_bao_cao_excel chưa hỗ trợ — xem xuatExcel()
 }
 
+// kho_bao_cao_excel chỉ nhận loai trong {nxt, the_kho, canh_bao} — "NXT
+// theo đợt hàng" chưa có cột Excel riêng ở backend. Nút bị TẮT hẳn ở tab
+// này (không phải bấm rồi mới báo lỗi — declaring-document-actions) kèm
+// title giải thích, thay vì mở một tab chắc chắn lỗi. Xem báo cáo cuối
+// phần C: cần bổ sung "dot" vào _BAO_CAO_LOAI + kho_bao_cao_excel.
+const EXCEL_CHUA_HO_TRO = 'Xuất Excel cho "NXT theo đợt hàng" chưa được backend hỗ trợ — báo Miyano để bổ sung.'
+
 function xuatExcel() {
-  // kho_bao_cao_excel chỉ nhận loai trong {nxt, the_kho, canh_bao} — "NXT
-  // theo đợt hàng" chưa có cột Excel riêng ở backend. Báo rõ thay vì mở một
-  // tab sẽ chắc chắn lỗi hoặc âm thầm không làm gì khi bấm.
-  if (tab.value === 'dot') {
-    showToast('Xuất Excel cho "NXT theo đợt hàng" chưa được backend hỗ trợ — báo Miyano để bổ sung.', 'error')
-    return
-  }
   const url = exportUrl()
   if (!url) return
   window.open(url, '_blank')
@@ -310,7 +309,10 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <button class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
+        <button
+          class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel"
+          :disabled="tab === 'dot'" :title="tab === 'dot' ? EXCEL_CHUA_HO_TRO : ''"
+        >
           ⬇ Xuất Excel
         </button>
       </div>

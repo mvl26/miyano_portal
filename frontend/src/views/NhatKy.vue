@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
-import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 
 const isMobile = useIsMobile()
@@ -136,18 +135,11 @@ function phieuUrl(r) {
 }
 
 // Chưa có cột "nhat_ky" trong kho_bao_cao_excel (chỉ hỗ trợ nxt/the_kho/
-// canh_bao) — báo gap thay vì gọi một endpoint chắc chắn lỗi hoặc âm thầm
-// không làm gì khi bấm nút.
-function xuatExcel() {
-  if (!tuNgay.value || !denNgay.value) {
-    showToast('Chọn kỳ trước khi xuất Excel.', 'error')
-    return
-  }
-  showToast(
-    'Xuất Excel cho Nhật ký vật tư chưa được backend hỗ trợ — báo Miyano để bổ sung endpoint.',
-    'error'
-  )
-}
+// canh_bao) — nút bị TẮT hẳn (không phải bấm rồi mới báo lỗi, đúng nguyên
+// tắc "ẩn/khoá hành động không làm được thay vì hiện nút rồi lỗi khi bấm"
+// của declaring-document-actions) kèm title giải thích. Xem báo cáo cuối
+// phần C: cần bổ sung "nhat_ky" vào _BAO_CAO_LOAI + kho_bao_cao_excel.
+const EXCEL_CHUA_HO_TRO = 'Xuất Excel cho Nhật ký vật tư chưa được backend hỗ trợ — báo Miyano để bổ sung endpoint.'
 
 onMounted(() => {
   loadVatTu()
@@ -163,13 +155,13 @@ onMounted(() => {
         <div class="sub">Mọi biến động — dựng từ sổ kho, chỉ đọc</div>
       </div>
       <div class="flex" style="gap: 8px">
-        <button class="btn-o btn-sm" @click="xuatExcel">⬇ Excel (bắt buộc chọn kỳ)</button>
+        <button class="btn-o btn-sm" disabled :title="EXCEL_CHUA_HO_TRO">⬇ Excel (bắt buộc chọn kỳ)</button>
         <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
       </div>
     </div>
     <div class="sb" v-else style="margin-bottom: 12px">
       <h2>Nhật ký vật tư</h2>
-      <button class="btn-o btn-sm" @click="xuatExcel">⬇ Excel</button>
+      <button class="btn-o btn-sm" disabled :title="EXCEL_CHUA_HO_TRO">⬇ Excel</button>
     </div>
 
     <div class="card mb10">
