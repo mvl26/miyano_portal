@@ -1,18 +1,23 @@
 """E7 — Hoá đơn điện tử trên cổng, chỉ đọc (QT12).
 
 Nhóm TC-E7 (`DevHandoff/40_TestCases.md`) + các ca biên nêu trong
-`.superpowers/sdd/e7/brief-hddt.md`.
+`.superpowers/sdd/e7/brief-hddt.md` + review round 1 (C-1/I-5): MỘT Sales
+Invoice có thể khớp NHIỀU `Fast EInvoice Document` (bản gốc + điều chỉnh/thay
+thế + bản lập lại sau huỷ nội bộ) — `lineage.py::_COPIED_FIELDS` copy CẢ
+`delivery_note` LẪN `sales_invoice` từ cha sang con, nên cả nhà LUÔN dùng
+chung một `delivery_note` (và thường CÙNG một `sales_invoice`, kể cả khi giá
+trị đó là rỗng — rỗng thì con cũng thừa hưởng rỗng). Fixture của mọi test
+NHIỀU BẢN GHI dưới đây vì thế phải dựng các bản ghi CÙNG một `dn`/`si` — dựng
+`dn`/`si` RIÊNG cho "bản điều chỉnh" (như bản test round 1) là một hình dạng
+module KHÔNG THỂ sinh ra, và đã từng khiến C-1 xanh giả (xem review).
 
-Điểm quan trọng nhất của module này: `Fast EInvoice Document` (module HĐĐT,
-`apps/erpnext/erpnext/einvoice/`) hầu như KHÔNG BAO GIỜ có `sales_invoice`
-được điền — luồng tạo bản ghi thật (`builder.py::create_from_delivery_note`)
-chỉ gán `delivery_note`. Vì vậy fixture MẶC ĐỊNH của mọi test dưới đây (trừ
-`test_lien_ket_truc_tiep_sales_invoice`, test riêng cho trường hợp NGOẠI LỆ)
-để `sales_invoice` TRỐNG và chỉ nối qua `Sales Invoice Item.delivery_note` —
-đúng đường THẬT `miyano_portal.einvoice.resolve()` phải đi qua. Nếu fixture
-mặc định lại điền `sales_invoice` trực tiếp, mọi test sẽ xanh dù tầng 2 của
-`resolve()` có bị xoá — đúng bẫy "một lớp input chưa từng được thử" mà brief
-cảnh báo.
+Điểm quan trọng nhì: `Fast EInvoice Document` hầu như KHÔNG BAO GIỜ có
+`sales_invoice` được điền — luồng tạo bản ghi thật
+(`builder.py::create_from_delivery_note`) chỉ gán `delivery_note`. Vì vậy
+fixture MẶC ĐỊNH của mọi test dưới đây (trừ các test riêng cho trường hợp
+NGOẠI LỆ "kế toán tự điền") để `sales_invoice` TRỐNG và chỉ nối qua
+`Sales Invoice Item.delivery_note` — đúng đường THẬT `einvoice.resolve_all()`
+phải đi qua.
 """
 
 import frappe
@@ -51,6 +56,18 @@ def _ensure_ke_toan_hddt_user():
             "roles": [{"role": "Kế toán HĐĐT"}],
         }).insert(ignore_permissions=True)
     return KE_TOAN_HDDT_USER
+
+
+def _noi_dung_pdf_tra_ve():
+    from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+
+    noi_dung = frappe.local.response.filecontent
+    # `File.get_content()` giải mã sang `str` khi nội dung là ASCII thuần
+    # (đúng PDF tối thiểu dùng trong test) — PDF thật (nhị phân) sẽ luôn ra
+    # `bytes`; chuẩn hoá về bytes để so sánh không phụ thuộc nhánh nào chạy.
+    if isinstance(noi_dung, str):
+        noi_dung = noi_dung.encode()
+    return noi_dung, minimal_pdf_bytes()
 
 
 class _E7Fixture(FrappeTestCase):
@@ -94,7 +111,7 @@ class _E7Fixture(FrappeTestCase):
         dn.submit()
         return dn
 
-    def _tao_si(self, customer, dn=None):
+    def _tao_si(self, customer, dn=None, dn_list=None):
         si = frappe.new_doc("Sales Invoice")
         si.company = COMPANY
         si.customer = customer
@@ -102,13 +119,14 @@ class _E7Fixture(FrappeTestCase):
         si.set_posting_time = 1
         si.debit_to = DEBIT_TO
         si.update_stock = 0
-        row = {
-            "item_code": ITEM, "qty": 1, "rate": 1200,
-            "income_account": INCOME_ACCOUNT, "cost_center": COST_CENTER,
-        }
-        if dn is not None:
-            row["delivery_note"] = dn.name
-        si.append("items", row)
+        for d in (dn_list or ([dn] if dn is not None else [])) or [None]:
+            row = {
+                "item_code": ITEM, "qty": 1, "rate": 1200,
+                "income_account": INCOME_ACCOUNT, "cost_center": COST_CENTER,
+            }
+            if d is not None:
+                row["delivery_note"] = d.name
+            si.append("items", row)
         si.insert(ignore_permissions=True)
         si.submit()
         return si
@@ -159,52 +177,53 @@ class _E7Fixture(FrappeTestCase):
 
 
 class TestResolveBridge(_E7Fixture):
-    """`einvoice.resolve()` — tầng 1 (sales_invoice trực tiếp) rồi mới tầng 2
-    (qua delivery_note). Đây là phần dễ vỡ nhất: brief gốc coi `sales_invoice`
-    là liên kết CHÍNH, nhưng đọc thẳng `builder.py` thì đường THẬT là tầng 2.
-    """
+    """`einvoice.resolve_all()` — gộp CẢ HAI tầng (liên kết trực tiếp
+    `sales_invoice` VÀ bắc cầu qua `delivery_note`), KHÔNG dừng lại ở bản ghi
+    đầu tiên tìm thấy (review round 1, C-1)."""
 
     def test_lien_ket_qua_delivery_note_la_duong_mac_dinh(self):
         si, fei = self._chain(CUSTOMER_BM, dinh_pdf=False)
         self.assertFalse(fei.sales_invoice)
-        found = einvoice.resolve(si.name)
-        self.assertIsNotNone(found, "resolve() phải bắc cầu qua Sales Invoice Item.delivery_note")
-        self.assertEqual(found.name, fei.name)
+        found = einvoice.resolve_all(si.name)
+        self.assertEqual([f.name for f in found], [fei.name])
 
     def test_lien_ket_truc_tiep_sales_invoice(self):
         """Trường hợp NGOẠI LỆ (kế toán tự điền `sales_invoice`) — vẫn phải
-        tìm đúng, và được ưu tiên hơn một bản ghi khác chỉ nối qua DN."""
+        tìm thấy."""
         dn = self._tao_dn(CUSTOMER_BM)
         si = self._tao_si(CUSTOMER_BM, dn=dn)
         fei = self._tao_fei(CUSTOMER_BM, dn, sales_invoice=si.name, status="06 - Đã phát hành")
-        found = einvoice.resolve(si.name)
-        self.assertEqual(found.name, fei.name)
+        found = einvoice.resolve_all(si.name)
+        self.assertEqual([f.name for f in found], [fei.name])
 
-    def test_khong_co_ban_ghi_hddt_nao_tra_none(self):
+    def test_khong_co_ban_ghi_hddt_nao_tra_rong(self):
         si = self._tao_si(CUSTOMER_BM)
-        self.assertIsNone(einvoice.resolve(si.name))
+        self.assertEqual(einvoice.resolve_all(si.name), [])
 
-    def test_tang_1_chay_truoc_khong_can_di_qua_delivery_note(self):
-        """`resolve()` không được tự ý quét MỌI Sales Invoice Item khi tầng
-        1 đã trả kết quả — dựng một fixture mà nếu code lỡ đi tầng 2 trước sẽ
-        ra một FEI SAI (nối qua DN của một hoá đơn KHÁC)."""
-        dn1 = self._tao_dn(CUSTOMER_BM)
-        si1 = self._tao_si(CUSTOMER_BM, dn=dn1)
-        fei_qua_dn = self._tao_fei(CUSTOMER_BM, dn1, status="06 - Đã phát hành")
+    def test_gop_ca_hai_tang_khong_chi_tang_1(self):
+        """C-1: một bản ghi nối qua `delivery_note` VÀ một bản ghi khác nối
+        trực tiếp qua `sales_invoice` của CÙNG hoá đơn đều phải có mặt —
+        không được "tầng 1 thắng thì bỏ qua tầng 2"."""
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        fei_qua_dn = self._tao_fei(CUSTOMER_BM, dn, status="06 - Đã phát hành")
+        fei_truc_tiep = self._tao_fei(CUSTOMER_BM, dn, sales_invoice=si.name, status="01 - Nháp")
+        found = {f.name for f in einvoice.resolve_all(si.name)}
+        self.assertEqual(found, {fei_qua_dn.name, fei_truc_tiep.name})
 
-        dn2 = self._tao_dn(CUSTOMER_BM)
-        si2 = self._tao_si(CUSTOMER_BM, dn=dn2)
-        fei_truc_tiep = self._tao_fei(CUSTOMER_BM, dn2, sales_invoice=si1.name, status="06 - Đã phát hành")
-
-        found = einvoice.resolve(si1.name)
-        self.assertEqual(found.name, fei_truc_tiep.name)
-        self.assertNotEqual(found.name, fei_qua_dn.name)
+    def test_sap_theo_creation_tang_dan(self):
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        fei1 = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
+        fei2 = self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp")
+        found = einvoice.resolve_all(si.name)
+        self.assertEqual([f.name for f in found], [fei1.name, fei2.name])
 
 
 class TestBadgeGroups(_E7Fixture):
     def test_chua_ghi_so_hddt_khong_nut_tai_cong_no_van_hien(self):  # TC-E7-01
         si, fei = self._chain(CUSTOMER_BM, status="01 - Nháp", dinh_pdf=False)
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "dang_phat_hanh")
         self.assertFalse(block["tai_duoc"])
         self.assertFalse(block["ho_tro"])
@@ -217,22 +236,31 @@ class TestBadgeGroups(_E7Fixture):
 
     def test_khong_co_fei_cung_la_dang_phat_hanh(self):
         si = self._tao_si(CUSTOMER_BM)
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "dang_phat_hanh")
         self.assertFalse(block["tai_duoc"])
 
     def test_da_phat_hanh_co_file_thi_tai_duoc(self):  # TC-E7-02
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "da_phat_hanh")
         self.assertTrue(block["tai_duoc"])
         self.assertFalse(block["ho_tro"])
+
+    def test_mau_so_di_kem_ky_hieu(self):  # review round 1, I-1
+        si, fei = self._chain(
+            CUSTOMER_BM, status="06 - Đã phát hành",
+            fast_pattern="1", fast_serial="C26TAA",
+        )
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
+        self.assertEqual(block["mau_so"], "1")
+        self.assertEqual(block["ky_hieu"], "C26TAA")
 
     def test_da_phat_hanh_nhung_pdf_chua_co_la_trang_thai_rieng(self):
         """`official_pdf` được đính qua job NỀN (đợi ký số HSM) — trạng thái
         06 mà chưa có file là một tình huống THẬT, không phải lỗi test."""
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành", dinh_pdf=False)
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "da_phat_hanh")
         self.assertFalse(block["tai_duoc"])
         self.assertTrue(block["ho_tro"])
@@ -240,17 +268,18 @@ class TestBadgeGroups(_E7Fixture):
 
     def test_cqt_tu_choi_van_tai_duoc_nhung_nhan_rieng(self):
         si, fei = self._chain(CUSTOMER_BM, status="09 - CQT từ chối")
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "cqt_tu_choi")
         self.assertTrue(block["tai_duoc"])
         self.assertNotEqual(block["nhan"], "Đã phát hành")
 
-    def test_da_huy_khong_giau_hoa_don_cu(self):  # NL-12.2
+    def test_da_huy_khong_giau_hoa_don_cu(self):  # NL-12.2 / M-1
         si, fei = self._chain(
             CUSTOMER_BM, status="12 - Đã hủy nội bộ", cancel_reason="Sai mã số thuế",
         )
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertEqual(block["trang_thai"], "da_huy")
+        self.assertEqual(block["ly_do_huy"], "Sai mã số thuế")
         # "Không bị giấu": dòng hoá đơn vẫn có trong danh sách của khách.
         frappe.set_user(BM_USER)
         names = {r["name"] for r in portal.portal_invoices(limit=200)}
@@ -259,14 +288,14 @@ class TestBadgeGroups(_E7Fixture):
     def test_trang_thai_loi_disable_tai_va_hien_ho_tro(self):  # NL-12.4
         for status in ("98 - Cần đối soát", "99 - Lỗi"):
             si, fei = self._chain(CUSTOMER_BM, status=status, dinh_pdf=False)
-            block = einvoice.block_for(si.name, si.customer)
+            block = einvoice.block_for(si.name, si.customer)["chinh"]
             self.assertEqual(block["trang_thai"], "loi", status)
             self.assertFalse(block["tai_duoc"], status)
             self.assertTrue(block["ho_tro"], status)
 
     def test_trang_thai_tho_khong_lo_ra_ngoai(self):
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertNotEqual(block["trang_thai"], fei.status)
         for v in block.values():
             if isinstance(v, str):
@@ -274,7 +303,7 @@ class TestBadgeGroups(_E7Fixture):
 
     def test_official_pdf_khong_lo_duong_dan(self):  # BR-E4 / quyết định #8
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
-        block = einvoice.block_for(si.name, si.customer)
+        block = einvoice.block_for(si.name, si.customer)["chinh"]
         self.assertNotIn("official_pdf", block)
         for v in block.values():
             if isinstance(v, str):
@@ -296,7 +325,7 @@ class TestBadgeGroups(_E7Fixture):
         được phép làm mất cả danh sách hoá đơn + công nợ (NL-12.1)."""
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
         truoc = einvoice._FIELDS
-        einvoice._FIELDS = ("name", "status", "truong_khong_ton_tai_xyz")
+        einvoice._FIELDS = ("name", "creation", "status", "truong_khong_ton_tai_xyz")
         try:
             frappe.set_user(BM_USER)
             rows = {r["name"]: r for r in portal.portal_invoices(limit=200)}
@@ -304,96 +333,174 @@ class TestBadgeGroups(_E7Fixture):
             einvoice._FIELDS = truoc
         self.assertIn(si.name, rows)
         self.assertIn("outstanding_amount", rows[si.name])
-        self.assertEqual(rows[si.name]["einvoice"]["trang_thai"], "dang_phat_hanh")
+        self.assertEqual(rows[si.name]["einvoice"]["chinh"]["trang_thai"], "dang_phat_hanh")
 
 
 class TestLineage(_E7Fixture):  # NL-12.2 / NL-12.3
-    def test_lien_ket_hai_chieu_dieu_chinh(self):
-        dn_goc = self._tao_dn(CUSTOMER_BM)
-        si_goc = self._tao_si(CUSTOMER_BM, dn=dn_goc)
-        fei_goc = self._tao_fei(CUSTOMER_BM, dn_goc, status="08 - CQT chấp nhận")
-        self._dinh_pdf(fei_goc)
+    """Tất cả fixture ở đây dùng CHUNG một `dn`/`si` cho cả gốc lẫn con —
+    đúng hình dạng THẬT (`_COPIED_FIELDS` copy cả hai field), xem docstring
+    module. Dựng `dn`/`si` riêng cho bản con (như trước review round 1) tạo
+    ra một hình dạng module không thể sinh ra và che mất bug C-1."""
 
-        dn_moi = self._tao_dn(CUSTOMER_BM)
-        si_moi = self._tao_si(CUSTOMER_BM, dn=dn_moi)
-        fei_moi = self._tao_fei(
-            CUSTOMER_BM, dn_moi, status="06 - Đã phát hành",
-            invoice_type="Hóa đơn điều chỉnh", original_document=fei_goc.name,
+    def test_lien_ket_hai_chieu_dieu_chinh(self):
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        goc = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
+        self._dinh_pdf(goc)
+
+        con = self._tao_fei(
+            CUSTOMER_BM, dn, status="06 - Đã phát hành",
+            invoice_type="Hóa đơn điều chỉnh", original_document=goc.name,
             adjustment_type="1 - Điều chỉnh giảm", adjustment_reason="Sai đơn giá",
         )
-        self._dinh_pdf(fei_moi)
+        self._dinh_pdf(con)
         # `mark_original_superseded` (erpnext/einvoice/lineage.py) — nửa
         # NGƯỢC của brief gốc bỏ sót.
-        frappe.db.set_value(FEI, fei_goc.name, "status", "10 - Đã điều chỉnh")
-        frappe.db.set_value(FEI, fei_goc.name, "amended_from_fei", fei_moi.name)
+        frappe.db.set_value(FEI, goc.name, "status", "10 - Đã điều chỉnh")
+        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
 
-        block_goc = einvoice.block_for(si_goc.name, CUSTOMER_BM)
-        self.assertEqual(block_goc["trang_thai"], "da_dieu_chinh")
-        self.assertIn("hoa_don_moi", block_goc)
-        self.assertEqual(block_goc["hoa_don_moi"]["fei"], fei_moi.name)
+        block = einvoice.block_for(si.name, CUSTOMER_BM)
+        # Con đã phát hành -> trở thành bản ghi CHÍNH; gốc (đã bị điều
+        # chỉnh) chuyển sang `khac` nhưng KHÔNG biến mất (review round 1 C-1).
+        self.assertEqual(block["chinh"]["fei"], con.name)
+        self.assertIn("hoa_don_goc", block["chinh"])
+        self.assertEqual(block["chinh"]["hoa_don_goc"]["fei"], goc.name)
+
+        khac = {m["fei"]: m for m in block["khac"]}
+        self.assertIn(goc.name, khac)
+        self.assertEqual(khac[goc.name]["trang_thai"], "da_dieu_chinh")
         # Bản mẫu (id `einv-row`) đặt số hoá đơn liên quan NGAY TRONG NHÃN
         # thu gọn, không phải một nhãn tĩnh — khớp lại đúng hình dạng đó.
-        self.assertIn(fei_moi.fast_invoice_no or fei_moi.name, block_goc["nhan"])
-
-        block_moi = einvoice.block_for(si_moi.name, CUSTOMER_BM)
-        self.assertIn("hoa_don_goc", block_moi)
-        self.assertEqual(block_moi["hoa_don_goc"]["fei"], fei_goc.name)
+        self.assertIn(con.fast_invoice_no or con.name, khac[goc.name]["nhan"])
+        # Bản gốc bị điều chỉnh VẪN còn giá trị pháp lý -> vẫn phải tải được
+        # (review round 1, kịch bản (b) — lỗi trước đó khiến nó vĩnh viễn
+        # không tải được).
+        self.assertTrue(khac[goc.name]["tai_duoc"])
 
     def test_nhan_thay_the_khop_chu_ban_mau(self):
         """Prototype: badge thu gọn đọc "Đã huỷ — thay bằng {số}" cho hoá đơn
         đã bị THAY THẾ (11), không phải một nhãn tĩnh "Đã thay thế"."""
-        dn_goc = self._tao_dn(CUSTOMER_BM)
-        si_goc = self._tao_si(CUSTOMER_BM, dn=dn_goc)
-        fei_goc = self._tao_fei(CUSTOMER_BM, dn_goc, status="08 - CQT chấp nhận")
-        self._dinh_pdf(fei_goc)
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        goc = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
+        self._dinh_pdf(goc)
 
-        dn_moi = self._tao_dn(CUSTOMER_BM)
-        si_moi = self._tao_si(CUSTOMER_BM, dn=dn_moi)
-        fei_moi = self._tao_fei(
-            CUSTOMER_BM, dn_moi, status="06 - Đã phát hành",
-            invoice_type="Hóa đơn thay thế", original_document=fei_goc.name,
+        con = self._tao_fei(
+            CUSTOMER_BM, dn, status="06 - Đã phát hành",
+            invoice_type="Hóa đơn thay thế", original_document=goc.name,
             adjustment_reason="Sai tên hàng hoá",
         )
-        self._dinh_pdf(fei_moi)
-        frappe.db.set_value(FEI, fei_goc.name, "status", "11 - Đã thay thế")
-        frappe.db.set_value(FEI, fei_goc.name, "amended_from_fei", fei_moi.name)
+        self._dinh_pdf(con)
+        frappe.db.set_value(FEI, goc.name, "status", "11 - Đã thay thế")
+        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
 
-        block_goc = einvoice.block_for(si_goc.name, CUSTOMER_BM)
-        self.assertEqual(block_goc["trang_thai"], "da_thay_the")
-        self.assertTrue(block_goc["nhan"].startswith("Đã huỷ — thay bằng "))
-        self.assertIn(fei_moi.fast_invoice_no or fei_moi.name, block_goc["nhan"])
+        block = einvoice.block_for(si.name, CUSTOMER_BM)
+        khac = {m["fei"]: m for m in block["khac"]}
+        self.assertEqual(khac[goc.name]["trang_thai"], "da_thay_the")
+        self.assertTrue(khac[goc.name]["nhan"].startswith("Đã huỷ — thay bằng "))
+        self.assertIn(con.fast_invoice_no or con.name, khac[goc.name]["nhan"])
 
     def test_lien_ket_khac_khach_khong_lo(self):
         """Dữ liệu HĐĐT bị nối sai khách (module khác, có thể do kế toán gõ
         nhầm) không được lộ qua khối lineage."""
         dn_pxn = self._tao_dn(CUSTOMER_PXN)
-        si_pxn = self._tao_si(CUSTOMER_PXN, dn=dn_pxn)
         fei_pxn = self._tao_fei(CUSTOMER_PXN, dn_pxn, status="06 - Đã phát hành")
 
         dn_bm = self._tao_dn(CUSTOMER_BM)
         si_bm = self._tao_si(CUSTOMER_BM, dn=dn_bm)
-        fei_bm = self._tao_fei(
+        self._tao_fei(
             CUSTOMER_BM, dn_bm, status="10 - Đã điều chỉnh",
             amended_from_fei=fei_pxn.name,  # trỏ nhầm sang bản ghi của KH khác
         )
 
         block = einvoice.block_for(si_bm.name, CUSTOMER_BM)
-        self.assertNotIn("hoa_don_moi", block)
+        self.assertNotIn("hoa_don_moi", block["chinh"])
 
-    def test_status_12_khong_bia_lien_ket(self):
-        """`cancel.py` không để lại field nào nối bản ghi bị hủy với hoá đơn
-        mới cho CÙNG delivery_note — `block_for` không được TỰ SUY ra một
-        liên kết như vậy."""
+
+class TestMultiFEI(_E7Fixture):
+    """Review round 1, C-1 — một Sales Invoice khớp NHIỀU `Fast EInvoice
+    Document` cùng lúc. Bốn kịch bản trong review, đặt tên (a)-(d) khớp thứ
+    tự đó."""
+
+    def test_a_dieu_chinh_dang_soan_khong_che_ban_goc(self):
+        """(a) Kế toán vừa bấm "Lập hoá đơn điều chỉnh" (con "01 - Nháp")
+        cho một hoá đơn ĐÃ ĐƯỢC CQT CHẤP NHẬN — bản gốc còn NGUYÊN giá trị,
+        badge chính KHÔNG được lật sang "Đang phát hành HĐĐT"."""
         dn = self._tao_dn(CUSTOMER_BM)
         si = self._tao_si(CUSTOMER_BM, dn=dn)
-        self._tao_fei(CUSTOMER_BM, dn, status="12 - Đã hủy nội bộ", cancel_reason="CQT từ chối")
-        # Một FEI mới cho CÙNG delivery_note (mô phỏng kế toán lập lại) —
-        # không có field nào nối nó với bản ghi đã hủy.
-        self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp")
+        goc = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
+        self._dinh_pdf(goc)
+        con = self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp", original_document=goc.name)
 
         block = einvoice.block_for(si.name, CUSTOMER_BM)
-        self.assertNotIn("hoa_don_moi", block)
-        self.assertNotIn("hoa_don_goc", block)
+        self.assertEqual(block["chinh"]["fei"], goc.name)
+        self.assertEqual(block["chinh"]["trang_thai"], "da_phat_hanh")
+        self.assertTrue(block["chinh"]["tai_duoc"])
+        self.assertEqual({m["fei"] for m in block["khac"]}, {con.name})
+
+        # Endpoint mặc định (không truyền `fei`) vẫn tải được bản GỐC.
+        frappe.set_user(BM_USER)
+        frappe.local.response = frappe._dict()
+        portal.portal_einvoice_download(si.name, loai="pdf")
+        thuc_te, ky_vong = _noi_dung_pdf_tra_ve()
+        self.assertEqual(thuc_te, ky_vong)
+
+    def test_b_ban_goc_van_tai_duoc_sau_khi_bi_dieu_chinh(self):
+        """(b) Sau khi con phát hành xong, bản GỐC (điều chỉnh, không phải
+        thay thế) vẫn còn giá trị pháp lý — phải tải được qua `fei=`."""
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        goc = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
+        self._dinh_pdf(goc)
+        con = self._tao_fei(
+            CUSTOMER_BM, dn, status="06 - Đã phát hành",
+            invoice_type="Hóa đơn điều chỉnh", original_document=goc.name,
+            adjustment_type="1 - Điều chỉnh giảm", adjustment_reason="Sai đơn giá",
+        )
+        self._dinh_pdf(con)
+        frappe.db.set_value(FEI, goc.name, "status", "10 - Đã điều chỉnh")
+        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
+
+        frappe.set_user(BM_USER)
+        frappe.local.response = frappe._dict()
+        portal.portal_einvoice_download(si.name, loai="pdf", fei=goc.name)
+        thuc_te, ky_vong = _noi_dung_pdf_tra_ve()
+        self.assertEqual(thuc_te, ky_vong)
+
+    def test_c_ban_ghi_huy_van_hien_du_khong_co_lien_ket(self):
+        """(c) Bản ghi bị huỷ nội bộ, kế toán lập bản MỚI cho CÙNG phiếu
+        giao (không field nào nối hai bản) — bản đã huỷ KHÔNG được biến mất
+        khỏi khối HĐĐT, và không bị bịa liên kết với bản mới."""
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        huy = self._tao_fei(CUSTOMER_BM, dn, status="12 - Đã hủy nội bộ", cancel_reason="CQT từ chối")
+        self._dinh_pdf(huy)
+        moi = self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp")
+
+        block = einvoice.block_for(si.name, CUSTOMER_BM)
+        toan_bo = {m["fei"]: m for m in [block["chinh"], *block["khac"]]}
+        self.assertIn(huy.name, toan_bo, "hoá đơn đã huỷ không được biến mất khỏi khối HĐĐT")
+        self.assertEqual(toan_bo[huy.name]["trang_thai"], "da_huy")
+        self.assertEqual(toan_bo[huy.name]["ly_do_huy"], "CQT từ chối")
+        self.assertNotIn("hoa_don_moi", toan_bo[huy.name])
+        self.assertIn(moi.name, toan_bo)
+
+    def test_d_hai_gia_dinh_doc_lap_deu_hien(self):
+        """(d) Sales Invoice gộp HAI Delivery Note, mỗi DN một chứng từ HĐĐT
+        độc lập (không lineage giữa chúng) — cả hai phải xuất hiện, không
+        được chọn tuỳ ý một cái rồi bỏ quên cái còn lại."""
+        dn1 = self._tao_dn(CUSTOMER_BM)
+        dn2 = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn_list=[dn1, dn2])
+
+        fei1 = self._tao_fei(CUSTOMER_BM, dn1, status="06 - Đã phát hành")
+        self._dinh_pdf(fei1)
+        fei2 = self._tao_fei(CUSTOMER_BM, dn2, status="08 - CQT chấp nhận")
+        self._dinh_pdf(fei2)
+
+        block = einvoice.block_for(si.name, CUSTOMER_BM)
+        toan_bo = {block["chinh"]["fei"], *[m["fei"] for m in block["khac"]]}
+        self.assertEqual(toan_bo, {fei1.name, fei2.name})
 
 
 class TestDownloadIsolation(_E7Fixture):  # BR-E4, NL-12.5, TC-E7-03
@@ -407,20 +514,13 @@ class TestDownloadIsolation(_E7Fixture):  # BR-E4, NL-12.5, TC-E7-03
         )
 
     def test_tai_thanh_cong_ghi_log_va_dung_noi_dung(self):
-        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
-
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
         frappe.set_user(BM_USER)
         so_log_truoc = frappe.db.count("Access Log", {"export_from": FEI, "reference_document": fei.name})
         frappe.local.response = frappe._dict()
         portal.portal_einvoice_download(si.name, loai="pdf")
-        noi_dung = frappe.local.response.filecontent
-        # `File.get_content()` giải mã sang `str` khi nội dung là ASCII thuần
-        # (đúng PDF tối thiểu dùng trong test) — PDF thật (nhị phân) sẽ luôn
-        # ra `bytes`; so sánh không phụ thuộc nhánh nào đã chạy.
-        if isinstance(noi_dung, str):
-            noi_dung = noi_dung.encode()
-        self.assertEqual(noi_dung, minimal_pdf_bytes())
+        thuc_te, ky_vong = _noi_dung_pdf_tra_ve()
+        self.assertEqual(thuc_te, ky_vong)
         self.assertEqual(frappe.local.response.type, "pdf")
         so_log_sau = frappe.db.count("Access Log", {"export_from": FEI, "reference_document": fei.name})
         self.assertEqual(so_log_sau, so_log_truoc + 1)
@@ -440,6 +540,16 @@ class TestDownloadIsolation(_E7Fixture):  # BR-E4, NL-12.5, TC-E7-03
         frappe.set_user(BM_USER)
         with self.assertRaises(frappe.ValidationError):
             portal.portal_einvoice_download(si.name, loai="pdf")
+
+    def test_fei_tham_so_khong_thuoc_hoa_don_bi_chan(self):
+        """`fei` do client gửi CHỈ được dùng để lọc trong tập đã tự resolve
+        — một FEI CÓ THẬT nhưng thuộc HOÁ ĐƠN KHÁC của CÙNG khách không được
+        chọn bừa."""
+        si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
+        si2, fei2 = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
+        frappe.set_user(BM_USER)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_einvoice_download(si.name, loai="pdf", fei=fei2.name)
 
     def test_chua_dang_nhap_bi_chan(self):
         si, fei = self._chain(CUSTOMER_BM, status="06 - Đã phát hành")
@@ -510,6 +620,17 @@ class TestHoTro(_E7Fixture):  # NL-12.4
             })
         )
 
+    def test_dedupe_theo_ngay_khong_tao_notification_thua(self):  # review M-8
+        _ensure_ke_toan_hddt_user()
+        si, fei = self._chain(CUSTOMER_BM, status="99 - Lỗi", dinh_pdf=False)
+        frappe.set_user(BM_USER)
+        portal.portal_einvoice_ho_tro(si.name)
+        portal.portal_einvoice_ho_tro(si.name)
+        so_luong = frappe.db.count("Notification Log", {
+            "for_user": KE_TOAN_HDDT_USER, "document_name": si.name,
+        })
+        self.assertEqual(so_luong, 1, "bấm lại trong cùng ngày không được tạo thêm Notification Log")
+
     def test_ho_tro_khong_bi_chan_boi_thieu_nguoi_nhan(self):
         """Không ai giữ role Kế toán HĐĐT vẫn phải trả ok — yêu cầu của khách
         không được biến thành lỗi chỉ vì thiếu người nhận nội bộ."""
@@ -523,3 +644,23 @@ class TestHoTro(_E7Fixture):  # NL-12.4
         frappe.set_user(PXN_USER)
         with self.assertRaises(frappe.PermissionError):
             portal.portal_einvoice_ho_tro(si.name)
+
+
+class TestKhongNoiSaiPhapLy(FrappeTestCase):  # review round 1, M-6
+    """BR-E1: cổng chỉ giao PDF (bản thể hiện), không có XML (bản gốc). Câu
+    chú thích cố định của bản mẫu ("File XML là bản gốc có giá trị pháp lý;
+    PDF là bản thể hiện") nói SAI trong hoàn cảnh đó — khoá vĩnh viễn quy tắc
+    "không lặp lại câu đó" bằng một test rẻ, thay vì chỉ tin hai chuỗi viết
+    tay trong Vue không ai canh gác."""
+
+    def test_khong_ton_tai_cau_chu_thich_sai_phap_ly(self):
+        import pathlib
+
+        # apps/miyano_portal/miyano_portal/tests/test_e7_hddt.py
+        #   parents[0]=tests  [1]=miyano_portal(package)  [2]=miyano_portal(app root)
+        duong_dan = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "src" / "views" / "Invoices.vue"
+        noi_dung = duong_dan.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "File XML là bản gốc có giá trị pháp lý", noi_dung,
+            "câu chú thích của bản mẫu nói SAI khi cổng chỉ giao PDF — không được lặp lại nguyên văn",
+        )

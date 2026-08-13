@@ -1061,11 +1061,38 @@ def portal_invoices(limit=20, start=0) -> list:
     return rows
 
 
+def _ho_so_cua_hoa_don(invoice) -> tuple:
+    """Kiểm sở hữu Sales Invoice qua phiên, rồi trả `(si, ho_so)` — `ho_so`
+    là TOÀN BỘ `Fast EInvoice Document` khớp hoá đơn này, đã lọc đúng
+    `customer` (review round 1, C-1: một Sales Invoice có thể khớp NHIỀU bản
+    ghi — bản gốc + bản điều chỉnh/thay thế + bản lập lại sau huỷ nội bộ —
+    không được chỉ lấy MỘT). Dùng chung cho cả hai endpoint bên dưới, tránh
+    hai nơi tự viết lại khối kiểm quyền."""
+    customer = get_portal_customer()
+    si = frappe.get_doc("Sales Invoice", invoice)
+    # `frappe.get_doc` KHÔNG tự kiểm quyền — `check_permission` là nơi hook
+    # `has_permission` (miyano_portal.permissions.generic_has_permission)
+    # thực sự chạy.
+    si.check_permission("read")
+    if si.customer != customer:
+        raise frappe.PermissionError("Hoá đơn không thuộc đơn vị của bạn.")
+    ho_so = [f for f in einvoice.resolve_all(invoice) if f.customer == si.customer]
+    return si, ho_so
+
+
 @frappe.whitelist()
-def portal_einvoice_download(invoice, loai="pdf") -> None:
+def portal_einvoice_download(invoice, loai="pdf", fei=None) -> None:
     """US-E7.2/BR-E4 — tải PDF hoá đơn điện tử. `loai` chỉ còn `"pdf"`: module
     HĐĐT không lưu XML ở đâu cả (không field nào chứa 'xml' trên
     `Fast EInvoice Document`, đã kiểm JSON) — không có XML để giao.
+
+    `fei` TUỲ CHỌN — một hoá đơn có thể khớp NHIỀU chứng từ HĐĐT (gốc + điều
+    chỉnh/thay thế/lập lại), khách chọn đúng bản muốn tải từ danh sách
+    `khac`/`chinh` mà `portal_invoices` đã trả. Tham số này KHÔNG BAO GIỜ
+    được dùng thẳng để lấy tài liệu — chỉ dùng để LỌC trong tập
+    `resolve_all(invoice)` đã tự suy từ phiên và đã lọc đúng khách; một tên
+    không có trong tập đó (hoá đơn của khách khác, tên bịa) bị từ chối ngay,
+    không round-trip `frappe.get_doc(FEI, ...)` với tên client gửi.
 
     Kiểm TỪNG LẦN tải (BR-E4, NL-12.5): hoá đơn thuộc customer của phiên +
     Fast EInvoice Document khớp thuộc ĐÚNG hoá đơn đó + trạng thái cho phép
@@ -1080,25 +1107,24 @@ def portal_einvoice_download(invoice, loai="pdf") -> None:
             "pháp lý, vui lòng liên hệ kế toán Miyano."
         )
 
-    customer = get_portal_customer()
-    si = frappe.get_doc("Sales Invoice", invoice)
-    # `frappe.get_doc` KHÔNG tự kiểm quyền — `check_permission` là nơi hook
-    # `has_permission` (miyano_portal.permissions.generic_has_permission)
-    # thực sự chạy.
-    si.check_permission("read")
-    if si.customer != customer:
-        raise frappe.PermissionError("Hoá đơn không thuộc đơn vị của bạn.")
-
-    fei = einvoice.resolve(invoice)
-    if not fei or fei.customer != si.customer:
+    _si, ho_so = _ho_so_cua_hoa_don(invoice)
+    if not ho_so:
         frappe.throw("Chưa có hoá đơn điện tử cho chứng từ này.", frappe.ValidationError)
-    if not einvoice.co_the_tai(fei):
+
+    if fei:
+        muc = next((f for f in ho_so if f.name == fei), None)
+        if not muc:
+            raise frappe.PermissionError("Chứng từ HĐĐT không thuộc hoá đơn này.")
+    else:
+        muc = einvoice.chon_ban_ghi_chinh(ho_so)
+
+    if not einvoice.co_the_tai(muc):
         frappe.throw(
             "Hoá đơn điện tử này chưa có file để tải. Bấm [Yêu cầu hỗ trợ] "
             "nếu cần Miyano hỗ trợ.",
             frappe.ValidationError,
         )
-    if not fei.official_pdf:
+    if not muc.official_pdf:
         frappe.throw(
             "File PDF đang được tạo, vui lòng thử lại sau ít phút. Bấm "
             "[Yêu cầu hỗ trợ] nếu vẫn chưa có sau một thời gian.",
@@ -1115,9 +1141,9 @@ def portal_einvoice_download(invoice, loai="pdf") -> None:
     file_doc = frappe.db.get_value(
         "File",
         {
-            "file_url": fei.official_pdf,
+            "file_url": muc.official_pdf,
             "attached_to_doctype": einvoice.FEI,
-            "attached_to_name": fei.name,
+            "attached_to_name": muc.name,
         },
         "name",
     )
@@ -1132,26 +1158,29 @@ def portal_einvoice_download(invoice, loai="pdf") -> None:
     from frappe.core.doctype.access_log.access_log import make_access_log
 
     make_access_log(
-        doctype=einvoice.FEI, document=fei.name, file_type="pdf",
+        doctype=einvoice.FEI, document=muc.name, file_type="pdf",
         method="portal_einvoice_download",
     )
 
-    frappe.local.response.filename = f"{fei.fast_invoice_no or fei.name}.pdf"
+    frappe.local.response.filename = f"{muc.fast_invoice_no or muc.name}.pdf"
     frappe.local.response.filecontent = content
     frappe.local.response.type = "pdf"
 
 
 @frappe.whitelist()
-def portal_einvoice_ho_tro(invoice) -> dict:
-    """NL-12.4 — nút [Yêu cầu hỗ trợ] trên khối HĐĐT, tự đính mã hoá đơn."""
-    customer = get_portal_customer()
-    si = frappe.get_doc("Sales Invoice", invoice)
-    si.check_permission("read")
-    if si.customer != customer:
-        raise frappe.PermissionError("Hoá đơn không thuộc đơn vị của bạn.")
-
-    fei = einvoice.resolve(invoice)
-    fei_name = fei.name if (fei and fei.customer == si.customer) else None
+def portal_einvoice_ho_tro(invoice, fei=None) -> dict:
+    """NL-12.4 — nút [Yêu cầu hỗ trợ] trên khối HĐĐT, tự đính mã hoá đơn.
+    `fei` tuỳ chọn (cùng nguyên tắc "chỉ lọc trong tập đã resolve" của
+    `portal_einvoice_download`) — khi khách bấm nút trên MỘT bản ghi cụ thể
+    trong danh sách `khac`, thông báo đính đúng mã đó."""
+    si, ho_so = _ho_so_cua_hoa_don(invoice)
+    customer = si.customer
+    fei_name = None
+    if fei:
+        muc = next((f for f in ho_so if f.name == fei), None)
+        fei_name = muc.name if muc else None
+    elif ho_so:
+        fei_name = einvoice.chon_ban_ghi_chinh(ho_so).name
     bao_yeu_cau_ho_tro_hddt(customer, invoice, fei_name)
     return {"ok": True}
 

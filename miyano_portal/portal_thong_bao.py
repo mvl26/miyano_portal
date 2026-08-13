@@ -120,9 +120,11 @@ def bao_yeu_cau_ho_tro_hddt(customer: str, sales_invoice: str, fei: str | None =
     KHÔNG ném lỗi, cùng khuôn `bao_yeu_cau_moi`: bản thân yêu cầu hỗ trợ của
     khách đã được ghi nhận thành công dù chưa có ai để báo).
 
-    Không chống spam theo cửa sổ thời gian như `bao_thieu_gia` — khách bấm
-    "Yêu cầu hỗ trợ" nhiều lần cho cùng hoá đơn (vẫn chưa được xử lý) là tín
-    hiệu THẬT ("vẫn đang chờ"), không phải trùng lặp cần chặn.
+    Chống spam theo CẶP (hoá đơn, ngày) mỗi người nhận — review round 1 M-8:
+    khách vô tình bấm lại nút nhiều lần (double-click, tải lại trang) không
+    được tạo một Notification Log riêng cho mỗi lần bấm; ý định "vẫn đang
+    chờ" của một yêu cầu thật vẫn giữ được vì cửa sổ chặn chỉ một ngày, cùng
+    khuôn `bao_thieu_gia`.
     """
     nguoi_nhan = set()
     for role in _ROLE_KE_TOAN_HDDT:
@@ -134,11 +136,22 @@ def bao_yeu_cau_ho_tro_hddt(customer: str, sales_invoice: str, fei: str | None =
     if not nguoi_nhan:
         return 0
 
+    chu_de = f"{TIEN_TO_HO_TRO_HDDT}: {sales_invoice}"
     dem = 0
     for u in nguoi_nhan:
+        da_gui = frappe.db.exists(
+            "Notification Log",
+            {
+                "subject": chu_de,
+                "for_user": u,
+                "creation": [">=", f"{today()} 00:00:00"],
+            },
+        )
+        if da_gui:
+            continue
         frappe.get_doc({
             "doctype": "Notification Log",
-            "subject": f"{TIEN_TO_HO_TRO_HDDT}: {sales_invoice}",
+            "subject": chu_de,
             "for_user": u,
             "type": "Alert",
             "document_type": "Sales Invoice",
