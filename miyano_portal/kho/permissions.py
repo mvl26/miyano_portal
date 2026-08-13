@@ -77,6 +77,12 @@ def ncc_query(user=None) -> str:
 	return _kho_condition("Customer Supplier", user)
 
 
+def khoa_phong_query(user=None) -> str:
+	"""E8: Customer Department mang field `kho` riêng, cùng hình dạng
+	Customer Supplier — lọc đúng khuôn _kho_condition()."""
+	return _kho_condition("Customer Department", user)
+
+
 def kho_has_permission(doc, ptype=None, user=None) -> bool:
 	user = user or frappe.session.user
 	if not _is_restricted_user(user):

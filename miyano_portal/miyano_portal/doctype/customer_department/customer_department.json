@@ -1,0 +1,39 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "KP-.#####",
+ "creation": "2026-08-13 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "kho", "ten_khoa_phong", "active", "col_1", "ma_khoa",
+  "sec_1", "ghi_chu"
+ ],
+ "fields": [
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
+  {"fieldname": "ten_khoa_phong", "fieldtype": "Data", "label": "Tên khoa phòng", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "active", "fieldtype": "Check", "label": "Hoạt động", "default": "1"},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "ma_khoa", "fieldtype": "Data", "label": "Mã khoa", "length": 20, "description": "≤20, khớp mã nội bộ bệnh viện"},
+  {"fieldname": "sec_1", "fieldtype": "Section Break"},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Department",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "write": 1, "create": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ten_khoa_phong",
+ "track_changes": 1
+}

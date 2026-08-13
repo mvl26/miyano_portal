@@ -160,6 +160,8 @@ permission_query_conditions = {
 	# E4: NCC của kho — mang field `kho` riêng (không phải kho tự nó), nên
 	# dùng cùng khuôn _kho_condition() như Customer Warehouse Item.
 	"Customer Supplier": "miyano_portal.kho.permissions.ncc_query",
+	# E8: Khoa phòng của kho — cùng hình dạng Customer Supplier.
+	"Customer Department": "miyano_portal.kho.permissions.khoa_phong_query",
 	# Grandchild item tables — không có field `kho` riêng, phải lọc qua parent.
 	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.receipt_item_query",
 	"Customer Stock Issue Item": "miyano_portal.kho.permissions.issue_item_query",
@@ -181,6 +183,8 @@ has_permission = {
 	"Customer Stock Lot Balance": "miyano_portal.kho.permissions.kho_child_has_permission",
 	# E4: cùng khuôn — Customer Supplier mang field `kho` riêng như Warehouse Item.
 	"Customer Supplier": "miyano_portal.kho.permissions.kho_child_has_permission",
+	# E8: cùng khuôn — Customer Department mang field `kho` riêng.
+	"Customer Department": "miyano_portal.kho.permissions.kho_child_has_permission",
 	# =====================================================================
 	# CÁI GÌ ĐANG THẬT SỰ BẢO VỆ TÁM DOCTYPE KHO (vòng 4 — mô hình hiện tại)
 	# =====================================================================

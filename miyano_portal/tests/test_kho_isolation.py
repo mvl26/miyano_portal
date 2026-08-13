@@ -67,7 +67,9 @@ KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 # không bị _nap_doctype_kho() quét tới; "Portal Item Request" THÌ có, và phải
 # được phân loại vào một trong ba nhóm. Đứng tên ở đây (không chia sẻ tiền tố
 # với ai) vì nó là một danh mục độc lập, giống "Customer Supplier".
-KHO_DOCTYPES_KHAC: tuple[str, ...] = ("Customer Supplier", "Portal Item Request")
+KHO_DOCTYPES_KHAC: tuple[str, ...] = (
+    "Customer Supplier", "Portal Item Request", "Customer Department",
+)
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
 # sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
@@ -262,6 +264,24 @@ def _make_ncc(kho, ten):
         "doctype": "Customer Supplier",
         "kho": kho,
         "ten_ncc": ten,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
+def _make_khoa_phong(kho, ten):
+    """E8 — idempotent, cùng lý do với `_make_ncc`: setUp chạy lại nhiều lần
+    trong cùng một class với cùng `ten` — tạo vô điều kiện sẽ tự đụng chốt
+    chặn trùng tên (BR-CP1) của chính doctype này ở lần setUp thứ hai."""
+    existing = frappe.db.get_value(
+        "Customer Department", {"kho": kho, "ten_khoa_phong": ten}, "name"
+    )
+    if existing:
+        return frappe.get_doc("Customer Department", existing)
+    doc = frappe.get_doc({
+        "doctype": "Customer Department",
+        "kho": kho,
+        "ten_khoa_phong": ten,
     })
     doc.insert(ignore_permissions=True)
     return doc
@@ -654,6 +674,11 @@ class TestKhoIsolationDeep(FrappeTestCase):
         self.yeu_cau_bm = _make_yeu_cau(CUSTOMER_BM, "Yêu cầu test BM")
         self.yeu_cau_pxn = _make_yeu_cau(CUSTOMER_PXN, "Yêu cầu test PXN")
 
+        # E8: Customer Department — doctype kho cha thứ chín, mang field
+        # `kho` riêng, cùng hình dạng Customer Supplier.
+        self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa BM Test")
+        self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa PXN Test")
+
         # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
@@ -664,6 +689,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Lot Balance": self.lot_pxn,
             "Customer Supplier": self.ncc_pxn.name,
             "Portal Item Request": self.yeu_cau_pxn.name,
+            "Customer Department": self.khoa_pxn.name,
         }
         # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
@@ -678,6 +704,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Stock Lot Balance": self.lot_bm,
             "Customer Supplier": self.ncc_bm.name,
             "Portal Item Request": self.yeu_cau_bm.name,
+            "Customer Department": self.khoa_bm.name,
         }
         for nhan, m in (("pxn_records", self.pxn_records),
                         ("bm_records", self.bm_records)):
@@ -1221,6 +1248,9 @@ class _KhoVoucherFixture(FrappeTestCase):
         # các test "staff đọc được mọi doctype kho cha" ở dưới có dữ liệu.
         self.yeu_cau_bm = _make_yeu_cau(CUSTOMER_BM, "Yêu cầu test BM")
         self.yeu_cau_pxn = _make_yeu_cau(CUSTOMER_PXN, "Yêu cầu test PXN")
+        # E8: cùng lý do — bản ghi tối thiểu cho mỗi khách.
+        self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa BM Test")
+        self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa PXN Test")
 
         self.child_rows = {
             "Customer Stock Receipt Item": {
@@ -1470,6 +1500,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
             ),
             "Customer Supplier": (self.ncc_bm.name, self.ncc_pxn.name),
             "Portal Item Request": (self.yeu_cau_bm.name, self.yeu_cau_pxn.name),
+            "Customer Department": (self.khoa_bm.name, self.khoa_pxn.name),
         }
         _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():
