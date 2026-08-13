@@ -70,6 +70,13 @@ REPORTS = [
 		"report_name": "Tỷ trọng nguồn cung",
 		"ref_doctype": "Customer Stock Receipt",
 	},
+	# E8 (US-E8.5) — cùng khuôn an ninh: ref_doctype đã có report:1 cho ba
+	# role trên và KHÔNG DocPerm nào cho Customer. Đọc cấp phát theo khoa
+	# phòng của MỌI khách hàng (VĐ-10, cùng hạn chế các report desk khác).
+	{
+		"report_name": "Cấp phát theo khoa phòng",
+		"ref_doctype": "Customer Stock Ledger Entry",
+	},
 ]
 
 

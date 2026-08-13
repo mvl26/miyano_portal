@@ -149,6 +149,7 @@ HTML_XUAT_TT107 = _STYLE + _HDR_SETUP + """
     Ngày {{ frappe.utils.formatdate(doc.ngay, "dd") }} tháng {{ frappe.utils.formatdate(doc.ngay, "mm") }}
     năm {{ frappe.utils.formatdate(doc.ngay, "yyyy") }} &nbsp;&nbsp; Số: {{ doc.name }}
   </div>
+  {% if doc.khoa_phong %}<p>Khoa phòng nhận: <b>{{ frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") or '' }}</b></p>{% endif %}
   <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ doc.noi_nhan or '' }}</b></p>
   <p>Lý do xuất kho: {{ doc.dien_giai or doc.loai_xuat or '' }}</p>
   <p>Xuất tại kho: <b>{{ kho.ten_kho }}</b> &nbsp; Địa điểm: {{ kho.dia_chi_kho or '' }}</p>
@@ -250,6 +251,7 @@ HTML_XUAT_TT200 = _STYLE + _HDR_SETUP + """
     năm {{ frappe.utils.formatdate(doc.ngay, "yyyy") }} &nbsp;&nbsp; Số: {{ doc.name }}<br/>
     Nợ TK ..................... &nbsp;&nbsp; Có TK .....................
   </div>
+  {% if doc.khoa_phong %}<p>Khoa phòng nhận: <b>{{ frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") or '' }}</b></p>{% endif %}
   <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ doc.noi_nhan or '' }}</b></p>
   <p>Lý do xuất kho: {{ doc.dien_giai or doc.loai_xuat or '' }}</p>
   <p>Xuất tại kho: <b>{{ kho.ten_kho }}</b> &nbsp; Địa điểm: {{ kho.dia_chi_kho or '' }}</p>
@@ -309,3 +311,22 @@ def install_kho_print_formats():
             "print_format_type": "Jinja",
             "html": html,
         }).insert(ignore_permissions=True)
+
+
+def update_kho_print_formats_khoa_phong():
+    """E8/US-E8.4/BR-CP5 — thêm dòng "Khoa phòng nhận" vào hai mẫu XUẤT
+    (TT107, TT200) đã cài từ v1_1. `install_kho_print_formats()` ở trên CHỈ
+    insert khi print format CHƯA TỒN TẠI (idempotent theo kiểu "bỏ qua nếu
+    đã có") — site đã chạy patch v1_1 từ trước sẽ không bao giờ nhận được
+    nội dung HTML mới nếu gọi lại đúng hàm đó, vì bốn bản ghi đã tồn tại.
+
+    Hàm này ngược lại: LUÔN ghi đè `html` bằng nội dung MỚI NHẤT trong
+    `FORMATS`, bất kể trạng thái hiện tại — idempotent theo kiểu "hội tụ về
+    cùng một giá trị", đúng khuôn `v1_9/re_apply_workflow_e6_fix.py` xử lý
+    một site đã chạy patch cũ TRƯỚC bản sửa nội dung. Chỉ cập nhật hai mẫu
+    XUẤT (TT107/TT200) — hai mẫu NHẬP không có khái niệm khoa phòng."""
+    html_by_name = {n: h for n, _dt, h in FORMATS}
+    for name in (NAME_XUAT_TT107, NAME_XUAT_TT200):
+        if not frappe.db.exists("Print Format", name):
+            continue
+        frappe.db.set_value("Print Format", name, "html", html_by_name[name])

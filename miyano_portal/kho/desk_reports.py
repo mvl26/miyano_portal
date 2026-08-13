@@ -512,6 +512,44 @@ def tieu_thu_de_xuat_rows(customer: str | None = None, nhom: str | None = None) 
 	)
 
 
+def cap_phat_theo_khoa_rows(customer: str | None = None, tu_ngay=None, den_ngay=None) -> list[dict]:
+	"""US-E8.5/UC-56 — Cấp phát theo khoa phòng của MỌI khách hàng, ở MỨC
+	DÒNG CHI TIẾT (một dòng = một phiếu × một vật tư), cùng khuôn
+	nxt_khach_hang_rows(): gọi lại `reports.bao_cao_cap_phat_rows()` cho
+	từng kho rồi gắn thêm customer/kho — KHÔNG cộng gộp/viết lại phép tính
+	nhóm-theo-khoa lần thứ hai (nó đã sống trong reports.py).
+
+	Desk xem ở mức dòng (không phải mức nhóm-đã-cộng như bản portal) vì
+	nhân viên Miyano cần lọc/sắp xếp chéo NHIỀU khách trên cùng một bảng —
+	`tỷ_trọng_nguồn_cung`, cột "Khoa phòng" dùng luôn `ten_hien_thi`
+	("Chưa gắn khoa" cho dòng không có khoa) để không lộ tên nội bộ null."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	names = _customer_names([k["customer"] for k in khos])
+
+	out = []
+	for k in khos:
+		result = reports.bao_cao_cap_phat_rows(k["name"], tu_ngay, den_ngay)
+		for nhom in result["nhom"]:
+			for dong in nhom["dong"]:
+				out.append({
+					"customer": k["customer"],
+					"customer_name": names.get(k["customer"]) or k["customer"],
+					"kho": k["name"],
+					"ten_kho": k["ten_kho"],
+					"khoa_phong": nhom["ten_hien_thi"],
+					"phieu": dong["phieu"],
+					"ngay": dong["ngay"],
+					"vat_tu": dong["vat_tu"],
+					"dvt": dong["dvt"],
+					"sl": dong["sl"],
+					"gia_tri": dong["gia_tri"],
+					"nguoi_nhan": dong["nguoi_nhan"],
+				})
+	return sorted(out, key=lambda r: (r["customer_name"], r["khoa_phong"], r["ngay"], r["phieu"]))
+
+
 def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay=None) -> list[dict]:
 	"""US-E5.5 (UC-51) — "Tỷ trọng nguồn cung" (share-of-wallet): giá trị +
 	SL nhập theo nguồn (Miyano vs từng NCC khác) trong một kỳ, từ phiếu nhập
