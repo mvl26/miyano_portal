@@ -27,13 +27,14 @@ import functools
 import frappe
 
 from miyano_portal.kho import dong_phieu
+from miyano_portal.kho import dutru
 from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import ncc as ncc_mod
 from miyano_portal.kho import reports
 from miyano_portal.kho import voucher
 from miyano_portal.kho import vat_tu as vat_tu_mod
-from miyano_portal.portal_context import get_portal_kho
+from miyano_portal.portal_context import get_portal_customer, get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
 # Năm loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
@@ -998,3 +999,36 @@ def kho_bao_cao_excel(
 	frappe.local.response.content_type = (
 		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	)
+
+
+# --------------------------------------------------------------- E5 (Dự trù)
+
+@frappe.whitelist()
+def kho_canh_bao_ton(trang_thai=None, trang=1) -> dict:
+    """US-E5.2 — dữ liệu màn dự trù: tồn/ADU30/ADU90/ngày phủ/min/ROP/max/
+    trạng thái cho mọi vật tư đang dùng của kho, cộng ba thẻ đếm và dữ liệu
+    US-E5.3 (`dat_duoc_hdnt`/`sl_goi_y`) để màn giao diện quyết định hiện nút
+    "Thêm vào giỏ bổ sung" hay "Nhờ Miyano tìm nguồn". Phân trang phía server
+    (DoD) — `trang_thai` lọc theo một trong "thieu"/"sap_thieu"/
+    "chua_thiet_lap" khi người dùng bấm một trong ba thẻ đếm."""
+    kho = get_portal_kho()
+    customer = get_portal_customer()
+    trang = _so_nguyen(trang, "Trang", 1)
+    return dutru.canh_bao_ton(kho, customer, trang_thai=trang_thai, trang=trang)
+
+
+@frappe.whitelist()
+def kho_min_max_goi_y(vat_tu_list) -> dict:
+    """US-E5.1 — nút "Gợi ý từ tiêu thụ": tính ADU tươi cho từng vật tư
+    trong `vat_tu_list` (docname `Customer Warehouse Item`, do client gửi)
+    và trả kèm ROP suy từ đó — CHƯA LƯU gì, người dùng xem rồi tự bấm Lưu.
+
+    `vat_tu_list` là một MẢNG do client gửi, đi qua
+    `dutru.vat_tu_list_cua_kho()` để xác nhận MỌI phần tử đều thuộc kho của
+    người gọi bằng một truy vấn IN duy nhất (không so sánh Python set/==,
+    xem docstring hàm đó) — một tên không thuộc kho này làm cả yêu cầu bị
+    từ chối."""
+    kho = get_portal_kho()
+    if isinstance(vat_tu_list, str):
+        vat_tu_list = frappe.parse_json(vat_tu_list)
+    return dutru.min_max_goi_y(kho, vat_tu_list or [])
