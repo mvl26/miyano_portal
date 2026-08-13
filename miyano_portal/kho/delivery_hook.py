@@ -114,6 +114,14 @@ def _tu_delivery_note(dn) -> str | None:
 				"so_lo": so_lo,
 				"han_su_dung": han_su_dung,
 				"so_luong": so_luong,
+				# BR-K16 (US-E3.2): mốc đối soát. `sl_giao` là SL Miyano GIAO
+				# trên chính dòng này; `so_luong` (thực nhận) khởi tạo bằng
+				# đúng giá trị đó — thủ kho sửa lại nếu lệch.
+				"sl_giao": so_luong,
+				# US-E3.6 (NL-3.7): lô rơi về LOT_KHONG_CO nghĩa là Item chưa
+				# bật Has Batch No/Has Expiry Date phía Miyano. Cờ này chỉ
+				# NÊU chứ không chặn giao.
+				"thieu_lo_han": 1 if so_lo == LOT_KHONG_CO else 0,
 				"don_gia": float(row.rate or 0),
 				"ghi_chu": (canh_bao or "")[:_MAX_DATA],
 			})
@@ -128,6 +136,7 @@ def _tao_phieu(dn, kho: str, dong: list[dict], co_canh_bao_dvt: bool = False) ->
 	phiếu, sau khi danh mục vật tư đã bị đụng vào — đó là kịch bản mà savepoint
 	phải cuốn lại, và nó không kiểm được nếu chỉ ép hỏng ở bước đầu tiên."""
 	ngay_phieu, ghi_chu_ngay = _ngay_phieu_khong_mat_hang(dn, kho)
+	so_dot = _so_dot_cua(dn)
 	dien_giai = (
 		f"Tự động tạo từ phiếu giao hàng {dn.name} của Miyano. "
 		"Vui lòng đối chiếu hàng thực nhận rồi mới ghi sổ."
@@ -150,6 +159,7 @@ def _tao_phieu(dn, kho: str, dong: list[dict], co_canh_bao_dvt: bool = False) ->
 		"chung_tu_kem": dn.name[:_MAX_DATA],
 		"delivery_note": dn.name,
 		"sales_order": _sales_order_cua(dn),
+		"so_dot": so_dot,
 		"dien_giai": dien_giai,
 		"items": dong,
 	})
@@ -267,6 +277,65 @@ def _sales_order_cua(dn) -> str | None:
 		return None
 	gop = ", ".join(ds)
 	return gop if len(gop) <= _MAX_DATA else ds[0][:_MAX_DATA]
+
+
+def _sales_order_dau_tien(dn) -> str | None:
+	"""SO ĐẦU TIÊN mà DN này giao cho — dùng để tính `so_dot` (BR-K16).
+
+	Tách riêng khỏi `_sales_order_cua()`: hàm đó GỘP nhiều SO thành một chuỗi
+	truy vết (và có thể CẮT chuỗi nếu quá dài), không dùng được để tra một SO
+	đơn lẻ. `so_dot` chỉ có ý nghĩa trên MỘT SO — DN giao chung cho nhiều SO
+	là trường hợp hiếm, lấy SO đầu tiên theo đúng thứ tự dòng DN.
+	"""
+	for row in dn.items:
+		so = row.get("against_sales_order")
+		if so:
+			return so
+	return None
+
+
+def _so_dot_cua(dn) -> int | None:
+	"""US-E3.2 (BR-K16): thứ tự DN ĐÃ GHI SỔ của cùng Sales Order.
+
+	`dn` ở đây đã docstatus=1 trong DB (hook chạy trong on_submit, sau
+	db_update()), nên chính nó cũng được đếm. Sắp theo `creation` — trong
+	luồng thật DN được tạo rồi submit gần như ngay sau đó, nên thứ tự tạo
+	trùng thứ tự ghi sổ; không có cột "thời điểm submit" riêng trong Frappe
+	để sắp chính xác hơn. LỆCH Ý so với brief gốc ("sắp theo thời điểm ghi
+	sổ"): một DN soạn nháp sớm rồi ghi sổ trễ (sau một DN khác soạn/ghi sổ
+	sau nó) sẽ nhận so_dot sai thứ tự thực tế. Chấp nhận vì Frappe không có
+	cột mốc thời gian submit riêng để sắp đúng hơn.
+
+	CŨNG LƯU Ý: so_dot là ẢNH CHỤP tại thời điểm tạo phiếu, không tính lại
+	khi một DN giữa chừng bị huỷ — huỷ DN2 của ba DN không kéo so_dot=3 của
+	DN3 xuống 2. Đây là hạn chế đã biết, ngoài phạm vi phần A này.
+
+	Không có SO (DN bán lẻ không qua Sales Order) → không tính đợt, hàm trả
+	`None` (khác 1 — không được trông như "đợt đầu tiên"). Field `so_dot`
+	trên doctype là Int nên KHÔNG NULLABLE: `None` bị Frappe ghi xuống DB
+	thành `0`, không phải giữ NULL — 0 vẫn phân biệt được với 1/2/3 nên
+	không gây nhầm "đợt đầu", nhưng Phần B (report/portal_order_track) phải
+	biết coi `so_dot == 0` là "không có đợt", không phải "đợt 0".
+	"""
+	so = _sales_order_dau_tien(dn)
+	if not so:
+		return None
+	ten_dn = frappe.db.sql(
+		"""select dni.parent
+		   from `tabDelivery Note Item` dni
+		   join `tabDelivery Note` dn on dn.name = dni.parent
+		   where dni.against_sales_order = %s and dn.docstatus = 1
+		   group by dni.parent
+		   order by dn.creation asc, dn.name asc""",
+		so,
+		as_dict=False,
+	)
+	danh_sach = [r[0] for r in ten_dn]
+	if dn.name not in danh_sach:
+		# Không nên xảy ra (dn đã docstatus=1 trong DB) — nhưng nếu có, không
+		# đoán mò một con số sai, để trống còn hơn.
+		return None
+	return danh_sach.index(dn.name) + 1
 
 
 # ------------------------------------------------------------------ vật tư kho

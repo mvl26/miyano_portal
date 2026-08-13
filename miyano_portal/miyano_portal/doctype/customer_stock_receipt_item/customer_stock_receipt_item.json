@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "vat_tu", "ten_vat_tu", "dvt", "so_lo", "han_su_dung",
-  "so_luong", "don_gia", "thanh_tien", "ghi_chu"
+  "so_luong", "sl_giao", "don_gia", "thanh_tien", "ghi_chu",
+  "ly_do_chenh_lech", "thieu_lo_han"
  ],
  "fields": [
   {"fieldname": "vat_tu", "fieldtype": "Link", "label": "Vật tư", "options": "Customer Warehouse Item", "reqd": 1, "in_list_view": 1, "columns": 2},
@@ -15,9 +16,12 @@
   {"fieldname": "so_lo", "fieldtype": "Data", "label": "Số lô", "reqd": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "han_su_dung", "fieldtype": "Date", "label": "Hạn dùng", "in_list_view": 1, "columns": 1},
   {"fieldname": "so_luong", "fieldtype": "Float", "label": "Số lượng", "precision": "3", "reqd": 1, "in_list_view": 1, "columns": 1},
+  {"fieldname": "sl_giao", "fieldtype": "Float", "label": "SL giao (theo DN)", "precision": "3", "read_only": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "don_gia", "fieldtype": "Currency", "label": "Đơn giá", "reqd": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "thanh_tien", "fieldtype": "Currency", "label": "Thành tiền", "read_only": 1, "in_list_view": 1, "columns": 2},
-  {"fieldname": "ghi_chu", "fieldtype": "Data", "label": "Ghi chú"}
+  {"fieldname": "ghi_chu", "fieldtype": "Data", "label": "Ghi chú"},
+  {"fieldname": "ly_do_chenh_lech", "fieldtype": "Data", "label": "Lý do chênh lệch"},
+  {"fieldname": "thieu_lo_han", "fieldtype": "Check", "label": "Thiếu lô/hạn", "read_only": 1}
  ],
  "index_web_pages_for_search": 0,
  "istable": 1,

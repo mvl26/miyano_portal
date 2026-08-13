@@ -10,7 +10,7 @@
  "field_order": [
   "kho", "ngay", "loai_nhap",
   "col_1", "nguoi_giao", "chung_tu_kem",
-  "sec_ref", "delivery_note", "sales_order", "phieu_goc",
+  "sec_ref", "delivery_note", "sales_order", "so_dot", "phieu_goc", "co_chenh_lech",
   "sec_items", "items", "tong_tien", "dien_giai", "amended_from"
  ],
  "fields": [
@@ -23,7 +23,9 @@
   {"fieldname": "sec_ref", "fieldtype": "Section Break", "label": "Tham chiếu", "collapsible": 1},
   {"fieldname": "delivery_note", "fieldtype": "Data", "label": "Phiếu giao hàng Miyano", "read_only": 1, "search_index": 1},
   {"fieldname": "sales_order", "fieldtype": "Data", "label": "Đơn hàng Miyano", "read_only": 1},
+  {"fieldname": "so_dot", "fieldtype": "Int", "label": "Đợt (thứ tự DN trong SO)", "read_only": 1},
   {"fieldname": "phieu_goc", "fieldtype": "Data", "label": "Phiếu gốc", "read_only": 1},
+  {"fieldname": "co_chenh_lech", "fieldtype": "Check", "label": "Có chênh lệch", "read_only": 1},
   {"fieldname": "sec_items", "fieldtype": "Section Break", "label": "Chi tiết"},
   {"fieldname": "items", "fieldtype": "Table", "label": "Dòng vật tư", "options": "Customer Stock Receipt Item", "reqd": 1},
   {"fieldname": "tong_tien", "fieldtype": "Currency", "label": "Tổng tiền", "read_only": 1, "in_list_view": 1},
