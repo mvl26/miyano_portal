@@ -23,6 +23,21 @@ _render_phieu_html() tự bơm thêm — nên RENDER LỖI ("'kho' is undefined"
 thông tin kho và danh sách dòng giờ tự tra trong chính template bằng
 frappe.db.get_value()/vòng lặp doc.items, để cả hai đường render đều dùng
 đúng một context tối thiểu {"doc", "frappe"}.
+
+F-4 (review E8, CHẶN) — HAI mẫu XUẤT (TT107/TT200) từng in "Khoa phòng nhận"
+thành một dòng RIÊNG, TRÊN dòng "Nơi nhận" sẵn có (`doc.noi_nhan`, free text,
+đã tồn tại từ trước E8 — xem test_kho_issue.test_noi_nhan_is_free_text). Kịch
+bản đời thật bản sửa này chặn: kho CHƯA bật `bat_buoc_khoa_phong`, thủ kho gõ
+`noi_nhan = "Khoa Hồi sức"` như đã làm nhiều tháng (không chọn khoa_phong có
+cấu trúc) → phiếu GIẤY CÓ CHỮ KÝ ghi "Khoa Hồi sức" ở dòng Nơi nhận, trong khi
+báo cáo cấp phát xếp phiếu đó vào "Chưa gắn khoa" (đúng theo BR-CP4, nhóm đó
+KHÔNG được giấu) — hai dòng chọi nhau trên CÙNG một chứng từ kế toán, và vì
+nhóm "Chưa gắn khoa" được PRD hợp thức hoá là dữ liệu thật nên không ai buộc
+phải đi đối chiếu `noi_nhan` để phát hiện. US-E8.4 chỉ nói khoa phòng in "ở
+phần người nhận của mẫu" — không nói thêm một dòng mới. Sửa: khi có
+`khoa_phong`, tên khoa THAY THẾ giá trị của chính ô "Nơi nhận" (không thêm
+dòng); không có thì `noi_nhan` tự do vẫn hiện y như trước E8 — không có gì để
+chọi nhau vì chỉ còn một phát biểu duy nhất về nơi nhận trên phiếu.
 """
 
 import frappe
@@ -149,8 +164,8 @@ HTML_XUAT_TT107 = _STYLE + _HDR_SETUP + """
     Ngày {{ frappe.utils.formatdate(doc.ngay, "dd") }} tháng {{ frappe.utils.formatdate(doc.ngay, "mm") }}
     năm {{ frappe.utils.formatdate(doc.ngay, "yyyy") }} &nbsp;&nbsp; Số: {{ doc.name }}
   </div>
-  {% if doc.khoa_phong %}<p>Khoa phòng nhận: <b>{{ frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") or '' }}</b></p>{% endif %}
-  <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ doc.noi_nhan or '' }}</b></p>
+  {% set ten_khoa = frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") if doc.khoa_phong else None %}
+  <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ ten_khoa or doc.noi_nhan or '' }}</b></p>
   <p>Lý do xuất kho: {{ doc.dien_giai or doc.loai_xuat or '' }}</p>
   <p>Xuất tại kho: <b>{{ kho.ten_kho }}</b> &nbsp; Địa điểm: {{ kho.dia_chi_kho or '' }}</p>
   <table class="chung-tu">
@@ -251,8 +266,8 @@ HTML_XUAT_TT200 = _STYLE + _HDR_SETUP + """
     năm {{ frappe.utils.formatdate(doc.ngay, "yyyy") }} &nbsp;&nbsp; Số: {{ doc.name }}<br/>
     Nợ TK ..................... &nbsp;&nbsp; Có TK .....................
   </div>
-  {% if doc.khoa_phong %}<p>Khoa phòng nhận: <b>{{ frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") or '' }}</b></p>{% endif %}
-  <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ doc.noi_nhan or '' }}</b></p>
+  {% set ten_khoa = frappe.db.get_value("Customer Department", doc.khoa_phong, "ten_khoa_phong") if doc.khoa_phong else None %}
+  <p>Họ và tên người nhận hàng: <b>{{ doc.nguoi_nhan or '' }}</b> &nbsp; Nơi nhận: <b>{{ ten_khoa or doc.noi_nhan or '' }}</b></p>
   <p>Lý do xuất kho: {{ doc.dien_giai or doc.loai_xuat or '' }}</p>
   <p>Xuất tại kho: <b>{{ kho.ten_kho }}</b> &nbsp; Địa điểm: {{ kho.dia_chi_kho or '' }}</p>
   <table class="chung-tu">

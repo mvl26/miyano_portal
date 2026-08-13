@@ -555,7 +555,13 @@ onMounted(() => {
                   <td colspan="2"></td>
                 </tr>
                 <tr v-for="(d, idx) in n.dong" :key="idx">
-                  <td></td>
+                  <!-- F-4 (review E8): nhóm "Chưa gắn khoa" hiện lại noi_nhan
+                       (ô "Nơi nhận" tự do, có TRƯỚC khi khoa_phong tồn tại) —
+                       phiếu cũ rất có thể đã ghi đúng tên khoa vào đó, giấu
+                       đi là mất luôn dữ liệu còn cứu được. -->
+                  <td>
+                    <span v-if="!n.khoa_phong && d.noi_nhan" class="tag">Nơi nhận (cũ): {{ d.noi_nhan }}</span>
+                  </td>
                   <td>{{ d.vat_tu }}</td>
                   <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
                   <td class="right">{{ fmtVND(d.gia_tri) }}</td>

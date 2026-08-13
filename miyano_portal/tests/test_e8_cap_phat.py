@@ -439,7 +439,13 @@ class TestNguoiNhanGoiY(_KhoE8Fixture):
 
 
 class TestInPhieuKhoaPhong(_KhoE8Fixture):
-    def test_tt107_and_tt200_show_department_name_and_recipient(self):
+    """F-4 (review E8, CHẶN) đã đổi thiết kế: khoa phòng KHÔNG in thành một
+    dòng riêng "Khoa phòng nhận:" nữa (sẽ chọi với dòng "Nơi nhận" cũ, xem
+    docstring đầu install_kho_print_formats.py) — tên khoa giờ THAY THẾ giá
+    trị của chính ô "Nơi nhận" khi có `khoa_phong`. Các test dưới đây khoá
+    đúng thiết kế MỚI, không còn tìm nhãn "Khoa phòng nhận"."""
+
+    def test_tt107_and_tt200_show_department_as_the_noi_nhan_value(self):
         from frappe.www.printview import get_html_and_style
         from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107, NAME_XUAT_TT200
 
@@ -450,22 +456,40 @@ class TestInPhieuKhoaPhong(_KhoE8Fixture):
         for print_format in (NAME_XUAT_TT107, NAME_XUAT_TT200):
             with self.subTest(print_format=print_format):
                 html = get_html_and_style(doc=doc.as_json(), print_format=print_format)["html"]
-                self.assertIn("Khoa phòng nhận", html)
+                self.assertNotIn("Khoa phòng nhận", html, "không còn dòng riêng — đã gộp vào Nơi nhận")
                 self.assertIn("Khoa In Phiếu", html)
                 self.assertIn("BS. In Test", html)
 
-    def test_tt107_hides_department_line_when_not_set(self):
-        """Chốt ngược của guard `{% if doc.khoa_phong %}`: một phiếu KHÔNG
-        gắn khoa (kho chưa bật bắt buộc) không được hiện một dòng "Khoa
-        phòng nhận:" trống rỗng — client sẽ đọc dòng trống đó như một lỗi
-        dữ liệu thay vì đúng ý nghĩa "chưa gắn khoa"."""
+    def test_department_wins_over_stale_noi_nhan_no_conflicting_statement(self):
+        """Đúng kịch bản F-4 nêu: thủ kho gõ `noi_nhan` tự do THEO THÓI QUEN
+        CŨ (trước khi chọn khoa phòng có cấu trúc) rồi mới chọn khoa_phong —
+        hai giá trị lệch nhau. Phiếu in ra chỉ được có ĐÚNG MỘT phát biểu về
+        nơi nhận: tên khoa (có cấu trúc, đáng tin hơn), không phải cả hai."""
+        from frappe.www.printview import get_html_and_style
+        from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107
+
+        khoa = _make_khoa(self.kho["kho_bm"], "Khoa Đúng")
+        doc = self._xuat(khoa_phong=khoa.name)
+        doc.noi_nhan = "Khoa Sai (gõ tay trước đó)"
+        doc.save(ignore_permissions=True)
+        doc.submit()
+        html = get_html_and_style(doc=doc.as_json(), print_format=NAME_XUAT_TT107)["html"]
+        self.assertIn("Khoa Đúng", html)
+        self.assertNotIn("Khoa Sai (gõ tay trước đó)", html)
+
+    def test_tt107_still_shows_free_text_noi_nhan_when_no_department(self):
+        """Đường lùi: phiếu KHÔNG gắn khoa_phong (kho chưa bật bắt buộc) vẫn
+        phải hiện đúng `noi_nhan` tự do như hành vi trước E8 — không bị f-4
+        vô tình xoá mất đường cũ."""
         from frappe.www.printview import get_html_and_style
         from miyano_portal.setup.install_kho_print_formats import NAME_XUAT_TT107
 
         doc = self._xuat(khoa_phong=None)
+        doc.noi_nhan = "Khoa Hồi sức tích cực"
+        doc.save(ignore_permissions=True)
         doc.submit()
         html = get_html_and_style(doc=doc.as_json(), print_format=NAME_XUAT_TT107)["html"]
-        self.assertNotIn("Khoa phòng nhận", html)
+        self.assertIn("Khoa Hồi sức tích cực", html)
 
     def test_render_phieu_html_portal_route_also_shows_department(self):
         """`_render_phieu_html()` (cổng portal, KHÔNG đi qua

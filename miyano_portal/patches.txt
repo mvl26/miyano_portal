@@ -32,3 +32,4 @@ miyano_portal.patches.v1_9.create_ngay_gui_khach_duyet_field
 miyano_portal.patches.v1_10.install_e5_desk_reports
 miyano_portal.patches.v1_11.install_e8_desk_reports
 miyano_portal.patches.v1_11.update_kho_print_formats_khoa_phong
+miyano_portal.patches.v1_12.re_apply_kho_print_formats_khoa_phong_fix

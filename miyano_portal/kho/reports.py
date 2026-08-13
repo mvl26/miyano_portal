@@ -899,6 +899,13 @@ def bao_cao_cap_phat_rows(
 	Một dòng "dong" = một (phiếu, vật tư), CỘNG DỒN qua mọi lô của vật tư đó
 	trên cùng phiếu — dvt/tên vật tư không phụ thuộc lô, và bộ số chuẩn của
 	PRD ("Găng M 8 hộp") không tách theo lô.
+
+	F-4 (review E8, CHẶN) — mỗi dòng còn mang thêm `noi_nhan` (field free-text
+	CŨ, tồn tại từ trước E8 trên chính đầu phiếu, KHÔNG liên quan schema sổ)
+	để nhóm "Chưa gắn khoa" còn CỨU ĐƯỢC dữ liệu: một phiếu chưa chọn
+	khoa_phong (kho chưa bật bắt buộc, hoặc thủ kho quen gõ tự do) rất có thể
+	đã ghi đúng tên khoa vào `noi_nhan` — ẩn nó đi sẽ biến "Chưa gắn khoa"
+	thành "không biết gì cả", trong khi thật ra biết một phần.
 	"""
 	tu = frappe.utils.getdate(tu_ngay)
 	den = frappe.utils.getdate(den_ngay)
@@ -922,7 +929,7 @@ def bao_cao_cap_phat_rows(
 	issues = {
 		r["name"]: r for r in frappe.get_all(
 			"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
-			fields=["name", "loai_xuat", "khoa_phong", "nguoi_nhan"],
+			fields=["name", "loai_xuat", "khoa_phong", "nguoi_nhan", "noi_nhan"],
 		)
 	}
 	vat_tu_names = {e["vat_tu"] for e in entries}
@@ -945,6 +952,7 @@ def bao_cao_cap_phat_rows(
 		row = agg.setdefault(key, {
 			"khoa_phong": kp, "phieu": iss["name"], "vat_tu": e["vat_tu"],
 			"ngay": e["ngay"], "nguoi_nhan": iss["nguoi_nhan"] or "",
+			"noi_nhan": iss["noi_nhan"] or "",
 			"sl": 0.0, "gia_tri": 0.0,
 		})
 		# so_luong/gia_tri của dòng XUẤT mang dấu ÂM (xem docstring
@@ -965,6 +973,7 @@ def bao_cao_cap_phat_rows(
 			"sl": _r(row["sl"]),
 			"gia_tri": round(row["gia_tri"], 2),
 			"nguoi_nhan": row["nguoi_nhan"],
+			"noi_nhan": row["noi_nhan"],
 		})
 		nhom["gia_tri"] += row["gia_tri"]
 
