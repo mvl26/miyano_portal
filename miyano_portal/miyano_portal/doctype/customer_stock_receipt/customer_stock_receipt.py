@@ -2,6 +2,7 @@ import frappe
 from frappe.model.document import Document
 
 from miyano_portal.kho import ledger, voucher
+from miyano_portal.portal_thong_bao import bao_chenh_lech
 
 
 class CustomerStockReceipt(Document):
@@ -16,6 +17,49 @@ class CustomerStockReceipt(Document):
 		voucher.validate_vat_tu_thuoc_kho(self)
 		voucher.validate_so_luong_don_gia(self)
 		voucher.fill_item_details(self)
+		self._validate_doi_soat_giao_nhan()
+
+	def _validate_doi_soat_giao_nhan(self):
+		"""US-E3.3 / BR-K17 / NL-3.3, NL-3.10.
+
+		Chỉ áp cho DÒNG có nguồn gốc Miyano (hook `delivery_hook` đã điền
+		`sl_giao` > 0 khi tạo phiếu từ Delivery Note). Phiếu khách tự lập
+		(Tồn đầu kỳ, Nhập khác) không có `sl_giao` nên không dòng nào dính
+		quy tắc này — kiểm bằng GIÁ TRỊ của `sl_giao`, không đoán theo
+		`loai_nhap`, vì `loai_nhap` là Select người dùng đổi được còn
+		`sl_giao` thì không.
+
+		Đặt trong `validate()` (không phải chỉ `before_submit`) vì đây là
+		Document.validate() — chạy ở CẢ save() lẫn submit(), đúng yêu cầu
+		"chặn được cả lưu lẫn ghi sổ" của US-E3.3. `co_chenh_lech` vì vậy
+		cũng được cập nhật trên mỗi lần validate, không chỉ lúc ghi sổ — hiện
+		sớm cho thủ kho thấy ngay trên bản nháp thay vì đợi tới lúc submit.
+		"""
+		co_lech = False
+		for row in self.items:
+			sl_giao = float(row.get("sl_giao") or 0)
+			if not sl_giao:
+				continue
+			so_luong = float(row.so_luong or 0)
+			if so_luong > sl_giao + ledger.EPS:
+				# NL-3.10: nhận thừa thật sự không được "sửa" một phiếu tự
+				# sinh — chứng từ đó phải phản ánh đúng Delivery Note. Vượt
+				# luôn bị chặn, KỂ CẢ đã có lý do chênh lệch.
+				frappe.throw(
+					f"Dòng {row.idx}: thực nhận ({so_luong:g}) không được vượt "
+					f"SL giao ({sl_giao:g}). Nhận thừa thật sự thì lập phiếu "
+					'"Nhập khác" riêng, không sửa số trên phiếu tự sinh này.',
+					frappe.ValidationError,
+				)
+			if abs(so_luong - sl_giao) > ledger.EPS:
+				if not (row.get("ly_do_chenh_lech") or "").strip():
+					frappe.throw(
+						f"Dòng {row.idx}: thực nhận {so_luong:g} / giao {sl_giao:g}. "
+						"Nhập lý do chênh lệch để tiếp tục.",
+						frappe.ValidationError,
+					)
+				co_lech = True
+		self.co_chenh_lech = 1 if co_lech else 0
 
 	def _chan_tu_tao_phieu_dao(self):
 		"""Chỉ `_tao_phieu_dao()` được phép tạo phiếu loại "Phiếu đảo".
@@ -60,10 +104,35 @@ class CustomerStockReceipt(Document):
 			"vat_tu": r.vat_tu,
 			"so_lo": r.so_lo,
 			"han_su_dung": r.han_su_dung,
+			# Sổ kho ghi ĐÚNG so_luong (thực nhận), KHÔNG phải sl_giao —
+			# BR-K17. `so_luong` đã qua _validate_doi_soat_giao_nhan() nên
+			# tới đây chắc chắn ≤ sl_giao và có lý do nếu lệch.
 			"so_luong": he_so * float(r.so_luong),
 			"don_gia": float(r.don_gia or 0),
 			"chung_tu_row": r.name,
 		} for r in self.items])
+		self._bao_chenh_lech_neu_co()
+
+	def _bao_chenh_lech_neu_co(self):
+		"""US-E3.3: ghi sổ xong mà có dòng lệch → báo sales phụ trách.
+
+		`co_chenh_lech` đã được `_validate_doi_soat_giao_nhan()` (chạy trong
+		`validate()`, TRƯỚC on_submit) đặt đúng cho lần ghi sổ này — không
+		tính lại ở đây. Không bao giờ ném lỗi: hàng đã ghi sổ thật, một trục
+		trặc ở khâu thông báo nội bộ không được phép biến một lần ghi sổ
+		thành công thành một submit lỗi."""
+		if not self.co_chenh_lech:
+			return
+		try:
+			customer = frappe.db.get_value("Customer Warehouse", self.kho, "customer")
+			if customer:
+				bao_chenh_lech(customer, self.name)
+		except Exception:
+			frappe.log_error(
+				title="Kho khách: lỗi khi báo chênh lệch nhận hàng",
+				reference_doctype=self.doctype,
+				reference_name=self.name,
+			)
 
 	def before_cancel(self):
 		"""Các kiểm tra chặn huỷ phải chạy TRƯỚC khi docstatus=2 được ghi vào DB.

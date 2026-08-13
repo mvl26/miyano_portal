@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import today
 
 TIEN_TO = "Portal - Thiếu giá"
+TIEN_TO_CHENH_LECH = "Portal - Chênh lệch nhận hàng"
 
 
 def _sales_phu_trach(customer: str) -> str | None:
@@ -51,6 +52,44 @@ def bao_thieu_gia(customer: str, item_code: str) -> bool:
             f"Khách hàng <b>{customer}</b> không đặt được mặt hàng "
             f"<b>{item_code}</b> vì mặt hàng này chưa có giá trong bảng giá "
             f"của họ. Bổ sung Item Price để khách đặt được."
+        ),
+    }).insert(ignore_permissions=True)
+    return True
+
+
+def bao_chenh_lech(customer: str, phieu: str) -> bool:
+    """US-E3.3 / BR-K17. Trả `True` nếu vừa gửi, `False` nếu không gửi.
+
+    Chống spam theo PHIẾU (không phải theo ngày như `bao_thieu_gia`): một
+    `Customer Stock Receipt` chỉ ghi sổ (submit) đúng một lần trong đời của
+    tên chứng từ đó — không có "lần ghi sổ thứ hai" cho cùng một `name` để
+    phải chặn theo cửa sổ thời gian. Vẫn kiểm tồn tại trước khi insert để gọi
+    lại (ví dụ do lỗi transient rồi retry) không sinh trùng.
+
+    Không bao giờ ném lỗi — cùng lý do với `bao_thieu_gia`: đây là một thông
+    báo phụ trợ, không được phép biến việc ghi sổ (đã thành công) thành lỗi.
+    Người gọi (`CustomerStockReceipt.on_submit`) cũng tự bọc lại một lớp nữa,
+    nhưng hàm này vẫn tự chịu trách nhiệm không ném lỗi cho đúng thiết kế.
+    """
+    nguoi_nhan = _sales_phu_trach(customer)
+    if not nguoi_nhan:
+        return False
+
+    chu_de = f"{TIEN_TO_CHENH_LECH}: {phieu} ({customer})"
+    if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": nguoi_nhan}):
+        return False
+
+    frappe.get_doc({
+        "doctype": "Notification Log",
+        "subject": chu_de,
+        "for_user": nguoi_nhan,
+        "type": "Alert",
+        "document_type": "Customer Stock Receipt",
+        "document_name": phieu,
+        "email_content": (
+            f"Khách hàng <b>{customer}</b> ghi sổ phiếu nhập <b>{phieu}</b> với "
+            "số lượng thực nhận lệch so với số Miyano đã giao. Xem chi tiết "
+            "trên phiếu (cột Lý do chênh lệch) hoặc báo cáo Đối soát giao – nhận."
         ),
     }).insert(ignore_permissions=True)
     return True

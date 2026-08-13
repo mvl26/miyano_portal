@@ -502,8 +502,27 @@ def kho_phieu_nhap_save(payload) -> dict:
 	doc.chung_tu_kem = payload.get("chung_tu_kem")
 	doc.dien_giai = payload.get("dien_giai")
 
+	# `sl_giao`/`thieu_lo_han` (US-E3.2, BR-K16) là mốc đối soát do
+	# delivery_hook điền, KHÔNG BAO GIỜ nhận từ client — cùng nguyên tắc với
+	# don_gia/han_su_dung của phiếu xuất bên dưới (kho_phieu_xuat_save). Nhưng
+	# vòng lặp này XOÁ SẠCH bảng dòng cũ rồi dựng lại hoàn toàn từ payload, nên
+	# nếu không tự khôi phục thì mốc đó BIẾN MẤT ngay lần đầu thủ kho sửa
+	# so_luong rồi lưu nháp — vỡ chốt chặn BR-K17 (sl_giao về 0 khiến dòng bị
+	# coi là "không thuộc nguồn Miyano", bỏ qua kiểm tra thay vì chặn đúng lúc
+	# cần). Khớp theo (vat_tu, so_lo): danh tính ổn định của một dòng phiếu
+	# hook tạo ra — thủ kho đối chiếu hàng thực nhận chỉ sửa so_luong/lý do,
+	# không đổi vật tư hay số lô của dòng đó.
+	moc_doi_soat_cu: dict[tuple, list[dict]] = {}
+	for r in doc.items:
+		moc_doi_soat_cu.setdefault((r.vat_tu, r.so_lo), []).append({
+			"sl_giao": r.sl_giao, "thieu_lo_han": r.thieu_lo_han,
+		})
+
 	doc.set("items", [])
 	for row in items:
+		khoa = (row.get("vat_tu"), row.get("so_lo"))
+		cu = moc_doi_soat_cu.get(khoa)
+		giu_lai = cu.pop(0) if cu else {}
 		doc.append("items", {
 			"vat_tu": row.get("vat_tu"),
 			"so_lo": row.get("so_lo"),
@@ -511,6 +530,9 @@ def kho_phieu_nhap_save(payload) -> dict:
 			"so_luong": row.get("so_luong"),
 			"don_gia": row.get("don_gia"),
 			"ghi_chu": row.get("ghi_chu"),
+			"ly_do_chenh_lech": row.get("ly_do_chenh_lech"),
+			"sl_giao": giu_lai.get("sl_giao"),
+			"thieu_lo_han": giu_lai.get("thieu_lo_han"),
 		})
 
 	doc.flags.ignore_permissions = True
