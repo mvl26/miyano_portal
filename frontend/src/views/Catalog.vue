@@ -1,15 +1,32 @@
 <script setup>
 import { ref, computed, watch, onMounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
+import YeuCauModal from '../components/YeuCauModal.vue'
 
+const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
 
+// ---------------------------------------------------------------------
+// E6/QT10 — bộ chuyển "Theo HĐNT | Mua lẻ" (F-03/F-21). Chỉ hiện khi khách
+// được bật `Customer.custom_cho_phep_mua_le`. `portal_me()` KHÔNG trả cờ
+// này (chỉ trả customer/customer_name/tax_id/outstanding/addresses) nên
+// không có cách nào biết trước mà không gọi thử — dò bằng chính lệnh gọi
+// `portal_catalog_ban_le` lúc vào trang: 403 `khong_duoc_mua_le` (kiểm ở
+// SERVER, NL-10.1) thì ẩn hẳn bộ chuyển, thành công thì vừa biết được phép
+// vừa có sẵn dữ liệu trang đầu. Đây là một khoảng lệch với bản mẫu (bản mẫu
+// giả định có sẵn một cờ) — xem báo cáo bàn giao.
+const mode = ref('hd') // 'hd' | 'le'
+const mucLeChoPhep = ref(false)
+
+// ---------------------------------------------------------------------
+// Ngăn Theo HĐNT — [Hiện có], KHÔNG đổi hành vi so với bản trước E6.
+// ---------------------------------------------------------------------
 const loading = ref(true)
 const loadingItems = ref(false)
 const error = ref('')
@@ -117,7 +134,114 @@ function add(it) {
   qtys[it.item_code] = boiSo(it)
 }
 
+// ---------------------------------------------------------------------
+// Ngăn Mua lẻ [MỚI — F-21/QT10]. Danh mục tìm server-side (`tim_kiem`),
+// KHÔNG lọc phía client như ngăn HĐNT — endpoint không trả toàn bộ mặt hàng
+// một lần (BR-R6: không phơi toàn bộ kho hàng Miyano), tìm rỗng phải hỏi lại.
+// ---------------------------------------------------------------------
+const leItems = ref([])
+const leLoading = ref(false)
+const leError = ref('')
+const leQtys = reactive({})
+let leSearchTimer = null
+
+function availableLeQty(code) {
+  return leQtys[code] ?? 1
+}
+
+async function loadLe() {
+  leLoading.value = true
+  leError.value = ''
+  try {
+    const res = await api.call('portal_catalog_ban_le', {
+      tim_kiem: search.value.trim() || undefined,
+    })
+    leItems.value = res.items || []
+    leItems.value.forEach((it) => {
+      if (!(it.item_code in leQtys)) leQtys[it.item_code] = 1
+    })
+    mucLeChoPhep.value = true
+  } catch (e) {
+    if (e.name === 'PermissionError') {
+      mucLeChoPhep.value = false
+      if (mode.value === 'le') mode.value = 'hd'
+    } else {
+      leError.value = e.message || 'Không tải được danh mục mua lẻ.'
+    }
+  } finally {
+    leLoading.value = false
+  }
+}
+
+function addLe(it) {
+  const qty = Math.max(1, parseInt(leQtys[it.item_code]) || 1)
+  store.addToCartLe(
+    {
+      item_code: it.item_code,
+      item_name: it.ten,
+      uom: it.dvt,
+      rate: it.gia_ban_le,
+      vat_pct: it.vat || 0,
+    },
+    qty
+  )
+  showToast(`Đã thêm ${qty} ${it.dvt} · ${it.ten} vào giỏ mua lẻ`)
+  leQtys[it.item_code] = 1
+}
+
+// Bấm nhãn "Có trong HĐNT" (BR-R7/NL-10.7) → chuyển chế độ, giữ nguyên
+// mã hàng làm bộ lọc để khách thấy ngay đúng dòng đó ở danh mục HĐNT.
+function chuyenSangHdnt(itemCode) {
+  mode.value = 'hd'
+  search.value = itemCode
+}
+
+function setMode(m) {
+  mode.value = m
+}
+
+// Nạp lại MỖI LẦN chuyển sang ngăn Mua lẻ, không chỉ lần đầu — nếu không, gõ
+// từ khoá trong lúc đang ở ngăn HĐNT rồi chuyển sang Mua lẻ sẽ giữ nguyên
+// kết quả cũ (lần dò quyền lúc vào trang) trong khi ô tìm kiếm đã đổi chữ,
+// bảng và ô tìm kiếm lệch nhau.
+watch(mode, (m) => {
+  if (m === 'le') loadLe()
+})
+
+// Debounce 300ms (FormSpec §1.2) — chỉ áp cho ngăn Mua lẻ, ngăn HĐNT lọc
+// tức thời phía client (không cần debounce một phép lọc trong bộ nhớ).
+watch(search, () => {
+  if (mode.value !== 'le') return
+  clearTimeout(leSearchTimer)
+  leSearchTimer = setTimeout(loadLe, 300)
+})
+
+// ---------------------------------------------------------------------
+// Nối luồng E6 #1 — "Không tìm thấy? Gửi yêu cầu", prefill từ khoá tìm kiếm.
+// ---------------------------------------------------------------------
+const ycModalOpen = ref(false)
+const ycPrefill = ref({})
+function moYeuCauKhongThay() {
+  ycPrefill.value = { loai: 'Tìm nguồn hàng mới', ten_hang: search.value.trim() }
+  ycModalOpen.value = true
+}
+// Nối luồng E6 #2 — dòng mua lẻ thiếu giá → [Yêu cầu báo giá].
+function moYeuCauBaoGia(it) {
+  ycPrefill.value = {
+    loai: 'Báo giá mua lẻ',
+    ten_hang: it.ten,
+    quy_cach: it.quy_cach,
+    dvt: it.dvt,
+  }
+  ycModalOpen.value = true
+}
+function onYcSaved(res) {
+  ycModalOpen.value = false
+  showToast(`Đã gửi ${res.name} — Miyano phản hồi trong 48h làm việc.`)
+}
+
 onMounted(async () => {
+  if (route.query.search) search.value = String(route.query.search)
   try {
     contracts.value = (await api.call('portal_contracts')) || []
     if (contracts.value.length) {
@@ -132,6 +256,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  // Dò quyền mua lẻ song song, không chặn hiển thị ngăn HĐNT.
+  loadLe()
 })
 
 watch(selected, loadItems)
@@ -140,107 +266,204 @@ watch(selected, loadItems)
 <template>
   <div v-if="loading" class="loading">Đang tải…</div>
   <div v-else>
-    <div class="topbar" v-if="!isMobile">
-      <div>
-        <h2>Đặt hàng theo Hợp đồng nguyên tắc</h2>
-        <div class="sub">Giá &amp; danh mục theo hợp đồng đã ký – không áp dụng cho mặt hàng ngoài hợp đồng</div>
+    <div class="topbar">
+      <div v-if="!isMobile">
+        <h2>Đặt hàng</h2>
+        <div class="sub">
+          {{ mode === 'le' ? 'Giá bán lẻ ngoài hợp đồng nguyên tắc' : 'Giá & danh mục theo hợp đồng đã ký — không áp dụng cho mặt hàng ngoài hợp đồng' }}
+        </div>
+      </div>
+      <div v-if="mucLeChoPhep" class="seg">
+        <button :class="{ on: mode === 'hd' }" @click="setMode('hd')">Theo HĐNT</button>
+        <button :class="{ on: mode === 'le' }" @click="setMode('le')">Mua lẻ <span class="newtag">MỚI</span></button>
       </div>
     </div>
 
-    <div v-if="!contracts.length" class="empty">Chưa có hợp đồng nguyên tắc còn hiệu lực.</div>
+    <div v-if="mode === 'le'" class="note note-b">
+      ⚠ <b>Giá bán lẻ ngoài HĐNT</b> — đơn cần Miyano xác nhận trước khi giao. Không áp dụng hạn mức.
+    </div>
 
-    <template v-else>
-      <!-- Bộ lọc -->
-      <div class="card mb10" style="margin-bottom: 14px">
-        <div class="flex" style="flex-wrap: wrap; align-items: flex-end">
-          <div style="min-width: 260px; flex: 1">
-            <label class="tag">Hợp đồng nguyên tắc</label>
-            <select v-model="selected">
-              <option v-for="c in contracts" :key="c.name" :value="c.name">
-                {{ c.name }} ({{ fmtDate(c.from_date) }}–{{ fmtDate(c.to_date) }}) – còn hiệu lực
-              </option>
-            </select>
-          </div>
-          <div style="min-width: 220px; flex: 1">
-            <label class="tag">Tìm kiếm</label>
-            <input v-model="search" placeholder="Mã hoặc tên mặt hàng..." />
-          </div>
+    <!-- Bộ lọc chung -->
+    <div class="card" style="margin-bottom: 14px">
+      <div class="flex" style="flex-wrap: wrap; align-items: flex-end">
+        <div v-if="mode === 'hd' && contracts.length" style="min-width: 260px; flex: 1">
+          <label class="tag">Hợp đồng nguyên tắc</label>
+          <select v-model="selected">
+            <option v-for="c in contracts" :key="c.name" :value="c.name">
+              {{ c.name }} ({{ fmtDate(c.from_date) }}–{{ fmtDate(c.to_date) }}) – còn hiệu lực
+            </option>
+          </select>
         </div>
-        <div class="chips" style="margin-top: 12px; margin-bottom: 0">
-          <button class="chip" :class="{ on: group === '' }" @click="group = ''">Tất cả</button>
-          <button
-            v-for="g in groups"
-            :key="g"
-            class="chip"
-            :class="{ on: group === g }"
-            @click="group = g"
-          >
-            {{ g }}
-          </button>
+        <div style="min-width: 220px; flex: 1">
+          <label class="tag">Tìm kiếm{{ mode === 'le' ? ' (không dấu)' : '' }}</label>
+          <input v-model="search" placeholder="Mã hoặc tên mặt hàng..." />
+        </div>
+        <div v-if="mode === 'hd' && groups.length" style="min-width: 170px">
+          <label class="tag">Nhóm hàng</label>
+          <select v-model="group">
+            <option value="">Tất cả</option>
+            <option v-for="g in groups" :key="g" :value="g">{{ g }}</option>
+          </select>
         </div>
       </div>
+    </div>
 
-      <div v-if="error" class="empty">{{ error }}</div>
-      <div v-else-if="loadingItems" class="loading">Đang tải danh mục…</div>
-      <div v-else-if="!filtered.length" class="empty">Không có mặt hàng phù hợp.</div>
+    <!-- ============ NGĂN THEO HĐNT ============ -->
+    <template v-if="mode === 'hd'">
+      <div v-if="!contracts.length" class="empty">Chưa có hợp đồng nguyên tắc còn hiệu lực.</div>
+      <template v-else>
+        <div v-if="error" class="empty">{{ error }}</div>
+        <div v-else-if="loadingItems" class="loading">Đang tải danh mục…</div>
+        <div v-else-if="!filtered.length" class="empty">
+          Không có mặt hàng khớp — mặt hàng ngoài HĐNT không hiển thị.
+        </div>
+
+        <!-- DESKTOP: bảng -->
+        <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã</th>
+                <th>Tên mặt hàng / quy cách</th>
+                <th>ĐVT</th>
+                <th class="right">Đơn giá (chưa VAT)</th>
+                <th style="min-width: 150px">Hạn mức còn lại</th>
+                <th style="width: 120px">Số lượng</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="it in filtered" :key="it.item_code">
+                <td><b>{{ it.item_code }}</b></td>
+                <td>
+                  {{ it.item_name }}<br />
+                  <span class="tag">{{ it.item_group }} · VAT {{ it.vat_pct }}%</span>
+                </td>
+                <td>{{ it.uom }}</td>
+                <td class="right">{{ fmtVND(it.rate) }}</td>
+                <td>
+                  <!-- BR-O15 / NL-1.11: hạn mức khai 0 = KHÔNG GIỚI HẠN, phải
+                       nhìn khác hẳn "Hết hạn mức" (NL-1.2). Không thanh tiến
+                       độ, không cảnh báo 80% — không có trần thì không có % -->
+                  <template v-if="it.khong_gioi_han">
+                    <span class="tag tag-kgh">Không giới hạn</span>
+                    <div class="muted sm">đã đặt {{ it.used }} {{ it.uom }}</div>
+                  </template>
+                  <template v-else-if="it.remaining <= 0">
+                    <span class="tag tag-het">Hết hạn mức</span>
+                  </template>
+                  <template v-else>
+                    còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}
+                    <div class="bar">
+                      <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+                    </div>
+                    <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+                  </template>
+                </td>
+                <td>
+                  <div class="step">
+                    <button @click="stepDown(it.item_code)">−</button>
+                    <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
+                    <button @click="stepUp(it.item_code)">+</button>
+                  </div>
+                  <div v-if="boiSo(it) > 1" class="muted sm">bội số {{ boiSo(it) }}</div>
+                </td>
+                <td>
+                  <button
+                    class="btn btn-sm"
+                    :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
+                    @click="add(it)"
+                  >+ Giỏ</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- MOBILE: thẻ -->
+        <template v-else>
+          <div v-for="it in filtered" :key="it.item_code" class="card item mb10">
+            <div class="nm">{{ it.item_code }} · {{ it.item_name }}</div>
+            <div class="tag" style="margin: 2px 0 6px">{{ it.item_group }} · VAT {{ it.vat_pct }}% · {{ it.uom }}</div>
+            <div class="sb">
+              <span class="pr">{{ fmtVND(it.rate) }}</span>
+              <span v-if="it.khong_gioi_han" class="tag tag-kgh">Không giới hạn</span>
+              <span v-else-if="it.remaining <= 0" class="tag tag-het">Hết hạn mức</span>
+              <span v-else class="tag">còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}</span>
+            </div>
+            <template v-if="!it.khong_gioi_han">
+              <div class="bar" style="margin: 6px 0">
+                <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+              </div>
+              <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+            </template>
+            <div v-else class="muted sm" style="margin: 6px 0">
+              đã đặt {{ it.used }} {{ it.uom }}
+            </div>
+            <div class="sb" style="margin-top: 10px">
+              <div class="step">
+                <button @click="stepDown(it.item_code)">−</button>
+                <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
+                <button @click="stepUp(it.item_code)">+</button>
+              </div>
+              <button
+                class="btn btn-sm"
+                :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
+                @click="add(it)"
+              >+ Thêm vào giỏ</button>
+            </div>
+            <div v-if="boiSo(it) > 1" class="muted sm">Đặt theo bội số {{ boiSo(it) }} {{ it.uom }}</div>
+          </div>
+        </template>
+      </template>
+    </template>
+
+    <!-- ============ NGĂN MUA LẺ [MỚI — F-21] ============ -->
+    <template v-else>
+      <div v-if="leError" class="empty">{{ leError }}</div>
+      <div v-else-if="leLoading" class="loading">Đang tải danh mục…</div>
+      <div v-else-if="!leItems.length" class="empty">Không có mặt hàng khớp tìm kiếm.</div>
 
       <!-- DESKTOP: bảng -->
       <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
         <table>
           <thead>
             <tr>
-              <th>Mã</th>
-              <th>Tên mặt hàng / quy cách</th>
-              <th>ĐVT</th>
-              <th class="right">Đơn giá (chưa VAT)</th>
-              <th style="min-width: 150px">Hạn mức còn lại</th>
-              <th style="width: 120px">Số lượng</th>
-              <th></th>
+              <th>Mã</th><th>Tên / quy cách</th><th>ĐVT</th>
+              <th class="right">Giá bán lẻ (chưa VAT)</th><th>Tình trạng</th>
+              <th style="width: 120px">Số lượng</th><th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="it in filtered" :key="it.item_code">
+            <tr v-for="it in leItems" :key="it.item_code" :style="it.thuoc_hdnt ? 'opacity:.6' : ''">
               <td><b>{{ it.item_code }}</b></td>
-              <td>
-                {{ it.item_name }}<br />
-                <span class="tag">{{ it.item_group }} · VAT {{ it.vat_pct }}%</span>
-              </td>
-              <td>{{ it.uom }}</td>
-              <td class="right">{{ fmtVND(it.rate) }}</td>
-              <td>
-                <!-- BR-O15 / NL-1.11: hạn mức khai 0 = KHÔNG GIỚI HẠN, phải
-                     nhìn khác hẳn "Hết hạn mức" (NL-1.2). Không thanh tiến
-                     độ, không cảnh báo 80% — không có trần thì không có % -->
-                <template v-if="it.khong_gioi_han">
-                  <span class="tag tag-kgh">Không giới hạn</span>
-                  <div class="muted sm">đã đặt {{ it.used }} {{ it.uom }}</div>
-                </template>
-                <template v-else-if="it.remaining <= 0">
-                  <span class="tag tag-het">Hết hạn mức</span>
-                </template>
-                <template v-else>
-                  còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}
-                  <div class="bar">
-                    <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
+              <td>{{ it.ten }}<br /><span v-if="it.quy_cach" class="tag">{{ it.quy_cach }} · VAT {{ it.vat }}%</span><span v-else class="tag">VAT {{ it.vat }}%</span></td>
+              <td>{{ it.dvt }}</td>
+              <template v-if="it.thuoc_hdnt">
+                <td class="right">—</td>
+                <td colspan="3">
+                  <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
+                    <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
+                  </a>
+                </td>
+              </template>
+              <template v-else-if="!it.co_gia">
+                <td class="right">—</td>
+                <td><span class="badge b-gray">Chưa có giá lẻ</span></td>
+                <td colspan="2"><button class="btn-o btn-sm" @click="moYeuCauBaoGia(it)">Yêu cầu báo giá →</button></td>
+              </template>
+              <template v-else>
+                <td class="right">{{ fmtVND(it.gia_ban_le) }}</td>
+                <td><span class="badge" :class="it.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">{{ it.trang_thai_hang }}</span></td>
+                <td>
+                  <div class="step">
+                    <button @click="leQtys[it.item_code] = Math.max(1, availableLeQty(it.item_code) - 1)">−</button>
+                    <input v-model="leQtys[it.item_code]" inputmode="numeric" />
+                    <button @click="leQtys[it.item_code] = availableLeQty(it.item_code) + 1">+</button>
                   </div>
-                  <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
-                </template>
-              </td>
-              <td>
-                <div class="step">
-                  <button @click="stepDown(it.item_code)">−</button>
-                  <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
-                  <button @click="stepUp(it.item_code)">+</button>
-                </div>
-                <div v-if="boiSo(it) > 1" class="muted sm">bội số {{ boiSo(it) }}</div>
-              </td>
-              <td>
-                <button
-                  class="btn btn-sm"
-                  :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
-                  @click="add(it)"
-                >+ Giỏ</button>
-              </td>
+                </td>
+                <td><button class="btn btn-sm" @click="addLe(it)">+ Giỏ lẻ</button></td>
+              </template>
             </tr>
           </tbody>
         </table>
@@ -248,50 +471,53 @@ watch(selected, loadItems)
 
       <!-- MOBILE: thẻ -->
       <template v-else>
-        <div v-for="it in filtered" :key="it.item_code" class="card item mb10">
-          <div class="nm">{{ it.item_code }} · {{ it.item_name }}</div>
-          <div class="tag" style="margin: 2px 0 6px">{{ it.item_group }} · VAT {{ it.vat_pct }}% · {{ it.uom }}</div>
-          <div class="sb">
-            <span class="pr">{{ fmtVND(it.rate) }}</span>
-            <span v-if="it.khong_gioi_han" class="tag tag-kgh">Không giới hạn</span>
-            <span v-else-if="it.remaining <= 0" class="tag tag-het">Hết hạn mức</span>
-            <span v-else class="tag">còn {{ it.remaining }}/{{ it.total }} {{ it.uom }}</span>
-          </div>
-          <!-- Không thanh tiến độ cho dòng không giới hạn: không có trần thì
-               không có phần trăm để vẽ (BR-O15). -->
-          <template v-if="!it.khong_gioi_han">
-            <div class="bar" style="margin: 6px 0">
-              <i :style="{ width: Math.min(usedPct(it), 100) + '%', background: usedPct(it) >= 80 ? 'var(--red)' : '' }"></i>
-            </div>
-            <span v-if="usedPct(it) >= 80" class="warn">Sắp hết hạn mức</span>
+        <div v-for="it in leItems" :key="it.item_code" class="card item mb10" :style="it.thuoc_hdnt ? 'opacity:.6' : ''">
+          <div class="nm">{{ it.item_code }} · {{ it.ten }}</div>
+          <div class="tag" style="margin: 2px 0 6px">{{ it.quy_cach ? it.quy_cach + ' · ' : '' }}VAT {{ it.vat }}% · {{ it.dvt }}</div>
+
+          <template v-if="it.thuoc_hdnt">
+            <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
+              <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
+            </a>
           </template>
-          <div v-else class="muted sm" style="margin: 6px 0">
-            đã đặt {{ it.used }} {{ it.uom }}
-          </div>
-          <div class="sb" style="margin-top: 10px">
-            <div class="step">
-              <button @click="stepDown(it.item_code)">−</button>
-              <input v-model="qtys[it.item_code]" @change="normalize(it.item_code)" inputmode="numeric" />
-              <button @click="stepUp(it.item_code)">+</button>
+          <template v-else-if="!it.co_gia">
+            <div class="sb"><span class="badge b-gray">Chưa có giá lẻ</span></div>
+            <button class="btn-o btn-sm" style="width: 100%; margin-top: 8px" @click="moYeuCauBaoGia(it)">Yêu cầu báo giá →</button>
+          </template>
+          <template v-else>
+            <div class="sb">
+              <span class="pr">{{ fmtVND(it.gia_ban_le) }}</span>
+              <span class="badge" :class="it.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">{{ it.trang_thai_hang }}</span>
             </div>
-            <button
-              class="btn btn-sm"
-              :disabled="availableToAdd(it) !== null && availableToAdd(it) <= 0"
-              @click="add(it)"
-            >+ Thêm vào giỏ</button>
-          </div>
-          <div v-if="boiSo(it) > 1" class="muted sm">Đặt theo bội số {{ boiSo(it) }} {{ it.uom }}</div>
+            <div class="sb" style="margin-top: 10px">
+              <div class="step">
+                <button @click="leQtys[it.item_code] = Math.max(1, availableLeQty(it.item_code) - 1)">−</button>
+                <input v-model="leQtys[it.item_code]" inputmode="numeric" />
+                <button @click="leQtys[it.item_code] = availableLeQty(it.item_code) + 1">+</button>
+              </div>
+              <button class="btn btn-sm" @click="addLe(it)">+ Thêm vào giỏ lẻ</button>
+            </div>
+          </template>
         </div>
       </template>
     </template>
 
-    <!-- Sticky cart bar (mobile) -->
+    <!-- Nối luồng E6 #1 — không tìm thấy hàng cần mua -->
+    <p class="tag" style="margin-top: 10px">
+      Không tìm thấy hàng cần mua?
+      <a href="#" style="color: var(--blue2)" @click.prevent="moYeuCauKhongThay"><b>Gửi yêu cầu cho Miyano</b></a>
+      <span class="newtag">MỚI</span>
+    </p>
+
+    <!-- Sticky cart bar (mobile) — tổng cả hai ngăn -->
     <div v-if="isMobile && store.cartCount" class="cartbar">
       <button class="btn" @click="router.push('/cart')">
         <span>🧺 {{ store.cartCount }} mặt hàng</span>
-        <span>{{ fmtVND(store.cartTotal) }}</span>
+        <span>{{ fmtVND(store.cartTotal + store.cartLeTotal) }}</span>
         <span>Xem giỏ ›</span>
       </button>
     </div>
+
+    <YeuCauModal :open="ycModalOpen" mode="tao" :initial="ycPrefill" @close="ycModalOpen = false" @saved="onYcSaved" />
   </div>
 </template>

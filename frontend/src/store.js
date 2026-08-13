@@ -1,15 +1,30 @@
 import { reactive } from 'vue'
 
 // Store phản ứng tối giản (không cần Pinia) cho auth + giỏ hàng.
-// Giỏ hàng: item_code → { item_code, item_name, uom, rate, vat_pct, remaining, qty }
+//
+// E6 (BR-R2) — giỏ HAI NGĂN: `cart` (Theo HĐNT, [Hiện có]) và `cartLe` (Mua
+// lẻ, [MỚI]) là hai object ĐỘC LẬP, mỗi ngăn đặt thành MỘT Sales Order
+// riêng (`mode: "hdnt" | "ban_le"` của `portal_order_place`). Cố ý KHÔNG gộp
+// thành một cấu trúc `{hd: {}, le: {}}` lồng nhau: mọi màn hình đang chạy
+// thật (Catalog.vue, Cart.vue) đã tham chiếu thẳng `store.cart`/`store.
+// cartLines`/... cho ngăn HĐNT — đổi hình dạng đó là đổi API của store mà
+// không có gì buộc phần C phải đổi theo, y hệt lý do `portal_order_place`
+// giữ tên tham số `contract` (xem docstring của hàm đó).
+// Mỗi dòng: item_code → { item_code, item_name, uom, rate, vat_pct, remaining, qty }
 export const store = reactive({
   me: null, // { customer, customer_name, tax_id, outstanding, addresses }
-  cart: {},
+  cart: {}, // ngăn Theo HĐNT
+  cartLe: {}, // ngăn Mua lẻ [MỚI]
   contract: null, // HĐNT đang chọn ở Catalog (dùng lại ở Cart)
   // Mã chống tạo đơn trùng (BR-O12). Sinh MỘT lần khi mở modal xác nhận và
   // giữ nguyên cho tới khi đơn được tạo xong — đó chính là cơ chế: bấm lại
   // phải gửi CÙNG một mã thì server mới nhận ra và trả về đơn cũ.
-  requestId: null,
+  // Hai ngăn xác nhận RIÊNG (`30_API_Spec` §2 — "mỗi ngăn xác nhận riêng →
+  // hai đơn riêng, mỗi cái một request_id riêng") nên có HAI mã độc lập —
+  // dùng chung một mã sẽ khiến server coi lần xác nhận ngăn thứ hai là bấm
+  // lại của ngăn thứ nhất và trả về CHÍNH đơn đầu tiên thay vì tạo đơn mới.
+  requestId: null, // ngăn Theo HĐNT
+  requestIdLe: null, // ngăn Mua lẻ [MỚI]
 
   setMe(me) {
     this.me = me
@@ -19,8 +34,11 @@ export const store = reactive({
     this.contract = name
   },
 
+  // Tổng SỐ DÒNG (không phải tổng số lượng) của CẢ HAI ngăn — đúng khuôn
+  // badge tab giỏ trong prototype ("Theo HĐNT (2) / Mua lẻ (1)" → nav "3").
+  // `30_API_Spec`/FormSpec F-04: "Badge giỏ trên nav = tổng dòng hai ngăn".
   get cartCount() {
-    return Object.values(this.cart).reduce((a, l) => a + (l.qty || 0), 0)
+    return Object.keys(this.cart).length + Object.keys(this.cartLe).length
   },
 
   get cartLines() {
@@ -58,7 +76,45 @@ export const store = reactive({
     this.cart = {}
   },
 
-  // --- Chống tạo đơn trùng (BR-O12) ---
+  // --- Ngăn Mua lẻ [MỚI — BR-R2] — mirror nguyên vẹn các thao tác trên,
+  // KHÔNG dùng chung state với ngăn HĐNT (BR-R4: không hạn mức, không
+  // blanket_order; hai ngăn không được lẫn vào nhau dù chỉ một dòng). ---
+  get cartLeLines() {
+    return Object.values(this.cartLe)
+  },
+
+  get cartLeSubtotal() {
+    return this.cartLeLines.reduce((a, l) => a + l.qty * l.rate, 0)
+  },
+
+  get cartLeVat() {
+    return this.cartLeLines.reduce((a, l) => a + (l.qty * l.rate * (l.vat_pct || 0)) / 100, 0)
+  },
+
+  get cartLeTotal() {
+    return this.cartLeSubtotal + this.cartLeVat
+  },
+
+  addToCartLe(item, qty) {
+    const c = this.cartLe[item.item_code]
+    if (c) c.qty += qty
+    else this.cartLe[item.item_code] = { ...item, qty }
+  },
+
+  setQtyLe(code, qty) {
+    const c = this.cartLe[code]
+    if (c) c.qty = Math.max(1, qty)
+  },
+
+  removeFromCartLe(code) {
+    delete this.cartLe[code]
+  },
+
+  clearCartLe() {
+    this.cartLe = {}
+  },
+
+  // --- Chống tạo đơn trùng (BR-O12) — ngăn Theo HĐNT ---
   moModalXacNhan() {
     // Sinh một lần. Sinh lại mỗi lần bấm sẽ vô hiệu hoá toàn bộ cơ chế.
     if (!this.requestId) {
@@ -71,6 +127,19 @@ export const store = reactive({
     // Chỉ xoá khi đơn đã tạo xong. Đóng modal giữa chừng thì GIỮ mã lại —
     // khách mở lại và bấm tiếp vẫn phải là cùng một lần đặt hàng.
     this.requestId = null
+  },
+
+  // --- Chống tạo đơn trùng — ngăn Mua lẻ [MỚI], cùng khuôn ở trên nhưng
+  // mã ĐỘC LẬP (xem giải thích ở khai báo `requestIdLe`). ---
+  moModalXacNhanLe() {
+    if (!this.requestIdLe) {
+      this.requestIdLe =
+        crypto.randomUUID?.() ||
+        `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    }
+  },
+  ketThucDatHangLe() {
+    this.requestIdLe = null
   },
 
   // --- Đặt lại đơn cũ (UC-14) ---

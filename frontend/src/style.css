@@ -12,6 +12,8 @@
   --green: #16a34a;
   --orange: #ea580c;
   --red: #dc2626;
+  /* E6 [MỚI] — Mua lẻ (nút xác nhận ngăn lẻ, thẻ báo giá). */
+  --purple: #7c3aed;
 }
 
 * {
@@ -47,6 +49,22 @@ a {
 .b-orange { background: #ffedd5; color: #c2410c; }
 .b-green { background: #dcfce7; color: #15803d; }
 .b-red { background: #fee2e2; color: #b91c1c; }
+/* E6 [MỚI] — Mua lẻ (đơn/danh mục) và trạng thái yêu cầu hàng hoá. */
+.b-purple { background: #ede9fe; color: #6d28d9; }
+.b-yellow { background: #fef9c3; color: #a16207; }
+
+/* "MỚI" pill cạnh nhãn — E6 [MỚI]. */
+.newtag {
+  background: #0f6b5f;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
 
 /* ---------- Buttons ---------- */
 button { cursor: pointer; font-size: 14px; }
@@ -67,6 +85,9 @@ button { cursor: pointer; font-size: 14px; }
   padding: 9px 16px;
   font-weight: 600;
 }
+/* E6 [MỚI] — nút "Đồng ý" trên banner báo giá chờ khách (F-07). */
+.btn-g { background: var(--green); color: #fff; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; }
+.btn-g:hover { opacity: 0.92; }
 .btn-sm { padding: 5px 12px; border-radius: 6px; font-size: 13px; }
 /* Chỉ dùng cho hành động huỷ/không đảo ngược được (Huỷ phiếu kho) — giữ màu
    đỏ hiếm để nó còn ý nghĩa cảnh báo, không lạm dụng cho mọi nút phụ. */
@@ -318,6 +339,37 @@ input:focus, select:focus, textarea:focus {
   color: #475569;
   margin-bottom: 4px;
 }
+
+/* Segmented control — E6 [MỚI]: "Theo HĐNT | Mua lẻ" (F-03/F-21). */
+.seg { display: inline-flex; background: #e2e8f0; border-radius: 10px; padding: 3px; }
+.seg button {
+  border: none;
+  background: transparent;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #475569;
+}
+.seg button.on { background: #fff; color: var(--blue); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+
+/* Tabs — E6 [MỚI]: giỏ 2 ngăn (F-04). */
+.tabs { display: flex; gap: 2px; border-bottom: 2px solid var(--line); margin-bottom: 14px; flex-wrap: wrap; }
+.tabs button {
+  border: none;
+  background: transparent;
+  padding: 9px 16px;
+  font-weight: 600;
+  color: var(--gray);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.tabs button.on { color: var(--blue); border-bottom-color: var(--blue); }
+
+/* Banner "note" biến thể xanh dương / đỏ — dùng cho cảnh báo mua lẻ ngoài
+   HĐNT (F-03/F-21) và báo giá hết hiệu lực (F-07). `.note` mặc định vẫn là
+   màu hổ phách (lưu ý trung tính). */
+.note-b { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+.note-r { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
 
 /* Filter chips */
 .chips {
