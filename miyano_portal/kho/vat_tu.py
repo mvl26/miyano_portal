@@ -113,6 +113,20 @@ def tao(kho: str, du_lieu: dict) -> dict:
 	# ghi). Một vật tư trùng mã (đã return ở trên) không cần cảnh báo tên nữa.
 	canh_bao_trung = _goi_y_ten_gan_giong(kho, ten)
 
+	# Gap 3 (review E4 phần B): chế độ XEM TRƯỚC, không ghi gì. Bản mẫu hỏi
+	# "[Vẫn tạo]/[Huỷ]" khi có cảnh báo trùng — TRƯỚC bản này, bản ghi đã
+	# insert() xong rồi mới hỏi, nên "Huỷ" không có gì để rollback (client
+	# phải tự "chữa cháy" bằng cách tắt bản ghi vừa lỡ tạo). Gọi với
+	# `chi_kiem_tra=1` chạy đúng các bước kiểm tra ở trên (khớp mã, cảnh báo
+	# tên gần giống) rồi DỪNG LẠI trước insert() — client thấy cảnh báo và
+	# quyết định TRƯỚC KHI bất kỳ dòng nào tồn tại thật trong DB. "Vẫn tạo"
+	# gọi lại CHÍNH endpoint này KHÔNG kèm cờ để ghi thật.
+	if du_lieu.get("chi_kiem_tra"):
+		return {
+			"name": None, "ma_vat_tu": item_code or ma, "ten_vat_tu": ten, "dvt": dvt,
+			"canh_bao_trung": canh_bao_trung,
+		}
+
 	doc = frappe.get_doc({
 		"doctype": "Customer Warehouse Item",
 		"kho": kho,

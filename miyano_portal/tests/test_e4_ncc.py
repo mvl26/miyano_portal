@@ -172,6 +172,48 @@ class TestNccSave(_E4Fixture):
             self._nhap(loai_nhap="Mua ngoài (NCC khác)", ncc=ncc["name"], so_chung_tu_ncc="HD-02")
         self.assertIn("ngừng hoạt động", str(ctx.exception))
 
+    def test_chi_kiem_tra_reports_duplicate_without_persisting(self):
+        """Gap 3 (review E4 phần B): `chi_kiem_tra=1` phải chạy đủ kiểm tra
+        (kể cả gợi ý gần giống) nhưng KHÔNG được ghi gì — bản mẫu cần hỏi
+        "[Vẫn tạo]/[Huỷ]" TRƯỚC KHI bản ghi tồn tại thật."""
+        frappe.set_user(BM_USER)
+        goc = kho_api.kho_ncc_save({"ten_ncc": "Công ty TNHH Thiết bị y tế ABC"})
+        so_ncc_truoc = frappe.db.count("Customer Supplier", {"kho": self.kho["kho_bm"]})
+
+        preview = kho_api.kho_ncc_save({
+            "ten_ncc": "Cong ty TNHH Thiet bi y te ABD", "chi_kiem_tra": 1,
+        })
+        self.assertIsNone(preview["name"])
+        self.assertTrue(preview["goi_y_trung"])
+        self.assertIn(goc["name"], preview["goi_y_trung"][0])
+        self.assertEqual(
+            frappe.db.count("Customer Supplier", {"kho": self.kho["kho_bm"]}), so_ncc_truoc,
+            "chi_kiem_tra không được ghi thêm bản ghi nào",
+        )
+        self.assertFalse(
+            frappe.db.exists("Customer Supplier", {"ten_ncc": "Cong ty TNHH Thiet bi y te ABD"})
+        )
+
+        # "Vẫn tạo": gọi lại KHÔNG kèm chi_kiem_tra mới thật sự ghi.
+        that = kho_api.kho_ncc_save({"ten_ncc": "Cong ty TNHH Thiet bi y te ABD"})
+        self.assertIsNotNone(that["name"])
+        self.assertEqual(
+            frappe.db.count("Customer Supplier", {"kho": self.kho["kho_bm"]}), so_ncc_truoc + 1
+        )
+
+    def test_chi_kiem_tra_without_conflict_also_does_not_persist(self):
+        """chi_kiem_tra vẫn không ghi gì kể cả khi KHÔNG có cảnh báo — đây là
+        chế độ xem trước tuyệt đối, không phải "chỉ tạm dừng khi có trùng"."""
+        frappe.set_user(BM_USER)
+        so_ncc_truoc = frappe.db.count("Customer Supplier", {"kho": self.kho["kho_bm"]})
+        preview = kho_api.kho_ncc_save({"ten_ncc": "NCC Hoàn Toàn Mới", "chi_kiem_tra": 1})
+        self.assertIsNone(preview["name"])
+        self.assertEqual(preview["goi_y_trung"], [])
+        self.assertEqual(
+            frappe.db.count("Customer Supplier", {"kho": self.kho["kho_bm"]}), so_ncc_truoc
+        )
+        self.assertFalse(frappe.db.exists("Customer Supplier", {"ten_ncc": "NCC Hoàn Toàn Mới"}))
+
 
 class TestNccList(_E4Fixture):
     def test_isolation_customer_b_does_not_see_customer_a_supplier(self):
@@ -212,6 +254,23 @@ class TestNccList(_E4Fixture):
         row = next(r for r in rows if r["name"] == ncc["name"])
         self.assertEqual(row["so_phieu"], 1)
         self.assertEqual(row["gia_tri_90n"], 10000)
+
+    def test_list_includes_full_contact_details(self):
+        """Gap 1 (review E4 phần B): trước bản này, kho_ncc_list() chỉ trả
+        name/ten_ncc/mst/so_phieu/gia_tri_90n/active — bảng "NCC của tôi"
+        không dựng được cột Điện thoại, và màn Sửa không có cách nào đọc lại
+        SĐT/email/địa chỉ/ghi chú HIỆN CÓ để điền sẵn form (không có endpoint
+        "đọc một NCC" nào khác)."""
+        frappe.set_user(BM_USER)
+        kho_api.kho_ncc_save({
+            "ten_ncc": "NCC Đủ Liên Hệ", "dien_thoai": "0900111222",
+            "email": "lienhe@abc.vn", "dia_chi": "12 Láng Hạ", "ghi_chu": "Ưu tiên",
+        })
+        row = kho_api.kho_ncc_list()[0]
+        self.assertEqual(row["dien_thoai"], "0900111222")
+        self.assertEqual(row["email"], "lienhe@abc.vn")
+        self.assertEqual(row["dia_chi"], "12 Láng Hạ")
+        self.assertEqual(row["ghi_chu"], "Ưu tiên")
 
 
 # ---------------------------------------------------------------------------
@@ -599,3 +658,48 @@ class TestCanhBaoTrungTenVatTu(_E4Fixture):
             "ma_vat_tu": "VT-KHAC-02", "ten_vat_tu": "Băng gạc y tế", "dvt": "Cuộn",
         })
         self.assertEqual(out["canh_bao_trung"], [])
+
+    def test_chi_kiem_tra_reports_duplicate_without_persisting(self):
+        """Gap 3 (review E4 phần B): cùng khuôn kho_ncc_save — `chi_kiem_tra=1`
+        chạy đủ kiểm tra (khớp mã lẫn cảnh báo tên gần giống) nhưng KHÔNG ghi
+        gì, để bản mẫu "[Vẫn tạo]/[Huỷ]" có một bước xem trước thật."""
+        frappe.set_user(BM_USER)
+        goc = kho_api.kho_vat_tu_tao({
+            "ma_vat_tu": "VT-DRYRUN-01", "ten_vat_tu": "Găng tay y tế size L", "dvt": "Hộp",
+        })
+        self.assertFalse(frappe.db.exists("Customer Warehouse Item", {"ma_vat_tu": "VT-DRYRUN-02"}))
+
+        preview = kho_api.kho_vat_tu_tao({
+            "ma_vat_tu": "VT-DRYRUN-02", "ten_vat_tu": "Gang tay y te size L", "dvt": "Hộp",
+            "chi_kiem_tra": 1,
+        })
+        self.assertIsNone(preview["name"])
+        self.assertTrue(preview["canh_bao_trung"])
+        self.assertIn(goc["name"], preview["canh_bao_trung"][0])
+        self.assertFalse(
+            frappe.db.exists("Customer Warehouse Item", {"ma_vat_tu": "VT-DRYRUN-02"}),
+            "chi_kiem_tra không được tạo bản ghi nào",
+        )
+
+        # "Vẫn tạo": gọi lại KHÔNG kèm chi_kiem_tra mới thật sự ghi.
+        that = kho_api.kho_vat_tu_tao({
+            "ma_vat_tu": "VT-DRYRUN-02", "ten_vat_tu": "Gang tay y te size L", "dvt": "Hộp",
+        })
+        self.assertIsNotNone(that["name"])
+        self.assertTrue(frappe.db.exists("Customer Warehouse Item", {"ma_vat_tu": "VT-DRYRUN-02"}))
+
+    def test_chi_kiem_tra_reuses_existing_code_match_without_side_effects(self):
+        """`chi_kiem_tra` khi MÃ đã khớp một vật tư có sẵn (match_type=="existing")
+        vẫn phải trả đúng bản ghi đó (da_co=True) — nhánh này return SỚM,
+        TRƯỚC bước kiểm tra chi_kiem_tra, nên không có gì để "xem trước" cả,
+        chỉ đơn giản là đọc lại đúng vật tư đã có."""
+        frappe.set_user(BM_USER)
+        goc = kho_api.kho_vat_tu_tao({
+            "ma_vat_tu": "VT-DRYRUN-EXIST", "ten_vat_tu": "Vật tư gốc", "dvt": "Cái",
+        })
+        preview = kho_api.kho_vat_tu_tao({
+            "ma_vat_tu": "VT-DRYRUN-EXIST", "ten_vat_tu": "Tên khác không quan trọng",
+            "dvt": "Cái", "chi_kiem_tra": 1,
+        })
+        self.assertEqual(preview["name"], goc["name"])
+        self.assertTrue(preview["da_co"])

@@ -79,6 +79,7 @@ onMounted(load)
           <tr>
             <th>Tên NCC</th>
             <th>MST</th>
+            <th>Điện thoại</th>
             <th class="right">Số phiếu</th>
             <th class="right">Giá trị 90 ngày</th>
             <th>Trạng thái</th>
@@ -89,6 +90,7 @@ onMounted(load)
           <tr v-for="r in rows" :key="r.name" :style="!r.active ? 'opacity:.55' : ''">
             <td><b>{{ r.ten_ncc }}</b></td>
             <td>{{ r.mst || '—' }}</td>
+            <td>{{ r.dien_thoai || '—' }}</td>
             <td class="right">{{ r.so_phieu }}</td>
             <td class="right">{{ fmtVND(r.gia_tri_90n) }}</td>
             <td>
@@ -109,9 +111,6 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
-      <!-- Cột "Điện thoại" của bản mẫu KHÔNG dựng được: kho_ncc_list hiện chỉ
-           trả name/ten_ncc/mst/so_phieu/gia_tri_90n/active — thiếu dien_thoai.
-           Xem báo cáo cuối phần C. -->
     </div>
 
     <!-- MOBILE -->
@@ -123,7 +122,7 @@ onMounted(load)
             {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
           </span>
         </div>
-        <p class="tag" style="margin-top: 4px">MST {{ r.mst || '—' }}</p>
+        <p class="tag" style="margin-top: 4px">MST {{ r.mst || '—' }} · ĐT {{ r.dien_thoai || '—' }}</p>
         <p class="sb" style="margin-top: 8px; font-size: 13px">
           <span>{{ r.so_phieu }} phiếu</span>
           <b>{{ fmtVND(r.gia_tri_90n) }}</b>

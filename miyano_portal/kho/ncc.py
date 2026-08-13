@@ -61,12 +61,25 @@ def _thong_ke_90n(name: str) -> tuple[int, float]:
 
 
 def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[dict]:
+    """Danh mục NCC — cùng khuôn `kho_vat_tu_list()` (Phase 3): trả ĐỦ chi
+    tiết mô tả trong MỘT lượt, không chỉ vài cột hiển thị bảng.
+
+    Gap 1 (review E4 phần B, báo lên từ agent giao diện): trước bản này chỉ
+    có `name/ten_ncc/mst/so_phieu/gia_tri_90n/active` — bảng "NCC của tôi"
+    thiếu cột Điện thoại, và màn Sửa không có cách nào đọc lại
+    dien_thoai/email/dia_chi/ghi_chu HIỆN CÓ của một NCC đã tồn tại (không có
+    endpoint "đọc một NCC" nào khác) để điền sẵn vào form — client buộc phải
+    tự đoán/để trống, và LƯU đè sẽ xoá mất dữ liệu cũ vì `ncc.save()` chỉ ghi
+    đè field nào CÓ trong payload nhưng client không đọc được giá trị cũ để
+    gửi lại đúng. Trả nguyên `ra_dict()` (đã có sẵn, dùng chung cho response
+    của `save()`) cho MỖI dòng thay vì việc thêm một endpoint riêng —  một
+    lượt tải danh sách là đủ, không cần round-trip thứ hai."""
     filters = {"kho": kho}
     if not frappe.utils.cint(ca_inactive):
         filters["active"] = 1
     rows = frappe.get_all(
         "Customer Supplier", filters=filters,
-        fields=["name", "ten_ncc", "mst", "active"],
+        fields=["name", "ten_ncc", "mst", "dien_thoai", "email", "dia_chi", "ghi_chu", "active"],
         order_by="ten_ncc asc",
     )
     if tim_kiem:
@@ -79,6 +92,10 @@ def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[
             "name": r.name,
             "ten_ncc": r.ten_ncc,
             "mst": r.mst or "",
+            "dien_thoai": r.dien_thoai or "",
+            "email": r.email or "",
+            "dia_chi": r.dia_chi or "",
+            "ghi_chu": r.ghi_chu or "",
             "so_phieu": so_phieu,
             "gia_tri_90n": gia_tri_90n,
             "active": int(r.active or 0),
@@ -95,6 +112,13 @@ def save(kho: str, du_lieu: dict) -> dict:
         frappe.throw("Thiếu Tên NCC.", frappe.ValidationError)
 
     goi_y = _goi_y_gan_giong(kho, ten, exclude=name)
+
+    # Gap 3 (review E4 phần B): chế độ XEM TRƯỚC, không ghi gì — cùng khuôn
+    # `vat_tu.tao()`. Chỉ áp cho TẠO MỚI (`name` rỗng): "Vẫn tạo/Huỷ" là hỏi
+    # về một bản ghi CHƯA TỒN TẠI; sửa một NCC có sẵn không cần xem trước vì
+    # không có gì phải rollback — đóng modal mà không gọi save() là đủ.
+    if du_lieu.get("chi_kiem_tra") and not name:
+        return {"name": None, "ten_ncc": ten, "goi_y_trung": goi_y}
 
     if name:
         doc = frappe.get_doc("Customer Supplier", name)

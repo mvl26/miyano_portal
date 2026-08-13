@@ -13,16 +13,16 @@ const emit = defineEmits(['saved', 'close'])
 
 const isMobile = useIsMobile()
 const saving = ref(false)
-const deactivating = ref(false)
 const form = ref({ name: '', ten_ncc: '', mst: '', dien_thoai: '', email: '', dia_chi: '', ghi_chu: '', active: 1 })
 
-// US-E4.1/NL-7.3: kết quả kho_ncc_save vừa lưu XONG (bản ghi đã tồn tại thật
-// sự), kèm goi_y_trung nếu server phát hiện tên GẦN GIỐNG một NCC khác của
-// cùng kho. Khác trùng TUYỆT ĐỐI (server chặn cứng, không tới được đây) —
-// đây là cảnh báo MỀM sau khi đã lưu, vì kho_ncc_save không có bước "thử
-// trước rồi huỷ": bản ghi đã có thật trong DB ngay khi hàm trả về. "Huỷ" ở
-// đây vì vậy nghĩa là tắt (active=0) bản vừa lưu — đúng cơ chế "không xoá,
-// chỉ tắt" mà toàn bộ NCC/vật tư của portal đã dùng — không phải rollback.
+// US-E4.1/NL-7.3: goi_y_trung khi TÊN gần giống một NCC khác của cùng kho.
+// Khác trùng TUYỆT ĐỐI (server chặn cứng, không tới được đây) — đây là cảnh
+// báo MỀM, không chặn.
+//
+// (Review E4 phần B, Gap 3 — ĐÃ SỬA) Trước bản này, kho_ncc_save() ghi ngay
+// rồi mới trả cảnh báo — "Huỷ" chỉ còn cách tắt (active=0) bản vừa lỡ lưu,
+// không phải rollback thật. Giờ gọi TRƯỚC với `chi_kiem_tra: true` (server
+// kiểm đủ, KHÔNG ghi gì) — "Huỷ" giờ đúng nghĩa vì chưa từng có gì để rollback.
 const duplicateWarning = ref(null)
 
 watch(
@@ -38,17 +38,12 @@ watch(
   { immediate: true }
 )
 
-// kho_ncc_list (nguồn của NccList.moSua()) CHỈ trả name/ten_ncc/mst/
-// so_phieu/gia_tri_90n/active — không có dien_thoai/email/dia_chi/ghi_chu
-// (không có endpoint "lấy một NCC" nào khác để đọc đủ 4 trường này). Ở chế
-// độ sửa, form khởi tạo 4 trường đó = '' (giá trị mặc định, KHÔNG phải giá
-// trị thật đang lưu) — nếu gửi nguyên object này lên, kho_ncc_save() sẽ đọc
-// thấy "" cho từng trường VÀ GHI ĐÈ dữ liệu thật thành NULL, xoá sạch SĐT/
-// email/địa chỉ/ghi chú chỉ vì người dùng sửa lại tên. Server chỉ giữ
-// nguyên một trường khi nó HOÀN TOÀN VẮNG MẶT trong payload (`if truong in
-// du_lieu`) — lược các trường này khỏi payload lúc sửa là cách duy nhất
-// tránh mất dữ liệu mà không cần thêm endpoint đọc đầy đủ một NCC.
-const TRUONG_KHONG_DOC_DUOC_LUC_SUA = ['dien_thoai', 'email', 'dia_chi', 'ghi_chu']
+// (Review E4 phần B, Gap 1 — ĐÃ SỬA) kho_ncc_list giờ trả ĐỦ
+// dien_thoai/email/dia_chi/ghi_chu cho mỗi dòng, không chỉ các cột hiển thị
+// bảng — `props.initial` ở chế độ Sửa vì vậy mang giá trị THẬT đang lưu, chứ
+// không phải chuỗi rỗng giả. Không còn cần lược 4 trường này khỏi payload
+// lúc lưu: gửi nguyên form lên là gửi đúng giá trị hiện có (hoặc giá trị
+// người dùng vừa sửa), kho_ncc_save() ghi đè đúng ý, không xoá mất gì.
 
 async function onSave() {
   if (saving.value) return
@@ -56,15 +51,20 @@ async function onSave() {
   try {
     const payload = { ...form.value }
     if (props.mode === 'sua') {
-      for (const truong of TRUONG_KHONG_DOC_DUOC_LUC_SUA) delete payload[truong]
-    }
-    const out = await api.callKho('kho_ncc_save', { data: payload })
-    if (out.goi_y_trung && out.goi_y_trung.length) {
-      duplicateWarning.value = out
-    } else {
+      const out = await api.callKho('kho_ncc_save', { data: payload })
       showToast('Đã lưu NCC.')
       emit('saved', out)
+      return
     }
+    // Tạo mới: xem trước — KHÔNG ghi gì (Gap 3).
+    const preview = await api.callKho('kho_ncc_save', { data: { ...payload, chi_kiem_tra: 1 } })
+    if (preview.goi_y_trung && preview.goi_y_trung.length) {
+      duplicateWarning.value = preview
+      return
+    }
+    const out = await api.callKho('kho_ncc_save', { data: payload })
+    showToast('Đã lưu NCC.')
+    emit('saved', out)
   } catch (e) {
     showToast(e.message || 'Không lưu được NCC.', 'error')
   } finally {
@@ -72,26 +72,24 @@ async function onSave() {
   }
 }
 
-function giuLai() {
-  showToast('Đã lưu NCC.')
-  emit('saved', duplicateWarning.value)
+function huyCanhBao() {
+  // Chưa từng ghi gì (chi_kiem_tra không tạo bản ghi) — quay lại form, không
+  // cần gọi API nào để rollback.
   duplicateWarning.value = null
 }
 
-async function tatBanNay() {
-  if (deactivating.value) return
-  deactivating.value = true
+async function vanLuu() {
+  if (saving.value) return
+  saving.value = true
   try {
-    const out = await api.callKho('kho_ncc_save', {
-      data: { name: duplicateWarning.value.name, ten_ncc: duplicateWarning.value.ten_ncc, active: 0 },
-    })
-    showToast('Đã tắt NCC vừa tạo — chọn NCC có sẵn thay thế trên phiếu.')
+    const out = await api.callKho('kho_ncc_save', { data: { ...form.value } })
+    showToast('Đã lưu NCC.')
     emit('saved', out)
     duplicateWarning.value = null
   } catch (e) {
-    showToast(e.message || 'Không tắt được NCC.', 'error')
+    showToast(e.message || 'Không lưu được NCC.', 'error')
   } finally {
-    deactivating.value = false
+    saving.value = false
   }
 }
 </script>
@@ -102,17 +100,17 @@ async function tatBanNay() {
       <template v-if="duplicateWarning">
         <h3>Có NCC gần giống</h3>
         <div class="note" style="margin-top: 10px">
-          Đã lưu <b>{{ duplicateWarning.ten_ncc }}</b>. Tên gần giống với NCC có sẵn:
+          <b>{{ duplicateWarning.ten_ncc }}</b> chưa được lưu. Tên gần giống với NCC có sẵn:
           <ul style="margin: 6px 0 0 18px">
             <li v-for="g in duplicateWarning.goi_y_trung" :key="g">{{ g }}</li>
           </ul>
-          Nếu đây thực chất là cùng một NCC, hãy tắt bản vừa lưu và chọn NCC có sẵn trên phiếu.
+          Nếu đây thực chất là cùng một NCC, hãy huỷ rồi chọn NCC có sẵn trên phiếu thay vì tạo mới.
         </div>
         <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
-          <button class="btn-o btn-danger" :disabled="deactivating" @click="tatBanNay">
-            {{ deactivating ? 'Đang tắt…' : 'Đây là trùng — tắt bản này' }}
+          <button class="btn-o" :disabled="saving" @click="huyCanhBao">Huỷ</button>
+          <button class="btn" :disabled="saving" @click="vanLuu">
+            {{ saving ? 'Đang lưu…' : 'Vẫn lưu' }}
           </button>
-          <button class="btn" @click="giuLai">Giữ NCC này</button>
         </div>
       </template>
 
@@ -125,20 +123,10 @@ async function tatBanNay() {
         </div>
         <div class="field"><label>MST</label><input v-model="form.mst" placeholder="10 hoặc 13 số" /></div>
 
-        <!-- Bốn trường dưới đây KHÔNG hiện ở chế độ Sửa: kho_ncc_list không trả
-             chúng, nên form không có gì thật để hiển thị (không phải "để trống"
-             — là "không biết") — hiện ô rỗng rồi cho lưu sẽ xoá mất dữ liệu thật
-             (xem TRUONG_KHONG_DOC_DUOC_LUC_SUA ở onSave()). Chỉ sửa được qua một
-             kênh khác khi backend có endpoint đọc đủ một NCC. -->
-        <template v-if="mode !== 'sua'">
-          <div class="field"><label>Điện thoại</label><input v-model="form.dien_thoai" /></div>
-          <div class="field"><label>Email</label><input v-model="form.email" type="email" /></div>
-          <div class="field"><label>Địa chỉ</label><input v-model="form.dia_chi" /></div>
-          <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
-        </template>
-        <p v-else class="tag" style="margin-top: -4px; margin-bottom: 12px">
-          Điện thoại/Email/Địa chỉ/Ghi chú không sửa được ở đây (báo cáo cuối phần C).
-        </p>
+        <div class="field"><label>Điện thoại</label><input v-model="form.dien_thoai" /></div>
+        <div class="field"><label>Email</label><input v-model="form.email" type="email" /></div>
+        <div class="field"><label>Địa chỉ</label><input v-model="form.dia_chi" /></div>
+        <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
         <div v-if="mode === 'sua'" class="field">
           <label style="display: flex; align-items: center; gap: 6px">
             <input type="checkbox" :checked="form.active === 1" @change="form.active = $event.target.checked ? 1 : 0" />

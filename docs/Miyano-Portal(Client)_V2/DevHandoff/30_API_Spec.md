@@ -116,8 +116,18 @@ file tồn tại → stream (Content-Disposition attachment); ghi log lượt t�
 // save Request: { "name": null, "ten_ncc": "Cty TNHH ABC", "mst": "0101234567",
 //                 "dien_thoai": "0243...", "email": "sales@abc.vn", "dia_chi": "...", "active": 1 }
 // save Response: { "name": "NCC-00004", "goi_y_trung": ["NCC-00002: Công ty ABC"] }  // NL-7.3
-// list Response: [ { "name","ten_ncc","mst","so_phieu","gia_tri_90n","active" } ]
+// list Response: [ { "name","ten_ncc","mst","dien_thoai","email","dia_chi","ghi_chu",
+//                    "so_phieu","gia_tri_90n","active" } ]
 ```
+List trả ĐỦ chi tiết mô tả (không chỉ cột hiển thị bảng, review E4 phần B Gap 1) — cùng khuôn
+`kho_vat_tu_list`: màn Sửa dùng lại đúng dữ liệu đã tải để điền form, không cần round-trip thứ hai.
+
+**`chi_kiem_tra`** (review E4 phần B, Gap 3): thêm vào payload của `kho_ncc_save` (và tương tự
+`kho_vat_tu_tao`) — `data.chi_kiem_tra = true` chạy đúng các kiểm tra thường lệ (khớp mã/trùng tuyệt
+đối/gợi ý gần giống) rồi **DỪNG TRƯỚC khi ghi**, trả `{ "name": null, "goi_y_trung"/"canh_bao_trung":
+[...] }` — cho phép bản mẫu hỏi "[Vẫn tạo]/[Huỷ]" TRƯỚC khi bản ghi tồn tại thật (trước bản này,
+bản ghi đã được tạo ngay khi hàm trả về nên "Huỷ" không rollback được gì). Bỏ trống/`false` giữ
+nguyên hành vi cũ (ghi ngay). Chỉ áp cho TẠO MỚI — sửa bản ghi có sẵn không cần xem trước.
 
 ### 3.2 `kho_nhat_ky(vat_tu, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1)` (E4)
 ```jsonc

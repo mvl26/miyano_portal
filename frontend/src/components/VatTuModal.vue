@@ -16,15 +16,18 @@ const emit = defineEmits(['saved', 'close'])
 
 const isMobile = useIsMobile()
 const saving = ref(false)
-const deactivating = ref(false)
 const form = ref({ ma_vat_tu: '', ten_vat_tu: '', dvt: '', quy_cach: '', nhom: '', ghi_chu: '', active: 1 })
 
 // US-E4.5/NL-4.5: kho_vat_tu_tao trả canh_bao_trung khi TÊN vừa tạo giống
-// ≥85% (so không dấu) một vật tư đã có trong kho — cảnh báo MỀM, không chặn
-// (vật tư đã được tạo thật khi hàm trả về, không có bước "thử trước"). Cùng
-// khuôn với goi_y_trung của NccModal.vue: "huỷ" ở đây nghĩa là tắt bản vừa
-// tạo (active=0, luôn cho phép vì vật tư mới tạo chưa có phát sinh nào) chứ
-// không phải xoá.
+// ≥85% (so không dấu) một vật tư đã có trong kho — cảnh báo MỀM, không chặn.
+//
+// (Review E4 phần B, Gap 3 — ĐÃ SỬA) Trước bản này, onSave() gọi thẳng
+// kho_vat_tu_tao NGAY, nên vật tư đã tồn tại thật trong DB trước khi người
+// dùng kịp thấy cảnh báo — "Huỷ" chỉ còn cách "chữa cháy" bằng tắt
+// (active=0) bản vừa lỡ tạo, không phải huỷ thật. Giờ gọi TRƯỚC với
+// `chi_kiem_tra: true` (server chạy đủ kiểm tra, KHÔNG ghi gì) — nếu có
+// cảnh báo, hỏi "[Vẫn tạo]/[Huỷ]" TRƯỚC KHI bản ghi tồn tại; "Huỷ" giờ đúng
+// nghĩa — không có gì để rollback vì chưa từng ghi.
 const duplicateWarning = ref(null)
 
 watch(
@@ -50,15 +53,27 @@ async function onSave() {
   saving.value = true
   try {
     const payload = { ...form.value }
-    const row =
-      props.mode === 'sua'
-        ? await api.callKho('kho_vat_tu_sua', { name: props.vatTu, payload })
-        : await api.callKho('kho_vat_tu_tao', { payload })
-    if (row.canh_bao_trung && row.canh_bao_trung.length) {
-      duplicateWarning.value = row
+    if (props.mode === 'sua') {
+      const row = await api.callKho('kho_vat_tu_sua', { name: props.vatTu, payload })
+      showToast('Đã lưu vật tư.')
+      emit('saved', row)
       return
     }
-    showToast(row.da_co ? `Mã ${row.ma_vat_tu} đã có sẵn — đã chọn vật tư đó.` : 'Đã lưu vật tư.')
+    // Tạo mới: xem trước — KHÔNG ghi gì (Gap 3).
+    const preview = await api.callKho('kho_vat_tu_tao', { payload: { ...payload, chi_kiem_tra: 1 } })
+    if (preview.da_co) {
+      // Trùng MÃ với vật tư có sẵn: server đã tự chọn bản ghi cũ, không có
+      // gì để "vẫn tạo" — đây không phải nhánh cảnh báo tên gần giống.
+      showToast(`Mã ${preview.ma_vat_tu} đã có sẵn — đã chọn vật tư đó.`)
+      emit('saved', preview)
+      return
+    }
+    if (preview.canh_bao_trung && preview.canh_bao_trung.length) {
+      duplicateWarning.value = preview
+      return
+    }
+    const row = await api.callKho('kho_vat_tu_tao', { payload })
+    showToast('Đã lưu vật tư.')
     emit('saved', row)
   } catch (e) {
     showToast(e.message || 'Không lưu được vật tư.', 'error')
@@ -67,26 +82,24 @@ async function onSave() {
   }
 }
 
-function giuLai() {
-  showToast('Đã lưu vật tư.')
-  emit('saved', duplicateWarning.value)
+function huyCanhBao() {
+  // Chưa từng ghi gì (chi_kiem_tra không tạo bản ghi) — "Huỷ" chỉ đơn giản
+  // quay lại form, không cần gọi API nào để rollback.
   duplicateWarning.value = null
 }
 
-async function tatBanNay() {
-  if (deactivating.value) return
-  deactivating.value = true
+async function vanTao() {
+  if (saving.value) return
+  saving.value = true
   try {
-    const row = await api.callKho('kho_vat_tu_sua', {
-      name: duplicateWarning.value.name, payload: { active: 0 },
-    })
-    showToast('Đã tắt vật tư vừa tạo — chọn vật tư có sẵn thay thế.')
+    const row = await api.callKho('kho_vat_tu_tao', { payload: { ...form.value } })
+    showToast('Đã tạo vật tư.')
     emit('saved', row)
     duplicateWarning.value = null
   } catch (e) {
-    showToast(e.message || 'Không tắt được vật tư.', 'error')
+    showToast(e.message || 'Không lưu được vật tư.', 'error')
   } finally {
-    deactivating.value = false
+    saving.value = false
   }
 }
 </script>
@@ -97,17 +110,18 @@ async function tatBanNay() {
       <template v-if="duplicateWarning">
         <h3>Có vật tư tên gần giống</h3>
         <div class="note" style="margin-top: 10px">
-          Đã tạo <b>{{ duplicateWarning.ma_vat_tu }} — {{ duplicateWarning.ten_vat_tu }}</b>. Tên gần giống vật tư có sẵn:
+          <b>{{ duplicateWarning.ma_vat_tu }} — {{ duplicateWarning.ten_vat_tu }}</b> chưa được tạo.
+          Tên gần giống vật tư có sẵn:
           <ul style="margin: 6px 0 0 18px">
             <li v-for="g in duplicateWarning.canh_bao_trung" :key="g">{{ g }}</li>
           </ul>
-          Nếu đây thực chất là cùng một vật tư, hãy tắt bản vừa tạo và dùng vật tư có sẵn.
+          Nếu đây thực chất là cùng một vật tư, hãy huỷ rồi dùng vật tư có sẵn thay vì tạo mới.
         </div>
         <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
-          <button class="btn-o btn-danger" :disabled="deactivating" @click="tatBanNay">
-            {{ deactivating ? 'Đang tắt…' : 'Đây là trùng — tắt bản này' }}
+          <button class="btn-o" :disabled="saving" @click="huyCanhBao">Huỷ</button>
+          <button class="btn" :disabled="saving" @click="vanTao">
+            {{ saving ? 'Đang tạo…' : 'Vẫn tạo' }}
           </button>
-          <button class="btn" @click="giuLai">Giữ vật tư mới</button>
         </div>
       </template>
 
