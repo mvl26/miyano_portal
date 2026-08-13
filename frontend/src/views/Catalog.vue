@@ -166,6 +166,15 @@ async function loadLe() {
       mucLeChoPhep.value = false
       if (mode.value === 'le') mode.value = 'hd'
     } else {
+      // Bất kỳ lỗi nào KHÁC PermissionError chứng tỏ đã QUA được kiểm quyền
+      // — `portal_catalog_ban_le` kiểm `custom_cho_phep_mua_le` TRƯỚC
+      // `price_list_ban_le()` (VĐ-12: chưa cấu hình Price List bán lẻ ném
+      // ValidationError, không phải PermissionError). Phải BẬT bộ chuyển ở
+      // đây, không giữ `false`: giữ `false` sẽ ẩn hẳn ngăn Mua lẻ và chôn
+      // luôn thông điệp lỗi cấu hình bên trong một nhánh không ai vào được
+      // (chính xác điều `portal_mua_le.price_list_ban_le()` viết ra để
+      // tránh — "KHÔNG rơi về danh mục rỗng lặng lẽ").
+      mucLeChoPhep.value = true
       leError.value = e.message || 'Không tải được danh mục mua lẻ.'
     }
   } finally {

@@ -15,7 +15,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { fmtDate, fmtDateTime, yeuCauBadge } from '../format'
+import { fmtDate, fmtDateTime, fmtVND, yeuCauBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import YeuCauModal from '../components/YeuCauModal.vue'
@@ -235,7 +235,7 @@ onMounted(load)
           <div v-if="data.trang_thai === 'Đã báo giá'" class="card" style="background: #f5f3ff; border-color: #ddd6fe">
             <div class="h3">Báo giá của Miyano</div>
             <p style="font-size: 13px">
-              Giá: <b>{{ data.gia_bao ? Number(data.gia_bao).toLocaleString('vi-VN') + ' ₫' : '—' }}</b>
+              Giá: <b>{{ data.gia_bao ? fmtVND(data.gia_bao) : '—' }}</b>
               <template v-if="data.dvt">/{{ data.dvt }}</template>
               <template v-if="data.lead_time_ngay"> · lead time <b>{{ data.lead_time_ngay }} ngày</b></template>
               <br />
