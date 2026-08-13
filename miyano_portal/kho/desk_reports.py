@@ -27,7 +27,7 @@ thiết kế), gộp theo mã sẽ âm thầm cộng tồn của khách A vào k
 
 import frappe
 
-from miyano_portal.kho import reports
+from miyano_portal.kho import dutru, reports, voucher
 from miyano_portal.kho.ledger import EPS
 
 
@@ -229,7 +229,38 @@ def doi_soat_giao_nhan_rows(
 	return sorted(out, key=lambda row: (row["customer_name"] or "", row["delivery_note"] or "", row["ten_vat_tu"] or ""))
 
 
-def chat_luong_du_lieu_rows(customer: str | None = None, chi_chua_bat_co=True) -> list[dict]:
+# E5/US-E5.5 — mở rộng report "Chất lượng dữ liệu kho khách" (đã có từ E3
+# phần B) bằng thêm HAI khía cạnh chất lượng dữ liệu (NL-9.3), KHÔNG tạo
+# report thứ hai trùng mục đích: `loai_van_de` chọn khía cạnh nào hiển thị,
+# mỗi khía cạnh giữ NGUYÊN hình dạng cột riêng của nó (số liệu khác hẳn nhau
+# về đơn vị phân tích — Item / Kho / Phiếu — gộp cưỡng ép vào một bộ cột
+# chung sẽ đẻ ra các cột rỗng chéo nhau, khó đọc hơn ba bảng riêng). Không
+# truyền `loai_van_de` (mặc định) giữ NGUYÊN hành vi cũ (item thiếu lô/hạn,
+# US-E3.6) — không phá bất kỳ test/URL đã lưu nào từ trước E5.
+
+
+def chat_luong_du_lieu_rows(
+	customer: str | None = None,
+	chi_chua_bat_co=True,
+	loai_van_de: str | None = None,
+) -> list[dict]:
+	"""Điểm vào DUY NHẤT của report "Chất lượng dữ liệu kho khách" — chọn
+	MỘT trong ba khía cạnh theo `loai_van_de`:
+
+	  * (mặc định, `None`) — item thiếu lô/hạn (US-E3.6, xem docstring cũ ở
+	    dưới, giữ nguyên).
+	  * `"kho_khong_hoat_dong"` — kho không có phiếu xuất N ngày (NL-9.3).
+	  * `"thieu_chung_tu"` — phiếu nhập "Mua ngoài" thiếu số chứng từ NCC
+	    (BR-N2, cờ `thieu_chung_tu` đã tính sẵn ở
+	    `customer_stock_receipt.py::validate()`)."""
+	if loai_van_de == "kho_khong_hoat_dong":
+		return _kho_khong_hoat_dong_rows(customer)
+	if loai_van_de == "thieu_chung_tu":
+		return _thieu_chung_tu_rows(customer)
+	return _thieu_lo_han_rows(customer, chi_chua_bat_co)
+
+
+def _thieu_lo_han_rows(customer: str | None, chi_chua_bat_co: bool) -> list[dict]:
 	"""US-E3.6: gộp theo Item (mặt hàng THẬT của Miyano, không phải theo
 	`Customer Warehouse Item` — hai khách khác nhau có thể tự đặt trùng mã
 	riêng của họ, nhưng `item_code` trỏ về đúng MỘT Item của Miyano) các dòng
@@ -326,3 +357,222 @@ def chat_luong_du_lieu_rows(customer: str | None = None, chi_chua_bat_co=True) -
 			"lan_gan_nhat": row["lan_gan_nhat"],
 		})
 	return sorted(out, key=lambda r: (-r["so_dong_thieu"], r["item_code"]))
+
+
+def _kho_khong_hoat_dong_rows(customer: str | None = None, so_ngay: int | None = None) -> list[dict]:
+	"""NL-9.3 — kho không có phiếu XUẤT nào (mọi `loai_xuat`, kể cả "Phiếu
+	đảo": một phiếu đảo do huỷ vẫn chứng tỏ kho ĐANG có người thao tác, chỉ
+	là thao tác huỷ, không phải "dữ liệu chết" mà NL-9.3 nói tới) ĐÃ GHI SỔ
+	(`docstatus=1`) trong `so_ngay` ngày gần nhất — dữ liệu xấu (khách không
+	cập nhật phiếu xuất) thì dự trù (E5) sai theo, sales cần biết để nhắc.
+
+	`so_ngay` mặc định TÁI DÙNG `reports._nguong_cham_luan_chuyen()` — cùng
+	khái niệm "N ngày không có gì xảy ra thì đáng nói" mà E4 đã dùng cho
+	"chậm luân chuyển", KHÔNG thêm field Settings mới cho một khái niệm đã
+	có tên (20_DataDict.md §1.3 không liệt kê field riêng cho "kho không
+	hoạt động")."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	so_ngay = frappe.utils.cint(so_ngay) if so_ngay not in (None, "") else reports._nguong_cham_luan_chuyen()
+	hom_nay = frappe.utils.getdate(frappe.utils.today())
+	han_tu = frappe.utils.add_days(hom_nay, -so_ngay)
+	names = _customer_names([k["customer"] for k in khos])
+
+	out = []
+	for k in khos:
+		ngay_gan_nhat = frappe.db.get_value(
+			"Customer Stock Issue", {"kho": k["name"], "docstatus": 1},
+			"ngay", order_by="ngay desc",
+		)
+		if ngay_gan_nhat and frappe.utils.getdate(ngay_gan_nhat) >= han_tu:
+			continue  # có xuất trong N ngày gần đây — không phải kho "chết".
+		so_ngay_khong_xuat = (hom_nay - frappe.utils.getdate(ngay_gan_nhat)).days if ngay_gan_nhat else None
+		out.append({
+			"customer": k["customer"], "customer_name": names.get(k["customer"]) or k["customer"],
+			"kho": k["name"], "ten_kho": k["ten_kho"],
+			"ngay_xuat_gan_nhat": ngay_gan_nhat,
+			"so_ngay_khong_xuat": so_ngay_khong_xuat,
+		})
+	# Kho CHƯA TỪNG có phiếu xuất nào (so_ngay_khong_xuat=None) đứng ĐẦU —
+	# đó là ca đáng lo nhất (chưa hề vận hành qua cổng), không phải xếp cuối
+	# vì "không so sánh được".
+	return sorted(
+		out, key=lambda r: (r["so_ngay_khong_xuat"] is not None, -(r["so_ngay_khong_xuat"] or 0))
+	)
+
+
+def _thieu_chung_tu_rows(customer: str | None = None) -> list[dict]:
+	"""NL-9.3 (phần thứ ba) / BR-N2: phiếu nhập "Mua ngoài (NCC khác)" chưa
+	nhập `so_chung_tu_ncc` — cờ `thieu_chung_tu` đã tính sẵn ở
+	`customer_stock_receipt.py::validate()` (KHÔNG bắt buộc theo BR-N2, chỉ
+	đánh dấu để lọc ra sau). Phiếu CÒN NHÁP hoặc ĐÃ GHI SỔ (`docstatus<2`)
+	— phiếu đã HUỶ không còn "thiếu" gì nữa, cùng khuôn
+	`doi_soat_giao_nhan_rows()` ở trên."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	kho_customer = {k["name"]: k["customer"] for k in khos}
+	kho_ten = {k["name"]: k["ten_kho"] for k in khos}
+	names = _customer_names([k["customer"] for k in khos])
+
+	receipts = frappe.get_all(
+		"Customer Stock Receipt",
+		filters={"kho": ["in", list(kho_customer)], "docstatus": ["<", 2], "thieu_chung_tu": 1},
+		fields=["name", "kho", "ngay", "ncc", "docstatus"],
+	)
+	if not receipts:
+		return []
+	ncc_names = {r["ncc"] for r in receipts if r.get("ncc")}
+	ncc_ten = dict(frappe.get_all(
+		"Customer Supplier", filters={"name": ["in", list(ncc_names)]},
+		fields=["name", "ten_ncc"], as_list=True,
+	)) if ncc_names else {}
+
+	out = []
+	for r in receipts:
+		cust = kho_customer.get(r["kho"])
+		out.append({
+			"customer": cust, "customer_name": names.get(cust) or cust,
+			"kho": r["kho"], "ten_kho": kho_ten.get(r["kho"], ""),
+			"phieu_nhap": r["name"], "ngay": r["ngay"],
+			"ncc": ncc_ten.get(r["ncc"], r["ncc"]) if r.get("ncc") else "",
+			"trang_thai_phieu": _TRANG_THAI_PHIEU.get(int(r["docstatus"]), ""),
+		})
+	return sorted(out, key=lambda r: (r["customer_name"] or "", r["ngay"] or "", r["phieu_nhap"]))
+
+
+# ------------------------------------------------------------------- E5 (US-E5.5)
+# Hai report dưới đây (như hai report E3 phần B ở trên) KHÔNG gọi lại
+# reports.py: nguồn dữ liệu là chính `Customer Warehouse Item`/sổ kho tính
+# theo TỪNG vật tư (report 1) và `Customer Stock Receipt`/sổ kho theo NGUỒN
+# NHẬP (report 2) — hai loại số liệu khác với ba báo cáo N-X-T/tồn/hạn gốc.
+
+
+def tieu_thu_de_xuat_rows(customer: str | None = None, nhom: str | None = None) -> list[dict]:
+	"""US-E5.5 (UC-49/50) — "Tiêu thụ & đề xuất dự trù": khách · vật tư ·
+	ADU30/90 · tồn · ngày phủ · ngày dự kiến hết hàng · ROP/max · SL đề
+	xuất, cho MỌI vật tư ĐANG DÙNG của MỌI kho (lọc được theo khách/nhóm).
+
+	CỐ Ý KHÔNG áp BR-P3 (bộ lọc "chưa thiết lập + chưa đủ dữ liệu -> ẩn"
+	dùng cho `kho_canh_bao_ton()` phía portal, xem `kho/dutru.py`): BR-P3 là
+	quy tắc chống làm phiền KHÁCH HÀNG trên màn cảnh báo của họ, không phải
+	quy tắc về báo cáo phân tích NỘI BỘ của Miyano — sales CẦN thấy đủ mọi
+	vật tư (kể cả vật tư mới, ít dữ liệu) để lên kế hoạch mua/tồn, ẩn bớt sẽ
+	che mất đúng những vật tư họ cần theo dõi sát nhất.
+
+	Gọi lại `dutru.tinh_tieu_thu()`/`dutru.ton_kha_dung()`/`dutru.ngay_phu_ton()`/
+	`dutru.sl_goi_y_dat()` cho từng (kho, vật tư) — không viết lại phép tính
+	ADU/ROP/SL đề xuất lần thứ hai, đúng nguyên tắc đầu file."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	names = _customer_names([k["customer"] for k in khos])
+
+	out = []
+	for k in khos:
+		filters = {"kho": k["name"], "active": 1}
+		if nhom:
+			filters["nhom"] = nhom
+		items = frappe.get_all(
+			"Customer Warehouse Item", filters=filters,
+			fields=["name", "ten_vat_tu", "dvt", "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "boi_so_dat"],
+		)
+		for it in items:
+			tt = dutru.tinh_tieu_thu(k["name"], it["name"])
+			ton = dutru.ton_kha_dung(k["name"], it["name"])
+			ngay_phu = dutru.ngay_phu_ton(ton, tt["adu_90"])
+			ngay_du_kien_het = (
+				frappe.utils.add_days(frappe.utils.today(), int(ngay_phu))
+				if isinstance(ngay_phu, (int, float)) else None
+			)
+			out.append({
+				"customer": k["customer"], "customer_name": names.get(k["customer"]) or k["customer"],
+				"vat_tu": it["name"], "ten_vat_tu": it["ten_vat_tu"], "dvt": it["dvt"],
+				"ton": ton, "adu_30": tt["adu_30"], "adu_90": tt["adu_90"],
+				"ngay_phu": ngay_phu, "ngay_du_kien_het": ngay_du_kien_het,
+				"rop": it["diem_dat_lai"] if not dutru.chua_khai(it["diem_dat_lai"]) else None,
+				"max": it["ton_toi_da"] if not dutru.chua_khai(it["ton_toi_da"]) else None,
+				"sl_de_xuat": dutru.sl_goi_y_dat(it["ton_toi_da"], ton, it["boi_so_dat"]),
+			})
+	# Sắp ngày phủ NGẮN NHẤT lên đầu (sắp hết trước, cần chú ý trước);
+	# "—" (chuỗi, ADU=0) không so được với số nên đẩy xuống CUỐI bằng khoá
+	# phụ, giống mọi chỗ khác trong module này xử lý None/sentinel khi sort.
+	return sorted(
+		out, key=lambda r: (isinstance(r["ngay_phu"], str), r["ngay_phu"] if isinstance(r["ngay_phu"], (int, float)) else 0)
+	)
+
+
+def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay=None) -> list[dict]:
+	"""US-E5.5 (UC-51) — "Tỷ trọng nguồn cung" (share-of-wallet): giá trị +
+	SL nhập theo nguồn (Miyano vs từng NCC khác) trong một kỳ, từ phiếu nhập
+	ĐÃ GHI SỔ, LOẠI TRỪ đảo.
+
+	Tính ở MỨC SỔ KHO (`Customer Stock Ledger Entry`), không ở mức chứng từ
+	`Customer Stock Receipt` — cùng kỹ thuật loại trừ đảo đã dùng cho ADU
+	(`kho/dutru.py`): lọc `da_dao=0` (bỏ dòng GỐC đã bị đảo) VÀ bỏ dòng
+	thuộc phiếu `loai_nhap == "Phiếu đảo"` (chính dòng bù trừ). Một đợt nhập
+	bị huỷ TRỌN VẸN trong/trước kỳ do đó ròng về ĐÚNG 0 theo cấu trúc, không
+	phải một phép trừ thủ công dễ quên áp dụng ở một nhánh."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	kho_names = [k["name"] for k in khos]
+	kho_customer = {k["name"]: k["customer"] for k in khos}
+	names = _customer_names([k["customer"] for k in khos])
+
+	filters = {"kho": ["in", kho_names], "chung_tu_type": "Customer Stock Receipt", "da_dao": 0}
+	if tu_ngay and den_ngay:
+		filters["ngay"] = ["between", [tu_ngay, den_ngay]]
+	entries = frappe.get_all(
+		"Customer Stock Ledger Entry", filters=filters,
+		fields=["kho", "chung_tu", "so_luong", "gia_tri"],
+	)
+	if not entries:
+		return []
+
+	receipt_names = {e["chung_tu"] for e in entries}
+	receipts = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Stock Receipt", filters={"name": ["in", list(receipt_names)]},
+			fields=["name", "loai_nhap", "ncc"],
+		)
+	}
+	ncc_names = {r["ncc"] for r in receipts.values() if r.get("ncc")}
+	ncc_ten = dict(frappe.get_all(
+		"Customer Supplier", filters={"name": ["in", list(ncc_names)]},
+		fields=["name", "ten_ncc"], as_list=True,
+	)) if ncc_names else {}
+
+	agg: dict[tuple, dict] = {}
+	for e in entries:
+		rc = receipts.get(e["chung_tu"])
+		if not rc or rc.get("loai_nhap") == voucher.LOAI_DAO:
+			continue  # dòng bù trừ CHÍNH NÓ — không phải một nguồn nhập thật.
+		if rc.get("loai_nhap") == "Mua ngoài (NCC khác)" and rc.get("ncc"):
+			nguon = ncc_ten.get(rc["ncc"], rc["ncc"])
+		else:
+			nguon = "Miyano"
+		cust = kho_customer.get(e["kho"])
+		key = (cust, nguon)
+		row = agg.setdefault(key, {
+			"customer": cust, "customer_name": names.get(cust) or cust,
+			"nguon": nguon, "sl_nhap": 0.0, "gia_tri_nhap": 0.0,
+		})
+		row["sl_nhap"] += float(e["so_luong"])
+		row["gia_tri_nhap"] += float(e["gia_tri"] or 0)
+
+	tong_theo_khach: dict[str, float] = {}
+	for row in agg.values():
+		tong_theo_khach[row["customer"]] = tong_theo_khach.get(row["customer"], 0.0) + row["gia_tri_nhap"]
+
+	out = []
+	for row in agg.values():
+		tong = tong_theo_khach.get(row["customer"]) or 0.0
+		out.append({
+			**row,
+			"sl_nhap": round(row["sl_nhap"], 6),
+			"gia_tri_nhap": round(row["gia_tri_nhap"], 2),
+			"ty_trong_pct": round(row["gia_tri_nhap"] / tong * 100, 2) if tong > reports.EPS else 0.0,
+		})
+	return sorted(out, key=lambda r: (r["customer_name"] or "", -r["gia_tri_nhap"]))

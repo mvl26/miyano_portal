@@ -58,6 +58,18 @@ REPORTS = [
 		"report_name": "Chất lượng dữ liệu kho khách",
 		"ref_doctype": "Customer Stock Receipt",
 	},
+	# E5 (US-E5.5) — cùng khuôn an ninh: ref_doctype đã có report:1 cho ba
+	# role trên và KHÔNG DocPerm nào cho Customer. Cả hai đọc dữ liệu tiêu
+	# thụ/nhập hàng của MỌI khách hàng (VĐ-10 — chỉ nhân viên Miyano, không
+	# phải khách, xem hạn chế pháp lý ở PRD E5 §Dữ liệu & API).
+	{
+		"report_name": "Tiêu thụ và đề xuất dự trù",
+		"ref_doctype": "Customer Warehouse Item",
+	},
+	{
+		"report_name": "Tỷ trọng nguồn cung",
+		"ref_doctype": "Customer Stock Receipt",
+	},
 ]
 
 

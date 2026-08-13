@@ -44,7 +44,7 @@ kiểu số, không có cách khai báo nào tắt được). Khác với
 "chưa cấu hình" với "lưu giá trị 0" — xem `reports.py::_nguong_cham_luan_
 chuyen()`), MỘT DÒNG của `Customer Warehouse Item` LUÔN có sẵn cả bốn cột này
 với giá trị 0 ngay từ lúc insert, dù người dùng chưa từng chạm vào ô nào —
-không có "dòng vắng mặt" nào để phân biệt. Vì vậy `_chua_khai()` coi 0 (và
+không có "dòng vắng mặt" nào để phân biệt. Vì vậy `chua_khai()` coi 0 (và
 None/"" ở tầng payload trước khi lưu) là "CHƯA KHAI" cho cả bốn trường —
 đánh đổi đã biết và chấp nhận: một khách hàng thật sự muốn "0 tồn an toàn/
 0 điểm đặt lại" (rất hiếm với vật tư y tế đang JIT hoá) sẽ đọc y hệt "chưa
@@ -72,7 +72,7 @@ _MUC_DO_NGHIEM_TRONG = {"thieu": 0, "sap_thieu": 1, "chua_thiet_lap": 2, "on_din
 _TRANG_KHO_CANH_BAO_TON = 50  # cùng cỡ trang với nhat_ky_rows() (reports.py)
 
 
-def _chua_khai(gia_tri) -> bool:
+def chua_khai(gia_tri) -> bool:
 	"""True nếu `gia_tri` nên coi là "chưa khai" — None/rỗng (payload trước
 	khi lưu) HOẶC 0 (giá trị THẬT SỰ đọc lại từ cột DB `NOT NULL DEFAULT 0`,
 	xem docstring đầu file cho lý do không có lựa chọn nào khác)."""
@@ -199,10 +199,10 @@ def ton_kha_dung(kho: str, vat_tu: str) -> float:
 
 def tinh_rop(adu_n, lead_time_ngay, ton_toi_thieu) -> float | None:
 	"""BR-P2: ROP = ADU × lead_time_ngay + ton_toi_thieu. `None` nếu thiếu
-	`lead_time_ngay` HOẶC `ton_toi_thieu` (`_chua_khai()` — xem docstring đầu
+	`lead_time_ngay` HOẶC `ton_toi_thieu` (`chua_khai()` — xem docstring đầu
 	file) — không có tồn an toàn/lead time thì không có gì để cộng, không
 	suy diễn một con số thay khách."""
-	if _chua_khai(lead_time_ngay) or _chua_khai(ton_toi_thieu):
+	if chua_khai(lead_time_ngay) or chua_khai(ton_toi_thieu):
 		return None
 	return round(float(adu_n or 0) * float(lead_time_ngay) + float(ton_toi_thieu), 6)
 
@@ -219,12 +219,12 @@ def sl_goi_y_dat(ton_toi_da, ton, boi_so_dat) -> float | None:
 	"""BR-P4: SL gợi ý = ton_toi_da − tồn khả dụng, làm tròn LÊN theo
 	`boi_so_dat`. `None` nếu chưa khai `ton_toi_da` (không có gì để gợi ý).
 	Đã đạt/vượt max → 0 (không cần đặt thêm), không phải một số âm."""
-	if _chua_khai(ton_toi_da):
+	if chua_khai(ton_toi_da):
 		return None
 	thieu = float(ton_toi_da) - float(ton)
 	if thieu <= EPS:
 		return 0.0
-	boi = float(boi_so_dat) if not _chua_khai(boi_so_dat) else None
+	boi = float(boi_so_dat) if not chua_khai(boi_so_dat) else None
 	if not boi:
 		return round(thieu, 6)
 	# trừ EPS trước khi ceil để rác dấu phẩy động (38.0000000001/10) không bị
@@ -245,9 +245,9 @@ def goi_y_mot_vat_tu(kho: str, row: dict) -> dict:
 	rop = tinh_rop(tt["adu_90"], row.get("lead_time_ngay"), row.get("ton_toi_thieu"))
 	return {
 		"adu_90": tt["adu_90"],
-		"min": None if _chua_khai(row.get("ton_toi_thieu")) else row.get("ton_toi_thieu"),
+		"min": None if chua_khai(row.get("ton_toi_thieu")) else row.get("ton_toi_thieu"),
 		"rop": rop,
-		"max": None if _chua_khai(row.get("ton_toi_da")) else row.get("ton_toi_da"),
+		"max": None if chua_khai(row.get("ton_toi_da")) else row.get("ton_toi_da"),
 	}
 
 
@@ -327,9 +327,9 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 
 	out = []
 	for it in items:
-		min_ = None if _chua_khai(it["ton_toi_thieu"]) else it["ton_toi_thieu"]
-		rop = None if _chua_khai(it["diem_dat_lai"]) else it["diem_dat_lai"]
-		max_ = None if _chua_khai(it["ton_toi_da"]) else it["ton_toi_da"]
+		min_ = None if chua_khai(it["ton_toi_thieu"]) else it["ton_toi_thieu"]
+		rop = None if chua_khai(it["diem_dat_lai"]) else it["diem_dat_lai"]
+		max_ = None if chua_khai(it["ton_toi_da"]) else it["ton_toi_da"]
 		co_nguong = min_ is not None or rop is not None
 
 		tt = tinh_tieu_thu(kho, it["name"])
