@@ -16,6 +16,7 @@ import PhieuXuat from './views/PhieuXuat.vue'
 import PhieuXuatDetail from './views/PhieuXuatDetail.vue'
 import BaoCaoNXT from './views/BaoCaoNXT.vue'
 import NccList from './views/NccList.vue'
+import KhoaPhongList from './views/KhoaPhongList.vue'
 import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
 import YeuCauList from './views/YeuCauList.vue'
@@ -41,6 +42,7 @@ const routes = [
   { path: '/kho/xuat/:name', name: 'kho-xuat-detail', component: PhieuXuatDetail, meta: { title: 'Chi tiết phiếu xuất' } },
   { path: '/kho/bao-cao', name: 'kho-bao-cao', component: BaoCaoNXT, meta: { title: 'Báo cáo kho' } },
   { path: '/kho/ncc', name: 'kho-ncc', component: NccList, meta: { title: 'NCC của tôi' } },
+  { path: '/kho/khoa-phong', name: 'kho-khoa-phong', component: KhoaPhongList, meta: { title: 'Danh mục khoa phòng' } },
   { path: '/kho/nhat-ky', name: 'kho-nhat-ky', component: NhatKy, meta: { title: 'Nhật ký vật tư' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
 ]

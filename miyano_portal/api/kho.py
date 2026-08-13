@@ -219,7 +219,7 @@ def kho_me() -> dict:
 	kho = get_portal_kho()
 	row = frappe.db.get_value(
 		"Customer Warehouse", kho,
-		["name", "ten_kho", "ma_kho", "thu_kho", "customer", "ngay_bat_dau"],
+		["name", "ten_kho", "ma_kho", "thu_kho", "customer", "ngay_bat_dau", "bat_buoc_khoa_phong"],
 		as_dict=True,
 	)
 	return {
@@ -232,6 +232,10 @@ def kho_me() -> dict:
 			"Customer", row.customer, "customer_name"
 		),
 		"ngay_bat_dau": row.ngay_bat_dau,
+		# E8/BR-CP2 — CHỈ ĐỌC: khách xem trạng thái cờ để biết khoa phòng có
+		# đang bắt buộc hay không, KHÔNG có endpoint nào cho khách tự đổi
+		# (xem ghi chú trong KhoaPhongList.vue).
+		"bat_buoc_khoa_phong": int(row.bat_buoc_khoa_phong or 0),
 	}
 
 
@@ -1012,7 +1016,7 @@ def kho_canh_bao_han(so_ngay=90) -> list:
 @frappe.whitelist()
 def kho_bao_cao_excel(
 	loai: str, tu_ngay=None, den_ngay=None, tim=None, vat_tu=None, so_ngay=90,
-	lo=None, nguon=None, dong_loai=None,
+	lo=None, nguon=None, dong_loai=None, khoa_phong=None,
 ) -> None:
 	"""Xuất báo cáo ĐANG XEM ra .xlsx — CÙNG bộ cột, CÙNG dữ liệu mà endpoint
 	JSON tương ứng vừa trả cho màn hình, không có đường dữ liệu riêng nào
@@ -1053,8 +1057,11 @@ def kho_bao_cao_excel(
 				"Thiếu vật tư hoặc khoảng ngày để xuất nhật ký.", frappe.ValidationError
 			)
 		_vat_tu_cua_kho(vat_tu, kho)
+		if khoa_phong:
+			_khoa_cua_kho(khoa_phong, kho)
 		rows = reports.nhat_ky_rows_export(
-			kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=dong_loai, nguon=nguon
+			kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=dong_loai, nguon=nguon,
+			khoa_phong=khoa_phong,
 		)
 		columns = reports.NHAT_KY_COLUMNS
 		filename, sheet = "nhat_ky_vat_tu.xlsx", "Nhat ky vat tu"

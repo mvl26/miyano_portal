@@ -8,6 +8,7 @@ import { phieuActions, trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
 import { useDongPhieu } from '../useDongPhieu'
 import VatTuModal from '../components/VatTuModal.vue'
+import KhoaPhongModal from '../components/KhoaPhongModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,6 +46,7 @@ const doc = reactive({
   name: '',
   ngay: new Date().toISOString().slice(0, 10),
   loai_xuat: 'Xuất sử dụng',
+  khoa_phong: '',
   noi_nhan: '',
   nguoi_nhan: '',
   dien_giai: '',
@@ -54,6 +56,62 @@ const doc = reactive({
 })
 
 const vatTuList = ref([])
+
+// --- E8/US-E8.2/BR-CP2: Khoa phòng nhận + US-E8.3/BR-CP3: gợi ý Người nhận ---
+const MUC_TAO_KHOA_MOI = '__tao_khoa_moi__'
+const khoaPhongList = ref([])
+const nguoiNhanGoiY = ref([])
+const khoaModalOpen = ref(false)
+const batBuocKhoaPhong = ref(false) // chỉ để hiện dấu * cho UX sớm — chốt chặn THẬT nằm ở server (before_submit)
+
+async function loadKhoaPhongList() {
+  try {
+    khoaPhongList.value = await api.callKho('kho_khoa_phong_list')
+  } catch (e) {
+    // Ô chọn khoa phòng sẽ chỉ thiếu tuỳ chọn, không chặn cả form.
+  }
+}
+
+async function loadTrangThaiBatBuoc() {
+  try {
+    const me = await api.callKho('kho_me')
+    batBuocKhoaPhong.value = !!me.bat_buoc_khoa_phong
+  } catch (e) {
+    // Không ảnh hưởng gì tới việc lưu/ghi sổ — chỉ là gợi ý hiển thị sớm.
+  }
+}
+
+async function loadNguoiNhanGoiY(tuKhoa) {
+  if (!doc.khoa_phong) {
+    nguoiNhanGoiY.value = []
+    return
+  }
+  try {
+    nguoiNhanGoiY.value = await api.callKho('kho_nguoi_nhan_goi_y', {
+      khoa_phong: doc.khoa_phong, tu_khoa: tuKhoa || undefined,
+    })
+  } catch (e) {
+    nguoiNhanGoiY.value = []
+  }
+}
+
+function onKhoaPhongSelect(event) {
+  const val = event.target.value
+  if (val === MUC_TAO_KHOA_MOI) {
+    doc.khoa_phong = ''
+    khoaModalOpen.value = true
+    return
+  }
+  doc.khoa_phong = val
+  loadNguoiNhanGoiY(doc.nguoi_nhan)
+}
+
+function onKhoaPhongSaved(out) {
+  khoaModalOpen.value = false
+  doc.khoa_phong = out.name
+  loadKhoaPhongList()
+  loadNguoiNhanGoiY(doc.nguoi_nhan)
+}
 
 const editable = computed(() => isNew.value || doc.docstatus === 0)
 const actions = computed(() => phieuActions(doc))
@@ -380,6 +438,13 @@ function payload() {
   const p = {
     ngay: doc.ngay,
     loai_xuat: doc.loai_xuat,
+    // E8/BR-CP2 — PHẢI có mặt ở đây: backend (kho_phieu_xuat_save) đã hỗ
+    // trợ khoa_phong từ trước, nhưng đường lưu THẬT của form này là payload()
+    // -> kho_phieu_xuat_save, không phải frappe.get_doc().save() mà test
+    // backend hay dùng. Thiếu dòng này thì trường không bao giờ tới được
+    // server dù cả hai đầu (DB field + endpoint) đều đã sẵn sàng — đúng lỗ
+    // đã trả giá ở E5 (xem brief E8).
+    khoa_phong: doc.khoa_phong || null,
     noi_nhan: doc.noi_nhan,
     nguoi_nhan: doc.nguoi_nhan,
     dien_giai: doc.dien_giai,
@@ -478,7 +543,8 @@ function onAction(key) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadVatTu(), load()])
+  await Promise.all([loadVatTu(), load(), loadKhoaPhongList(), loadTrangThaiBatBuoc()])
+  if (doc.khoa_phong) loadNguoiNhanGoiY(doc.nguoi_nhan)
 })
 </script>
 
@@ -533,12 +599,38 @@ onMounted(async () => {
             </select>
           </div>
           <div class="field">
+            <label>
+              Khoa phòng nhận
+              <span v-if="batBuocKhoaPhong && doc.loai_xuat === 'Xuất sử dụng'">*</span>
+            </label>
+            <select :value="doc.khoa_phong" :disabled="!editable" @change="onKhoaPhongSelect">
+              <option value="">— Chưa chọn —</option>
+              <option v-for="k in khoaPhongList" :key="k.name" :value="k.name">
+                {{ k.ten_khoa_phong }}
+              </option>
+              <option :value="MUC_TAO_KHOA_MOI">➕ Tạo khoa phòng…</option>
+            </select>
+            <p v-if="batBuocKhoaPhong && doc.loai_xuat === 'Xuất sử dụng'" class="tag" style="margin-top: 4px">
+              Kho đang bật bắt buộc chọn khoa phòng cho phiếu Xuất sử dụng (chỉ áp phiếu tạo sau khi bật — BR-CP2).
+            </p>
+          </div>
+          <div class="field">
             <label>Nơi nhận</label>
             <input v-model="doc.noi_nhan" :disabled="!editable" placeholder="VD: Khoa Hồi sức tích cực" />
           </div>
           <div class="field">
             <label>Người nhận</label>
-            <input v-model="doc.nguoi_nhan" :disabled="!editable" />
+            <input
+              v-model="doc.nguoi_nhan"
+              :disabled="!editable"
+              maxlength="100"
+              list="nguoi-nhan-goi-y"
+              @input="loadNguoiNhanGoiY(doc.nguoi_nhan)"
+              placeholder="Gõ để xem gợi ý theo khoa đã chọn"
+            />
+            <datalist id="nguoi-nhan-goi-y">
+              <option v-for="n in nguoiNhanGoiY" :key="n" :value="n" />
+            </datalist>
           </div>
         </div>
         <div class="field" style="margin-top: 10px">
@@ -698,6 +790,12 @@ onMounted(async () => {
         mode="tao"
         @saved="onVatTuSaved"
         @close="modalOpen = false"
+      />
+      <KhoaPhongModal
+        :open="khoaModalOpen"
+        mode="tao"
+        @saved="onKhoaPhongSaved"
+        @close="khoaModalOpen = false"
       />
     </template>
   </div>

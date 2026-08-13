@@ -25,6 +25,7 @@ const TABS = [
   { key: 'the_kho', label: 'Thẻ kho' },
   { key: 'canh_bao', label: 'Cảnh báo hạn dùng' },
   { key: 'dot', label: 'NXT theo đợt hàng' },
+  { key: 'cp', label: 'Cấp phát theo khoa' },
 ]
 const tab = ref('nxt')
 
@@ -186,11 +187,31 @@ async function loadDot() {
   }
 }
 
+// --- Cấp phát theo khoa phòng (US-E8.5/UC-56) ---
+const cpLoading = ref(false)
+const cpError = ref('')
+const cpResult = ref({ tong_gia_tri: 0, nhom: [] })
+
+async function loadCp() {
+  cpLoading.value = true
+  cpError.value = ''
+  try {
+    cpResult.value = await api.callKho('kho_bao_cao_cap_phat', {
+      tu_ngay: tuNgay.value, den_ngay: denNgay.value,
+    })
+  } catch (e) {
+    cpError.value = e.message || 'Không tải được báo cáo cấp phát theo khoa.'
+  } finally {
+    cpLoading.value = false
+  }
+}
+
 function reload() {
   if (tab.value === 'nxt') loadNXT()
   else if (tab.value === 'the_kho') loadTheKho()
   else if (tab.value === 'canh_bao') loadCanhBao()
-  else loadDot()
+  else if (tab.value === 'dot') loadDot()
+  else loadCp()
 }
 
 function chonTab(key) {
@@ -224,6 +245,13 @@ function exportUrl() {
   }
   if (tab.value === 'canh_bao') {
     return `${base}?loai=canh_bao&so_ngay=${encodeURIComponent(soNgay.value)}`
+  }
+  if (tab.value === 'cp') {
+    // E8: kho_bao_cao_excel CHƯA hỗ trợ loai="cap_phat" (ngoài phạm vi tối
+    // thiểu của epic — xem báo cáo bàn giao). Trả rỗng để nút Excel tự ẩn
+    // hành vi (xuatExcel() không mở tab nào khi url rỗng) thay vì gọi một
+    // endpoint sẽ bị chặn ở whitelist _BAO_CAO_LOAI.
+    return ''
   }
   // (Review E4 phần B, Gap 2 — ĐÃ SỬA) kho_bao_cao_excel giờ nhận loai="dot".
   let u = `${base}?loai=dot&tu_ngay=${encodeURIComponent(tuNgay.value)}&den_ngay=${encodeURIComponent(denNgay.value)}`
@@ -450,7 +478,7 @@ onMounted(() => {
     </template>
 
     <!-- ============ TAB: NXT THEO ĐỢT HÀNG (US-E4.7) ============ -->
-    <template v-else>
+    <template v-else-if="tab === 'dot'">
       <div v-if="dotLoading" class="loading">Đang tải…</div>
       <div v-else-if="dotError" class="empty">{{ dotError }}</div>
       <div v-else-if="!dotRows.length" class="empty">Không có đợt hàng nào trong khoảng ngày đã chọn.</div>
@@ -494,6 +522,60 @@ onMounted(() => {
         <p class="tag" style="margin-top: 8px">
           Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô — BR-D1). Cờ chậm luân chuyển khi
           tuổi tồn vượt ngưỡng cấu hình của kho (Miyano Portal Settings).
+        </p>
+      </template>
+    </template>
+
+    <!-- ============ TAB: CẤP PHÁT THEO KHOA (US-E8.5) ============ -->
+    <template v-else>
+      <div v-if="cpLoading" class="loading">Đang tải…</div>
+      <div v-else-if="cpError" class="empty">{{ cpError }}</div>
+      <div v-else-if="!cpResult.nhom.length" class="empty">Không có phiếu Xuất sử dụng nào trong khoảng ngày đã chọn.</div>
+      <template v-else>
+        <div class="card" style="padding: 0; overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Khoa phòng</th>
+                <th>Vật tư</th>
+                <th class="right">SL</th>
+                <th class="right">Giá trị</th>
+                <th>Người nhận</th>
+                <th>Phiếu</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="n in cpResult.nhom" :key="n.khoa_phong || '__chua_gan__'">
+                <tr :style="n.khoa_phong ? 'background:#f1f5f9' : 'background:#fffbeb'">
+                  <td colspan="3">
+                    <b>{{ n.ten_hien_thi }} — {{ n.pct }}%</b>
+                    <span v-if="!n.khoa_phong" class="tag"> (phiếu trước khi bật bắt buộc, hoặc kho chưa bật)</span>
+                  </td>
+                  <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b></td>
+                  <td colspan="2"></td>
+                </tr>
+                <tr v-for="(d, idx) in n.dong" :key="idx">
+                  <td></td>
+                  <td>{{ d.vat_tu }}</td>
+                  <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
+                  <td class="right">{{ fmtVND(d.gia_tri) }}</td>
+                  <td>{{ d.nguoi_nhan || '—' }}</td>
+                  <td><router-link :to="`/kho/xuat/${d.phieu}`" class="mono">{{ d.phieu }}</router-link></td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3" style="text-align: right"><b>Tổng cộng</b></td>
+                <td class="right"><b>{{ fmtVND(cpResult.tong_gia_tri) }}</b></td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="tag" style="margin-top: 8px">
+          Nhóm theo khoa, drill xuống phiếu; "Chưa gắn khoa" tách riêng — không lẫn vào khoa nào (BR-CP4).
+          Phiếu bị đảo không tính vào báo cáo.
         </p>
       </template>
     </template>

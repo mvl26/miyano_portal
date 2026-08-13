@@ -23,10 +23,14 @@ const vatTuChon = ref('')
 // --- NCC (để dựng chip "Nguồn") ---
 const nccList = ref([])
 
+// --- E8/US-E8.4: khoa phòng (để dựng chip lọc) ---
+const khoaPhongList = ref([])
+
 // --- Bộ lọc ---
 const loaiFilter = ref('') // '' | 'Nhập' | 'Xuất'
 const nguonFilter = ref('') // '' | 'Miyano' | tên NCC
 const loFilter = ref('') // '' | số lô
+const khoaFilter = ref('') // '' | tên (docname) khoa phòng
 const lotOptions = ref([]) // dựng lại mỗi lần tải KHÔNG lọc theo lô
 
 const loading = ref(false)
@@ -70,6 +74,16 @@ async function loadNcc() {
   }
 }
 
+async function loadKhoaPhong() {
+  try {
+    // ca_inactive=1: cùng lý do trên — một dòng xuất cũ gắn khoa đã tắt vẫn
+    // nằm trong nhật ký, chip lọc phải tìm được đúng khoa đó.
+    khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
+  } catch (e) {
+    // Chip lọc theo khoa sẽ chỉ thiếu, không chặn màn hình.
+  }
+}
+
 async function load() {
   if (!vatTuChon.value) {
     result.value = { tong_dong: 0, trang: 1, so_dong_moi_trang: 50, dong: [] }
@@ -85,6 +99,7 @@ async function load() {
       loai: loaiFilter.value || undefined,
       nguon: nguonFilter.value || undefined,
       lo: loFilter.value || undefined,
+      khoa_phong: khoaFilter.value || undefined,
       trang: trang.value,
     })
     result.value = out
@@ -110,6 +125,12 @@ function chonBoLoc(nextLoai, nextNguon) {
 
 function chonLo(lo) {
   loFilter.value = loFilter.value === lo ? '' : lo
+  trang.value = 1
+  load()
+}
+
+function chonKhoa(khoa) {
+  khoaFilter.value = khoaFilter.value === khoa ? '' : khoa
   trang.value = 1
   load()
 }
@@ -145,6 +166,7 @@ function excelUrl() {
   if (loFilter.value) u += `&lo=${encodeURIComponent(loFilter.value)}`
   if (loaiFilter.value) u += `&dong_loai=${encodeURIComponent(loaiFilter.value)}`
   if (nguonFilter.value) u += `&nguon=${encodeURIComponent(nguonFilter.value)}`
+  if (khoaFilter.value) u += `&khoa_phong=${encodeURIComponent(khoaFilter.value)}`
   return u
 }
 function xuatExcel() {
@@ -156,6 +178,7 @@ function xuatExcel() {
 onMounted(() => {
   loadVatTu()
   loadNcc()
+  loadKhoaPhong()
 })
 </script>
 
@@ -215,6 +238,10 @@ onMounted(() => {
         <button v-for="lo in lotOptions" :key="lo" class="chip" :class="{ on: loFilter === lo }" @click="chonLo(lo)">
           Lô {{ lo }}
         </button>
+        <button
+          v-for="k in khoaPhongList" :key="k.name" class="chip" :class="{ on: khoaFilter === k.name }"
+          @click="chonKhoa(k.name)"
+        >Khoa {{ k.ten_khoa_phong }}{{ k.active ? '' : ' (đã tắt)' }}</button>
       </div>
     </div>
 

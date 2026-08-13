@@ -110,6 +110,7 @@ onUnmounted(() => clearTimeout(searchTimer))
         <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
         <router-link to="/kho/vat-tu" class="btn-o btn-sm">Danh mục vật tư</router-link>
         <router-link to="/kho/ncc" class="btn-o btn-sm">NCC của tôi</router-link>
+        <router-link to="/kho/khoa-phong" class="btn-o btn-sm">Khoa phòng</router-link>
         <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
         <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
       </div>
