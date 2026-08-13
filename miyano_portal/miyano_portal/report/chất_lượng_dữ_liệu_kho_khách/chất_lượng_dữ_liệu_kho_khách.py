@@ -90,6 +90,9 @@ def execute(filters=None):
 		customer=filters.get("customer") or None,
 		chi_chua_bat_co=chi_chua_bat_co,
 		loai_van_de=loai_van_de,
+		# Chỉ có ý nghĩa cho "Kho không hoạt động" — desk_reports bỏ qua ở
+		# hai khía cạnh còn lại, không cần kiểm loai_van_de ở đây.
+		so_ngay=filters.get("so_ngay") or None,
 	)
 	columns = _COLUMNS_THEO_MA.get(loai_van_de, COLUMNS_THIEU_LO_HAN)
 	return columns, data

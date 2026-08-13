@@ -152,6 +152,24 @@ class TestKhoKhongHoatDong(_KhoBmTestCase):
 		rows = desk_reports.chat_luong_du_lieu_rows()
 		self.assertTrue(all("so_ngay_khong_xuat" not in r for r in rows))
 
+	def test_so_ngay_override_qua_dispatcher_va_qua_execute(self):
+		"""Review E5 round 2 — `so_ngay` giờ phơi được ra ô lọc thật (`.js`)
+		và `execute()` chuyển tiếp đúng; test qua CẢ hai đường: gọi thẳng
+		dispatcher VÀ qua `execute()` (đường Frappe thật sự gọi khi mở report)."""
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(_today(), -50))
+		_xuat(self.K, self.VT, 5, frappe.utils.add_days(_today(), -40))  # 40 ngày không xuất
+
+		# Ngưỡng mặc định (90) -> chưa đủ 40 ngày để coi là "chết".
+		rows_mac_dinh = desk_reports.chat_luong_du_lieu_rows(loai_van_de="kho_khong_hoat_dong")
+		self.assertFalse(any(r["kho"] == self.K for r in rows_mac_dinh))
+
+		# Override so_ngay=30 -> 40 ngày không xuất đã vượt ngưỡng.
+		rows_override = desk_reports.chat_luong_du_lieu_rows(loai_van_de="kho_khong_hoat_dong", so_ngay=30)
+		self.assertTrue(any(r["kho"] == self.K for r in rows_override))
+
+		_cols, data = _execute(REPORT_CHAT_LUONG, {"loai_van_de": "Kho không hoạt động", "so_ngay": 30})
+		self.assertTrue(any(r["kho"] == self.K for r in data), "execute() phải chuyển tiếp so_ngay xuống dispatcher")
+
 
 # ========================================================== "Thiếu chứng từ"
 

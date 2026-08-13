@@ -25,5 +25,16 @@ frappe.query_reports["Chất lượng dữ liệu kho khách"] = {
 			fieldtype: "Check",
 			default: 1,
 		},
+		{
+			// (review E5 round 2) — trước đây `so_ngay` có sẵn trên hàm dữ
+			// liệu nhưng KHÔNG được phơi ra ô lọc nào; ngưỡng "kho không
+			// hoạt động" mặc định tái dùng nguong_cham_luan_chuyen_ngay (90
+			// ngày) của E4, một khái niệm KHÁC (chỉ áp cho "Kho không hoạt
+			// động") — ô này cho sales override ngay mà không cần chờ tách
+			// field Settings riêng.
+			fieldname: "so_ngay",
+			label: __("Số ngày (chỉ áp cho \"Kho không hoạt động\")"),
+			fieldtype: "Int",
+		},
 	],
 };

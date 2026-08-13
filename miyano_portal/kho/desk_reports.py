@@ -243,6 +243,7 @@ def chat_luong_du_lieu_rows(
 	customer: str | None = None,
 	chi_chua_bat_co=True,
 	loai_van_de: str | None = None,
+	so_ngay: int | None = None,
 ) -> list[dict]:
 	"""Điểm vào DUY NHẤT của report "Chất lượng dữ liệu kho khách" — chọn
 	MỘT trong ba khía cạnh theo `loai_van_de`:
@@ -250,11 +251,14 @@ def chat_luong_du_lieu_rows(
 	  * (mặc định, `None`) — item thiếu lô/hạn (US-E3.6, xem docstring cũ ở
 	    dưới, giữ nguyên).
 	  * `"kho_khong_hoat_dong"` — kho không có phiếu xuất N ngày (NL-9.3).
+	    `so_ngay` (mặc định `reports._nguong_cham_luan_chuyen()` — xem ghi
+	    nợ ở `_kho_khong_hoat_dong_rows()`) do người dùng CHỌN được qua ô
+	    lọc "Số ngày" trên report, không cố định.
 	  * `"thieu_chung_tu"` — phiếu nhập "Mua ngoài" thiếu số chứng từ NCC
 	    (BR-N2, cờ `thieu_chung_tu` đã tính sẵn ở
 	    `customer_stock_receipt.py::validate()`)."""
 	if loai_van_de == "kho_khong_hoat_dong":
-		return _kho_khong_hoat_dong_rows(customer)
+		return _kho_khong_hoat_dong_rows(customer, so_ngay)
 	if loai_van_de == "thieu_chung_tu":
 		return _thieu_chung_tu_rows(customer)
 	return _thieu_lo_han_rows(customer, chi_chua_bat_co)
@@ -370,7 +374,12 @@ def _kho_khong_hoat_dong_rows(customer: str | None = None, so_ngay: int | None =
 	khái niệm "N ngày không có gì xảy ra thì đáng nói" mà E4 đã dùng cho
 	"chậm luân chuyển", KHÔNG thêm field Settings mới cho một khái niệm đã
 	có tên (20_DataDict.md §1.3 không liệt kê field riêng cho "kho không
-	hoạt động")."""
+	hoạt động"). GHI NỢ (review E5 round 2): hai khái niệm rồi sẽ tách nhau
+	— "chậm luân chuyển" là ngưỡng TỒN KHO (mặc định 90 ngày hợp lý), còn
+	"kho chết dữ liệu" thường muốn một ngưỡng NGẮN HƠN (ví dụ 30 ngày) để
+	sales cảnh báo sớm hơn. Tham số `so_ngay` ở đây (và ô lọc "Số ngày" trên
+	report, xem `.js`) là lối thoát TẠM: người dùng override được ngay bây
+	giờ mà không cần chờ tách field Settings riêng."""
 	khos = _active_khos(customer)
 	if not khos:
 		return []
