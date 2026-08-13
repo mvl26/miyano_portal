@@ -13,6 +13,11 @@ const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
 
+// Khớp EPS phía server (miyano_portal.kho.ledger.EPS) — chỉ để so sánh float
+// cho ĐÚNG cùng ngưỡng khi báo lỗi sớm ở client; chốt chặn thật vẫn ở server
+// (_validate_doi_soat_giao_nhan, BR-K17).
+const EPS = 0.0005
+
 const DOCTYPE = 'Customer Stock Receipt'
 const LOAI_OPTIONS = ['Nhập khác', 'Tồn đầu kỳ', 'Từ đơn hàng Miyano']
 // "Phiếu đảo" CỐ Ý không có trong danh sách: backend chặn tự tạo phiếu loại
@@ -90,8 +95,30 @@ function rowThanhTien(row) {
 }
 const tongTienPreview = computed(() => doc.items.reduce((s, r) => s + rowThanhTien(r), 0))
 
+// BR-K17 chỉ áp cho dòng có nguồn gốc Miyano (hook điền sl_giao > 0 khi tạo
+// phiếu từ Delivery Note) — kiểm bằng GIÁ TRỊ của sl_giao, không đoán theo
+// loai_nhap, đúng nguyên tắc mà server dùng (customer_stock_receipt.py).
+// Dòng gõ tay (Nhập khác/Tồn đầu kỳ) hoặc dòng đọc từ Excel không có
+// sl_giao — Number(undefined) || 0 = 0 nên tự động rơi ra ngoài quy tắc này.
+function slGiao(row) {
+  return Number(row.sl_giao) || 0
+}
+function coChenhLech(row) {
+  const giao = slGiao(row)
+  if (!giao) return false
+  return Math.abs((Number(row.so_luong) || 0) - giao) > EPS
+}
+function thieuLyDo(row) {
+  return coChenhLech(row) && !(row.ly_do_chenh_lech || '').trim()
+}
+
 function addRow() {
-  doc.items.push({ vat_tu: '', so_lo: '', han_su_dung: '', so_luong: 1, don_gia: 0, ghi_chu: '' })
+  doc.items.push({
+    vat_tu: '', so_lo: '', han_su_dung: '', so_luong: 1, don_gia: 0, ghi_chu: '',
+    // Dòng gõ tay không bao giờ có sl_giao (chỉ hook tạo từ Delivery Note mới
+    // có) — khai rõ 0/'' ở đây để khỏi lẫn với dòng do hook sinh.
+    sl_giao: 0, ly_do_chenh_lech: '', thieu_lo_han: 0,
+  })
 }
 function removeRow(idx) {
   doc.items.splice(idx, 1)
@@ -148,6 +175,29 @@ function validateClient() {
       showToast(`Dòng ${i + 1}: số lượng phải lớn hơn 0.`, 'error')
       return false
     }
+    // BR-K17 (US-E3.3) — chặn sớm cho đỡ mất công gửi, NHƯNG server vẫn là
+    // chốt cuối (_validate_doi_soat_giao_nhan chạy lại y hệt trên save/submit
+    // dù client có bỏ sót gì). Nguyên văn thông điệp khớp server để người
+    // dùng không thấy hai câu khác nhau cho cùng một lỗi.
+    const giao = slGiao(r)
+    if (giao > 0) {
+      const soLuong = Number(r.so_luong) || 0
+      if (soLuong > giao + EPS) {
+        showToast(
+          `Dòng ${i + 1}: thực nhận (${soLuong}) không được vượt SL giao (${giao}). ` +
+            'Nhận thừa thật sự thì lập phiếu "Nhập khác" riêng, không sửa số trên phiếu tự sinh này.',
+          'error'
+        )
+        return false
+      }
+      if (Math.abs(soLuong - giao) > EPS && !(r.ly_do_chenh_lech || '').trim()) {
+        showToast(
+          `Dòng ${i + 1}: thực nhận ${soLuong} / giao ${giao}. Nhập lý do chênh lệch để tiếp tục.`,
+          'error'
+        )
+        return false
+      }
+    }
   }
   return true
 }
@@ -162,6 +212,15 @@ function payload() {
     items: doc.items.map((r) => ({
       vat_tu: r.vat_tu, so_lo: r.so_lo, han_su_dung: r.han_su_dung || null,
       so_luong: r.so_luong, don_gia: r.don_gia, ghi_chu: r.ghi_chu,
+      // BR-K17: server bắt buộc field này khi so_luong lệch sl_giao (mốc đối
+      // soát mà server tự khôi phục theo (vat_tu, so_lo) — xem
+      // kho_phieu_nhap_save). CHỈ gửi khi dòng THẬT SỰ đang lệch — thủ kho
+      // gõ "vỡ 2 hộp" lúc so_luong=48 rồi sửa lại 50 (hết lệch) không được
+      // để lý do cũ trôi theo lên phiếu: ô nhập đã ẩn khỏi màn hình
+      // (coChenhLech(r) false) nhưng r.ly_do_chenh_lech vẫn còn giá trị cũ
+      // trong bộ nhớ nếu không dọn ở đây — sẽ hiện sai trên report "Đối
+      // soát giao – nhận" (cột Lý do có giá trị dù cột Chênh = 0).
+      ly_do_chenh_lech: coChenhLech(r) ? r.ly_do_chenh_lech || null : null,
     })),
   }
   if (!isNew.value) p.name = doc.name
@@ -244,6 +303,7 @@ onMounted(async () => {
         <h2>{{ isNew ? 'Tạo phiếu nhập kho' : doc.name }}</h2>
         <div class="sub" v-if="!isNew">
           <span class="badge" :class="badge.cls">{{ badge.label }}</span>
+          <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
         </div>
       </div>
       <div class="flex" style="gap: 8px">
@@ -267,6 +327,7 @@ onMounted(async () => {
       <div class="sb">
         <h2>{{ isNew ? 'Tạo phiếu nhập' : doc.name }}</h2>
         <span v-if="!isNew" class="badge" :class="badge.cls">{{ badge.label }}</span>
+        <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
       </div>
     </div>
 
@@ -320,7 +381,9 @@ onMounted(async () => {
               <th style="min-width: 180px">Vật tư</th>
               <th>Số lô</th>
               <th>Hạn dùng</th>
+              <th class="right">SL giao</th>
               <th class="right">Số lượng</th>
+              <th style="min-width: 140px">Lý do chênh lệch</th>
               <th class="right">Đơn giá</th>
               <th class="right">Thành tiền</th>
               <th v-if="editable"></th>
@@ -353,10 +416,19 @@ onMounted(async () => {
               <td>
                 <input v-if="editable" v-model="r.so_lo" style="width: 110px" />
                 <span v-else>{{ r.so_lo }}</span>
+                <div v-if="r.thieu_lo_han" class="warn" style="margin-top: 4px">
+                  ⚠ Thiếu lô/hạn (Miyano chưa bật theo dõi lô cho vật tư này)
+                </div>
               </td>
               <td>
                 <input v-if="editable" type="date" v-model="r.han_su_dung" style="width: 140px" />
                 <span v-else>{{ r.han_su_dung ? fmtDate(r.han_su_dung) : '—' }}</span>
+              </td>
+              <td class="right">
+                <!-- Chỉ đọc: mốc đối soát BR-K16, hook điền từ Delivery Note.
+                     Dòng gõ tay/nhập Excel không có sl_giao (0) → hiện '—'. -->
+                <span v-if="slGiao(r)">{{ slGiao(r).toLocaleString('vi-VN') }}</span>
+                <span v-else class="tag">—</span>
               </td>
               <td class="right">
                 <input
@@ -365,8 +437,25 @@ onMounted(async () => {
                   @change="r.so_luong = Number($event.target.value) || 0"
                   inputmode="numeric"
                   style="width: 80px; text-align: right"
+                  :style="coChenhLech(r) ? 'border-color: #cf1322' : ''"
                 />
                 <span v-else>{{ Number(r.so_luong).toLocaleString('vi-VN') }}</span>
+              </td>
+              <td>
+                <template v-if="coChenhLech(r)">
+                  <input
+                    v-if="editable"
+                    v-model="r.ly_do_chenh_lech"
+                    placeholder="VD: thiếu 2 hộp, vỡ 1 chai…"
+                    style="width: 160px"
+                    :style="thieuLyDo(r) ? 'border-color: #cf1322' : ''"
+                  />
+                  <span v-else>{{ r.ly_do_chenh_lech || '—' }}</span>
+                  <div v-if="editable && thieuLyDo(r)" class="warn" style="margin-top: 4px">
+                    ⚠ Bắt buộc — SL thực nhận khác SL giao ({{ slGiao(r).toLocaleString('vi-VN') }})
+                  </div>
+                </template>
+                <span v-else class="tag">—</span>
               </td>
               <td class="right">
                 <input
@@ -386,7 +475,7 @@ onMounted(async () => {
           </tbody>
           <tfoot>
             <tr>
-              <td :colspan="editable ? 5 : 5" style="text-align: right"><b>Tổng cộng</b></td>
+              <td colspan="7" style="text-align: right"><b>Tổng cộng</b></td>
               <td class="right"><b>{{ fmtVND(editable ? tongTienPreview : doc.tong_tien) }}</b></td>
               <td v-if="editable"></td>
             </tr>
