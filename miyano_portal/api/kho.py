@@ -882,6 +882,31 @@ def kho_the_kho(vat_tu: str, tu_ngay, den_ngay) -> list:
 
 
 @frappe.whitelist()
+def kho_nhat_ky(vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1) -> dict:
+	"""Nhật ký vật tư — US-E4.6/UC-43. `vat_tu` do client gửi nên phải qua
+	_vat_tu_cua_kho() trước, đúng nguyên tắc đầu file. `trang` CỐ Ý không có
+	type hint số — cùng lý do với `limit`/`start` của kho_phieu_list."""
+	kho = get_portal_kho()
+	_vat_tu_cua_kho(vat_tu, kho)
+	trang = _so_nguyen(trang, "Trang", 1)
+	return reports.nhat_ky_rows(kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=loai, nguon=nguon, trang=trang)
+
+
+@frappe.whitelist()
+def kho_bao_cao_dot(tu_ngay, den_ngay, vat_tu=None, nguon=None) -> list:
+	"""NXT theo đợt hàng, phân bổ FIFO — US-E4.7/UC-44. `vat_tu` là lọc TUỲ
+	CHỌN do client gửi — kiểm sở hữu qua _vat_tu_cua_kho() TRƯỚC khi lọc, cùng
+	khuôn kho_bao_cao_nxt()/kho_the_kho(): một vat_tu của kho khác phải trả
+	PermissionError rõ ràng, không được lặng lẽ trả mảng rỗng (mảng rỗng còn
+	có thể là "vật tư có thật nhưng không phát sinh trong kỳ" — hai tình huống
+	khác nhau cần hai phản hồi khác nhau)."""
+	kho = get_portal_kho()
+	if vat_tu:
+		_vat_tu_cua_kho(vat_tu, kho)
+	return reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon)
+
+
+@frappe.whitelist()
 def kho_canh_bao_han(so_ngay=90) -> list:
 	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
 	kho = get_portal_kho()

@@ -341,6 +341,124 @@ def the_kho_rows(kho: str, vat_tu: str, tu_ngay, den_ngay) -> list[dict]:
 	return out
 
 
+_NHAT_KY_TRANG = 50
+
+
+def nhat_ky_rows(
+	kho: str, vat_tu: str, tu_ngay, den_ngay,
+	so_lo: str | None = None, loai: str | None = None,
+	nguon: str | None = None, trang: int = 1,
+) -> dict:
+	"""Nhật ký vật tư (US-E4.6, UC-43, BR-D2): mọi dòng sổ của MỘT vật tư
+	trong kỳ, đã đủ ngữ cảnh phiếu (loại/nguồn/đợt/người ghi sổ), chỉ đọc.
+
+	Cột "Tồn sau giao dịch" là tồn luỹ kế CHẠY QUA TOÀN BỘ dòng sổ trong kỳ,
+	theo ĐÚNG thứ tự thời gian mà the_kho_rows() dùng (ngay asc, creation asc,
+	name asc) — cùng một phép cộng dồn, không viết lại lần hai. Luỹ kế được
+	tính TRƯỚC khi áp các bộ lọc hiển thị (so_lo/loai/nguon): các bộ lọc đó chỉ
+	chọn DÒNG NÀO được hiển thị, không đổi Ý NGHĨA của cột tồn — một khách lọc
+	theo một lô vẫn phải thấy đúng tồn CỦA CẢ VẬT TƯ tại thời điểm đó, giống
+	một sao kê ngân hàng vẫn hiện số dư thật dù đang lọc theo loại giao dịch.
+
+	Bất biến (test bắt được): khi kỳ phủ hết lịch sử và không lọc gì, tồn sau
+	giao dịch của dòng CUỐI CÙNG phải bằng đúng tồn hiện tại của vật tư theo
+	`ton_hien_tai_rows()`/`kho_ton` — hai đường tính độc lập (sổ luỹ kế vs.
+	cache `Customer Stock Lot Balance`) phải khớp nhau.
+
+	Dòng `da_dao=1` (phiếu gốc đã bị đảo) VẪN xuất hiện, mờ đi phía client —
+	sổ là chứng từ, giấu dòng đã đảo là làm sai lệch bản ghi (BR-D2).
+
+	"Đợt" (BR-D1: đợt = một phiếu nhập) chỉ có nghĩa cho dòng NHẬP — dòng nhập
+	mang chính tên phiếu của nó làm đợt. Dòng XUẤT không gắn với một đợt duy
+	nhất (xem `bao_cao_dot_rows()`: một lần xuất có thể ăn vào nhiều đợt khác
+	nhau qua phân bổ FIFO phân tích) nên cột "đợt"/"nguồn" để trống ở dòng xuất
+	— gán một đợt xem như của dòng xuất sẽ là suy diễn.
+	"""
+	tu = frappe.utils.getdate(tu_ngay)
+	den = frappe.utils.getdate(den_ngay)
+	if tu > den:
+		frappe.throw("Từ ngày phải trước hoặc bằng Đến ngày.", frappe.ValidationError)
+
+	opening = frappe.get_all(
+		"Customer Stock Ledger Entry",
+		filters={"kho": kho, "vat_tu": vat_tu, "ngay": ["<", tu]},
+		pluck="so_luong",
+	)
+	balance = sum(float(v) for v in opening)
+
+	entries = frappe.get_all(
+		"Customer Stock Ledger Entry",
+		filters={"kho": kho, "vat_tu": vat_tu, "ngay": ["between", [tu, den]]},
+		fields=["name", "ngay", "so_lo", "han_su_dung", "so_luong", "don_gia",
+		        "chung_tu_type", "chung_tu", "da_dao", "owner", "creation"],
+		order_by="ngay asc, creation asc, name asc",
+	)
+
+	receipt_names = {e["chung_tu"] for e in entries if e["chung_tu_type"] == "Customer Stock Receipt"}
+	receipts = {}
+	if receipt_names:
+		receipts = {
+			r["name"]: r for r in frappe.get_all(
+				"Customer Stock Receipt", filters={"name": ["in", list(receipt_names)]},
+				fields=["name", "loai_nhap", "ncc"],
+			)
+		}
+	ncc_names = {r["ncc"] for r in receipts.values() if r.get("ncc")}
+	ncc_ten = {}
+	if ncc_names:
+		ncc_ten = dict(frappe.get_all(
+			"Customer Supplier", filters={"name": ["in", list(ncc_names)]},
+			fields=["name", "ten_ncc"], as_list=True,
+		))
+
+	all_rows = []
+	for e in entries:
+		sl = float(e["so_luong"])
+		balance += sl
+		is_receipt = e["chung_tu_type"] == "Customer Stock Receipt"
+		nguon_dong = ""
+		dot = ""
+		if is_receipt:
+			dot = e["chung_tu"]
+			rc = receipts.get(e["chung_tu"]) or {}
+			if rc.get("loai_nhap") == "Mua ngoài (NCC khác)" and rc.get("ncc"):
+				nguon_dong = ncc_ten.get(rc["ncc"], rc["ncc"])
+			else:
+				nguon_dong = "Miyano"
+		all_rows.append({
+			"ngay": e["ngay"],
+			"phieu": e["chung_tu"],
+			"loai": "Nhập" if is_receipt else "Xuất",
+			"nguon": nguon_dong,
+			"dot": dot,
+			"lo": e["so_lo"],
+			"han": e["han_su_dung"],
+			"sl_nhap": _r(sl) if sl > 0 else 0.0,
+			"sl_xuat": _r(-sl) if sl < 0 else 0.0,
+			"don_gia": float(e["don_gia"] or 0),
+			"ton_sau": _r(balance),
+			"nguoi_ghi_so": e["owner"],
+			"da_dao": bool(e["da_dao"]),
+		})
+
+	filtered = all_rows
+	if so_lo:
+		filtered = [r for r in filtered if r["lo"] == so_lo]
+	if loai:
+		filtered = [r for r in filtered if r["loai"] == loai]
+	if nguon:
+		filtered = [r for r in filtered if r["nguon"] == nguon]
+
+	trang = max(1, int(trang or 1))
+	start = (trang - 1) * _NHAT_KY_TRANG
+	return {
+		"tong_dong": len(filtered),
+		"trang": trang,
+		"so_dong_moi_trang": _NHAT_KY_TRANG,
+		"dong": filtered[start:start + _NHAT_KY_TRANG],
+	}
+
+
 def canh_bao_han_rows(kho: str, so_ngay: int = 90) -> list[dict]:
 	"""Lô đã hết hạn (còn tồn) VÀ lô hết hạn trong `so_ngay` ngày tới, gần nhất
 	trước — một sắp xếp ASCENDING duy nhất theo `han_su_dung` cho cả hai nhóm
@@ -402,6 +520,172 @@ def canh_bao_han_rows(kho: str, so_ngay: int = 90) -> list[dict]:
 	return sorted(
 		out, key=lambda r: (r["han_su_dung"] is None, r["han_su_dung"] or today, r["so_lo"])
 	)
+
+
+def _nguong_cham_luan_chuyen() -> int:
+	"""Ngưỡng chậm luân chuyển (ngày). `<= 0` = "không áp ngưỡng".
+
+	BẮT BUỘC `get_single_value` (không phải `get_value`): field Int để trống
+	được Frappe lưu thành chuỗi `'0'`, mà `not '0'` là False — đọc bằng
+	`get_value` rồi `or 0` sẽ ăn may đúng ở TRƯỜNG HỢP NÀY vì '0' ép sang int
+	vẫn ra 0, nhưng đây vẫn là bẫy đã trả giá thật ở E2
+	(`portal_duyet_don.nguong_duyet`) cho các field Currency/Int khác — giữ
+	đúng một khuôn `get_single_value` cho mọi nơi đọc Settings, đừng để mỗi
+	chỗ tự suy luận lại xem lần này có an toàn hay không.
+	"""
+	return frappe.utils.cint(
+		frappe.db.get_single_value("Miyano Portal Settings", "nguong_cham_luan_chuyen_ngay") or 0
+	)
+
+
+def bao_cao_dot_rows(
+	kho: str, tu_ngay, den_ngay, vat_tu: str | None = None, nguon: str | None = None,
+) -> list[dict]:
+	"""NXT theo đợt hàng, phân bổ FIFO (US-E4.7, UC-44, BR-D1/D3).
+
+	"Đợt" = một phiếu nhập ĐÃ GHI SỔ (BR-D1); mã đợt chính là tên phiếu. Mức
+	theo dõi vật lý là (vật tư, lô): khi một lô được nhận qua nhiều đợt, số đã
+	xuất được phân bổ cho đợt CŨ NHẤT trước (FIFO) trong phạm vi lô đó — quy
+	ước PHÂN TÍCH, không phải bút toán, sổ kho không đổi.
+
+	NL-8.2 (đợt có phiếu bị đảo): huỷ một phiếu nhập luôn đảo TOÀN BỘ phiếu đó
+	(Frappe không có huỷ một phần) và đánh dấu `da_dao=1` trên MỌI dòng sổ gốc
+	của nó (xem `ledger.mark_reversed`), còn dòng bù trừ được ghi dưới một
+	CHỨNG TỪ KHÁC — chính phiếu đảo vừa sinh ra, số lượng âm (`_he_so_dau`).
+	Vì vậy lọc `so_luong > 0 AND da_dao = 0` trên sổ NHẬP loại bỏ đúng và đủ
+	hai vế của một lần huỷ: đợt gốc biến mất (da_dao=1, dù so_luong của nó vẫn
+	dương) VÀ phiếu đảo không lọt vào (so_luong âm) — "SL nhập của đợt trừ
+	phần đã đảo" khi đợt luôn bị đảo 100% (không có huỷ một phần) tương đương
+	với loại hẳn đợt đó khỏi báo cáo, không phải hiển thị một dòng 0.
+
+	Với sổ XUẤT thì NGƯỢC LẠI — phải CỘNG mọi dòng bất kể `da_dao`: một phiếu
+	xuất bị huỷ vẫn để lại dòng gốc âm (da_dao=1) VÀ dòng đảo dương của CHÍNH
+	NÓ (chung_tu khác, nhưng ta không quan tâm định danh, chỉ cần tổng ròng
+	của lô) — cộng cả hai cho ra đúng 0, tự triệt tiêu theo cấu trúc. Lọc bỏ
+	da_dao=1 ở đây sẽ giữ lại dòng đảo dương mà không trừ dòng gốc, biến một
+	lần xuất-rồi-huỷ thành NHẬP THÊM hàng.
+
+	`tu_ngay`/`den_ngay` là KỲ hiển thị: đợt được hiển thị khi ngày nhận nằm
+	trong kỳ, nhưng chuỗi phân bổ FIFO và tổng đã xuất vẫn phải chạy qua MỌI
+	đợt (kể cả trước `tu_ngay`) và mọi lượt xuất tới `den_ngay` — một đợt cũ
+	hơn tu_ngay vẫn tiêu thụ trước theo đúng nguyên tắc FIFO dù nó không được
+	vẽ ra màn hình. "Ngày báo cáo" dùng để tính tuổi tồn chính là `den_ngay`.
+	"""
+	tu = frappe.utils.getdate(tu_ngay)
+	den = frappe.utils.getdate(den_ngay)
+	if tu > den:
+		frappe.throw("Từ ngày phải trước hoặc bằng Đến ngày.", frappe.ValidationError)
+
+	filters_nhap = {
+		"kho": kho, "chung_tu_type": "Customer Stock Receipt",
+		"so_luong": [">", EPS], "da_dao": 0, "ngay": ["<=", den],
+	}
+	if vat_tu:
+		filters_nhap["vat_tu"] = vat_tu
+	nhap_entries = frappe.get_all(
+		"Customer Stock Ledger Entry", filters=filters_nhap,
+		fields=["chung_tu", "vat_tu", "so_lo", "han_su_dung", "ngay", "so_luong", "gia_tri"],
+	)
+
+	filters_xuat = {"kho": kho, "chung_tu_type": "Customer Stock Issue", "ngay": ["<=", den]}
+	if vat_tu:
+		filters_xuat["vat_tu"] = vat_tu
+	xuat_entries = frappe.get_all(
+		"Customer Stock Ledger Entry", filters=filters_xuat,
+		fields=["vat_tu", "so_lo", "so_luong"],
+	)
+	xuat_pool: dict[tuple, float] = {}
+	for e in xuat_entries:
+		key = (e["vat_tu"], e["so_lo"])
+		# so_luong ÂM cho lượt xuất gốc, DƯƠNG cho dòng đảo bù trừ (xem
+		# docstring) — trừ so_luong ra khỏi pool cộng dồn đúng cả hai chiều.
+		xuat_pool[key] = xuat_pool.get(key, 0.0) - float(e["so_luong"])
+
+	dot_map: dict[tuple, dict] = {}
+	for e in nhap_entries:
+		key = (e["chung_tu"], e["vat_tu"], e["so_lo"])
+		d = dot_map.setdefault(key, {
+			"dot": e["chung_tu"], "vat_tu": e["vat_tu"], "lo": e["so_lo"],
+			"han_su_dung": e["han_su_dung"], "ngay_nhan": e["ngay"],
+			"sl_nhap": 0.0, "gia_tri_nhap": 0.0,
+		})
+		d["sl_nhap"] += float(e["so_luong"])
+		d["gia_tri_nhap"] += float(e["gia_tri"] or 0)
+
+	receipt_names = {d["dot"] for d in dot_map.values()}
+	receipts = {}
+	if receipt_names:
+		receipts = {
+			r["name"]: r for r in frappe.get_all(
+				"Customer Stock Receipt", filters={"name": ["in", list(receipt_names)]},
+				fields=["name", "loai_nhap", "ncc", "so_chung_tu_ncc", "delivery_note"],
+			)
+		}
+	ncc_names = {r["ncc"] for r in receipts.values() if r.get("ncc")}
+	ncc_ten = {}
+	if ncc_names:
+		ncc_ten = dict(frappe.get_all(
+			"Customer Supplier", filters={"name": ["in", list(ncc_names)]},
+			fields=["name", "ten_ncc"], as_list=True,
+		))
+
+	nguong = _nguong_cham_luan_chuyen()
+
+	by_lot: dict[tuple, list] = {}
+	for d in dot_map.values():
+		by_lot.setdefault((d["vat_tu"], d["lo"]), []).append(d)
+
+	out = []
+	for lot_key, dots in by_lot.items():
+		# FIFO: đợt nhận SỚM NHẤT tiêu thụ trước. `dot` (tên phiếu) là
+		# tiebreak khi hai đợt trùng ngày nhận — autoname tăng đơn điệu nên
+		# tên phiếu cũ hơn luôn "nhỏ" hơn theo thứ tự chuỗi trong cùng kho/năm.
+		dots.sort(key=lambda d: (frappe.utils.getdate(d["ngay_nhan"]), d["dot"]))
+		con_lai_pool = xuat_pool.get(lot_key, 0.0)
+		for d in dots:
+			sl_nhap = _r(d["sl_nhap"])
+			da_xuat = _r(min(max(con_lai_pool, 0.0), sl_nhap))
+			con_lai_pool -= da_xuat
+			con_lai = _r(sl_nhap - da_xuat)
+			ngay_nhan = frappe.utils.getdate(d["ngay_nhan"])
+
+			if ngay_nhan < tu or ngay_nhan > den:
+				continue
+
+			rc = receipts.get(d["dot"]) or {}
+			if rc.get("loai_nhap") == "Mua ngoài (NCC khác)" and rc.get("ncc"):
+				nguon_dot = ncc_ten.get(rc["ncc"], rc["ncc"])
+				chung_tu_ncc = rc.get("so_chung_tu_ncc") or ""
+			else:
+				nguon_dot = "Miyano"
+				chung_tu_ncc = rc.get("delivery_note") or ""
+			if nguon and nguon_dot != nguon:
+				continue
+
+			tuoi = (den - ngay_nhan).days
+			pct = round(da_xuat / sl_nhap * 100, 2) if sl_nhap > EPS else 0.0
+			out.append({
+				"dot": d["dot"],
+				"ngay_nhan": ngay_nhan,
+				"nguon": nguon_dot,
+				"chung_tu": chung_tu_ncc,
+				"vat_tu": d["vat_tu"],
+				"lo": d["lo"],
+				"han_su_dung": d["han_su_dung"],
+				"sl_nhap": sl_nhap,
+				"gia_tri_nhap": _r(d["gia_tri_nhap"]),
+				"da_xuat": da_xuat,
+				"con_lai": con_lai,
+				"tuoi_ton_ngay": tuoi,
+				"pct_tieu_thu": pct,
+				# Chỉ đợt CÒN TỒN mới đáng gắn cờ chậm luân chuyển — một đợt
+				# đã tiêu thụ hết (con_lai=0) không còn nằm kho nữa, tuổi tồn
+				# của nó không còn ý nghĩa cảnh báo (khớp AC US-E4.7: PNK-001
+				# còn 0 -> không cờ dù tuổi tồn cũng đã vượt ngưỡng).
+				"cham_luan_chuyen": bool(nguong > 0 and con_lai > EPS and tuoi > nguong),
+			})
+
+	return sorted(out, key=lambda r: (r["vat_tu"], r["lo"], r["ngay_nhan"], r["dot"]))
 
 
 def build_xlsx(columns: list[tuple[str, str]], rows: list[dict], sheet_title: str) -> bytes:
