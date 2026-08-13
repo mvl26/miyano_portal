@@ -725,3 +725,57 @@ def portal_reorder(order: str) -> dict:
         })
 
     return {"gio_hang": gio_hang, "bi_loai": bi_loai}
+
+
+LY_DO_TOI_THIEU_KHACH = 10
+
+
+@frappe.whitelist()
+def portal_order_accept(order, action, ly_do=None) -> dict:
+    """US-E2.5 / API Spec §2.4 — khách đồng ý hoặc không đồng ý báo giá.
+
+    Chuyển trạng thái chạy DƯỚI QUYỀN HỆ THỐNG: transition được mở cho
+    `System Manager`, không phải cho role `Customer` — khách không bao giờ có
+    quyền workflow trên Desk. Nhưng người bấm vẫn được ghi vào Comment, nếu
+    không thì mọi thao tác đồng ý đều mang danh "Administrator" và không truy
+    được ai đã đồng ý.
+    """
+    customer = get_portal_customer()
+    so = frappe.get_doc("Sales Order", order)
+    # `frappe.get_doc` KHÔNG chạy hook has_permission ở build này — phải tự kiểm.
+    if so.customer != customer:
+        raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
+    if so.get("workflow_state") != "Chờ khách đồng ý":
+        frappe.throw(
+            "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
+        )
+
+    if action == "dong_y":
+        hanh_dong, ghi_chu = "Khách đồng ý", ""
+    elif action == "khong_dong_y":
+        ly_do = (ly_do or "").strip()
+        if len(ly_do) < LY_DO_TOI_THIEU_KHACH:
+            frappe.throw(
+                f"Vui lòng nêu lý do (tối thiểu {LY_DO_TOI_THIEU_KHACH} ký tự).",
+                frappe.ValidationError,
+            )
+        hanh_dong, ghi_chu = "Khách không đồng ý", ly_do
+    else:
+        frappe.throw("Hành động không hợp lệ.", frappe.ValidationError)
+
+    nguoi_bam = frappe.session.user
+    from frappe.model.workflow import apply_workflow
+
+    frappe.set_user("Administrator")
+    try:
+        so = apply_workflow(so, hanh_dong)
+        noi_dung = f"{hanh_dong} bởi {nguoi_bam}"
+        if ghi_chu:
+            noi_dung += f" — lý do: {ghi_chu}"
+        so.add_comment("Comment", noi_dung)
+    finally:
+        # Trả phiên về NGAY, kể cả khi apply_workflow ném: bỏ finally là để
+        # phần còn lại của request chạy dưới quyền Administrator.
+        frappe.set_user(nguoi_bam)
+
+    return {"trang_thai_moi": so.get("workflow_state")}
