@@ -85,6 +85,42 @@ export async function uploadFile(file) {
   return data.message // { file_url, file_name, ... }
 }
 
+// Tải một file qua GET rồi lưu về máy — dùng cho chứng từ có thể bị TỪ CHỐI
+// tuỳ trạng thái/quyền sở hữu (HĐĐT: BR-E4 kiểm từng lần tải). `<a href>` trỏ
+// thẳng vào endpoint GET (cách các nút [⬇ PDF] khác của cổng vẫn dùng) mở một
+// TAB MỚI khi lỗi — khách thấy JSON lỗi trần cho một CHỨNG TỪ THUẾ thay vì một
+// thông báo tiếng Việt. Hàm này tự đọc lỗi JSON và ném Error để nơi gọi toast,
+// chỉ khi thành công mới kích hoạt tải file (fetch -> Blob -> <a download>).
+export async function downloadFile(url, fallbackName) {
+  const res = await fetch(url, { headers: { 'X-Frappe-CSRF-Token': csrfToken() } })
+  if (!res.ok) {
+    let msg = 'Không tải được file.'
+    try {
+      const data = await res.json()
+      const raw = data && (data.exception || data._server_messages || data.message)
+      if (typeof raw === 'string') {
+        const m = raw.match(/^([\w.]*Error):\s*(.+)$/s)
+        msg = m ? m[2] : raw
+      }
+    } catch {
+      // Thân response không phải JSON — giữ thông điệp mặc định.
+    }
+    throw new Error(msg)
+  }
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') || ''
+  const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+  const filename = m ? decodeURIComponent(m[1]) : fallbackName || 'file'
+  const blobUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(blobUrl)
+}
+
 // Đăng nhập qua endpoint chuẩn của Frappe (form-encoded).
 export async function login(usr, pwd) {
   const body = new URLSearchParams({ usr, pwd })
@@ -109,4 +145,4 @@ export async function logout() {
   })
 }
 
-export default { call, callKho, khoDownloadUrl, uploadFile, login, logout }
+export default { call, callKho, khoDownloadUrl, uploadFile, downloadFile, login, logout }
