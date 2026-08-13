@@ -75,16 +75,22 @@ class CustomerWarehouse(Document):
 		phiếu nháp tạo trong khoảng kho tạm tắt cờ đều được coi là "tạo khi
 		cờ đang tắt", đúng tinh thần "không khoá tồn đọng".
 
-		QUYẾT ĐỊNH CHO CA BIÊN (ghi rõ vì đây là chỗ dễ đoán sai): nếu
-		`bat_buoc_khoa_phong=1` mà `bat_buoc_khoa_phong_tu` lại rỗng — chỉ có
-		thể xảy ra khi ai đó bật cờ bằng đường KHÔNG qua validate() (ví dụ
-		`frappe.db.set_value` thẳng, Data Import) — phía kiểm tra
-		(customer_stock_issue.py) coi như MỌI phiếu đều được tạo sau mốc đó,
-		tức áp bắt buộc cho TẤT CẢ, không ân hạn cho phiếu nào. Lý do: không
-		có mốc nghĩa là không biết ranh giới "trước/sau" nằm ở đâu, và giữa
-		"lỡ chặn một phiếu đáng lẽ được ân hạn" với "lỡ bỏ lọt yêu cầu bắt
-		buộc khoa phòng", chọn vế an toàn dữ liệu hơn — đằng nào cờ bật cũng
-		nói rằng khoa phòng NÊN có mặt trên phiếu.
+		QUYẾT ĐỊNH CHO CA BIÊN (ghi rõ vì đây là chỗ dễ đoán sai, và đã ĐỔI
+		HƯỚNG một lần — xem F-1, review E8): nếu `bat_buoc_khoa_phong=1` mà
+		`bat_buoc_khoa_phong_tu` lại rỗng — chỉ có thể xảy ra khi ai đó bật
+		cờ bằng đường KHÔNG qua validate() (ví dụ `frappe.db.set_value`
+		thẳng, hoặc — kịch bản THẬT khi Miyano triển khai cho nhiều bệnh
+		viện — một patch rollout/Data Import bật cờ hàng loạt) — phía kiểm
+		tra (`customer_stock_issue.py:_chan_thieu_khoa_phong`) TỰ LÀNH: ghi
+		`now()` làm mốc ngay tại lần phát hiện, rồi so bình thường từ đó.
+		Bản ĐẦU coi "mốc rỗng" là "áp bắt buộc cho TẤT CẢ" — nghe an toàn hơn
+		nhưng SAI HƯỚNG: nó biến một cờ bật hàng loạt (đúng kịch bản triển
+		khai 20 bệnh viện) thành một lần ĐÓNG BĂNG tức thời mọi phiếu nháp
+		đang mở ở MỌI kho — chính là "khoá tồn đọng" mà NL-4.11 sinh ra để
+		tránh. Tự lành vào `now()` giữ đúng tinh thần "phiếu nháp tạo TRƯỚC
+		khi bật cờ vẫn ghi sổ được", chỉ khác ở chỗ "khi bật cờ" được xác
+		định lại là "khi có phiếu đầu tiên chạm phải cờ thiếu mốc", không
+		phải "khi ai đó gõ UPDATE".
 		"""
 		bat = frappe.utils.cint(self.bat_buoc_khoa_phong)
 		truoc = 0

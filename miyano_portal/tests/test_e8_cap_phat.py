@@ -291,12 +291,15 @@ class TestBatBuocKhoaPhongTiming(_KhoE8Fixture):
         doc.submit()  # KHÔNG được ném lỗi — chỉ "Xuất sử dụng" mới bắt buộc
         self.assertEqual(doc.docstatus, 1)
 
-    def test_null_moc_with_flag_on_enforces_for_every_voucher_fail_safe(self):
-        """Ca biên ghi trong docstring
-        CustomerWarehouse._ghi_moc_bat_buoc_khoa_phong(): cờ bật NHƯNG mốc
-        rỗng (chỉ xảy ra khi bật cờ bằng đường bỏ qua validate(), ví dụ
-        frappe.db.set_value thẳng) phải áp bắt buộc cho MỌI phiếu, kể cả một
-        phiếu "cổ" tạo từ rất lâu — không có mốc để ân hạn."""
+    def test_null_moc_self_heals_and_grandfathers_existing_drafts(self):
+        """F-1 (review E8) — quyết định ĐÃ ĐỔI HƯỚNG: cờ bật NHƯNG mốc rỗng
+        (chỉ xảy ra khi bật cờ bằng đường bỏ qua validate() — kịch bản THẬT
+        là patch rollout/Data Import bật hàng loạt cho nhiều bệnh viện) KHÔNG
+        còn áp bắt buộc cho MỌI phiếu (bản đầu làm vậy — SAI HƯỚNG, tự đóng
+        băng mọi phiếu nháp đang mở ở mọi kho, đúng "khoá tồn đọng" mà
+        NL-4.11 sinh ra để tránh). Giờ tự lành: ghi now() làm mốc ngay lần
+        đầu chạm phải, ân hạn đúng cho MỌI phiếu nháp đang tồn — kể cả một
+        phiếu "cổ" tạo từ rất lâu."""
         frappe.db.set_value(
             "Customer Warehouse", self.kho["kho_bm"], "bat_buoc_khoa_phong", 1
         )
@@ -305,11 +308,23 @@ class TestBatBuocKhoaPhongTiming(_KhoE8Fixture):
                 "Customer Warehouse", self.kho["kho_bm"], "bat_buoc_khoa_phong_tu"
             )
         )
-        doc = self._xuat(khoa_phong=None)
-        frappe.db.set_value(doc.doctype, doc.name, "creation", "2000-01-01 00:00:00")
-        doc.reload()
+        doc_cu = self._xuat(khoa_phong=None)
+        frappe.db.set_value(doc_cu.doctype, doc_cu.name, "creation", "2000-01-01 00:00:00")
+        doc_cu.reload()
+        doc_cu.submit()  # KHÔNG được ném lỗi — được ân hạn (tự lành)
+        self.assertEqual(doc_cu.docstatus, 1)
+
+        # Mốc giờ đã được ghi (tự lành) — kiểm tra ngược lại tính hội tụ:
+        moc_sau_tu_lanh = frappe.db.get_value(
+            "Customer Warehouse", self.kho["kho_bm"], "bat_buoc_khoa_phong_tu"
+        )
+        self.assertTrue(moc_sau_tu_lanh, "phải ghi lại mốc để lần sau khỏi tự lành lại")
+
+        # Một phiếu MỚI, tạo SAU thời điểm tự lành, vẫn phải bị chặn như bình
+        # thường — tự lành không có nghĩa là tắt hẳn chốt.
+        doc_moi = self._xuat(khoa_phong=None)
         with self.assertRaises(frappe.ValidationError):
-            doc.submit()
+            doc_moi.submit()
 
 
 class TestKhoaPhongInactiveGuard(_KhoE8Fixture):

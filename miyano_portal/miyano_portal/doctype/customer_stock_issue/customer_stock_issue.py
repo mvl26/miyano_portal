@@ -133,8 +133,24 @@ class CustomerStockIssue(Document):
 		lý do `Customer Warehouse.bat_buoc_khoa_phong_tu` phải tồn tại: một
 		Check đơn thuần không mang đủ thông tin để so hai mốc thời gian này.
 
-		Xem `_ghi_moc_bat_buoc_khoa_phong()` (customer_warehouse.py) cho quyết
-		định ca biên "cờ bật nhưng thiếu mốc" (áp bắt buộc cho MỌI phiếu).
+		F-1 (review E8, sửa lại quyết định ca biên) — "cờ bật, mốc rỗng" chỉ
+		xảy ra khi cờ được bật qua đường bỏ qua
+		`CustomerWarehouse.validate()` (patch rollout hàng loạt, Data Import,
+		`frappe.db.set_value` trực tiếp). Bản đầu coi đây là "áp bắt buộc cho
+		MỌI phiếu" — nghe an toàn nhưng SAI HƯỚNG: đúng kịch bản triển khai
+		thật (bật cờ hàng loạt cho nhiều bệnh viện cùng lúc qua một script),
+		fail-closed kiểu đó ĐÓNG BĂNG NGAY LẬP TỨC mọi phiếu nháp đang mở ở
+		MỌI kho — chính xác cái "khoá tồn đọng" mà NL-4.11 sinh ra để tránh
+		(xem `_ghi_moc_bat_buoc_khoa_phong()`, "phiếu nháp tạo TRƯỚC khi bật
+		cờ vẫn ghi sổ được").
+
+		Sửa: TỰ LÀNH — coi thời điểm PHÁT HIỆN cờ thiếu mốc (bây giờ) chính
+		LÀ mốc bật cờ, ghi luôn xuống `Customer Warehouse` để lần sau khỏi
+		phải tự lành lại (hội tụ về đúng hành vi của một cờ bật qua
+		validate() bình thường). Hiệu ứng: mọi phiếu nháp ĐANG TỒN được ân
+		hạn (đúng NL-4.11), chỉ phiếu tạo SAU lần phát hiện này mới bị chặn —
+		đổi hướng fail-closed thành fail-open có kiểm soát, đúng tinh thần
+		"không khoá tồn đọng" của cả epic.
 		"""
 		bat, moc = frappe.db.get_value(
 			"Customer Warehouse", self.kho,
@@ -142,14 +158,16 @@ class CustomerStockIssue(Document):
 		)
 		if not frappe.utils.cint(bat):
 			return
-		if moc:
-			# self.creation rỗng CHỈ khi phiếu chưa từng insert() — không thể
-			# xảy ra ở before_submit (submit() luôn chạy sau insert() thật),
-			# nhưng phòng thủ bằng `or now()` thay vì để get_datetime(None)
-			# ném lỗi nếu giả định đó có ngày sai.
-			tao_luc = frappe.utils.get_datetime(self.creation or frappe.utils.now_datetime())
-			if tao_luc <= frappe.utils.get_datetime(moc):
-				return
+		if not moc:
+			moc = frappe.utils.now_datetime()
+			frappe.db.set_value("Customer Warehouse", self.kho, "bat_buoc_khoa_phong_tu", moc)
+		# self.creation rỗng CHỈ khi phiếu chưa từng insert() — không thể xảy
+		# ra ở before_submit (submit() luôn chạy sau insert() thật), nhưng
+		# phòng thủ bằng `or now()` thay vì để get_datetime(None) ném lỗi nếu
+		# giả định đó có ngày sai.
+		tao_luc = frappe.utils.get_datetime(self.creation or frappe.utils.now_datetime())
+		if tao_luc <= frappe.utils.get_datetime(moc):
+			return
 		if not self.khoa_phong:
 			frappe.throw(
 				"Kho đã bật \"Bắt buộc chọn khoa phòng\" cho phiếu Xuất sử "
