@@ -36,7 +36,7 @@ function isActive(key) {
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',
-      'kho-bao-cao',
+      'kho-bao-cao', 'kho-ncc', 'kho-nhat-ky', 'kho-vat-tu', 'kho-vat-tu-import',
     ].includes(name)
   }
   if (key === 'profile') return name === 'profile' || name === 'invoices'

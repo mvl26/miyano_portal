@@ -99,6 +99,7 @@ h3 { font-size: 16px; }
 .sub { color: var(--gray); font-size: 13px; margin-bottom: 18px; }
 .tag { font-size: 11px; color: var(--gray); }
 .right { text-align: right; }
+.mono { font-family: Consolas, monospace; }
 .flex { display: flex; gap: 10px; align-items: center; }
 
 /* ---------- Progress bar ---------- */
@@ -336,6 +337,10 @@ input:focus, select:focus, textarea:focus {
   color: #475569;
 }
 .chip.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* Dòng sổ kho đã đảo (BR-D2): làm mờ chứ KHÔNG giấu — sổ là chứng từ, phải
+   luôn thấy được kể cả sau khi huỷ. Dùng cho Nhật ký vật tư (F-18). */
+.rowdim td { opacity: 0.5; }
 
 /* Qty stepper */
 .step {

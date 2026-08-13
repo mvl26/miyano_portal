@@ -15,6 +15,8 @@ import PhieuNhapDetail from './views/PhieuNhapDetail.vue'
 import PhieuXuat from './views/PhieuXuat.vue'
 import PhieuXuatDetail from './views/PhieuXuatDetail.vue'
 import BaoCaoNXT from './views/BaoCaoNXT.vue'
+import NccList from './views/NccList.vue'
+import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
 
 const routes = [
@@ -34,6 +36,8 @@ const routes = [
   { path: '/kho/xuat', name: 'kho-xuat', component: PhieuXuat, meta: { title: 'Phiếu xuất kho' } },
   { path: '/kho/xuat/:name', name: 'kho-xuat-detail', component: PhieuXuatDetail, meta: { title: 'Chi tiết phiếu xuất' } },
   { path: '/kho/bao-cao', name: 'kho-bao-cao', component: BaoCaoNXT, meta: { title: 'Báo cáo kho' } },
+  { path: '/kho/ncc', name: 'kho-ncc', component: NccList, meta: { title: 'NCC của tôi' } },
+  { path: '/kho/nhat-ky', name: 'kho-nhat-ky', component: NhatKy, meta: { title: 'Nhật ký vật tư' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
 ]
 
