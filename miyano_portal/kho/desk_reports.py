@@ -115,7 +115,13 @@ def canh_bao_han_khach_hang_rows(customer: str | None = None, so_ngay: int = 90)
 	`reports.canh_bao_han_rows()` cho từng kho rồi sắp xếp lại TOÀN CỤC theo
 	`han_su_dung`: mỗi kho riêng đã tăng dần, gộp nhiều dãy tăng dần rồi sắp
 	lại theo đúng khoá đó vẫn giữ nguyên bất biến "hết hạn trước, sắp hết hạn
-	sau" trên toàn danh sách, không chỉ trong phạm vi một khách."""
+	sau" trên toàn danh sách, không chỉ trong phạm vi một khách.
+
+	Kể từ US-E4.8 (VĐ-2), `reports.canh_bao_han_rows()` còn trả về lô KHÔNG có
+	hạn dùng với `han_su_dung=None` (nhóm "Không có hạn dùng", xem docstring ở
+	đó) — khoá sắp xếp phải tự đẩy nhóm này xuống cuối, giống hệt cách hàm gốc
+	tự sắp trong phạm vi MỘT kho, nếu không `sorted()` sẽ ném TypeError khi so
+	sánh `None < datetime.date`."""
 	khos = _active_khos(customer)
 	names = _customer_names([k["customer"] for k in khos])
 
@@ -129,7 +135,9 @@ def canh_bao_han_khach_hang_rows(customer: str | None = None, so_ngay: int = 90)
 				"ten_kho": k["ten_kho"],
 				**row,
 			})
-	return sorted(out, key=lambda r: (r["han_su_dung"], r["so_lo"]))
+	return sorted(
+		out, key=lambda r: (r["han_su_dung"] is None, r["han_su_dung"] or "", r["so_lo"])
+	)
 
 
 # ------------------------------------------------------------------- E3 (Phần B)

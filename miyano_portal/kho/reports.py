@@ -348,6 +348,18 @@ def canh_bao_han_rows(kho: str, so_ngay: int = 90) -> list[dict]:
 	hạn (ngày trong tương lai), và trong mỗi nhóm ngày gần `hôm nay` nhất lên
 	đầu — hết hạn lâu nhất trước (cấp bách nhất), sắp hết hạn sớm nhất trước.
 
+	Lô KHÔNG có `han_su_dung` (US-E4.8, VĐ-2) rơi vào một nhóm riêng "Không có
+	hạn dùng", xếp sau mọi lô có hạn, KHÔNG được tính vào "Đã hết hạn"/"Sắp
+	hết hạn". Trước bản sửa này, lọc thẳng bằng
+	`frappe.get_all(..., filters={"han_su_dung": ["<=", han_toi]})` khiến
+	Frappe tự bọc điều kiện đó bằng `coalesce(han_su_dung, '0001-01-01') <=
+	han_toi` (xem `frappe.model.db_query.DatabaseQuery.prepare_filter_condition`)
+	— NULL luôn thoả `<= han_toi`, nên MỌI lô không khai hạn bị kéo vào kết
+	quả, rồi `frappe.utils.getdate(None)` lại âm thầm trả về NGÀY HÔM NAY,
+	khiến các lô đó hiện ra là "Sắp hết hạn" với 0 ngày còn lại. Đọc TOÀN BỘ
+	lô còn tồn của kho (không đưa `han_su_dung` vào filter) rồi tự phân loại
+	ở Python là cách duy nhất tránh được lớp ifnull/coalesce đó.
+
 	Đọc từ `Customer Stock Lot Balance` — cố ý, xem docstring đầu file: đây là
 	câu hỏi VỀ HIỆN TẠI, không phải lịch sử.
 	"""
@@ -355,30 +367,41 @@ def canh_bao_han_rows(kho: str, so_ngay: int = 90) -> list[dict]:
 	han_toi = frappe.utils.add_days(today, int(so_ngay))
 	lots = frappe.get_all(
 		"Customer Stock Lot Balance",
-		filters={
-			"kho": kho,
-			"so_luong": [">", EPS],
-			"han_su_dung": ["<=", han_toi],
-		},
+		filters={"kho": kho, "so_luong": [">", EPS]},
 		fields=["vat_tu", "so_lo", "han_su_dung", "so_luong"],
 	)
 	info = _vat_tu_info(kho)
 	out = []
 	for lot in lots:
-		han = frappe.utils.getdate(lot["han_su_dung"])
 		meta = info.get(lot["vat_tu"]) or {}
-		out.append({
+		base = {
 			"vat_tu": lot["vat_tu"],
 			"ma_vat_tu": meta.get("ma_vat_tu", ""),
 			"ten_vat_tu": meta.get("ten_vat_tu", ""),
 			"dvt": meta.get("dvt", ""),
 			"so_lo": lot["so_lo"],
+			"so_luong": _r(lot["so_luong"]),
+		}
+		if not lot["han_su_dung"]:
+			out.append({
+				**base,
+				"han_su_dung": None,
+				"so_ngay_con_lai": None,
+				"trang_thai": "Không có hạn dùng",
+			})
+			continue
+		han = frappe.utils.getdate(lot["han_su_dung"])
+		if han > han_toi:
+			continue
+		out.append({
+			**base,
 			"han_su_dung": han,
 			"so_ngay_con_lai": (han - today).days,
-			"so_luong": _r(lot["so_luong"]),
 			"trang_thai": "Đã hết hạn" if han < today else "Sắp hết hạn",
 		})
-	return sorted(out, key=lambda r: (r["han_su_dung"], r["so_lo"]))
+	return sorted(
+		out, key=lambda r: (r["han_su_dung"] is None, r["han_su_dung"] or today, r["so_lo"])
+	)
 
 
 def build_xlsx(columns: list[tuple[str, str]], rows: list[dict], sheet_title: str) -> bytes:
