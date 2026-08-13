@@ -101,7 +101,9 @@ class TestBoSoChuanPRD(_KhoBmTestCase):
 
 		# Đủ tồn cho toàn bộ chuỗi sự kiện bên dưới, thời điểm nhập nằm NGOÀI
 		# kỳ ADU 90 ngày để không lẫn vào tổng "xuất sử dụng" (đây là NHẬP).
-		_nhap(self.K, self.VT, 502, frappe.utils.add_days(today, -200))
+		# 525 = 22 (tồn cuối mong muốn) + 450 (xuất sử dụng) + 30 (huỷ) + 15
+		# (trả lại) + 8 (điều chỉnh) + 0 (net cancel của phiếu đảo).
+		_nhap(self.K, self.VT, 525, frappe.utils.add_days(today, -200))
 
 		# Phiếu "Xuất sử dụng" 25 hộp bị HUỶ NGAY (trước khi rút thêm tồn) —
 		# tồn thật (append-only, xét theo THỨ TỰ GHI SỔ, không phải theo
@@ -112,13 +114,23 @@ class TestBoSoChuanPRD(_KhoBmTestCase):
 		bi_huy.reload()
 		bi_huy.cancel()
 
-		# 450 "Xuất sử dụng" trải trong kỳ trượt 90 ngày (BR-P1).
+		# 450 "Xuất sử dụng" trải trong kỳ trượt 90 ngày (BR-P1). Chỉ dòng
+		# -5 ngày rơi trong cửa sổ 30 ngày gần nhất -> adu_30 = 100/30
+		# (NL-9.2, khẳng định ở test_adu_loai_tru_dung_phieu_huy_va_phieu_dao).
 		_xuat(self.K, self.VT, 200, frappe.utils.add_days(today, -80))
 		_xuat(self.K, self.VT, 150, frappe.utils.add_days(today, -40))
 		_xuat(self.K, self.VT, 100, frappe.utils.add_days(today, -5))
 
-		# NL-9.4: "Xuất huỷ - hết hạn" 30 hộp — KHÔNG phải tiêu thụ, không tính.
+		# NL-9.4: BA loại xuất không phải tiêu thụ, KHÔNG tính — M-10 (review
+		# E5 round 2): fixture trước chỉ có MỘT loại ("Xuất huỷ - hết hạn"),
+		# chưa thử "Xuất trả lại"/"Điều chỉnh kiểm kê" — một `loai_xuat` mới
+		# lọt qua bộ lọc `_xuat_su_dung_issue_names()` (rủi ro cụ thể: E8 vừa
+		# thêm khoa phòng vào phiếu xuất, một loại xuất mới trong tương lai
+		# hoàn toàn có thể xảy ra) sẽ không bị bất kỳ test nào bắt nếu chỉ
+		# thử một loại.
 		_xuat(self.K, self.VT, 30, frappe.utils.add_days(today, -20), loai_xuat="Xuất huỷ - hết hạn")
+		_xuat(self.K, self.VT, 15, frappe.utils.add_days(today, -25), loai_xuat="Xuất trả lại")
+		_xuat(self.K, self.VT, 8, frappe.utils.add_days(today, -35), loai_xuat="Điều chỉnh kiểm kê")
 
 		# Khách đã chốt min/ROP/max (US-E5.1) — mô phỏng đã lưu qua nút gợi ý.
 		doc = frappe.get_doc("Customer Warehouse Item", self.VT)
@@ -135,6 +147,14 @@ class TestBoSoChuanPRD(_KhoBmTestCase):
 		tt = dutru.tinh_tieu_thu(self.K, self.VT)
 		self.assertEqual(tt["adu_90"], 5.0)
 		self.assertEqual(tt["so_ngay_du_lieu"], 81)  # today - (today-80) + 1
+
+	def test_adu_30_ngay_dung_cua_so_co_dinh_30(self):
+		"""NL-9.2 — trước bản sửa round 2, `adu_30` không được khẳng định ở
+		bất kỳ test nào; nếu cửa sổ 30 ngày lệch (ví dụ vô tình chia cho `n`
+		thay vì hằng số 30) sẽ không có test nào đỏ. Chỉ dòng "-5 ngày" (100
+		hộp) rơi trong 30 ngày gần nhất trong fixture của lớp này."""
+		tt = dutru.tinh_tieu_thu(self.K, self.VT)
+		self.assertEqual(tt["adu_30"], round(100 / 30, 6))
 
 	def test_ton_kha_dung_la_22(self):
 		self.assertEqual(dutru.ton_kha_dung(self.K, self.VT), 22)
@@ -193,6 +213,25 @@ class TestNguongDuLieu(_KhoBmTestCase):
 		self.assertIn("adu_90", out[self.VT])
 		self.assertNotIn("du_lieu", out[self.VT])
 
+	def test_i3_du_du_lieu_nhung_chua_khai_gi_van_tinh_duoc_rop(self):
+		"""I-3 (review E5 round 2) — ĐÚNG kịch bản khách cần gợi ý nhất: vật
+		tư mới đủ dữ liệu, CHƯA khai min/ROP/max (chỉ có lead_time_ngay mặc
+		định 3 từ setUp). Trước bản sửa, `tinh_rop()` đòi CẢ hai điều kiện
+		(lead_time VÀ min) nên trả `rop=None` — nút "Gợi ý từ tiêu thụ" chỉ
+		điền được đúng ô ADU, 0/3 ô còn lại, khách kết luận nút hỏng.
+		`rop` giờ chỉ cần `lead_time_ngay` — `ton_toi_thieu` chưa khai được
+		coi là 0 KHI CỘNG (không phải lý do chặn)."""
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -35))
+		_xuat(self.K, self.VT, 10, frappe.utils.add_days(today, -29))
+
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_min_max_goi_y(vat_tu_list=[self.VT])
+		row = out[self.VT]
+		self.assertIsNone(row["min"], "min vẫn phải ECHO None — chưa khai, không suy diễn")
+		self.assertIsNotNone(row["rop"], "ROP=ADU×lead+0 vẫn có nghĩa, không được trả None")
+		self.assertEqual(row["rop"], round(row["adu_90"] * 3, 6))
+
 	def test_br_p3_chua_thiet_lap_va_chua_du_du_lieu_khong_canh_bao(self):
 		"""BR-P3 — vật tư chưa khai min/ROP VÀ < 30 ngày dữ liệu: KHÔNG xuất
 		hiện trong danh sách cảnh báo (không phải hiện với trạng thái nào cả)."""
@@ -242,6 +281,87 @@ class TestTrangThaiThieu(_KhoBmTestCase):
 		self.assertEqual(row["trang_thai"], "thieu")
 		self.assertEqual(out["thieu"], 1)
 		self.assertEqual(out["cham_rop"], 0)
+
+
+# ======================================================= M-1 (review round 2)
+
+class TestPhanTrangVaTheDem(_KhoBmTestCase):
+	"""DoD đòi phân trang phía server, nhưng trước bản sửa round 2 KHÔNG test
+	nào truyền `trang`/`trang_thai` — `tong_dong`/`trang`/`so_dong_moi_trang`
+	chưa từng được khẳng định. Kèm bẫy: khoá thẻ đếm "cham_rop" không trùng
+	giá trị `trang_thai` của dòng ("sap_thieu") — bấm thẻ rồi gửi đúng khoá
+	của thẻ trả về 0 dòng, im lặng."""
+
+	def test_bam_the_cham_rop_loc_dung_dong_sap_thieu(self):
+		"""M-1 — trước bản sửa, `trang_thai="cham_rop"` (đúng khoá thẻ đếm
+		client tự nhiên gửi lại) không khớp dòng nào (dòng mang "sap_thieu"),
+		bảng lọc ra RỖNG dù `cham_rop > 0`."""
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100))
+		_xuat(self.K, self.VT, 78, frappe.utils.add_days(today, -50))  # tồn 22, dưới ROP nhưng trên min
+		doc = frappe.get_doc("Customer Warehouse Item", self.VT)
+		doc.ton_toi_thieu = 10
+		doc.diem_dat_lai = 25
+		doc.ton_toi_da = 60
+		doc.save(ignore_permissions=True)
+
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_canh_bao_ton(trang_thai="cham_rop")
+		self.assertGreater(out["cham_rop"], 0)
+		self.assertTrue(any(r["vat_tu"] == self.VT for r in out["dong"]), "thẻ 'cham_rop' phải lọc ra được dòng sap_thieu")
+		self.assertTrue(all(r["trang_thai"] == "sap_thieu" for r in out["dong"]))
+
+	def test_gia_tri_dong_that_sap_thieu_van_loc_duoc_truc_tiep(self):
+		"""Client gửi thẳng giá trị dòng thật ("sap_thieu", không qua bí
+		danh thẻ đếm) vẫn phải hoạt động — hai đường cùng dẫn tới một kết quả."""
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100))
+		_xuat(self.K, self.VT, 78, frappe.utils.add_days(today, -50))
+		doc = frappe.get_doc("Customer Warehouse Item", self.VT)
+		doc.ton_toi_thieu = 10
+		doc.diem_dat_lai = 25
+		doc.ton_toi_da = 60
+		doc.save(ignore_permissions=True)
+
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_canh_bao_ton(trang_thai="sap_thieu")
+		self.assertTrue(any(r["vat_tu"] == self.VT for r in out["dong"]))
+
+	def test_phan_trang_cat_dung_trang_khong_lam_lech_tong_dong(self):
+		"""Phân trang server thật — dựng 3 dòng "on_dinh" (đủ dữ liệu, không
+		báo động, để không lẫn với các trạng thái khác), vá TẠM `_TRANG_KHO_
+		CANH_BAO_TON` xuống 2 để không phải dựng 51+ vật tư mới đủ vượt trang
+		mặc định 50."""
+		today = _today()
+		ten_vt = []
+		for i in range(3):
+			vt = frappe.get_doc({
+				"doctype": "Customer Warehouse Item", "kho": self.K,
+				"ma_vat_tu": f"VT-TRANG-{i}", "ten_vat_tu": f"Vật tư trang {i}",
+				"dvt": "Cái", "lead_time_ngay": 3,
+				"ton_toi_thieu": 1, "diem_dat_lai": 2, "ton_toi_da": 1000,
+			}).insert(ignore_permissions=True)
+			_nhap(self.K, vt.name, 500, frappe.utils.add_days(today, -40))
+			_xuat(self.K, vt.name, 5, frappe.utils.add_days(today, -35))
+			ten_vt.append(vt.name)
+
+		truoc = dutru._TRANG_KHO_CANH_BAO_TON
+		dutru._TRANG_KHO_CANH_BAO_TON = 2
+		self.addCleanup(setattr, dutru, "_TRANG_KHO_CANH_BAO_TON", truoc)
+
+		frappe.set_user(BM_USER)
+		trang_1 = kho_api.kho_canh_bao_ton(trang=1)
+		trang_2 = kho_api.kho_canh_bao_ton(trang=2)
+
+		dong_1 = [r["vat_tu"] for r in trang_1["dong"] if r["vat_tu"] in ten_vt]
+		dong_2 = [r["vat_tu"] for r in trang_2["dong"] if r["vat_tu"] in ten_vt]
+		self.assertEqual(len(dong_1), 2, "trang 1 phải đúng 2 dòng (so_dong_moi_trang đã vá = 2)")
+		self.assertEqual(len(dong_2), 1, "trang 2 phải còn đúng 1 dòng (3 dòng - 2 đã ở trang 1)")
+		self.assertEqual(set(dong_1) & set(dong_2), set(), "hai trang không được trùng dòng")
+		self.assertEqual(trang_1["so_dong_moi_trang"], 2)
+		self.assertEqual(trang_1["trang"], 1)
+		self.assertEqual(trang_2["trang"], 2)
+		self.assertEqual(trang_1["tong_dong"], trang_2["tong_dong"], "tong_dong không đổi theo trang")
 
 
 # =================================================================== US-E5.3
@@ -386,6 +506,69 @@ class TestValidateMinMaxRop(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			doc.insert(ignore_permissions=True)
 
+	def test_i1_min_lon_hon_max_de_trong_rop_bi_chan(self):
+		"""I-1 (review E5 round 2) — kịch bản thật: thủ kho gõ nhầm đảo hai
+		ô (min=100, max=5), ĐỂ TRỐNG ROP. Trước bản sửa, phép kiểm ba-ngôi
+		chỉ chạy khi ĐỦ CẢ BA nên lưu SẠCH không một cảnh báo — vật tư báo
+		"Thiếu" đỏ vĩnh viễn (tồn luôn < 100) và sl_goi_y luôn = 0 (max=5
+		luôn nhỏ hơn tồn). `min ≤ max` phải kiểm được ĐỘC LẬP với ROP."""
+		doc = frappe.get_doc({
+			"doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+			"ma_vat_tu": "VT-MINROP-6", "ten_vat_tu": "Test min>max khong ROP", "dvt": "Cái",
+			"ton_toi_thieu": 100, "ton_toi_da": 5,
+		})
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_i1_rop_am_bi_chan(self):
+		"""I-1 — biến thể hai: `diem_dat_lai` âm lưu được trước bản sửa (chỉ
+		`ton_toi_thieu` được kiểm âm) → `co_nguong=True` mà giá trị vô nghĩa,
+		vật tư thoát BR-P3 vĩnh viễn với một ROP âm không ai chốt."""
+		doc = frappe.get_doc({
+			"doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+			"ma_vat_tu": "VT-MINROP-7", "ten_vat_tu": "Test ROP am", "dvt": "Cái",
+			"diem_dat_lai": -5,
+		})
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_i1_max_am_bi_chan(self):
+		doc = frappe.get_doc({
+			"doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+			"ma_vat_tu": "VT-MINROP-8", "ten_vat_tu": "Test max am", "dvt": "Cái",
+			"ton_toi_da": -1,
+		})
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_i2_xoa_trang_lead_time_khong_nem_loi(self):
+		"""I-2 (review E5 round 2) — `_so_hoac_khong("")` ánh xạ MỌI ô trống
+		thành 0 cho cả năm trường ngưỡng (kho/vat_tu.py), nhưng trước bản sửa
+		`_validate_nguong_ton` xử RIÊNG `lead_time_ngay` bằng `not in (None,
+		"")` — 0 KHÔNG rơi vào đó nên bị `not (1 <= 0 <= 60)` chặn NGAY TẠI Ô
+		ĐANG TRỐNG. Bốn ô kia xoá trắng lưu bình thường; hành vi phải nhất
+		quán: `lead_time_ngay=0` cũng là "chưa khai", không phải lỗi."""
+		doc = frappe.get_doc({
+			"doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+			"ma_vat_tu": "VT-MINROP-9", "ten_vat_tu": "Test lead time = 0", "dvt": "Cái",
+			"lead_time_ngay": 0,
+		})
+		doc.insert(ignore_permissions=True)  # KHÔNG được ném ValidationError
+		self.assertEqual(doc.lead_time_ngay, 0)
+
+	def test_i2_xoa_trang_lead_time_qua_endpoint_khong_nem_loi(self):
+		"""Đường thật khách đi qua — kho_vat_tu_sua(), không phải
+		frappe.get_doc() trực tiếp."""
+		self.addCleanup(frappe.set_user, "Administrator")
+		vt = frappe.get_doc({
+			"doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+			"ma_vat_tu": "VT-MINROP-10", "ten_vat_tu": "Test lead time endpoint",
+			"dvt": "Cái", "lead_time_ngay": 5,
+		}).insert(ignore_permissions=True)
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_vat_tu_sua(vt.name, payload={"lead_time_ngay": ""})
+		self.assertEqual(out["lead_time_ngay"], 0)
+
 
 # ==================================================== Mặc định Settings (C-1)
 
@@ -481,6 +664,56 @@ class TestJobCanhBaoTonDaily(_KhoBmTestCase):
 			)),
 			_today(),
 		)
+
+	def test_m7_khong_tim_duoc_email_thi_khong_danh_dau_da_gui(self):
+		"""M-7 (review E5 round 2) — trước bản sửa, không tìm được email
+		(Contact chưa có/hỏng) vẫn khiến `gui_lan_cuoi` được ghi và `dem`
+		tăng — kho đó bị đánh dấu "đã gửi hàng tuần" MÃI MÃI mà không ai
+		nhận được gì, và tần suất "Hàng tuần" (dựa trên `gui_lan_cuoi`) sẽ
+		không bao giờ thử lại. Monkeypatch `_email_khach_hang` thay vì xoá
+		Contact demo dùng chung — xoá dữ liệu chung sẽ làm hỏng các test
+		khác trong CÙNG class (FrappeTestCase chỉ rollback theo CLASS)."""
+		import miyano_portal.portal_du_tru_job as job_mod
+
+		truoc = job_mod._email_khach_hang
+		job_mod._email_khach_hang = lambda customer: None
+		self.addCleanup(setattr, job_mod, "_email_khach_hang", truoc)
+
+		frappe.db.set_value("Customer Warehouse", self.K, "canh_bao_ton_email_bat", 1)
+		self._tao_vat_tu_thieu_ton()
+
+		dem = job_mod.quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 0, "không gửi được thì không được tính là đã gửi")
+		self.assertIsNone(
+			frappe.db.get_value("Customer Warehouse", self.K, "canh_bao_ton_email_gui_lan_cuoi"),
+			"không được đánh dấu 'đã gửi' khi chưa ai nhận được gì — phải còn cơ hội thử lại",
+		)
+
+	def test_m7_mot_kho_loi_khong_lam_chet_luot_quet_cho_kho_con_lai(self):
+		"""M-7 — một kho ném lỗi bất ngờ trong `canh_bao_ton_rows()` không
+		được chặn đứng lượt quét cho các kho ĐANG BẬT email khác."""
+		import miyano_portal.portal_du_tru_job as job_mod
+
+		kho_pxn = self.kho["kho_pxn"]
+		frappe.db.set_value("Customer Warehouse", kho_pxn, {
+			"canh_bao_ton_email_bat": 1, "canh_bao_ton_email_tan_suat": "Hàng ngày",
+			"canh_bao_ton_email_gui_lan_cuoi": None,
+		})
+		frappe.db.set_value("Customer Warehouse", self.K, "canh_bao_ton_email_bat", 1)
+		self._tao_vat_tu_thieu_ton()
+
+		truoc = dutru.canh_bao_ton_rows
+
+		def _vo_canh_bao_ton_rows(kho, customer):
+			if kho == kho_pxn:
+				raise RuntimeError("dữ liệu hỏng giả lập cho kho PXN")
+			return truoc(kho, customer)
+
+		dutru.canh_bao_ton_rows = _vo_canh_bao_ton_rows
+		self.addCleanup(setattr, dutru, "canh_bao_ton_rows", truoc)
+
+		dem = job_mod.quet_canh_bao_ton_daily()
+		self.assertEqual(dem, 1, "kho BM vẫn phải gửi được dù kho PXN lỗi")
 
 	def test_khong_co_vat_tu_thieu_thi_khong_gui(self):
 		"""Kho bật email nhưng KHÔNG có vật tư nào dưới min/ROP — không gửi

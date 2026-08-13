@@ -274,6 +274,39 @@ class TestTyTrongNguonCung(_KhoBmTestCase):
 		theo_nguon = {r["nguon"]: r for r in rows}
 		self.assertEqual(theo_nguon["Miyano"]["sl_nhap"], 50, "chỉ tính phiếu trong kỳ")
 
+	def test_i4_chi_dien_tu_ngay_van_loc_khong_tra_ve_toan_bo_lich_su(self):
+		"""I-4 (review E5 round 2) — sales gõ "Từ ngày = 10 ngày trước", để
+		trống "Đến ngày" (rất tự nhiên: "từ đó tới nay"). Trước bản sửa,
+		điều kiện `if tu_ngay and den_ngay` bỏ lọc HOÀN TOÀN khi chỉ một đầu
+		được điền — report trả về TOÀN BỘ lịch sử (kể cả phiếu 100 ngày
+		trước), không một dấu hiệu nào cho biết bộ lọc đã bị bỏ qua."""
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100), don_gia=1000)
+		_nhap(self.K, self.VT, 50, frappe.utils.add_days(today, -5), don_gia=1000)
+
+		rows = desk_reports.ty_trong_nguon_cung_rows(
+			customer="Bệnh viện Bạch Mai", tu_ngay=frappe.utils.add_days(today, -10),
+		)
+		theo_nguon = {r["nguon"]: r for r in rows}
+		self.assertEqual(
+			theo_nguon["Miyano"]["sl_nhap"], 50,
+			"chỉ 'từ ngày' vẫn phải lọc bỏ phiếu 100 ngày trước, không trả toàn bộ lịch sử",
+		)
+
+	def test_i4_chi_dien_den_ngay_van_loc(self):
+		today = _today()
+		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100), don_gia=1000)
+		_nhap(self.K, self.VT, 50, frappe.utils.add_days(today, -5), don_gia=1000)
+
+		rows = desk_reports.ty_trong_nguon_cung_rows(
+			customer="Bệnh viện Bạch Mai", den_ngay=frappe.utils.add_days(today, -50),
+		)
+		theo_nguon = {r["nguon"]: r for r in rows}
+		self.assertEqual(
+			theo_nguon["Miyano"]["sl_nhap"], 100,
+			"chỉ 'đến ngày' phải loại phiếu 5 ngày trước (sau mốc đến ngày)",
+		)
+
 	def test_cach_ly_khach_khac(self):
 		today = _today()
 		kho_pxn = self.kho["kho_pxn"]

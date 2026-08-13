@@ -10,7 +10,7 @@
   "kho", "ma_vat_tu", "ten_vat_tu", "dvt", "active",
   "col_1", "item_code", "quy_cach", "nhom", "ghi_chu",
   "sec_du_tru", "ton_toi_thieu", "diem_dat_lai", "ton_toi_da",
-  "col_du_tru", "lead_time_ngay", "boi_so_dat", "adu_90"
+  "col_du_tru", "lead_time_ngay", "boi_so_dat"
  ],
  "fields": [
   {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
@@ -29,12 +29,11 @@
   {"fieldname": "ton_toi_da", "fieldtype": "Float", "label": "Tồn tối đa (max)"},
   {"fieldname": "col_du_tru", "fieldtype": "Column Break"},
   {"fieldname": "lead_time_ngay", "fieldtype": "Int", "label": "Lead time (ngày)", "default": "3"},
-  {"fieldname": "boi_so_dat", "fieldtype": "Int", "label": "Bội số đặt"},
-  {"fieldname": "adu_90", "fieldtype": "Float", "label": "ADU (hệ tính, cache hiển thị)", "read_only": 1, "description": "Mức dùng bình quân/ngày trong kỳ trượt Settings.so_ngay_adu — hệ tính lại mỗi lần đọc màn dự trù, trường này chỉ là cache hiển thị cho danh sách vật tư"}
+  {"fieldname": "boi_so_dat", "fieldtype": "Int", "label": "Bội số đặt"}
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-08-13 00:00:00.000000",
+ "modified": "2026-08-14 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
  "name": "Customer Warehouse Item",

@@ -73,13 +73,17 @@ def _noi_dung_email(kho_row: dict, warned: list[dict]) -> str:
 	)
 
 
-def _gui_email_canh_bao(kho_row: dict, warned: list[dict]) -> None:
-	"""Không bao giờ để lỗi gửi mail chặn việc cập nhật `gui_lan_cuoi` của
-	KHO KHÁC trong cùng lượt quét — cùng nguyên tắc phòng thủ với
-	`portal_bao_gia._gui_email_het_han()`/`portal_thong_bao.py`."""
+def _gui_email_canh_bao(kho_row: dict, warned: list[dict]) -> bool:
+	"""Trả `True` CHỈ KHI email thật sự được gửi đi — `quet_canh_bao_ton_daily()`
+	dựa vào giá trị này để quyết định có ghi `gui_lan_cuoi`/tăng `dem` hay
+	không (M-7, review E5 round 2). Trước bản sửa, hàm này `return` im lặng
+	khi không tìm được email NHƯNG nơi gọi vẫn ghi `gui_lan_cuoi` và tăng
+	`dem` — kho đó bị đánh dấu "đã gửi hàng tuần" MÃI MÃI dù chưa từng có ai
+	nhận được gì, và tần suất "Hàng tuần" (đến hạn dựa trên `gui_lan_cuoi`)
+	sẽ không bao giờ thử lại nữa cho tới khi ai đó sửa Contact bằng tay."""
 	email = _email_khach_hang(kho_row["customer"])
 	if not email:
-		return
+		return False
 	try:
 		frappe.sendmail(
 			recipients=[email],
@@ -89,23 +93,31 @@ def _gui_email_canh_bao(kho_row: dict, warned: list[dict]) -> None:
 			reference_name=kho_row["name"],
 			now=False,
 		)
+		return True
 	except Exception:
 		frappe.log_error(
 			title="portal_du_tru_job: gửi email cảnh báo tồn thất bại",
 			message=frappe.get_traceback(),
 		)
+		return False
 
 
 def quet_canh_bao_ton_daily(moc=None) -> int:
 	"""Quét MỌI kho đã BẬT email cảnh báo (`canh_bao_ton_email_bat=1`,
 	mặc định TẮT — US-E5.4 AC2), đến hạn theo tần suất, và CÓ vật tư dưới
 	min/ROP — gửi một email tổng hợp mỗi kho, ghi lại `gui_lan_cuoi`. Trả số
-	kho vừa gửi.
+	kho vừa GỬI THÀNH CÔNG (không phải số kho đủ điều kiện quét).
 
 	Không gửi khi danh sách rỗng: một kho không có vật tư nào dưới mức
 	không có gì để "tổng hợp", và gửi một email rỗng mỗi tuần chỉ dạy khách
 	hàng bỏ qua email cảnh báo — đúng bài học đã ghi trong BR-P3 (kho/
-	dutru.py) áp dụng cho kênh email."""
+	dutru.py) áp dụng cho kênh email.
+
+	MỘT kho lỗi (dữ liệu hỏng ở `canh_bao_ton_rows()`, hay bất kỳ ngoại lệ
+	nào ngoài dự kiến) KHÔNG được làm chết lượt quét cho các kho còn lại
+	(M-7, review E5 round 2) — mỗi kho xử lý trong khối `try` RIÊNG, lỗi ghi
+	`Error Log` rồi job tiếp tục sang kho kế tiếp, đúng nguyên tắc phòng thủ
+	đã ghi trong `_gui_email_canh_bao()`/`portal_bao_gia.py`."""
 	hom_nay = frappe.utils.getdate(moc) if moc else frappe.utils.getdate(frappe.utils.today())
 	khos = frappe.get_all(
 		"Customer Warehouse",
@@ -117,16 +129,24 @@ def quet_canh_bao_ton_daily(moc=None) -> int:
 	)
 	dem = 0
 	for k in khos:
-		if not _den_han_gui(k, hom_nay):
-			continue
-		rows = dutru.canh_bao_ton_rows(k["name"], k["customer"])
-		warned = [r for r in rows if r["trang_thai"] in _TRANG_THAI_CANH_BAO]
-		if not warned:
-			continue
-		_gui_email_canh_bao(k, warned)
-		frappe.db.set_value(
-			"Customer Warehouse", k["name"], "canh_bao_ton_email_gui_lan_cuoi",
-			hom_nay, update_modified=False,
-		)
-		dem += 1
+		try:
+			if not _den_han_gui(k, hom_nay):
+				continue
+			rows = dutru.canh_bao_ton_rows(k["name"], k["customer"])
+			warned = [r for r in rows if r["trang_thai"] in _TRANG_THAI_CANH_BAO]
+			if not warned:
+				continue
+			da_gui = _gui_email_canh_bao(k, warned)
+			if not da_gui:
+				continue
+			frappe.db.set_value(
+				"Customer Warehouse", k["name"], "canh_bao_ton_email_gui_lan_cuoi",
+				hom_nay, update_modified=False,
+			)
+			dem += 1
+		except Exception:
+			frappe.log_error(
+				title="portal_du_tru_job: quét cảnh báo tồn thất bại cho một kho",
+				message=f"kho: {k['name']}\n{frappe.get_traceback()}",
+			)
 	return dem

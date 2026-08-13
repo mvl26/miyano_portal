@@ -560,7 +560,14 @@ def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay
 	(`kho/dutru.py`): lọc `da_dao=0` (bỏ dòng GỐC đã bị đảo) VÀ bỏ dòng
 	thuộc phiếu `loai_nhap == "Phiếu đảo"` (chính dòng bù trừ). Một đợt nhập
 	bị huỷ TRỌN VẸN trong/trước kỳ do đó ròng về ĐÚNG 0 theo cấu trúc, không
-	phải một phép trừ thủ công dễ quên áp dụng ở một nhánh."""
+	phải một phép trừ thủ công dễ quên áp dụng ở một nhánh.
+
+	`tu_ngay`/`den_ngay` lọc TỪNG ĐẦU ĐỘC LẬP (I-4, review E5 round 2) —
+	trước bản này, điều kiện `if tu_ngay and den_ngay` bỏ lọc HOÀN TOÀN khi
+	CHỈ MỘT đầu được điền: một sales gõ "Từ ngày = đầu năm", để trống "Đến
+	ngày" (rất tự nhiên — "từ đầu năm tới nay") sẽ nhận về TOÀN BỘ lịch sử kể
+	từ khi mở kho, không một dấu hiệu nào cho biết bộ lọc đã bị bỏ qua, trong
+	khi đây là con số dùng để quyết định chiến lược nguồn cung."""
 	khos = _active_khos(customer)
 	if not khos:
 		return []
@@ -571,6 +578,10 @@ def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay
 	filters = {"kho": ["in", kho_names], "chung_tu_type": "Customer Stock Receipt", "da_dao": 0}
 	if tu_ngay and den_ngay:
 		filters["ngay"] = ["between", [tu_ngay, den_ngay]]
+	elif tu_ngay:
+		filters["ngay"] = [">=", tu_ngay]
+	elif den_ngay:
+		filters["ngay"] = ["<=", den_ngay]
 	entries = frappe.get_all(
 		"Customer Stock Ledger Entry", filters=filters,
 		fields=["kho", "chung_tu", "so_luong", "gia_tri"],

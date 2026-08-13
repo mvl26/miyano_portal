@@ -18,8 +18,10 @@ QUAN TRỌNG — phân biệt HAI đường đọc min/ROP/max, cố ý không g
     LƯU gì, chỉ để khách xem trước khi tự bấm Lưu. `min`/`max` trong phản hồi
     là giá trị ĐANG LƯU, được ECHO lại nguyên văn — hệ thống không tự "sáng
     tác" một con số an toàn tồn kho nào cả (BR-P2: "khách chốt, hệ thống chỉ
-    gợi ý ROP"). Vật tư chưa từng khai `ton_toi_thieu` thì `rop` trả `None`
-    — không có tồn an toàn thì không có gì để cộng vào ADU×lead_time.
+    gợi ý ROP"). `rop` chỉ trả `None` khi THIẾU `lead_time_ngay` — vật tư
+    chưa khai `ton_toi_thieu` vẫn tính được ROP (coi tồn an toàn = 0 khi
+    cộng, xem docstring `tinh_rop()` — I-3, review E5 round 2: đây đúng là
+    lúc khách CẦN gợi ý nhất, vật tư mới chưa kịp khai gì).
   * `kho_canh_bao_ton()` (US-E5.2, màn dự trù) đọc THẲNG `ton_toi_thieu`/
     `diem_dat_lai`/`ton_toi_da` đã LƯU trên `Customer Warehouse Item` để so
     với tồn hiện tại — KHÔNG tự ý dùng con số "gợi ý" thay cho giá trị khách
@@ -267,13 +269,24 @@ def ton_kha_dung_theo_kho(kho: str) -> dict[str, float]:
 
 
 def tinh_rop(adu_n, lead_time_ngay, ton_toi_thieu) -> float | None:
-	"""BR-P2: ROP = ADU × lead_time_ngay + ton_toi_thieu. `None` nếu thiếu
-	`lead_time_ngay` HOẶC `ton_toi_thieu` (`chua_khai()` — xem docstring đầu
-	file) — không có tồn an toàn/lead time thì không có gì để cộng, không
-	suy diễn một con số thay khách."""
-	if chua_khai(lead_time_ngay) or chua_khai(ton_toi_thieu):
+	"""BR-P2: ROP = ADU × lead_time_ngay + ton_toi_thieu. `None` CHỈ khi
+	thiếu `lead_time_ngay` — không có lead time thì không có gì để nhân,
+	không suy diễn một con số thay khách.
+
+	`ton_toi_thieu` CHƯA KHAI (`chua_khai()`) KHÔNG chặn phép tính (I-3,
+	review E5 round 2) — coi nó là 0 KHI CỘNG, đúng quy ước "chưa khai = 0"
+	đã dùng khắp nơi khác trong file này. Trước bản này, `tinh_rop()` đòi cả
+	hai điều kiện, nên `kho_min_max_goi_y()` trả `rop=None` đúng vào lúc
+	khách CẦN gợi ý nhất: vật tư mới đủ 90 ngày dữ liệu nhưng CHƯA khai gì —
+	bấm "Gợi ý từ tiêu thụ" chỉ điền được `adu_90`, 0/3 ô còn lại, và khách
+	kết luận nút hỏng. `lead_time_ngay` có default 3 ở mức field nên hầu như
+	luôn có mặt cho vật tư mới; `ton_toi_thieu` KHÔNG có default nào — đó
+	đúng là trường hợp ROP=ADU×lead+0 vẫn có nghĩa (tồn an toàn=0 là một lựa
+	chọn hợp lệ, không phải một giá trị thiếu cần chặn)."""
+	if chua_khai(lead_time_ngay):
 		return None
-	return round(float(adu_n or 0) * float(lead_time_ngay) + float(ton_toi_thieu), 6)
+	min_dung_de_cong = 0.0 if chua_khai(ton_toi_thieu) else float(ton_toi_thieu)
+	return round(float(adu_n or 0) * float(lead_time_ngay) + min_dung_de_cong, 6)
 
 
 def ngay_phu_ton(ton, adu_n):
@@ -432,6 +445,20 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 	return sorted(out, key=lambda r: (_MUC_DO_NGHIEM_TRONG.get(r["trang_thai"], 9), r["ten"]))
 
 
+# M-1 (review E5 round 2) — khoá của BA THẺ ĐẾM ("thieu"/"cham_rop"/
+# "chua_thiet_lap", đúng tên trong 30_API_Spec.md §3.4) KHÔNG trùng với giá
+# trị `trang_thai` của TỪNG DÒNG ("thieu"/"sap_thieu"/"chua_thiet_lap", xem
+# `_trang_thai_dong()`) — "cham_rop" (nhãn thẻ "Chạm điểm đặt lại") ứng với
+# dòng mang `trang_thai="sap_thieu"`. Trước bản sửa, `canh_bao_ton()` so
+# thẳng `r["trang_thai"] == trang_thai`: bấm thẻ "Chạm điểm đặt lại" (client
+# tự nhiên gửi lại đúng khoá của thẻ, "cham_rop") gửi `trang_thai="cham_rop"`
+# xuống, KHÔNG khớp bất kỳ dòng nào (dòng mang "sap_thieu") → bảng lọc ra 0
+# dòng, IM LẶNG — không lỗi, không gợi ý, trông như "không có gì cả" trong
+# khi cham_rop > 0. Dịch bí danh của thẻ về đúng giá trị dòng TRƯỚC khi lọc,
+# và vẫn CHẤP NHẬN client gửi thẳng "sap_thieu" (giá trị dòng thật).
+_BI_DANH_THE_DEM_SANG_TRANG_THAI_DONG = {"cham_rop": "sap_thieu"}
+
+
 def canh_bao_ton(kho: str, customer: str, trang_thai: str | None = None, trang: int = 1) -> dict:
 	"""Bọc phân trang + ba thẻ đếm quanh `canh_bao_ton_rows()` (DoD: phân
 	trang phía server). Ba thẻ đếm LUÔN phản ánh TOÀN BỘ danh sách (trước
@@ -444,7 +471,8 @@ def canh_bao_ton(kho: str, customer: str, trang_thai: str | None = None, trang: 
 	chua_thiet_lap = sum(1 for r in rows if r["trang_thai"] == "chua_thiet_lap")
 
 	if trang_thai:
-		rows = [r for r in rows if r["trang_thai"] == trang_thai]
+		loc_theo = _BI_DANH_THE_DEM_SANG_TRANG_THAI_DONG.get(trang_thai, trang_thai)
+		rows = [r for r in rows if r["trang_thai"] == loc_theo]
 
 	trang = max(1, int(trang or 1))
 	start = (trang - 1) * _TRANG_KHO_CANH_BAO_TON

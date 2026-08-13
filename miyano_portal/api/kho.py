@@ -284,7 +284,7 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 		        # E5 — ngưỡng dự trù, để màn danh mục/form vật tư hiển thị
 		        # được giá trị ĐANG LƯU trước khi khách bấm sửa.
 		        "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay",
-		        "boi_so_dat", "adu_90"],
+		        "boi_so_dat"],
 		order_by="ten_vat_tu asc",
 	)
 	if tim:

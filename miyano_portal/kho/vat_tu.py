@@ -109,7 +109,7 @@ def _chuan_hoa_row(row: dict) -> dict:
 	# `.get()`) vì hai nơi gọi hàm này (ra_dict(), kho_vat_tu_list()) đều CỐ
 	# Ý chọn đủ các cột này — thiếu cột là lỗi ở nơi gọi, không phải trường
 	# hợp hợp lệ cần bỏ qua êm.
-	for truong in ("ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "adu_90"):
+	for truong in ("ton_toi_thieu", "diem_dat_lai", "ton_toi_da"):
 		if truong in row:
 			row[truong] = float(row[truong] or 0)
 	for truong in ("lead_time_ngay", "boi_so_dat"):
@@ -123,7 +123,7 @@ def ra_dict(name: str, da_co: bool = False) -> dict:
 		"Customer Warehouse Item", name,
 		["name", "ma_vat_tu", "ten_vat_tu", "dvt", "item_code",
 		 "quy_cach", "nhom", "ghi_chu", "active",
-		 "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay", "boi_so_dat", "adu_90"],
+		 "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay", "boi_so_dat"],
 		as_dict=True,
 	)
 	_chuan_hoa_row(row)
