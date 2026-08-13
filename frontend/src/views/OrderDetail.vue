@@ -317,8 +317,12 @@ onMounted(load)
           >
             🔁 Đặt lại đơn này
           </button>
+          <!-- Ẩn khi đang "Chờ bạn đồng ý": hai bộ hành động (Đồng ý/Không
+               đồng ý ở banner trên và Huỷ/Sửa đơn ở đây) cùng hiện sẽ tranh
+               nhau — báo giá tự có đường "Không đồng ý" riêng, không cần
+               thêm nút Huỷ/Sửa. -->
           <button
-            v-if="data.status_vi === 'Chờ xác nhận'"
+            v-if="data.status_vi === 'Chờ xác nhận' && !(data.chap_nhan && data.chap_nhan.can_dong_y)"
             class="btn-o btn-sm"
             style="margin-left: 8px; color: var(--red); border-color: var(--red)"
             @click="requestCancel"

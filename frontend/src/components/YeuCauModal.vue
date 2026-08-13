@@ -6,7 +6,6 @@
 // component không tự biết ngữ cảnh, chỉ hiển thị những gì được truyền vào.
 import { computed, ref, watch } from 'vue'
 import api from '../api'
-import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 
 const props = defineProps({
