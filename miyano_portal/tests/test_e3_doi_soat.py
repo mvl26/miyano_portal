@@ -18,7 +18,7 @@ from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 from miyano_portal.api import kho as kho_api
-from miyano_portal.kho import delivery_hook, ledger
+from miyano_portal.kho import delivery_hook, desk_reports, ledger
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
 COMPANY = "Miyano Việt Nam"
@@ -193,6 +193,30 @@ class TestE3DoiSoat(FrappeTestCase):
 		self.assertEqual(len(self._phieu_cua(dn2.name)), 1)
 		self.assertEqual(len(self._phieu_cua(dn3.name)), 1)
 
+	# ---------------------------------------------------------------------- I1
+	def test_I1_so_dot_theo_thu_tu_ghi_so_khong_theo_thu_tu_soan(self):
+		"""I1 (E3 phần B review): `so_dot` phải theo THỨ TỰ GHI SỔ (submit),
+		không phải thứ tự soạn nháp (creation). Bug cũ sắp theo `creation` rồi
+		lấy `index` — DN soạn TRƯỚC nhưng ghi sổ SAU vẫn đứng đầu danh sách
+		sắp theo creation, nên nhận lại so_dot=1 y hệt DN ghi sổ trước nó:
+		hai phiếu cùng SO đều mang so_dot=1, không phiếu nào mang 2. Phiên bản
+		đã sửa đếm SỐ DN docstatus=1 tại đúng thời điểm hook chạy (dn hiện tại
+		đã docstatus=1 trong DB lúc này) — con số đó CHÍNH LÀ thứ tự ghi sổ,
+		không cần sắp theo cột nào nữa."""
+		so = self._sales_order(qty=20)
+		dn_a = self._dn_moi_tu_so(so, 12)  # soạn TRƯỚC (chưa submit)
+		dn_b = self._dn_tu_so(so, 8)       # soạn SAU nhưng ghi sổ TRƯỚC
+		dn_a.submit()                       # ghi sổ SAU CÙNG
+
+		phieu_b = self._phieu_duy_nhat(dn_b)
+		phieu_a = self._phieu_duy_nhat(dn_a)
+
+		self.assertEqual(phieu_b.so_dot, 1, "DN-B ghi sổ trước phải mang đợt 1")
+		self.assertEqual(
+			phieu_a.so_dot, 2,
+			"DN-A ghi sổ sau phải mang đợt 2 — không được trùng đợt 1 dù soạn trước",
+		)
+
 	# ------------------------------------------------------------------ TC-E3-03
 	def test_TC_E3_03_chenh_lech_khong_ly_do_bi_chan_co_ly_do_thi_ghi_so_duoc(self):
 		"""US-E3.3/BR-K17/NL-3.3."""
@@ -260,6 +284,12 @@ class TestE3DoiSoat(FrappeTestCase):
 
 		def _payload(so_luong, ly_do=None):
 			row = {
+				# C2 (E3 phần B review): server khớp mốc đối soát theo `name`
+				# của dòng con, không còn theo giá trị (vat_tu, so_lo) — gửi
+				# đúng như PhieuNhapDetail.vue::payload() làm (đọc `r.name` từ
+				# lần load trước), nếu không server sẽ hiểu đây là dòng MỚI
+				# (không có mốc) và, từ C1, coi dòng cũ như bị XOÁ.
+				"name": phieu.items[0].name,
 				"vat_tu": phieu.items[0].vat_tu,
 				"so_lo": phieu.items[0].so_lo,
 				"han_su_dung": str(han) if han else None,
@@ -304,6 +334,185 @@ class TestE3DoiSoat(FrappeTestCase):
 		)
 		bal = ledger.get_lot_balance(self.kho_bm, phieu.items[0].vat_tu, phieu.items[0].so_lo)
 		self.assertEqual(bal["so_luong"], 48)
+
+	# ---------------------------------------------------------------------- C1
+	def _payload_don_dong(self, phieu, **overrides):
+		row = {
+			"name": phieu.items[0].name,
+			"vat_tu": phieu.items[0].vat_tu,
+			"so_lo": phieu.items[0].so_lo,
+			"han_su_dung": str(phieu.items[0].han_su_dung) if phieu.items[0].han_su_dung else None,
+			"so_luong": phieu.items[0].so_luong,
+			"don_gia": phieu.items[0].don_gia,
+			"ghi_chu": phieu.items[0].ghi_chu,
+		}
+		row.update(overrides)
+		return {
+			"name": phieu.name,
+			"ngay": str(phieu.ngay), "loai_nhap": phieu.loai_nhap,
+			"nguoi_giao": phieu.nguoi_giao, "chung_tu_kem": phieu.chung_tu_kem,
+			"dien_giai": phieu.dien_giai,
+			"items": [row],
+		}
+
+	def test_C1_xoa_dong_hook_sinh_bi_chan(self):
+		"""C1 (E3 phần B review): trước bản này, DN giao VT-A 50 + VT-B 30,
+		VT-B mất trên đường → `_check_so_luong` chặn cứng so_luong<=0 nên
+		thủ kho KHÔNG CÒN CÁCH NÀO khác ngoài bấm ✕ xoá dòng VT-B để lưu
+		được — lưu OK, ghi sổ OK, `co_chenh_lech=0`, không notification,
+		report UC-48 không bao giờ thấy 30 đơn vị mất. Payload đánh rơi một
+		dòng có `sl_giao > 0` (không còn `name` của nó) giờ phải bị CHẶN."""
+		so = self._sales_order(qty=50)
+		dn = self._dn_tu_so(so, 50)
+		phieu = self._phieu_duy_nhat(dn)
+
+		# Dòng "khác" hoàn toàn (name khác/không có) thay cho dòng hook sinh —
+		# đúng hình dạng payload khi thủ kho bấm ✕ rồi (có thể) thêm dòng khác.
+		payload = self._payload_don_dong(phieu)
+		payload["items"] = [{
+			"vat_tu": phieu.items[0].vat_tu, "so_lo": "LO-KHAC",
+			"han_su_dung": None, "so_luong": 5,
+			"don_gia": phieu.items[0].don_gia, "ghi_chu": "",
+		}]
+
+		frappe.set_user(BM_USER)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			kho_api.kho_phieu_nhap_save(payload)
+		self.assertIn("không được xoá dòng do phiếu giao hàng sinh ra", str(ctx.exception))
+
+		lai = frappe.get_doc("Customer Stock Receipt", phieu.name)
+		self.assertEqual(len(lai.items), 1, "lưu thất bại không được để lại dữ liệu nửa vời")
+		self.assertEqual(lai.items[0].so_luong, 50)
+
+	def test_C1_nhan_0_di_qua_duong_bao_chenh_lech_khong_phai_xoa_dong(self):
+		"""Hàng mất/thiếu HOÀN TOÀN giờ ghi được `so_luong=0` kèm lý do — thủ
+		kho không còn phải xoá cả dòng để lưu được nữa. Notification và
+		report UC-48 phải thấy đủ; sổ kho không được đẻ dòng rỗng cho một sự
+		kiện qty=0."""
+		so = self._sales_order(qty=50)
+		dn = self._dn_tu_so(so, 50)
+		phieu = self._phieu_duy_nhat(dn)
+		ten_dong = phieu.items[0].name
+
+		payload = self._payload_don_dong(
+			phieu, so_luong=0, ly_do_chenh_lech="mất trên đường vận chuyển",
+		)
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_phieu_nhap_save(payload)
+		self.assertEqual(out["items"][0]["so_luong"], 0)
+
+		kho_api.kho_phieu_submit("Customer Stock Receipt", phieu.name)
+		lai = frappe.get_doc("Customer Stock Receipt", phieu.name)
+		self.assertEqual(lai.co_chenh_lech, 1)
+		self.assertEqual(lai.items[0].sl_giao, 50)
+		self.assertEqual(lai.items[0].so_luong, 0)
+
+		self.assertFalse(
+			frappe.db.exists("Customer Stock Ledger Entry", {
+				"chung_tu_type": "Customer Stock Receipt", "chung_tu": phieu.name,
+				"chung_tu_row": ten_dong,
+			}),
+			"sự kiện qty=0 không được đẻ dòng sổ rỗng",
+		)
+		self.assertIsNone(
+			ledger.get_lot_balance(self.kho_bm, phieu.items[0].vat_tu, phieu.items[0].so_lo),
+			"chưa từng có tồn cho lô này — không được tự sinh một dòng tồn 0",
+		)
+		self.assertTrue(
+			frappe.db.exists("Notification Log", {
+				"for_user": SALES_USER,
+				"subject": ["like", f"%Chênh lệch nhận hàng%{phieu.name}%"],
+			}),
+			"hàng mất hoàn toàn vẫn phải báo sales phụ trách",
+		)
+
+		rows = desk_reports.doi_soat_giao_nhan_rows(chi_chenh_lech=True)
+		row = next(r for r in rows if r["phieu_nhap"] == phieu.name)
+		self.assertEqual(row["chenh"], -50, "report UC-48 phải thấy đủ 50 đơn vị mất")
+
+	# ---------------------------------------------------------------------- C2
+	def test_C2_sua_so_lo_khong_lam_mat_sl_giao(self):
+		"""C2 (E3 phần B review): khớp mốc đối soát theo `name` của dòng con,
+		KHÔNG PHẢI theo giá trị (vat_tu, so_lo). Trước bản này, thủ kho gõ
+		lại số lô in trên thùng thay cho KHONG-LO (đúng giao diện mới cổ vũ,
+		badge "⚠ Thiếu lô/hạn" nằm ngay cạnh ô Số lô) khiến khoá không còn
+		khớp → sl_giao rơi về 0 ÂM THẦM, tắt vĩnh viễn BR-K17 cho dòng đó."""
+		so = self._sales_order(qty=50)
+		dn = self._dn_tu_so(so, 50)
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.items[0].sl_giao, 50)
+
+		payload = self._payload_don_dong(phieu, so_lo="LO-THUC-TE-GHI-TREN-THUNG")
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_phieu_nhap_save(payload)
+		self.assertEqual(out["items"][0]["so_lo"], "LO-THUC-TE-GHI-TREN-THUNG")
+
+		lai = frappe.get_doc("Customer Stock Receipt", phieu.name)
+		self.assertEqual(
+			lai.items[0].sl_giao, 50,
+			"sửa Số lô không được làm mất mốc đối soát (khớp theo name, không theo giá trị)",
+		)
+
+		# Chốt BR-K17 vẫn phải sống: sửa thêm so_luong lệch mà không có lý do
+		# phải bị chặn NGAY TRÊN dòng vừa đổi số lô — chứng minh sl_giao
+		# không chỉ "còn giá trị cũ" mà THẬT SỰ vẫn được validate dùng.
+		payload2 = self._payload_don_dong(
+			phieu, so_lo="LO-THUC-TE-GHI-TREN-THUNG", so_luong=40,
+		)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			kho_api.kho_phieu_nhap_save(payload2)
+		self.assertIn("Nhập lý do chênh lệch để tiếp tục", str(ctx.exception))
+
+	# --------------------------------------------------------------------- C2b
+	def test_C2b_hai_dong_trung_vat_tu_so_lo_khong_dao_lon_moc(self):
+		"""C2b: hook CÓ THỂ sinh hai dòng cùng (vat_tu, so_lo) thật (hai dòng
+		DN khác giá/khác SO gộp lô — `_lo_cua_dong` chỉ gộp lô TRONG PHẠM VI
+		một dòng DN). Bản khớp theo giá trị cũ sẽ gán mốc của dòng ĐẦU cho
+		bất kỳ dòng payload nào khớp cùng giá trị — khớp theo `name` phải
+		giữ ĐÚNG mốc riêng của từng dòng dù giá trị trùng nhau và thứ tự
+		trong payload bị đảo."""
+		so = self._sales_order(qty=50)
+		dn = self._dn_tu_so(so, 50)
+		phieu = self._phieu_duy_nhat(dn)
+		vat_tu = phieu.items[0].vat_tu
+		so_lo = phieu.items[0].so_lo
+		han = phieu.items[0].han_su_dung
+		don_gia = phieu.items[0].don_gia
+
+		# Mô phỏng dòng thứ hai hook có thể sinh — cùng (vat_tu, so_lo),
+		# sl_giao khác (10, thay vì 50 của dòng đầu).
+		doc = frappe.get_doc("Customer Stock Receipt", phieu.name)
+		doc.append("items", {
+			"vat_tu": vat_tu, "so_lo": so_lo, "han_su_dung": han,
+			"so_luong": 10, "sl_giao": 10, "don_gia": don_gia,
+		})
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		self.assertEqual(len(doc.items), 2)
+		ten_50 = next(r.name for r in doc.items if r.sl_giao == 50)
+		ten_10 = next(r.name for r in doc.items if r.sl_giao == 10)
+
+		def _row(ten, so_luong):
+			return {
+				"name": ten, "vat_tu": vat_tu, "so_lo": so_lo,
+				"han_su_dung": str(han) if han else None,
+				"so_luong": so_luong, "don_gia": don_gia, "ghi_chu": "",
+			}
+
+		frappe.set_user(BM_USER)
+		payload = {
+			"name": phieu.name, "ngay": str(doc.ngay), "loai_nhap": doc.loai_nhap,
+			"nguoi_giao": doc.nguoi_giao, "chung_tu_kem": doc.chung_tu_kem,
+			"dien_giai": doc.dien_giai,
+			# Đảo thứ tự so với DB — khớp theo name phải KHÔNG bị ảnh hưởng.
+			"items": [_row(ten_10, 10), _row(ten_50, 50)],
+		}
+		kho_api.kho_phieu_nhap_save(payload)
+
+		lai = frappe.get_doc("Customer Stock Receipt", phieu.name)
+		moc = {r.name: r.sl_giao for r in lai.items}
+		self.assertEqual(moc[ten_50], 50, "dòng vốn sl_giao=50 phải giữ đúng 50")
+		self.assertEqual(moc[ten_10], 10, "dòng vốn sl_giao=10 phải giữ đúng 10, không lẫn với dòng kia")
 
 	# ------------------------------------------------------------------ TC-E3-04
 	def test_TC_E3_04_vuot_sl_giao_bi_chan_ke_ca_co_ly_do(self):

@@ -146,6 +146,17 @@ def post_lines(voucher, lines: list[dict]) -> list[str]:
 			continue
 
 		so_luong = float(line["so_luong"])
+		if abs(so_luong) <= EPS:
+			# C1 (E3 phần B): phiếu nhập giờ cho ghi so_luong=0 trên dòng nguồn
+			# Miyano ("nhận 0" — hàng mất/thiếu hoàn toàn, xem
+			# voucher._check_so_luong). Một sự kiện KHÔNG có số lượng thì
+			# không có gì để cộng vào sổ — bỏ qua, đừng đẻ một dòng
+			# Customer Stock Ledger Entry rỗng (so_luong=0) vào sổ append-only.
+			# BR-K17/report UC-48 đọc mốc đối soát từ Customer Stock Receipt
+			# Item (sl_giao/so_luong/ly_do_chenh_lech), không phải từ sổ, nên
+			# bỏ dòng này ở đây không làm mất tín hiệu "đã mất 30 đơn vị".
+			continue
+
 		don_gia = float(line.get("don_gia") or 0)
 
 		# Chặn TRƯỚC khi insert dòng sổ: sổ là append-only, không xoá được, nên

@@ -298,13 +298,23 @@ def _so_dot_cua(dn) -> int | None:
 	"""US-E3.2 (BR-K16): thứ tự DN ĐÃ GHI SỔ của cùng Sales Order.
 
 	`dn` ở đây đã docstatus=1 trong DB (hook chạy trong on_submit, sau
-	db_update()), nên chính nó cũng được đếm. Sắp theo `creation` — trong
-	luồng thật DN được tạo rồi submit gần như ngay sau đó, nên thứ tự tạo
-	trùng thứ tự ghi sổ; không có cột "thời điểm submit" riêng trong Frappe
-	để sắp chính xác hơn. LỆCH Ý so với brief gốc ("sắp theo thời điểm ghi
-	sổ"): một DN soạn nháp sớm rồi ghi sổ trễ (sau một DN khác soạn/ghi sổ
-	sau nó) sẽ nhận so_dot sai thứ tự thực tế. Chấp nhận vì Frappe không có
-	cột mốc thời gian submit riêng để sắp đúng hơn.
+	db_update()), nên chính nó cũng được đếm. Vì vậy SỐ LƯỢNG DN docstatus=1
+	của SO này TẠI THỜI ĐIỂM NÀY — bao gồm chính `dn` — CHÍNH LÀ thứ tự ghi
+	sổ của nó: không có DN nào khác kịp submit sau nó trước khi hook này
+	chạy (Python đơn luồng trong một request), nên `len(danh_sach)` không
+	cần sắp theo cột nào cả.
+
+	SỬA (I1, E3 phần B review — bản trước SAI, không chỉ lệch ý mà ĐỤNG SỐ):
+	bản trước sắp theo `creation` (thời điểm SOẠN nháp) rồi lấy `index`, với
+	lý do "DN được tạo rồi submit gần như ngay sau đó nên thứ tự trùng
+	nhau". Sai khi DN-A soạn TRƯỚC nhưng ghi sổ SAU DN-B (soạn sau, ghi sổ
+	trước): lúc DN-B submit, danh sách docstatus=1 = [DN-B] → so_dot=1. Lúc
+	DN-A submit, danh sách sắp theo creation = [DN-A, DN-B] (DN-A vẫn đứng
+	đầu vì soạn trước) → index(DN-A)+1 = 1. HAI phiếu cùng SO cùng mang
+	so_dot=1, không phiếu nào mang 2 — không chỉ "lệch thứ tự hiển thị" mà
+	MẤT một số đợt thật. `len(danh_sach)` không có lỗ này vì nó không quan
+	tâm DN nào đứng đâu trong danh sách, chỉ đếm đã có bao nhiêu DN docstatus
+	=1 tính đến thời điểm hook đang chạy.
 
 	CŨNG LƯU Ý: so_dot là ẢNH CHỤP tại thời điểm tạo phiếu, không tính lại
 	khi một DN giữa chừng bị huỷ — huỷ DN2 của ba DN không kéo so_dot=3 của
@@ -325,8 +335,7 @@ def _so_dot_cua(dn) -> int | None:
 		   from `tabDelivery Note Item` dni
 		   join `tabDelivery Note` dn on dn.name = dni.parent
 		   where dni.against_sales_order = %s and dn.docstatus = 1
-		   group by dni.parent
-		   order by dn.creation asc, dn.name asc""",
+		   group by dni.parent""",
 		so,
 		as_dict=False,
 	)
@@ -335,7 +344,7 @@ def _so_dot_cua(dn) -> int | None:
 		# Không nên xảy ra (dn đã docstatus=1 trong DB) — nhưng nếu có, không
 		# đoán mò một con số sai, để trống còn hơn.
 		return None
-	return danh_sach.index(dn.name) + 1
+	return len(danh_sach)
 
 
 # ------------------------------------------------------------------ vật tư kho

@@ -509,21 +509,58 @@ def kho_phieu_nhap_save(payload) -> dict:
 	# nếu không tự khôi phục thì mốc đó BIẾN MẤT ngay lần đầu thủ kho sửa
 	# so_luong rồi lưu nháp — vỡ chốt chặn BR-K17 (sl_giao về 0 khiến dòng bị
 	# coi là "không thuộc nguồn Miyano", bỏ qua kiểm tra thay vì chặn đúng lúc
-	# cần). Khớp theo (vat_tu, so_lo): danh tính ổn định của một dòng phiếu
-	# hook tạo ra — thủ kho đối chiếu hàng thực nhận chỉ sửa so_luong/lý do,
-	# không đổi vật tư hay số lô của dòng đó.
-	moc_doi_soat_cu: dict[tuple, list[dict]] = {}
+	# cần).
+	#
+	# Khớp theo `name` của DÒNG CON (danh tính thật, không giả được — client
+	# nhận nó từ chính lần load trước qua _phieu_to_dict()), KHÔNG PHẢI theo
+	# giá trị (vat_tu, so_lo) như bản trước. Bản trước có hai lỗ:
+	#   1. Thủ kho sửa Số lô (ví dụ gõ số lô in trên thùng thay cho KHONG-LO)
+	#      → khoá không còn khớp → sl_giao rơi về 0 ÂM THẦM, tắt vĩnh viễn
+	#      BR-K17 cho dòng đó (không cảnh báo gì — sổ append-only, không sửa
+	#      lại được sau khi ghi sổ).
+	#   2. Hook có thể sinh HAI dòng cùng (vat_tu, so_lo) thật (hai dòng DN
+	#      khác giá/khác SO gộp lô) — `cu.pop(0)` gán mốc của dòng ĐẦU cho bất
+	#      kỳ dòng nào khớp giá trị, kể cả khi thủ kho xoá dòng đầu và dòng
+	#      còn lại đáng lẽ mang mốc khác.
+	# `name` không đổi dù thủ kho sửa vat_tu/so_lo/so_luong — chỉ đổi khi dòng
+	# đó thật sự bị xoá. Dòng KHÔNG có `name` trong payload (mới thêm tay/nhập
+	# Excel) không khớp gì cả → sl_giao=0 đúng nghĩa "không có mốc", nhất quán
+	# cho cả trường hợp thêm dòng mới thật lẫn trường hợp thủ kho xoá dòng
+	# hook sinh rồi gõ tay lại "y hệt" — đó KHÔNG PHẢI cùng một dòng nữa.
+	moc_doi_soat_cu: dict[str, dict] = {
+		r.name: {"sl_giao": r.sl_giao, "thieu_lo_han": r.thieu_lo_han}
+		for r in doc.items
+	}
+
+	# C1 (BR-K17 bị vô hiệu qua nút xoá dòng): payload đánh rơi một dòng đã có
+	# sl_giao > 0 (tức nguồn Miyano — hook điền) là thủ kho vừa bấm ✕ xoá nó.
+	# Hàng biến mất khỏi chứng từ NGAY CẢ KHI thủ kho không cố ý lách luật —
+	# đây là lối tắt DUY NHẤT còn lại để tránh chốt chặn BR-K17 khi hàng thật
+	# sự bị thiếu/mất hoàn toàn (0 đơn vị), vì trước đây _check_so_luong không
+	# cho ghi so_luong=0. Kể từ bản này so_luong=0 được PHÉP cho dòng có
+	# sl_giao > 0 (xem voucher._check_so_luong) — "nhận 0" giờ đi qua đúng
+	# đường BR-K17 (bắt lý do, hiện trên report), không phải qua đường xoá
+	# dòng làm biến mất mọi dấu vết. Kiểm TRƯỚC khi wipe doc.items.
+	ten_con_trong_payload = {row.get("name") for row in items if row.get("name")}
 	for r in doc.items:
-		moc_doi_soat_cu.setdefault((r.vat_tu, r.so_lo), []).append({
-			"sl_giao": r.sl_giao, "thieu_lo_han": r.thieu_lo_han,
-		})
+		if float(r.sl_giao or 0) > 0 and r.name not in ten_con_trong_payload:
+			frappe.throw(
+				f"Dòng {r.idx} ({r.ten_vat_tu or r.vat_tu}): không được xoá dòng "
+				"do phiếu giao hàng sinh ra. Nhận thiếu/mất hoàn toàn thì ghi "
+				"số lượng 0 và nêu lý do chênh lệch, đừng xoá dòng — xoá sẽ làm "
+				"mất dấu vết, hàng coi như chưa từng được giao.",
+				frappe.ValidationError,
+			)
 
 	doc.set("items", [])
 	for row in items:
-		khoa = (row.get("vat_tu"), row.get("so_lo"))
-		cu = moc_doi_soat_cu.get(khoa)
-		giu_lai = cu.pop(0) if cu else {}
-		doc.append("items", {
+		ten = row.get("name")
+		# Chỉ tin `ten` khi nó khớp một dòng ĐANG THẬT SỰ có trong doc.items
+		# vừa load (moc_doi_soat_cu dựng từ đó) — một `name` lạ/cũ (đã đổi từ
+		# vòng lưu trước, xem lý do trong dòng_moi bên dưới) không được coi
+		# là hợp lệ, rơi về nhánh "dòng mới" cho an toàn.
+		giu_lai = moc_doi_soat_cu.get(ten)
+		dong_moi = {
 			"vat_tu": row.get("vat_tu"),
 			"so_lo": row.get("so_lo"),
 			"han_su_dung": row.get("han_su_dung"),
@@ -531,9 +568,21 @@ def kho_phieu_nhap_save(payload) -> dict:
 			"don_gia": row.get("don_gia"),
 			"ghi_chu": row.get("ghi_chu"),
 			"ly_do_chenh_lech": row.get("ly_do_chenh_lech"),
-			"sl_giao": giu_lai.get("sl_giao"),
-			"thieu_lo_han": giu_lai.get("thieu_lo_han"),
-		})
+			"sl_giao": (giu_lai or {}).get("sl_giao"),
+			"thieu_lo_han": (giu_lai or {}).get("thieu_lo_han"),
+		}
+		if giu_lai is not None:
+			# QUAN TRỌNG: giữ lại `name` gốc khi append lại — không giữ thì
+			# Frappe sinh `name` MỚI cho MỌI dòng ở MỖI lần lưu (vòng lặp này
+			# luôn wipe rồi dựng lại toàn bộ bảng dòng), khiến định danh dòng
+			# không ổn định qua hai lần gọi liên tiếp. Client vẫn hoạt động
+			# đúng (Vue luôn ghi đè doc.items bằng đúng response mới nhất sau
+			# mỗi lần lưu — xem save() trong PhieuNhapDetail.vue), nhưng nếu
+			# name đổi mà không được lưu ổn định, chốt chặn "xoá dòng" phía
+			# trên (C1) sẽ nhận NHẦM một dòng CÒN NGUYÊN là "vừa bị xoá" ngay
+			# ở lần lưu tiếp theo — tự mình gây ra chính lỗ hổng C1 định vá.
+			dong_moi["name"] = ten
+		doc.append("items", dong_moi)
 
 	doc.flags.ignore_permissions = True
 	if doc.is_new():

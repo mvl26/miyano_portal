@@ -171,7 +171,14 @@ function validateClient() {
     // Server đã chặn bằng voucher._check_so_luong; kiểm ở đây để người dùng
     // đang sửa một dòng đỏ tại chỗ biết ngay còn thiếu gì, không phải đợi một
     // vòng gọi mạng.
-    if (!(Number(r.so_luong) > 0)) {
+    //
+    // C1 (E3 phần B review): so_luong = 0 giờ HỢP LỆ, nhưng CHỈ trên dòng
+    // nguồn Miyano (sl_giao > 0 — "nhận 0" đi qua đúng đường BR-K17 bên
+    // dưới, bắt lý do, không phải bị chặn cứng buộc thủ kho phải xoá cả
+    // dòng để lưu được). Khai `giao` TRƯỚC để dùng ở cả hai chỗ.
+    const giao = slGiao(r)
+    const soLuongRaw = Number(r.so_luong) || 0
+    if (soLuongRaw < 0 || (soLuongRaw === 0 && !giao)) {
       showToast(`Dòng ${i + 1}: số lượng phải lớn hơn 0.`, 'error')
       return false
     }
@@ -179,9 +186,8 @@ function validateClient() {
     // chốt cuối (_validate_doi_soat_giao_nhan chạy lại y hệt trên save/submit
     // dù client có bỏ sót gì). Nguyên văn thông điệp khớp server để người
     // dùng không thấy hai câu khác nhau cho cùng một lỗi.
-    const giao = slGiao(r)
     if (giao > 0) {
-      const soLuong = Number(r.so_luong) || 0
+      const soLuong = soLuongRaw
       if (soLuong > giao + EPS) {
         showToast(
           `Dòng ${i + 1}: thực nhận (${soLuong}) không được vượt SL giao (${giao}). ` +
@@ -210,16 +216,21 @@ function payload() {
     chung_tu_kem: doc.chung_tu_kem,
     dien_giai: doc.dien_giai,
     items: doc.items.map((r) => ({
+      // `name` của dòng con (có sẵn từ lần load qua kho_phieu_get) — server
+      // khớp lại mốc đối soát sl_giao/thieu_lo_han theo ĐÚNG danh tính này,
+      // không phải theo giá trị vat_tu/so_lo (sửa Số lô sẽ không còn làm mất
+      // mốc). Dòng mới thêm tay/nhập Excel không có name — gửi undefined,
+      // JSON bỏ qua field đó, server hiểu là dòng mới (không có mốc).
+      name: r.name || undefined,
       vat_tu: r.vat_tu, so_lo: r.so_lo, han_su_dung: r.han_su_dung || null,
       so_luong: r.so_luong, don_gia: r.don_gia, ghi_chu: r.ghi_chu,
-      // BR-K17: server bắt buộc field này khi so_luong lệch sl_giao (mốc đối
-      // soát mà server tự khôi phục theo (vat_tu, so_lo) — xem
-      // kho_phieu_nhap_save). CHỈ gửi khi dòng THẬT SỰ đang lệch — thủ kho
-      // gõ "vỡ 2 hộp" lúc so_luong=48 rồi sửa lại 50 (hết lệch) không được
-      // để lý do cũ trôi theo lên phiếu: ô nhập đã ẩn khỏi màn hình
-      // (coChenhLech(r) false) nhưng r.ly_do_chenh_lech vẫn còn giá trị cũ
-      // trong bộ nhớ nếu không dọn ở đây — sẽ hiện sai trên report "Đối
-      // soát giao – nhận" (cột Lý do có giá trị dù cột Chênh = 0).
+      // BR-K17: server bắt buộc field này khi so_luong lệch sl_giao. CHỈ gửi
+      // khi dòng THẬT SỰ đang lệch — thủ kho gõ "vỡ 2 hộp" lúc so_luong=48
+      // rồi sửa lại 50 (hết lệch) không được để lý do cũ trôi theo lên phiếu:
+      // ô nhập đã ẩn khỏi màn hình (coChenhLech(r) false) nhưng
+      // r.ly_do_chenh_lech vẫn còn giá trị cũ trong bộ nhớ nếu không dọn ở
+      // đây — sẽ hiện sai trên report "Đối soát giao nhận" (cột Lý do có
+      // giá trị dù cột Chênh = 0).
       ly_do_chenh_lech: coChenhLech(r) ? r.ly_do_chenh_lech || null : null,
     })),
   }
@@ -469,7 +480,14 @@ onMounted(async () => {
               </td>
               <td class="right">{{ fmtVND(editable ? rowThanhTien(r) : r.thanh_tien) }}</td>
               <td v-if="editable">
-                <button class="btn-o btn-sm" @click="removeRow(idx)">✕</button>
+                <!-- C1 (E3 phần B review): dòng do hook sinh (sl_giao > 0)
+                     KHÔNG được xoá — xoá làm mất mốc đối soát BR-K17 vĩnh
+                     viễn (sổ append-only), report "Đối soát giao nhận" sẽ
+                     không bao giờ thấy hàng đã mất. Nhận thiếu/mất hoàn toàn
+                     thì ghi số lượng 0 + lý do (server chấp nhận từ bản
+                     này), không xoá dòng. -->
+                <button v-if="!slGiao(r)" class="btn-o btn-sm" @click="removeRow(idx)">✕</button>
+                <span v-else class="tag" title="Dòng do phiếu giao hàng Miyano sinh ra — không xoá được">🔒</span>
               </td>
             </tr>
           </tbody>

@@ -58,7 +58,26 @@ def validate_vat_tu_thuoc_kho(doc) -> None:
 
 
 def _check_so_luong(row) -> None:
-	if float(row.so_luong or 0) <= 0:
+	"""C1 (BR-K17 vô hiệu qua nút xoá dòng, E3 phần B review): trước bản này,
+	`so_luong` phải > 0 TUYỆT ĐỐI — không có cách nào ghi "nhận 0" trên một
+	dòng nguồn Miyano (`sl_giao > 0`), nên hàng bị mất/thiếu HOÀN TOÀN buộc
+	thủ kho phải xoá cả dòng để lưu được. Xoá dòng làm `sl_giao` biến mất
+	theo, tắt luôn BR-K17 và khiến report "Đối soát giao nhận" không bao giờ
+	thấy được số hàng đã mất — không một tín hiệu, không notification.
+
+	Giờ cho phép `so_luong = 0` NHƯNG CHỈ trên dòng có `sl_giao > 0` — dòng
+	khách tự lập (Tồn đầu kỳ, Nhập khác, và mọi dòng phiếu xuất — không
+	doctype nào trong số đó có field `sl_giao`, `row.get("sl_giao")` trả
+	`None`/0 an toàn) vẫn bị chặn `so_luong <= 0` y hệt trước đây. `so_luong
+	== 0` trên dòng nguồn Miyano vẫn phải qua `_validate_doi_soat_giao_nhan`
+	(BR-K17) như mọi mức lệch khác — bắt lý do, gắn `co_chenh_lech`, bắn
+	notification; không phải một lối tắt né chốt chặn đó."""
+	so_luong = float(row.so_luong or 0)
+	if so_luong < 0:
+		frappe.throw(
+			f"Dòng {row.idx}: số lượng không được âm.", frappe.ValidationError
+		)
+	if so_luong == 0 and not float(row.get("sl_giao") or 0):
 		frappe.throw(
 			f"Dòng {row.idx}: số lượng phải lớn hơn 0.", frappe.ValidationError
 		)
