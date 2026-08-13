@@ -31,6 +31,7 @@ export function statusBadge(statusVi) {
     'Đang xử lý': 'b-blue',
     'Đang giao': 'b-orange',
     'Hoàn thành': 'b-green',
+    'Hoàn thành (đóng sớm)': 'b-green',
     'Đã huỷ': 'b-red',
   }
   return map[statusVi] || 'b-gray'

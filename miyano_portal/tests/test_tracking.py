@@ -64,7 +64,9 @@ class TestTracking(FrappeTestCase):
         self.assertEqual(portal._so_status_vi("To Bill", 0), "Đang xử lý")
         self.assertEqual(portal._so_status_vi("Draft", 0), "Chờ xác nhận")
         self.assertEqual(portal._so_status_vi("Draft", None), "Chờ xác nhận")
-        # Completed/Cancelled must win even if per_delivered is still > 0.
+        # Completed/Cancelled/Closed must win even if per_delivered is still > 0.
         self.assertEqual(portal._so_status_vi("Completed", 100), "Hoàn thành")
         self.assertEqual(portal._so_status_vi("Cancelled", 50), "Đã huỷ")
-        self.assertEqual(portal._so_status_vi("Closed", 0), "Đã huỷ")
+        # NL-2.8 (task 8) — "Closed" (đóng sớm) không còn gộp vào "Đã huỷ":
+        # phần đã giao vẫn là hàng khách đã nhận, xem TestTrangThaiDongSom.
+        self.assertEqual(portal._so_status_vi("Closed", 0), "Hoàn thành (đóng sớm)")

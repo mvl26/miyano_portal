@@ -2,6 +2,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from miyano_portal.api import portal
+from miyano_portal.api.portal import _so_status_vi
 from miyano_portal.portal_sla import gio_lam_viec_troi_qua, quet_don_treo
 from miyano_portal.setup.seed_demo import seed_demo
 
@@ -176,3 +177,21 @@ class TestBaoCaoDonCham(FrappeTestCase):
         )
         self.assertNotIn("Customer", roles)
         self.assertTrue(roles, "báo cáo không khai role nào là mặc định mở quá rộng")
+
+
+class TestTrangThaiDongSom(FrappeTestCase):
+    def test_closed_khong_con_la_da_huy(self):
+        """Đơn giao dở rồi đóng sớm KHÔNG phải đơn bị huỷ — khách đọc "Đã huỷ"
+        sẽ tưởng chưa nhận được gì, trong khi đã nhận 60%."""
+        self.assertEqual(_so_status_vi("Closed", per_delivered=60), "Hoàn thành (đóng sớm)")
+
+    def test_closed_khi_chua_giao_gi_van_la_dong_som(self):
+        self.assertEqual(_so_status_vi("Closed", per_delivered=0), "Hoàn thành (đóng sớm)")
+
+    def test_cancelled_van_la_da_huy(self):
+        self.assertEqual(_so_status_vi("Cancelled", per_delivered=0), "Đã huỷ")
+
+    def test_cac_trang_thai_khac_khong_doi(self):
+        self.assertEqual(_so_status_vi("Completed", per_delivered=100), "Hoàn thành")
+        self.assertEqual(_so_status_vi("Draft", per_delivered=0), "Chờ xác nhận")
+        self.assertEqual(_so_status_vi("To Deliver and Bill", per_delivered=30), "Đang giao")

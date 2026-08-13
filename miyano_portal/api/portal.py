@@ -457,7 +457,13 @@ def _so_status_vi(so_status, per_delivered=None):
     """
     if so_status == "Completed":
         return "Hoàn thành"
-    if so_status in ("Cancelled", "Closed"):
+    if so_status == "Closed":
+        # NL-2.8 — đóng sớm KHÁC huỷ: phần đã giao vẫn là hàng khách đã nhận.
+        # Gộp chung vào "Đã huỷ" khiến khách tưởng không nhận được gì.
+        # TODO(VĐ-7): phần chưa giao hiện KHÔNG được hoàn vào hạn mức Blanket
+        # Order. Chỉ làm khi chủ đầu tư chốt cơ chế — xem BA §VĐ-7.
+        return "Hoàn thành (đóng sớm)"
+    if so_status == "Cancelled":
         return "Đã huỷ"
     if float(per_delivered or 0) > 0:
         return "Đang giao"
