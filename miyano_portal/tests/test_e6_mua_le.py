@@ -172,12 +172,12 @@ class TestDatHangBanLe(FrappeTestCase):
 
     # ---------- TC-E6-02 ----------
     def test_dat_le_item_co_gia_khong_tru_han_muc(self):
-        bo = portal.portal_contracts()[0]["name"]
-        con_lai_truoc, da_dat_truoc = frappe.db.get_value(
-            "Blanket Order Item", {"parent": bo, "item_code": VT_HDNT},
-            ["qty", "ordered_qty"],
-        )
-
+        # review T-1 — bản trước đọc qty/ordered_qty của VT0005 sau khi đặt
+        # LẺ mặt hàng RETAIL_CO_GIA — hai mặt hàng không liên quan, phép so
+        # sánh không khẳng định được gì (VT0005 không đổi vì không ai đụng
+        # tới nó, chứ không phải vì "đơn mua lẻ không trừ hạn mức"). Phần
+        # chịu tải thật của US-E6.2/BR-R4 là ba assertFalse dưới đây: dòng
+        # đơn không mang blanket_order/against_blanket_order/custom_hdnt.
         res = portal.portal_order_place(
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
             mode="ban_le", request_id=_rid(),
@@ -193,13 +193,79 @@ class TestDatHangBanLe(FrappeTestCase):
         self.assertFalse(so.items[0].against_blanket_order)
         self.assertFalse(so.custom_hdnt)
 
-        # Hạn mức HĐNT của khách không hề bị đụng tới bởi đơn mua lẻ.
-        con_lai_sau, da_dat_sau = frappe.db.get_value(
-            "Blanket Order Item", {"parent": bo, "item_code": VT_HDNT},
-            ["qty", "ordered_qty"],
+    # ---------- review C-1 (Critical) — chốt BR-R1 PHẢI có ở đường GHI ----------
+    def test_c1_khach_chua_bat_co_khong_dat_le_duoc_qua_duong_ghi(self):
+        """Bản trước chỉ kiểm `custom_cho_phep_mua_le` ở `portal_catalog_
+        ban_le` (đường đọc) — PXN (chưa bật cờ) POST THẲNG `mode="ban_le"`,
+        bỏ qua hẳn danh mục, vẫn nhận về một Sales Order hợp lệ. Đây là ca
+        PHẢI đỏ nếu chốt này biến mất — không phải suy luận, thử phá code
+        rồi khôi phục (xem báo cáo)."""
+        frappe.set_user(USER_PXN)
+        rid = _rid()
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_order_place(
+                items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
+                mode="ban_le", request_id=rid,
+            )
+        self.assertEqual(frappe.local.response.get("ly_do"), "khong_duoc_mua_le")
+        self.assertFalse(frappe.db.exists("Sales Order", {"custom_request_id": rid}))
+
+    # ---------- review C-2 (Critical) — BR-R7 không được lách qua hoa/thường ----------
+    def test_c2_ma_hang_viet_thuong_van_bi_br_r7_chan(self):
+        """`tabItem` chạy collation `utf8mb4_unicode_ci` (case-insensitive):
+        MariaDB coi "vt0005" và "VT0005" là CÙNG một bản ghi, nhưng phép so
+        `item_code in thuoc_hdnt` (Python `in` trên `set`) không biết điều
+        đó. Gửi thẳng mã viết thường của mặt hàng dual-listed (thuộc HĐNT
+        hiệu lực + có custom_ban_le_portal=1) — PHẢI vẫn bị BR-R7 chặn, và
+        lỗi phải báo đúng mã CHÍNH TẮC (không phải chuỗi thô client gõ) vì
+        đó là mã Frappe thực sự sẽ lưu nếu chốt không chặn kịp."""
+        rid = _rid()
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                items=json.dumps([{"item_code": VT_HDNT.lower(), "qty": 1}]),
+                mode="ban_le", request_id=rid,
+            )
+        loi = frappe.local.response.get("loi")
+        self.assertIsNotNone(loi)
+        self.assertEqual(loi[0]["ly_do"], "thuoc_hdnt_hieu_luc")
+        self.assertEqual(
+            loi[0]["item_code"], VT_HDNT,
+            "lỗi phải mang mã CHÍNH TẮC (Item.name), không phải chuỗi thô client gửi",
         )
-        self.assertEqual(con_lai_sau, con_lai_truoc)
-        self.assertEqual(da_dat_sau, da_dat_truoc)
+        self.assertFalse(frappe.db.exists("Sales Order", {"custom_request_id": rid}))
+
+    def test_c2_khong_ton_tai_bi_tu_choi_ngay(self):
+        """Mã hàng không tra ra Item thật nào (kể cả sau chuẩn hoá) phải bị
+        từ chối ngay tại vòng gộp, không lọt xuống tầng kiểm hạn mức/giá rồi
+        hiện một thông điệp khó hiểu về một mặt hàng không tồn tại."""
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                items=json.dumps([{"item_code": "KHONG-TON-TAI-XYZ", "qty": 1}]),
+                mode="ban_le", request_id=_rid(),
+            )
+
+    def test_c2_gop_dong_trung_ma_qua_khac_hoa_thuong_nhanh_hdnt(self):
+        """Hệ luỵ CÙNG một lỗ ở nhánh HĐNT (không riêng BR-R7): hai dòng
+        "VT0005"/"vt0005" phải GỘP thành một khi kiểm hạn mức, không tách
+        đôi mỗi dòng đi qua `han_muc_con` độc lập (duplicate-line quota
+        bypass qua khác hoa/thường — nợ từ E1, vá cùng chỗ với C-2)."""
+        bo = portal.portal_contracts()[0]["name"]
+        frappe.db.set_value(
+            "Blanket Order Item", {"parent": bo, "item_code": VT_HDNT},
+            {"qty": 200, "ordered_qty": 195},  # còn đúng 5
+        )
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                bo,
+                json.dumps([
+                    {"item_code": VT_HDNT, "qty": 3},
+                    {"item_code": VT_HDNT.lower(), "qty": 3},  # tổng thật = 6 > 5
+                ]),
+                mode="hdnt", request_id=_rid(),
+            )
+        loi = frappe.local.response.get("loi")
+        self.assertIsNotNone(loi)
+        self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
 
     def test_dat_le_thieu_gia_bi_chan(self):
         with self.assertRaises(frappe.ValidationError):
@@ -242,13 +308,62 @@ class TestDatHangBanLe(FrappeTestCase):
     def test_hdnt_mode_item_ngoai_hop_dong_van_bi_chan(self):
         """Chiều ngược lại của "trộn dòng": mode=hdnt nhưng gửi một mã hàng
         không nằm trong chính hợp đồng đó — vẫn phải bị chặn (không lọt qua
-        vì "nó có trong danh mục lẻ")."""
+        vì "nó có trong danh mục lẻ").
+
+        review I-1 — bản trước chỉ `assertRaises(ValidationError)` không
+        khẳng định `ly_do`; trên thực tế ca này đỏ vì `thieu_gia` (RETAIL_
+        CO_GIA không có giá trong `PRICE_LIST` của HĐNT), KHÔNG PHẢI vì
+        "ngoài hợp đồng" — hai lý do khác hẳn nhau về mặt nghiệp vụ, test
+        cũ tình cờ pass mà không kiểm đúng thứ nó tuyên bố. Khẳng định rõ
+        `ly_do == "het_han_muc"`, và thêm ca thứ hai dùng mặt hàng CÓ giá
+        trong price list của khách nhưng KHÔNG có trong HĐNT — tách bạch
+        "thiếu giá" khỏi "ngoài hợp đồng"."""
         bo = portal.portal_contracts()[0]["name"]
         with self.assertRaises(frappe.ValidationError):
             portal.portal_order_place(
                 bo, json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
                 mode="hdnt", request_id=_rid(),
             )
+        loi = frappe.local.response.get("loi")
+        self.assertIsNotNone(loi)
+        self.assertEqual(
+            loi[0]["ly_do"], "thieu_gia",
+            "RETAIL_CO_GIA không có Item Price trong PRICE_LIST của HĐNT",
+        )
+
+        # Ca thứ hai: mặt hàng CÓ giá trong price list của khách (không bị
+        # chặn vì thiếu giá) nhưng KHÔNG nằm trong Blanket Order Item của
+        # hợp đồng — phải bị chặn đúng vì lý do hạn mức (không thuộc HĐNT),
+        # tách bạch khỏi "thiếu giá" của ca trên.
+        ngoai = "NGO-E6-001"
+        if not frappe.db.exists("Item", ngoai):
+            kho = _kho_mac_dinh()
+            doc = frappe.get_doc({
+                "doctype": "Item", "item_code": ngoai,
+                "item_name": "Hàng ngoài HĐNT có giá HĐNT", "item_group": "Vật tư tiêu hao",
+                "stock_uom": "Cái", "is_stock_item": 1,
+            })
+            if kho:
+                doc.append("item_defaults", {"company": COMPANY, "default_warehouse": kho})
+            doc.insert(ignore_permissions=True)
+        if not frappe.db.exists("Item Price", {"item_code": ngoai, "price_list": PRICE_LIST, "selling": 1}):
+            frappe.get_doc({
+                "doctype": "Item Price", "item_code": ngoai, "price_list": PRICE_LIST,
+                "uom": "Cái", "selling": 1, "price_list_rate": 15000, "currency": "VND",
+            }).insert(ignore_permissions=True)
+
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                bo, json.dumps([{"item_code": ngoai, "qty": 1}]),
+                mode="hdnt", request_id=_rid(),
+            )
+        loi2 = frappe.local.response.get("loi")
+        self.assertIsNotNone(loi2)
+        self.assertEqual(
+            loi2[0]["ly_do"], "het_han_muc",
+            "có giá không đồng nghĩa có hạn mức — mặt hàng không có dòng "
+            "trong Blanket Order Item nên con_lai=0 (het_han_muc)",
+        )
 
     def test_boi_so_ngay_giao_dia_chi_van_kiem_o_che_do_le(self):
         """BR-O11/O13 vẫn áp cho nhánh mua lẻ — dùng lại đúng
@@ -385,6 +500,15 @@ class TestBaoGiaChoKhachDongY(FrappeTestCase):
         frappe.db.sql(
             "delete from `tabSingles` where doctype='Miyano Portal Settings' and field='hieu_luc_bao_gia_ngay'"
         )
+        # review T-3 — SQL thô đi THẲNG xuống DB, không qua
+        # `frappe.db.set_value`/`set_single_value` nên KHÔNG tự xoá
+        # `Database.value_cache`. `_seed_mua_le()` gọi `set_single_value(...,
+        # 7)` trước đó trong `setUp` — nếu bất cứ gì đọc field này giữa lúc
+        # đó và dòng SQL trên (rất dễ xảy ra khi code thay đổi sau này) thì
+        # cache còn giữ 7 và DELETE phía trên trở thành vô nghĩa — ca này
+        # trước đây "còn ý nghĩa" chỉ vì TÌNH CỜ không có gì đọc field ở
+        # giữa. Xoá cache tường minh, không phụ thuộc vào sự tình cờ đó.
+        frappe.db.value_cache.pop("Miyano Portal Settings", None)
         # Ngày lập 6 ngày trước: còn hạn nếu mặc định ĐÚNG LÀ 7, đã quá hạn
         # nếu code lỡ rơi về 0 (mọi báo giá coi như hết hạn ngay khi lập).
         ngay_lap = frappe.utils.add_days(frappe.utils.today(), -6)
@@ -411,6 +535,12 @@ class TestJobBaoGiaHetHan(FrappeTestCase):
         self.addCleanup(frappe.set_user, "Administrator")
 
     def test_quet_dong_don_qua_han_va_cap_nhat_yeu_cau_goc(self):
+        # review T-2 — KHÔNG đếm tuyệt đối (`assertEqual(dem, 1)`): `dem` là
+        # tổng số đơn quá hạn TRONG TOÀN DB tại thời điểm gọi, không phải
+        # dữ liệu do `setUp` của lớp này kiểm soát — một class test khác
+        # chạy trước trong CÙNG tiến trình `run-tests` mà lỡ để lại một SO
+        # "Mua lẻ"/"Chờ khách đồng ý" quá hạn sẽ âm thầm đổi con số này.
+        # Khẳng định theo TÊN bản ghi của chính test này.
         from miyano_portal.portal_bao_gia import quet_bao_gia_het_han
 
         yc = _tao_yeu_cau_da_bao_gia(BVBM, USER_BVBM)
@@ -420,8 +550,7 @@ class TestJobBaoGiaHetHan(FrappeTestCase):
         # Một SO KHÁC còn trong hạn — không được job này đụng tới.
         so_con_han = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
 
-        dem = quet_bao_gia_het_han()
-        self.assertEqual(dem, 1)
+        quet_bao_gia_het_han()
 
         self.assertEqual(
             frappe.db.get_value("Sales Order", so.name, "workflow_state"),
@@ -438,13 +567,30 @@ class TestJobBaoGiaHetHan(FrappeTestCase):
 
     def test_quet_khong_dong_lai_don_da_dong(self):
         """Chạy job hai lần liên tiếp không được đóng lại đơn đã đóng (job
-        chạy `daily`, không phải một lần trong đời)."""
+        chạy `daily`, không phải một lần trong đời).
+
+        review T-2 — không đếm tuyệt đối `dem`, khẳng định qua `modified`
+        của ĐÚNG bản ghi của test này: nếu job lỡ xử lý lại đơn đã đóng,
+        `apply_workflow`/`add_comment` sẽ đổi `modified`, dù `dem` trả về ở
+        lần gọi thứ hai có thể vẫn là 0 vì lý do khác (ví dụ đơn khác trong
+        DB làm `dem` lệch) — đếm tuyệt đối không phát hiện được ca đó.
+        """
         from miyano_portal.portal_bao_gia import quet_bao_gia_het_han
 
         ngay_lap = frappe.utils.add_days(frappe.utils.today(), -8)
-        _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000, ngay_lap=ngay_lap)
-        self.assertEqual(quet_bao_gia_het_han(), 1)
-        self.assertEqual(quet_bao_gia_het_han(), 0)
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000, ngay_lap=ngay_lap)
+
+        quet_bao_gia_het_han()
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Báo giá hết hạn"
+        )
+        modified_lan_1 = frappe.db.get_value("Sales Order", so.name, "modified")
+
+        quet_bao_gia_het_han()
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "modified"), modified_lan_1,
+            "job chạy lần 2 không được đụng lại đơn đã đóng ở lần 1",
+        )
 
     def test_gui_email_hai_phia(self):
         # Site test không cấu hình Email Account mặc định — `frappe.sendmail`
