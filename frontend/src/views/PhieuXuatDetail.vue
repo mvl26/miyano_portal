@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
@@ -93,6 +93,17 @@ async function loadNguoiNhanGoiY(tuKhoa) {
   } catch (e) {
     nguoiNhanGoiY.value = []
   }
+}
+
+// F-6 (review E8): gõ tự do vào ô Người nhận không được bắn một request cho
+// MỖI ký tự — "BS. Nguyễn Văn Tuấn" là 19 request, mỗi request chạy
+// _khoa_cua_kho() + một truy vấn get_all() quét 12 tháng lịch sử phía server.
+// Debounce theo đúng khuôn searchTimer/clearTimeout đã có sẵn ở Kho.vue,
+// không phát minh cơ chế mới.
+let nguoiNhanTimer = null
+function onNguoiNhanInput() {
+  clearTimeout(nguoiNhanTimer)
+  nguoiNhanTimer = setTimeout(() => loadNguoiNhanGoiY(doc.nguoi_nhan), 300)
 }
 
 function onKhoaPhongSelect(event) {
@@ -546,6 +557,8 @@ onMounted(async () => {
   await Promise.all([loadVatTu(), load(), loadKhoaPhongList(), loadTrangThaiBatBuoc()])
   if (doc.khoa_phong) loadNguoiNhanGoiY(doc.nguoi_nhan)
 })
+
+onUnmounted(() => clearTimeout(nguoiNhanTimer))
 </script>
 
 <template>
@@ -625,7 +638,7 @@ onMounted(async () => {
               :disabled="!editable"
               maxlength="100"
               list="nguoi-nhan-goi-y"
-              @input="loadNguoiNhanGoiY(doc.nguoi_nhan)"
+              @input="onNguoiNhanInput"
               placeholder="Gõ để xem gợi ý theo khoa đã chọn"
             />
             <datalist id="nguoi-nhan-goi-y">

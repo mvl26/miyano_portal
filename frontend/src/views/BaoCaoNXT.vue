@@ -334,7 +334,13 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <button class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
+        <!-- F-5 (review E8): kho_bao_cao_excel CHƯA hỗ trợ tab "Cấp phát
+             theo khoa" (loai="cap_phat" không có trong _BAO_CAO_LOAI — quyết
+             định phạm vi, xem báo cáo bàn giao) — exportUrl() đã trả ''
+             cho tab này nên bấm không làm gì, nhưng nút vẫn hiện, im lặng,
+             không có gì báo cho người dùng biết vì sao không tải được gì.
+             Ẩn hẳn nút thay vì để một hành vi chết đứng trên màn hình. -->
+        <button v-if="tab !== 'cp'" class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
           ⬇ Xuất Excel
         </button>
       </div>
