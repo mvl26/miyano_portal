@@ -248,6 +248,11 @@ doc_events = {
 		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
 	},
+	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
+	# "Từ chối". Áp cho MỌI Sales Order, không riêng đơn từ cổng.
+	"Sales Order": {
+		"validate": "miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
+	},
 }
 
 # Scheduled Tasks
