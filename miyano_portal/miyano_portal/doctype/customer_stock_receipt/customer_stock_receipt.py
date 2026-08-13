@@ -1,7 +1,7 @@
 import frappe
 from frappe.model.document import Document
 
-from miyano_portal.kho import ledger, voucher
+from miyano_portal.kho import import_ton_dau, ledger, voucher
 from miyano_portal.portal_thong_bao import bao_chenh_lech
 
 
@@ -12,15 +12,29 @@ class CustomerStockReceipt(Document):
 		)
 
 	LOAI_MUA_NGOAI = "Mua ngoài (NCC khác)"
+	LOAI_TON_DAU = "Tồn đầu kỳ"
 
 	def validate(self):
 		self._chan_tu_tao_phieu_dao()
+		self._chan_ton_dau_ky_lap_lai()
 		voucher.validate_ngay(self)
 		voucher.validate_vat_tu_thuoc_kho(self)
 		voucher.validate_so_luong_don_gia(self)
 		voucher.fill_item_details(self)
 		self._validate_doi_soat_giao_nhan()
 		self._validate_ncc()
+
+	def _chan_ton_dau_ky_lap_lai(self):
+		"""BR-K21 (review I-2): chốt "tồn đầu kỳ chỉ một lần" KHÔNG được sống
+		riêng ở bước upload Excel (import_ton_dau.parse_workbook). Endpoint
+		`kho_phieu_nhap_save` cho chọn `loai_nhap = "Tồn đầu kỳ"` từ dropdown
+		bằng tay, một đường hoàn toàn không đi qua parse_workbook — thiếu chốt
+		ở đây thì BR-K21 chỉ chặn được MỘT trong hai cửa. Gọi lại đúng một
+		hàm dùng chung (import_ton_dau._chan_neu_da_nhap_ton_dau) để thông
+		điệp và điều kiện luôn khớp nhau giữa hai cửa."""
+		if self.loai_nhap != self.LOAI_TON_DAU:
+			return
+		import_ton_dau._chan_neu_da_nhap_ton_dau(self.kho, exclude=self.name)
 
 	def _validate_ncc(self):
 		"""US-E4.2 / BR-N1, N2, N3.
@@ -29,13 +43,20 @@ class CustomerStockReceipt(Document):
 		nguyên văn thông điệp NL-7.1. `so_chung_tu_ncc` KHÔNG bắt buộc (BR-N2)
 		— bỏ trống vẫn lưu/ghi sổ được, chỉ gắn cờ `thieu_chung_tu` để danh
 		sách phiếu lọc ra sau.
-
-		`ncc` được kiểm THUỘC ĐÚNG KHO của phiếu và ĐANG HOẠT ĐỘNG bất kể
-		`loai_nhap` là gì (không chỉ khi Mua ngoài) — đây là chốt chặn
-		server-side cho ràng buộc "Link ncc lọc theo kho + active=1"
-		(30_API_Spec §1.3): dropdown phía client chỉ là UX, không phải chốt
-		chặn duy nhất.
 		"""
+		# M-4 (review E4 phần A): đổi loai_nhap khỏi "Mua ngoài" thì ba trường
+		# nguồn NCC không còn ý nghĩa gì trên chứng từ này — nhưng nếu không
+		# xoá, chúng VẪN NẰM TRONG DB (section chỉ bị ẩn bởi `depends_on` phía
+		# UI, không phải server), và Phần B (nhật ký/NXT theo đợt) đọc thẳng
+		# `ncc` để suy cột "nguồn" — một phiếu "Nhập khác" mang sót `ncc` cũ
+		# sẽ bị quy nhầm cho một NCC nó không còn liên quan. Xoá TRƯỚC khi
+		# kiểm active/kho bên dưới, để một `ncc` cũ trỏ tới NCC đã tắt không
+		# tự vô hiệu hoá việc lưu một phiếu loại KHÁC không cần tới nó nữa.
+		if self.loai_nhap != self.LOAI_MUA_NGOAI:
+			self.ncc = None
+			self.so_chung_tu_ncc = None
+			self.ngay_chung_tu = None
+
 		if self.ncc:
 			ncc_row = frappe.db.get_value(
 				"Customer Supplier", self.ncc, ["kho", "active", "ten_ncc"], as_dict=True
@@ -44,7 +65,15 @@ class CustomerStockReceipt(Document):
 				frappe.throw(
 					"NCC không thuộc kho của đơn vị bạn.", frappe.ValidationError
 				)
-			if not ncc_row.active:
+			# M-7 (review): "NCC tắt không chọn được trên phiếu MỚI" (BR-N3) —
+			# KHÔNG áp cho amend. Amend tái tạo một phiếu ĐÃ GHI SỔ rồi bị
+			# huỷ, giữ nguyên nội dung lịch sử kể cả NCC tại thời điểm đó; NCC
+			# có thể đã bị tắt SAU khi phiếu gốc ghi sổ — buộc active mới
+			# amend được là chặn nhầm việc sửa một chứng từ lịch sử hợp lệ.
+			# `self.amended_from` là tín hiệu CHUẨN của Frappe cho biết đây là
+			# amend — không suy qua `is_new()`: is_new() cũng True ở đúng lần
+			# insert() ĐẦU TIÊN của một phiếu amend nên không phân biệt được.
+			if not ncc_row.active and not self.amended_from:
 				frappe.throw(
 					f"NCC {ncc_row.ten_ncc} đã ngừng hoạt động, không chọn được "
 					"trên phiếu mới.",

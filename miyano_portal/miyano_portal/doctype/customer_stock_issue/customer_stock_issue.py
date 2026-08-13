@@ -105,7 +105,17 @@ class CustomerStockIssue(Document):
 				)
 
 	def _chan_lo_het_han_chua_xac_nhan(self):
-		hom_nay = frappe.utils.getdate(frappe.utils.today())
+		"""BR-K20: "hết hạn" so với NGÀY PHIẾU (self.ngay), KHÔNG phải ngày hệ
+		thống chạy validate. Sai chỗ này đi theo cả hai chiều:
+		  * chặn nhầm — phiếu lập bù cho một ngày trong quá khứ (lô CÒN hạn
+		    tại ngày đó) sẽ bị bắt xác nhận một điều SAI SỰ THẬT, và vì sổ
+		    append-only nên chứng từ mang xác nhận sai đó vĩnh viễn.
+		  * bỏ lọt — phiếu ghi ngày tương lai (không bị chặn bởi
+		    voucher.validate_ngay, hàm đó chỉ chặn NGÀY TRƯỚC ngay_bat_dau của
+		    kho) cho một lô sẽ hết hạn trước ngày đó nhưng chưa hết hạn ở ngày
+		    hệ thống hôm nay sẽ lọt qua guard, đúng ca BR-K20 sinh ra để bắt.
+		"""
+		hom_nay = frappe.utils.getdate(self.ngay)
 		for row in self.items:
 			if not row.han_su_dung:
 				continue

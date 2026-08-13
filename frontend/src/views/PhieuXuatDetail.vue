@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
@@ -16,6 +16,13 @@ const isMobile = useIsMobile()
 const DOCTYPE = 'Customer Stock Issue'
 const LOAI_OPTIONS = ['Xuất sử dụng', 'Xuất huỷ - hết hạn', 'Xuất trả lại', 'Điều chỉnh kiểm kê']
 // "Phiếu đảo" CỐ Ý không có trong danh sách — cùng lý do với PhieuNhapDetail.
+
+// I-3 (review E4 phần A) / BR-K20 (US-E4.4): chỉ "Xuất sử dụng" mới bắt xác
+// nhận lô hết hạn. Server (customer_stock_issue.py before_submit) đã thu hẹp
+// guard này từ "mọi loại xuất trừ Phiếu đảo" xuống đúng loại này — client
+// PHẢI khớp, nếu không thủ kho vẫn bị chặn tick trên UI cho "Xuất huỷ - hết
+// hạn" dù server đã cho qua, tức không bao giờ chạm được tới đường đã nới.
+const LOAI_BAT_XAC_NHAN_HET_HAN = 'Xuất sử dụng'
 
 // Phải khớp ledger.LOT_KHONG_CO ở backend (miyano_portal/kho/ledger.py) —
 // sentinel gán cho so_lo khi vật tư CÓ (r.vat_tu hợp lệ) nhưng CHƯA CÒN tồn
@@ -104,7 +111,11 @@ async function loadLotsForRow(row) {
   }
   row._lotsLoading = true
   try {
-    const out = await api.callKho('kho_lo_goi_y', { vat_tu: row.vat_tu, so_luong: row.so_luong || 0 })
+    // `ngay` (I-3, review E4 phần A): cờ het_han server tính PHẢI cùng mốc
+    // với chốt chặn thật ở backend (so với NGÀY PHIẾU, không phải ngày hệ
+    // thống — xem I-1). Thiếu nó, badge "⚠ QUÁ HẠN" trên form lệch khỏi kết
+    // quả submit() thật sự sẽ cho.
+    const out = await api.callKho('kho_lo_goi_y', { vat_tu: row.vat_tu, so_luong: row.so_luong || 0, ngay: doc.ngay })
     row._lots = out.lots || []
     if (row._lots.length) {
       // BA nhánh, không phải hai — gộp nhánh 3 vào nhánh 1 (mặc định lô đầu
@@ -162,6 +173,23 @@ async function loadLotsForRow(row) {
     row._lotsLoading = false
   }
 }
+
+// I-3 (review E4 phần A): đổi Ngày phiếu phải nạp lại _hetHan/_lots của MỌI
+// dòng đã chọn vật tư — cờ het_han của kho_lo_goi_y phụ thuộc `ngay` (xem
+// chú thích trong loadLotsForRow). Không có watcher này, badge "⚠ QUÁ HẠN"
+// và yêu cầu tick xác nhận trên form sẽ đứng yên ở lần tải đầu, lệch khỏi
+// kết quả submit() thật khi người dùng đổi ngày SAU khi đã chọn lô.
+// loadLotsForRow() tự giữ nguyên so_lo đang chọn (nhánh (2) trong chú thích
+// của nó), nên gọi lại ở đây không làm mất lựa chọn của người dùng.
+watch(
+  () => doc.ngay,
+  () => {
+    if (!editable.value) return
+    for (const row of doc.items) {
+      if (row.vat_tu) loadLotsForRow(row)
+    }
+  },
+)
 
 // Cảnh báo lô của MỘT dòng, TÍNH RA từ _lots chứ không lưu thành cờ trên dòng
 // (thiết kế §4.5: "số lô không tồn tại hoặc đã hết tồn → cảnh báo tại dòng;
@@ -340,7 +368,7 @@ function validateClient() {
       showToast(`Dòng ${i + 1}: số lượng phải lớn hơn 0.`, 'error')
       return false
     }
-    if (r._hetHan && !r.xac_nhan_het_han) {
+    if (doc.loai_xuat === LOAI_BAT_XAC_NHAN_HET_HAN && r._hetHan && !r.xac_nhan_het_han) {
       showToast(`Dòng ${i + 1}: lô ${r.so_lo} đã hết hạn — tích xác nhận trước khi xuất.`, 'error')
       return false
     }
@@ -595,7 +623,10 @@ onMounted(async () => {
                   </span>
                   <span v-else class="tag">Chọn vật tư trước</span>
                   <div v-if="loCanhBao(r)" class="warn" style="margin-top: 4px">⚠ {{ loCanhBao(r) }}</div>
-                  <div v-if="r._hetHan" class="warn" style="margin-top: 4px; display: flex; align-items: center; gap: 4px">
+                  <!-- I-3: chỉ bắt tick cho "Xuất sử dụng" (BR-K20) — các loại
+                       xuất khác, kể cả "Xuất huỷ - hết hạn", không hỏi, nên
+                       không hiện ô tick gây hiểu nhầm có một chốt chặn ở đây. -->
+                  <div v-if="r._hetHan && doc.loai_xuat === LOAI_BAT_XAC_NHAN_HET_HAN" class="warn" style="margin-top: 4px; display: flex; align-items: center; gap: 4px">
                     <label style="display: flex; align-items: center; gap: 4px; font-weight: 600">
                       <input type="checkbox" v-model="r.xac_nhan_het_han" />
                       Xác nhận xuất lô đã hết hạn

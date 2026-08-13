@@ -368,6 +368,7 @@ def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 
 
 @frappe.whitelist()
+@_ncc_action
 def kho_ncc_list(tim_kiem=None, ca_inactive=0) -> list:
 	"""Danh mục NCC của kho — US-E4.1."""
 	return ncc_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive)
@@ -758,7 +759,7 @@ def kho_dong_phieu_export(doctype: str, name: str) -> None:
 
 @frappe.whitelist()
 @_phieu_action
-def kho_lo_goi_y(vat_tu: str, so_luong) -> dict:
+def kho_lo_goi_y(vat_tu: str, so_luong, ngay=None) -> dict:
 	"""Gợi ý lô theo FEFO cho một dòng xuất: đi từ lô hết hạn gần nhất, lô
 	không có hạn xếp cuối (ledger.get_lot_balances đã sắp đúng thứ tự này),
 	và phân bổ tham lam (greedy) số lượng cần xuất qua từng lô cho tới khi đủ.
@@ -766,6 +767,14 @@ def kho_lo_goi_y(vat_tu: str, so_luong) -> dict:
 	Đây CHỈ là gợi ý hiển thị trên form — không ném lỗi khi không đủ tồn, vì
 	người dùng có thể đang xem trước hoặc sẽ đổi số lượng; chốt chặn thật nằm
 	ở before_submit của Customer Stock Issue (_chan_xuat_qua_ton).
+
+	`ngay` (I-3, review E4 phần A): cờ "het_han" hiển thị ở đây PHẢI cùng mốc
+	với chốt chặn thật (_chan_lo_het_han_chua_xac_nhan so với NGÀY PHIẾU,
+	không phải ngày hệ thống — xem I-1). Không có nó, badge "⚠ QUÁ HẠN" và ô
+	tick xác nhận trên form có thể hiện SAI: một phiếu lập bù cho quá khứ sẽ
+	bị đề nghị tick cho lô lúc đó còn hạn, còn một phiếu ghi ngày tương lai
+	sẽ không được cảnh báo cho lô sẽ hết hạn trước ngày đó. Tham số tuỳ chọn,
+	mặc định ngày hệ thống — giữ nguyên chữ ký cũ cho lời gọi không truyền nó.
 	"""
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(vat_tu, kho)
@@ -773,7 +782,7 @@ def kho_lo_goi_y(vat_tu: str, so_luong) -> dict:
 	if can < 0:
 		frappe.throw("Số lượng không hợp lệ.", frappe.ValidationError)
 
-	hom_nay = frappe.utils.getdate(frappe.utils.today())
+	hom_nay = frappe.utils.getdate(ngay) if ngay else frappe.utils.getdate(frappe.utils.today())
 	con_lai = can
 	lots = []
 	for lot in ledger.get_lot_balances(kho, vat_tu):

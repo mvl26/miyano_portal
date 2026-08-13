@@ -208,20 +208,30 @@ def mo_workbook(content: bytes):
 	return wb.active
 
 
-def _chan_neu_da_nhap_ton_dau(kho: str) -> None:
+def _chan_neu_da_nhap_ton_dau(kho: str, exclude: str | None = None) -> None:
 	"""BR-K21 / NL-4.4 / US-E4.3: tồn đầu kỳ chỉ nhập được MỘT LẦN cho mỗi kho.
 
-	Chặn NGAY TỪ BƯỚC UPLOAD (preview), không phải sau khi đã đọc/xử lý file —
-	đặt ở ĐẦU parse_workbook() nên cả kho_import_preview lẫn kho_import_commit
-	(gọi lại parse_workbook trước khi ghi) đều tự động được chặn qua đúng một
-	chỗ. Chỉ tính phiếu ĐÃ GHI SỔ (docstatus=1) — "đã commit" theo đúng nghĩa
-	của BR-K21; một phiếu nháp bị bỏ dở không tính là đã nhập.
+	NGUỒN DUY NHẤT của chốt chặn này — gọi từ HAI nơi:
+	  * `parse_workbook()` bên dưới, chặn NGAY TỪ BƯỚC UPLOAD (preview) của
+	    đường import Excel, trước khi đọc bất kỳ dòng nào.
+	  * `CustomerStockReceipt.validate()` (customer_stock_receipt.py), chặn
+	    đường THỨ HAI mà import Excel không phải là cửa duy nhất: thủ kho vẫn
+	    có thể mở màn Phiếu nhập tay, tự chọn `loai_nhap = "Tồn đầu kỳ"` từ
+	    dropdown và gõ tay — đường đó đi qua `kho_phieu_nhap_save`, không bao
+	    giờ chạm `parse_workbook()`. Chỉ chặn ở đây là để hở nguyên vẹn lối đi
+	    vòng đó (review I-2).
+
+	`exclude` dùng khi gọi từ controller — loại bản ghi đang validate (self.name)
+	khỏi phép so, cùng khuôn `_ma_kho_duy_nhat`/`_one_per_customer`
+	(customer_warehouse.py). Chỉ tính phiếu ĐÃ GHI SỔ (docstatus=1) — "đã
+	commit" theo đúng nghĩa của BR-K21; một phiếu nháp bị bỏ dở không tính là
+	đã nhập, và huỷ phiếu tồn đầu kỳ (docstatus chuyển sang 2, không phải 1)
+	là đường phục hồi hợp lệ duy nhất khi import sai.
 	"""
-	ngay_da_nhap = frappe.db.get_value(
-		"Customer Stock Receipt",
-		{"kho": kho, "loai_nhap": "Tồn đầu kỳ", "docstatus": 1},
-		"ngay",
-	)
+	filters = {"kho": kho, "loai_nhap": "Tồn đầu kỳ", "docstatus": 1}
+	if exclude:
+		filters["name"] = ["!=", exclude]
+	ngay_da_nhap = frappe.db.get_value("Customer Stock Receipt", filters, "ngay")
 	if ngay_da_nhap:
 		frappe.throw(
 			f"Kho đã nhập tồn đầu kỳ ngày {frappe.utils.formatdate(ngay_da_nhap)}. "
