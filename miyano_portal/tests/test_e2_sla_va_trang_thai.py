@@ -159,3 +159,20 @@ class TestSLADonTreo(FrappeTestCase):
         so = _tao_so_treo("2026-08-12 07:00:00")
         frappe.db.set_value("Sales Order", so.name, "workflow_state", "Đã xác nhận")
         self.assertEqual(quet_don_treo(moc=self.MOC), 0)
+
+
+class TestBaoCaoDonCham(FrappeTestCase):
+    def test_bao_cao_ton_tai_va_chay_duoc(self):
+        from frappe.desk.query_report import run
+        self.assertTrue(frappe.db.exists("Report", "Đơn chậm xử lý"))
+        kq = run("Đơn chậm xử lý", ignore_prepared_report=True)
+        self.assertIn("columns", kq)
+
+    def test_bao_cao_chi_danh_cho_nhan_vien(self):
+        """Role `Customer` mà đọc được báo cáo này là thấy đơn của khách khác."""
+        roles = frappe.get_all(
+            "Has Role", filters={"parent": "Đơn chậm xử lý", "parenttype": "Report"},
+            pluck="role",
+        )
+        self.assertNotIn("Customer", roles)
+        self.assertTrue(roles, "báo cáo không khai role nào là mặc định mở quá rộng")

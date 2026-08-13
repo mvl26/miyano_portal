@@ -20,3 +20,4 @@ miyano_portal.patches.v1_3.create_e1_custom_fields
 miyano_portal.patches.v1_4.create_e2_custom_fields
 miyano_portal.patches.v1_4.mo_rong_workflow_e2
 miyano_portal.patches.v1_4.sua_mail_tu_choi
+miyano_portal.patches.v1_4.tao_bao_cao_don_cham
