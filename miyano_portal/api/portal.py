@@ -562,6 +562,9 @@ def portal_order_track(order) -> dict:
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
+        # US-E2.2 — khách phải đọc được lý do ngay trên chi tiết đơn, không
+        # phải đi tìm lại email.
+        "ly_do_tu_choi": so.get("custom_ly_do_tu_choi") or "",
         "milestones": milestones,
         "items": [
             {"item_code": i.item_code,
