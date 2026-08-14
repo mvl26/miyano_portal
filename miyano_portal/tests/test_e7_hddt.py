@@ -224,7 +224,11 @@ class TestBadgeGroups(_E7Fixture):
     def test_chua_ghi_so_hddt_khong_nut_tai_cong_no_van_hien(self):  # TC-E7-01
         si, fei = self._chain(CUSTOMER_BM, status="01 - Nháp", dinh_pdf=False)
         block = einvoice.block_for(si.name, si.customer)["chinh"]
-        self.assertEqual(block["trang_thai"], "dang_phat_hanh")
+        # ĐỔI CÓ CHỦ Ý (E7b): 01–04 nay là nhóm "nhap" chứ không còn gộp vào
+        # "dang_phat_hanh" — khách được XEM bản nháp. Điều KHÔNG đổi, và là
+        # thứ ca này thật sự canh giữ: chưa có số hoá đơn thì không có nút tải
+        # PDF chính thức, và công nợ vẫn hiển thị bình thường.
+        self.assertEqual(block["trang_thai"], "nhap")
         self.assertFalse(block["tai_duoc"])
         self.assertFalse(block["ho_tro"])
         # Công nợ vẫn hiển thị bình thường — cột outstanding_amount không bị
@@ -673,3 +677,62 @@ class TestKhongNoiSaiPhapLy(FrappeTestCase):  # review round 1, M-6
             "File XML là bản gốc có giá trị pháp lý", noi_dung,
             "câu chú thích của bản mẫu nói SAI khi cổng chỉ giao PDF — không được lặp lại nguyên văn",
         )
+
+
+class TestNhomNhap(_E7Fixture):
+    """01–04 là BẢN NHÁP có thật, khách xem được — khác hẳn "đang phát hành"
+    (05, nội dung đã chốt, đang chờ Fast) và khác "chưa có chứng từ nào"
+    (NL-12.1 — công nợ vẫn hiện bình thường)."""
+
+    def _dinh_pdf_nhap(self, fei_doc):
+        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+        from frappe.utils.file_manager import save_file
+
+        f = save_file(f"Nhap_{fei_doc.name}.pdf", minimal_pdf_bytes(), FEI, fei_doc.name, is_private=1)
+        frappe.db.set_value(FEI, fei_doc.name, "draft_pdf", f.file_url, update_modified=False)
+        fei_doc.reload()
+        return f
+
+    def test_bon_trang_thai_nhap_deu_vao_nhom_nhap(self):
+        for status in ("01 - Nháp", "02 - Đã xem nháp", "03 - Chờ khách duyệt", "04 - Khách đã duyệt"):
+            with self.subTest(status=status):
+                si, fei = self._chain(CUSTOMER_BM, status=status, dinh_pdf=False)
+                block = einvoice.block_for(si.name, CUSTOMER_BM)["chinh"]
+                self.assertEqual(block["trang_thai"], "nhap")
+                self.assertEqual(block["nhan"], "Hoá đơn nháp")
+
+    def test_co_pdf_nhap_thi_nhap_tai_duoc(self):
+        si, fei = self._chain(CUSTOMER_BM, status="02 - Đã xem nháp", dinh_pdf=False)
+        self._dinh_pdf_nhap(fei)
+        block = einvoice.block_for(si.name, CUSTOMER_BM)["chinh"]
+        self.assertTrue(block["nhap_tai_duoc"])
+        self.assertFalse(block["tai_duoc"], "nút PDF CHÍNH THỨC vẫn phải tắt")
+
+    def test_chua_co_pdf_nhap_thi_khong_tai_duoc(self):
+        si, fei = self._chain(CUSTOMER_BM, status="01 - Nháp", dinh_pdf=False)
+        block = einvoice.block_for(si.name, CUSTOMER_BM)["chinh"]
+        self.assertFalse(block["nhap_tai_duoc"])
+
+    def test_05_van_la_dang_phat_hanh(self):
+        si, fei = self._chain(CUSTOMER_BM, status="05 - Đang phát hành", dinh_pdf=False)
+        block = einvoice.block_for(si.name, CUSTOMER_BM)["chinh"]
+        self.assertEqual(block["trang_thai"], "dang_phat_hanh")
+
+    def test_co_the_tai_van_chan_ban_nhap(self):
+        """Chốt chống lỗi nghiêm trọng: nhóm `nhap` KHÔNG được mở đường tải
+        PDF CHÍNH THỨC. `co_the_tai` phục vụ `portal_einvoice_download`."""
+        for status in ("01 - Nháp", "02 - Đã xem nháp", "03 - Chờ khách duyệt", "04 - Khách đã duyệt"):
+            with self.subTest(status=status):
+                self.assertFalse(einvoice.co_the_tai(frappe._dict(status=status)))
+
+    def test_khoi_json_khong_lo_duong_dan_draft_pdf(self):  # BR-E4
+        import json
+
+        si, fei = self._chain(CUSTOMER_BM, status="02 - Đã xem nháp", dinh_pdf=False)
+        f = self._dinh_pdf_nhap(fei)
+        block = einvoice.block_for(si.name, CUSTOMER_BM)
+        self.assertNotIn(f.file_url, json.dumps(block, default=str))
+
+    def test_canh_bao_phap_ly_do_server_tra(self):
+        self.assertIn("KHÔNG có giá trị pháp lý", einvoice.CANH_BAO_NHAP)
+        self.assertIn("chưa ký số", einvoice.CANH_BAO_NHAP)

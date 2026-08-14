@@ -79,10 +79,16 @@ FEI = "Fast EInvoice Document"
 # khách + nhãn tiếng Việt + class badge. KHÔNG BAO GIỜ phơi mã số thô
 # ("06 - Đã phát hành") ra JSON trả về cổng — chỉ nhóm + nhãn đã dịch.
 _STATUS_META = {
-    "01 - Nháp": ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray"),
-    "02 - Đã xem nháp": ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray"),
-    "03 - Chờ khách duyệt": ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray"),
-    "04 - Khách đã duyệt": ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray"),
+    # 01–04 là BẢN NHÁP có thật — khách xem được nội dung và tải được bản in
+    # thử khi Fast đã dựng (`draft_pdf`). Gọi chúng là "Đang phát hành HĐĐT"
+    # như bản trước là nói sai: chưa ai bấm phát hành cả, và giấu mất thứ
+    # khách đang có quyền xem.
+    "01 - Nháp": ("nhap", "Hoá đơn nháp", "b-gray"),
+    "02 - Đã xem nháp": ("nhap", "Hoá đơn nháp", "b-gray"),
+    "03 - Chờ khách duyệt": ("nhap", "Hoá đơn nháp", "b-gray"),
+    "04 - Khách đã duyệt": ("nhap", "Hoá đơn nháp", "b-gray"),
+    # 05 mới thật sự là "đã bấm phát hành, đang chờ Fast": nội dung đã chốt,
+    # không còn là bản để khách góp ý.
     "05 - Đang phát hành": ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray"),
     "06 - Đã phát hành": ("da_phat_hanh", "Đã phát hành", "b-green"),
     "07 - Đã gửi khách": ("da_phat_hanh", "Đã phát hành", "b-green"),
@@ -100,11 +106,25 @@ _STATUS_META = {
 }
 _MAC_DINH = ("dang_phat_hanh", "Đang phát hành HĐĐT", "b-gray")
 
-# NL-12.1: nhóm "chưa phát hành" — không nút tải, không phải lỗi.
+# NL-12.1: nhóm "chưa có gì để xem" — không nút tải, không phải lỗi. Cũng là
+# nhóm mặc định khi CHƯA có chứng từ HĐĐT nào (`khoi_mac_dinh`).
 _CHUA_PHAT_HANH = {"dang_phat_hanh"}
 # NL-12.4: nhóm "lỗi" — nút tải disable + nút Yêu cầu hỗ trợ, BẤT KỂ file có
 # hay không (98/99 nghĩa là bản ghi tự nó có vấn đề, không phải "đang chờ").
 _NHOM_LOI = {"loi"}
+# E7b: bản nháp — CÓ nội dung để xem, có thể có PDF nháp do Fast dựng, nhưng
+# tuyệt đối không phải hoá đơn chính thức. Tách riêng vì hai nhóm trên đều
+# nghĩa là "không có gì cho khách", còn nhóm này thì ngược lại.
+_NHOM_NHAP = {"nhap"}
+
+# Câu cảnh báo đi CÙNG dữ liệu, không để riêng bên frontend: chính docstring
+# `actions.send_draft_to_customer` của module HĐĐT chốt rằng gửi bản nháp mà
+# không nói rõ là để khách hiểu nhầm đã có hoá đơn. Một lần sửa giao diện làm
+# rơi mất câu này là một lần khách tưởng mình đang cầm chứng từ thuế.
+CANH_BAO_NHAP = (
+    "Bản nháp — chưa có số hoá đơn, chưa ký số, chưa gửi Cơ quan Thuế, "
+    "KHÔNG có giá trị pháp lý. Số liệu có thể thay đổi trước khi phát hành."
+)
 
 # Thứ tự ưu tiên khi CHỌN bản ghi "chính" (badge thu gọn) trong một tập nhiều
 # `Fast EInvoice Document` cùng khớp một Sales Invoice (review round 1, C-1).
@@ -115,7 +135,10 @@ _NHOM_LOI = {"loi"}
 # đổi trạng thái) biến mất khỏi badge chính — đúng lỗi C-1 đã sửa.
 _UU_TIEN_CHINH = {
     "da_phat_hanh": 0, "cqt_tu_choi": 0,
-    "dang_phat_hanh": 1, "loi": 1,
+    # `nhap` cùng hạng 1 với `dang_phat_hanh`: một bản điều chỉnh vừa được
+    # soạn (01) KHÔNG được che bản gốc còn nguyên giá trị pháp lý — đúng lỗi
+    # C-1 đã sửa ở review vòng 1.
+    "dang_phat_hanh": 1, "loi": 1, "nhap": 1,
     "da_dieu_chinh": 2, "da_thay_the": 2, "da_huy": 2,
 }
 
@@ -131,6 +154,9 @@ _FIELDS = (
     "fast_pattern", "fast_signed_date", "issued_time", "tax_verification_code",
     "official_pdf", "original_document", "amended_from_fei",
     "cancel_reason", "customer", "sales_invoice", "delivery_note",
+    # E7b — khối hiển thị cần biết CÓ bản in thử hay không để bật nút xem.
+    # Chỉ dùng để tính cờ boolean; đường dẫn không bao giờ ra khỏi module này.
+    "draft_pdf",
 )
 
 
@@ -237,7 +263,7 @@ def khoi_mac_dinh():
     return {
         "chinh": {
             "fei": None, "trang_thai": group, "nhan": label, "badge": badge,
-            "tai_duoc": False, "ho_tro": False,
+            "tai_duoc": False, "nhap_tai_duoc": False, "ho_tro": False,
         },
         "khac": [],
     }
@@ -248,14 +274,24 @@ def _muc_cho(fei, ho_so, customer):
     group, label, badge = _meta(fei.status)
     ho_tro = group in _NHOM_LOI
     co_file = bool(fei.official_pdf)
-    tai_duoc = group not in _CHUA_PHAT_HANH and group not in _NHOM_LOI and co_file
+    tai_duoc = co_the_tai(fei) and co_file
+
+    # Nút xem BẢN NHÁP — tách hẳn khỏi `tai_duoc` (PDF chính thức). Hai nút
+    # phục vụ hai file khác nhau với hai chốt trạng thái NGƯỢC nhau; gộp một
+    # cờ là sớm muộn cũng giao một bản in thử cho khách như thể nó là chứng
+    # từ thuế.
+    nhap_tai_duoc = group in _NHOM_NHAP and bool(fei.draft_pdf)
 
     # NL-12.4 — "File XML/PDF thiếu hoặc hỏng": trạng thái ĐÃ phát hành
     # (issue.py::_queue_pdf_download chạy NỀN, có độ trễ ký số HSM) nhưng
-    # file vẫn chưa đính — khác hẳn "đang phát hành" (01-05, còn ở Desk) và
+    # file vẫn chưa đính — khác hẳn "đang phát hành" (05, còn ở Desk) và
     # khác "lỗi" (98/99, bản ghi tự nó hỏng): đây là chờ file, cần nhãn riêng
     # + vẫn cho khách yêu cầu hỗ trợ nếu chờ lâu.
-    if group not in _CHUA_PHAT_HANH and group not in _NHOM_LOI and not co_file:
+    #
+    # Dùng `co_the_tai()` chứ không liệt tay hai nhóm: kể từ E7b, một bản
+    # NHÁP chưa có PDF là chuyện BÌNH THƯỜNG (trạng thái 01 — kế toán chưa
+    # bấm "Xem bản nháp"), không phải sự cố cần khách bấm Yêu cầu hỗ trợ.
+    if co_the_tai(fei) and not co_file:
         label = f"{label} — file đang xử lý"
         ho_tro = True
 
@@ -270,6 +306,7 @@ def _muc_cho(fei, ho_so, customer):
         "ngay_phat_hanh": fei.fast_signed_date,
         "ma_tra_cuu": fei.tax_verification_code or "",
         "tai_duoc": tai_duoc,
+        "nhap_tai_duoc": nhap_tai_duoc,
         "ho_tro": ho_tro,
     }
     # NL-12.2 — badge rõ ràng cho hoá đơn huỷ: lý do huỷ đã nằm sẵn trong
@@ -333,11 +370,22 @@ def block_for(sales_invoice_name, sales_invoice_customer):
 
 
 def co_the_tai(fei_row):
-    """`True` nếu nhóm hiển thị của bản ghi cho phép tải — dùng lại đúng quy
-    tắc của `block_for` ở `portal_einvoice_download` (không viết lại logic
-    lần hai, tránh hai nơi lệch nhau)."""
+    """`True` nếu bản ghi được phép tải **PDF CHÍNH THỨC** (`official_pdf`) —
+    dùng lại đúng quy tắc của `block_for` ở `portal_einvoice_download` (không
+    viết lại logic lần hai, tránh hai nơi lệch nhau).
+
+    Loại CẢ `_NHOM_NHAP`, và đó là dòng quan trọng nhất trong hàm này. Kể từ
+    E7b, 01–04 không còn nằm trong `_CHUA_PHAT_HANH` nữa; một bản nháp lại
+    hoàn toàn có thể ĐÃ có file đính kèm. Quên loại nhóm nháp ở đây là mở
+    đường giao một bản in thử cho khách như thể nó là chứng từ thuế. Bản nháp
+    đi đường riêng: cờ `nhap_tai_duoc` + `portal_einvoice_download(loai="nhap")`.
+    """
     group, _label, _badge = _meta(fei_row.status)
-    return group not in _CHUA_PHAT_HANH and group not in _NHOM_LOI
+    return (
+        group not in _CHUA_PHAT_HANH
+        and group not in _NHOM_LOI
+        and group not in _NHOM_NHAP
+    )
 
 
 def chon_ban_ghi_chinh(ho_so):
