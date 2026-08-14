@@ -465,8 +465,10 @@ class TestMultiFEI(_E7Fixture):
             adjustment_type="1 - Điều chỉnh giảm", adjustment_reason="Sai đơn giá",
         )
         self._dinh_pdf(con)
-        frappe.db.set_value(FEI, goc.name, "status", "10 - Đã điều chỉnh")
-        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
+        # review P0 (kiểm thử hệ thống, TC-E7-04) — gọi hàm thật, xem giải
+        # thích ở `TestLineage.test_lien_ket_hai_chieu_dieu_chinh`.
+        from erpnext.einvoice.lineage import mark_original_superseded
+        mark_original_superseded(con)
 
         frappe.set_user(BM_USER)
         frappe.local.response = frappe._dict()
