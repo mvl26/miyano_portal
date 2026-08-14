@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import api from '../api'
 import { store } from '../store'
 import { showToast } from '../toast'
+import HoaDonNhap from '../components/HoaDonNhap.vue'
 import { fmtVND, fmtDate, invoiceBadge, daysUntil } from '../format'
 import { useIsMobile } from '../useMobile'
 
@@ -68,6 +69,19 @@ async function taiPdfHddt(invName, feiName) {
   } finally {
     taiDangXuLy.value = null
   }
+}
+
+// E7b — URL bản in thử PDF do Fast dựng, neo theo Sales Invoice. Chuỗi rỗng
+// khi chứng từ chưa có file (trạng thái 01: kế toán chưa bấm "Xem bản nháp"),
+// khi đó component tự rơi về bảng dòng hàng dự phòng.
+function urlPdfNhap(invName, muc) {
+  if (!muc || !muc.nhap_tai_duoc) return ''
+  return (
+    '/api/method/miyano_portal.api.portal.portal_einvoice_download?invoice=' +
+    encodeURIComponent(invName) +
+    '&loai=nhap&fei=' +
+    encodeURIComponent(muc.fei)
+  )
 }
 
 async function yeuCauHoTro(invName, feiName) {
@@ -202,6 +216,12 @@ onMounted(async () => {
                         <span class="tag">Hoá đơn điều chỉnh/thay thế</span><br>
                         <b class="mono">{{ muc.hoa_don_moi.so || muc.hoa_don_moi.fei }}</b>
                         <span class="badge" :class="muc.hoa_don_moi.badge">{{ muc.hoa_don_moi.nhan }}</span>
+                      </div>
+                      <div v-if="muc.trang_thai === 'nhap'" style="flex-basis: 100%">
+                        <HoaDonNhap
+                          :du-lieu="{ canh_bao: inv.einvoice.canh_bao }"
+                          :url-pdf="urlPdfNhap(inv.name, muc)"
+                        />
                       </div>
                       <div class="flex" style="margin-left: auto; align-items: flex-start">
                         <button v-if="muc.tai_duoc" class="btn-o btn-sm" :disabled="taiDangXuLy === inv.name + '|' + muc.fei" @click="taiPdfHddt(inv.name, muc.fei)">

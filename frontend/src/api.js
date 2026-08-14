@@ -145,4 +145,31 @@ export async function logout() {
   })
 }
 
-export default { call, callKho, khoDownloadUrl, uploadFile, downloadFile, login, logout }
+// Nạp một file qua GET rồi trả blob URL để NHÚNG vào trang (không tải về máy).
+// Dùng cho khối xem hoá đơn nháp: thứ khách cần thấy là chính file PDF do Fast
+// dựng, nên nó phải hiện ngay trong trang chứ không nằm trong thư mục
+// Downloads. Tách khỏi downloadFile() vì hai việc khác nhau — cái kia kết thúc
+// bằng <a download>, cái này trả URL cho nơi gọi tự đặt vào <iframe>.
+// Nơi gọi có trách nhiệm URL.revokeObjectURL() khi rời màn hình.
+export async function fetchBlobUrl(url) {
+  const res = await fetch(url, { headers: { 'X-Frappe-CSRF-Token': csrfToken() } })
+  if (!res.ok) {
+    let msg = 'Không mở được file.'
+    try {
+      const data = await res.json()
+      const raw = data && (data.exception || data._server_messages || data.message)
+      if (typeof raw === 'string') {
+        const m = raw.match(/^([\w.]*Error):\s*(.+)$/s)
+        msg = m ? m[2] : raw
+      }
+    } catch {
+      // Thân response không phải JSON — giữ thông điệp mặc định.
+    }
+    throw new Error(msg)
+  }
+  return URL.createObjectURL(await res.blob())
+}
+
+export default {
+  call, callKho, khoDownloadUrl, uploadFile, downloadFile, fetchBlobUrl, login, logout,
+}

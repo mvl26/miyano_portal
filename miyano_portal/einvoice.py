@@ -366,7 +366,10 @@ def block_for(sales_invoice_name, sales_invoice_customer):
     muc_list = [_muc_cho(f, ho_so, sales_invoice_customer) for f in ho_so]
     chinh = _chon_chinh(muc_list)
     khac = [m for m in muc_list if m is not chinh]
-    return {"chinh": chinh, "khac": khac}
+    # `canh_bao` ở cấp KHỐI, không nhân bản vào từng mục: giao diện chỉ hiện
+    # nó một lần cho mỗi hoá đơn, và để ở đây thì frontend không phải gõ lại
+    # câu cảnh báo pháp lý (xem `CANH_BAO_NHAP`).
+    return {"chinh": chinh, "khac": khac, "canh_bao": CANH_BAO_NHAP}
 
 
 def co_the_tai(fei_row):

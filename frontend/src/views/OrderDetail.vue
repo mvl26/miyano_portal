@@ -7,6 +7,7 @@ import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import { showToast } from '../toast'
 import ReasonModal from '../components/ReasonModal.vue'
+import HoaDonNhap from '../components/HoaDonNhap.vue'
 
 // Mã lý do do server trả về (`30_API_Spec` §5) → thông điệp cho người đọc.
 // Server trả mã chứ không trả câu chữ để một chỗ đổi câu không phải sửa hai nơi.
@@ -80,6 +81,43 @@ async function datLai() {
   } finally {
     dangDatLai.value = false
   }
+}
+
+// --- Hoá đơn nháp đính theo phiếu giao (E7b) --------------------------------
+// Cờ `d.co_hoa_don_nhap` đi sẵn trong `portal_order_track`; NỘI DUNG chỉ nạp
+// khi khách bấm xem — khác khối HĐĐT ở trang Hoá đơn (nhúng sẵn): ở đây có
+// thể có nhiều đợt giao, nhét sẵn dòng hàng của mọi bản nháp vào response chi
+// tiết đơn là trả về một đống dữ liệu hầu như không ai mở tới.
+const nhapMo = ref(null)
+const nhapData = ref({})
+const nhapDangTai = ref(null)
+
+async function toggleNhap(dnName) {
+  if (nhapMo.value === dnName) {
+    nhapMo.value = null
+    return
+  }
+  nhapMo.value = dnName
+  if (dnName in nhapData.value) return
+  nhapDangTai.value = dnName
+  try {
+    const khoi = await api.call('portal_einvoice_nhap', { delivery_note: dnName })
+    nhapData.value = { ...nhapData.value, [dnName]: khoi }
+  } catch (e) {
+    showToast(e.message || 'Không xem được hoá đơn nháp.', 'error')
+    nhapMo.value = null
+  } finally {
+    nhapDangTai.value = null
+  }
+}
+
+function urlPdfNhap(dnName) {
+  const khoi = nhapData.value[dnName]
+  if (!khoi || !khoi.nhap_tai_duoc) return ''
+  return (
+    '/api/method/miyano_portal.api.portal.portal_einvoice_nhap_pdf?delivery_note=' +
+    encodeURIComponent(dnName)
+  )
 }
 
 // M3 (E3 phần B review): `so_dot` (BR-K16 — thứ tự DN ĐÃ GHI SỔ của SO) và
@@ -297,6 +335,29 @@ onMounted(load)
                 </span>
                 <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
               </p>
+              <!-- E7b — hoá đơn nháp lập từ chính phiếu giao này. Neo ở đây
+                   chứ không ở trang Hoá đơn: chứng từ HĐĐT sinh từ phiếu giao
+                   có thể chưa có Sales Invoice nào để bám vào. -->
+              <template v-if="d.co_hoa_don_nhap">
+                <p class="tag" style="margin-top: 4px">
+                  <span class="badge b-gray">Hoá đơn nháp</span>
+                  <button class="btn-o btn-sm" style="margin-left: 8px" @click="toggleNhap(d.name)">
+                    {{ nhapMo === d.name ? '▾ Ẩn hoá đơn nháp' : '▸ Xem hoá đơn nháp' }}
+                  </button>
+                </p>
+                <div
+                  v-if="nhapMo === d.name"
+                  style="border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 6px"
+                >
+                  <p v-if="nhapDangTai === d.name" class="tag">Đang tải hoá đơn nháp…</p>
+                  <HoaDonNhap
+                    v-else-if="nhapData[d.name]"
+                    :du-lieu="nhapData[d.name]"
+                    :url-pdf="urlPdfNhap(d.name)"
+                  />
+                  <p v-else class="tag">Phiếu giao này chưa có hoá đơn nháp.</p>
+                </div>
+              </template>
               <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
                 <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ dotLabel(d, i) }}</button>
               </a>
