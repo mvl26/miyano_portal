@@ -17,6 +17,15 @@ file (xem §5).
 Không thuộc phạm vi lần này: cổng tự gửi email; nút Duyệt / Yêu cầu sửa trên
 cổng; lấy XML gốc (module không lưu XML — `docs/HDDT-ban-giao-team-module.md` §1).
 
+**Vòng duyệt vẫn chưa khép ở cổng — biết trước, không vá ngầm.** Site đang bật
+`require_customer_approval = 1`, nên KHÔNG hoá đơn nào phát hành được cho tới khi
+bản ghi ở `04 - Khách đã duyệt`, mà `04` chỉ đặt được bằng tay
+(`actions.mark_customer_approved`, và chỉ từ `03`). Sau bản này khách **xem** được
+bản nháp trên cổng nhưng **không** xác nhận được trên cổng — kế toán vẫn phải hỏi
+khách qua email/điện thoại rồi tự bấm. Đưa nút Đồng ý/Yêu cầu sửa lên cổng là
+việc chạm interface module HĐĐT (mở đường ghi trạng thái cho Website User), cần
+team HĐĐT chốt — đề xuất làm thành pha kế tiếp.
+
 ## 2. Quyết định đã chốt với chủ dự án
 
 | # | Quyết định | Lý do |
@@ -41,6 +50,17 @@ cổng; lấy XML gốc (module không lưu XML — `docs/HDDT-ban-giao-team-mod
   khi bản cũ còn ở trạng thái 01–08/98.
 - **Không có sự kiện nào hook được khi HĐĐT phát hành xong** (mục 3 tài liệu bàn
   giao) — nên không dựa vào đó cho bất cứ bước nào.
+- **Nút "Gửi bản nháp cho khách" ở Desk chỉ phụ thuộc `doc.status`**, không phụ
+  thuộc cờ ẩn nào do giao diện đặt (`form_state.py::_buttons_for` + bảng
+  `BUTTONS`: `send_draft` mở ở `02/03/04`). Đã kiểm — nếu nút này còn phụ thuộc
+  một cờ mà chỉ thao tác tay trên UI mới đặt, thì quyết định Q1 sụp: job dừng ở
+  `02` mà kế toán không có nút để gửi. Nó không phụ thuộc, nên Q1 đứng vững.
+- **Trên site `erptest.local`: `enabled = 1`, `require_customer_approval = 1`,
+  đã có credential Fast.** Cờ thứ hai quan trọng: `_issue_statuses()` khi bật cờ
+  này chỉ cho phát hành ở `04 - Khách đã duyệt`. Nghĩa là đường tới hoá đơn thật
+  là `01 → 02 (job này) → [kế toán gửi] 03 → [kế toán ghi nhận khách duyệt] 04 →
+  phát hành`. Tự động hoá lần này **rút ngắn** đường đó (bỏ hai thao tác tay đầu
+  tiên), không kéo dài thêm.
 
 ## 4. Kích hoạt và job nền
 
