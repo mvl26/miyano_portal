@@ -162,6 +162,44 @@ hai role đó; hiện tại yêu cầu của khách sẽ rơi vào hư không (k
 
 ---
 
+## 12. Cổng nay GỌI THẲNG hai hàm của module, và HIỂN THỊ bản nháp cho khách
+
+Từ E7b, hook `Sales Invoice.on_submit` của app cổng (job nền
+`miyano_portal/hddt_tu_dong.py`) gọi **hai hàm whitelist của module HĐĐT**:
+
+- `builder.create_from_delivery_note(delivery_note)`
+- `actions.preview_draft(fei, client=None)`
+
+Đổi chữ ký hai hàm đó — **kể cả đổi tên tham số `client`** — là vỡ luồng tự
+động này. Tham số `client` đang được dùng để tiêm `FastClient` giả trong test
+của cổng (không gọi mạng thật khi chạy CI); xin giữ nó.
+
+Cổng **KHÔNG** gọi `send_draft_to_customer`: việc gửi bản nháp cho khách vẫn do
+kế toán bấm tay, đúng thiết kế. Job dừng ở `02 - Đã xem nháp`, và nút "Gửi bản
+nháp cho khách" mở đúng từ trạng thái đó (`form_state.py::BUTTONS`) — nếu sau
+này nút ấy phụ thuộc thêm một cờ chỉ thao tác tay mới đặt được, xin báo trước,
+vì cả quyết định "dừng ở 02" dựa vào điều đó.
+
+**Khách hàng nay NHÌN THẤY bản nháp trên cổng.** Bốn thứ cổng đang phụ thuộc —
+đổi thì báo trước:
+
+1. **Vùng trạng thái 01–04** là ranh giới "bản nháp khách xem được". Thêm/bớt
+   mã trong vùng này là đổi cái khách nhìn thấy.
+2. **`draft_pdf`** — cổng phục vụ đúng file này (không phải `official_pdf`) qua
+   endpoint riêng có kiểm sở hữu + ghi `Access Log`. Đây là thứ khách thấy
+   TRƯỚC HẾT: file PDF do chính Fast dựng.
+3. **`Fast EInvoice Line`** (`item_code/item_name/uom/qty/price/amount/
+   discount_amount/tax_rate/tax_amount/note`) — bảng dòng hàng DỰ PHÒNG, chỉ
+   hiện khi chưa có `draft_pdf`.
+4. **`amount` / `tax_amount` / `total_amount` / `amount_in_words`** trên master.
+
+**Hệ quả nghiệp vụ:** `resync_from_delivery_note` ghi đè dòng hàng bất cứ lúc
+nào bản ghi còn ở 01–04, nên số liệu khách đang xem có thể đổi giữa hai lần mở.
+Cổng đã nói rõ điều đó trong cảnh báo cố định kèm mỗi bản nháp; nếu kế toán cần
+khách xem một bản "đóng băng" thì phải có cơ chế khác.
+
+---
+
 ## Tóm tắt hành động
 
 | # | Việc | Ai làm | Chặn go-live? |
@@ -170,3 +208,6 @@ hai role đó; hiện tại yêu cầu của khách sẽ rơi vào hư không (k
 | 8 | Xác nhận `fast_key_search` có in trên PDF không | Team HĐĐT | Không chặn |
 | 7 | Cân nhắc thêm field nối "huỷ và lập lại" | Team HĐĐT | Không chặn |
 | 11 | Gán người vào role "Kế toán HĐĐT" | Vận hành/Miyano | **Chặn** — nếu không, [Yêu cầu hỗ trợ] vô nghĩa |
+| 12 | Báo trước nếu đổi chữ ký `create_from_delivery_note` / `preview_draft` (gồm tham số `client`) | Team HĐĐT | Không chặn — nhưng đổi ngầm là vỡ luồng tự lập HĐĐT |
+| 12 | Báo trước nếu đổi vùng trạng thái 01–04, `draft_pdf`, `Fast EInvoice Line` hoặc các trường tổng tiền | Team HĐĐT | Không chặn — nhưng đổi ngầm là vỡ khối "Hoá đơn nháp" trên cổng |
+| 12 | Chốt có đưa vòng duyệt bản nháp (03/04) lên cổng hay giữ qua email | Team HĐĐT + Kế toán | Không chặn |

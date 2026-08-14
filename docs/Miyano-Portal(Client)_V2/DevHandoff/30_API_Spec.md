@@ -47,9 +47,14 @@ là quyết định có chủ đích, không phải nợ kỹ thuật. Khi mode=
 // Response bổ sung
 { "dot_giao": [ { "so_dot": 1, "delivery_note": "MAT-DN-2026-00201", "ngay": "2026-07-27",
                   "phan_tram": 60, "van_chuyen": "Nhất Tín", "awb": "NT8829134VN",
+                  "co_hoa_don_nhap": true,
                   "phieu_nhap": {"name": "PNK-00031", "trang_thai": "Nháp", "co_chenh_lech": false} } ],
   "chap_nhan": { "can_dong_y": true, "han_hieu_luc": "2026-08-19" } }   // chỉ đơn Chờ khách đồng ý
 ```
+**`co_hoa_don_nhap`** (E7b) — có mặt trên CẢ `dot_giao[]` lẫn `deliveries[]`: phiếu giao này đã có
+chứng từ HĐĐT còn ở vòng nháp (trạng thái 01–04). Chỉ là CỜ; nội dung lấy qua `portal_einvoice_nhap`
+khi khách bấm xem. Lỗi ở module HĐĐT bị nuốt thành `false` (khuôn bọc lỗi giống `portal_invoices`) —
+chi tiết đơn hàng không được phụ thuộc module của team khác.
 
 ### 1.3 `api.kho.kho_phieu_nhap_save` — thêm trường E3/E4
 Nhận thêm: `loai_nhap` mới, `ncc`, `so_chung_tu_ncc`, `ngay_chung_tu`, dòng `ly_do_chenh_lech`.
@@ -128,9 +133,56 @@ Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn 
 Chặn: đơn không thuộc khách của phiên / không ở "Chờ khách đồng ý" / quá `han_hieu_luc` (→ 417
 "Báo giá cho đơn … đã hết hiệu lực…"). Chuyển trạng thái dưới quyền hệ thống + Comment log.
 
-### 2.5 `portal_einvoice_download(invoice, loai)` (E7)
-`loai`: `"xml" | "pdf"`. Kiểm: SI thuộc customer phiên + `einvoice_trang_thai = "Đã phát hành"` +
-file tồn tại → stream (Content-Disposition attachment); ghi log lượt tải. Sai điều kiện → 403/417.
+### 2.5 `portal_einvoice_download(invoice, loai, fei=None)` (E7 / E7b)
+`loai`: `"pdf"` (bản thể hiện hoá đơn ĐÃ phát hành, `official_pdf`, chốt trạng thái 06+) hoặc
+`"nhap"` (bản in thử Fast dựng khi chứng từ còn ở 01–04, `draft_pdf`). Hai chốt trạng thái **ngược
+nhau** nên cài đặt tách nhánh rõ ràng, không gộp điều kiện.
+
+Kiểm TỪNG LẦN tải: SI thuộc customer của phiên + chứng từ HĐĐT khớp đúng hoá đơn đó + trạng thái cho
+phép + `File` thật sự đọc được và đính đúng chứng từ → stream (Content-Disposition attachment); ghi
+`Access Log`. Sai điều kiện → 403/417.
+
+`fei` TUỲ CHỌN — một hoá đơn có thể khớp NHIỀU chứng từ HĐĐT. Tham số này **chỉ dùng để LỌC** trong
+tập đã tự suy từ phiên, không bao giờ `get_doc` thẳng tên client gửi.
+
+> **Lệch tài liệu, ghi nhận chứ không sửa mã:** `loai="xml"` KHÔNG tồn tại. Module HĐĐT không lưu XML
+> ở bất kỳ field nào (đã kiểm JSON doctype) — không có gì để giao. Tên field cũng khác bảng "tên tạm"
+> của BA (`einvoice_trang_thai` không tồn tại); bản đồ thật ở `miyano_portal/einvoice.py`.
+
+### 2.6 `portal_einvoice_nhap(delivery_note)` (E7b) — MỚI
+```jsonc
+// Response (null nếu kế toán chưa lập chứng từ HĐĐT cho phiếu giao này)
+{ "fei": "FEI-2026-00042", "nhan": "Hoá đơn nháp", "loai": "Hóa đơn gốc",
+  "canh_bao": "Bản nháp — chưa có số hoá đơn, chưa ký số, chưa gửi Cơ quan Thuế…",
+  "ngay": "2026-07-27", "tien_hang": 250000, "tien_thue": 22500, "chiet_khau": 0,
+  "tong_tien": 272500, "bang_chu": "…", "cap_nhat_luc": "2026-07-27 10:12:03",
+  "nhap_tai_duoc": true,
+  "dong": [ { "stt": 1, "ma": "VT0005", "ten": "…", "dvt": "Cái", "so_luong": 2,
+              "don_gia": 100000, "thanh_tien": 200000, "chiet_khau": 0,
+              "thue_suat": "10", "tien_thue": 20000, "ghi_chu": "" } ] }
+```
+Neo theo **Delivery Note**, KHÔNG theo Sales Invoice: `builder.create_from_delivery_note` (luồng thật
+sinh chứng từ HĐĐT) chỉ gán `fei.delivery_note`, và phiếu giao có thể chưa được lập hoá đơn bán hàng
+tại thời điểm đó — neo theo SI thì khách không thấy gì đúng lúc chứng từ vừa được lập.
+
+Kiểm: phiếu giao thuộc customer của phiên (`check_permission` + đối chiếu `dn.customer`) + bản ghi
+HĐĐT khớp phải đúng `fei.customer`. Trạng thái đủ điều kiện: **01–04**. `canh_bao` do SERVER trả để
+một lần sửa giao diện không làm rơi mất cảnh báo pháp lý. KHÔNG bao giờ trả đường dẫn file (BR-E4) —
+chỉ cờ `nhap_tai_duoc`.
+
+`dong[]` là **DỰ PHÒNG** cho giao diện: thứ khách cần thấy trước hết là chính file PDF do Fast dựng;
+bảng số liệu này chỉ để có cái mà xem khi Fast chưa dựng xong (trạng thái 01) hoặc gọi Fast lỗi.
+
+### 2.7 `portal_einvoice_nhap_pdf(delivery_note)` (E7b) — MỚI
+Stream bản in thử PDF (`draft_pdf`; Fast dựng với `action=600` — không ký số, không cấp số, không gửi
+CQT). Cùng ràng buộc §2.6: kiểm sở hữu từng lần, không nhận tên chứng từ từ client, ghi `Access Log`.
+Dùng ở màn chi tiết đơn hàng, nơi phiếu giao có thể chưa có Sales Invoice để bám vào.
+
+> **Chưa có trên cổng:** nút Duyệt / Yêu cầu sửa bản nháp. Vòng duyệt của module HĐĐT
+> (`send_draft_to_customer` → 03 → `record_customer_feedback` / `mark_customer_approved`) hiện chạy
+> qua **email + nhân viên tự ghi nhận**. Site đang bật `require_customer_approval = 1` nên không hoá
+> đơn nào phát hành được cho tới khi bản ghi ở `04 - Khách đã duyệt` — đưa vòng duyệt lên cổng là
+> thay đổi chạm interface của team HĐĐT, phải chốt riêng.
 
 ---
 
