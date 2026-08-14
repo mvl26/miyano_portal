@@ -143,9 +143,24 @@ class TestBoSoChuanPRD(_KhoBmTestCase):
 
 	def test_adu_loai_tru_dung_phieu_huy_va_phieu_dao(self):
 		"""TC-E5-01 — nếu bất kỳ phép loại trừ nào (loai_xuat != 'Xuất sử
-		dụng' HOẶC da_dao=1) bị bỏ sót, con số này KHÔNG còn là 5.0."""
+		dụng' HOẶC da_dao=1) bị bỏ sót, con số này KHÔNG còn là 5.0.
+
+		P2 #1 (kiểm thử hệ thống): bản trước gọi thẳng
+		`dutru.tinh_tieu_thu(self.K, self.VT)` với `self.K` tiêm tay — không
+		đi qua phiên đăng nhập nào, dù `_KhoBmTestCase` không hề gọi
+		`set_user`. Đường thật khách đi là `kho_min_max_goi_y` (kho suy từ
+		`get_portal_kho()`) — dùng nó làm khẳng định CHÍNH để chứng minh suy
+		diễn tenant từ phiên thật sự chạy tới tận phép tính ADU.
+		"""
+		frappe.set_user(BM_USER)
+		out = kho_api.kho_min_max_goi_y(vat_tu_list=[self.VT])
+		self.assertEqual(out[self.VT]["adu_90"], 5.0)
+
+		# `so_ngay_du_lieu` không có trong response của endpoint (chỉ dùng nội
+		# bộ để quyết định gate `du_lieu: False` — đã khẳng định riêng ở
+		# TestNguongDuLieu) — đọc thêm qua hàm nội bộ CHỈ để khẳng định số ngày
+		# dữ liệu, không thay cho khẳng định qua endpoint ở trên.
 		tt = dutru.tinh_tieu_thu(self.K, self.VT)
-		self.assertEqual(tt["adu_90"], 5.0)
 		self.assertEqual(tt["so_ngay_du_lieu"], 81)  # today - (today-80) + 1
 
 	def test_adu_30_ngay_dung_cua_so_co_dinh_30(self):

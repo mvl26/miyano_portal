@@ -282,10 +282,21 @@ class TestNccList(_E4Fixture):
 
 class TestPhieuMuaNgoai(_E4Fixture):
     def test_mua_ngoai_without_ncc_blocked_with_literal_message(self):
-        """TC-E4-03 (Â): thiếu NCC -> chặn, thông điệp NGUYÊN VĂN NL-7.1."""
+        """TC-E4-03 (Â): thiếu NCC -> chặn, thông điệp NGUYÊN VĂN NL-7.1.
+
+        P2 #1 (kiểm thử hệ thống): bản trước gọi `_nhap()`, hardcode
+        `kho=self.kho["kho_bm"]` và `ignore_permissions=True` — `set_user`
+        chỉ trang trí, phiên đăng nhập không bao giờ được đọc. Đường thật
+        người thủ kho đi là `kho_phieu_nhap_save` (kho suy từ
+        `get_portal_kho()`), nên chuyển sang gọi đúng nó.
+        """
         frappe.set_user(BM_USER)
         with self.assertRaises(frappe.ValidationError) as ctx:
-            self._nhap(loai_nhap="Mua ngoài (NCC khác)")
+            kho_api.kho_phieu_nhap_save({
+                "ngay": frappe.utils.today(), "loai_nhap": "Mua ngoài (NCC khác)",
+                "items": [{"vat_tu": self.kho["vt_bm"], "so_lo": "LO-A",
+                           "so_luong": 100, "don_gia": 50000}],
+            })
         self.assertEqual(
             "Chọn nhà cung cấp cho phiếu mua ngoài.", str(ctx.exception)
         )
@@ -551,6 +562,20 @@ class TestTonDauMotLan(_E4Fixture):
 
 
 class TestCanhBaoXuatHetHan(_E4Fixture):
+    """P2 #1 (kiểm thử hệ thống): `_xuat()` bên dưới hardcode
+    `kho=self.kho["kho_bm"]` + `ignore_permissions=True` — `set_user` chỉ
+    trang trí, phiên không bao giờ được đọc để suy ra kho.
+
+    Hai ca "Â"/"C" chính của TC-E4-06 (chặn khi không tick / cho qua khi
+    tick) ĐÃ được phủ qua đúng endpoint (`kho_phieu_xuat_save` +
+    `kho_phieu_submit`, kho suy từ `get_portal_kho()`) tại
+    `test_kho_phieu_api.py::TestKhoPhieuApi.test_expired_lot_without_tick_refused`
+    và `.test_expired_lot_with_tick_allowed` — không cần lặp lại ở đây.
+    Các test còn lại trong lớp này (loại xuất không hỏi, mốc ngày phiếu vs.
+    hôm nay) là ca biên nghiệp vụ thuần trên controller, không đụng tới suy
+    diễn tenant, nên giữ nguyên khuôn `frappe.get_doc` cho gọn.
+    """
+
     def setUp(self):
         super().setUp()
         # I-1 (review): `ngay` của phiếu PHẢI cùng mốc "hôm nay" với

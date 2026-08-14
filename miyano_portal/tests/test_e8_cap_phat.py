@@ -107,14 +107,23 @@ class _KhoE8Fixture(FrappeTestCase):
 
 
 class TestKhoaPhongCatalog(_KhoE8Fixture):
+    """P2 #1 (kiểm thử hệ thống): TC-E8-01 bản trước gọi thẳng
+    `khoa_phong_mod.save(kho, {...})` với `kho` tiêm tay — không `set_user`
+    nào ở đây từng được đọc để suy ra kho. Đường thật của cổng khách là
+    `kho_khoa_phong_save` (kho suy từ `get_portal_kho()`)."""
+
     def test_exact_duplicate_blocked_diacritic_and_case_insensitive(self):
-        khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "Khoa Hồi sức"})
+        """TC-E8-01 (Â): trùng tuyệt đối (bỏ dấu/hoa-thường) trong kho -> chặn."""
+        frappe.set_user(BM_USER)
+        kho_api.kho_khoa_phong_save({"ten_khoa_phong": "Khoa Hồi sức"})
         with self.assertRaises(frappe.ValidationError):
-            khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "khoa hoi suc"})
+            kho_api.kho_khoa_phong_save({"ten_khoa_phong": "khoa hoi suc"})
 
     def test_similar_name_suggests_does_not_block(self):
-        khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "Khoa Hồi sức tích cực"})
-        out = khoa_phong_mod.save(self.kho["kho_bm"], {
+        """TC-E8-01 (B): gần giống -> KHÔNG chặn, trả goi_y_trung."""
+        frappe.set_user(BM_USER)
+        kho_api.kho_khoa_phong_save({"ten_khoa_phong": "Khoa Hồi sức tích cực"})
+        out = kho_api.kho_khoa_phong_save({
             "ten_khoa_phong": "Khoa Hồi sức tích cực1", "chi_kiem_tra": 1,
         })
         self.assertIsNone(out["name"])
@@ -127,9 +136,12 @@ class TestKhoaPhongCatalog(_KhoE8Fixture):
         )
 
     def test_same_name_different_kho_allowed(self):
-        khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "Khoa Nội"})
-        # Không được ném lỗi: trùng tên GIỮA hai kho khác nhau là hợp lệ.
-        khoa_phong_mod.save(self.kho["kho_pxn"], {"ten_khoa_phong": "Khoa Nội"})
+        frappe.set_user(BM_USER)
+        kho_api.kho_khoa_phong_save({"ten_khoa_phong": "Khoa Nội"})
+        # Không được ném lỗi: trùng tên GIỮA hai kho khác nhau là hợp lệ —
+        # mỗi kho suy từ đúng phiên đăng nhập của khách đó.
+        frappe.set_user(PXN_USER)
+        kho_api.kho_khoa_phong_save({"ten_khoa_phong": "Khoa Nội"})
 
     def test_used_department_cannot_be_deleted_only_deactivated(self):
         khoa = khoa_phong_mod.save(self.kho["kho_bm"], {"ten_khoa_phong": "Khoa Dùng Rồi"})
@@ -430,11 +442,18 @@ class TestNguoiNhanGoiY(_KhoE8Fixture):
         doc.submit()
 
     def test_suggests_matching_recipients_scoped_to_department(self):
-        out = khoa_phong_mod.nguoi_nhan_goi_y(self.kho["kho_bm"], self.khoa_hs.name, "t")
+        """TC-E8-06 (C): P2 #1 (kiểm thử hệ thống) — TC nêu đích danh
+        `kho_nguoi_nhan_goi_y(...)`, đường thật của cổng khách, chứ không
+        phải `khoa_phong_mod.nguoi_nhan_goi_y(kho, khoa, tu_khoa)` gọi thẳng
+        với `kho` tiêm tay (khác arity: endpoint không nhận `kho` từ client,
+        tự suy từ phiên qua `get_portal_kho()`)."""
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_nguoi_nhan_goi_y(self.khoa_hs.name, "t")
         self.assertEqual(out, ["BS. Tuấn"])
 
     def test_suggestions_do_not_bleed_across_departments(self):
-        out = khoa_phong_mod.nguoi_nhan_goi_y(self.kho["kho_bm"], self.khoa_xn.name, None)
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_nguoi_nhan_goi_y(self.khoa_xn.name, None)
         self.assertIn("KTV. Hùng", out)
         self.assertNotIn("BS. Tuấn", out)
         self.assertNotIn("ĐD. Lan", out)
