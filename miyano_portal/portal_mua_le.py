@@ -10,7 +10,7 @@ cần đọc CHUNG một phép tính — tách riêng để hai nơi không lệ
 """
 
 import frappe
-from frappe.utils import add_days, getdate
+from frappe.utils import add_days, flt, getdate
 
 TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 
@@ -135,6 +135,62 @@ def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
         # ghi lại NGÀY MỚI, ghi đè giá trị cũ nếu có (xem docstring: gửi
         # lại sau khi bị từ chối phải reset đồng hồ).
         doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
+
+
+def dong_bo_da_xu_ly_dat_ngoai(doc, method=None) -> None:
+    """Thiết kế lại mua lẻ §4.3 — đồng bộ `da_xu_ly` của bảng con
+    `custom_dat_ngoai` (Sales Order Dat Ngoai Item) theo `item_khop`, và
+    kiểm `so_luong > 0`.
+
+    Ở HOOK `validate` của Sales Order (đăng ký ở
+    `hooks.py::doc_events["Sales Order"]["validate"]`), KHÔNG ở
+    `validate()` của chính doctype con: Frappe KHÔNG gọi `validate()` của
+    controller bảng con khi document CHA lưu — chỉ các kiểm tra tầng khung
+    (mandatory/link/options) tự chạy cho bảng con. Một `validate()` đặt ở
+    `SalesOrderDatNgoaiItem` sẽ không bao giờ được gọi — xem docstring dài ở
+    file đó.
+
+    `da_xu_ly` là field `read_only=1` trên JSON (chặn ai đó tự tay tick từ
+    UI mà không thật sự khớp mã hàng), nên nơi DUY NHẤT được phép ghi field
+    này là chính hàm này — server tự suy ra từ `item_khop`, không tin giá
+    trị `da_xu_ly` client gửi lên (nếu có).
+    """
+    for dong in doc.get("custom_dat_ngoai") or []:
+        dong.da_xu_ly = 1 if dong.get("item_khop") else 0
+        so_luong = flt(dong.get("so_luong"))
+        if so_luong <= 0:
+            frappe.throw(
+                f"Dòng đặt ngoài '{dong.get('ten_hang') or '?'}': số lượng phải > 0.",
+                frappe.ValidationError,
+            )
+
+
+def kiem_dat_ngoai_da_xu_ly(doc, method=None) -> None:
+    """Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi còn dòng
+    "đặt ngoài" chưa xử lý (chưa có `item_khop`).
+
+    Ở `before_submit`, ÁP CHO MỌI Sales Order (không riêng đơn Mua lẻ) —
+    bảng con `custom_dat_ngoai` rỗng với đơn không dùng nhóm này nên vòng
+    lặp dưới đây là no-op, chi phí không đáng kể.
+
+    VÌ SAO CẦN: thiếu chốt này, một đơn có thể được duyệt và giao trong khi
+    hai dòng khách yêu cầu chưa ai đụng tới — khách trả tiền cho thứ họ
+    không nhận được, và không có tín hiệu nào báo (thiết kế §4.4).
+
+    Field `custom_dat_ngoai` KHÔNG `allow_on_submit` (xem patch
+    `create_dat_ngoai_custom_field`), nên không có đường nào thêm được một
+    dòng chưa xử lý SAU khi đơn đã qua chốt này — chốt chỉ cần đứng đúng
+    MỘT lần, ở đây.
+    """
+    chua_xu_ly = [d for d in doc.get("custom_dat_ngoai") or [] if not d.get("da_xu_ly")]
+    if not chua_xu_ly:
+        return
+    ten = ", ".join(d.get("ten_hang") or "?" for d in chua_xu_ly)
+    frappe.throw(
+        f"Còn {len(chua_xu_ly)} dòng đặt ngoài chưa xử lý ({ten}). "
+        "Khớp mã hàng (hoặc tạo mã mới) cho từng dòng trước khi xác nhận đơn.",
+        frappe.ValidationError,
+    )
 
 
 def items_thuoc_hdnt_hieu_luc(customer: str) -> set:

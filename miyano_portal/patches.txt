@@ -34,3 +34,5 @@ miyano_portal.patches.v1_11.install_e8_desk_reports
 miyano_portal.patches.v1_11.update_kho_print_formats_khoa_phong
 miyano_portal.patches.v1_12.re_apply_kho_print_formats_khoa_phong_fix
 miyano_portal.patches.v1_13.dong_bo_gia_hdnt
+miyano_portal.patches.v1_14.create_dat_ngoai_custom_field
+miyano_portal.patches.v1_14.install_bao_gia_san_sang_notification

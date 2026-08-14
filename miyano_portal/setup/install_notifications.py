@@ -94,6 +94,41 @@ DEFS = [
         ),
         "recipient_field": "nguoi_yeu_cau",
     },
+    # Thiết kế lại mua lẻ §4.6 — khách nhận thông báo NGAY TRÊN đơn khi báo
+    # giá sẵn sàng ("Chờ khách đồng ý"), kèm email cùng khuôn Notification
+    # đã có (không dựng cơ chế gửi thư riêng). `custom_nguon_don ==
+    # 'Client Portal'` — cùng điều kiện scoping "Portal - Đơn mới"/"Portal -
+    # Đơn xác nhận" ở trên; transition "Gửi khách duyệt" -> "Chờ khách đồng
+    # ý" áp cho MỌI đơn portal (không riêng Mua lẻ, xem
+    # patches/v1_4/mo_rong_workflow_e2.py), nên KHÔNG lọc thêm theo
+    # `custom_loai_don`.
+    #
+    # `han_hieu_luc_bao_gia(doc)` — hàm DUY NHẤT tính hạn hiệu lực, đăng ký
+    # làm jinja global ở `hooks.py` (`jinja.methods`). KHÔNG tính lại "+N
+    # ngày" ngay trong template: N đọc từ `Miyano Portal Settings.
+    # hieu_luc_bao_gia_ngay` (mặc định 7 nếu chưa cấu hình) — hardcode số
+    # ngày ở đây sẽ lệch với `portal_order_accept`/`portal_order_track`/job
+    # daily `quet_bao_gia_het_han` ngay khi ai đó đổi Settings.
+    {
+        "name": "Portal - Báo giá sẵn sàng",
+        "subject": "Báo giá cho đơn hàng {{ doc.name }} đã sẵn sàng",
+        "document_type": "Sales Order",
+        "event": "Value Change",
+        "value_changed": "workflow_state",
+        "condition": (
+            "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.workflow_state == 'Chờ khách đồng ý'"
+        ),
+        "message": (
+            "Kính gửi Quý khách,\n\nMiyano đã gửi báo giá cho đơn hàng "
+            "{{ doc.name }}, tổng giá trị {{ frappe.utils.fmt_money(doc.grand_total, "
+            "currency='VND') }}.\n\nBáo giá có hiệu lực đến hết ngày "
+            "{{ han_hieu_luc_bao_gia(doc).strftime('%d/%m/%Y') }}. Sau thời hạn này, "
+            "nếu Quý khách chưa phản hồi, đơn sẽ tự động đóng.\n\nVui lòng đăng nhập "
+            "cổng khách hàng để xem chi tiết và xác nhận."
+        ),
+        "send_system_notification": 1,
+    },
 ]
 
 
@@ -115,5 +150,10 @@ def install_portal_notifications():
             ],
             "message": d["message"],
             "enabled": 1,
+            # §4.6 — "thông báo trên chính đơn đặt hàng" = system notification
+            # (Notification Log) TRÊN CÙNG cơ chế Email, không phải hai luồng
+            # gửi riêng. Mặc định 0 cho mọi định nghĩa cũ — hành vi các
+            # Notification hiện có KHÔNG đổi.
+            "send_system_notification": d.get("send_system_notification", 0),
         })
         doc.insert(ignore_permissions=True)
