@@ -101,11 +101,11 @@ Kho KKH-A: VT-A (map VT0001, min 10/ROP 25/max 60, lead 3, bội số 10) · lô
 | Mã | Kịch bản | Kỳ vọng | Loại |
 |---|---|---|---|
 | TC-E7-01 | SI "Chưa phát hành" | Khối hiển thị "Đang phát hành HĐĐT", không nút tải | C |
-| TC-E7-02 | SI "Đã phát hành": tải xml + pdf | Stream đúng file; log lượt tải ghi user+giờ | C |
+| TC-E7-02 | ~~SI "Đã phát hành": tải xml + pdf~~ **KHÔNG ÁP DỤNG** | ~~Stream đúng file; log lượt tải ghi user+giờ~~ — module Fast **không lưu XML ở đâu** (không field/method Fast nào trả XML); endpoint chủ động từ chối `loai="xml"`. Chỉ còn PDF. Xem `docs/HDDT-ban-giao-team-module.md` §1. | C |
 | TC-E7-03 | KH-B tải hoá đơn KH-A / request không đăng nhập | 403 cả hai | Â |
 | TC-E7-04 | SI bị huỷ có SI thay thế | Badge + link 2 chiều trên cả hai dòng | C |
-| TC-E7-05 | File xml thiếu trên server | 417 thân thiện; notification kế toán | Â |
-| TC-E7-06 | Chạy patch backfill 2 lần | Idempotent, không nhân bản dữ liệu | B |
+| TC-E7-05 | ~~File xml thiếu trên server~~ **KHÔNG ÁP DỤNG** | ~~417 thân thiện; notification kế toán~~ — không có file XML nào để "thiếu": module Fast không lưu XML, endpoint từ chối `loai="xml"` ngay từ đầu (hành vi NGƯỢC với kịch bản này theo đúng thiết kế). Xem `docs/HDDT-ban-giao-team-module.md` §1. | Â |
+| TC-E7-06 | ~~Chạy patch backfill 2 lần~~ **KHÔNG ÁP DỤNG** | ~~Idempotent, không nhân bản dữ liệu~~ — không có patch backfill nào để chạy: khối HĐĐT trên cổng **tra cứu trực tiếp** `Fast EInvoice Document` mỗi lần đọc (`einvoice.py`), không copy/backfill dữ liệu sang bảng nào khác, nên không có gì để "chạy 2 lần" hay nhân bản. Đã descope, ghi lại tại `docs/HDDT-ban-giao-team-module.md`; `16_PRD_E7_HDDT.md:56` vẫn đòi patch — chênh lệch tài liệu, không phải thiếu triển khai. | B |
 
 ## TC-E8 — Cấp phát khoa phòng / cá nhân (QĐ-9)
 
