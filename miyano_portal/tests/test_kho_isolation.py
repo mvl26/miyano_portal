@@ -85,6 +85,98 @@ KHO_DOCTYPES_KHAC: tuple[str, ...] = (
 # xuất hiện mà chưa được phân loại.
 KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings",)
 
+# --------------------------------------------------------------------- AN-1
+# AN-1 (báo cáo kiểm thử hệ thống 2026-08-14, mục 4 / P1 #5): `_nap_doctype_
+# kho()` phía trên chỉ quét `module="Miyano Portal"` — `Fast EInvoice
+# Document` thuộc module `Einvoice` của app `erpnext` (tích hợp hoá đơn điện
+# tử "Fast") nằm NGOÀI lưới quét đó, nên độ phủ cách ly của nó hoàn toàn dựa
+# vào test viết tay, không có gì buộc một doctype thứ hai của module này
+# (bảng log, đối soát...) phải được phân loại. Mở MỘT LƯỚI RIÊNG cho module
+# này — KHÔNG gộp vào kho_doctypes()/kho_parent_doctypes(): rất nhiều test
+# lặp qua hai hàm đó để SEED một bản ghi có field `kho`/`customer` (hình dạng
+# "kho khách hàng"); `Fast EInvoice *` có hình dạng hoàn toàn khác (buyer_*,
+# fei_document, lines...), gộp vào sẽ làm vỡ hàng loạt test đó mà không tăng
+# thêm gì cho an ninh.
+EINVOICE_MODULE = "Einvoice"
+
+# Doctype MANG dữ liệu khách (customer/buyer_* trực tiếp, hoặc link/child về
+# một doctype có customer/buyer_*) — phải nằm trong diện phủ cách ly.
+#
+#   * "Fast EInvoice Document" — có field `customer` (Link Customer) trực
+#     tiếp. Doctype CHA duy nhất trong module này ĐÃ được nối dây cả hai hook
+#     permission_query_conditions/has_permission (hooks.py:144-148/184) —
+#     xem test_fast_einvoice_document_co_lop_phong_thu_thu_hai bên dưới.
+#   * "Fast EInvoice Line" — istable=1, bảng con `lines` của Document (dòng
+#     hàng hoá đơn: item_code/qty/price...). Cùng nguyên tắc với
+#     kho_child_doctypes(): Frappe route has_child_permission() thẳng về
+#     PARENT trước khi has_permission của CHÍNH bảng con có cơ hội chạy, nên
+#     không cần (và không được) đăng ký riêng.
+#   * "Fast EInvoice Log" — KHÔNG phải bảng con (istable=0, đứng độc lập),
+#     chỉ LIÊN KẾT tới Document qua field `fei_document`; `request_json`/
+#     `response_raw` là payload gửi/nhận API Fast, có thể chứa buyer_name/
+#     customer_tax_code. KHÁC với Document, nó KHÔNG có wiring hook riêng
+#     nào — an toàn của nó hôm nay dựa 100% vào lớp phòng thủ CHÍNH (zero
+#     DocPerm cho role Customer, xem
+#     test_customer_role_khong_co_docperm_tren_doctype_einvoice_nao). Đã
+#     `grep` toàn bộ `miyano_portal/` — không endpoint whitelist nào của app
+#     này trả dữ liệu Log, nên đây là một lớp phòng thủ thứ hai còn THIẾU,
+#     không phải một lỗ hổng đang khai thác được; liệt kê tường minh ở đây để
+#     quyết định đó hiện ra trên giấy thay vì chìm trong im lặng.
+EINVOICE_DOCTYPES_MANG_DU_LIEU_KHACH: tuple[str, ...] = (
+    "Fast EInvoice Document", "Fast EInvoice Line", "Fast EInvoice Log",
+)
+
+# Miễn trừ tường minh — cấu hình vận hành module Fast, không gắn danh tính
+# khách hàng nào (khuôn giống KHONG_PHAI_DOCTYPE_KHO/"Miyano Portal
+# Settings" phía trên).
+#   * "Fast EInvoice Settings" — Single, tham số kết nối API Fast (api_url,
+#     token, template email...).
+#   * "Fast EInvoice Notify User" — istable=1, bảng con multiselect của
+#     Settings (`notify_on_error`): danh sách USER NỘI BỘ Miyano nhận cảnh
+#     báo lỗi, không phải dữ liệu của khách hàng nào.
+EINVOICE_DOCTYPES_KHONG_MANG_DU_LIEU_KHACH: tuple[str, ...] = (
+    "Fast EInvoice Settings", "Fast EInvoice Notify User",
+)
+
+
+def _nap_doctype_einvoice() -> dict[str, list[str]]:
+    """Liệt kê doctype của module `Einvoice` từ DATABASE lúc chạy test, cùng
+    nguyên tắc "ném lỗi khi gặp tên lạ" như `_nap_doctype_kho()` — xem AN-1 ở
+    trên. KHÔNG lọc theo tiền tố/tên ở tầng SQL, lấy TOÀN BỘ rồi mới phân
+    loại trong Python, để một doctype lệch cả hai danh sách buộc phải hiện ra
+    thay vì biến mất khỏi kết quả truy vấn."""
+    rows = frappe.get_all(
+        "DocType",
+        filters={"module": EINVOICE_MODULE},
+        fields=["name", "istable"],
+        order_by="name asc",
+    )
+    if not rows:
+        frappe.throw(
+            f"Không tìm thấy doctype nào trong module {EINVOICE_MODULE} — "
+            "danh sách rỗng sẽ khiến mọi vòng lặp test bên dưới pass vô "
+            "nghĩa. Kiểm tra lại tên module (module HĐĐT có thể đã đổi tên)."
+        )
+    la = [
+        r.name for r in rows
+        if r.name not in EINVOICE_DOCTYPES_MANG_DU_LIEU_KHACH
+        and r.name not in EINVOICE_DOCTYPES_KHONG_MANG_DU_LIEU_KHACH
+    ]
+    if la:
+        frappe.throw(
+            f"Doctype {la} thuộc module {EINVOICE_MODULE} chưa được phân "
+            "loại. Khai tên ĐẦY ĐỦ vào EINVOICE_DOCTYPES_MANG_DU_LIEU_KHACH "
+            "(nếu nó mang dữ liệu khách — kể cả gián tiếp qua link/child) "
+            "hoặc EINVOICE_DOCTYPES_KHONG_MANG_DU_LIEU_KHACH (nếu không), "
+            "trong test_kho_isolation.py — xem AN-1."
+        )
+    return {
+        "all": [r.name for r in rows],
+        "mang_du_lieu_khach": [
+            r.name for r in rows if r.name in EINVOICE_DOCTYPES_MANG_DU_LIEU_KHACH
+        ],
+    }
+
 
 def _nap_doctype_kho() -> dict[str, list[str]]:
     """Liệt kê doctype kho từ DATABASE lúc chạy test, không hardcode.
@@ -1221,6 +1313,55 @@ class TestKhoDocPermConfig(FrappeTestCase):
                         frappe.has_permission(dt, "read", user=user),
                         f"{user} không được có quyền đọc mức doctype trên {dt}",
                     )
+
+
+class TestEinvoiceModuleLuoiQuetDong(FrappeTestCase):
+    """AN-1: mở lưới quét động sang module `Einvoice` (app `erpnext`, tích
+    hợp hoá đơn điện tử "Fast") — xem khối hằng số/`_nap_doctype_einvoice()`
+    ở đầu file. KHÔNG sửa `apps/erpnext`, chỉ mở rộng phạm vi quét của test
+    này."""
+
+    def test_moi_doctype_einvoice_deu_duoc_phan_loai(self):
+        """Bản thân lệnh gọi không ném lỗi ĐÃ LÀ bài kiểm chính: một doctype
+        Einvoice mới (log, đối soát...) chưa được xếp vào một trong hai danh
+        sách ở đầu file sẽ làm test này đỏ ngay — đúng cơ chế đã cứu dự án
+        nhiều lần với _nap_doctype_kho()."""
+        info = _nap_doctype_einvoice()
+        self.assertIn("Fast EInvoice Document", info["all"])
+        self.assertIn("Fast EInvoice Document", info["mang_du_lieu_khach"])
+        self.assertIn("Fast EInvoice Log", info["mang_du_lieu_khach"])
+
+    def test_customer_role_khong_co_docperm_tren_doctype_einvoice_nao(self):
+        """Lớp phòng thủ CHÍNH (vòng 4, cùng khuôn
+        test_customer_role_has_no_docperm_on_any_kho_doctype) — zero DocPerm
+        VÀ Custom DocPerm cho role Customer, trên MỌI doctype của module
+        Einvoice, không chỉ những cái đã nối hook. `Fast EInvoice Log` không
+        có wiring permission_query_conditions/has_permission riêng (xem
+        comment EINVOICE_DOCTYPES_MANG_DU_LIEU_KHACH) — assertion NÀY là lớp
+        phòng thủ DUY NHẤT của nó; xoá là tắt hẳn cách ly của Log."""
+        doctypes = _nap_doctype_einvoice()["all"]
+        for table in ("DocPerm", "Custom DocPerm"):
+            rows = frappe.get_all(
+                table,
+                filters={"parent": ["in", doctypes], "role": "Customer"},
+                fields=["parent", "role"],
+            )
+            self.assertEqual(
+                rows, [],
+                f"{table}: role Customer không được có quyền trên doctype "
+                f"module {EINVOICE_MODULE}",
+            )
+
+    def test_fast_einvoice_document_co_lop_phong_thu_thu_hai(self):
+        """Doctype DUY NHẤT của module này có wiring hook riêng
+        (hooks.py:144-148/184) — chốt nó không bị gỡ nhầm khi dọn hooks.py.
+        Hỏi thẳng `frappe.get_hooks()` (nguồn framework thật sự đọc), không
+        import tĩnh dict trong module hooks — cùng lý do FINDING 2 ở
+        test_hooks_registered_for_every_kho_doctype."""
+        pqc = frappe.get_hooks("permission_query_conditions")
+        hp = frappe.get_hooks("has_permission")
+        self.assertIn("Fast EInvoice Document", pqc)
+        self.assertIn("Fast EInvoice Document", hp)
 
 
 class _KhoVoucherFixture(FrappeTestCase):
