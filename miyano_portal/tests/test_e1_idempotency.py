@@ -126,6 +126,93 @@ class TestIdempotencyDatHang(FrappeTestCase):
         with self.assertRaises(frappe.UniqueValidationError):
             khac.insert(ignore_permissions=True)
 
+    def test_dua_that_qua_endpoint_tra_don_cu_khong_nem_500(self):
+        """TC-E1-02, phần chưa từng chạy end-to-end (P2 #8, kiểm thử hệ
+        thống): `except frappe.UniqueValidationError` trong
+        `_insert_so_idempotent()` — chốt "khách bấm lại không nhận lỗi 500"
+        — chỉ được `test_tang_document_map_loi_thanh_UniqueValidationError`
+        khoá đúng LOẠI exception, không có test nào từng gọi
+        `portal_order_place()` LẦN THỨ HAI theo cách chạm được nhánh đó: một
+        `request_id` đã tồn tại luôn bị chặn SỚM bởi phép kiểm-trước-khi-ghi
+        ở đầu hàm (dòng `da_co = frappe.db.get_value(...)`), nên `so.insert()`
+        — và do đó cả nhánh `except` — không bao giờ được thực thi qua
+        đường thật.
+
+        Không dùng thread thật (cùng lý do đã ghi ở
+        `test_csdl_that_su_co_rang_buoc_unique`: `FrappeTestCase` chạy trong
+        một transaction, hai thread sẽ không thấy nhau). Thay vào đó vá TẠM
+        đúng MỘT lệnh đọc để mô phỏng chính xác thứ tự sự kiện của một cuộc
+        đua thật: tại thời điểm đọc, tiến trình kia CHƯA commit (get_value
+        trả None) — nhưng tại thời điểm ghi, nó ĐÃ commit (đơn gốc thật đã
+        nằm trong DB), nên `so.insert()` ăn đúng lỗi 1062 → `UniqueValidationError`
+        thật của MariaDB, không phải một ngoại lệ giả lập tay."""
+        rid = _rid()
+        goc = self._dat(rid)
+
+        goc_get_value = frappe.db.get_value
+        da_bo_qua_mot_lan = {"xong": False}
+
+        def _gia_lap_doc_som(doctype, filters=None, *args, **kwargs):
+            if (
+                not da_bo_qua_mot_lan["xong"]
+                and doctype == "Sales Order"
+                and isinstance(filters, dict)
+                and filters.get("custom_request_id") == rid
+            ):
+                da_bo_qua_mot_lan["xong"] = True
+                return None  # mô phỏng: đọc xảy ra TRƯỚC khi bản ghi kia commit
+            return goc_get_value(doctype, filters, *args, **kwargs)
+
+        frappe.db.get_value = _gia_lap_doc_som
+        try:
+            lan2 = self._dat(rid)  # KHÔNG được ném 500
+        finally:
+            frappe.db.get_value = goc_get_value
+
+        self.assertTrue(da_bo_qua_mot_lan["xong"], "phép vá không chạm nhánh nào — test tự vô nghĩa")
+        self.assertTrue(lan2["da_ton_tai"])
+        self.assertEqual(lan2["sales_order"], goc["sales_order"])
+        self.assertEqual(lan2["total"], goc["total"])
+        self.assertEqual(
+            frappe.db.count("Sales Order", {"custom_request_id": rid}), 1,
+            "CSDL vẫn chỉ có đúng một đơn — ràng buộc unique đã chặn bản ghi thứ hai",
+        )
+
+    def test_uniquevalidationerror_cua_truong_khac_khong_bi_nuot_thanh_da_ton_tai(self):
+        """Nhánh con `if not cu: raise` bên trong cùng `except` — cùng
+        UniqueValidationError, nhưng do MỘT trường unique KHÁC trên Sales
+        Order bị vi phạm (không phải custom_request_id của lần gọi này). Nếu
+        `_insert_so_idempotent` nuốt mọi UniqueValidationError thành "đơn đã
+        tồn tại" bất kể nguyên nhân, một lỗi dữ liệu THẬT sẽ biến mất, khách
+        thấy 'đơn đã tồn tại' cho một đơn không hề tồn tại.
+
+        Ép cả hai lệnh đọc `frappe.db.get_value(..., custom_request_id=rid)`
+        trong `_insert_so_idempotent` đều trả None (không riêng lệnh đầu như
+        test trên) — mô phỏng đúng tình huống "cu = None": `so.insert()` vẫn
+        ăn UniqueValidationError thật (đơn gốc đã tồn tại thật trong DB), nhưng
+        khi hàm tự tra lại theo custom_request_id để xác nhận nguyên nhân, nó
+        không tìm thấy gì — phải re-raise, không được trả về như thành công."""
+        rid = _rid()
+        self._dat(rid)
+
+        goc_get_value = frappe.db.get_value
+
+        def _luon_khong_thay(doctype, filters=None, *args, **kwargs):
+            if (
+                doctype == "Sales Order"
+                and isinstance(filters, dict)
+                and filters.get("custom_request_id") == rid
+            ):
+                return None
+            return goc_get_value(doctype, filters, *args, **kwargs)
+
+        frappe.db.get_value = _luon_khong_thay
+        try:
+            with self.assertRaises(frappe.UniqueValidationError):
+                self._dat(rid)
+        finally:
+            frappe.db.get_value = goc_get_value
+
     def test_ma_yeu_cau_cua_khach_khac_khong_bi_lo(self):
         """Trả 403 chứ không trả đơn: xác nhận sự tồn tại của một mã yêu cầu
         thuộc khách khác đã là rò rỉ."""
