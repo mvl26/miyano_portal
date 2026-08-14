@@ -515,6 +515,48 @@ class TestBaoGiaChoKhachDongY(FrappeTestCase):
             frappe.db.get_value("Portal Item Request", yc, "don_lien_ket"), so.name
         )
 
+    # ---------- TC-E6-10 ----------
+    def test_khong_dong_y_luu_ly_do_tren_ca_so_va_yeu_cau_goc(self):
+        """TC-E6-10 — vế "lý do lưu": BA §4.10/review I-5 đòi lý do không
+        đồng ý lưu vào CẢ đơn LẪN yêu cầu gốc (`cap_nhat_yeu_cau_goc` không
+        chạy cho `khong_dong_y`; `portal_order_accept` tự thêm Comment thứ
+        hai lên `Portal Item Request` — xem đoạn code ngay dưới nhánh
+        `elif action == "khong_dong_y"`). Trước bản sửa này, module E6 KHÔNG
+        có test nào gọi `khong_dong_y` — báo cáo kiểm thử hệ thống mục 1 nêu
+        "cả hai module vẫn xanh" khi hạ ngưỡng lý do, nhưng với module này lý
+        do đơn giản là chưa ai đứng trên đường nó đi qua, không phải vì có
+        chốt bảo vệ. Ranh giới độ dài (5/15 ký tự) đã có ở
+        `test_e2_workflow_va_accept.py`; test này bổ sung phần LƯU TRỮ mà
+        module đó không dựng được (không có `custom_yeu_cau_goc`)."""
+        yc = _tao_yeu_cau_da_bao_gia(BVBM, USER_BVBM)
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000, yeu_cau=yc)
+        ly_do_15 = "Giá quá cao rồi"
+        self.assertEqual(len(ly_do_15), 15, "fixture sai — TC đòi đúng 15 ký tự")
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_accept(so.name, "khong_dong_y", ly_do=ly_do_15)
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+
+        frappe.set_user("Administrator")
+        cmt_so = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Sales Order", "reference_name": so.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any(ly_do_15 in (c or "") for c in cmt_so),
+            "lý do phải truy vết được trên chính đơn hàng",
+        )
+        cmt_yc = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Portal Item Request", "reference_name": yc},
+            pluck="content",
+        )
+        self.assertTrue(
+            any(ly_do_15 in (c or "") for c in cmt_yc),
+            "lý do phải truy vết được trên yêu cầu gốc — BA §4.10 đòi lưu CẢ HAI nơi",
+        )
+
     # ---------- TC-E6-11 ----------
     def test_qua_han_hieu_luc_bi_chan_417(self):
         """Lập SO với ngày lập 8 ngày trước — hiệu lực mặc định 7 ngày nên
