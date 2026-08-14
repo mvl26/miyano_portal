@@ -159,6 +159,9 @@ class TestOrderAccept(FrappeTestCase):
         )
 
     def test_khong_dong_y_kem_ly_do_ve_cho_xac_nhan(self):
+        """Ca hồi quy chung với lý do dư dài (28 ký tự) — KHÔNG phải TC-E6-10,
+        ranh giới 5/15 ký tự đã có ở hai test phía trên. Giữ lại để không mất
+        độ phủ "đường đậu thông thường" khi ai đó sửa hai test TC-E6-10."""
         frappe.set_user("bvbm@demo.miyano")
         kq = portal.portal_order_accept(
             self.so.name, "khong_dong_y", ly_do="Giá cao hơn dự toán của đơn vị."
