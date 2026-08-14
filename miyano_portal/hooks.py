@@ -275,6 +275,21 @@ doc_events = {
 		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
 	},
+	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
+	#
+	# Cổng chỉ chấp nhận đơn giá đến từ `Item Price` (ba đường đặt hàng trong
+	# api/portal.py), nên một HĐNT có `rate` mà bảng giá rỗng nghĩa là khách
+	# KHÔNG đặt được hàng — trong khi `portal_catalog` vẫn hiện giá lấy từ
+	# `rate` nên không ai nhìn ra vì sao. Xem `gia_hdnt.py` để biết vì sao
+	# giữ nguyên phép tra qua Item Price mới là đúng, thay vì cho đường đặt
+	# hàng đọc thẳng `rate`.
+	#
+	# `on_submit` là đủ: `Blanket Order Item.rate` KHÔNG `allow_on_submit`
+	# (đã kiểm JSON doctype), nên giá chỉ đổi được bằng cách sửa đổi hợp đồng
+	# — thao tác đó lại submit một lần nữa và hook chạy lại.
+	"Blanket Order": {
+		"on_submit": "miyano_portal.gia_hdnt.tu_hdnt",
+	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
 	# "Từ chối". Áp cho MỌI Sales Order, không riêng đơn từ cổng.
 	#
