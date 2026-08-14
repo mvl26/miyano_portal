@@ -880,6 +880,21 @@ def portal_order_track(order) -> dict:
     )
     dn_names = list(dict.fromkeys(dn_names))
 
+    # E7b — cờ "đợt giao này đã có hoá đơn nháp", MỘT truy vấn cho cả danh
+    # sách (không hỏi từng phiếu trong vòng lặp bên dưới). Chỉ là CỜ; nội
+    # dung đầy đủ lấy qua `portal_einvoice_nhap` khi khách bấm xem — nhét sẵn
+    # dòng hàng của mọi đợt giao vào đây sẽ phình response chi tiết đơn.
+    #
+    # Bọc lỗi CỐ Ý, cùng nguyên tắc với khối HĐĐT ở `portal_invoices` và
+    # `delivery_hook._chay_an_toan`: module HĐĐT là của team khác — nó hỏng
+    # thì mất CÁI CỜ, không được mất cả trang chi tiết đơn hàng. Bọc ở đây
+    # (ngoài vòng lặp) nên một lần hỏng ghi đúng MỘT log, không N log.
+    try:
+        dn_co_nhap = einvoice.dn_co_hoa_don_nhap(dn_names, so.customer)
+    except Exception:
+        frappe.log_error(title=f"HĐĐT: không kiểm được hoá đơn nháp cho đơn {so.name}")
+        dn_co_nhap = set()
+
     # US-E3.4 — trạng thái phiếu nhập chỉ hiện khi khách CÓ kho (không dùng
     # get_portal_kho(): hàm đó ném PermissionError khi khách chưa mở kho, mà
     # phần lớn khách hàng portal KHÔNG có kho — đây không phải một tình huống
@@ -941,6 +956,7 @@ def portal_order_track(order) -> dict:
             "percent": pct,
             "carrier": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
+            "co_hoa_don_nhap": dn_name in dn_co_nhap,
         }
         if receipt:
             row["so_dot"] = so_dot
@@ -954,6 +970,7 @@ def portal_order_track(order) -> dict:
             "phan_tram": pct,
             "van_chuyen": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
+            "co_hoa_don_nhap": dn_name in dn_co_nhap,
         }
         if phieu_nhap:
             dot["phieu_nhap"] = phieu_nhap
@@ -1080,11 +1097,81 @@ def _ho_so_cua_hoa_don(invoice) -> tuple:
     return si, ho_so
 
 
+def _dn_cua_khach(delivery_note):
+    """Kiểm sở hữu MỘT phiếu giao qua phiên — khuôn giống `_ho_so_cua_hoa_don`
+    (Sales Invoice). `frappe.get_doc` KHÔNG tự kiểm quyền: `check_permission`
+    mới là nơi hook `has_permission` (`permissions.generic_has_permission`)
+    thật sự chạy, và chốt `dn.customer` là lớp thứ hai không phụ thuộc cấu
+    hình DocPerm/User Permission."""
+    customer = get_portal_customer()
+    dn = frappe.get_doc("Delivery Note", delivery_note)
+    dn.check_permission("read")
+    if dn.customer != customer:
+        raise frappe.PermissionError("Phiếu giao không thuộc đơn vị của bạn.")
+    return dn
+
+
+def _phuc_vu_file(fei_row, field, ten_file, method):
+    """Đọc một file đính kèm chứng từ HĐĐT rồi đẩy vào response.
+
+    Dùng CHUNG cho cả bản chính thức (`official_pdf`) lẫn bản nháp
+    (`draft_pdf`): hai đường gọi có chốt TRẠNG THÁI ngược nhau, nhưng phần
+    "kiểm file thật sự đọc được rồi phục vụ" thì giống hệt — viết hai lần là
+    hai chỗ có thể quên `make_access_log` hoặc quên lọc `attached_to_*`.
+
+    Người gọi PHẢI tự kiểm sở hữu và trạng thái TRƯỚC khi gọi hàm này; hàm
+    này không biết gì về khách của phiên.
+    """
+    duong_dan = fei_row.get(field)
+    if not duong_dan:
+        frappe.throw(
+            "File đang được tạo, vui lòng thử lại sau ít phút.", frappe.ValidationError
+        )
+
+    # File có thể đã bị xoá/hỏng dù field vẫn còn giá trị cũ (NL-12.4) — kiểm
+    # file THẬT SỰ đọc được, không chỉ tin field. Lọc thêm `attached_to_*`
+    # (không chỉ `file_url`): Frappe gộp file trùng nội dung theo content
+    # hash, nên nhiều `File` khác nhau (đính vào chứng từ HĐĐT khác nhau) có
+    # thể trỏ CHUNG một `file_url` — chỉ lọc theo url sẽ tìm thấy record của
+    # chứng từ KHÁC dù bản ghi của CHÍNH chứng từ này đã bị xoá (đã bắt gặp
+    # thật khi hai chứng từ HĐĐT test có PDF trùng byte).
+    file_doc = frappe.db.get_value(
+        "File",
+        {
+            "file_url": duong_dan,
+            "attached_to_doctype": einvoice.FEI,
+            "attached_to_name": fei_row.name,
+        },
+        "name",
+    )
+    if not file_doc:
+        frappe.throw(
+            "File bị thiếu hoặc hỏng trên hệ thống. Vui lòng liên hệ kế toán Miyano.",
+            frappe.ValidationError,
+        )
+    content = frappe.get_doc("File", file_doc).get_content()
+
+    from frappe.core.doctype.access_log.access_log import make_access_log
+
+    make_access_log(
+        doctype=einvoice.FEI, document=fei_row.name, file_type="pdf", method=method,
+    )
+    frappe.local.response.filename = ten_file
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "pdf"
+
+
 @frappe.whitelist()
 def portal_einvoice_download(invoice, loai="pdf", fei=None) -> None:
-    """US-E7.2/BR-E4 — tải PDF hoá đơn điện tử. `loai` chỉ còn `"pdf"`: module
-    HĐĐT không lưu XML ở đâu cả (không field nào chứa 'xml' trên
-    `Fast EInvoice Document`, đã kiểm JSON) — không có XML để giao.
+    """US-E7.2/BR-E4 — tải file HĐĐT của một hoá đơn. `loai`:
+
+    - `"pdf"`  — bản thể hiện hoá đơn ĐÃ PHÁT HÀNH (`official_pdf`), chốt
+      trạng thái `einvoice.co_the_tai()` (06 trở đi).
+    - `"nhap"` — bản in thử Fast dựng khi chứng từ còn ở 01–04 (`draft_pdf`),
+      chốt trạng thái `einvoice.la_ban_nhap()` — NGƯỢC LẠI với trên.
+
+    KHÔNG có XML: module HĐĐT không lưu XML ở đâu cả (không field nào chứa
+    'xml' trên `Fast EInvoice Document`, đã kiểm JSON) — không có gì để giao.
 
     `fei` TUỲ CHỌN — một hoá đơn có thể khớp NHIỀU chứng từ HĐĐT (gốc + điều
     chỉnh/thay thế/lập lại), khách chọn đúng bản muốn tải từ danh sách
@@ -1101,10 +1188,11 @@ def portal_einvoice_download(invoice, loai="pdf", fei=None) -> None:
     thuế). Không có URL file công khai: `/printview` hay dán link sang máy
     khác không đăng nhập đều 403 ở `check_permission`/`get_portal_customer`.
     """
-    if loai != "pdf":
+    if loai not in ("pdf", "nhap"):
         frappe.throw(
-            "Cổng chỉ cung cấp bản PDF thể hiện. Cần bản gốc XML có giá trị "
-            "pháp lý, vui lòng liên hệ kế toán Miyano."
+            "Cổng chỉ cung cấp bản PDF thể hiện và bản nháp. Cần bản gốc XML "
+            "có giá trị pháp lý, vui lòng liên hệ kế toán Miyano.",
+            frappe.ValidationError,
         )
 
     _si, ho_so = _ho_so_cua_hoa_don(invoice)
@@ -1118,53 +1206,64 @@ def portal_einvoice_download(invoice, loai="pdf", fei=None) -> None:
     else:
         muc = einvoice.chon_ban_ghi_chinh(ho_so)
 
+    # Hai nhánh TÁCH BẠCH, cố ý không gộp điều kiện: chốt trạng thái của
+    # chúng NGƯỢC nhau (`co_the_tai` mở từ 06, `la_ban_nhap` mở 01–04). Gộp
+    # lại là sớm muộn cũng giao một bản in thử cho khách như thể nó là chứng
+    # từ thuế, hoặc chặn nhầm hoá đơn thật.
+    if loai == "nhap":
+        if not einvoice.la_ban_nhap(muc):
+            frappe.throw(
+                "Chứng từ này không còn ở dạng nháp. Dùng nút tải hoá đơn điện tử.",
+                frappe.ValidationError,
+            )
+        _phuc_vu_file(
+            muc, "draft_pdf", f"Nhap_{muc.name}.pdf", "portal_einvoice_download_nhap"
+        )
+        return
+
     if not einvoice.co_the_tai(muc):
         frappe.throw(
             "Hoá đơn điện tử này chưa có file để tải. Bấm [Yêu cầu hỗ trợ] "
             "nếu cần Miyano hỗ trợ.",
             frappe.ValidationError,
         )
-    if not muc.official_pdf:
-        frappe.throw(
-            "File PDF đang được tạo, vui lòng thử lại sau ít phút. Bấm "
-            "[Yêu cầu hỗ trợ] nếu vẫn chưa có sau một thời gian.",
-            frappe.ValidationError,
-        )
-
-    # File có thể đã bị xoá/hỏng dù field `official_pdf` vẫn còn giá trị cũ
-    # (NL-12.4) — kiểm file THẬT SỰ đọc được, không chỉ tin field. Lọc thêm
-    # `attached_to_*` (không chỉ `file_url`): Frappe gộp file trùng nội dung
-    # theo content hash, nên nhiều `File` khác nhau (đính vào chứng từ HĐĐT
-    # khác nhau) có thể trỏ CHUNG một `file_url` — chỉ lọc theo url sẽ tìm
-    # thấy record của chứng từ KHÁC dù bản ghi của CHÍNH chứng từ này đã bị
-    # xoá (đã bắt gặp thật khi hai chứng từ HĐĐT test có PDF trùng byte).
-    file_doc = frappe.db.get_value(
-        "File",
-        {
-            "file_url": muc.official_pdf,
-            "attached_to_doctype": einvoice.FEI,
-            "attached_to_name": muc.name,
-        },
-        "name",
-    )
-    if not file_doc:
-        frappe.throw(
-            "File PDF bị thiếu hoặc hỏng trên hệ thống. Bấm [Yêu cầu hỗ trợ] "
-            "để Miyano xử lý.",
-            frappe.ValidationError,
-        )
-    content = frappe.get_doc("File", file_doc).get_content()
-
-    from frappe.core.doctype.access_log.access_log import make_access_log
-
-    make_access_log(
-        doctype=einvoice.FEI, document=muc.name, file_type="pdf",
-        method="portal_einvoice_download",
+    _phuc_vu_file(
+        muc,
+        "official_pdf",
+        f"{muc.fast_invoice_no or muc.name}.pdf",
+        "portal_einvoice_download",
     )
 
-    frappe.local.response.filename = f"{muc.fast_invoice_no or muc.name}.pdf"
-    frappe.local.response.filecontent = content
-    frappe.local.response.type = "pdf"
+
+@frappe.whitelist()
+def portal_einvoice_nhap(delivery_note):
+    """Khối "Hoá đơn nháp" của một phiếu giao — dòng hàng + tổng tiền của
+    chứng từ HĐĐT kế toán vừa lập, kèm câu cảnh báo pháp lý đi CÙNG dữ liệu
+    (`einvoice.CANH_BAO_NHAP`). `None` khi chưa lập.
+
+    Neo theo Delivery Note chứ không theo Sales Invoice: bản ghi HĐĐT do
+    `builder.create_from_delivery_note` sinh ra chỉ có `delivery_note`, và
+    phiếu giao có thể chưa được lập hoá đơn bán hàng tại thời điểm đó."""
+    dn = _dn_cua_khach(delivery_note)
+    return einvoice.nhap_cho_delivery_note(dn.name, dn.customer)
+
+
+@frappe.whitelist()
+def portal_einvoice_nhap_pdf(delivery_note) -> None:
+    """Tải bản in thử PDF theo PHIẾU GIAO — dùng ở màn chi tiết đơn hàng,
+    nơi phiếu giao có thể chưa có Sales Invoice nào để bám vào.
+
+    Cùng ràng buộc với `portal_einvoice_download`: kiểm sở hữu từng lần,
+    không nhận tên chứng từ từ client, ghi `Access Log`."""
+    dn = _dn_cua_khach(delivery_note)
+    ban = einvoice.ban_nhap_tho(dn.name, dn.customer)
+    if not ban:
+        frappe.throw(
+            "Phiếu giao này chưa có hoá đơn nháp. Nếu hoá đơn đã phát hành, "
+            "xem ở mục Hoá đơn & công nợ.",
+            frappe.ValidationError,
+        )
+    _phuc_vu_file(ban, "draft_pdf", f"Nhap_{dn.name}.pdf", "portal_einvoice_nhap_pdf")
 
 
 @frappe.whitelist()

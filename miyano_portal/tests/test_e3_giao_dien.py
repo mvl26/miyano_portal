@@ -194,14 +194,18 @@ class TestPortalOrderTrackDotGiao(_KhoDnTestCase):
 		# portal_order_track: hai key riêng dựng từ cùng một vòng lặp).
 		self.assertEqual(len(data["dot_giao"]), 2)
 		g1, g2 = data["dot_giao"]
+		# `co_hoa_don_nhap` (E7b): cờ "phiếu giao này đã có hoá đơn nháp" —
+		# False ở đây vì chưa lập chứng từ HĐĐT nào. Nằm trong bộ so sánh
+		# CHÍNH XÁC này là cố ý: một field mới lặng lẽ chui vào hợp đồng API
+		# §1.2 phải làm test đỏ.
 		self.assertEqual(g1, {
 			"so_dot": 1, "delivery_note": dn1.name, "ngay": dn1.posting_date,
-			"phan_tram": 60, "van_chuyen": "", "awb": "",
+			"phan_tram": 60, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
 			"phieu_nhap": {"name": phieu1.name, "trang_thai": "Nháp", "co_chenh_lech": False},
 		})
 		self.assertEqual(g2, {
 			"so_dot": 2, "delivery_note": dn2.name, "ngay": dn2.posting_date,
-			"phan_tram": 40, "van_chuyen": "", "awb": "",
+			"phan_tram": 40, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
 			"phieu_nhap": {"name": phieu2.name, "trang_thai": "Đã ghi sổ", "co_chenh_lech": False},
 		})
 

@@ -398,3 +398,151 @@ def chon_ban_ghi_chinh(ho_so):
         enumerate(ho_so),
         key=lambda cap: (_UU_TIEN_CHINH.get(_meta(cap[1].status)[0], 1), -cap[0]),
     )[1]
+
+
+# =========================================================================
+# KHỐI HOÁ ĐƠN NHÁP — neo theo DELIVERY NOTE, không phải Sales Invoice.
+#
+# Đây là đường đọc THỨ HAI của cùng một dữ liệu. Nó KHÔNG thay `block_for`
+# (trang Hoá đơn & công nợ vẫn dùng đường kia, và Task 1 đã dạy đường kia
+# gọi đúng tên nhóm `nhap`) — nó tồn tại vì một lý do khác hẳn:
+#
+# `builder.create_from_delivery_note` — luồng THẬT sinh bản ghi HĐĐT — chỉ
+# gán `fei.delivery_note`, KHÔNG gán `fei.sales_invoice`. Nếu Miyano lập
+# Sales Invoice sau (gộp cuối kỳ) thì ngay tại thời điểm chứng từ HĐĐT vừa
+# được lập, chưa có Sales Invoice nào để `block_for` bám vào — khách sẽ
+# không thấy gì trên màn chi tiết đơn hàng.
+#
+# Hai đường phải luôn nói CÙNG một điều về cùng một chứng từ; chốt bằng
+# `TestHaiDuongDocKhopNhau`.
+# =========================================================================
+
+# Suy TỪ `_STATUS_META` chứ không khai tay lần thứ hai: một tập trạng thái
+# khai ở hai nơi là hai nơi lệch nhau được. Xem
+# `test_nhap_statuses_suy_tu_status_meta`.
+_NHAP_STATUSES = tuple(ma for ma, (nhom, _l, _b) in _STATUS_META.items() if nhom in _NHOM_NHAP)
+
+_FIELDS_NHAP = (
+    "name", "creation", "modified", "status", "invoice_type", "invoice_date",
+    "amount", "tax_amount", "total_amount", "discount_amount", "amount_in_words",
+    "draft_pdf", "customer", "delivery_note",
+)
+
+_FIELDS_DONG = (
+    "idx", "item_code", "item_name", "uom", "qty", "price", "amount",
+    "discount_amount", "tax_rate", "tax_amount", "note",
+)
+
+
+def ban_nhap_tho(delivery_note, dn_customer, fields=_FIELDS_NHAP):
+    """Bản ghi HĐĐT còn ở vòng nháp của MỘT phiếu giao — hàng THÔ (còn
+    `draft_pdf`), dành cho endpoint tải file. `None` nếu không có.
+
+    Trả bản MỚI NHẤT khi khớp nhiều: `builder._assert_no_live_invoice` chỉ
+    cho một bản ghi "sống" trên mỗi phiếu giao, nhưng `lineage._COPIED_FIELDS`
+    copy `delivery_note` sang bản điều chỉnh/thay thế — nên một phiếu giao ĐÃ
+    phát hành hoá đơn vẫn có thể có thêm một bản NHÁP mới (hoá đơn điều chỉnh
+    đang soạn). Bản đang soạn dở là bản khách cần xem, nên mới nhất thắng.
+
+    KHÔNG kiểm quyền (như `resolve_all`) nhưng LUÔN tự đối chiếu
+    `fei.customer` — một bản ghi bị kế toán gõ nhầm khách không lọt ra cổng
+    dù phiếu giao đọc được đã đúng chủ. KHÔNG gọi `check_enabled()`: tích hợp
+    Fast có thể bị tắt, tắt không được làm chết cả trang chi tiết đơn.
+    """
+    rows = frappe.get_all(
+        FEI,
+        filters={"delivery_note": delivery_note, "status": ["in", list(_NHAP_STATUSES)]},
+        fields=list(fields),
+        order_by="creation asc",
+    )
+    rows = [r for r in rows if r.customer == dn_customer]
+    return rows[-1] if rows else None
+
+
+def dn_co_hoa_don_nhap(delivery_notes, dn_customer) -> set:
+    """Tập con của `delivery_notes` đã có hoá đơn nháp — MỘT truy vấn cho cả
+    danh sách, không phải một truy vấn mỗi phiếu giao.
+
+    Chi tiết đơn hàng liệt kê mọi đợt giao của một đơn (`dot_giao[]` sinh ra
+    chính vì giao nhiều đợt là chuyện thường ở đây), nên hỏi từng phiếu một
+    là N round-trip cho một màn hình. Chỉ lấy CỜ, không kéo dòng hàng/tổng
+    tiền — nội dung đi qua `nhap_cho_delivery_note` khi khách bấm xem."""
+    delivery_notes = list(delivery_notes or [])
+    if not delivery_notes:
+        return set()
+    rows = frappe.get_all(
+        FEI,
+        filters={"delivery_note": ["in", delivery_notes], "status": ["in", list(_NHAP_STATUSES)]},
+        fields=["delivery_note", "customer"],
+    )
+    return {r.delivery_note for r in rows if r.customer == dn_customer}
+
+
+def la_ban_nhap(fei_row):
+    """`True` nếu bản ghi còn ở vòng nháp (01–04). Cặp đối xứng với
+    `co_the_tai` — một hàm gác đường hoá đơn chính thức, một hàm gác đường
+    bản nháp; cả hai cùng đọc `_meta` nên không bao giờ lệch định nghĩa
+    nhóm."""
+    group, _label, _badge = _meta(fei_row.status)
+    return group in _NHOM_NHAP
+
+
+def _dong_cua(fei_name):
+    return frappe.get_all(
+        "Fast EInvoice Line",
+        filters={"parent": fei_name, "parenttype": FEI},
+        fields=list(_FIELDS_DONG),
+        order_by="idx asc",
+    )
+
+
+def nhap_cho_delivery_note(delivery_note, dn_customer):
+    """Khối "Hoá đơn nháp" cho MỘT phiếu giao — JSON-hoá được thẳng cho SPA,
+    hoặc `None` khi kế toán chưa lập chứng từ HĐĐT cho phiếu giao này.
+
+    KHÔNG BAO GIỜ đưa `draft_pdf` (đường dẫn file) vào dict trả về — cùng
+    ràng buộc "không có URL file công khai" (BR-E4 / quyết định nền tảng #8)
+    đã áp cho `official_pdf` ở `block_for`. Chỉ cờ `nhap_tai_duoc`; file thật
+    đi qua `portal_einvoice_nhap_pdf`, kiểm sở hữu lại từ đầu mỗi lần tải.
+
+    Dòng hàng ở đây là DỰ PHÒNG cho giao diện: thứ khách cần thấy trước hết
+    là chính file PDF do Fast dựng, bảng số liệu này chỉ để có cái mà xem khi
+    Fast chưa dựng xong (trạng thái 01) hoặc gọi Fast lỗi.
+    """
+    fei = ban_nhap_tho(delivery_note, dn_customer)
+    if not fei:
+        return None
+
+    return {
+        "fei": fei.name,
+        "nhan": "Hoá đơn nháp",
+        "canh_bao": CANH_BAO_NHAP,
+        # `invoice_type` phân biệt bản nháp của hoá đơn GỐC với bản điều
+        # chỉnh/thay thế đang soạn cho cùng phiếu giao — hai thứ khác hẳn
+        # nhau về ý nghĩa, gọi chung "hoá đơn nháp" là giấu mất một nửa.
+        "loai": fei.invoice_type or "",
+        "ngay": fei.invoice_date,
+        "tien_hang": fei.amount,
+        "tien_thue": fei.tax_amount,
+        "chiet_khau": fei.discount_amount,
+        "tong_tien": fei.total_amount,
+        "bang_chu": fei.amount_in_words or "",
+        "cap_nhat_luc": fei.modified,
+        "nhap_tai_duoc": bool(fei.draft_pdf),
+        "dong": [
+            {
+                "stt": d.idx,
+                "ma": d.item_code or "",
+                "ten": d.item_name or "",
+                "dvt": d.uom or "",
+                "so_luong": d.qty,
+                "don_gia": d.price,
+                "thanh_tien": d.amount,
+                "chiet_khau": d.discount_amount,
+                "thue_suat": d.tax_rate or "",
+                "tien_thue": d.tax_amount,
+                "ghi_chu": d.note or "",
+            }
+            for d in _dong_cua(fei.name)
+        ],
+    }
