@@ -6,6 +6,7 @@ Cách ly cơ bản (mã hoá/không nhận `customer` từ client, phủ toàn b
 nghiệp vụ riêng của E6.
 """
 
+import email
 import os
 
 import frappe
@@ -29,6 +30,21 @@ PXN_USER = "pxnabc@demo.miyano"
 SALES_USER = "sales_user@demo.miyano"  # System User thật, có sẵn trên site,
 # dùng chung với nhiều module test khác (xem test_e1_thieu_gia_va_reorder.py).
 PURCHASE_USER = "purchase_user_e6@demo.miyano"
+
+
+def _van_ban_thuan_tuy_email(raw: str) -> str:
+    """`Email Queue.message` là MIME thô (multipart, quoted-printable) —
+    giải mã đúng phần `text/plain` bằng module `email` chuẩn của Python
+    trước khi so khớp chuỗi, tránh dấu `=\\r\\n` xuống dòng MỀM chen giữa
+    chuỗi thô làm assertIn trật oan."""
+    msg = email.message_from_string(raw)
+    phan = []
+    parts = msg.walk() if msg.is_multipart() else [msg]
+    for part in parts:
+        if part.get_content_type() == "text/plain":
+            payload = part.get_payload(decode=True) or b""
+            phan.append(payload.decode(part.get_content_charset() or "utf-8", "replace"))
+    return "\n".join(phan)
 
 
 def _payload(**overrides):
@@ -947,6 +963,50 @@ class TestEmailYeuCau(FrappeTestCase):
         self.assertEqual(n.value_changed, "trang_thai")
         self.assertEqual(n.recipients[0].receiver_by_document_field, "nguoi_yeu_cau")
         self.assertTrue(n.enabled)
+
+    def test_email_khong_dap_ung_render_that_mang_dung_ly_do(self):  # TC-E6-08
+        """P2 #4 (kiểm thử hệ thống): test trên chỉ kiểm MÃ NGUỒN template —
+        `"ly_do_khong_dap_ung" in n.message` khớp bất kể mã đó có được render
+        thành CHỮ LÝ DO THẬT trong thư hay không. Render thật (chuyển
+        trang_thai bằng `.save()` thật, kích hoạt Notification Value Change),
+        đọc Email Queue, khẳng định đúng câu lý do khách/sales đã nhập có
+        mặt. Khuôn theo test_e6_mua_le.py::TestJobBaoGiaHetHan.test_gui_email_hai_phia."""
+        seed_demo()
+        frappe.flags.mute_emails = True
+        self.addCleanup(frappe.flags.pop, "mute_emails", None)
+
+        doc = _tao_yeu_cau(CUSTOMER_BM)
+        doc.trang_thai = "Đang tìm nguồn"
+        doc.save(ignore_permissions=True)
+
+        frappe.db.delete("Email Queue", {"reference_name": doc.name})
+
+        ly_do = "Không tìm được nguồn hàng phù hợp (mã đối chiếu ĐC-E608)."
+        doc.trang_thai = "Không đáp ứng được"
+        doc.ly_do_khong_dap_ung = ly_do
+        doc.save(ignore_permissions=True)  # transition THẬT -> Notification chạy
+
+        hang_doi = frappe.get_all(
+            "Email Queue", filters={"reference_name": doc.name}, pluck="name",
+        )
+        self.assertTrue(
+            hang_doi,
+            "Notification 'Portal - Yêu cầu không đáp ứng được' phải queue "
+            "được ít nhất một email khi trang_thai chuyển sang Không đáp ứng được",
+        )
+        noi_dung = "\n".join(
+            _van_ban_thuan_tuy_email(frappe.db.get_value("Email Queue", r, "message") or "")
+            for r in hang_doi
+        )
+        self.assertIn(
+            ly_do, noi_dung,
+            "thư PHẢI mang đúng CHỮ lý do đã nhập, không chỉ tên field",
+        )
+
+        nguoi_nhan = set(frappe.get_all(
+            "Email Queue Recipient", filters={"parent": ["in", hang_doi]}, pluck="recipient",
+        ))
+        self.assertIn(BM_USER, nguoi_nhan, "khách (nguoi_yeu_cau) phải nhận được thư")
 
     def test_email_xac_nhan_tao_moi(self):
         n = frappe.get_doc("Notification", "Portal - Yêu cầu hàng hoá đã ghi nhận")

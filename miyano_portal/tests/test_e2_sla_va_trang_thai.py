@@ -1,4 +1,6 @@
 """US-E2.2 (email lý do), US-E2.3 (SLA), US-E2.4 (đóng sớm)."""
+import email
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from miyano_portal.api import portal
@@ -7,6 +9,22 @@ from miyano_portal.portal_sla import gio_lam_viec_troi_qua, quet_don_treo
 from miyano_portal.setup.seed_demo import seed_demo
 
 MAIL_TU_CHOI = "Portal - Đơn bị từ chối"
+
+
+def _van_ban_thuan_tuy_email(raw: str) -> str:
+    """`Email Queue.message` là MIME thô (multipart, quoted-printable) — có
+    những dấu `=\\r\\n` xuống dòng MỀM chen giữa chuỗi, kể cả giữa các ký tự
+    ASCII thuần, nên `assertIn` trên chuỗi thô có thể trật dù nội dung thật
+    sự có mặt. Giải mã đúng phần `text/plain` bằng module `email` chuẩn của
+    Python trước khi so khớp."""
+    msg = email.message_from_string(raw)
+    phan = []
+    parts = msg.walk() if msg.is_multipart() else [msg]
+    for part in parts:
+        if part.get_content_type() == "text/plain":
+            payload = part.get_payload(decode=True) or b""
+            phan.append(payload.decode(part.get_content_charset() or "utf-8", "replace"))
+    return "\n".join(phan)
 
 
 def _tao_so_bi_tu_choi(ly_do: str):
@@ -67,6 +85,74 @@ class TestMailTuChoi(FrappeTestCase):
         self.addCleanup(frappe.set_user, "Administrator")
         kq = portal.portal_order_track(so.name)
         self.assertIn("ngày 20/08", kq["ly_do_tu_choi"])
+
+    def test_mail_render_that_mang_dung_ly_do_khach_nhap(self):
+        """P2 #4 (kiểm thử hệ thống): `test_mail_co_chen_lay_do_tu_choi` ở
+        trên chỉ kiểm MÃ NGUỒN template (`"custom_ly_do_tu_choi" in
+        message`) — không render Jinja, không đọc Email Queue, không khẳng
+        định CHỮ LÝ DO THẬT có mặt trong thư. Khuôn theo
+        test_e6_mua_le.py::TestJobBaoGiaHetHan.test_gui_email_hai_phia.
+
+        Chuyển đơn sang "Từ chối" bằng `.save()` THẬT (không né qua
+        frappe.db.set_value như `_tao_so_bi_tu_choi`) để kích hoạt đúng
+        đường Frappe tự chạy: `run_notifications()` -> `evaluate_alert()`
+        cho Notification "Value Change" — render template rồi queue email
+        thật, đúng những gì khách thật sự nhận được.
+        """
+        frappe.flags.mute_emails = True
+        self.addCleanup(frappe.flags.pop, "mute_emails", None)
+
+        from miyano_portal.setup.seed_demo import PRICE_LIST
+        so = frappe.new_doc("Sales Order")
+        so.customer = "Bệnh viện Bạch Mai"
+        so.transaction_date = frappe.utils.today()
+        so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 7)
+        so.selling_price_list = PRICE_LIST
+        so.custom_nguon_don = "Client Portal"  # điều kiện Notification đòi
+        so.contact_email = "bvbm@demo.miyano"
+        so.append("items", {
+            "item_code": "VT0005", "qty": 1, "rate": 1200,
+            "delivery_date": so.delivery_date,
+        })
+        so.taxes = []
+        so.taxes_and_charges = None
+        so.insert(ignore_permissions=True)
+        # BẪY 4 — không gán workflow_state trước insert(). Xem docstring
+        # _tao_so_nhap() ở test_e2_nguong_duyet.py cho lý do đầy đủ.
+        frappe.db.set_value(
+            "Sales Order", so.name, "workflow_state", "Chờ Miyano xác nhận",
+            update_modified=False,
+        )
+        so.reload()
+        frappe.db.delete("Email Queue", {"reference_name": so.name})
+
+        ly_do = "Hết hàng trong kho, dự kiến về ngày 20/08 (mã đối chiếu ĐC-E204)."
+        so.workflow_state = "Từ chối"
+        so.custom_ly_do_tu_choi = ly_do
+        so.save()  # transition THẬT qua validate() + on_change() -> Notification chạy
+
+        hang_doi = frappe.get_all(
+            "Email Queue", filters={"reference_name": so.name}, pluck="name",
+        )
+        self.assertTrue(
+            hang_doi,
+            "Notification 'Portal - Đơn bị từ chối' phải queue được ít nhất "
+            "một email khi đơn chuyển sang Từ chối",
+        )
+        noi_dung = "\n".join(
+            _van_ban_thuan_tuy_email(frappe.db.get_value("Email Queue", r, "message") or "")
+            for r in hang_doi
+        )
+        self.assertIn(
+            ly_do, noi_dung,
+            "thư PHẢI mang đúng CHỮ lý do khách/sales đã nhập, không phải "
+            "chỉ tên field hay câu chung chung 'liên hệ để biết thêm chi tiết'",
+        )
+
+        nguoi_nhan = set(frappe.get_all(
+            "Email Queue Recipient", filters={"parent": ["in", hang_doi]}, pluck="recipient",
+        ))
+        self.assertIn("bvbm@demo.miyano", nguoi_nhan, "khách phải nhận được thư từ chối")
 
 
 def _tao_so_treo(cho_tu_luc: str):
