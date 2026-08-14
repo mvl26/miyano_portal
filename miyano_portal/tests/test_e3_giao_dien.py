@@ -396,10 +396,28 @@ class TestDoiSoatGiaoNhanReport(_KhoDnTestCase):
 
 # ============================================================= US-E3.6 (NL-3.7)
 class TestChatLuongDuLieuReport(_KhoDnTestCase):
+	@staticmethod
+	def _dem(rows, item_code):
+		"""Đếm `so_dong_thieu`/`so_khach_anh_huong` của MỘT item trong kết quả
+		report; trả (0, 0) nếu item chưa xuất hiện — không `next()` để không
+		phải phân nhánh "chưa có dòng nào" ở nơi gọi."""
+		row = next((r for r in rows if r["item_code"] == item_code), None)
+		if row is None:
+			return 0, 0
+		return row["so_dong_thieu"], row["so_khach_anh_huong"]
+
 	def test_item_thieu_batch_len_report_kem_co_hien_tai(self):
 		"""ITEM = MYN-GLOVE-M không bật Has Batch No — hook rơi lô về
 		KHONG-LO, đánh dấu thieu_lo_han=1 (TC-E3-07, phần A). Report phải gộp
-		đúng Item đó, kèm cờ has_batch_no HIỆN TẠI (0, vì chưa ai sửa)."""
+		đúng Item đó, kèm cờ has_batch_no HIỆN TẠI (0, vì chưa ai sửa).
+
+		KHÔNG khẳng định số tuyệt đối: `chat_luong_du_lieu_rows()` quét TOÀN
+		SITE (đúng thiết kế US-E3.6 — nhân viên cần thấy hết), và bench này
+		có dữ liệu demo (`demo_kho_flow.py`) sinh sẵn phiếu thiếu lô của
+		KHÁCH KHÁC cho item khác. Đo TRƯỚC/SAU quanh đúng mutation test này
+		tạo ra — theo khuôn `test_qua_han_ngay_chi_loc_phieu_con_nhap_qua_cu`."""
+		truoc_dong, truoc_khach = self._dem(desk_reports.chat_luong_du_lieu_rows(), ITEM)
+
 		so = self._sales_order(customer=KHACH_BM, qty=10)
 		dn = self._dn_tu_so(so, 10)
 		phieu = self._phieu_duy_nhat(dn)
@@ -407,12 +425,16 @@ class TestChatLuongDuLieuReport(_KhoDnTestCase):
 
 		rows = desk_reports.chat_luong_du_lieu_rows()
 		row = next(r for r in rows if r["item_code"] == ITEM)
-		self.assertEqual(row["so_dong_thieu"], 1)
-		self.assertEqual(row["so_khach_anh_huong"], 1)
+		self.assertEqual(row["so_dong_thieu"] - truoc_dong, 1)
+		self.assertEqual(row["so_khach_anh_huong"] - truoc_khach, 1)
 		self.assertEqual(row["has_batch_no"], 0)
 		self.assertEqual(row["has_expiry_date"], 0)
 
 	def test_gop_nhieu_dong_nhieu_khach_dung_so_khach_anh_huong(self):
+		"""Cùng lý do KHÔNG khẳng định số tuyệt đối như test phía trên — xem
+		docstring của nó."""
+		truoc_dong, truoc_khach = self._dem(desk_reports.chat_luong_du_lieu_rows(), ITEM)
+
 		so_bm = self._sales_order(customer=KHACH_BM, qty=10)
 		self._dn_tu_so(so_bm, 10)
 		so_bm2 = self._sales_order(customer=KHACH_BM, qty=5)
@@ -422,8 +444,15 @@ class TestChatLuongDuLieuReport(_KhoDnTestCase):
 
 		rows = desk_reports.chat_luong_du_lieu_rows()
 		row = next(r for r in rows if r["item_code"] == ITEM)
-		self.assertEqual(row["so_dong_thieu"], 3, "ba dòng phiếu (2 BM + 1 PXN) đều thiếu lô")
-		self.assertEqual(row["so_khach_anh_huong"], 2, "gộp theo Item, không đếm trùng khách")
+		self.assertEqual(
+			row["so_dong_thieu"] - truoc_dong, 3,
+			"ba dòng phiếu (2 BM + 1 PXN) đều thiếu lô",
+		)
+		self.assertEqual(
+			row["so_khach_anh_huong"] - truoc_khach, 2,
+			"gộp theo Item, không đếm trùng khách (BM + PXN là hai khách MỚI"
+			" so với trước test, không trùng khách demo có sẵn)",
+		)
 
 	def test_chi_chua_bat_co_an_item_da_bat_du_hai_co(self):
 		"""Đọc đúng nghĩa đen US-E3.6 ("liệt kê item CẦN bật...") — item đã
