@@ -159,7 +159,17 @@ class TestNhatKyVatTu(_KhoBmTestCase):
 		# 12 dòng sổ (TC-E4-07): 4 phiếu nhập KHÔNG bị đảo + 1 phiếu nhập bị
 		# đảo (dòng gốc + dòng đảo) + 4 phiếu xuất KHÔNG bị đảo + 1 phiếu xuất
 		# bị đảo (dòng gốc + dòng đảo) = 4+2+4+2 = 12; đúng 2 dòng da_dao=1.
-		result = reports.nhat_ky_rows(self.K, self.VT, d(-60), today, trang=1)
+		#
+		# TC-E4-07 (P1 #6, báo cáo kiểm thử hệ thống): qua ĐÚNG cổng khách
+		# (kho_api.kho_nhat_ky), kho suy từ phiên BM_USER — không tiêm tay
+		# `self.K` nữa, để một lỗi suy diễn tenant ở get_portal_kho()/
+		# _vat_tu_cua_kho() có cơ hội làm bộ số chuẩn này đỏ. Theo khuôn
+		# test_e8_cap_phat.py::_chay().
+		frappe.set_user(BM_USER)
+		try:
+			result = kho_api.kho_nhat_ky(self.VT, _iso(d(-60)), _iso(today), trang=1)
+		finally:
+			frappe.set_user("Administrator")
 		self.assertEqual(result["tong_dong"], 12)
 		self.assertEqual(len(result["dong"]), 12)
 		self.assertEqual(result["trang"], 1)
@@ -181,7 +191,16 @@ class TestNhatKyVatTu(_KhoBmTestCase):
 		# Stock Lot Balance dựng từ cùng sổ nhưng qua rebuild delta-theo-lô,
 		# không phải luỹ kế theo thời gian như ở đây).
 		hien_tai = {r["vat_tu"]: r["so_luong"] for r in reports.ton_hien_tai_rows(self.K)}
-		tong_hien_tai = hien_tai.get(self.VT, 0.0)
+		# P1 #6: rỗng phải ĐỎ, không được âm thầm so ton_sau với 0.0 — trước
+		# bản sửa, `.get(self.VT, 0.0)` biến "ton_hien_tai_rows() rỗng" (một
+		# lỗi thật) thành một phép so sánh vô nghĩa nhưng vẫn có thể pass nếu
+		# ton_sau của dòng cuối tình cờ cũng bằng 0.
+		self.assertIn(
+			self.VT, hien_tai,
+			"ton_hien_tai_rows() không trả vật tư của test — rỗng ở đây từng "
+			"bị .get(..., 0.0) nuốt câm lặng thay vì làm assertion dưới đỏ",
+		)
+		tong_hien_tai = hien_tai[self.VT]
 		self.assertEqual(result["dong"][-1]["ton_sau"], tong_hien_tai)
 
 		# la_dao: đúng HAI dòng LÀ bút toán bù trừ (dòng đảo mới sinh, khác
@@ -301,7 +320,16 @@ class TestBaoCaoDotFifo(_KhoBmTestCase):
 		pnk005 = _nhap(self.K, self.VT, 50, 1000, "2026-08-10", so_lo="L1")
 		_xuat(self.K, self.VT, 120, "2026-08-20", so_lo="L1")
 
-		rows = reports.bao_cao_dot_rows(self.K, "2026-01-01", "2026-09-30", vat_tu=self.VT)
+		# TC-E4-08 (P1 #6, báo cáo kiểm thử hệ thống): bộ số chuẩn PRD phải đi
+		# qua ĐÚNG cổng khách (kho_api.kho_bao_cao_dot), kho suy từ phiên
+		# BM_USER — trước bản sửa, test duy nhất qua session
+		# (test_endpoint_reaches_own_data) chỉ assertTrue(any(...)), gần như
+		# luôn đúng. Theo khuôn test_e8_cap_phat.py::_chay().
+		frappe.set_user(BM_USER)
+		try:
+			rows = kho_api.kho_bao_cao_dot("2026-01-01", "2026-09-30", vat_tu=self.VT)
+		finally:
+			frappe.set_user("Administrator")
 		by_dot = {r["dot"]: r for r in rows}
 		self.assertEqual(set(by_dot), {pnk001.name, pnk005.name})
 

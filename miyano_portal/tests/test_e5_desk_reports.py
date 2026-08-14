@@ -280,6 +280,28 @@ class TestTyTrongNguonCung(_KhoBmTestCase):
 		self.assertEqual(theo_nguon["Miyano"]["sl_nhap"], 700)
 		self.assertEqual(theo_nguon["NCC-X"]["sl_nhap"], 300)
 
+		# TC-E5-06 (P1 #6, báo cáo kiểm thử hệ thống): CÙNG bộ số qua ĐÚNG
+		# cổng report thật — frappe.desk.query_report.run() -> execute() ->
+		# dispatcher, dưới phiên Sales User (không Administrator), filter
+		# `customer` đi qua `filters.get("customer")` của execute() thay vì
+		# tham số Python tiêm tay ở trên. test_sales_user_chay_duoc_ba_report
+		# chỉ assertIn("result", result) — luôn đúng kể cả report rỗng; đây
+		# là assertion SỐ đầu tiên đi qua đúng đường đó, nên một lỗi suy diễn
+		# tenant ở execute()/dispatcher sẽ làm nó đỏ.
+		install_kho_desk_reports()
+		frappe.set_user(_ensure_sales_user())
+		try:
+			ket_qua = frappe.desk.query_report.run(
+				REPORT_TY_TRONG, filters={"customer": "Bệnh viện Bạch Mai"},
+			)
+		finally:
+			frappe.set_user("Administrator")
+		theo_nguon_qua_report = {r["nguon"]: r for r in ket_qua["result"]}
+		self.assertEqual(theo_nguon_qua_report["Miyano"]["gia_tri_nhap"], 70_000_000)
+		self.assertEqual(theo_nguon_qua_report["NCC-X"]["gia_tri_nhap"], 30_000_000)
+		self.assertEqual(theo_nguon_qua_report["Miyano"]["ty_trong_pct"], 70.0)
+		self.assertEqual(theo_nguon_qua_report["NCC-X"]["ty_trong_pct"], 30.0)
+
 	def test_loc_theo_ky_tu_ngay_den_ngay(self):
 		today = _today()
 		_nhap(self.K, self.VT, 100, frappe.utils.add_days(today, -100), don_gia=1000)
