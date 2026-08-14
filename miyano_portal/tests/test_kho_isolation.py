@@ -83,7 +83,17 @@ KHO_DOCTYPES_KHAC: tuple[str, ...] = (
 # nên nó nằm ngoài mọi vòng kiểm cách ly theo khách bên dưới. Cơ chế lưới an
 # toàn này đã hoạt động đúng như thiết kế: 30 test đỏ ngay khi doctype mới
 # xuất hiện mà chưa được phân loại.
-KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings",)
+#
+# `Sales Order Dat Ngoai Item` (thiết kế lại mua lẻ §4.3) — istable=1, bảng
+# con của `Sales Order` (field `custom_dat_ngoai`), KHÔNG phải doctype kho:
+# không mang field `kho`/`customer` riêng, và KHÔNG cần đăng ký hook cách ly
+# nào ở đây — Sales Order (module ERPNext, ngoài lưới quét module "Miyano
+# Portal" này) đã có `permissions.sales_query`/`sales_has_permission` riêng,
+# và `frappe.permissions.has_child_permission()` route thẳng về PARENT trước
+# khi has_permission của CHÍNH bảng con có cơ hội chạy (cùng nguyên tắc đã
+# nêu ở "Fast EInvoice Line" phía dưới) — đăng ký riêng cho bảng con này sẽ
+# không bao giờ được gọi tới, một entry chết chỉ gây hiểu lầm.
+KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings", "Sales Order Dat Ngoai Item")
 
 # --------------------------------------------------------------------- AN-1
 # AN-1 (báo cáo kiểm thử hệ thống 2026-08-14, mục 4 / P1 #5): `_nap_doctype_
