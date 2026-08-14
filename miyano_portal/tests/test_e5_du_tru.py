@@ -435,10 +435,24 @@ class TestGioBoSung(_KhoBmTestCase):
 # ============================================================= Cách ly kho
 
 class TestCoLap(_KhoBmTestCase):
+	"""AN-2 (báo cáo kiểm thử hệ thống, P1 #7): bốn màn mới khác (NCC, nhật
+	ký, yêu cầu, HĐĐT) đều có cặp đối chứng "khách B gọi endpoint ->
+	assertNotIn dữ liệu khách A VÀ assertIn dữ liệu của chính mình" — thiếu
+	vế `assertIn` (positive control), một endpoint trả RỖNG cho mọi khách
+	(bug hoàn toàn khác, hoàn toàn nghiêm trọng) vẫn làm cả hai test dưới đây
+	xanh. Bổ sung vế còn thiếu ở cả hai test."""
+
 	def test_kho_min_max_goi_y_tu_choi_vat_tu_kho_khac(self):
 		frappe.set_user(PXN_USER)
 		with self.assertRaises(frappe.PermissionError):
 			kho_api.kho_min_max_goi_y(vat_tu_list=[self.VT])
+
+		# Positive control: CÙNG phiên PXN_USER, vật tư CỦA CHÍNH PXN vẫn
+		# phải trả về được — không thì assertRaises ở trên có thể xanh chỉ
+		# vì toàn bộ endpoint đang ném PermissionError vô điều kiện.
+		vt_pxn = self.kho["vt_pxn"]
+		out = kho_api.kho_min_max_goi_y(vat_tu_list=[vt_pxn])
+		self.assertIn(vt_pxn, out)
 
 	def test_kho_canh_bao_ton_khong_lo_sang_khach_khac(self):
 		today = _today()
@@ -449,8 +463,25 @@ class TestCoLap(_KhoBmTestCase):
 		_nhap(kho_pxn, vt_pxn, 100, frappe.utils.add_days(today, -40))
 		_xuat(kho_pxn, vt_pxn, 10, frappe.utils.add_days(today, -35))
 
+		# Positive control: vật tư CỦA CHÍNH BM phải có mặt — set min/ROP
+		# (co_nguong=True) để BR-P3 (dutru.canh_bao_ton_rows) không loại nó
+		# vì "chưa khai VÀ chưa đủ dữ liệu", cùng khuôn
+		# TestTrangThaiThieu.test_ton_duoi_min_la_thieu_khong_phai_sap_thieu.
+		# Thiếu vế này, một `kho_canh_bao_ton()` lỗi trả RỘNG luôn ("dong": [])
+		# cho MỌI khách vẫn làm assertFalse bên dưới xanh — không phải cách
+		# ly đúng, mà là hỏng hoàn toàn.
+		doc = frappe.get_doc("Customer Warehouse Item", self.VT)
+		doc.ton_toi_thieu = 10
+		doc.diem_dat_lai = 25
+		doc.ton_toi_da = 60
+		doc.save(ignore_permissions=True)
+
 		frappe.set_user(BM_USER)
 		out = kho_api.kho_canh_bao_ton()
+		self.assertTrue(
+			any(r["vat_tu"] == self.VT for r in out["dong"]),
+			"positive control: vật tư của chính BM phải có mặt trong kết quả của BM",
+		)
 		self.assertFalse(any(r["vat_tu"] == vt_pxn for r in out["dong"]))
 
 
