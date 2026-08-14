@@ -101,6 +101,63 @@ class TestOrderAccept(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             portal.portal_order_accept(self.so.name, "khong_dong_y")
 
+    # ---------- TC-E6-10 ----------
+    def test_khong_dong_y_ly_do_5_ky_tu_bi_chan(self):
+        """TC-E6-10 — lý do 5 ký tự phải CHẶN (dưới ngưỡng
+        `LY_DO_TOI_THIEU_KHACH=10`). Bản trước chỉ có ca không gửi `ly_do`
+        nào cả (`None` -> rỗng -> `len(0) < ngưỡng`), luôn đúng bất kể
+        ngưỡng >= 1 nên không chạm được nhánh so sánh ĐỘ DÀI thật —
+        hạ `LY_DO_TOI_THIEU_KHACH` 10 -> 1 vẫn để lọt (0 < 1 vẫn đúng). Ca
+        này gửi đúng 5 ký tự (chạm nhánh `len(ly_do) < LY_DO_TOI_THIEU_KHACH`
+        với một giá trị > 0), nên đỏ ngay nếu ngưỡng bị hạ xuống <= 5."""
+        ly_do_5 = "Đắt á"
+        self.assertEqual(len(ly_do_5), 5, "fixture sai — TC đòi đúng 5 ký tự")
+        frappe.set_user("bvbm@demo.miyano")
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_accept(self.so.name, "khong_dong_y", ly_do=ly_do_5)
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", self.so.name, "workflow_state"),
+            STATE_KHACH,
+            "lý do dưới ngưỡng bị chặn thì đơn KHÔNG được đổi trạng thái",
+        )
+
+    def test_khong_dong_y_ly_do_15_ky_tu_ve_cho_xac_nhan_va_luu_lai(self):
+        """TC-E6-10 — lý do 15 ký tự phải ĐẬU, đơn về "Chờ xác nhận", và lý
+        do PHẢI truy vết được — đây là chứng từ đàm phán giá, mất là mất căn
+        cứ. Bản trước dùng 28 ký tự (dư so với ngưỡng 10, không đứng sát
+        biên 15 mà TC yêu cầu) và không có assertion nào đọc lại lý do đã
+        lưu. Hạ ngưỡng 10 -> 1 không làm ca 15 ký tự đỏ (đó là hành vi ĐÚNG:
+        15 vẫn >= 1) — ca đó chỉ để chứng minh đường "đậu" còn hoạt động
+        đúng, ranh giới thật được `test_khong_dong_y_ly_do_5_ky_tu_bi_chan`
+        (5 ký tự) bảo vệ."""
+        ly_do_15 = "Giá quá cao rồi"
+        self.assertEqual(len(ly_do_15), 15, "fixture sai — TC đòi đúng 15 ký tự")
+        frappe.set_user("bvbm@demo.miyano")
+        kq = portal.portal_order_accept(self.so.name, "khong_dong_y", ly_do=ly_do_15)
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", self.so.name, "workflow_state"),
+            "Chờ xác nhận",
+        )
+        # Lý do PHẢI lưu lại — nơi lưu hiện tại là Comment gắn vào chính SO
+        # (BA §4.10/review I-5 đòi "lý do lưu vào đơn"). Đọc lại qua
+        # `frappe.get_all("Comment", ...)`, KHÔNG chỉ tin `add_comment` đã
+        # được gọi — comment thật sự phải nằm trong CSDL, đọc lại được sau
+        # khi request đã kết thúc (khác request, khác phiên).
+        cmt = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Sales Order", "reference_name": self.so.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any(ly_do_15 in (c or "") for c in cmt),
+            "lý do không đồng ý phải truy vết được trên chính đơn hàng — "
+            "mất lý do là mất căn cứ đàm phán giá",
+        )
+
     def test_khong_dong_y_kem_ly_do_ve_cho_xac_nhan(self):
         frappe.set_user("bvbm@demo.miyano")
         kq = portal.portal_order_accept(

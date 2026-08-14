@@ -179,6 +179,37 @@ class TestDatHangBanLe(FrappeTestCase):
         # tới nó, chứ không phải vì "đơn mua lẻ không trừ hạn mức"). Phần
         # chịu tải thật của US-E6.2/BR-R4 là ba assertFalse dưới đây: dòng
         # đơn không mang blanket_order/against_blanket_order/custom_hdnt.
+        #
+        # review P0 (kiểm thử hệ thống, mục "TC-E6-02") — ba assertFalse chỉ
+        # khẳng định dòng đơn không GẮN link tới Blanket Order; chưa ai đọc
+        # thẳng `ordered_qty` — trường ERPNext THẬT dùng để tính hạn mức còn
+        # lại (`han_muc_con`, portal_context.py) và được ERPNext core ghi
+        # đè lúc submit (`StockController.update_blanket_order`, chạy khi
+        # dòng đơn CÓ `blanket_order` — xem
+        # apps/erpnext/erpnext/controllers/stock_controller.py). Dựng thêm
+        # MỘT Blanket Order Item CÓ THẬT cho ĐÚNG mã hàng vừa mua lẻ
+        # (RETAIL_CO_GIA) — của một HĐNT đã HẾT HIỆU LỰC (`to_date` hôm
+        # qua) để BR-R7 không chặn mua lẻ, nhưng dòng Blanket Order Item vẫn
+        # là một bản ghi thật trong CSDL — rồi đọc `ordered_qty` TRƯỚC/SAU,
+        # và SUBMIT hẳn đơn mua lẻ để chạm đúng code path duy nhất có khả
+        # năng ghi vào trường này. Nếu đơn lẻ lỡ trừ hạn mức, khách mất
+        # quyền đặt theo hợp đồng — mất tiền trực tiếp, không phải suy diễn.
+        bo_het_han = frappe.get_doc({
+            "doctype": "Blanket Order",
+            "blanket_order_type": "Selling",
+            "customer": BVBM,
+            "company": COMPANY,
+            "from_date": frappe.utils.add_months(frappe.utils.today(), -13),
+            "to_date": frappe.utils.add_days(frappe.utils.today(), -1),
+            "items": [{"item_code": RETAIL_CO_GIA, "qty": 100, "rate": 25000}],
+        })
+        bo_het_han.insert(ignore_permissions=True)
+        bo_het_han.submit()
+        boi_name = bo_het_han.items[0].name
+        frappe.db.set_value("Blanket Order Item", boi_name, "ordered_qty", 30)
+        ordered_qty_truoc = frappe.db.get_value("Blanket Order Item", boi_name, "ordered_qty")
+        self.assertEqual(float(ordered_qty_truoc), 30.0)
+
         res = portal.portal_order_place(
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
             mode="ban_le", request_id=_rid(),
@@ -193,6 +224,24 @@ class TestDatHangBanLe(FrappeTestCase):
         self.assertFalse(so.items[0].blanket_order)
         self.assertFalse(so.items[0].against_blanket_order)
         self.assertFalse(so.custom_hdnt)
+
+        # Submit THẬT — `update_blanket_order` (ERPNext core) chỉ chạy ở
+        # on_submit, không ở draft. Khách không có quyền submit Sales Order
+        # (workflow chỉ mở transition cho System Manager) nên đổi sang
+        # Administrator để submit, đúng đường Miyano xác nhận đơn thật sự đi.
+        frappe.set_user("Administrator")
+        so = frappe.get_doc("Sales Order", so.name)
+        so.taxes = []
+        so.taxes_and_charges = None
+        so.submit()
+        frappe.set_user(USER_BVBM)
+
+        ordered_qty_sau = frappe.db.get_value("Blanket Order Item", boi_name, "ordered_qty")
+        self.assertEqual(
+            float(ordered_qty_sau), float(ordered_qty_truoc),
+            "đặt/submit đơn mua lẻ KHÔNG được đổi ordered_qty của HĐNT — "
+            "mất thì khách mất quyền đặt theo hợp đồng",
+        )
 
     # ---------- review C-1 (Critical) — chốt BR-R1 PHẢI có ở đường GHI ----------
     def test_c1_khach_chua_bat_co_khong_dat_le_duoc_qua_duong_ghi(self):
