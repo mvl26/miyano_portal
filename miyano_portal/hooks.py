@@ -85,10 +85,20 @@ website_route_rules = [
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "miyano_portal.utils.jinja_methods",
-# 	"filters": "miyano_portal.utils.jinja_filters"
-# }
+#
+# Thiết kế lại mua lẻ §4.6 — Notification "Portal - Báo giá sẵn sàng"
+# (setup/install_notifications.py) phải nêu đúng "hạn hiệu lực báo giá".
+# Đăng ký `han_hieu_luc_bao_gia` làm global cho MỌI template render qua
+# `frappe.render_template` (kể cả message của doctype `Notification`, xem
+# `frappe/email/doctype/notification/notification.py::get_context` — context
+# đó lấy globals từ `get_jinja_hooks()`, đúng dict này) — TÁI DÙNG hàm DUY
+# NHẤT đã tính hạn này cho `portal_order_accept`/`portal_order_track`/job
+# daily `quet_bao_gia_het_han` thay vì hardcode "+N ngày" trong template:
+# N đọc từ `Miyano Portal Settings.hieu_luc_bao_gia_ngay` (có thể đổi), hai
+# nơi tính ra hai con số khác nhau là đúng lỗi đã trả giá ở review I-2(a).
+jinja = {
+	"methods": ["miyano_portal.portal_mua_le.han_hieu_luc_bao_gia"],
+}
 
 # Installation
 # ------------
@@ -275,6 +285,22 @@ doc_events = {
 		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
 	},
+	# E7b — ký hoá đơn bán hàng thì tự lập chứng từ HĐĐT từ phiếu giao của nó
+	# và lấy luôn bản in thử PDF từ Fast, để khách mở cổng là thấy hoá đơn.
+	#
+	# CHỈ đẩy hàng đợi, không gọi Fast tại đây: một lời gọi Fast có thể mất
+	# tới 120 giây. Và hook không bao giờ ném lỗi ra ngoài — lập HĐĐT không
+	# có quyền chặn việc xuất hoá đơn bán hàng (cùng nguyên tắc Delivery Note
+	# ở trên). Xem `miyano_portal/hddt_tu_dong.py`.
+	#
+	# Dòng đăng ký này CÓ TEST CANH GIỮ (`test_e7b_tu_dong.TestHookDuocDangKy`).
+	# Lý do: nó đã từng biến mất một lần mà không test nào đỏ — toàn bộ test
+	# của tính năng gọi thẳng hàm `tu_sales_invoice`/`lap_hddt_cho_hoa_don`,
+	# nên "hàm chạy đúng" và "hàm có được gọi hay không" là hai chuyện khác
+	# nhau. Xoá dòng này là tắt cả tính năng mà mọi test vẫn xanh.
+	"Sales Invoice": {
+		"on_submit": "miyano_portal.hddt_tu_dong.tu_sales_invoice",
+	},
 	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
 	#
 	# Cổng chỉ chấp nhận đơn giá đến từ `Item Price` (ba đường đặt hàng trong
@@ -304,8 +330,19 @@ doc_events = {
 			# (không phải một endpoint cổng) vì đường đi CHÍNH của US-E6.5
 			# là sales bấm nút workflow "Gửi khách duyệt" TỪ DESK.
 			"miyano_portal.portal_mua_le.ghi_ngay_gui_khach_duyet",
+			# Thiết kế lại mua lẻ §4.3 — đồng bộ `da_xu_ly` của bảng con
+			# "đặt ngoài" theo `item_khop`. Ở `validate` cùng lý do dòng
+			# trên: `Document.validate()` của bảng con KHÔNG được Frappe
+			# gọi khi cha lưu, đây là nơi DUY NHẤT chốt này chạy được cho
+			# mọi đường ghi (cổng lẫn Desk).
+			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
 		],
-		"before_submit": "miyano_portal.portal_duyet_don.kiem_nguong_duyet",
+		"before_submit": [
+			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
+			# Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi
+			# còn dòng "đặt ngoài" chưa xử lý (chưa khớp `item_khop`).
+			"miyano_portal.portal_mua_le.kiem_dat_ngoai_da_xu_ly",
+		],
 	},
 }
 

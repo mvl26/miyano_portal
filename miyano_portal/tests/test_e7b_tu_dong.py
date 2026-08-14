@@ -196,3 +196,28 @@ class TestLoiTungPhieuKhongKeoTheoNhau(_TuDongFixture):
         self.assertEqual(len(ket_qua["bo_qua"]), 1)
         self.assertEqual(ket_qua["bo_qua"][0]["delivery_note"], dn1.name)
         self.assertEqual(len(self._fei_cua(dn2.name)), 1)
+
+
+class TestHookDuocDangKy(FrappeTestCase):
+    """Canh giữ chính DÒNG ĐĂNG KÝ hook, không phải hành vi của hàm.
+
+    Đã xảy ra thật: dòng `doc_events["Sales Invoice"]["on_submit"]` biến mất
+    khỏi `hooks.py` mà KHÔNG test nào đỏ — vì mọi test của tính năng gọi
+    thẳng `tu_sales_invoice` / `lap_hddt_cho_hoa_don`. "Hàm chạy đúng" và
+    "hàm có được gọi hay không" là hai chuyện khác nhau, và cái thứ hai mới
+    là thứ khách hàng cảm nhận được: không có dòng đó thì submit hoá đơn
+    không sinh HĐĐT nào cả, trong khi suite vẫn xanh 100%.
+
+    Đọc qua `frappe.get_hooks` chứ không đọc file `hooks.py` bằng regex: đó
+    mới là thứ Frappe thật sự dùng để dispatch, và nó bắt được cả trường hợp
+    dòng còn đó nhưng sai tên module/hàm.
+    """
+
+    def test_sales_invoice_on_submit_tro_dung_ham(self):
+        handlers = frappe.get_hooks("doc_events", {}).get("Sales Invoice", {}).get("on_submit", [])
+        self.assertIn("miyano_portal.hddt_tu_dong.tu_sales_invoice", handlers)
+
+    def test_ham_duoc_dang_ky_that_su_import_duoc(self):
+        """Tên trong hooks.py đúng chính tả nhưng trỏ vào hàm không tồn tại
+        thì Frappe chỉ ghi log lúc chạy — không ai biết cho tới khi khách kêu."""
+        self.assertTrue(callable(frappe.get_attr("miyano_portal.hddt_tu_dong.tu_sales_invoice")))
