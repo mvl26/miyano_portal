@@ -7,6 +7,40 @@ from miyano_portal.portal_duyet_don import nguong_duyet
 from miyano_portal.setup.seed_demo import seed_demo
 
 NGUONG = 50_000_000
+SALES_MANAGER_USER = "sales_manager_e2@demo.miyano"
+
+
+def _dam_bao_user_sales_manager() -> str:
+    """P2 #2 (kiểm thử hệ thống): TC-E2-02 bản trước chạy as `Administrator`
+    — `frappe/permissions.py:506-507` cấp Administrator MỌI role vô điều
+    kiện, nên nhánh `"Sales Manager" in frappe.get_roles()` luôn qua được dù
+    KHÔNG tài khoản thật nào trên site giữ role đó. Tự dựng (không phụ thuộc
+    site có sẵn user nào) một System User CHỈ mang role `Sales Manager`,
+    idempotent — cùng khuôn `_ensure_portal_user` của seed_demo.py."""
+    email = SALES_MANAGER_USER
+    if not frappe.db.exists("User", email):
+        user = frappe.get_doc({
+            "doctype": "User",
+            "email": email,
+            "first_name": "E2 Sales Manager (test)",
+            "send_welcome_email": 0,
+            "user_type": "System User",
+        })
+        user.append("roles", {"role": "Sales Manager"})
+        user.insert(ignore_permissions=True)
+    else:
+        user = frappe.get_doc("User", email)
+    vai = {r.role for r in user.roles}
+    if "Sales Manager" not in vai:
+        user.append("roles", {"role": "Sales Manager"})
+        user.save(ignore_permissions=True)
+    # Không được mang thêm role rộng hơn (System Manager, v.v.) làm nhánh
+    # thử tình cờ qua được vì lý do khác, không phải vì "Sales Manager".
+    thua = [r.role for r in user.roles if r.role not in ("Sales Manager", "All")]
+    if thua:
+        user.roles = [r for r in user.roles if r.role in ("Sales Manager", "All")]
+        user.save(ignore_permissions=True)
+    return email
 
 
 class TestLyDoTuChoi(FrappeTestCase):
@@ -106,12 +140,14 @@ class TestNguongDuyet(FrappeTestCase):
 
     # ---------- TC-E2-02 ----------
     def test_sales_manager_duyet_duoc_don_tu_nguong(self):
+        """P2 #2 (kiểm thử hệ thống): chạy như một tài khoản THẬT chỉ giữ
+        role `Sales Manager` — không phải `Administrator` (được cấp mọi role
+        vô điều kiện, nên xanh kể cả khi không ai thật sự giữ role đó)."""
         so = _tao_so_nhap("Chờ Miyano xác nhận", tong_muc_tieu=NGUONG)
-        # Administrator: frappe/permissions.py:506-507 cho Administrator MỌI
-        # role vô điều kiện, nên đủ để đại diện "user có Sales Manager" mà
-        # không phụ thuộc tài khoản demo cụ thể nào — test tự bảo đảm tiền đề
-        # của nó, không cần seed_demo() tạo thêm user.
-        frappe.set_user("Administrator")
+        user = _dam_bao_user_sales_manager()
+        frappe.set_user(user)
+        self.assertNotEqual(frappe.session.user, "Administrator")
+        self.assertIn("Sales Manager", frappe.get_roles())
         so.submit()
         self.assertEqual(so.docstatus, 1)
 
