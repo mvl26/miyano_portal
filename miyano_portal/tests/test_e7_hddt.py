@@ -354,10 +354,15 @@ class TestLineage(_E7Fixture):  # NL-12.2 / NL-12.3
             adjustment_type="1 - Điều chỉnh giảm", adjustment_reason="Sai đơn giá",
         )
         self._dinh_pdf(con)
-        # `mark_original_superseded` (erpnext/einvoice/lineage.py) — nửa
-        # NGƯỢC của brief gốc bỏ sót.
-        frappe.db.set_value(FEI, goc.name, "status", "10 - Đã điều chỉnh")
-        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
+        # review P0 (kiểm thử hệ thống, TC-E7-04) — GỌI THẬT
+        # `mark_original_superseded` (erpnext/einvoice/lineage.py) thay vì
+        # tự tay ghi `status`/`amended_from_fei`: bản trước dựng đúng hai
+        # giá trị hàm này ghi, nhưng không bao giờ gọi hàm — upstream đổi
+        # cách ghi (tên field, giá trị status) thì fixture vẫn "đúng" theo
+        # trí nhớ cũ trong khi cổng hiển thị sai badge trên chứng từ thuế đã
+        # huỷ, và test vẫn xanh. Gọi hàm thật đóng khoảng hở đó.
+        from erpnext.einvoice.lineage import mark_original_superseded
+        mark_original_superseded(con)
 
         block = einvoice.block_for(si.name, CUSTOMER_BM)
         # Con đã phát hành -> trở thành bản ghi CHÍNH; gốc (đã bị điều
@@ -391,8 +396,10 @@ class TestLineage(_E7Fixture):  # NL-12.2 / NL-12.3
             adjustment_reason="Sai tên hàng hoá",
         )
         self._dinh_pdf(con)
-        frappe.db.set_value(FEI, goc.name, "status", "11 - Đã thay thế")
-        frappe.db.set_value(FEI, goc.name, "amended_from_fei", con.name)
+        # review P0 (kiểm thử hệ thống, TC-E7-04) — gọi hàm thật, xem giải
+        # thích ở `test_lien_ket_hai_chieu_dieu_chinh` phía trên.
+        from erpnext.einvoice.lineage import mark_original_superseded
+        mark_original_superseded(con)
 
         block = einvoice.block_for(si.name, CUSTOMER_BM)
         khac = {m["fei"]: m for m in block["khac"]}
