@@ -28,6 +28,7 @@ Ba điều dễ làm sai mà đã được cố định ở đây:
 import frappe
 
 from miyano_portal.kho.ledger import LOT_KHONG_CO
+from miyano_portal.portal_thong_bao_khach import bao_da_nhap_hang
 
 LOAI_NHAP = "Từ đơn hàng Miyano"
 
@@ -40,6 +41,15 @@ _MAX_DATA = 140
 # ---------------------------------------------------------------- lối vào hook
 def on_delivery_note_submit(doc, method=None):
 	_chay_an_toan(doc, _tu_delivery_note, "Kho khách: lỗi khi tạo phiếu nhập từ Delivery Note")
+	# LỆNH GỌI RIÊNG, savepoint RIÊNG (brief 2026-08-15, QĐ nền 4) — không
+	# gộp chung với lệnh trên. Nếu gộp, một lỗi ở BƯỚC GỬI THÔNG BÁO (chạy
+	# SAU khi phiếu đã insert thành công trong CÙNG savepoint) sẽ rollback
+	# LUÔN CẢ phiếu vừa tạo: mất dữ liệu thật (phiếu nhập) để đổi lấy một
+	# thông báo phụ trợ. Tách savepoint nghĩa là hỏng ở đây chỉ mất thông
+	# báo — đúng nguyên văn QĐ nền 4 ("hỏng thì mất thông báo, KHÔNG được
+	# chặn phiếu giao hàng"), và phiếu đã tạo ở lệnh gọi trên không bị cuốn
+	# theo.
+	_chay_an_toan(doc, _bao_da_nhap_hang, "Kho khách: lỗi khi gửi thông báo đã nhập hàng")
 
 
 def on_delivery_note_cancel(doc, method=None):
@@ -205,6 +215,32 @@ def _ngay_phieu_khong_mat_hang(dn, kho: str) -> tuple[str, str]:
 		)
 		return ngay_bat_dau, ghi_chu
 	return ngay_dn, ""
+
+
+# -------------------------------------------------------- thông báo đã nhập
+def _bao_da_nhap_hang(dn) -> None:
+	"""Thông báo khách "Miyano đã giao hàng, phiếu nhập chờ bạn kiểm".
+
+	Tự tra lại phiếu qua `_phieu_dang_song(dn.name)` thay vì nhận tham số từ
+	`_tu_delivery_note` — hai lệnh gọi `_chay_an_toan()` trong
+	`on_delivery_note_submit` ĐỘC LẬP nhau (savepoint riêng, xem chú thích ở
+	đó), nên hàm này không có cách nào biết trực tiếp _tu_delivery_note vừa
+	trả về gì; tự truy vấn lại là cách duy nhất để hai lệnh gọi tách rời mà
+	vẫn đồng bộ. Chi phí một truy vấn DB có index (`delivery_note`) không
+	đáng kể so với việc gộp chung savepoint (xem rủi ro ở trên).
+
+	KHÔNG gửi khi không có phiếu (hàng trả về Miyano, khách chưa mở kho, đã
+	có phiếu từ trước) — cùng các nhánh im lặng của `_tu_delivery_note`.
+	"""
+	if dn.get("is_return"):
+		return
+	kho = _kho_cua_khach(dn.customer)
+	if not kho:
+		return
+	phieu = _phieu_dang_song(dn.name)
+	if not phieu:
+		return
+	bao_da_nhap_hang(dn.customer, phieu, dn.name)
 
 
 # --------------------------------------------------------------------- on_cancel

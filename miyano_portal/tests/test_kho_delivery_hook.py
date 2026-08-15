@@ -252,7 +252,15 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		self.assertEqual(self._phieu_cua(dn.name), [])
 
 	def test_loi_ben_trong_khong_chan_delivery_note(self):
-		"""Ép hook hỏng từ bên trong: DN vẫn phải submit, lỗi phải vào Error Log."""
+		"""Ép hook hỏng từ bên trong: DN vẫn phải submit, lỗi phải vào Error Log.
+
+		`_kho_cua_khach` được DÙNG CHUNG bởi cả hai lệnh gọi `_chay_an_toan()`
+		trong `on_delivery_note_submit` (tạo phiếu VÀ gửi thông báo đã nhập
+		hàng — brief 2026-08-15, xem chú thích ở đó) — ép hỏng nó nên hỏng
+		CẢ HAI, mỗi lệnh gọi có savepoint/log RIÊNG. Đúng hai dòng Error Log
+		là bằng chứng cả hai lớp bọc đều hoạt động độc lập, không phải một
+		lỗi đếm sai.
+		"""
 		with unittest.mock.patch.object(
 			delivery_hook, "_kho_cua_khach", side_effect=RuntimeError("hỏng có chủ ý")
 		):
@@ -269,9 +277,16 @@ class TestDeliveryNoteHook(FrappeTestCase):
 			filters={"reference_doctype": "Delivery Note", "reference_name": dn.name},
 			fields=["method", "error"],
 		)
-		self.assertEqual(len(log), 1, "Lỗi bị nuốt phải để lại đúng một dòng Error Log")
-		self.assertIn("Kho khách", log[0].method)
-		self.assertIn("hỏng có chủ ý", log[0].error)
+		self.assertEqual(
+			len(log), 2,
+			"Cả hai lệnh gọi _chay_an_toan (tạo phiếu + gửi thông báo) đều "
+			"phải tự log lỗi riêng",
+		)
+		tieu_de = {r.method for r in log}
+		self.assertIn("Kho khách: lỗi khi tạo phiếu nhập từ Delivery Note", tieu_de)
+		self.assertIn("Kho khách: lỗi khi gửi thông báo đã nhập hàng", tieu_de)
+		for r in log:
+			self.assertIn("hỏng có chủ ý", r.error)
 
 	def test_loi_giua_chung_khong_de_lai_du_lieu_nua_voi(self):
 		"""Hỏng SAU khi đã tạo Customer Warehouse Item → savepoint phải cuốn lại."""
@@ -676,6 +691,82 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		dn = self._dn(customer="Bệnh viện Đa khoa Miyano")
 		dn.cancel()
 		self.assertEqual(dn.docstatus, 2)
+
+	# ----------------------------------------------- thông báo "đã nhập hàng"
+	# brief 2026-08-15 (trang thông báo) Phần 3 — QĐ nền 4: lệnh gọi RIÊNG,
+	# savepoint RIÊNG với lệnh tạo phiếu (xem chú thích ở
+	# `on_delivery_note_submit`). `KHACH` ("Bệnh viện Bạch Mai") có tài khoản
+	# cổng thật (`bvbm@demo.miyano`, cấp bởi `seed_demo()` mà `seed_kho_demo()`
+	# gọi trong `setUp`).
+	USER_KHACH = "bvbm@demo.miyano"
+
+	def test_giao_hang_gui_thong_bao_da_nhap_hang_dung_nguoi(self):
+		frappe.db.delete("Notification Log", {"for_user": self.USER_KHACH})
+		dn = self._dn()
+		phieu = self._phieu_duy_nhat(dn)
+		log = frappe.get_all(
+			"Notification Log",
+			filters={
+				"for_user": self.USER_KHACH,
+				"document_type": "Customer Stock Receipt",
+				"document_name": phieu.name,
+			},
+			fields=["subject", "type"],
+		)
+		self.assertEqual(len(log), 1)
+		self.assertIn(phieu.name, log[0].subject)
+		self.assertEqual(log[0].type, "Alert")
+
+	def test_thong_bao_khong_trung_khi_chay_lai_hook(self):
+		frappe.db.delete("Notification Log", {"for_user": self.USER_KHACH})
+		dn = self._dn()
+		phieu = self._phieu_duy_nhat(dn)
+		delivery_hook.on_delivery_note_submit(dn)
+		delivery_hook.on_delivery_note_submit(frappe.get_doc("Delivery Note", dn.name))
+		self.assertEqual(
+			frappe.db.count(
+				"Notification Log",
+				{"for_user": self.USER_KHACH, "document_type": "Customer Stock Receipt", "document_name": phieu.name},
+			),
+			1,
+		)
+
+	def test_gui_thong_bao_hong_khong_chan_dn_va_khong_mat_phieu(self):
+		"""QĐ nền 4 nguyên văn — ép RIÊNG bước gửi thông báo hỏng (không đụng
+		bước tạo phiếu): DN vẫn submit, VÀ phiếu vừa tạo KHÔNG bị cuốn theo
+		(hai lệnh `_chay_an_toan` savepoint riêng — xem chú thích)."""
+		with unittest.mock.patch.object(
+			delivery_hook, "_bao_da_nhap_hang", side_effect=RuntimeError("gửi thông báo hỏng có chủ ý")
+		):
+			dn = self._dn()
+		self.assertEqual(dn.docstatus, 1, "DN PHẢI submit được dù thông báo hỏng")
+		# Phiếu vẫn phải tồn tại — lỗi ở BƯỚC SAU (thông báo) không được cuốn
+		# theo dữ liệu đã tạo ở BƯỚC TRƯỚC (savepoint riêng).
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.docstatus, 0)
+
+		log = frappe.get_all(
+			"Error Log",
+			filters={
+				"reference_doctype": "Delivery Note", "reference_name": dn.name,
+				"method": "Kho khách: lỗi khi gửi thông báo đã nhập hàng",
+			},
+		)
+		self.assertEqual(len(log), 1)
+
+	def test_khong_gui_thong_bao_cho_hang_tra_ve(self):
+		frappe.db.delete("Notification Log", {"for_user": self.USER_KHACH})
+		goc = self._dn(rows=[{"item_code": ITEM, "qty": 10, "rate": 95000}])
+		self._phieu_duy_nhat(goc)
+		truoc = frappe.db.count("Notification Log", {"for_user": self.USER_KHACH})
+		self._dn(
+			rows=[{"item_code": ITEM, "qty": -2, "rate": 95000}],
+			is_return=True, return_against=goc.name,
+		)
+		self.assertEqual(
+			frappe.db.count("Notification Log", {"for_user": self.USER_KHACH}), truoc,
+			"Hàng trả về Miyano không tạo phiếu -> không có gì để báo",
+		)
 
 	# ------------------------------------------------------------------ tiện ích
 	def _bundle(self, batches, qty):
