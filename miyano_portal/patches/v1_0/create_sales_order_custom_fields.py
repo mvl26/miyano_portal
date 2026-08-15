@@ -17,7 +17,7 @@ def execute():
                 },
                 {
                     "fieldname": "custom_hdnt",
-                    "label": "Hợp đồng nguyên tắc",
+                    "label": "Hợp đồng khung",
                     "fieldtype": "Link",
                     "options": "Blanket Order",
                     "insert_after": "custom_nguon_don",

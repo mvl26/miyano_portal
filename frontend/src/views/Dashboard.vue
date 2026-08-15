@@ -103,7 +103,7 @@ function orderByContract(contractName) {
 
       <!-- Hợp đồng nguyên tắc -->
       <div class="card">
-        <h3 style="margin-bottom: 10px">Hợp đồng nguyên tắc</h3>
+        <h3 style="margin-bottom: 10px">Hợp đồng khung</h3>
         <template v-if="contract">
           <p style="font-weight: 600">{{ contract.name }}</p>
           <p class="tag">
@@ -115,13 +115,13 @@ function orderByContract(contractName) {
           </p>
           <div class="bar"><i :style="{ width: Math.min(contract.used_pct, 100) + '%' }"></i></div>
           <div class="note" style="margin-top: 14px">
-            💡 Đặt hàng theo đúng đơn giá và hạn mức của hợp đồng nguyên tắc đã ký.
+            💡 Đặt hàng theo đúng đơn giá và hạn mức của hợp đồng khung đã ký.
           </div>
           <button class="btn-o btn-sm" style="margin-top: 12px" @click="orderByContract(contract.name)">
             Đặt hàng theo hợp đồng này →
           </button>
         </template>
-        <p v-else class="tag">Chưa có hợp đồng nguyên tắc còn hiệu lực.</p>
+        <p v-else class="tag">Chưa có hợp đồng khung còn hiệu lực.</p>
       </div>
     </div>
   </div>

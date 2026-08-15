@@ -89,8 +89,9 @@ DEFS = [
         "condition": "doc.trang_thai == 'Cần thêm thông tin'",
         "message": (
             "Kính gửi Quý khách,\n\nMiyano cần thêm thông tin để xử lý yêu "
-            "cầu {{ doc.name }} ({{ doc.ten_hang }}). Vui lòng xem chi tiết "
-            "và phản hồi trên cổng khách hàng.\n\n{{ doc.phan_hoi or '' }}"
+            "cầu {{ doc.name }} ({{ doc.ten_hang }}). Vui lòng liên hệ nhân "
+            "viên phụ trách hoặc trả lời email này để cung cấp thêm thông "
+            "tin.\n\n{{ doc.phan_hoi or '' }}"
         ),
         "recipient_field": "nguoi_yeu_cau",
     },

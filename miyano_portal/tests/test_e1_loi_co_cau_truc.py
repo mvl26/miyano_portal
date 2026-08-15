@@ -197,7 +197,7 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
             {"item_code": VT, "qty": 10},
             {"item_code": HC, "qty": 1},
         ])
-        self.assertIn("chỉ còn 5 theo hạn mức HĐNT", van_xuoi)
+        self.assertIn("chỉ còn 5 theo hạn mức hợp đồng khung", van_xuoi)
         self.assertIn("chưa có giá trong hợp đồng", van_xuoi)
         self.assertIn("Miyano đã nhận được thông báo", van_xuoi)
 

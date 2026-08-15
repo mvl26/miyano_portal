@@ -227,7 +227,7 @@ onMounted(async () => {
 
     <template v-else>
       <div class="tabs">
-        <button :class="{ on: tab === 'hd' }" @click="tab = 'hd'">Theo HĐNT ({{ hdLines.length }})</button>
+        <button :class="{ on: tab === 'hd' }" @click="tab = 'hd'">Theo hợp đồng khung ({{ hdLines.length }})</button>
         <button v-if="hienTabLe" :class="{ on: tab === 'le' }" @click="tab = 'le'">
           Mua lẻ ({{ leLines.length }}) <span class="newtag">MỚI</span>
         </button>
@@ -251,7 +251,7 @@ onMounted(async () => {
         </div>
 
         <div v-else-if="hdEmpty" class="card" style="color: var(--gray)">
-          Ngăn Theo HĐNT trống —
+          Ngăn Theo hợp đồng khung trống —
           <a href="#" style="color: var(--blue2)" @click.prevent="router.push('/catalog')">chọn thêm mặt hàng</a>.
         </div>
 
@@ -343,7 +343,7 @@ onMounted(async () => {
             Mã đơn: <b style="color: var(--purple)">{{ lePlacedOrder.sales_order }}</b>
             <span class="badge b-gray">Chờ xác nhận</span>
           </p>
-          <p class="tag">Đơn ngoài HĐNT — Miyano sẽ xác nhận giá và lượng trước khi giao.</p>
+          <p class="tag">Đơn ngoài hợp đồng khung — Miyano sẽ xác nhận giá và lượng trước khi giao.</p>
           <div class="flex" style="justify-content: center; margin-top: 20px; flex-wrap: wrap">
             <button class="btn-o" @click="router.push('/orders')">Xem đơn hàng</button>
             <button class="btn" @click="lePlacedOrder = null; tab = 'hd'; router.push('/catalog')">Tiếp tục đặt hàng</button>
@@ -357,7 +357,7 @@ onMounted(async () => {
 
         <template v-else>
           <div class="note">
-            Ngăn <b>Mua lẻ</b> — không thuộc HĐNT, không hạn mức. Miyano sẽ báo giá rồi
+            Ngăn <b>Mua lẻ</b> — không thuộc hợp đồng khung, không hạn mức. Miyano sẽ báo giá rồi
             bạn xác nhận trước khi giao. Đặt thành <b>đơn riêng</b>.
           </div>
           <div v-if="leError" class="note" style="color: var(--red); border-color: #fecaca; background: #fef2f2">{{ leError }}</div>
@@ -447,7 +447,7 @@ onMounted(async () => {
                   Miyano sẽ báo giá sau khi tiếp nhận đơn. Bạn xác nhận giá trước khi đơn được giao.
                 </p>
                 <button class="btn" style="width: 100%; margin-top: 14px; background: var(--purple)" :disabled="leTrong" @click="leMoXacNhan">Xác nhận đặt đơn MUA LẺ →</button>
-                <p class="tag" style="margin-top: 8px">Đơn ngoài HĐNT, không áp dụng hạn mức — Miyano sẽ xác nhận trước khi giao.</p>
+                <p class="tag" style="margin-top: 8px">Đơn ngoài hợp đồng khung, không áp dụng hạn mức — Miyano sẽ xác nhận trước khi giao.</p>
               </div>
             </div>
           </div>
@@ -463,7 +463,7 @@ onMounted(async () => {
           Đơn hàng theo <b>{{ store.contract }}</b>, tổng giá trị
           <b>{{ fmtVND(store.cartTotal) }}</b> sẽ được gửi về hệ thống Supplycore của Miyano và tạo Đơn bán hàng (Sales Order) chờ xác nhận.
         </p>
-        <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt hàng theo đơn giá và điều khoản của Hợp đồng nguyên tắc đã ký.</div>
+        <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt hàng theo đơn giá và điều khoản của Hợp đồng khung đã ký.</div>
         <div class="flex" style="justify-content: flex-end; margin-top: 14px">
           <button class="btn-o" @click="hdConfirmOpen = false">Quay lại</button>
           <button class="btn" :disabled="hdPlacing" @click="hdConfirmOrder">{{ hdPlacing ? 'Đang gửi…' : 'Xác nhận đặt hàng' }}</button>
@@ -477,7 +477,7 @@ onMounted(async () => {
         <p style="font-size: 13px; margin: 8px 0">
           Đơn theo <b>{{ store.contract }}</b>, tổng <b>{{ fmtVND(store.cartTotal) }}</b> sẽ gửi về Supplycore và tạo Đơn bán hàng (Sales Order) chờ xác nhận.
         </p>
-        <div class="note">Quý khách đồng ý đặt hàng theo đơn giá và điều khoản của Hợp đồng nguyên tắc đã ký.</div>
+        <div class="note">Quý khách đồng ý đặt hàng theo đơn giá và điều khoản của Hợp đồng khung đã ký.</div>
         <button class="btn" style="width: 100%; margin-top: 8px" :disabled="hdPlacing" @click="hdConfirmOrder">{{ hdPlacing ? 'Đang gửi…' : 'Xác nhận đặt hàng' }}</button>
         <button class="btn-o" style="width: 100%; margin-top: 8px; border: none" @click="hdConfirmOpen = false">Quay lại</button>
       </div>
@@ -488,9 +488,9 @@ onMounted(async () => {
       <div class="card">
         <h3>Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 10px 0">
-          Đơn <b>Mua lẻ</b> (ngoài HĐNT), {{ leLines.length }} mặt hàng, sẽ được
+          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leLines.length }} mặt hàng, sẽ được
           gửi về hệ thống Supplycore của Miyano. Miyano sẽ báo giá rồi bạn xác nhận trước khi giao —
-          không áp dụng hạn mức hợp đồng nguyên tắc.
+          không áp dụng hạn mức hợp đồng khung.
         </p>
         <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt đơn mua lẻ; Miyano sẽ báo giá trước khi giao.</div>
         <div class="flex" style="justify-content: flex-end; margin-top: 14px">
@@ -504,8 +504,8 @@ onMounted(async () => {
         <div class="grab"></div>
         <h3 style="font-size: 16px">Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 8px 0">
-          Đơn <b>Mua lẻ</b> (ngoài HĐNT), {{ leLines.length }} mặt hàng — Miyano sẽ báo giá
-          rồi bạn xác nhận trước khi giao, không áp dụng hạn mức hợp đồng nguyên tắc.
+          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leLines.length }} mặt hàng — Miyano sẽ báo giá
+          rồi bạn xác nhận trước khi giao, không áp dụng hạn mức hợp đồng khung.
         </p>
         <div class="note">Quý khách đồng ý đặt đơn mua lẻ; Miyano sẽ báo giá trước khi giao.</div>
         <button class="btn" style="width: 100%; margin-top: 8px; background: var(--purple)" :disabled="lePlacing" @click="leConfirmOrder">{{ lePlacing ? 'Đang gửi…' : 'Xác nhận đặt đơn mua lẻ' }}</button>

@@ -127,7 +127,7 @@ function add(it) {
     // FormSpec §1.3 cấm `alert()` của trình duyệt — lỗi hiển thị bằng toast
     // và dòng chữ tại chỗ, không phải hộp thoại chặn cả trang.
     showToast(
-      `Không đặt được: ${it.item_code} chỉ còn ${left} ${it.uom} theo hạn mức HĐNT.`,
+      `Không đặt được: ${it.item_code} chỉ còn ${left} ${it.uom} theo hạn mức hợp đồng khung.`,
       'error'
     )
     return
@@ -298,24 +298,24 @@ watch(selected, loadItems)
       <div v-if="!isMobile">
         <h2>Đặt hàng</h2>
         <div class="sub">
-          {{ mode === 'le' ? 'Giá bán lẻ ngoài hợp đồng nguyên tắc' : 'Giá & danh mục theo hợp đồng đã ký — không áp dụng cho mặt hàng ngoài hợp đồng' }}
+          {{ mode === 'le' ? 'Giá bán lẻ ngoài hợp đồng khung' : 'Giá & danh mục theo hợp đồng đã ký — không áp dụng cho mặt hàng ngoài hợp đồng' }}
         </div>
       </div>
       <div v-if="mucLeChoPhep" class="seg">
-        <button :class="{ on: mode === 'hd' }" @click="setMode('hd')">Theo HĐNT</button>
+        <button :class="{ on: mode === 'hd' }" @click="setMode('hd')">Theo hợp đồng khung</button>
         <button :class="{ on: mode === 'le' }" @click="setMode('le')">Mua lẻ <span class="newtag">MỚI</span></button>
       </div>
     </div>
 
     <div v-if="mode === 'le'" class="note note-b">
-      ⚠ <b>Giá bán lẻ ngoài HĐNT</b> — đơn cần Miyano xác nhận trước khi giao. Không áp dụng hạn mức.
+      ⚠ <b>Giá bán lẻ ngoài hợp đồng khung</b> — đơn cần Miyano xác nhận trước khi giao. Không áp dụng hạn mức.
     </div>
 
     <!-- Bộ lọc chung -->
     <div class="card" style="margin-bottom: 14px">
       <div class="flex" style="flex-wrap: wrap; align-items: flex-end">
         <div v-if="mode === 'hd' && contracts.length" style="min-width: 260px; flex: 1">
-          <label class="tag">Hợp đồng nguyên tắc</label>
+          <label class="tag">Hợp đồng khung</label>
           <select v-model="selected">
             <option v-for="c in contracts" :key="c.name" :value="c.name">
               {{ c.name }} ({{ fmtDate(c.from_date) }}–{{ fmtDate(c.to_date) }}) – còn hiệu lực
@@ -338,12 +338,12 @@ watch(selected, loadItems)
 
     <!-- ============ NGĂN THEO HĐNT ============ -->
     <template v-if="mode === 'hd'">
-      <div v-if="!contracts.length" class="empty">Chưa có hợp đồng nguyên tắc còn hiệu lực.</div>
+      <div v-if="!contracts.length" class="empty">Chưa có hợp đồng khung còn hiệu lực.</div>
       <template v-else>
         <div v-if="error" class="empty">{{ error }}</div>
         <div v-else-if="loadingItems" class="loading">Đang tải danh mục…</div>
         <div v-else-if="!filtered.length" class="empty">
-          Không có mặt hàng khớp — mặt hàng ngoài HĐNT không hiển thị.
+          Không có mặt hàng khớp — mặt hàng ngoài hợp đồng khung không hiển thị.
         </div>
 
         <!-- DESKTOP: bảng -->
@@ -470,7 +470,7 @@ watch(selected, loadItems)
               <template v-if="it.thuoc_hdnt">
                 <td colspan="3">
                   <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
-                    <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
+                    <span class="badge b-blue">Có trong hợp đồng khung — đặt ở chế độ Theo hợp đồng khung</span>
                   </a>
                 </td>
               </template>
@@ -503,7 +503,7 @@ watch(selected, loadItems)
 
           <template v-if="it.thuoc_hdnt">
             <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
-              <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
+              <span class="badge b-blue">Có trong hợp đồng khung — đặt ở chế độ Theo hợp đồng khung</span>
             </a>
           </template>
           <template v-else-if="!it.san_sang_ban">

@@ -64,7 +64,7 @@ onMounted(async () => {
 
         <!-- Hợp đồng nguyên tắc -->
         <div class="card">
-          <div class="h3">Hợp đồng nguyên tắc</div>
+          <div class="h3">Hợp đồng khung</div>
           <p v-if="!contracts.length" class="tag">Chưa có hợp đồng còn hiệu lực.</p>
           <div v-else style="overflow-x: auto">
             <table>

@@ -458,7 +458,7 @@ def _xay_don_hdnt(customer, contract, bo, aggregated, delivery_date, address, po
                 # Nguyên văn ma trận FormSpec §5, dòng NL-1.3.
                 "thong_diep": (
                     f"Không đặt được: {item_code} chỉ còn {con_lai:g} "
-                    f"theo hạn mức HĐNT."
+                    f"theo hạn mức hợp đồng khung."
                 ),
             })
     if loi:
@@ -605,8 +605,8 @@ def _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po,
                 "ly_do": "thuoc_hdnt_hieu_luc",
                 # Nguyên văn ma trận FormSpec §5, dòng NL-10.7.
                 "thong_diep": (
-                    f"{item_code} đang thuộc HĐNT — vui lòng đặt ở chế độ "
-                    f"Theo HĐNT để hưởng giá hợp đồng."
+                    f"{item_code} đang thuộc hợp đồng khung — vui lòng đặt ở chế độ "
+                    f"Theo hợp đồng khung để hưởng giá hợp đồng."
                 ),
             })
             continue
