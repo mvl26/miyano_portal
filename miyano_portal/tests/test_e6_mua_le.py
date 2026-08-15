@@ -654,6 +654,52 @@ class TestDatHangBanLe(FrappeTestCase):
         so.submit()
         self.assertEqual(so.docstatus, 1)
 
+    # ---------- Việc 1 — company rỗng KHÔNG được chết đơn ----------
+    def test_giao_company_rong_van_dat_duoc_don_roi_ve_company_mac_dinh(self):
+        """Chủ dự án đã quyết: khi phép giao company của
+        `resolve_ban_le_company()` rỗng (giỏ gồm hai mặt hàng mà Item
+        Default của chúng không CHUNG company nào), đơn khách KHÔNG được
+        chết vì lỗi cấu hình admin — phải tạo được, với `company` rơi về
+        `Global Defaults.default_company`, để nhân viên back-office tự sửa
+        trên đơn nháp nếu cần (`Sales Order.company` là `reqd=1` nên không
+        thể để trống).
+
+        Site test có sẵn HAI company thật (không phải fixture dựng riêng
+        cho test này): "Miyano Việt Nam" (COMPANY, dùng bởi RETAIL_CO_GIA
+        qua `_kho_mac_dinh()`) và "Miyano" (`default_company` toàn hệ
+        thống). Dựng thêm MỘT item mới có Item Default CHỈ trỏ company
+        "Miyano" — giao với company của RETAIL_CO_GIA ("Miyano Việt Nam")
+        là tập rỗng."""
+        item_khac_cong_ty = "RTL-E6-004"
+        kho_mac_dinh_khac = frappe.db.get_value(
+            "Warehouse", {"company": "Miyano", "is_group": 0, "warehouse_name": "Stores"}
+        )
+        self.assertTrue(kho_mac_dinh_khac, "fixture site phải có kho Stores cho company Miyano")
+        if not frappe.db.exists("Item", item_khac_cong_ty):
+            frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_khac_cong_ty,
+                "item_name": "Mặt hàng company khác (test rơi về mặc định)",
+                "item_group": "Vật tư tiêu hao",
+                "stock_uom": "Cái",
+                "is_stock_item": 1,
+                "item_defaults": [{"company": "Miyano", "default_warehouse": kho_mac_dinh_khac}],
+            }).insert(ignore_permissions=True)
+
+        res = portal.portal_order_place(
+            items=json.dumps([
+                {"item_code": RETAIL_CO_GIA, "qty": 1},
+                {"item_code": item_khac_cong_ty, "qty": 1},
+            ]),
+            mode="ban_le", request_id=_rid(),
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual(so.docstatus, 0, "đơn phải TẠO ĐƯỢC dù phép giao company rỗng")
+        self.assertEqual(
+            so.company, frappe.defaults.get_global_default("company"),
+            "company phải rơi về Global Defaults.default_company khi không suy được",
+        )
+
 
 def _tao_so_bao_gia(customer, item_code, gia, ngay_lap=None, yeu_cau=None):
     so = frappe.new_doc("Sales Order")

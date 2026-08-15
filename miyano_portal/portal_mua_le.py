@@ -313,8 +313,20 @@ def resolve_ban_le_company(item_codes: list[str]):
     Một Sales Order chỉ có MỘT `company`, nên chỉ company nào có
     `default_warehouse` khai cho ĐỦ mọi mặt hàng trong giỏ mới hợp lệ.
 
-    Trả `None` khi không có company nào thoả — người gọi phải báo lỗi cấu
-    hình rõ ràng, không được đoán bừa một company.
+    Rơi về `Global Defaults.default_company` khi phép giao rỗng (không
+    company nào có `default_warehouse` cho ĐỦ mọi mặt hàng trong giỏ) —
+    quyết định của chủ dự án: một công ty giao hàng ĐOÁN được rồi để nhân
+    viên back-office SỬA trên đơn nháp (`Sales Order.docstatus=0`, nơi
+    nhân viên vốn đã sửa giá) tốt hơn CHẶN khách đặt hàng vì admin khai
+    thiếu `Item Default`. `Sales Order.company` là `reqd=1` trong ERPNext
+    nên "để nhân viên điền" không thể là để trống — phải có sẵn một giá
+    trị hợp lệ khi đơn về tới Desk.
+
+    Vẫn ưu tiên giá trị SUY ĐƯỢC (khi phép giao khác rỗng) hơn giá trị mặc
+    định: company suy từ `Item Default` của chính giỏ hàng đảm bảo kho
+    giao thật sự khai cho mọi mặt hàng, còn `default_company` chỉ là một
+    phỏng đoán không biết gì về giỏ — dùng nó CHỈ khi không còn lựa chọn
+    nào chính xác hơn.
 
     review I-3 — TẤT ĐỊNH: bản trước dùng `next(iter(candidates))`, một
     phần tử TUỲ Ý của `set` — thứ tự lặp của `set` phụ thuộc hash, có thể
@@ -324,6 +336,8 @@ def resolve_ban_le_company(item_codes: list[str]):
     tiên company mặc định toàn hệ thống (`Global Defaults.default_company`)
     nếu nó nằm trong tập hợp lệ; nếu không, chọn phần tử NHỎ NHẤT theo thứ
     tự chữ cái (`sorted()[0]`) — tất định tuyệt đối, không phụ thuộc hash.
+    Cùng giá trị `default_company` này cũng là kết quả fallback khi phép
+    giao rỗng, nên toàn hàm chỉ có MỘT nguồn "mặc định", không hai.
     """
     candidates = None
     for item_code in item_codes:
@@ -337,10 +351,11 @@ def resolve_ban_le_company(item_codes: list[str]):
         ))
         candidates = companies if candidates is None else (candidates & companies)
         if not candidates:
-            return None
-    if not candidates:
-        return None
+            candidates = None
+            break
     mac_dinh = frappe.defaults.get_global_default("company")
+    if not candidates:
+        return mac_dinh
     if mac_dinh in candidates:
         return mac_dinh
     return sorted(candidates)[0]

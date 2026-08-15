@@ -715,11 +715,18 @@ def _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po,
     # vì `calculate_taxes_and_totals` không có gì để tính) — nên giỏ
     # `items` (KHÔNG tính `dat_ngoai`) vẫn phải khác rỗng; kiểm ở
     # `portal_order_place` trước khi gọi hàm này.
+    # Chủ dự án đã quyết: đừng chốt cứng company vào mặt khách nữa —
+    # `resolve_ban_le_company()` giờ TỰ rơi về `default_company` khi phép
+    # giao rỗng, để nhân viên back-office sửa trên đơn nháp nếu cần. Chỉ
+    # còn dừng ở đây khi site KHÔNG CÓ Company nào — lúc đó ERPNext không
+    # lưu nổi một Sales Order thật (`company` là `reqd=1`), và đây đúng là
+    # lỗi cấu hình hệ thống, không phải lỗi của giỏ hàng khách.
     company = resolve_ban_le_company(list(aggregated.keys()))
     if not company:
         frappe.throw(
-            "Không xác định được công ty giao hàng cho giỏ mua lẻ này. "
-            "Vui lòng liên hệ quản trị viên hệ thống."
+            "Hệ thống chưa có công ty (Company) nào được cấu hình. "
+            "Vui lòng liên hệ quản trị viên hệ thống.",
+            frappe.ValidationError,
         )
 
     so = frappe.new_doc("Sales Order")
