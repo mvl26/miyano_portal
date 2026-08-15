@@ -50,9 +50,20 @@ Nguyên tắc nền, nhắc lại từ thiết kế 14/08 vì mọi quyết đ�
 
 Bộ chuyển trên màn Đặt hàng: **`Theo hợp đồng khung` | `Mua lẻ`**. Không còn đường thứ ba.
 
-Chỉ đổi **nhãn hiển thị**. Mã nghiệp vụ và tên trường giữ nguyên "HĐNT" (`custom_hdnt`, `thuoc_hdnt`, `mode="hdnt"`, BR-O*, QT2, Blanket Order). Đổi mã sẽ cắt liên kết giữa code và toàn bộ tài liệu BA — cái giá không tương xứng với lợi ích của một từ.
+**Quyết định của chủ dự án (15/08): tên gọi là "hợp đồng khung". Bỏ hẳn "hợp đồng nguyên tắc" và viết tắt "HĐNT" khỏi mọi chữ người dùng đọc được.**
 
-Chuỗi cần đổi trên UI: `Catalog.vue` (nhãn bộ chuyển), badge `"Có trong HĐNT — đặt ở chế độ Theo HĐNT"` → `"Có trong hợp đồng khung — đặt ở chế độ Theo hợp đồng khung"`, tiêu đề ngăn giỏ trong `Cart.vue`, `Dashboard.vue`, `Orders.vue`, `OrderDetail.vue`.
+Phạm vi đổi — **mọi chuỗi hiển thị**, không chừa chỗ nào:
+
+- **SPA** (`frontend/src`): nhãn bộ chuyển ở `Catalog.vue`; badge `"Có trong HĐNT — đặt ở chế độ Theo HĐNT"` → `"Có trong hợp đồng khung — đặt ở chế độ Theo hợp đồng khung"`; tiêu đề hai ngăn giỏ ở `Cart.vue`; `Dashboard.vue`, `Profile.vue`, `Orders.vue`, `OrderDetail.vue`. Kiểm bằng `grep -rn "HĐNT\|nguyên tắc" frontend/src` — phải sạch phần chuỗi hiển thị.
+- **Thông báo lỗi từ server** (`api/portal.py`, `portal_mua_le.py`) — mọi câu `frappe.throw` khách có thể đọc.
+- **Email và Notification** (`setup/install_notifications.py`).
+- **Print Format** song ngữ (`setup/install_print_formats.py`) — kể cả mẫu Báo giá mới ở §3.6.
+- **Nhãn field trên Desk**: `Sales Order.custom_hdnt`, `custom_loai_don`… — label tiếng Việt đổi, fieldname giữ nguyên.
+- **Tài liệu BA** (§6) — đổi cách gọi trong phần mô tả nghiệp vụ.
+
+**KHÔNG đổi tên trong database và API**: `custom_hdnt`, `thuoc_hdnt`, `custom_loai_don`, `mode="hdnt"`, `against_blanket_order`, và các mã BR-O*/QT2. Đây là giả định em nêu rõ chứ không phải chủ dự án chốt: đổi tên cột là một cuộc di trú dữ liệu riêng — patch đổi schema, sửa 339 test, cập nhật mọi mã BR/QT trong bốn bộ tài liệu — mà **khách không nhìn thấy khác biệt nào**. Giá trị của yêu cầu này nằm trọn ở chữ khách đọc. Nếu chủ dự án muốn đổi cả tên cột, đó là một đợt việc riêng, làm sau khi đợt này xanh.
+
+Giá trị lưu trong dữ liệu của `custom_loai_don` (`"Mua lẻ"` / giá trị nhánh hợp đồng) cũng **giữ nguyên** — đổi giá trị đã lưu là đổi dữ liệu, không phải đổi nhãn; chỗ nào cần hiện khác thì dịch ở tầng hiển thị.
 
 ### 3.2 Gỡ "Yêu cầu hàng hoá" khỏi cổng
 
