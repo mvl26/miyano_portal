@@ -50,6 +50,22 @@ const acceptOpen = ref(false)
 const rejecting = ref(false)
 const accepting = ref(false)
 
+// Việc 1/brief 2026-08-15 (bao-gia-hai-chieu) — khách sửa số lượng ngay
+// trong khối "Chờ bạn đồng ý". Hai map RIÊNG (items theo item_code,
+// dat_ngoai theo `name`) — khớp đúng khoá endpoint `portal_order_sua_so_
+// luong` dùng để tìm dòng ĐÃ CÓ trên đơn (server chỉ đọc item_code/name +
+// qty, mọi field khác trong payload đều bị bỏ qua/từ chối).
+const soLuongMoiItems = ref({})
+const soLuongMoiDatNgoai = ref({})
+const dangSuaSoLuong = ref(false)
+function initSoLuongMoi() {
+  soLuongMoiItems.value = Object.fromEntries((data.value?.items || []).map((it) => [it.item_code, it.qty]))
+  soLuongMoiDatNgoai.value = Object.fromEntries((data.value?.dat_ngoai || []).map((d) => [d.name, d.so_luong]))
+}
+
+const huyOpen = ref(false)
+const huyDangGui = ref(false)
+
 // Bước hiện tại = mốc đầu tiên chưa hoàn thành (để tô cam như mockup).
 const currentIdx = computed(() => {
   if (!data.value) return -1
@@ -156,10 +172,66 @@ async function load() {
   error.value = ''
   try {
     data.value = await api.call('portal_order_track', { order: name.value })
+    initSoLuongMoi()
   } catch (e) {
     error.value = e.message || 'Không tải được chi tiết đơn hàng.'
   } finally {
     loading.value = false
+  }
+}
+
+// Việc 1/brief 2026-08-15 — "Gửi lại để báo giá": chỉ gửi CÁC DÒNG THẬT SỰ
+// đổi số lượng (không gửi nguyên giỏ) — payload gọn, và tránh gửi field
+// `rate`/`item_code` mà server không cần (server chỉ đọc `item_code`/`name`
+// + `qty`, đọc gì khác cũng bị bỏ qua, nhưng gửi thừa vẫn là gửi thừa).
+async function guiLaiBaoGia() {
+  if (dangSuaSoLuong.value) return
+  const doiItems = (data.value.items || [])
+    .filter((it) => Number(soLuongMoiItems.value[it.item_code]) !== Number(it.qty))
+    .map((it) => ({ item_code: it.item_code, qty: Number(soLuongMoiItems.value[it.item_code]) }))
+  const doiDatNgoai = (data.value.dat_ngoai || [])
+    .filter((d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong))
+    .map((d) => ({ name: d.name, qty: Number(soLuongMoiDatNgoai.value[d.name]) }))
+  if (!doiItems.length && !doiDatNgoai.length) {
+    showToast('Chưa sửa số lượng dòng nào.', 'error')
+    return
+  }
+  // review — KHÔNG dùng `window.confirm()`: đây là dialog NGOÀI hệ modal
+  // của app (khác `ReasonModal` mà "Không đồng ý"/"Huỷ đơn" dùng), một số
+  // trình duyệt/tiện ích chặn hẳn dialog gốc, và "Đồng ý đặt hàng" ngay
+  // trên cùng banner — hành động HỆ TRỌNG hơn — cũng không hỏi lại. Đoạn
+  // text mô tả phía trên input đã nêu rõ hệ quả (đơn về "Chờ xác nhận",
+  // giá dòng đã đổi không còn hiệu lực) trước khi khách bấm nút.
+  dangSuaSoLuong.value = true
+  try {
+    await api.call('portal_order_sua_so_luong', {
+      order: name.value,
+      dong: JSON.stringify({ items: doiItems, dat_ngoai: doiDatNgoai }),
+    })
+    showToast('Đã gửi số lượng mới — đơn chuyển sang chờ Miyano báo giá lại.')
+    load()
+  } catch (e) {
+    showToast(e.message || 'Không gửi được thay đổi số lượng. Vui lòng thử lại.', 'error')
+  } finally {
+    dangSuaSoLuong.value = false
+  }
+}
+
+// Việc 2/brief 2026-08-15 — nút Huỷ = HUỶ THẬT, đơn đóng ngay (khác hẳn
+// `requestCancel`/`portal_request_cancel` bên dưới — chỉ ghi yêu cầu chờ
+// nhân viên xử lý, dùng cho đơn ĐÃ XÁC NHẬN).
+async function huyDon(lyDo) {
+  if (huyDangGui.value) return
+  huyDangGui.value = true
+  try {
+    await api.call('portal_order_huy', { order: name.value, ly_do: lyDo })
+    huyOpen.value = false
+    showToast('Đã huỷ đơn hàng theo yêu cầu của bạn.')
+    load()
+  } catch (e) {
+    showToast(e.message || 'Không huỷ được đơn. Vui lòng thử lại.', 'error')
+  } finally {
+    huyDangGui.value = false
   }
 }
 
@@ -267,6 +339,54 @@ onMounted(load)
             target="_blank"
             rel="noopener"
           >⬇ Tải báo giá (PDF)</a>
+        </div>
+
+        <!-- Việc 1/brief 2026-08-15 — sửa số lượng NGAY tại đây, chỉ cho
+             đơn Mua lẻ (đúng điều kiện server `portal_order_sua_so_luong`
+             đòi `custom_loai_don == "Mua lẻ"`). Đơn giá cho N hộp không còn
+             đúng ở M hộp — gửi lại là để sales báo giá lại, KHÔNG giữ giá
+             cũ (server tự đặt rate = 0 cho dòng đã đổi). -->
+        <div v-if="laDonMuaLe" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
+          <p style="font-size: 13px; margin-bottom: 8px">
+            Số lượng chưa đúng? Sửa rồi bấm <b>Gửi lại để báo giá</b> — đơn sẽ
+            về Miyano báo giá lại theo số lượng mới (giá hiện tại của dòng đã
+            đổi không còn áp dụng).
+          </p>
+          <div v-for="it in data.items" :key="'sl-' + it.item_code" class="rowline">
+            <span>
+              <b>{{ it.item_code }}</b> — {{ it.item_name }}
+              <br /><span class="tag">{{ it.uom }} · hiện {{ it.qty }} · {{ fmtVND(it.rate) }}/{{ it.uom }}</span>
+            </span>
+            <input
+              type="number" min="0" step="any"
+              v-model.number="soLuongMoiItems[it.item_code]"
+              style="width: 90px; text-align: right"
+            />
+          </div>
+          <div v-for="d in data.dat_ngoai" :key="'sl-dn-' + d.name" class="rowline">
+            <span>
+              <b>{{ d.ten_hang }}</b>
+              <br /><span class="tag">{{ d.dvt }} · hiện {{ d.so_luong }} (đặt ngoài)</span>
+            </span>
+            <input
+              type="number" min="0" step="any"
+              v-model.number="soLuongMoiDatNgoai[d.name]"
+              style="width: 90px; text-align: right"
+            />
+          </div>
+          <button class="btn-o" style="margin-top: 8px" :disabled="dangSuaSoLuong" @click="guiLaiBaoGia">
+            {{ dangSuaSoLuong ? 'Đang gửi…' : '✎ Gửi lại để báo giá' }}
+          </button>
+        </div>
+
+        <!-- Việc 2/brief 2026-08-15 — Huỷ đơn = HUỶ THẬT (khác requestCancel
+             bên dưới — đó chỉ ghi yêu cầu chờ xử lý, dùng cho đơn đã xác
+             nhận). Áp cho MỌI loại đơn đang ở trạng thái này (server không
+             giới hạn theo custom_loai_don), không chỉ Mua lẻ. -->
+        <div style="margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px">
+          <button class="btn-o btn-danger" :disabled="huyDangGui" @click="huyOpen = true">
+            🗑 Huỷ đơn…
+          </button>
         </div>
       </div>
 
@@ -484,6 +604,19 @@ onMounted(load)
       submit-label="Gửi"
       @close="acceptOpen = false"
       @submit="khongDongY"
+    />
+
+    <!-- Việc 2/brief 2026-08-15 — Huỷ đơn = HUỶ THẬT, cần lý do (>= 10 ký
+         tự, khớp `LY_DO_TOI_THIEU_KHACH` phía server). -->
+    <ReasonModal
+      :open="huyOpen"
+      title="Huỷ đơn hàng"
+      desc="Đơn sẽ ĐÓNG NGAY, không thể hoàn tác từ phía khách. Vui lòng nêu lý do (≥ 10 ký tự) — được gửi kèm email cho Miyano."
+      placeholder="VD: Đặt nhầm số lượng, không còn nhu cầu..."
+      :submitting="huyDangGui"
+      submit-label="Xác nhận huỷ"
+      @close="huyOpen = false"
+      @submit="huyDon"
     />
   </div>
 </template>
