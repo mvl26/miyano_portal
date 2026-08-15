@@ -563,6 +563,19 @@ class TestDatHangBanLe(FrappeTestCase):
         loi = frappe.local.response.get("loi")
         self.assertEqual(loi[0]["ly_do"], "dat_ngoai_so_luong_khong_hop_le")
 
+    def test_dat_ngoai_so_luong_khong_phai_so_bi_chan_khong_500(self):
+        """review Minor — `float("abc")` ném `ValueError` CHƯA BẮT trước bản
+        sửa này, lọt thẳng thành HTTP 500 thay vì mã lỗi
+        `dat_ngoai_so_luong_khong_hop_le` đã có sẵn cho đúng tình huống này."""
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
+                dat_ngoai=json.dumps([{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": "abc"}]),
+                mode="ban_le", request_id=_rid(),
+            )
+        loi = frappe.local.response.get("loi")
+        self.assertEqual(loi[0]["ly_do"], "dat_ngoai_so_luong_khong_hop_le")
+
     def test_dat_ngoai_khong_ap_dung_cho_hdnt(self):
         """§4.3/§4.7 — nhóm "đặt ngoài" chỉ áp dụng cho Mua lẻ; một HĐNT chỉ
         gồm đúng các mặt hàng đã ký, không có khái niệm "chưa có trong kho,

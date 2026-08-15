@@ -101,8 +101,8 @@ HTML_BG = """
     <tr>
       <td>{{ i.item_code }}</td><td>{{ i.item_name }}</td><td>{{ i.uom }}</td>
       <td class="text-right">{{ i.qty }}</td>
-      <td class="text-right">{{ "{:,.0f}".format(i.rate) }} ₫</td>
-      <td class="text-right">{{ "{:,.0f}".format(i.amount) }} ₫</td>
+      <td class="text-right">{{ "{:,.0f}".format(i.rate).replace(",", ".") }} ₫</td>
+      <td class="text-right">{{ "{:,.0f}".format(i.amount).replace(",", ".") }} ₫</td>
     </tr>
     {%- endif %}
   {% endfor %}
@@ -151,8 +151,12 @@ HTML_BG = """
 </table>
 <p class="text-muted">Các mặt hàng trên đã được Miyano khớp mã và tính vào bảng báo giá phía trên.</p>
 {% endif %}
-<p class="text-right"><b>Tổng cộng / Total:</b> {{ "{:,.0f}".format(doc.grand_total) }} ₫</p>
+<p class="text-right"><b>Tổng cộng / Total:</b> {{ "{:,.0f}".format(doc.grand_total).replace(",", ".") }} ₫</p>
 """
+# review Minor — CHỈ mẫu Báo giá (`HTML_BG`, mới) đổi sang dấu chấm phân
+# nhóm (`1.234.567 ₫`, đúng quy ước dự án). Ba mẫu CŨ ở trên (`HTML`,
+# `HTML_DN`, `HTML_SI`) vẫn dùng `"{:,.0f}"` (dấu phẩy, sai quy ước) — đó
+# là NỢ CŨ, cố ý KHÔNG sửa ở đây để không lan phạm vi ngoài mẫu Báo giá mới.
 
 FORMATS = [
     (NAME, "Sales Order", HTML),

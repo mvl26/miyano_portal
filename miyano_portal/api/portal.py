@@ -645,7 +645,19 @@ def _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po,
     for dn in dat_ngoai:
         ten_hang = (dn.get("ten_hang") or "").strip()
         dvt = (dn.get("dvt") or "").strip()
-        so_luong = float(dn.get("so_luong") or 0)
+        # review Minor — `float()` ném `ValueError` CHƯA BẮT với đầu vào
+        # không phải số (vd. khách/gõ nhầm "abc" vào ô số lượng, hoặc payload
+        # bị sửa tay) — lỗi đó lọt thẳng thành HTTP 500 thay vì mã lỗi
+        # `dat_ngoai_so_luong_khong_hop_le` đã có sẵn cho đúng tình huống
+        # "số lượng không hợp lệ".
+        try:
+            so_luong = float(dn.get("so_luong") or 0)
+        except (TypeError, ValueError):
+            loi.append({
+                "ly_do": "dat_ngoai_so_luong_khong_hop_le",
+                "thong_diep": f"{ten_hang or dvt or 'Dòng đặt ngoài'}: số lượng không hợp lệ.",
+            })
+            continue
         if not ten_hang:
             loi.append({
                 "ly_do": "dat_ngoai_thieu_ten_hang",

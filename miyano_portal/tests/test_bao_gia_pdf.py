@@ -64,6 +64,18 @@ class TestBaoGiaPdf(FrappeTestCase):
         )
         self.assertIn("Găng tay nitrile size M", html)
 
+    def test_pdf_dung_dau_cham_phan_nhom_khong_dau_phay(self):
+        """review Minor — quy ước dự án là `1.234.567 ₫` (dấu CHẤM phân
+        nhóm), không phải `1,234,567 ₫` (dấu phẩy, mặc định của
+        "{:,.0f}".format() chưa xử lý). `RETAIL_CO_GIA` giá 25000, số lượng
+        3 → thành tiền 75.000 ₫."""
+        ten = self._don_cho_khach_dong_y()
+        html = frappe.get_print(
+            "Sales Order", ten, print_format=PRINT_FORMAT, no_letterhead=1
+        )
+        self.assertIn("75.000 ₫", html)
+        self.assertNotIn("75,000", html)
+
     def test_pdf_khong_chua_dong_giu_cho(self):
         res = portal.portal_order_place(
             items=json.dumps([]),
