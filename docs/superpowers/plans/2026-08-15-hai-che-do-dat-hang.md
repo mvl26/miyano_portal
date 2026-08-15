@@ -35,8 +35,17 @@ cd /home/hoangvietyeuem/frappe-bench-yhct
 bench --site erptest.local migrate
 bench --site erptest.local run-tests --app miyano_portal
 bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.<ten_module>
-bench build --app miyano_portal
+
+# Build SPA — HAI lệnh, thiếu lệnh đầu là build ra bản CŨ:
+(cd apps/miyano_portal/frontend && yarn build)   # Vite -> miyano_portal/public/frontend/
+bench build --app miyano_portal                  # publish public/ -> sites/assets
 ```
+
+> **`bench build --app miyano_portal` KHÔNG build SPA Vue.** Đã kiểm: `frontend/vite.config.js`
+> mới là thứ sinh ra `miyano_portal/public/frontend/index.js`; `bench build` chỉ chép `public/`
+> sang `sites/assets`. Chạy mỗi `bench build` sau khi sửa `frontend/src` = publish lại đúng
+> bản dựng cũ, và mọi bước "kiểm bằng mắt trên cổng" sau đó đang xem một trang chưa đổi.
+> (Dòng "bench build --app miyano_portal # build SPA" trong `DevHandoff/CLAUDE.md` sai — sửa ở Task 11.)
 
 **Thứ tự bắt buộc:** Task 1–2 (gỡ) → Task 3–4 (sửa màn hỏng) → Task 5–7 (đặt ngoài) → Task 8 (bật mặc định) → Task 9 (báo giá) → Task 10–11 (đổi tên, tài liệu).
 
@@ -511,7 +520,8 @@ Ngăn Theo HĐNT **không đụng gì**: ở đó giá đến từ hợp đồng
 - [ ] **Step 11: Build và kiểm sạch**
 
 ```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
+cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal/frontend && yarn build \
+&& cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
 cd apps/miyano_portal && grep -rn "gia_ban_le\|co_gia\|it\.vat\|cartLeTotal\|cartLeSubtotal\|cartLeVat" frontend/src
 ```
 
@@ -617,7 +627,8 @@ Ngay dưới bảng desktop và dưới danh sách thẻ mobile của ngăn Mua 
 - [ ] **Step 4: Build và kiểm trên cổng**
 
 ```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
+cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal/frontend && yarn build \
+&& cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
 ```
 
 Vào ngăn Mua lẻ. Kỳ vọng: dòng "Đang hiện 50 / N mặt hàng" với N là tổng thật; bấm "Tải thêm" nối thêm 50 dòng nữa và số bên trái tăng; gõ từ khoá thì danh sách **nạp lại từ đầu** (không nối vào kết quả cũ) và `N` đổi theo.
@@ -1173,7 +1184,8 @@ Kỳ vọng: chỉ còn dòng khai báo `const leEmpty = ...`, hoặc không cò
 - [ ] **Step 6: Build và kiểm trên cổng**
 
 ```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
+cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal/frontend && yarn build \
+&& cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
 ```
 
 Kỳ vọng: gõ một từ khoá chắc chắn không có (`"zzzkhongtontai"`) → khối tự nhập **mở sẵn**, ô Tên hàng đã điền sẵn từ khoá đó. Thêm được nhiều dòng, xoá được. Vào giỏ thấy nhóm "Hàng chưa có mã". Đặt đơn kèm ít nhất một mặt hàng có mã → đơn tạo thành công.
@@ -1308,7 +1320,8 @@ Ngay dưới bảng hàng của đơn:
 - [ ] **Step 6: Build và kiểm bằng mắt**
 
 ```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
+cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal/frontend && yarn build \
+&& cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
 ```
 
 Mở chi tiết một đơn mua lẻ có dòng đặt ngoài. Kỳ vọng: thấy nhóm "Đang chờ Miyano xác nhận nguồn"; **không** thấy dòng nào tên `HANG-DAT-NGOAI`.
@@ -1783,7 +1796,8 @@ Trong khối "Chờ bạn đồng ý" (quanh dòng 247, cạnh nút "✔ Đồng
 - [ ] **Step 9: Build và kiểm bằng mắt**
 
 ```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
+cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal/frontend && yarn build \
+&& cd /home/hoangvietyeuem/frappe-bench-yhct && bench build --app miyano_portal
 ```
 
 Dựng một đơn mua lẻ, ở Desk điền giá rồi bấm hành động workflow **"Gửi khách duyệt"**. Kỳ vọng: khách nhận email kèm PDF; trên cổng đơn hiện nút "Tải báo giá (PDF)" và bấm ra đúng file có bảng hàng, hạn hiệu lực, và nhóm hàng đang tìm nguồn.
@@ -1997,7 +2011,24 @@ Chuyển `Portal Item Request` sang mục Desk. Thêm `Sales Order Dat Ngoai Ite
 
 Thêm mục mới với ngày 2026-08-15, dẫn tới spec, liệt kê bốn quyết định của chủ dự án và các mã bị ảnh hưởng. Tài liệu này tự nhận là "nguồn sự thật duy nhất về trạng thái khắc phục" — bỏ qua nó là để lại một nguồn sự thật nói sai.
 
-- [ ] **Step 7: Sửa `00_INDEX.md`**
+- [ ] **Step 7: Sửa `00_INDEX.md` và lệnh build sai trong `DevHandoff/CLAUDE.md`**
+
+Cập nhật tên file PRD E6 và thứ tự đọc trong `00_INDEX.md`.
+
+Và sửa một dòng SAI trong `DevHandoff/CLAUDE.md` (mục "Lệnh thường dùng"):
+
+```bash
+bench build --app miyano_portal             # build SPA
+```
+
+`bench build` **không** build SPA Vue — `frontend/vite.config.js` mới sinh ra
+`miyano_portal/public/frontend/index.js`; `bench build` chỉ chép `public/` sang `sites/assets`.
+Dòng sai này đã khiến một implementer suýt commit bản dựng cũ. Thay bằng:
+
+```bash
+(cd frontend && yarn build)                 # build SPA (Vite) — BẮT BUỘC trước
+bench build --app miyano_portal             # publish public/ -> sites/assets
+```
 
 Cập nhật tên file PRD E6 và thứ tự đọc.
 

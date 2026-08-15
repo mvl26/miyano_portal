@@ -33,7 +33,13 @@ Permissions: **KHÔNG DocPerm cho role Customer** — truy cập qua `kho_ncc_*`
 
 Permissions: như 1.1 — truy cập qua `kho_khoa_phong_*`.
 
-### 1.2 `Portal Item Request` — Yêu cầu hàng hoá (naming: `YCH-.#####`)
+### 1.2 `Portal Item Request` — Yêu cầu hàng hoá (naming: `YCH-.#####`) **[Desk-only — đổi 15/08]**
+
+> Doctype và toàn bộ trường dưới đây **vẫn đúng và vẫn chạy** — chỉ đổi ai thao tác. Từ 15/08 khách
+> không còn tạo/xem/sửa bản ghi này qua cổng (route `/portal/yeu-cau*` và endpoint `portal_yeu_cau_*`
+> đã gỡ, xem `30_API_Spec.md` §…, `FormSpec` F-22/F-23). Nhân viên Miyano tạo/xử lý trực tiếp trên
+> Desk. Giá trị Select `loai` bên dưới **giữ nguyên** ("Bổ sung HĐNT" — không đổi theo tên gọi mới
+> "hợp đồng khung", vì đây là dữ liệu đã lưu trên field, không phải chữ hiển thị cho khách).
 
 | fieldname | Label | Fieldtype | Options/Target | reqd | default | Ghi chú |
 |---|---|---|---|---|---|---|
@@ -62,13 +68,37 @@ Permissions: như 1.1 — truy cập qua `kho_khoa_phong_*`.
 Đính kèm: dùng File attach chuẩn Frappe, **is_private = 1**, ≤5 file ×10MB, pdf/jpg/png/xlsx (NL-11.6).
 Permissions: như 1.1. Comment 2 chiều: dùng Comment chuẩn trên doctype, lộ qua endpoint.
 
+### 1.2b `Sales Order Dat Ngoai Item` — dòng mua lẻ chưa có mã (naming: hash) **[MỚI — 15/08, §3.4]**
+
+Child table của `Sales Order` (fieldname cha `custom_dat_ngoai`, xem §4). `Sales Order Item` bắt
+buộc `item_code` (ràng buộc cứng ERPNext) nên dòng khách tự gõ tay KHÔNG THỂ là một dòng `items`
+bình thường cho tới khi nhân viên khớp được mã hàng thật — đây là lý do có bảng con riêng.
+
+| fieldname | Label | Fieldtype | Options/Target | reqd | Ghi chú |
+|---|---|---|---|---|---|
+| ten_hang | Tên hàng | Data | — | ✔ | Khách gõ tay |
+| dvt | ĐVT | Data | — | ✔ | Khách gõ tay |
+| so_luong | Số lượng | Float | — | ✔ | — |
+| ghi_chu | Ghi chú | Small Text | — | — | — |
+| item_khop | Mã hàng khớp | Link | Item | — | Nhân viên điền khi khớp được mã thật |
+| da_xu_ly | Đã xử lý | Check | — | — | Bật khi đã khớp mã; còn dòng `da_xu_ly=0` → chưa xác nhận được đơn (§4.4) |
+
+`allow_on_submit = 0` (mặc định) — không sửa được sau khi SO đã Submit, giữ chốt `before_submit`
+(`portal_mua_le.kiem_dat_ngoai_da_xu_ly`) có tác dụng thật.
+
+**Item kỹ thuật `HANG-DAT-NGOAI`** — "Hàng đặt ngoài (chờ Miyano khớp mã)", `is_stock_item = 0`,
+`is_sales_item = 1`, `is_purchase_item = 0`, có `item_defaults.default_warehouse`. Chèn tự động vào
+dòng `items` của một SO Mua lẻ **chỉ khi** không còn dòng `items` thật nào (SO không lưu được với
+`items` rỗng — ràng buộc ERPNext). **Không bao giờ** hiển thị cho khách: lọc tại nguồn bằng
+`la_dong_giu_cho()` ở chi tiết đơn (`portal_order_track`) và mọi mẫu in liên quan.
+
 ### 1.3 `Miyano Portal Settings` — Single DocType
 
 | fieldname | Label | Fieldtype | default | Dùng bởi |
 |---|---|---|---|---|
 | nguong_duyet_2_tang | Ngưỡng duyệt 2 tầng | Currency | *(trống = 1 tầng)* | E2 · VĐ-8 chốt số |
 | sla_xu_ly_don_gio | SLA xử lý đơn (giờ làm việc) | Int | 8 | E2 |
-| price_list_ban_le | Price List bán lẻ | Link → Price List | — | E6 · VĐ-12 |
+| price_list_ban_le | Price List bán lẻ | Link → Price List | — | E6 · *field còn tồn tại nhưng không còn đọc ở đường danh mục mua lẻ từ 15/08 (VĐ-12 đã tan — danh mục không hiện giá)* |
 | hieu_luc_bao_gia_ngay | Hiệu lực báo giá (ngày) | Int | 7 | E6 |
 | sla_yeu_cau_gio | SLA yêu cầu hàng hoá (giờ làm việc) | Int | 48 | E6 |
 | so_ngay_adu | Kỳ tính ADU (ngày) | Int | 90 | E5 |
@@ -127,10 +157,11 @@ Chỉ `System Manager` sửa.
 | Sales Order | custom_nguon_don · custom_hdnt · custom_so_po_khach · custom_yeu_cau_khach | *(đang có)* | [Hiện có] |
 | Sales Order | custom_request_id | Data, **unique** | BR-O12 (E1) |
 | Sales Order | custom_ly_do_tu_choi | Small Text | BR-O14 (E2) |
-| Sales Order | custom_loai_don | Select: Theo HĐNT\nMua lẻ | default "Theo HĐNT" (E6) |
+| Sales Order | custom_loai_don | Select: Theo HĐNT\nMua lẻ | default "Theo HĐNT" (E6). *Giá trị lưu KHÔNG đổi theo tên gọi mới 15/08 — dữ liệu, không phải chữ hiển thị; label field `custom_hdnt` đã đổi thành "Hợp đồng khung"* |
 | Sales Order | custom_yeu_cau_goc | Link → Portal Item Request | E6 |
-| Customer | custom_cho_phep_mua_le | Check, default 0 | BR-R1 (E6) |
-| Item | custom_ban_le_portal | Check, default 0 | BR-R6 (E6) |
+| Sales Order | custom_dat_ngoai | Table → `Sales Order Dat Ngoai Item` | §3.4, 15/08 — xem §1.2b |
+| Customer | custom_cho_phep_mua_le | Check, default **1** | BR-R1 (E6). *Đổi từ 0 → 1 ở patch `v1_15.bat_mua_le_mac_dinh` (15/08); khách hiện hữu được UPDATE, sales vẫn tắt được thủ công cho khách cụ thể* |
+| Item | custom_ban_le_portal | Check, default 0 | BR-R6 (E6). *Từ 15/08 không còn dùng để lọc danh mục mua lẻ (danh mục = toàn bộ Item hoạt động) — field vẫn tồn tại, không xoá* |
 | Sales Invoice | einvoice_* *(tên tạm)* | xem PRD E7 | **map lại sau VĐ-11 — viết adapter** |
 
 ## 5. Quan hệ chính (trạng thái đích)

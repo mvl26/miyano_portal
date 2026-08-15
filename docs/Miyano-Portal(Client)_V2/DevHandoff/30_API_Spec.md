@@ -34,7 +34,14 @@ Quy tắc chung cho MỌI endpoint (đọc kỹ trước khi viết cái mới):
 ```
 Ghi chú: `request_id` trùng → trả đơn cũ, `da_ton_tai: true` (không lỗi). Dòng hạn mức 0 → bỏ kiểm,
 không gắn `against_blanket_order` (BR-O15). `mode=ban_le`: bỏ kiểm hạn mức, `custom_loai_don="Mua lẻ"`,
-chặn item đang thuộc HĐNT hiệu lực (BR-R7).
+chặn item đang thuộc hợp đồng khung hiệu lực (BR-R7).
+
+**Tham số `dat_ngoai` (MỚI 15/08, §3.4)** — chỉ dùng với `mode=ban_le`: JSON-string mảng các dòng
+"chưa có mã" (`[{"ten_hang","dvt","so_luong","ghi_chu"}]`), lưu vào `custom_dat_ngoai` (Table, xem
+DataDict §1.2b). Nếu sau khi gộp `items` (có mã) + `dat_ngoai` (không mã) mà bảng `items` **rỗng**
+(khách chỉ gõ dòng không mã, không chọn mặt hàng có mã nào), server tự chèn thêm đúng một dòng Item
+kỹ thuật `HANG-DAT-NGOAI` vào `items` để SO lưu được (ERPNext không cho `items` rỗng) — dòng này
+**không bao giờ** trả về cho khách qua `portal_order_track` hay mẫu in (lọc bằng `la_dong_giu_cho()`).
 
 **M-5 (review E6 phần B) — LỆCH TÀI LIỆU đã có TỪ TRƯỚC E6, ghi nhận chứ không sửa:** tham số thân
 request thật sự tên là **`contract`**, không phải `hdnt` như JSON mẫu ở trên — `frontend/src/views/
@@ -42,14 +49,21 @@ Cart.vue` (đã chạy thật, từ E1) gọi `portal_order_place({ contract: ..
 khớp tài liệu sẽ vỡ SPA đang chạy mà không có gì buộc Phần C phải đổi theo cùng lúc; giữ nguyên `contract`
 là quyết định có chủ đích, không phải nợ kỹ thuật. Khi mode=ban_le, gửi `contract: null`/bỏ trống.
 
-### 1.2 `api.portal.portal_order_track` — thêm `dot_giao[]`, `chap_nhan{}` (E3, E6)
+### 1.2 `api.portal.portal_order_track` — thêm `dot_giao[]`, `chap_nhan{}` (E3, E6); `dat_ngoai[]` (15/08)
 ```jsonc
 // Response bổ sung
 { "dot_giao": [ { "so_dot": 1, "delivery_note": "MAT-DN-2026-00201", "ngay": "2026-07-27",
                   "phan_tram": 60, "van_chuyen": "Nhất Tín", "awb": "NT8829134VN",
                   "co_hoa_don_nhap": true,
                   "phieu_nhap": {"name": "PNK-00031", "trang_thai": "Nháp", "co_chenh_lech": false} } ],
-  "chap_nhan": { "can_dong_y": true, "han_hieu_luc": "2026-08-19" } }   // chỉ đơn Chờ khách đồng ý
+  "chap_nhan": { "can_dong_y": true, "han_hieu_luc": "2026-08-19" },   // chỉ đơn Chờ khách đồng ý
+  "hdnt": "BO-2026-00020",   // (giữ tên khoá cũ — response key, không phải chữ hiển thị)
+  "loai_don": "Mua lẻ",
+  // MỚI 15/08 (§3.4) — TOÀN BỘ dòng "chưa có mã" của đơn Mua lẻ (custom_dat_ngoai), cả đã và
+  // chưa khớp — client tự tách bằng da_xu_ly (nhóm "Đang chờ Miyano xác nhận nguồn" = false):
+  "dat_ngoai": [ { "ten_hang": "Kim luồn tĩnh mạch 22G", "dvt": "Cái", "so_luong": 50,
+                    "ghi_chu": "", "da_xu_ly": false, "item_khop": "" } ],
+  "items": [ /* … */ ]   // Item kỹ thuật HANG-DAT-NGOAI đã LỌC KHỎI mảng này (la_dong_giu_cho()) }
 ```
 **`co_hoa_don_nhap`** (E7b) — có mặt trên CẢ `dot_giao[]` lẫn `deliveries[]`: phiếu giao này đã có
 chứng từ HĐĐT còn ở vòng nháp (trạng thái 01–04). Chỉ là CỜ; nội dung lấy qua `portal_einvoice_nhap`
@@ -86,44 +100,28 @@ nhóm hạn dùng thật — hai nhóm đó CHỈ chứa lô có `han_su_dung` t
 // Response: { "gio_hang": [{"item_code":"VT0001","qty":10,"gia_hien_hanh":45000}],
 //             "bi_loai": [{"item_code":"HC0002","ly_do":"het_han_muc"}] }
 ```
-Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn mức/ngoài HĐNT vào `bi_loai`.
+Kiểm sở hữu đơn theo phiên; giá lấy hiện hành; dòng hết hạn mức/ngoài hợp đồng khung vào `bi_loai`.
 
-### 2.2 `portal_catalog_ban_le(tim_kiem=None, nhom=None)` (E6)
-403 nếu `custom_cho_phep_mua_le = 0`. Trả item `custom_ban_le_portal=1`:
-`{ "items": [{"item_code","ten","quy_cach","dvt","gia_ban_le","vat","trang_thai_hang",
-  "thuoc_hdnt": false, "co_gia": true}] }` — `thuoc_hdnt: true` → client disable (BR-R7);
-`co_gia: false` → hiện nút Yêu cầu báo giá.
-
-### 2.3 `portal_yeu_cau_save(data)` / `portal_yeu_cau_list(trang_thai=None)` / `portal_yeu_cau_detail(name)` / `portal_yeu_cau_cancel(name, ly_do)` / `portal_yeu_cau_tra_loi(name, noi_dung)` / `portal_yeu_cau_file(name, file_name)` (E6)
+### 2.2 `portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50)` (E6, **thiết kế lại 15/08**)
 ```jsonc
-// save Request (tạo mới hoặc sửa khi trạng thái "Mới"; file_urls: đã tải lên trước qua
-// /api/method/upload_file?is_private=1 chuẩn Frappe, endpoint chỉ kiểm sở hữu/định dạng/
-// kích thước rồi gắn vào yêu cầu — is_private=1 bắt buộc, không có URL công khai)
-{ "loai": "Tìm nguồn hàng mới", "ten_hang": "Que thử HbA1c", "quy_cach": "Hộp 25 test",
-  "dvt": "Hộp", "so_luong_du_kien": 20, "tan_suat": "Định kỳ", "chu_ky_thang": 1,
-  "ngay_can": "2026-08-25", "hang_xuat_xu": "Abbott", "ghi_chu": "", "vat_tu_kho": "VTK-00012",
-  "file_urls": ["/private/files/que-thu-hba1c.pdf"] }
-// save Response: { "name": "YCH-00007", "canh_bao_trung": ["YCH-00003"] }   // NL-11.1, không chặn
-// list Response: [ { "name","ngay","ten_hang","loai","so_luong_du_kien","trang_thai",
-//                    "sla_den_han","qua_sla": false, "don_lien_ket": null } ]
-// detail (BỔ SUNG — review phần A, F-2): F-23 cần đọc phan_hoi/gia_bao/lead_time_ngay/
-// ly_do_khong_dap_ung + chuỗi comment + đính kèm, không field nào có trong list Response.
-// Response: { ...toàn bộ field save Request..., "trang_thai","sla_den_han","phan_hoi","gia_bao",
-//   "lead_time_ngay","item_lien_ket","don_lien_ket","ly_do_khong_dap_ung",
-//   "binh_luan": [{"content","comment_by","owner","creation"}],
-//   "dinh_kem": [{"name": "<File docname>", "file_name": "que-thu-hba1c.pdf"}] }
-// cancel: chỉ khi trạng thái chưa kết thúc; ly_do bắt buộc → trạng thái "Khách huỷ"
-// tra_loi (BỔ SUNG — thiếu ở bản trước của tài liệu này; xem DataDict §1.2 "Comment 2
-// chiều: dùng Comment chuẩn trên doctype, lộ qua endpoint" và BA §4.11/NL-11.3): khách trả
-// lời câu hỏi của Miyano trên F-23; nếu trạng thái đang "Cần thêm thông tin" thì SAU khi ghi
-// comment, tự chuyển về "Đang tìm nguồn" (BR-Y1). Response: { "trang_thai": "Đang tìm nguồn" }
-// file (BỔ SUNG — review phần A, F-3): tải một đính kèm của yêu cầu. `file_name` là File
-// docname lấy từ `dinh_kem[].name` của detail — KHÔNG PHẢI file_url (nhiều File.name có thể
-// trỏ chung một file_url do Frappe gộp theo nội dung trùng, xem F-5 nội bộ). Kiểm theo
-// CUSTOMER của yêu cầu (không theo File.owner) — mọi user portal của cùng khách hàng
-// (portal_provision cấp nhiều user cho một Customer) đọc được, đúng BR-Y5. Trả file nhị phân
-// (Content-Disposition attachment), không trả JSON.
+// Request: { "tim_kiem": "gang tay", "start": 0, "limit": 50 }
+// Response: { "items": [{"item_code","ten","quy_cach","dvt","trang_thai_hang",
+//              "thuoc_hdnt": false, "san_sang_ban": true}],
+//            "tong": 137, "start": 0, "limit": 50 }
 ```
+403 nếu `custom_cho_phep_mua_le = 0`. Danh mục là **TOÀN BỘ** `Item` đang hoạt động (`disabled = 0`)
+— không còn lọc `custom_ban_le_portal` (sửa 15/08, BR-R6). Phân trang server-side qua `start`/`limit`;
+client cộng dồn khi bấm "Tải thêm", nạp lại từ đầu khi đổi từ khoá. **Không còn trả giá** — bỏ hẳn
+key `gia_ban_le`/`co_gia`; mọi phiếu Mua lẻ đi qua báo giá của sales (§4.5, không phải cổng). `tong`
+= tổng số dòng khớp bộ lọc hiện tại (không phải tổng toàn danh mục), dùng để tính còn bao nhiêu dòng
+chưa tải. `thuoc_hdnt: true` → client disable + badge chuyển tab (BR-R7).
+
+### 2.3 *(GỠ 15/08 — Desk-only)* ~~`portal_yeu_cau_save/list/detail/cancel/tra_loi/file`~~
+
+Sáu endpoint này (và route `/portal/yeu-cau*`) **đã xoá khỏi API cổng** ở kế hoạch 2026-08-15
+(Task 1–2). Lý do và thay thế: xem `BA-miyano_portal_v2.md` §4.11 (Desk-only) và
+`FormSpec-miyano_portal_v2.md` F-22/F-23. `Portal Item Request` vẫn là doctype sống — nhân viên
+Miyano tạo/sửa/huỷ trực tiếp trên Desk, không qua endpoint whitelist cổng nữa.
 
 ### 2.4 `portal_order_accept(order, action, ly_do=None)` (E2/E6)
 ```jsonc
@@ -144,6 +142,19 @@ phép + `File` thật sự đọc được và đính đúng chứng từ → st
 
 `fei` TUỲ CHỌN — một hoá đơn có thể khớp NHIỀU chứng từ HĐĐT. Tham số này **chỉ dùng để LỌC** trong
 tập đã tự suy từ phiên, không bao giờ `get_doc` thẳng tên client gửi.
+
+### 2.6 `portal_bao_gia_pdf(order)` (E6, **MỚI 15/08 — §3.6**)
+```jsonc
+// Request: { "order": "SAL-ORD-2026-00150" }
+// Response: file nhị phân (Content-Disposition attachment), KHÔNG trả JSON
+```
+Kiểm sở hữu đơn theo phiên (cùng khuôn `portal_order_track`). Trả PDF render từ Print Format
+"Miyano - Báo giá" (`portal.setup.install_print_formats`) — bảng dòng "items" thật (lọc dòng giữ chỗ
+`HANG-DAT-NGOAI` qua `la_dong_giu_cho()`), bảng "Hàng đang tìm nguồn" cho dòng `custom_dat_ngoai`
+chưa khớp mã (`da_xu_ly=0`), bảng "Hàng đặt ngoài đã khớp mã" cho dòng đã khớp (`da_xu_ly=1`), và
+hạn hiệu lực (`han_hieu_luc_bao_gia(doc)`). Cùng mẫu in được đính kèm tự động vào email Notification
+"Portal - Báo giá sẵn sàng" khi đơn chuyển "Chờ khách đồng ý" — endpoint này chỉ là đường TẢI LẠI
+theo yêu cầu trên F-07, không phải đường phát sinh báo giá.
 
 > **Lệch tài liệu, ghi nhận chứ không sửa mã:** `loai="xml"` KHÔNG tồn tại. Module HĐĐT không lưu XML
 > ở bất kỳ field nào (đã kiểm JSON doctype) — không có gì để giao. Tên field cũng khác bảng "tên tạm"

@@ -25,7 +25,7 @@ Kho KKH-A: VT-A (map VT0001, min 10/ROP 25/max 60, lead 3, bội số 10) · lô
 | TC-E1-05 | **VT0009 hạn mức 0**: đặt 1.000 | Thành công; dòng SO không có `against_blanket_order`; có `custom_hdnt` | C |
 | TC-E1-06 | VT0009 trên danh mục | Badge "Không giới hạn", không bar, SL không khoá max | C |
 | TC-E1-07 | VT0002 đặt 10 (còn 5) | 417 gom lỗi, `con_lai=5`; giỏ giữ nguyên | Â |
-| TC-E1-08 | % hạn mức HĐNT trên Dashboard khi có VT0009 (KGH) | Mẫu số không gồm VT0009 | B |
+| TC-E1-08 | % hạn mức hợp đồng khung trên Dashboard khi có VT0009 (KGH) | Mẫu số không gồm VT0009 | B |
 | TC-E1-09 | Item thiếu giá: đặt | 417 `thieu_gia` + Notification "Thiếu giá" cho sales, ngày thứ 2 không gửi lại | Â |
 | TC-E1-10 | `portal_reorder` đơn cũ có 1 dòng hết hạn mức | Giỏ điền dòng hợp lệ giá hiện hành; `bi_loai` nêu dòng kia | C |
 
@@ -76,25 +76,38 @@ Kho KKH-A: VT-A (map VT0001, min 10/ROP 25/max 60, lead 3, bội số 10) · lô
 | TC-E5-02 | `kho_min_max_goi_y` với lead 3, min 10 | ROP = **25**; max để khách chốt | C |
 | TC-E5-03 | Tồn 22, ROP 25, max 60, bội số 10 | Trạng thái "Sắp thiếu"; ngày phủ **4,4**; SL gợi ý **40** | C |
 | TC-E5-04 | Vật tư 20 ngày dữ liệu, chưa khai min | Không cảnh báo; gợi ý trả `du_lieu=false` | B |
-| TC-E5-05 | Giỏ bổ sung: vật tư thuộc HĐNT / ngoài HĐNT | Thuộc → giỏ điền 40; ngoài → chỉ có nút tạo yêu cầu (E6) | C |
+| TC-E5-05 | Giỏ bổ sung: vật tư thuộc hợp đồng khung / ngoài hợp đồng khung | Thuộc → giỏ điền 40; ngoài → *(sửa 15/08)* nút "Nhờ Miyano tìm nguồn" đã gỡ khỏi cổng (F-20, Desk-only) — không còn hành động tự động ở đây | C |
 | TC-E5-06 | Report share-of-wallet kỳ có nhập Miyano 70tr + NCC-X 30tr | Tỷ trọng 70/30 đúng, loại trừ phiếu đảo | C |
 
 ## TC-E6 — Mua lẻ & yêu cầu hàng hoá
 
+> **Đổi 15/08** — TC-E6-02 sửa theo thiết kế lại (danh mục không giá). TC-E6-05/06 chuyển
+> Desk-only: `portal_yeu_cau_save` đã xoá khỏi API cổng, các validate đó nay chỉ chạy qua `Portal
+> Item Request.validate()` khi nhân viên Miyano tạo trên Desk — kiểm bằng `frappe.get_doc(...).insert()`
+> trực tiếp trong test, không còn gọi API portal nào. TC mới TC-E6-13…19 ở cuối bảng — xem §3.1–§3.6
+> của spec 2026-08-15 và `nhomA-report.md`/`nhomB-report.md` cho vị trí test thật trong suite.
+
 | Mã | Kịch bản | Kỳ vọng | Loại |
 |---|---|---|---|
 | TC-E6-01 | KH-B (không bật) gọi `portal_catalog_ban_le` | 403 `khong_duoc_mua_le` | Â |
-| TC-E6-02 | KH-A đặt lẻ item có giá lẻ | SO `custom_loai_don="Mua lẻ"`, không trừ hạn mức, vào "Chờ xác nhận" | C |
-| TC-E6-03 | Đặt lẻ item ĐANG thuộc HĐNT hiệu lực | 417 `thuoc_hdnt_hieu_luc` (BR-R7) | Â |
-| TC-E6-04 | Payload trộn dòng HĐNT + lẻ 1 đơn | Server từ chối | Â |
-| TC-E6-05 | Tạo yêu cầu thiếu `dvt` / đính kèm 6 file / file 11MB | Chặn từng trường hợp đúng thông điệp | Â |
-| TC-E6-06 | Tạo yêu cầu tên gần giống yêu cầu đang mở | `canh_bao_trung` có mã cũ, vẫn tạo được | B |
+| TC-E6-02 | *(sửa 15/08)* KH-A đặt lẻ một item bất kỳ (danh mục không hiện giá) | Đặt vào giỏ/đơn thành công với `rate=0`; SO `custom_loai_don="Mua lẻ"`, không trừ hạn mức, vào "Chờ xác nhận"; đơn chưa có giá cho tới khi sales báo giá | C |
+| TC-E6-03 | Đặt lẻ item ĐANG thuộc hợp đồng khung hiệu lực | 417 `thuoc_hdnt_hieu_luc` (BR-R7, mã lỗi giữ nguyên) | Â |
+| TC-E6-04 | Payload trộn dòng hợp đồng khung + lẻ 1 đơn | Server từ chối | Â |
+| TC-E6-05 | *(Desk-only, 15/08)* Tạo `Portal Item Request` thiếu `dvt` / đính kèm 6 file / file 11MB trên Desk | Chặn từng trường hợp đúng thông điệp (validate doctype, không qua API cổng) | Â |
+| TC-E6-06 | *(Desk-only, 15/08)* Tạo `Portal Item Request` tên gần giống yêu cầu đang mở, trên Desk | `canh_bao_trung`/cảnh báo có mã cũ, vẫn tạo được | B |
 | TC-E6-07 | Yêu cầu quá 48h ở "Mới" | Leo thang Manager 1 lần/ngày | C |
 | TC-E6-08 | "Không đáp ứng được" thiếu lý do | Chặn; có lý do → email khách kèm lý do | Â |
-| TC-E6-09 | SO báo giá "Chờ khách đồng ý": KH-A đồng ý | → "Chờ Miyano xác nhận"; Comment log user+time; yêu cầu → "Đã chuyển thành đơn" | C |
+| TC-E6-09 | SO báo giá "Chờ khách đồng ý": KH-A đồng ý | → "Chờ Miyano xác nhận"; Comment log user+time | C |
 | TC-E6-10 | Không đồng ý với lý do 5 ký tự / 15 ký tự | 5 → chặn; 15 → về "Chờ xác nhận", lý do lưu | Â/C |
-| TC-E6-11 | Báo giá quá 7 ngày | Job đóng đơn + email 2 phía; yêu cầu → "Hết hạn"; `portal_order_accept` → `qua_han_hieu_luc` | B |
-| TC-E6-12 | KH-B xem yêu cầu của KH-A (đoán URL/name) | 403/không thấy | Â |
+| TC-E6-11 | Báo giá quá 7 ngày | Job đóng đơn + email 2 phía; `portal_order_accept` → `qua_han_hieu_luc` | B |
+| TC-E6-12 | KH-B xem đơn của KH-A (đoán URL/name) | 403/không thấy | Â |
+| TC-E6-13 **[MỚI 15/08]** | Route `/portal/yeu-cau` sau khi gỡ | 404 SPA (route không đăng ký) — không còn nav item "Yêu cầu hàng hoá" | Â |
+| TC-E6-14 **[MỚI 15/08, §3.5]** | Customer mới tạo, không set cờ | `custom_cho_phep_mua_le` mặc định 1 — thấy ngăn Mua lẻ ngay | Â |
+| TC-E6-15 **[MỚI 15/08, §3.4]** | Đặt Mua lẻ chỉ toàn dòng "chưa có mã" (không chọn item nào có mã) | Đặt thành công; SO có đúng 1 dòng `items` = `HANG-DAT-NGOAI` (giữ chỗ) + N dòng `custom_dat_ngoai` | C |
+| TC-E6-16 **[MỚI 15/08, §3.4]** | `portal_order_track` một đơn có dòng giữ chỗ | `items` KHÔNG chứa `HANG-DAT-NGOAI`; `dat_ngoai[]` có đủ dòng, `da_xu_ly` đúng theo Desk đã khớp hay chưa | Â |
+| TC-E6-17 **[MỚI 15/08, §3.4]** | Mẫu in Xác nhận đơn hàng / Báo giá của đơn có dòng giữ chỗ | PDF KHÔNG in dòng `HANG-DAT-NGOAI`; báo giá có bảng "Hàng đặt ngoài đã khớp mã" đúng dòng `da_xu_ly=1` | Â |
+| TC-E6-18 **[MỚI 15/08, §3.6]** | `portal_bao_gia_pdf` cho đơn không thuộc khách gọi | 403/không tải được | Â |
+| TC-E6-19 **[MỚI 15/08, §3.6]** | `portal_bao_gia_pdf` cho đơn hợp lệ | Trả PDF, `Content-Disposition attachment`, đúng mẫu "Miyano - Báo giá" | C |
 
 ## TC-E7 — Hoá đơn điện tử
 

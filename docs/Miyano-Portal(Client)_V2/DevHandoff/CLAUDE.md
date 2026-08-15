@@ -59,7 +59,7 @@ miyano_portal/
    (`kho_phieu_pdf`, `portal_einvoice_download`...). Người dùng cổng không dùng được `/printview`.
 9. **Đơn giá đi theo lô**, bình quân gia quyền tính lại **cả khi delta âm** (phiếu đảo của phiếu nhập
    mang giá phiếu gốc) — bỏ bước này là giá trị sổ lệch vĩnh viễn.
-10. **Hạn mức HĐNT**: kiểm sau khi GỘP dòng trùng mã; hạn mức khai **0 = không giới hạn** (BR-O15) —
+10. **Hạn mức hợp đồng khung** *(đổi tên hiển thị 15/08, trước gọi "hợp đồng nguyên tắc"/HĐNT — fieldname `custom_hdnt` giữ nguyên)*: kiểm sau khi GỘP dòng trùng mã; hạn mức khai **0 = không giới hạn** (BR-O15) —
     dòng đó KHÔNG gắn `against_blanket_order` (cơ chế gốc ERPNext coi 0 là cấm đặt) nhưng vẫn gắn
     `custom_hdnt` để truy vết.
 
@@ -75,9 +75,15 @@ miyano_portal/
 ```bash
 bench --site erptest.local migrate          # cài patch/schema
 bench --site erptest.local run-tests --app miyano_portal
-bench build --app miyano_portal             # build SPA
+(cd frontend && yarn build)                 # build SPA (Vite) — BẮT BUỘC trước
+bench build --app miyano_portal             # publish public/ -> sites/assets
 bench --site erptest.local execute miyano_portal.setup.demo_kho_flow.chay_tat_ca   # dữ liệu demo/UAT
 ```
+
+> `bench build --app miyano_portal` **không** build SPA Vue — `frontend/vite.config.js` mới sinh ra
+> `miyano_portal/public/frontend/index.js`; `bench build` chỉ chép `public/` sang `sites/assets`.
+> Thiếu lệnh `yarn build` ở trên thì `bench build` chỉ publish lại đúng bản dựng cũ, và mọi bước
+> kiểm bằng mắt trên cổng sau đó đang xem một trang chưa đổi.
 
 ## Thứ tự đọc khi nhận việc mới
 

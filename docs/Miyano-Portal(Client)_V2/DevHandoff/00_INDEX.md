@@ -1,4 +1,8 @@
-# 00_INDEX — Bộ bàn giao Dev · Miyano Client Portal v2.2 (2026-08-12)
+# 00_INDEX — Bộ bàn giao Dev · Miyano Client Portal v2.4 (2026-08-15)
+
+> **15/08:** đổi tên hiển thị "hợp đồng nguyên tắc"/HĐNT → "hợp đồng khung"; PRD E6 đổi tên file
+> (bỏ "YeuCauHang" — tính năng đó rút về Desk-only); mua lẻ thiết kế lại (danh mục toàn bộ không giá,
+> khối "chưa có mã", PDF báo giá, mặc định bật). Chi tiết: `CHANGELOG-khac-phuc-BA-v2.md` §2026-08-15.
 
 Mục đích: Dev (dùng Claude Code) đọc là biết **cần làm gì, làm thế nào, sản phẩm ra sao**.
 Đặt cả thư mục `DevHandoff/` + 2 file BA/FormSpec vào repo để Claude Code tự đọc.
@@ -28,7 +32,7 @@ Tài liệu nền (cùng bộ, ngoài thư mục này): `BA-miyano_portal_v2.md`
 | E3 — Giao nhiều đợt & đối soát | `12_PRD_E3_GiaoNhieuDot_DoiSoat.md` | QT3 · UC-07, 47, 48 · BR-O10, K16, K17 | P1 |
 | E4 — Kho khách: NCC, đợt hàng, nhật ký | `13_PRD_E4_KhoKhach_NCC_DotHang.md` | QT4/5/7/8 · UC-42, 43, 44 · BR-N, BR-D, K19…K21 | P2 |
 | E5 — Dự trù JIT | `14_PRD_E5_DuTru_JIT.md` | QT9 · UC-45, 46, 49, 50, 51 · BR-P | P3 (cần ≥30 ngày dữ liệu) |
-| E6 — Mua lẻ & yêu cầu hàng hoá | `15_PRD_E6_MuaLe_YeuCauHang.md` | QT10/11 · UC-15…17, 52, 53 · BR-R, BR-Y | P2 |
+| E6 — Mua lẻ (Desk: yêu cầu hàng hoá) | `15_PRD_E6_MuaLe.md` | QT10 (cổng) · QT11/UC-16, 17, 52, 53/BR-Y (Desk-only, đổi 15/08) · UC-15 · BR-R | P2 |
 | E7 — Hoá đơn điện tử | `16_PRD_E7_HDDT.md` | QT12 · UC-18 · BR-E · **chờ VĐ-11** | P2 (sau họp data contract) |
 | E8 — Cấp phát khoa phòng/cá nhân | `17_PRD_E8_CapPhat_KhoaPhong.md` | QT4 mở rộng · UC-54…56 · BR-CP · QĐ-9 | P2 (làm cùng đợt E4) |
 

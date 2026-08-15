@@ -3,7 +3,7 @@
 | Mục | Nội dung |
 |---|---|
 | Tài liệu cha | [`BA-miyano_portal_v2.md`](BA-miyano_portal_v2.md) — mã QT/UC/BR/NL trích dẫn từ đó |
-| Ngày lập / phiên bản | 2026-08-11 — **v2.3** *(2.1: thêm F-21…F-23, khối HĐĐT ở F-08. 2.2: "Không giới hạn" khi hạn mức 0. 2.3 — 12/08: cấp phát khoa phòng — F-16 mở rộng, F-24 mới, tab cấp phát ở F-19 — QĐ-9)* |
+| Ngày lập / phiên bản | 2026-08-15 — **v2.4** *(2.1: thêm F-21…F-23, khối HĐĐT ở F-08. 2.2: "Không giới hạn" khi hạn mức 0. 2.3 — 12/08: cấp phát khoa phòng — F-16 mở rộng, F-24 mới, tab cấp phát ở F-19 — QĐ-9. 2.4 — 15/08: thiết kế lại F-21 [khối "chưa có mã" §3.4, danh mục toàn bộ không giá], gỡ F-22/F-23 khỏi cổng [Desk-only], F-07 thêm nút Tải báo giá PDF, đổi "hợp đồng nguyên tắc/HĐNT" → "hợp đồng khung" — xem `CHANGELOG-khac-phuc-BA-v2.md`)* |
 | Nguồn chuẩn giao diện | `Mockup_Client_Portal_Miyano.html` + `..._Mobile.html` (V1, 27/07/2026) — token màu, badge, bố cục kế thừa nguyên trạng |
 | Nhãn | **[Hiện có]** = màn hình/trường đã có trong SPA; **[MỚI]** = phải xây |
 
@@ -92,23 +92,23 @@ Màn chỉ đọc; đặc tả **khối hiển thị** thay cho bảng trường
 |---|---|---|
 | 4 thẻ KPI | Đơn chờ xác nhận · Đơn đang giao · Hoá đơn chưa thanh toán · Tổng công nợ (đỏ) — từ `portal_order_history`, `portal_invoices` | Bấm thẻ → danh sách tương ứng đã lọc sẵn |
 | Đơn hàng gần đây | 5 đơn mới nhất: mã, ngày, giá trị, badge | Bấm dòng → chi tiết đơn |
-| HĐNT đang hiệu lực | Số HĐ, hiệu lực, số mặt hàng, % hạn mức dùng (bar); cảnh báo vàng khi có mặt hàng ≥ 80%. **% và cảnh báo chỉ tính trên dòng có hạn mức > 0** — dòng "Không giới hạn" không vào mẫu số (BR-O15) | Bấm → danh mục đặt hàng |
+| hợp đồng khung đang hiệu lực | Số HĐ, hiệu lực, số mặt hàng, % hạn mức dùng (bar); cảnh báo vàng khi có mặt hàng ≥ 80%. **% và cảnh báo chỉ tính trên dòng có hạn mức > 0** — dòng "Không giới hạn" không vào mẫu số (BR-O15) | Bấm → danh mục đặt hàng |
 | **Cảnh báo kho** [MỚI] | 2 thẻ: *Vật tư dưới mức tồn* (n) — từ `kho_canh_bao_ton`; *Lô sắp hết hạn 30 ngày* (n) — từ `kho_canh_bao_han`. Chỉ hiện khi khách có kho hoạt động | Bấm → màn dự trù / báo cáo hạn dùng |
 | **Phiếu nhập chờ ghi sổ** [MỚI] | Số phiếu tự sinh còn nháp — nhắc thủ kho kiểm nhận | Bấm → danh sách phiếu nhập lọc Nháp |
 | Nút "+ Đặt hàng mới" | Nút chính góc phải đầu trang | → F-03 |
 
-### F-03 Danh mục đặt hàng theo HĐNT — `/portal/catalog` — UC-03/04 **[Hiện có, mở rộng]**
+### F-03 Danh mục đặt hàng theo hợp đồng khung — `/portal/catalog` — UC-03/04 **[Hiện có, mở rộng]**
 
 **Chế độ danh mục [MỚI — QT10]:** khách được bật mua lẻ (`custom_cho_phep_mua_le = 1`) thấy bộ
-chuyển hai chế độ `Theo HĐNT | Mua lẻ` trên đầu trang (segmented control; mobile: 2 chips). Chế độ
+chuyển hai chế độ `Theo hợp đồng khung | Mua lẻ` trên đầu trang (segmented control; mobile: 2 chips). Chế độ
 Mua lẻ đặc tả tại **F-21**. Khách không được bật: không thấy bộ chuyển. Ô tìm kiếm không có kết
 quả ở cả hai chế độ → empty state kèm nút **"Không tìm thấy hàng cần mua? Gửi yêu cầu"** → F-22.
 
 | Trường | Điều khiển | Nguồn / mặc định | BB | Ràng buộc & validate | Hành vi, thao tác, lỗi |
 |---|---|---|---|---|---|
-| Hợp đồng nguyên tắc | Select | `portal_contracts`; tự chọn nếu chỉ có 1 HĐNT còn hiệu lực | ✔ | Chỉ HĐNT còn hiệu lực chọn để đặt được | HĐNT hết hiệu lực vẫn liệt kê nhưng disable + chú thích "Hết hiệu lực dd/mm/yyyy" (NL-1.1); đổi HĐNT khi giỏ có hàng → hỏi xác nhận (giỏ theo một HĐNT) |
-| Tìm kiếm | Input + icon 🔍 | — | — | — | Theo mã + tên, không dấu, debounce 300ms; rỗng kết quả → "Không có mặt hàng khớp — mặt hàng ngoài HĐNT không hiển thị" |
-| Nhóm hàng | Select (desktop) / chips (mobile) | Nhóm distinct trong HĐNT + "Tất cả" | — | — | Lọc tức thời |
+| Hợp đồng khung | Select | `portal_contracts`; tự chọn nếu chỉ có 1 hợp đồng khung còn hiệu lực | ✔ | Chỉ hợp đồng khung còn hiệu lực chọn để đặt được | hợp đồng khung hết hiệu lực vẫn liệt kê nhưng disable + chú thích "Hết hiệu lực dd/mm/yyyy" (NL-1.1); đổi hợp đồng khung khi giỏ có hàng → hỏi xác nhận (giỏ theo một hợp đồng khung) |
+| Tìm kiếm | Input + icon 🔍 | — | — | — | Theo mã + tên, không dấu, debounce 300ms; rỗng kết quả → "Không có mặt hàng khớp — mặt hàng ngoài hợp đồng khung không hiển thị" |
+| Nhóm hàng | Select (desktop) / chips (mobile) | Nhóm distinct trong hợp đồng khung + "Tất cả" | — | — | Lọc tức thời |
 | **Bảng mặt hàng** — mỗi dòng: | | | | | |
 | · Mã / Tên / quy cách | Text 2 dòng + tag "VAT n%" | `portal_catalog` | — | — | — |
 | · ĐVT | Text | Item UOM | — | — | — |
@@ -120,11 +120,11 @@ quả ở cả hai chế độ → empty state kèm nút **"Không tìm thấy h
 
 ### F-04 Giỏ hàng & xác nhận đơn — `/portal/cart` — UC-05/15 **[Hiện có, mở rộng]**
 
-**Giỏ hai ngăn [MỚI — BR-R2]:** tab `Theo HĐNT (n)` / `Mua lẻ (m)` — tab Mua lẻ chỉ hiện khi khách
+**Giỏ hai ngăn [MỚI — BR-R2]:** tab `Theo hợp đồng khung (n)` / `Mua lẻ (m)` — tab Mua lẻ chỉ hiện khi khách
 được bật. Mỗi ngăn có bảng dòng, khối tổng tiền và nút xác nhận **riêng**; đặt thành hai đơn riêng.
 Badge giỏ trên nav = tổng dòng hai ngăn. Ngăn Mua lẻ: không có cột hạn mức; chú thích cố định
-"Đơn mua lẻ ngoài HĐNT — Miyano sẽ xác nhận trước khi giao"; modal xác nhận dùng câu điều khoản
-riêng (không nhắc HĐNT).
+"Đơn mua lẻ ngoài hợp đồng khung — Miyano sẽ xác nhận trước khi giao"; modal xác nhận dùng câu điều khoản
+riêng (không nhắc hợp đồng khung).
 
 | Trường | Điều khiển | Nguồn / mặc định | BB | Ràng buộc & validate | Hành vi, thao tác, lỗi |
 |---|---|---|---|---|---|
@@ -134,7 +134,7 @@ riêng (không nhắc HĐNT).
 | Số dự trù / PO của đơn vị | Input text, placeholder "VD: DT-2026-0715" | — | — | ≤ 50 ký tự | In lên chứng từ (`custom_so_po_khach`) |
 | Ghi chú | Textarea 2–4 dòng | — | — | ≤ 500 ký tự, đếm ký tự | `custom_yeu_cau_khach` |
 | Khối tổng tiền | Chỉ đọc: Tạm tính · **VAT tách từng thuế suất** (dòng "VAT 5%", "VAT 8%") · Tổng cộng | Tính từ giỏ | — | — | Cập nhật realtime; số làm tròn đồng |
-| Xác nhận đặt hàng → | Nút chính | — | — | Giỏ ≥ 1 dòng hợp lệ | Mở **modal xác nhận**: tóm tắt HĐNT, số dòng, tổng tiền + câu điều khoản "đồng ý đặt theo đơn giá và điều khoản HĐNT đã ký"; nút [Quay lại] [Xác nhận] |
+| Xác nhận đặt hàng → | Nút chính | — | — | Giỏ ≥ 1 dòng hợp lệ | Mở **modal xác nhận**: tóm tắt hợp đồng khung, số dòng, tổng tiền + câu điều khoản "đồng ý đặt theo đơn giá và điều khoản hợp đồng khung đã ký"; nút [Quay lại] [Xác nhận] |
 | (ẩn) `request_id` | — | UUID sinh khi mở modal | — | BR-O12 | Bấm Xác nhận → nút khoá + spinner; timeout/gửi lại dùng cùng id → nhận về đơn đã tạo, không tạo trùng (NL-1.8); lỗi hạn mức server → alert đầu form liệt kê đủ mã hàng + số còn lại, giỏ giữ nguyên |
 
 ### F-05 Đặt hàng thành công — UC-05 **[Hiện có]**
@@ -156,14 +156,14 @@ tạo lại đơn (giỏ đã trống, `request_id` đã dùng).
 
 | Khối / trường | Hiển thị | Thao tác & lỗi |
 |---|---|---|
-| Đầu trang | Mã đơn + badge trạng thái; ngày đặt · HĐNT · số PO khách; lý do từ chối (nếu Từ chối — NL-2.1) | [⬇ PDF đơn hàng] · [← Quay lại] · [🔁 Đặt lại đơn này] **[MỚI]** (UC-14): điền lại giỏ theo giá hiện hành, thông báo các mặt hàng bị loại (hết hạn mức/ngoài HĐNT) |
+| Đầu trang | Mã đơn + badge trạng thái; ngày đặt · hợp đồng khung · số PO khách; lý do từ chối (nếu Từ chối — NL-2.1) | [⬇ PDF đơn hàng] · [← Quay lại] · [🔁 Đặt lại đơn này] **[MỚI]** (UC-14): điền lại giỏ theo giá hiện hành, thông báo các mặt hàng bị loại (hết hạn mức/ngoài hợp đồng khung) |
 | Timeline 5 bước | Đặt hàng → Miyano xác nhận → Soạn hàng → Giao hàng → Hoá đơn; bước xong = xanh + timestamp, bước hiện tại = cam | Chỉ đọc |
 | Bảng dòng hàng | Mặt hàng · ĐVT · SL đặt · **Đã giao** · **Còn lại** · Đơn giá · Thành tiền | SL do Miyano sửa trước xác nhận hiển thị giá trị mới + icon 🕑 lịch sử (NL-2.3) |
 | **Khối các đợt giao** [MỚI — QT3] | Mỗi đợt một thẻ: "Đợt n — dd/mm/yyyy (x%)" · số phiếu giao (link PDF) · hãng vận chuyển + AWB nếu có · **trạng thái nhập kho** (nếu khách có kho): "Phiếu nhập PNK-xxx — Nháp, chờ kiểm nhận" (link sang F-15) hoặc "Đã ghi sổ" hoặc "Có chênh lệch ⚠" | Bấm thẻ đợt → mở phiếu giao/phiếu nhập; đợt kế tiếp dự kiến hiển thị "Đang soạn hàng tại kho Miyano" |
 | Yêu cầu huỷ | Nút — **chỉ hiện khi Chờ xác nhận** (BR-O8) | Modal: lý do bắt buộc (≥ 10 ký tự) → gửi `portal_request_cancel`; toast "Đã gửi yêu cầu — Miyano sẽ xử lý"; sau khi xác nhận chỉ còn [💬 Yêu cầu hỗ trợ] (NL-2.2, TC-D-07) |
 | Yêu cầu hỗ trợ | Nút luôn hiện | Modal nội dung tự do ≤ 1000 ký tự → ghi Comment vào đơn + báo sales |
-| **Đơn mua lẻ** [MỚI — QT10] | Badge "Mua lẻ" cạnh trạng thái; không hiển thị HĐNT/hạn mức; nếu lập từ yêu cầu → link "Từ yêu cầu YCH-xxx" | Chỉ đọc |
-| **Trạng thái "Chờ bạn đồng ý"** [MỚI — QĐ-6] | Banner cam: giá trị đơn + "Báo giá hiệu lực đến dd/mm/yyyy" + bảng dòng giá sales đã chốt | [✔ Đồng ý đặt hàng] → modal xác nhận ("đồng ý đặt theo giá trên", log người bấm + thời điểm) → `portal_order_accept` → trạng thái "Chờ Miyano xác nhận"; [✕ Không đồng ý] → lý do bắt buộc ≥ 10 ký tự → về sales xử lý (NL-10.4); quá hạn hiệu lực → banner xám "Báo giá đã hết hiệu lực" + nút [Yêu cầu báo giá lại] → F-22 (NL-10.5) |
+| **Đơn mua lẻ** [MỚI — QT10] | Badge "Mua lẻ" cạnh trạng thái; không hiển thị hợp đồng khung/hạn mức; nhóm "Đang chờ Miyano xác nhận nguồn" cho dòng đặt ngoài chưa khớp mã (§4.10) — dòng giữ chỗ `HANG-DAT-NGOAI` **không bao giờ** hiện | Chỉ đọc |
+| **Trạng thái "Chờ bạn đồng ý"** [MỚI — QĐ-6, +PDF sửa 15/08] | Banner cam: "Báo giá hiệu lực đến dd/mm/yyyy" + bảng dòng giá sales đã chốt | [✔ Đồng ý đặt hàng] → modal xác nhận ("đồng ý đặt theo giá trên", log người bấm + thời điểm) → `portal_order_accept` → trạng thái "Chờ Miyano xác nhận"; [✕ Không đồng ý] → lý do bắt buộc ≥ 10 ký tự → về sales xử lý (NL-10.4); **[⬇ Tải báo giá (PDF)]** [MỚI 15/08] → `portal_bao_gia_pdf`, mở tab mới, mẫu in "Miyano - Báo giá" (lọc dòng giữ chỗ `HANG-DAT-NGOAI`, gồm bảng "Hàng đặt ngoài đã khớp mã" nếu có — §4.10); quá hạn hiệu lực → job daily tự đóng (huỷ nháp) + email hai phía, banner này biến mất cùng lúc (NL-10.5) — **không còn nút "Yêu cầu báo giá lại"** (F-22 đã gỡ khỏi cổng, xem BA §4.11) |
 
 ### F-08 Hoá đơn & công nợ — `/portal/invoices` — UC-09 **[Hiện có, mở rộng]**
 
@@ -177,7 +177,7 @@ tạo lại đơn (giỏ đã trống, `request_id` đã dùng).
 ### F-09 Hồ sơ đơn vị — `/portal/profile` — UC-12 **[Hiện có]**
 
 Toàn bộ **chỉ đọc** (dữ liệu do Miyano quản lý — muốn sửa liên hệ sales): thông tin đơn vị + MST;
-bảng HĐNT (số, hiệu lực, số mặt hàng, % hạn mức + bar — chỉ tính dòng có hạn mức > 0, dòng "Không giới hạn" ghi chú riêng; HĐNT hết hiệu lực mờ); danh sách người dùng
+bảng hợp đồng khung (số, hiệu lực, số mặt hàng, % hạn mức + bar — chỉ tính dòng có hạn mức > 0, dòng "Không giới hạn" ghi chú riêng; hợp đồng khung hết hiệu lực mờ); danh sách người dùng
 cổng (tên, email, vai trò); danh sách địa chỉ giao; sales phụ trách (tên, SĐT, email). Nút duy nhất:
 [Đổi mật khẩu] → form mật khẩu cũ / mới ×2, quy tắc ≥ 8 ký tự.
 
@@ -348,64 +348,41 @@ Tab chọn báo cáo; mọi tab có [⬇ Excel]; bộ lọc chung: kỳ (mặc �
 | 3 thẻ đếm | Thiếu tồn (dưới min) · Chạm điểm đặt lại · Chưa thiết lập min/max | Bấm → lọc bảng |
 | Bảng vật tư | VT · Tồn khả dụng · ADU 30/90 ngày · **Ngày phủ tồn** · Min · ROP · Max (3 ô sửa inline) · Trạng thái (badge: Đủ / Sắp thiếu / **Thiếu** đỏ) · Hành động | Min/ROP/Max sửa inline, lưu từng dòng, validate min ≤ ROP ≤ max; ADU trống nếu < 30 ngày dữ liệu → tooltip NL-9.1 |
 | [💡 Gợi ý] (từng dòng / chọn nhiều) | Gọi `kho_min_max_goi_y` | Điền gợi ý theo BR-P2 vào 3 ô — **chưa lưu**, người dùng xem rồi bấm lưu; hiển thị cả ADU 30 và 90 để tự đối chiếu đột biến (NL-9.2) |
-| [🛒 Thêm vào giỏ bổ sung] | Chỉ hiện ở dòng Thiếu/Sắp thiếu **và** vật tư thuộc HĐNT còn hiệu lực (BR-P4) | SL điền sẵn = max − tồn, làm tròn lên theo bội số; gộp các dòng chọn → chuyển sang F-04 với giỏ đã điền |
-| [📨 Nhờ Miyano tìm nguồn] [MỚI — QT11] | Hiện ở dòng Thiếu/Sắp thiếu của vật tư **ngoài HĐNT** (kể cả vật tư riêng đang mua NCC khác) | Mở F-22 điền sẵn: tên/quy cách/ĐVT từ `Customer Warehouse Item`, SL dự kiến = max − tồn, kèm chú thích ADU; gửi xong dòng gắn nhãn "Đã gửi yêu cầu YCH-xxx" (NL-11.1 chống trùng) |
+| [🛒 Thêm vào giỏ bổ sung] | Chỉ hiện ở dòng Thiếu/Sắp thiếu **và** vật tư thuộc hợp đồng khung còn hiệu lực (BR-P4) | SL điền sẵn = max − tồn, làm tròn lên theo bội số; gộp các dòng chọn → chuyển sang F-04 với giỏ đã điền |
+| [📨 Nhờ Miyano tìm nguồn] **[GỠ 15/08 — Desk-only]** | Mở F-22, đã gỡ khỏi cổng cùng toàn bộ luồng "Yêu cầu hàng hoá" (xem BA §4.11) | Vật tư ngoài hợp đồng khung dưới mức tồn: khách liên hệ nhân viên phụ trách; đặt qua ngăn Mua lẻ (§4.10/F-21) nếu đã có mã, hoặc khối "chưa có mã" nếu chưa |
 
 ---
 
-## 3b. Nhóm mua lẻ, yêu cầu hàng hoá **[MỚI — v2.1]**
+## 3b. Nhóm mua lẻ **[MỚI — v2.1, thiết kế lại v2.4/15-08]**
 
-### F-21 Danh mục mua lẻ — `/portal/catalog` (chế độ Mua lẻ) — UC-15 **[MỚI]**
+### F-21 Danh mục mua lẻ — `/portal/catalog` (chế độ Mua lẻ) — UC-15 **[MỚI — THIẾT KẾ LẠI 15/08]**
 
-Cùng khung với F-03; bảng dưới chỉ nêu **khác biệt**:
+Cùng khung với F-03; bảng dưới chỉ nêu **khác biệt** (bản 15/08 — thay bản v2.1/v2.3, xem
+`CHANGELOG-khac-phuc-BA-v2.md`):
 
 | Hạng mục | Khác với F-03 |
 |---|---|
-| Điều kiện hiển thị | Chỉ khi `Customer.custom_cho_phep_mua_le = 1`; server kiểm lại mọi API (NL-10.1) |
-| Banner đầu trang | Nền vàng nhạt: "Giá bán lẻ ngoài HĐNT — đơn cần Miyano xác nhận trước khi giao" |
-| Nguồn mặt hàng | Item có `custom_ban_le_portal = 1` (BR-R6), qua `portal_catalog_ban_le` |
-| Cột giá | "Giá bán lẻ (chưa VAT)" từ Price List bán lẻ — chỉ đọc (BR-R3) |
+| Điều kiện hiển thị | Ngăn "Mua lẻ" **luôn hiện** trừ khi sales tắt cờ cho khách đó (`custom_cho_phep_mua_le`, mặc định BẬT — đổi 15/08); server kiểm lại mọi API (NL-10.1) |
+| Banner đầu trang | Nền vàng nhạt: "Giá bán lẻ ngoài hợp đồng khung — đơn cần Miyano xác nhận trước khi giao. Không áp dụng hạn mức." |
+| Nguồn mặt hàng | **Toàn bộ** Item đang hoạt động (`disabled = 0`) qua `portal_catalog_ban_le`, phân trang server (start/limit=50, nút "Tải thêm"), tìm không dấu server-side — **không còn lọc** `custom_ban_le_portal` (sửa 15/08, BR-R6) |
+| Cột giá | **Bỏ hẳn** — danh mục Mua lẻ không hiện đơn giá; mọi dòng vào đơn với `rate = 0`, sales điền giá khi báo giá (sửa 15/08, BR-R3) |
 | Cột hạn mức | **Bỏ** — thay bằng cột "Tình trạng hàng" (Còn hàng / Liên hệ) |
-| Mặt hàng đã thuộc HĐNT còn hiệu lực | Dòng disable + nhãn "Có trong HĐNT — đặt ở chế độ Theo HĐNT" (BR-R7, NL-10.7), bấm nhãn → chuyển chế độ kèm filter sẵn |
-| Mặt hàng thiếu giá lẻ | Thay ô SL + nút [+ Giỏ] bằng nút **[Yêu cầu báo giá]** → F-22 điền sẵn loại "Báo giá mua lẻ" + tên hàng (NL-10.2) |
-| Thêm giỏ | Vào **ngăn Mua lẻ** của giỏ (F-04) |
+| Mặt hàng đã thuộc hợp đồng khung còn hiệu lực | Dòng disable + nhãn "Có trong hợp đồng khung — đặt ở chế độ Theo hợp đồng khung" (BR-R7, NL-10.7), bấm nhãn → chuyển chế độ kèm filter sẵn |
+| Tìm không ra mã **[MỚI 15/08, §3.4]** | Khối "Không tìm thấy vật tư cần mua?" tự mở, dòng đầu prefill sẵn từ khoá vào ô Tên hàng — thay hẳn nút "Yêu cầu báo giá"/F-22 của bản gốc (đã gỡ) |
+| Khối "hàng chưa có mã" **[MỚI 15/08, §3.4]** | Trong khối trên: input Tên hàng\* · ĐVT\* · Số lượng\* · Ghi chú (tuỳ chọn) cho từng dòng; [+ Thêm dòng]/[Xoá dòng]; không cần chọn mặt hàng có mã nào — server vẫn nhận đơn nếu ≥1 dòng (có mã hoặc không mã) hợp lệ |
+| Thêm giỏ | Vào **ngăn Mua lẻ** của giỏ (F-04); dòng "chưa có mã" theo cùng giỏ, gửi kèm cùng đơn |
 
-### F-22 Yêu cầu hàng hoá — tạo mới & danh sách — `/portal/yeu-cau` — UC-16/17 **[MỚI]**
+### F-22 / F-23 — Yêu cầu hàng hoá **[GỠ KHỎI CỔNG 15/08 — nay Desk-only]**
 
-**Form tạo yêu cầu** (modal desktop / trang mobile; mở từ 3 đường vào QT11 — trường điền sẵn theo ngữ cảnh):
-
-| Trường | Điều khiển | Nguồn / mặc định | BB | Ràng buộc & validate | Hành vi, thao tác, lỗi |
-|---|---|---|---|---|---|
-| Loại yêu cầu | Select: Bổ sung HĐNT / Báo giá mua lẻ / Tìm nguồn hàng mới | Theo đường vào | ✔ | — | Đổi loại không xoá dữ liệu đã nhập |
-| Tên hàng hoá | Input | Prefill từ ô tìm kiếm / vật tư kho / dòng mua lẻ | ✔ | ≤ 200 ký tự | Gõ xong so gần đúng với yêu cầu đang mở → cảnh báo "đã có yêu cầu {mã} đang xử lý", vẫn gửi được (NL-11.1) |
-| Quy cách đóng gói | Input | Prefill nếu có | — | ≤ 100 | VD "Hộp 4 lọ × 100ml" |
-| ĐVT | Input gợi ý | Prefill | ✔ | — | — |
-| Số lượng dự kiến | Input số | Prefill = max − tồn (từ F-20) | ✔ | > 0 | — |
-| Tần suất | Select: Một lần / Định kỳ | Một lần | ✔ | — | "Định kỳ" → hiện thêm ô "Chu kỳ (tháng)" ≥ 1 — nhóm này vào đề xuất HĐNT (NL-11.7) |
-| Ngày cần hàng | Date | +7 ngày | — | ≥ hôm nay | — |
-| Hãng / xuất xứ mong muốn | Input | — | — | ≤ 200 | — |
-| Ghi chú | Textarea | — | — | ≤ 1000, đếm ký tự | — |
-| Đính kèm | Upload nhiều file | — | — | ≤ 5 file; ≤ 10MB/file; pdf/jpg/png/xlsx (NL-11.6) | Ảnh nhãn hàng, tài liệu kỹ thuật; private file (BR-Y5) |
-| [Gửi yêu cầu] | Nút chính | — | — | — | Khoá khi đang gửi; thành công → toast + email cho sales/purchasing; về danh sách |
-
-**Danh sách yêu cầu:** cột Mã (YCH-xxx) · Ngày gửi · Tên hàng · Loại · SL · **Trạng thái** (badge:
-Mới xám · Đang tìm nguồn xanh dương · Cần thêm thông tin vàng · Đã báo giá cam · Đã có hàng xanh lá
-· Đã chuyển thành đơn xanh lá đậm · Không đáp ứng đỏ · Khách huỷ/Hết hạn xám) · Hạn phản hồi (SLA
-còn lại, đỏ khi quá hạn). Lọc theo trạng thái/loại/kỳ; bấm dòng → F-23.
-
-### F-23 Chi tiết yêu cầu hàng hoá — `/portal/yeu-cau/:name` — UC-17 **[MỚI]**
-
-| Khối | Hiển thị | Thao tác |
-|---|---|---|
-| Đầu trang | Mã + badge trạng thái + loại; SLA phản hồi còn lại | [← Quay lại] |
-| Timeline trạng thái | Mới → Đang tìm nguồn → (Cần thêm thông tin) → Đã báo giá / Đã có hàng → kết thúc; mỗi mốc có timestamp | Chỉ đọc |
-| Nội dung yêu cầu | Toàn bộ trường đã gửi + đính kèm (xem/tải) | Sửa được **chỉ khi** trạng thái Mới (chưa ai nhận xử lý) |
-| Phản hồi Miyano | Giá báo · lead time · item liên kết (nếu đã tạo) · ghi chú của người xử lý | Chỉ đọc |
-| Trao đổi bổ sung | Chuỗi comment 2 chiều (khách ⇄ Miyano), đính kèm được; trạng thái "Cần thêm thông tin" → ô nhập được highlight + banner nêu câu hỏi của Miyano (NL-11.3) | Gửi trả lời → trạng thái tự về "Đang tìm nguồn" |
-| Khi "Đã báo giá" | Thẻ nổi bật: link đơn `SAL-ORD-…` + giá trị + hạn hiệu lực | [Xem & đồng ý đơn] → F-07 (khối "Chờ bạn đồng ý") |
-| Khi "Đã có hàng" | Thẻ: item đã mở bán (tên + giá) | [Đặt ngay] → F-03/F-21 với filter mặt hàng |
-| Khi "Không đáp ứng được" | Lý do từ Miyano (BR-Y2) | [Gửi yêu cầu khác] |
-| [Huỷ yêu cầu] | Hiện khi chưa ở trạng thái kết thúc | Modal + lý do; đóng "Khách huỷ", giữ lịch sử (NL-11.5) |
+`/portal/yeu-cau` và `/portal/yeu-cau/:name` **không còn tồn tại** trên cổng khách; `portal_yeu_cau_
+save/list/cancel` đã xoá khỏi API cổng. Lý do gỡ: hai đường vào của F-22 (tìm không thấy, dự trù
+ngoài hợp đồng khung) được thay bằng khối "hàng chưa có mã" ngay trên phiếu Mua lẻ (F-21, §3.4) —
+khách không phải rời phiếu đang mở; đường vào thứ ba ("mua lẻ thiếu giá") không còn ý nghĩa vì danh
+mục Mua lẻ không hiện giá nữa (F-21). Đặc tả form/trạng thái/timeline nêu ở bản v2.1–v2.3 **vẫn mô
+tả đúng** doctype `Portal Item Request` và quy trình xử lý — chỉ đổi người thao tác tạo/theo dõi từ
+**khách trên cổng** sang **nhân viên Miyano trên Desk** (xem BA §4.11, §6.7 — Desk-only). "Đồng ý /
+Không đồng ý" báo giá vẫn ở trên cổng (F-07, khối "Chờ bạn đồng ý") nhưng nay gắn với đơn Mua lẻ
+trực tiếp, không còn đi qua `Portal Item Request`.
 
 ### F-24 Kho — Danh mục khoa phòng — `/portal/kho/khoa-phong` — UC-54 **[MỚI — QĐ-9]**
 
@@ -438,8 +415,8 @@ nút [+ Thêm khoa phòng]. Cài đặt kho hiển thị công tắc **"Bắt bu
 
 | Mã | Tình huống | Thông điệp mẫu (hiển thị đúng nguyên văn) |
 |---|---|---|
-| NL-1.2 | Hết hạn mức | "**{mã} – {tên}** đã dùng hết hạn mức theo HĐNT. Liên hệ {sales} để bổ sung." |
-| NL-1.3 | Vượt hạn mức | "Không đặt được: **{mã}** chỉ còn **{n} {đvt}** theo hạn mức HĐNT (đã đặt {đã}/{tổng})." — liệt kê đủ mọi mã sai trong một alert |
+| NL-1.2 | Hết hạn mức | "**{mã} – {tên}** đã dùng hết hạn mức theo hợp đồng khung. Liên hệ {sales} để bổ sung." |
+| NL-1.3 | Vượt hạn mức | "Không đặt được: **{mã}** chỉ còn **{n} {đvt}** theo hạn mức hợp đồng khung (đã đặt {đã}/{tổng})." — liệt kê đủ mọi mã sai trong một alert |
 | NL-1.4 | Thiếu giá | "**{mã}** chưa có giá trong hợp đồng. Miyano đã nhận được thông báo để bổ sung." |
 | NL-1.6 | Sai bội số | "Số lượng phải là bội số của **{bội số}**. Gần nhất: {gợi ý}." |
 | NL-1.7 | Ngày giao sai | "Ngày giao sớm nhất là **{ngày}** (sau 2 ngày làm việc)." |
@@ -455,7 +432,7 @@ nút [+ Thêm khoa phòng]. Cài đặt kho hiển thị công tắc **"Bắt bu
 | NL-7.3 | NCC trùng | "Kho đã có NCC tên tương tự: **{tên}**. Chọn NCC có sẵn hay vẫn tạo mới?" |
 | NL-10.2 | Mua lẻ thiếu giá | "**{tên hàng}** chưa có giá bán lẻ. Gửi yêu cầu báo giá — Miyano phản hồi trong {SLA} giờ làm việc." |
 | NL-10.5 | Báo giá hết hiệu lực | "Báo giá cho đơn **{mã}** đã hết hiệu lực ngày {ngày}. Gửi yêu cầu báo giá mới nếu vẫn cần hàng." |
-| NL-10.7 | Né hạn mức | "**{tên hàng}** đang thuộc HĐNT {số HĐ} — vui lòng đặt ở chế độ *Theo HĐNT* để hưởng giá hợp đồng." |
+| NL-10.7 | Né hạn mức | "**{tên hàng}** đang thuộc hợp đồng khung {số HĐ} — vui lòng đặt ở chế độ *Theo hợp đồng khung* để hưởng giá hợp đồng." |
 | NL-11.1 | Yêu cầu trùng | "Bạn có yêu cầu **{mã}** cho hàng tương tự đang xử lý ({trạng thái}). Vẫn gửi yêu cầu mới?" |
 | NL-11.6 | Đính kèm sai | "Tối đa 5 file, mỗi file ≤ 10MB, định dạng pdf/jpg/png/xlsx." |
 | NL-12.1 | HĐĐT chưa phát hành | "Hoá đơn điện tử đang được phát hành — file tải sẽ xuất hiện tại đây khi hoàn tất." |
@@ -474,8 +451,8 @@ nút [+ Thêm khoa phòng]. Cài đặt kho hiển thị công tắc **"Bắt bu
 | F-17 | UC-42 | QT7 |
 | F-18 | UC-43 | QT8 |
 | F-19 | UC-37…40, 44 | QT4, QT8 |
-| F-20 | UC-45, 46 | QT9, QT11 |
+| F-20 | UC-45, 46 | QT9 |
 | F-21 | UC-15 | QT10 |
-| F-22, F-23 | UC-16, 17 | QT10, QT11 |
+| *(F-22, F-23 — gỡ khỏi cổng 15/08, nay Desk-only, không còn truy vết UC/QT phía cổng)* | — | — |
 | F-24 | UC-54 | QT4 (cấp phát — QĐ-9) |
 

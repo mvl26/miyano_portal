@@ -320,3 +320,34 @@ này; mã số NG-37d đã tồn tại từ Step 7 của NG-37b nên không mở
 **NG-37e đóng kèm, bằng probe chứ không bằng suy luận.** Nghi vấn gốc là `Blanket Order Item` cùng họ lỗ. Đúng về cơ chế, nhưng gate `is_table` của NG-37b round 2 đã phủ nó từ trước — đây chính là lợi tức của quyết định bỏ deny-list theo tên sau Critical C1. Probe cùng phiên: `frappe.is_table("Blanket Order Item")` → `True`; meta có trường tiền `rate` (không có `amount`/`outstanding`, nên mức độ thấp hơn `Payment Schedule`); bảng có 41 dòng thật; `client_get_list(..., parent="Blanket Order")` → `[]`; `client_get_value(...)` → `PermissionError`. Không thêm mã nào, không sửa gì thêm.
 
 **Còn mở sau task này, không đổi:** NG-37f (bảo vệ ghi an toàn "tình cờ" — ghi nhận, chưa có write DocPerm nào để khai thác) và NG-37g (`before_request` chạy trước `validate_auth()`, auth bằng API key bỏ qua được NG-37c — đã chốt xếp cuối Đợt 1).
+
+### 2026-08-15 · Cổng hai chế độ đặt hàng, gỡ "Yêu cầu hàng hoá" khỏi cổng, đổi tên "hợp đồng khung"
+
+**Tài liệu nguồn:** [`superpowers/specs/2026-08-15-hai-che-do-dat-hang-bo-yeu-cau-hang-hoa-design.md`](superpowers/specs/2026-08-15-hai-che-do-dat-hang-bo-yeu-cau-hang-hoa-design.md) ·
+**Kế hoạch:** [`superpowers/plans/2026-08-15-hai-che-do-dat-hang.md`](superpowers/plans/2026-08-15-hai-che-do-dat-hang.md) (nhánh `feature/mua-le-toan-danh-muc`, 11 task, ba nhóm implementer A/B/C).
+
+Đây là một mạch việc riêng, độc lập với các mã `NG-xx` ở trên (nguồn `BA-v2-ngoai-le-va-UX-miyano_portal.md`) — ghi vào đúng file này vì file tự nhận là "nguồn sự thật duy nhất về trạng thái khắc phục"; bỏ qua nó là để lại một nguồn sự thật nói sai.
+
+**Bốn quyết định của chủ dự án (15/08), nguyên tắc nền "khách không cần biết Miyano có gì; họ đặt hàng, Miyano có trách nhiệm gửi hàng":**
+
+1. **"Yêu cầu hàng hoá" bỏ khỏi cổng khách, GIỮ trên Miyano Desk.** Doctype `Portal Item Request` và quy trình xử lý không đổi — chỉ đổi ai thao tác.
+2. **Cổng chỉ còn hai chế độ đặt hàng:** Theo hợp đồng khung | Mua lẻ. Không còn đường thứ ba.
+3. **Mua lẻ mặc định BẬT cho mọi khách** (đổi từ mặc định tắt), cờ `custom_cho_phep_mua_le` giữ lại để sales tắt riêng khi cần.
+4. **Có PDF báo giá tải được** trên chính đơn Mua lẻ, không dùng doctype `Quotation` của ERPNext.
+
+Kèm quyết định đặt tên: **dùng "hợp đồng khung", bỏ hẳn "hợp đồng nguyên tắc" và viết tắt "HĐNT" khỏi mọi chữ người dùng đọc được** (SPA, thông báo lỗi server, email/Notification, Print Format, nhãn field Desk, tài liệu BA). **Không đổi** fieldname/tham số API/mã lỗi chứa `hdnt` (`custom_hdnt`, `thuoc_hdnt`, `mode="hdnt"`, mã lỗi `thuoc_hdnt_hieu_luc`) lẫn giá trị đã lưu của `custom_loai_don` (`"Theo HĐNT"` / `"Mua lẻ"`) — đổi tên cột/giá trị dữ liệu là một cuộc di trú riêng, khách không thấy khác biệt nào; label field `custom_hdnt` trên Desk đổi thành "Hợp đồng khung" (chỉ label, không đổi fieldname).
+
+**Trước:** danh mục Mua lẻ là tập Item tuyển chọn (`custom_ban_le_portal=1`) có giá thẳng từ Price List bán lẻ; khách thiếu mã hoặc thiếu giá phải rời phiếu, tạo một `Portal Item Request` riêng qua `/portal/yeu-cau`; mua lẻ mặc định tắt; không có PDF báo giá; UI/thông báo còn gọi "hợp đồng nguyên tắc"/"HĐNT".
+
+**Sau:** danh mục Mua lẻ = toàn bộ Item đang hoạt động, không hiện giá — mọi phiếu đi qua báo giá của sales; khách gõ thẳng "hàng chưa có mã" ngay trên phiếu (bảng con `Sales Order Dat Ngoai Item`, Item giữ chỗ `HANG-DAT-NGOAI` khi đơn không còn dòng `items` thật nào); mặc định bật mua lẻ cho mọi khách; nút [Tải báo giá PDF] trên chi tiết đơn; toàn bộ chữ hiển thị đổi sang "hợp đồng khung".
+
+**Đụng vào (theo nhóm implementer — xem báo cáo từng nhóm trong `.superpowers/sdd/2026-08-15-hai-che-do-dat-hang/` để tra commit/file cụ thể):**
+- Nhóm A: gỡ nav + route + 3 view "Yêu cầu hàng hoá" khỏi SPA; xoá 6 endpoint `portal_yeu_cau_*` khỏi `api/portal.py`.
+- Nhóm B: `Catalog.vue`/`Cart.vue` đồng bộ danh mục không giá; khối "hàng chưa có mã" (§3.4); Item giữ chỗ `HANG-DAT-NGOAI` (patch `v1_15.create_item_giu_cho_dat_ngoai`); mặc định bật mua lẻ (patch `v1_15.bat_mua_le_mac_dinh`); PDF báo giá + endpoint `portal_bao_gia_pdf` + Print Format "Miyano - Báo giá" (patch `v1_15.install_print_format_bao_gia`); lọc dòng giữ chỗ khỏi mẫu in xác nhận đơn (patch `v1_15.loc_dong_giu_cho_khoi_mau_xac_nhan_don_hang`).
+- Nhóm C (T10/T11, việc này): đổi toàn bộ chuỗi hiển thị "hợp đồng nguyên tắc"/"HĐNT" → "hợp đồng khung" (`Catalog.vue`, `Cart.vue`, `Dashboard.vue`, `Profile.vue`, `api/portal.py`, `install_notifications.py`) qua patch `v1_15.doi_nhan_hop_dong_khung` (cập nhật Notification/Print Format/label Custom Field ĐÃ CÀI trên site, hai hàm `install_*` đều bỏ qua bản ghi tồn tại); sửa câu Notification "Cần thêm thông tin" (từng bảo khách "phản hồi trên cổng khách hàng" — màn đó đã gỡ, nay hướng dẫn liên hệ nhân viên phụ trách/trả lời email); cập nhật `BA-miyano_portal_v2.md`, `FormSpec-miyano_portal_v2.md`, `20_DataDict.md`, `30_API_Spec.md`, `40_TestCases.md`, `00_INDEX.md`, đổi tên `15_PRD_E6_MuaLe_YeuCauHang.md` → `15_PRD_E6_MuaLe.md`, sửa lệnh build sai trong `DevHandoff/CLAUDE.md`.
+
+**Mã bị ảnh hưởng:** QT10 (thiết kế lại) · QT11/BR-Y1…Y5/NL-11.x/UC-16, 17, 52, 53 (chuyển Desk-only, mã giữ nguyên) · UC-15 (sửa) · BR-R1 (mặc định bật) · BR-R3, BR-R6 (sửa — bỏ giá thẳng, bỏ lọc theo cờ Item) · BR-R7 (giữ nguyên) · VĐ-12 (đã tan — không còn "nhánh A có giá" để cần chuẩn hoá Price List bán lẻ) · VĐ-13 (quyết lại — bật mặc định, không còn yêu cầu khách xác nhận trước) · QĐ-5 (viết lại theo thiết kế mới) · F-21 (thiết kế lại), F-22/F-23 (gỡ khỏi cổng), F-07 (thêm nút Tải báo giá) · `custom_hdnt` (label đổi, fieldname giữ) · `custom_loai_don`/`thuoc_hdnt`/`mode="hdnt"`/`thuoc_hdnt_hieu_luc` (giữ nguyên, không đổi).
+
+**Phá vỡ:** Không phá API/data đang chạy — chỉ đổi chữ hiển thị và hành vi danh mục Mua lẻ (đã có test/DoD riêng từng task xác nhận). SPA phải rebuild (`yarn build && bench build`) mới thấy chữ mới.
+
+**Test:** `bench --site erptest.local run-tests --app miyano_portal` — 869 test, xanh (xem `nhomC-report.md` cho log đầy đủ và danh sách test đã sửa theo chữ hiển thị mới).

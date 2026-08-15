@@ -25,10 +25,10 @@
 | QĐ-2 | **Không cho giao vượt** số lượng đặt: tổng luỹ kế các đợt giao ≤ SL đặt từng dòng (over-delivery allowance = 0) |
 | QĐ-3 | BA viết theo **trạng thái đích**, gắn nhãn [Hiện có]/[MỚI] |
 | QĐ-4 | Bộ tài liệu gồm 3 file: BA v2 + Form Spec + Workflow HTML v2 |
-| QĐ-5 | **Mua lẻ ngoài HĐNT, 2 nhánh**: đặt thẳng nếu item có giá bán lẻ; chưa có giá → yêu cầu báo giá. Bật/tắt theo từng khách, mặc định tắt |
+| QĐ-5 | **Mua lẻ ngoài hợp đồng khung**: danh mục toàn bộ Item, không hiện giá, mọi phiếu đều qua báo giá của sales (thiết kế lại 15/08 — bỏ "nhánh A đặt thẳng theo giá bán lẻ" của bản gốc). Bật/tắt theo từng khách, **mặc định BẬT** từ 15/08 |
 | QĐ-6 | Đơn mua lẻ lập từ báo giá phải được khách **Đồng ý trên cổng** (trạng thái "Chờ khách đồng ý", có log, báo giá có hạn hiệu lực) |
 | QĐ-7 | Hoá đơn điện tử: khách tải được **XML gốc + PDF bản thể hiện + link tra cứu CQT** trên cổng |
-| QĐ-8 | *(góp ý review 12/08)* **Hạn mức khai 0 trong HĐNT = đặt KHÔNG GIỚI HẠN** — hiển thị "Không giới hạn", không kiểm/không chặn hạn mức cho dòng đó (BR-O15) |
+| QĐ-8 | *(góp ý review 12/08)* **Hạn mức khai 0 trong hợp đồng khung = đặt KHÔNG GIỚI HẠN** — hiển thị "Không giới hạn", không kiểm/không chặn hạn mức cho dòng đó (BR-O15) |
 | QĐ-9 | *(góp ý review 12/08)* **Cấp phát cho khoa phòng/cá nhân**: theo dõi trên chính phiếu Xuất sử dụng — khoa phòng là danh mục cứng (bắt buộc chọn **theo cấu hình từng kho**), người nhận là ô nhập tự do có gợi ý lịch sử; "phiếu lĩnh online" của khoa phòng đưa vào backlog (VĐ-14) |
 
 **Tài liệu này KHÔNG phải hướng dẫn thao tác.** Phần "bấm nút nào, ở màn nào" của từng trường dữ liệu nằm ở
@@ -46,7 +46,7 @@ Tài liệu nguồn phía trước: `YeuCau_NghiepVu_ThietKe_ClientPortal_Miyano
 Miyano là nhà cung cấp vật tư — hoá chất, sinh phẩm, vật tư tiêu hao — cho bệnh viện và
 phòng xét nghiệm. Cổng khách hàng giải quyết hai bài toán:
 
-1. **Vòng đời đơn hàng Miyano ↔ khách**: đặt hàng theo hợp đồng nguyên tắc, theo dõi đơn,
+1. **Vòng đời đơn hàng Miyano ↔ khách**: đặt hàng theo hợp đồng khung, theo dõi đơn,
    phiếu giao, hoá đơn, công nợ — không qua điện thoại/email/Excel.
 2. **Kho của chính khách hàng**: bệnh viện tự quản lý nhập – xuất – tồn vật tư của mình,
    theo lô và hạn dùng, in chứng từ theo mẫu.
@@ -59,7 +59,7 @@ tối ưu nguồn lực vận hành chuỗi cung ứng cho cả hai phía.
 
 | # | Mục tiêu | Chỉ báo đạt được | Nhãn |
 |---|---|---|---|
-| MT1 | Khách tự đặt hàng theo hợp đồng nguyên tắc, không qua trung gian | Đơn hàng sinh thẳng thành `Sales Order` với `custom_nguon_don = "Client Portal"` | Hiện có |
+| MT1 | Khách tự đặt hàng theo hợp đồng khung, không qua trung gian | Đơn hàng sinh thẳng thành `Sales Order` với `custom_nguon_don = "Client Portal"` | Hiện có |
 | MT2 | Hạn mức hợp đồng được máy kiểm, không kiểm bằng mắt | Vượt hạn mức bị chặn ngay lúc đặt, kèm số còn lại | Hiện có |
 | MT3 | Khách tự tra cứu đơn / phiếu giao / hoá đơn / công nợ | Không còn yêu cầu tra cứu qua nhân viên kinh doanh | Hiện có |
 | MT4 | Bệnh viện quản lý kho của mình ngay trên cổng, có lô và hạn dùng | Sổ kho, thẻ kho, báo cáo NXT, cảnh báo hạn dùng | Hiện có |
@@ -69,8 +69,8 @@ tối ưu nguồn lực vận hành chuỗi cung ứng cho cả hai phía.
 | MT8 | **Kho đa nguồn**: quản lý được hàng mua từ NCC khác ngoài Miyano, có danh mục NCC, chứng từ nguồn | Phiếu nhập "Mua ngoài" gắn NCC + số chứng từ; báo cáo tách được theo nguồn | **MỚI** |
 | MT9 | **Kiểm soát NXT theo từng đợt hàng**: mỗi đợt nhận biết đã tiêu thụ bao nhiêu, còn bao nhiêu, tồn bao lâu | Nhật ký vật tư + báo cáo NXT theo đợt (mục 4, QT8) | **MỚI** |
 | MT10 | **Dự trù chính xác — Just-in-Time**: từ dữ liệu tiêu thụ thật, hệ thống gợi ý mức tồn min/max, điểm đặt hàng lại; Miyano có báo cáo tiêu thụ – dự báo – độ phủ để lập kế hoạch cung ứng | Vòng lặp QT9: tiêu thụ → ADU → cảnh báo dưới min → giỏ hàng bổ sung → đơn hàng | **MỚI** |
-| MT11 | **Mua lẻ ngoài HĐNT**: khách được phép mua các mặt hàng ngoài hợp đồng ngay trên cổng, giá bán lẻ kiểm soát được | Đơn `custom_loai_don = "Mua lẻ"`, không trừ hạn mức, luôn qua xác nhận (QT10) | **MỚI** |
-| MT12 | **Không bỏ sót nhu cầu**: hàng khách cần mà không có trong HĐNT / không có trong Item ERPNext đều được ghi nhận thành yêu cầu, đến đúng người tìm nguồn | `Portal Item Request` + SLA + báo cáo demand pipeline (QT11) | **MỚI** |
+| MT11 | **Mua lẻ ngoài hợp đồng khung**: khách được phép đặt bất kỳ mặt hàng nào ngay trên cổng, kể cả chưa có mã — giá do Miyano báo sau, khách duyệt trước khi giao | Đơn `custom_loai_don = "Mua lẻ"`, không trừ hạn mức, luôn qua xác nhận + báo giá (QT10, thiết kế lại 15/08) | **MỚI** |
+| MT12 | **Không bỏ sót nhu cầu**: hàng khách cần mà không có trong hợp đồng khung / chưa có Item đều đặt được ngay trên phiếu mua lẻ (khối "chưa có mã", §4.10); Desk vẫn dùng `Portal Item Request` cho nhu cầu cần tìm nguồn phức tạp hơn | Khối tự nhập trên phiếu Mua lẻ (khách) + `Portal Item Request`/SLA/demand pipeline (Desk, QT11) | **MỚI, sửa 15/08** |
 | MT13 | **Hoá đơn điện tử tự phục vụ**: khách tự tải XML gốc + PDF + mã tra cứu, kế toán hai bên không phải gửi tay | Khối HĐĐT trên cổng, đọc từ module HĐĐT của team Dev (QT12) | **MỚI** |
 
 ---
@@ -80,7 +80,7 @@ tối ưu nguồn lực vận hành chuỗi cung ứng cho cả hai phía.
 ### 2.1 Trong phạm vi
 
 - Cổng web (SPA) tại `/portal` cho người dùng phía khách hàng. **[Hiện có]**
-- Đặt hàng theo hợp đồng nguyên tắc, kiểm hạn mức, theo dõi đơn, xem phiếu giao, xem hoá đơn
+- Đặt hàng theo hợp đồng khung, kiểm hạn mức, theo dõi đơn, xem phiếu giao, xem hoá đơn
   và công nợ. **[Hiện có]**
 - **Giao hàng nhiều đợt trên một đơn**: theo dõi từng đợt, % đã giao, đối soát chênh lệch
   giao – nhận. **[Hiện có, mở rộng]**
@@ -92,10 +92,12 @@ tối ưu nguồn lực vận hành chuỗi cung ứng cho cả hai phía.
 - **Mức tồn min/max, điểm đặt hàng lại, cảnh báo thiếu tồn, giỏ hàng bổ sung 1 chạm**. **[MỚI]**
 - **Phân tích phía Miyano**: tiêu thụ, dự báo nhu cầu, độ phủ tồn kho khách, tỷ trọng
   Miyano/NCC khác, đề xuất dự trù. **[MỚI]**
-- **Mua lẻ ngoài HĐNT** (bật theo từng khách): đặt thẳng theo giá bán lẻ hoặc qua báo giá,
-  khách đồng ý trên cổng. **[MỚI]**
-- **Yêu cầu hàng hoá & tìm nguồn**: ghi nhận nhu cầu ngoài danh mục (kể cả hàng chưa có Item
-  trong ERPNext), định tuyến cho sales/purchasing kèm SLA. **[MỚI]**
+- **Mua lẻ ngoài hợp đồng khung** (mặc định bật): danh mục toàn bộ mặt hàng không hiện giá, gõ
+  thẳng tên hàng khi không tìm ra mã, qua báo giá của sales, khách đồng ý trên cổng, tải PDF báo
+  giá. **[MỚI, thiết kế lại 15/08]**
+- **Yêu cầu hàng hoá & tìm nguồn** *(Desk-only, đổi 15/08)*: ghi nhận nhu cầu ngoài danh mục (kể cả
+  hàng chưa có Item trong ERPNext), định tuyến cho sales/purchasing kèm SLA — nay nhân viên Miyano
+  tạo thay khách; đường vào từ cổng đã thay bằng khối "chưa có mã" ngay trên phiếu mua lẻ. **[MỚI]**
 - **Hoá đơn điện tử**: hiển thị trạng thái, tải XML gốc + PDF, mã và link tra cứu CQT. **[MỚI]**
 - **Cấp phát hoá chất – vật tư cho khoa phòng/cá nhân**: danh mục khoa phòng của kho, ghi nhận
   nơi/người nhận trên phiếu xuất sử dụng, báo cáo cấp phát theo khoa. **[MỚI — QĐ-9]**
@@ -178,7 +180,7 @@ theo trạng thái đầu của workflow — `portal_order_place` **không** t�
 
 | Mã | Tình huống | Chốt chặn / phát hiện | Xử lý | Nhãn |
 |---|---|---|---|---|
-| NL-1.1 | HĐNT hết hiệu lực hoặc khách không có HĐNT nào còn hiệu lực | So `from_date`/`to_date` của `Blanket Order` với ngày hiện tại | Danh mục khoá đặt hàng, hiển thị cảnh báo + đầu mối sales phụ trách; **lịch sử đơn thuộc HĐNT cũ vẫn tra cứu được** | Hiện có |
+| NL-1.1 | hợp đồng khung hết hiệu lực hoặc khách không có hợp đồng khung nào còn hiệu lực | So `from_date`/`to_date` của `Blanket Order` với ngày hiện tại | Danh mục khoá đặt hàng, hiển thị cảnh báo + đầu mối sales phụ trách; **lịch sử đơn thuộc hợp đồng khung cũ vẫn tra cứu được** | Hiện có |
 | NL-1.2 | Một mặt hàng đã dùng **hết** hạn mức (đã đặt đủ tổng hạn mức > 0) | Hạn mức còn lại tính từ `Blanket Order` | Ô số lượng và nút thêm giỏ bị khoá tại dòng, ghi "Hết hạn mức". **Phân biệt** với hạn mức *khai* bằng 0 = Không giới hạn (NL-1.11) | Hiện có, mở rộng |
 | NL-1.3 | Tổng đặt (sau khi gộp dòng trùng mã) vượt hạn mức còn lại | `portal_order_place` — kiểm sau khi gộp (BR-O2) | Chặn toàn đơn; báo **một lần đủ mọi mã hàng sai**, kèm số còn được đặt của từng mã (BR-O3) | Hiện có |
 | NL-1.4 | Mặt hàng không có giá trong `Price List` của khách | BR-O5 tại `portal_order_place` | Chặn đặt hàng, nêu rõ mã hàng; **[MỚI]** đồng thời notification cho sales phụ trách để bổ sung giá — khách không phải tự đi đòi giá | Hiện có, mở rộng |
@@ -188,7 +190,7 @@ theo trạng thái đầu của workflow — `portal_order_place` **không** t�
 | NL-1.8 | Mất mạng / timeout đúng lúc bấm "Xác nhận đặt hàng" → nguy cơ bấm lại tạo đơn trùng | BR-O12 — mỗi lần mở màn xác nhận sinh một `request_id`; server nhớ id đã xử lý | Nút khoá khi đang gửi; gửi lại cùng `request_id` → trả về **đơn đã tạo**, không tạo đơn thứ hai | **MỚI** |
 | NL-1.9 | Phiên đăng nhập hết hạn giữa chừng | HTTP 401/403 từ API | Đưa về màn đăng nhập; giỏ hàng lưu phía máy chủ theo tài khoản nên **không mất** | **MỚI** |
 | NL-1.10 | Hai người dùng cùng đơn vị đặt song song, tổng vượt hạn mức (race) | Kiểm tại `portal_order_place` là chốt thời điểm đặt; kiểm lần cuối khi Miyano **xác nhận** (submit) là chốt sau cùng của ERPNext | Đơn đặt sau bị chặn hoặc bị phát hiện lúc xác nhận → xử lý theo NL-2.4 | Hiện có (2 tầng chốt) |
-| NL-1.11 | Hạn mức của mặt hàng trong HĐNT **khai bằng 0** | Quy ước QĐ-8 / BR-O15 | Hiểu là **KHÔNG GIỚI HẠN**: hiển thị nhãn "Không giới hạn", không kiểm hạn mức; dòng SO **không gắn** `against_blanket_order` (cơ chế gốc ERPNext coi 0 là cấm đặt); vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt luỹ kế | **MỚI** |
+| NL-1.11 | Hạn mức của mặt hàng trong hợp đồng khung **khai bằng 0** | Quy ước QĐ-8 / BR-O15 | Hiểu là **KHÔNG GIỚI HẠN**: hiển thị nhãn "Không giới hạn", không kiểm hạn mức; dòng SO **không gắn** `against_blanket_order` (cơ chế gốc ERPNext coi 0 là cấm đặt); vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt luỹ kế | **MỚI** |
 
 ### 4.2 QT2 — Miyano xử lý đơn: máy trạng thái + duyệt theo ngưỡng **[Hiện có, mở rộng]**
 
@@ -293,7 +295,7 @@ Sales Order (Đã xác nhận)
 | NL-3.6 | Miyano huỷ DN khi phiếu nhập **đã ghi sổ** | `on_cancel` hook | Phiếu bị **đảo** theo QT5 — không xoá dòng sổ nào | Hiện có |
 | NL-3.7 | Hàng giao **không có số lô / hạn dùng** (Miyano chưa bật batch/expiry cho item) | Dòng phiếu nhận `KHONG-LO`, hạn dùng rỗng | Phiếu vẫn sinh (không chặn giao — BR-K12), nhưng dòng bị đánh dấu "thiếu lô/hạn"; báo cáo chất lượng dữ liệu phía Desk liệt kê để Miyano bật batch/expiry — tiền đề của FEFO, cảnh báo hạn và VĐ-2 | **MỚI** |
 | NL-3.8 | Miyano lập DN **vượt** SL đặt còn lại | Over-delivery allowance = 0 (QĐ-2, BR-O10) | ERPNext chặn ngay khi ghi sổ DN | **MỚI** (cấu hình) |
-| NL-3.9 | Khách **trả hàng sau khi đã nhận** (sai hàng, hỏng, hết hạn) | Hai chứng từ hai phía | Phía khách: phiếu xuất `loai_xuat = "Xuất trả lại"` (trừ tồn); phía Miyano: Sales Return / Credit Note theo quy trình hiện hành; hạn mức HĐNT hoàn theo VĐ-7; báo cáo đối soát khớp hai phía qua tham chiếu DN gốc | **MỚI** (quy ước + đối soát) |
+| NL-3.9 | Khách **trả hàng sau khi đã nhận** (sai hàng, hỏng, hết hạn) | Hai chứng từ hai phía | Phía khách: phiếu xuất `loai_xuat = "Xuất trả lại"` (trừ tồn); phía Miyano: Sales Return / Credit Note theo quy trình hiện hành; hạn mức hợp đồng khung hoàn theo VĐ-7; báo cáo đối soát khớp hai phía qua tham chiếu DN gốc | **MỚI** (quy ước + đối soát) |
 | NL-3.10 | Thủ kho **sửa tăng** SL thực nhận vượt SL giao | BR-K17 | Chặn: SL thực nhận ≤ SL giao từng dòng (phiếu nguồn Miyano); nhận thừa thật sự → xử lý bằng phiếu "Nhập khác" kèm ghi chú, không sửa phiếu tự sinh | **MỚI** |
 
 ### 4.4 QT4 — Nghiệp vụ kho của khách hàng **[Hiện có, mở rộng]**
@@ -482,9 +484,9 @@ Tiêu thụ thật (phiếu XUẤT SỬ DỤNG, mọi nguồn hàng)
    → gợi ý cho từng vật tư:  min = tồn an toàn,  ROP = ADU × lead time + tồn an toàn,
      max = ROP + lượng đặt kinh tế         (khách chỉnh tay được — BR-P2)
    → tồn khả dụng < min hoặc < ROP  ──►  CẢNH BÁO THIẾU TỒN trên cổng
-        ├─ vật tư CÓ trong HĐNT Miyano → nút "Thêm vào giỏ bổ sung" điền sẵn
+        ├─ vật tư CÓ trong hợp đồng khung Miyano → nút "Thêm vào giỏ bổ sung" điền sẵn
         │  số lượng gợi ý = max − tồn hiện tại (làm tròn theo bội số) → QT1
-        └─ vật tư ngoài HĐNT → cảnh báo + nút "Nhờ Miyano tìm nguồn" → tạo yêu cầu
+        └─ vật tư ngoài hợp đồng khung → cảnh báo + nút "Nhờ Miyano tìm nguồn" → tạo yêu cầu
            hàng hoá điền sẵn tên/quy cách/ĐVT/SL gợi ý (QT11) — đường chuyển dần
            share-of-wallet về Miyano
    → PHÍA MIYANO (Desk): báo cáo tiêu thụ theo khách/vật tư · ngày phủ tồn
@@ -502,37 +504,43 @@ Tiêu thụ thật (phiếu XUẤT SỬ DỤNG, mọi nguồn hàng)
 | NL-9.4 | Xuất huỷ/trả lại/điều chỉnh lẫn vào tiêu thụ | BR-P1: ADU **chỉ** tính từ "Xuất sử dụng", loại trừ phiếu đảo và dòng `da_dao` | MỚI |
 | NL-9.5 | Khách phản đối việc Miyano xem dữ liệu mua ngoài | Điều khoản chia sẻ dữ liệu trong hợp đồng dịch vụ kho (VĐ-10); phạm vi Miyano xem được ghi rõ ở mục 8 | MỚI |
 
-### 4.10 QT10 — Mua lẻ ngoài hợp đồng nguyên tắc **[MỚI]**
+### 4.10 QT10 — Mua lẻ ngoài hợp đồng khung **[MỚI — THIẾT KẾ LẠI 2026-08-15]**
 
-Không phải nhu cầu nào cũng nằm trong HĐNT: phòng khám/PXN tư mua theo nhu cầu phát sinh, bệnh viện
-cần gấp mặt hàng ngoài phụ lục. Nguyên tắc: **mua lẻ là đặc quyền bật theo từng khách** (BR-R1,
-mặc định tắt — khách công lập chỉ bật khi tự xác nhận được phép mua ngoài hợp đồng, VĐ-13).
+> Bản mô tả dưới đây thay bản gốc (hai nhánh A/B qua `Portal Item Request`) — xem
+> `CHANGELOG-khac-phuc-BA-v2.md` §2026-08-15 và `DevHandoff/15_PRD_E6_MuaLe.md` cho đầy đủ AC/luồng.
+> Lý do đổi: nhánh A (danh mục tuyển chọn có giá thẳng) buộc khách phải biết trước Miyano có mặt
+> hàng gì; nhánh B (mọi trường hợp thiếu giá đều thành `Portal Item Request` — một chứng từ khác,
+> một màn khác) làm khách rời khỏi phiếu đang mở giữa chừng. Bản mới: **một** ngăn Mua lẻ duy nhất,
+> danh mục là toàn bộ Item, không hiện giá, không cần biết mã hàng.
 
-**Luồng chính — nhánh A: mặt hàng có giá bán lẻ:**
+Không phải nhu cầu nào cũng nằm trong hợp đồng khung: phòng khám/PXN tư mua theo nhu cầu phát sinh,
+bệnh viện cần gấp mặt hàng ngoài phụ lục. Mua lẻ **mặc định BẬT** cho mọi khách (đổi từ mặc định tắt
+— patch `v1_15.bat_mua_le_mac_dinh`); sales vẫn tắt được cho một khách cụ thể (nợ quá hạn, chỉ cho
+mua theo hợp đồng) — đổi giá trị mặc định, không bỏ chốt `BR-R1` ở server.
+
+**Luồng chính:**
 
 ```
-Khách bật chế độ "Mua lẻ" trên danh mục (chỉ hiện khi Customer.custom_cho_phep_mua_le = 1)
-   → danh mục = Item có custom_ban_le_portal = 1 (BR-R6)
-     + có giá trong Price List bán lẻ (Settings.price_list_ban_le)
-   → thêm vào GIỎ MUA LẺ — ngăn giỏ riêng, không trộn với giỏ HĐNT (BR-R2)
-   → đặt hàng ──► portal_order_place (mode = ban_le)
-                    ├─ KHÔNG kiểm hạn mức, KHÔNG gắn Blanket Order       (BR-R4)
-                    ├─ giá từ Price List bán lẻ, khách không sửa được    (BR-R3)
+Khách vào ngăn "Mua lẻ" (luôn hiện, trừ khi sales tắt cờ cho khách đó)
+   → danh mục = TOÀN BỘ Item đang hoạt động (không còn lọc custom_ban_le_portal), phân trang
+     server-side, tìm không dấu, KHÔNG hiện đơn giá
+   → item đang thuộc hợp đồng khung còn hiệu lực → dòng mờ, badge "Có trong hợp đồng khung — đặt ở
+     chế độ Theo hợp đồng khung" (chống né hạn mức, NL-10.7)
+   → tìm không ra mã → khối "Không tìm thấy vật tư cần mua?" tự mở, prefill từ khoá, khách gõ thẳng
+     Tên hàng/ĐVT/SL — KHÔNG rời phiếu, không tạo chứng từ khác
+   → thêm vào GIỎ MUA LẺ — ngăn giỏ riêng, không trộn với giỏ hợp đồng khung (BR-R2)
+   → đặt hàng ──► portal_order_place (mode = ban_le, tham số dat_ngoai cho dòng chưa có mã)
+                    ├─ KHÔNG kiểm hạn mức, KHÔNG gắn Blanket Order            (BR-R4)
+                    ├─ dòng có mã: rate = 0, sales điền giá khi báo giá       (BR-R3, sửa 15/08)
+                    ├─ dòng chưa có mã: lưu bảng con custom_dat_ngoai, không phải Sales Order Item
                     ├─ vẫn kiểm: sở hữu địa chỉ, bội số, ngày giao, request_id
                     └─ Sales Order NHÁP, custom_loai_don = "Mua lẻ"
-   → luôn qua Miyano xác nhận (QT2) + duyệt ngưỡng BR-O9 → giao (QT3) → hoá đơn (QT6/QT12)
-```
-
-**Luồng chính — nhánh B: chưa có giá bán lẻ (hoặc hàng không rõ):**
-
-```
-Khách bấm "Yêu cầu báo giá" tại dòng hàng (hoặc từ QT11)
-   → tạo Yêu cầu hàng hoá, loai = "Báo giá mua lẻ" (QT11)
-   → sales chốt giá → lập Sales Order NHÁP từ yêu cầu (custom_yeu_cau_goc trỏ về)
-   → đơn vào trạng thái "CHỜ KHÁCH ĐỒNG Ý" (QĐ-6) — khách thấy giá, hạn hiệu lực báo giá
+   → sales điền giá + khớp mã dòng đặt ngoài trên Desk → "Chờ khách đồng ý" (QĐ-6) — khách thấy giá,
+     hạn hiệu lực báo giá, tải được PDF báo giá (mẫu in "Miyano - Báo giá")
         ├─ khách bấm Đồng ý trên cổng (log người bấm + thời điểm) → Chờ Miyano xác nhận → QT2
         ├─ khách Không đồng ý (kèm lý do) → về sales sửa giá hoặc huỷ nháp
         └─ quá hạn hiệu lực (Settings.hieu_luc_bao_gia_ngay, mặc định 7 ngày) → tự đóng + email
+   → luôn qua Miyano xác nhận (QT2) + duyệt ngưỡng BR-O9 → giao (QT3) → hoá đơn (QT6/QT12)
 ```
 
 **Luồng ngoại lệ QT10:**
@@ -540,43 +548,46 @@ Khách bấm "Yêu cầu báo giá" tại dòng hàng (hoặc từ QT11)
 | Mã | Tình huống | Chốt chặn / phát hiện | Xử lý | Nhãn |
 |---|---|---|---|---|
 | NL-10.1 | Khách không được bật mua lẻ nhưng gọi API mua lẻ | `custom_cho_phep_mua_le` kiểm phía server | Trả 403; UI không hiển thị chế độ Mua lẻ ngay từ đầu | MỚI |
-| NL-10.2 | Item bật bán lẻ nhưng thiếu giá trong Price List bán lẻ | BR-R3 | Không đặt thẳng được; dòng hiển thị nút "Yêu cầu báo giá" thay cho ô số lượng | MỚI |
-| NL-10.3 | Khách cố trộn hàng HĐNT và mua lẻ vào một đơn | BR-R2 — hai ngăn giỏ, hai đơn | Không xảy ra theo thiết kế; server từ chối dòng sai loại | MỚI |
-| NL-10.4 | Khách không đồng ý giá báo | Nút "Không đồng ý" + lý do bắt buộc | Đơn về "Chờ xác nhận" cho sales sửa; lý do lưu vào đơn và yêu cầu gốc | MỚI |
-| NL-10.5 | Đơn "Chờ khách đồng ý" quá hạn hiệu lực báo giá | Job nền so ngày | Tự đóng (huỷ nháp) + email hai phía; muốn mua lại → yêu cầu báo giá mới | MỚI |
+| NL-10.2 | *(gỡ 15/08 — danh mục không còn hiện giá nên không còn "item thiếu giá" ở màn danh mục; mọi dòng đều rate=0 chờ báo giá)* | — | — | — |
+| NL-10.3 | Khách cố trộn hàng hợp đồng khung và mua lẻ vào một đơn | BR-R2 — hai ngăn giỏ, hai đơn | Không xảy ra theo thiết kế; server từ chối dòng sai loại | MỚI |
+| NL-10.4 | Khách không đồng ý giá báo | Nút "Không đồng ý" + lý do bắt buộc | Đơn về "Chờ xác nhận" cho sales sửa; lý do lưu vào đơn | MỚI |
+| NL-10.5 | Đơn "Chờ khách đồng ý" quá hạn hiệu lực báo giá | Job nền so ngày; **chỉ áp cho đơn Mua lẻ** (đơn hợp đồng khung ở luồng E2 gốc không có hiệu lực N ngày) | Tự đóng (huỷ nháp) + email hai phía | MỚI |
 | NL-10.6 | Đơn mua lẻ giá trị lớn | BR-O9 dùng chung | Từ ngưỡng trở lên bắt buộc Sales Manager duyệt | MỚI |
-| NL-10.7 | Khách lạm dụng mua lẻ để né hạn mức HĐNT (cùng mặt hàng có trong HĐNT) | So `item_code` với danh mục HĐNT còn hiệu lực khi đặt lẻ | Mặt hàng đã thuộc HĐNT còn hiệu lực → **không cho mua lẻ**, hướng về giỏ HĐNT (giá HĐNT thường tốt hơn; hạn mức phải được tiêu đúng chỗ) | MỚI |
+| NL-10.7 | Khách lạm dụng mua lẻ để né hạn mức hợp đồng khung (cùng mặt hàng có trong hợp đồng khung) | So `item_code` với danh mục hợp đồng khung còn hiệu lực khi đặt lẻ | Mặt hàng đã thuộc hợp đồng khung còn hiệu lực → **không cho mua lẻ**, hướng về giỏ hợp đồng khung (giá hợp đồng khung thường tốt hơn; hạn mức phải được tiêu đúng chỗ) | MỚI |
 
-### 4.11 QT11 — Yêu cầu hàng hoá & tìm nguồn cung **[MỚI]**
+### 4.11 QT11 — Yêu cầu hàng hoá & tìm nguồn cung **[MỚI — DESK-ONLY, đổi 2026-08-15]**
 
-Bắt trọn nhu cầu mà cổng hiện đang bỏ rơi: hàng **ngoài Blanket Order**, thậm chí **chưa có Item
-trong ERPNext của Miyano**. Mỗi nhu cầu là một bản ghi `Portal Item Request` — nhân viên Miyano
-không còn tiếp nhận qua điện thoại/Zalo rồi quên; purchasing có hàng đợi tìm nguồn tập trung,
-và Miyano có số liệu **demand pipeline** (nhu cầu chưa được đáp ứng) để quyết định mở rộng danh mục.
+> **Không còn lối vào từ cổng khách.** Cả ba đường vào của khách mô tả bên dưới đã bị gỡ khỏi
+> `/portal` (kế hoạch 2026-08-15, Task 1–2): nút "Gửi yêu cầu" ở danh mục và ở màn dự trù không còn;
+> nhánh "Mua lẻ thiếu giá → Báo giá mua lẻ" không còn tồn tại (QT10 thiết kế lại không còn khái niệm
+> "danh mục có giá" để thiếu — xem §4.10). Thay các đường vào đó: khối "hàng chưa có mã" ngay trên
+> phiếu Mua lẻ (§4.10, `Sales Order Dat Ngoai Item`) — khách gõ thẳng, không cần biết mã hàng, không
+> rời phiếu. `Portal Item Request` và toàn bộ mục dưới đây **vẫn đúng và vẫn chạy**, nhưng chỉ còn là
+> quy trình nội bộ: nhân viên Miyano tạo/xử lý yêu cầu **trên Desk** (điện thoại, Zalo, email khách
+> gửi trực tiếp cho sales…), không phải khách tự thao tác trên cổng nữa.
 
-**Ba đường vào của khách:**
+Bắt trọn nhu cầu ngoài danh mục: hàng **ngoài Blanket Order**, thậm chí **chưa có Item trong ERPNext
+của Miyano**. Mỗi nhu cầu là một bản ghi `Portal Item Request` — purchasing có hàng đợi tìm nguồn
+tập trung, và Miyano có số liệu **demand pipeline** (nhu cầu chưa được đáp ứng) để quyết định mở
+rộng danh mục.
 
-1. Tìm kiếm danh mục không ra kết quả → nút "Không tìm thấy hàng cần mua? Gửi yêu cầu".
-2. Màn dự trù (QT9): vật tư **ngoài HĐNT** (đang mua NCC khác) dưới mức tồn → nút "Nhờ Miyano
-   tìm nguồn" — điền sẵn tên/quy cách/ĐVT từ `Customer Warehouse Item` + SL gợi ý từ ADU.
-3. Mua lẻ thiếu giá (QT10 nhánh B) → loại "Báo giá mua lẻ".
-
-**Luồng chính:**
+**Luồng chính (nội bộ, Desk):**
 
 ```
-Khách tạo Yêu cầu hàng hoá
+Nhân viên Miyano tạo Yêu cầu hàng hoá trên Desk (thay mặt khách gọi điện/Zalo/email)
    (loại · tên hàng · quy cách · ĐVT · SL dự kiến · tần suất · ngày cần · hãng/xuất xứ · đính kèm)
    → trạng thái MỚI ──► notification: sales phụ trách + bộ phận mua hàng; SLA 48h làm việc (BR-Y1)
    → Miyano xử lý trên Desk:
         ├─ hàng ĐÃ có Item + giá → phản hồi "Đã có hàng":
-        │    thêm Item Price / Party Specific Item, hoặc trình phụ lục bổ sung HĐNT
-        │    → khách đặt được ngay theo QT1 hoặc QT10-A
+        │    thêm Item Price / Party Specific Item, hoặc trình phụ lục bổ sung hợp đồng khung
+        │    → khách đặt được ngay theo QT1, hoặc đặt qua ngăn Mua lẻ (§4.10)
         ├─ hàng CHƯA có Item → purchasing tìm nguồn:
         │    trạng thái "Đang tìm nguồn" → tạo Item mới (qua chuẩn hoá mã/tên/ĐVT — BR-Y3)
         │    + Item Price → phản hồi "Đã báo giá" kèm giá + lead time
-        │    → (tuỳ chọn) lập luôn SO nháp "Chờ khách đồng ý" (QT10-B)
+        │    → (tuỳ chọn) lập luôn SO nháp Mua lẻ "Chờ khách đồng ý" (§4.10)
         └─ không tìm được nguồn phù hợp → "Không đáp ứng được" + lý do bắt buộc (BR-Y2)
-   → mọi đổi trạng thái: email + hiển thị trên cổng; khách bổ sung thông tin / huỷ được khi chưa kết thúc
+   → mọi đổi trạng thái: email cho khách (khách KHÔNG còn xem/bổ sung thông tin trên cổng — trả lời
+     qua email hoặc liên hệ nhân viên phụ trách); huỷ được khi chưa kết thúc, thao tác trên Desk
 ```
 
 **Trạng thái yêu cầu:** Mới → Đang tìm nguồn → Cần thêm thông tin ⇄ → Đã báo giá / Đã có hàng →
@@ -588,11 +599,11 @@ Khách tạo Yêu cầu hàng hoá
 |---|---|---|---|---|
 | NL-11.1 | Gửi trùng yêu cầu cho hàng đang có yêu cầu mở | So gần đúng tên hàng trong yêu cầu đang mở của khách | Cảnh báo "đã có yêu cầu {mã} đang xử lý", vẫn cho gửi nếu cố ý | MỚI |
 | NL-11.2 | Quá SLA chưa ai phản hồi | Job nền quét | Leo thang Sales Manager; hiện trong báo cáo yêu cầu chậm | MỚI |
-| NL-11.3 | Thông tin không đủ để tìm nguồn | Người xử lý chuyển "Cần thêm thông tin" kèm câu hỏi | Khách nhận email, bổ sung ngay trên chi tiết yêu cầu (trao đổi 2 chiều, có đính kèm) | MỚI |
+| NL-11.3 | Thông tin không đủ để tìm nguồn | Người xử lý chuyển "Cần thêm thông tin" kèm câu hỏi | Khách nhận email; trả lời qua email hoặc liên hệ nhân viên phụ trách — **không còn màn "chi tiết yêu cầu" trên cổng để bổ sung trực tiếp** (đổi 15/08, xem CHANGELOG) | MỚI, Desk-only |
 | NL-11.4 | Item mới đặt mã/ĐVT/nhóm sai chuẩn | BR-Y3 — bước chuẩn hoá dữ liệu trước khi mở bán | Purchasing đề xuất, người giữ chuẩn dữ liệu duyệt; không mở bán item chưa chuẩn | MỚI |
 | NL-11.5 | Khách huỷ sau khi Miyano đã báo giá | Nút huỷ + lý do | Đóng "Khách huỷ", giữ lịch sử — dữ liệu cho tỷ lệ chuyển đổi và đánh giá giá cạnh tranh | MỚI |
 | NL-11.6 | Đính kèm quá cỡ / sai định dạng | ≤ 5 file, mỗi file ≤ 10MB, pdf/jpg/png/xlsx | Chặn ngay tại chỗ, nêu giới hạn | MỚI |
-| NL-11.7 | Nhu cầu định kỳ (không phải mua một lần) | Trường `tan_suat = "Định kỳ"` | Phản hồi kèm đề xuất đưa vào HĐNT kỳ tới; báo cáo demand pipeline tách nhóm định kỳ — đầu vào đàm phán hợp đồng | MỚI |
+| NL-11.7 | Nhu cầu định kỳ (không phải mua một lần) | Trường `tan_suat = "Định kỳ"` | Phản hồi kèm đề xuất đưa vào hợp đồng khung kỳ tới; báo cáo demand pipeline tách nhóm định kỳ — đầu vào đàm phán hợp đồng | MỚI |
 
 ### 4.12 QT12 — Hoá đơn điện tử trên cổng **[MỚI]**
 
@@ -639,7 +650,7 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 |---|---|---|---|---|
 | UC-01 | Đăng nhập cổng | `/portal/login` | trang web riêng, không qua SPA | Hiện có |
 | UC-02 | Xem tổng quan | `/portal/dashboard` | `portal_me`, `portal_order_history`, `portal_invoices` | Hiện có |
-| UC-03 | Xem hợp đồng nguyên tắc và hạn mức còn lại | `/portal/catalog` | `portal_contracts` | Hiện có |
+| UC-03 | Xem hợp đồng khung và hạn mức còn lại | `/portal/catalog` | `portal_contracts` | Hiện có |
 | UC-04 | Xem danh mục hàng theo hợp đồng, có giá riêng | `/portal/catalog` | `portal_catalog` | Hiện có |
 | UC-05 | Đặt hàng từ giỏ | `/portal/cart` | `portal_order_place` (+ `request_id` [MỚI]) | Hiện có, mở rộng |
 | UC-06 | Xem lịch sử đơn hàng | `/portal/orders` | `portal_order_history` | Hiện có |
@@ -650,10 +661,10 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 | UC-11 | Tải chứng từ PDF (đơn / phiếu giao / hoá đơn) | nhiều màn | `portal_document_download` | Hiện có |
 | UC-12 | Xem hồ sơ đơn vị | `/portal/profile` | `portal_me` | Hiện có |
 | UC-13 | Cấp tài khoản cổng cho khách *(nhân viên Miyano)* | Desk | `portal_provision` | Hiện có |
-| UC-14 | **Đặt lại nhanh theo đơn cũ (re-order)**: điền lại giỏ theo đơn đã chọn, giá hiện hành; mặt hàng hết hạn mức/ngoài HĐNT bị loại kèm thông báo | `/portal/orders/:name` | `portal_reorder` | **MỚI** |
-| UC-15 | **Đặt mua lẻ ngoài HĐNT** (khi khách được bật): danh mục bán lẻ, giỏ riêng, không hạn mức | `/portal/catalog` (chế độ Mua lẻ) | `portal_catalog_ban_le`, `portal_order_place` | **MỚI** |
-| UC-16 | **Gửi yêu cầu hàng hoá** (3 đường vào: tìm không thấy · dự trù ngoài HĐNT · mua lẻ thiếu giá) | `/portal/yeu-cau` | `portal_yeu_cau_save` | **MỚI** |
-| UC-17 | **Theo dõi yêu cầu hàng hoá**: xem trạng thái, bổ sung thông tin, huỷ; **Đồng ý / Không đồng ý** đơn lập từ báo giá | `/portal/yeu-cau`, `/portal/orders/:name` | `portal_yeu_cau_list`, `portal_yeu_cau_cancel`, `portal_order_accept` | **MỚI** |
+| UC-14 | **Đặt lại nhanh theo đơn cũ (re-order)**: điền lại giỏ theo đơn đã chọn, giá hiện hành; mặt hàng hết hạn mức/ngoài hợp đồng khung bị loại kèm thông báo | `/portal/orders/:name` | `portal_reorder` | **MỚI** |
+| UC-15 | **Đặt mua lẻ ngoài hợp đồng khung** (mặc định bật): danh mục = toàn bộ Item, KHÔNG hiện giá, giỏ riêng, không hạn mức; gõ thẳng tên hàng khi không tìm ra mã (§4.10, sửa 15/08) | `/portal/catalog` (chế độ Mua lẻ) | `portal_catalog_ban_le`, `portal_order_place` (tham số `dat_ngoai`) | **MỚI** |
+| UC-16 | ~~Gửi yêu cầu hàng hoá qua màn riêng~~ **[DESK-ONLY, đổi 15/08]** — không còn route cổng; thay bằng khối "hàng chưa có mã" ngay trên phiếu Mua lẻ (UC-15). `portal_yeu_cau_save` đã xoá khỏi API cổng; `Portal Item Request` vẫn tạo được trên Desk | — | Desk: tạo trực tiếp doctype `Portal Item Request` | **MỚI, Desk-only** |
+| UC-17 | ~~Theo dõi yêu cầu hàng hoá trên cổng~~ **[DESK-ONLY, đổi 15/08]** — không còn route/endpoint cổng (`portal_yeu_cau_list`/`portal_yeu_cau_cancel` đã xoá). "Đồng ý/Không đồng ý" báo giá **vẫn trên cổng**, nhưng nay thuộc đơn Mua lẻ (§4.10), không còn gắn với `Portal Item Request` | `/portal/orders/:name` (chỉ phần Đồng ý/Không đồng ý) | `portal_order_accept` | **MỚI, Desk-only** |
 | UC-18 | **Tải hoá đơn điện tử**: XML gốc + PDF, mã tra cứu, link tra cứu CQT | `/portal/invoices` | `portal_einvoice_download` | **MỚI** |
 
 ### 5.2 Nhóm kho khách hàng
@@ -700,8 +711,8 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 | UC-49 | **Báo cáo tiêu thụ & dự trù**: ADU theo khách/vật tư, ngày phủ tồn, dự báo ngày hết hàng, đề xuất dự trù tổng hợp | Desk (report) | **MỚI** |
 | UC-50 | **Tỷ trọng nguồn cung (share-of-wallet)**: giá trị/SL nhập từ Miyano vs từng NCC khác theo kỳ | Desk (report) | **MỚI** |
 | UC-51 | **Chất lượng dữ liệu**: dòng giao thiếu lô/hạn, kho không hoạt động, phiếu thiếu chứng từ | Desk (report) | **MỚI** |
-| UC-52 | **Xử lý yêu cầu hàng hoá**: hàng đợi tập trung cho sales + purchasing — tiếp nhận, hỏi thêm thông tin, tìm nguồn, tạo Item (qua chuẩn hoá), báo giá, lập SO nháp từ yêu cầu | Desk (list + form `Portal Item Request`) | **MỚI** |
-| UC-53 | **Báo cáo nhu cầu chưa đáp ứng (demand pipeline)**: yêu cầu theo trạng thái/khách/nhóm hàng, tỷ lệ chuyển thành đơn, thời gian xử lý, nhóm nhu cầu định kỳ đề xuất đưa vào HĐNT | Desk (report) | **MỚI** |
+| UC-52 | **Xử lý yêu cầu hàng hoá**: hàng đợi tập trung cho sales + purchasing — tiếp nhận, hỏi thêm thông tin, tìm nguồn, tạo Item (qua chuẩn hoá), báo giá, lập SO nháp từ yêu cầu | Desk (list + form `Portal Item Request`) | **MỚI, Desk-only** |
+| UC-53 | **Báo cáo nhu cầu chưa đáp ứng (demand pipeline)**: yêu cầu theo trạng thái/khách/nhóm hàng, tỷ lệ chuyển thành đơn, thời gian xử lý, nhóm nhu cầu định kỳ đề xuất đưa vào hợp đồng khung | Desk (report) | **MỚI, Desk-only** |
 
 ---
 
@@ -711,7 +722,7 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 
 | Mã | Quy tắc | Nơi thực thi | Nhãn |
 |---|---|---|---|
-| BR-O1 | Chỉ đặt theo HĐNT thuộc chính đơn vị mình; địa chỉ giao cũng phải thuộc đơn vị mình | `portal_order_place` | Hiện có |
+| BR-O1 | Chỉ đặt theo hợp đồng khung thuộc chính đơn vị mình; địa chỉ giao cũng phải thuộc đơn vị mình | `portal_order_place` | Hiện có |
 | BR-O2 | Các dòng giỏ trùng mã hàng phải **gộp trước** khi kiểm hạn mức | `portal_order_place` | Hiện có |
 | BR-O3 | Vượt hạn mức thì chặn, báo **tất cả** mã hàng sai một lần kèm số còn lại | `portal_order_place` | Hiện có |
 | BR-O4 | Mỗi dòng xuất từ kho mặc định **của chính mặt hàng đó** | `_resolve_item_warehouse` | Hiện có |
@@ -767,22 +778,25 @@ móc không ném lỗi; FEFO chỉ gợi ý; import luôn xem trước; mẫu in
 | BR-P1 | ADU (mức dùng bình quân/ngày) tính **chỉ** từ phiếu "Xuất sử dụng" đã ghi sổ trong kỳ trượt (mặc định 90 ngày), loại trừ phiếu đảo và dòng `da_dao`; tính trên **mọi nguồn hàng** (Miyano + mua ngoài) |
 | BR-P2 | Gợi ý: `ROP = ADU × lead_time_ngay + ton_an_toan`; `min = ton_an_toan`; `max` do khách chốt. Hệ thống **chỉ gợi ý**, giá trị hiệu lực là giá trị khách lưu |
 | BR-P3 | Cảnh báo thiếu tồn chỉ chạy khi: khách đã khai min/ROP, hoặc vật tư có ≥ 30 ngày dữ liệu xuất (cấu hình) |
-| BR-P4 | Số lượng gợi ý đặt bổ sung = `max − tồn khả dụng`, làm tròn **lên** theo bội số quy cách; chỉ gắn nút đặt hàng khi vật tư khớp `item_code` thuộc HĐNT còn hiệu lực |
+| BR-P4 | Số lượng gợi ý đặt bổ sung = `max − tồn khả dụng`, làm tròn **lên** theo bội số quy cách; chỉ gắn nút đặt hàng khi vật tư khớp `item_code` thuộc hợp đồng khung còn hiệu lực |
 | BR-P5 | Báo cáo phía Miyano đọc dữ liệu kho khách (gồm hàng mua ngoài) — điều kiện: hợp đồng dịch vụ có điều khoản chia sẻ dữ liệu (VĐ-10); phạm vi xem đúng như mục 8 |
 
-### 6.6 Mua lẻ ngoài HĐNT (BR-R) **[MỚI]**
+### 6.6 Mua lẻ ngoài hợp đồng khung (BR-R) **[MỚI]**
 
 | Mã | Quy tắc |
 |---|---|
-| BR-R1 | Mua lẻ bật/tắt **theo từng khách** (`Customer.custom_cho_phep_mua_le`), mặc định TẮT; khách công lập chỉ bật khi xác nhận được phép mua ngoài hợp đồng (VĐ-13) |
-| BR-R2 | Giỏ HĐNT và giỏ mua lẻ **tách riêng**, mỗi giỏ đặt thành một `Sales Order` riêng — không trộn hai loại dòng trong một đơn (khác Price List, khác cơ chế kiểm soát) |
-| BR-R3 | Giá mua lẻ chỉ lấy từ Price List bán lẻ (`Settings.price_list_ban_le`), khách không sửa; item không có giá lẻ → không đặt thẳng, chuyển yêu cầu báo giá |
+| BR-R1 | Mua lẻ bật/tắt **theo từng khách** (`Customer.custom_cho_phep_mua_le`), mặc định **BẬT** từ 15/08 (đổi từ tắt — `v1_15.bat_mua_le_mac_dinh`); sales tắt thủ công cho khách cụ thể khi cần (nợ quá hạn, chỉ cho mua theo hợp đồng — thay VĐ-13, không còn yêu cầu khách tự xác nhận trước khi bật) |
+| BR-R2 | Giỏ hợp đồng khung và giỏ mua lẻ **tách riêng**, mỗi giỏ đặt thành một `Sales Order` riêng — không trộn hai loại dòng trong một đơn (khác Price List, khác cơ chế kiểm soát) |
+| BR-R3 | *(sửa 15/08)* Dòng mua lẻ luôn vào đơn với `rate = 0` — không còn tra giá ở bước đặt hàng; sales điền giá khi báo giá (§4.10). Price List bán lẻ (`Settings.price_list_ban_le`) không còn dùng ở đường đọc danh mục |
 | BR-R4 | Đơn mua lẻ: không gắn Blanket Order, không trừ hạn mức, `custom_loai_don = "Mua lẻ"`, **luôn** qua Miyano xác nhận và chịu duyệt ngưỡng BR-O9 |
-| BR-R5 | Đơn lập từ báo giá phải được khách **Đồng ý trên cổng** (log người bấm + thời điểm); báo giá có hiệu lực N ngày (Settings), quá hạn tự đóng |
-| BR-R6 | Chỉ Item gắn `custom_ban_le_portal = 1` xuất hiện ở danh mục mua lẻ — không phơi toàn bộ kho hàng Miyano |
-| BR-R7 | Mặt hàng đang thuộc HĐNT còn hiệu lực của khách → **không mua lẻ được** mặt hàng đó (chống né hạn mức — NL-10.7) |
+| BR-R5 | Đơn lập từ báo giá phải được khách **Đồng ý trên cổng** (log người bấm + thời điểm); báo giá có hiệu lực N ngày (Settings), quá hạn tự đóng; khách tải được PDF báo giá (§4.10) |
+| BR-R6 | *(sửa 15/08)* Danh mục mua lẻ = **toàn bộ** Item đang hoạt động (`disabled = 0`), không còn lọc theo `custom_ban_le_portal` — không hiện giá nên không còn lý do giấu bớt mặt hàng |
+| BR-R7 | Mặt hàng đang thuộc hợp đồng khung còn hiệu lực của khách → **không mua lẻ được** mặt hàng đó (chống né hạn mức — NL-10.7) |
 
-### 6.7 Yêu cầu hàng hoá (BR-Y) **[MỚI]**
+### 6.7 Yêu cầu hàng hoá (BR-Y) **[MỚI, DESK-ONLY — đổi 15/08]**
+
+> Toàn bộ mục này mô tả quy trình nội bộ trên Desk (xem §4.11). Khách không còn tương tác trực tiếp
+> với `Portal Item Request` qua cổng — mã BR-Y1…Y5 vẫn đúng, chỉ đổi ai là người thao tác.
 
 | Mã | Quy tắc |
 |---|---|
@@ -831,7 +845,8 @@ móc không ném lỗi; FEFO chỉ gợi ý; import luôn xem trước; mẫu in
 | `Customer Supplier` | **Danh mục NCC khác của một kho** | `NCC-.#####`; `kho` (Link, bắt buộc), `ten_ncc` (unique trong kho), `mst`, `dien_thoai`, `email`, `dia_chi`, `ghi_chu`, `active` | **MỚI** |
 | `Customer Department` | **Danh mục khoa phòng của một kho** (QĐ-9) | `KP-.#####`; `kho` (Link, bắt buộc), `ten_khoa_phong` (unique trong kho — BR-CP1), `ma_khoa` (Data, tuỳ chọn), `ghi_chu`, `active` | **MỚI** |
 | `Miyano Portal Settings` | Tham số vận hành cổng (Single) | `nguong_duyet_2_tang` (Currency), `so_ngay_adu` (90), `so_ngay_du_lieu_toi_thieu` (30), `nguong_cham_luan_chuyen_ngay` (90), `sla_xu_ly_don_gio` (8), `price_list_ban_le` (Link Price List), `sla_yeu_cau_gio` (48), `hieu_luc_bao_gia_ngay` (7) | **MỚI** |
-| `Portal Item Request` | **Yêu cầu hàng hoá của khách** — nhu cầu ngoài danh mục / cần tìm nguồn | `YCH-.#####`; `customer` (auto từ phiên), `nguoi_yeu_cau`, `loai` (Bổ sung HĐNT / Báo giá mua lẻ / Tìm nguồn hàng mới), `ten_hang`, `quy_cach`, `dvt`, `so_luong_du_kien`, `tan_suat` (Một lần/Định kỳ), `ngay_can`, `hang_xuat_xu`, `ghi_chu`, đính kèm (private, ≤5×10MB), `vat_tu_kho` (Link `Customer Warehouse Item` — khi tạo từ dự trù), `trang_thai`, `phan_hoi`, `gia_bao`, `lead_time_ngay`, `item_lien_ket` (Link Item), `don_lien_ket` (Link SO), `ly_do_khong_dap_ung`, `sla_den_han` (hệ tính) | **MỚI** |
+| `Portal Item Request` | **Yêu cầu hàng hoá của khách** — nhu cầu ngoài danh mục / cần tìm nguồn | `YCH-.#####`; `customer` (auto từ phiên), `nguoi_yeu_cau`, `loai` (Bổ sung HĐNT / Báo giá mua lẻ / Tìm nguồn hàng mới — giá trị lưu trong Select field, KHÔNG
+đổi theo tên gọi mới; đây là dữ liệu, không phải chữ hiển thị), `ten_hang`, `quy_cach`, `dvt`, `so_luong_du_kien`, `tan_suat` (Một lần/Định kỳ), `ngay_can`, `hang_xuat_xu`, `ghi_chu`, đính kèm (private, ≤5×10MB), `vat_tu_kho` (Link `Customer Warehouse Item` — khi tạo từ dự trù), `trang_thai`, `phan_hoi`, `gia_bao`, `lead_time_ngay`, `item_lien_ket` (Link Item), `don_lien_ket` (Link SO), `ly_do_khong_dap_ung`, `sla_den_han` (hệ tính) | **MỚI** |
 
 Quan hệ chính (trạng thái đích):
 
@@ -852,7 +867,7 @@ Customer (ERPNext)
 
 | Khái niệm nghiệp vụ | Doctype ERPNext |
 |---|---|
-| Hợp đồng nguyên tắc (HĐNT) | `Blanket Order` (Selling) + `Price List` + `Item Price` |
+| Hợp đồng khung *(trước 15/08/2026: "hợp đồng nguyên tắc"/HĐNT — đổi tên hiển thị, xem CHANGELOG)* | `Blanket Order` (Selling) + `Price List` + `Item Price` |
 | Đơn hàng / Phiếu giao / Hoá đơn | `Sales Order` / `Delivery Note` / `Sales Invoice` |
 | Khách hàng, địa chỉ, người liên hệ | `Customer`, `Address`, `Contact` |
 | Tài khoản cổng | `User` (Website User) + role `Customer` |
@@ -864,9 +879,11 @@ Order), `custom_so_po_khach`, `custom_yeu_cau_khach`. **[MỚI]** thêm: `custom
 unique — BR-O12), `custom_ly_do_tu_choi` (Small Text — BR-O14), `custom_loai_don` (Select:
 Theo HĐNT / Mua lẻ, mặc định Theo HĐNT — BR-R4), `custom_yeu_cau_goc` (Link `Portal Item Request`).
 
-**`Customer`** **[MỚI]**: `custom_cho_phep_mua_le` (Check, mặc định 0 — BR-R1).
+**`Customer`** **[MỚI]**: `custom_cho_phep_mua_le` (Check, mặc định **1** — đổi từ 0 ở
+`v1_15.bat_mua_le_mac_dinh`, §4.10/BR-R1; sales vẫn tắt được cho một khách cụ thể).
 
-**`Item`** **[MỚI]**: `custom_ban_le_portal` (Check — BR-R6).
+**`Item`** **[MỚI]**: `custom_ban_le_portal` (Check — BR-R6 gốc; *từ 15/08 không còn dùng để lọc
+danh mục mua lẻ*, xem BR-R6 hiện hành).
 
 **`Sales Invoice` — hợp đồng dữ liệu HĐĐT** **[MỚI]** *(tên trường TẠM — phải đối chiếu với module
 HĐĐT thực tế của team Dev trước khi code, VĐ-11)*:
@@ -908,7 +925,7 @@ Toàn bộ mô hình **[Hiện có]** giữ nguyên — đây là phần rủi r
 | Đối tượng mới | Quy tắc |
 |---|---|
 | `Customer Supplier`, `Customer Department`, `Miyano Portal Settings`, `Portal Item Request` | Theo đúng mô hình kho: role `Customer` **không có DocPerm**; mọi truy cập qua endpoint whitelist suy khách/kho từ phiên; Settings chỉ `System Manager` sửa; đính kèm yêu cầu và file HĐĐT là **private file**, không có URL công khai |
-| Endpoint mới (`kho_ncc_*`, `kho_nhat_ky`, `kho_bao_cao_dot`, `kho_canh_bao_ton`, `kho_min_max_goi_y`, `portal_reorder`, `portal_catalog_ban_le`, `portal_yeu_cau_*`, `portal_order_accept`, `portal_einvoice_download`) | Cùng khuôn `get_portal_kho()` / `check_permission`; không endpoint nào nhận `customer`/`kho` từ client; `portal_order_accept` chỉ chuyển trạng thái khi đơn thuộc đúng khách **và** đang ở "Chờ khách đồng ý" |
+| Endpoint mới (`kho_ncc_*`, `kho_nhat_ky`, `kho_bao_cao_dot`, `kho_canh_bao_ton`, `kho_min_max_goi_y`, `portal_reorder`, `portal_catalog_ban_le`, `portal_order_accept`, `portal_bao_gia_pdf`, `portal_einvoice_download`) | Cùng khuôn `get_portal_kho()` / `check_permission`; không endpoint nào nhận `customer`/`kho` từ client; `portal_order_accept` chỉ chuyển trạng thái khi đơn thuộc đúng khách **và** đang ở "Chờ khách đồng ý". *(`portal_yeu_cau_*` đã xoá khỏi API cổng 15/08 — UC-16/17)* |
 | **VĐ-1 (bắt buộc sửa trước go-live v2)** | Bọc `frappe.desk.search.search_link` bằng `override_whitelisted_methods`: với Website User ép tắt `ignore_user_permissions` và bỏ `filter_fields` — bịt đường rò `Sales Invoice` của khách khác |
 | Dữ liệu Miyano xem được (UC-48…51) | Nhân viên Miyano (role nội bộ) xem **toàn bộ** kho khách qua report Desk — như UC-41 hiện có; phạm vi này phải được nêu trong điều khoản chia sẻ dữ liệu (VĐ-10) |
 
@@ -927,8 +944,8 @@ Toàn bộ mô hình **[Hiện có]** giữ nguyên — đây là phần rủi r
 | **Thiếu giá bán** (NL-1.4) | Notification | Cổng → sales Miyano | Khi khách bị chặn vì thiếu giá | **MỚI** |
 | **Đơn treo quá SLA** (NL-2.6) | Job nền + Notification | Hệ thống → Sales Manager | Quét định kỳ đơn "Chờ Miyano xác nhận" | **MỚI** |
 | **Cảnh báo thiếu tồn** (QT9) | Job nền + email tuỳ chọn | Hệ thống → khách | Tính từ Lot Balance + min/ROP; hiển thị trên cổng, email tần suất cấu hình | **MỚI** |
-| **Yêu cầu hàng hoá mới / đổi trạng thái** (QT11) | Notification | Khách ⇄ sales + purchasing | Tạo mới → báo Miyano; mỗi lần đổi trạng thái → email khách; quá SLA → leo thang | **MỚI** |
-| **Đơn chờ khách đồng ý** (QT10-B) | Notification + job hạn hiệu lực | Miyano → khách | Lập SO từ báo giá → email khách kèm hạn hiệu lực; quá hạn → tự đóng, email hai phía | **MỚI** |
+| **Yêu cầu hàng hoá đổi trạng thái** (QT11, Desk-only) | Notification | Sales/purchasing → khách (email, không còn hiển thị trên cổng) | Mỗi lần đổi trạng thái → email khách; quá SLA → leo thang nội bộ | **MỚI** |
+| **Đơn chờ khách đồng ý** (QT10) | Notification + job hạn hiệu lực | Miyano → khách | Lập SO từ báo giá → email khách kèm hạn hiệu lực + PDF báo giá; quá hạn → tự đóng, email hai phía | **MỚI** |
 | **HĐĐT phát hành** (QT12) | Sự kiện từ module HĐĐT → Notification | Kế toán → khách | Email kèm số + ký hiệu + link cổng; thay thế/huỷ/điều chỉnh cũng gửi thông báo | **MỚI** |
 
 **Không có chiều ngược lại vào sổ sách Miyano.** Phiếu kho của khách không tác động tồn kho,
@@ -951,8 +968,8 @@ giá vốn, hay kế toán của Miyano — nguyên tắc nền tảng giữ ngu
 | **Tiêu thụ & đề xuất dự trù** (ADU, coverage, dự báo hết hàng) | — | ✔ | Sổ kho (Xuất sử dụng) | **MỚI** |
 | **Tỷ trọng nguồn cung (share-of-wallet)** | — | ✔ | Phiếu nhập theo nguồn | **MỚI** |
 | **Chất lượng dữ liệu** (thiếu lô/hạn, kho không hoạt động, thiếu chứng từ) | — | ✔ | Sổ kho + phiếu | **MỚI** |
-| **Nhu cầu chưa đáp ứng (demand pipeline)** — theo trạng thái/khách/nhóm, tỷ lệ chuyển thành đơn, thời gian xử lý, nhóm định kỳ đề xuất vào HĐNT | — | ✔ | `Portal Item Request` | **MỚI** |
-| **Đơn mua lẻ theo khách/kỳ** — giá trị, tỷ trọng so với đơn HĐNT | — | ✔ | `Sales Order` (`custom_loai_don`) | **MỚI** |
+| **Nhu cầu chưa đáp ứng (demand pipeline)** — theo trạng thái/khách/nhóm, tỷ lệ chuyển thành đơn, thời gian xử lý, nhóm định kỳ đề xuất vào hợp đồng khung | — | ✔ | `Portal Item Request` | **MỚI** |
+| **Đơn mua lẻ theo khách/kỳ** — giá trị, tỷ trọng so với đơn hợp đồng khung | — | ✔ | `Sales Order` (`custom_loai_don`) | **MỚI** |
 | **Cấp phát theo khoa phòng** (kỳ · khoa · vật tư · SL · giá trị · người nhận, drill xuống phiếu; % tiêu thụ từng khoa) | ✔ | ✔ | Sổ kho join phiếu xuất (BR-CP4) | **MỚI** |
 | Xuất Excel các báo cáo | ✔ | ✔ | — | Hiện có, mở rộng |
 
@@ -995,15 +1012,15 @@ chứng từ bán hàng song ngữ. **[Hiện có]** — mẫu thật của từ
 | VĐ-9 **[MỚI]** | Phê duyệt nội bộ phía khách (FR-A4 BRD V1) | Backlog — bật theo nhu cầu từng khách, không nằm trong v2.0 |
 | VĐ-10 **[MỚI]** | Điều khoản chia sẻ dữ liệu kho (gồm hàng mua ngoài) trong hợp đồng dịch vụ | Pháp chế soạn trước khi bật tính năng kho cho khách mới |
 | VĐ-11 **[MỚI]** | **Hợp đồng dữ liệu HĐĐT**: tên trường, trạng thái, sự kiện "phát hành thành công" của module HĐĐT team Dev — BA đang dùng tên tạm (mục 7.3) | Họp với team Dev đối chiếu trước khi code QT12; xác nhận cả cách lưu file XML/PDF (private file hay storage khác) |
-| VĐ-12 **[MỚI]** | Chuẩn hoá **Price List bán lẻ**: chưa có bảng giá lẻ tập trung; ai duyệt giá lẻ, chu kỳ cập nhật | Phải chuẩn hoá xong mới bật QT10 nhánh A cho khách đầu tiên |
-| VĐ-13 **[MỚI]** | Pháp lý mua sắm của khách công lập khi mua lẻ ngoài hợp đồng | Mặc định tắt mua lẻ; chỉ bật khi khách xác nhận bằng văn bản được phép mua ngoài hợp đồng |
+| VĐ-12 **[ĐÃ TAN — 15/08]** | ~~Chuẩn hoá Price List bán lẻ trước khi bật QT10 nhánh A~~ | Thiết kế lại §4.10 bỏ hẳn "nhánh A đặt thẳng theo giá bán lẻ" — danh mục mua lẻ không còn hiện giá, mọi phiếu đều đi qua báo giá của sales. Không còn Price List bán lẻ nào cần chuẩn hoá cho đường đọc danh mục |
+| VĐ-13 **[QUYẾT LẠI — 15/08]** | Pháp lý mua sắm của khách công lập khi mua lẻ ngoài hợp đồng | Chủ dự án chốt: bật mặc định cho MỌI khách (`v1_15.bat_mua_le_mac_dinh`), chấp nhận rủi ro pháp lý phía khách công lập tự chịu trách nhiệm khi bấm mua; sales vẫn tắt được thủ công cho khách cụ thể nếu cần |
 | VĐ-14 **[MỚI]** | **Phiếu lĩnh online của khoa phòng** (khoa tự gửi yêu cầu lĩnh → thủ kho duyệt → xuất): cần tài khoản/phân quyền theo khoa + máy trạng thái duyệt — scope lớn | Backlog theo QĐ-9; đánh giá sau khi cấp phát trên phiếu xuất chạy ổn và có nhu cầu thật |
 
 ---
 
 ## 13. Từ điển thuật ngữ
 
-Giữ toàn bộ bảng thuật ngữ v1.0 (HĐNT/`Blanket Order`, hạn mức, `Sales Order`, `Delivery Note`,
+Giữ toàn bộ bảng thuật ngữ v1.0 (hợp đồng khung/`Blanket Order`, hạn mức, `Sales Order`, `Delivery Note`,
 `Sales Invoice`, `Customer Warehouse`, `Customer Warehouse Item`, lô `so_lo`, hạn dùng `han_su_dung`,
 phiếu nhập/xuất, sổ kho, tồn theo lô, phiếu đảo, `da_dao`, docstatus 0/1/2, tồn đầu kỳ, NXT, thẻ kho,
 FEFO, thủ kho, ĐVT). Bổ sung:
@@ -1024,7 +1041,7 @@ FEFO, thủ kho, ĐVT). Bổ sung:
 | Đúng thời điểm | JIT (Just-in-Time) | Mục tiêu MT10 |
 | Ngưỡng duyệt hai tầng | approval threshold | BR-O9 |
 | Mã yêu cầu | `request_id` | Chống tạo đơn trùng — BR-O12 |
-| Mua lẻ | ad-hoc / retail order | Đơn ngoài HĐNT, `custom_loai_don = "Mua lẻ"` — QT10 |
+| Mua lẻ | ad-hoc / retail order | Đơn ngoài hợp đồng khung, `custom_loai_don = "Mua lẻ"` — QT10 |
 | Yêu cầu hàng hoá | `Portal Item Request` | Nhu cầu ngoài danh mục, cần tìm nguồn — QT11 |
 | Tìm nguồn | sourcing | Purchasing tìm NCC cho hàng chưa có Item |
 | Nhu cầu chưa đáp ứng | demand pipeline | Báo cáo UC-53 |
@@ -1047,8 +1064,9 @@ FEFO, thủ kho, ĐVT). Bổ sung:
 **`miyano_portal.api.portal`** — [Hiện có] `portal_me` · `portal_contracts` · `portal_catalog` ·
 `portal_order_place` · `portal_order_history` · `portal_order_track` · `portal_deliveries` ·
 `portal_invoices` · `portal_request_cancel` · `portal_provision` · `portal_document_download`
-— [MỚI] `portal_reorder` · `portal_catalog_ban_le` · `portal_yeu_cau_list` · `portal_yeu_cau_save` ·
-`portal_yeu_cau_cancel` · `portal_order_accept` · `portal_einvoice_download`
+— [MỚI] `portal_reorder` · `portal_catalog_ban_le` · `portal_order_accept` · `portal_bao_gia_pdf` ·
+`portal_einvoice_download`. *(`portal_yeu_cau_list`/`portal_yeu_cau_save`/`portal_yeu_cau_cancel` —
+xoá khỏi API cổng 15/08, xem UC-16/17 và `30_API_Spec.md`.)*
 
 **`miyano_portal.api.kho`** — [Hiện có] `kho_me` · `kho_ton` · `kho_lo` · `kho_vat_tu_list` ·
 `kho_vat_tu_tao` · `kho_vat_tu_sua` · `kho_vat_tu_export` · `kho_vat_tu_import_preview` ·
