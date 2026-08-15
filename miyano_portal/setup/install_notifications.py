@@ -2,6 +2,14 @@ import frappe
 
 DEFS = [
     {
+        # Brief 2026-08-15 (trang thông báo) Phần 1 — CỐ Ý KHÔNG bật
+        # `send_system_notification` ở đây: sự kiện "New" xảy ra ĐÚNG lúc
+        # khách vừa tự bấm đặt hàng trên cổng — không phải tin gì MỚI với họ
+        # (họ vừa làm ra chính sự kiện đó), khác "Đơn xác nhận"/"Đơn bị từ
+        # chối"/"Xuất giao"/"Hoá đơn phát hành"/"Báo giá sẵn sàng" bên dưới,
+        # đều là việc Miyano LÀM và khách cần được báo. Ba Notification
+        # "Portal Item Request" phía dưới cũng giữ nguyên 0 vì lý do khác —
+        # xem chú thích tại chỗ.
         "name": "Portal - Đơn mới",
         "subject": "Đơn hàng {{ doc.name }} đã được ghi nhận",
         "document_type": "Sales Order",
@@ -16,6 +24,12 @@ DEFS = [
         "event": "Submit",
         "condition": "doc.custom_nguon_don == 'Client Portal'",
         "message": "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận và chuyển sang xử lý.",
+        # Brief 2026-08-15 (trang thông báo) — sự kiện HƯỚNG VỀ KHÁCH: bật kèm
+        # System Notification (Notification Log) để hiện trên trang Thông báo
+        # cổng, cùng khuôn "Portal - Báo giá sẵn sàng" đã bật từ v1_14. Bản ghi
+        # ĐÃ CÀI trên site cần patch riêng cập nhật (`install_portal_notifications()`
+        # bỏ qua bản ghi đã tồn tại) — xem `patches/v1_19`.
+        "send_system_notification": 1,
     },
     {
         "name": "Portal - Đơn bị từ chối",
@@ -25,6 +39,7 @@ DEFS = [
         "value_changed": "workflow_state",
         "condition": "doc.custom_nguon_don == 'Client Portal' and doc.workflow_state == 'Từ chối'",
         "message": "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã bị Miyano từ chối. Vui lòng liên hệ để biết thêm chi tiết.",
+        "send_system_notification": 1,
     },
     {
         "name": "Portal - Xuất giao",
@@ -33,6 +48,7 @@ DEFS = [
         "event": "Submit",
         "condition": "",
         "message": "Kính gửi Quý khách,\n\nĐơn hàng của Quý khách đã được xuất giao theo phiếu giao hàng {{ doc.name }}.",
+        "send_system_notification": 1,
     },
     {
         "name": "Portal - Hoá đơn phát hành",
@@ -41,11 +57,20 @@ DEFS = [
         "event": "Submit",
         "condition": "",
         "message": "Kính gửi Quý khách,\n\nHoá đơn {{ doc.name }} đã được phát hành. Quý khách có thể xem chi tiết trên cổng khách hàng.",
+        "send_system_notification": 1,
     },
     # E6/US-E6.3 — email xác nhận yêu cầu hàng hoá. `Portal Item Request`
     # không có field `contact_email` (không phải doctype ERPNext bán hàng);
     # người nhận là chính field `nguoi_yeu_cau` (email khách gõ lúc gửi yêu
     # cầu) — xem `recipient_field` bên dưới và `install_portal_notifications()`.
+    #
+    # Brief 2026-08-15 Phần 1 — ba Notification "Portal Item Request" dưới
+    # đây CỐ Ý giữ `send_system_notification` mặc định 0, dù hai cái sau là
+    # tin Miyano chủ động báo cho khách (đáng lẽ thuộc diện bật): `nguoi_yeu_
+    # cau` là một Ô TEXT khách tự gõ khi gửi yêu cầu, KHÔNG đảm bảo trùng
+    # tài khoản cổng đang đăng nhập — bật system notification ở đây là nhân
+    # rộng đúng điểm giòn mà brief yêu cầu xử lý (contact_email không khớp
+    # User), chỉ đổi tên field. Ngoài phạm vi việc thêm nhỏ này.
     {
         "name": "Portal - Yêu cầu hàng hoá đã ghi nhận",
         "subject": "Yêu cầu hàng hoá {{ doc.name }} đã được ghi nhận",

@@ -293,6 +293,14 @@ doc_events = {
 	"Delivery Note": {
 		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
+		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
+		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
+		# chứng từ không khớp tài khoản cổng nào của khách, nghĩa là
+		# Notification "Portal - Xuất giao" (send_system_notification=1) sẽ
+		# không sinh Notification Log cho chứng từ này. `on_update` vì đây là
+		# hook PHÁT HIỆN chạy song song với luồng bán hàng chính, không phải
+		# validate — không bao giờ ném lỗi (xem docstring).
+		"on_update": "miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 	},
 	# E7b — ký hoá đơn bán hàng thì tự lập chứng từ HĐĐT từ phiếu giao của nó
 	# và lấy luôn bản in thử PDF từ Fast, để khách mở cổng là thấy hoá đơn.
@@ -309,6 +317,9 @@ doc_events = {
 	# nhau. Xoá dòng này là tắt cả tính năng mà mọi test vẫn xanh.
 	"Sales Invoice": {
 		"on_submit": "miyano_portal.hddt_tu_dong.tu_sales_invoice",
+		# Cùng lý do/chốt với "Delivery Note" ở trên — Notification "Portal -
+		# Hoá đơn phát hành".
+		"on_update": "miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 	},
 	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
 	#
@@ -357,6 +368,10 @@ doc_events = {
 			# `items` dù mọi dòng đặt ngoài đã khớp mã. Xem docstring hàm.
 			"miyano_portal.portal_mua_le.kiem_khong_con_dong_giu_cho",
 		],
+		# Cùng lý do/chốt với "Delivery Note"/"Sales Invoice" ở trên —
+		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối"/"Báo giá sẵn
+		# sàng" (brief 2026-08-15, trang thông báo, Phần 2).
+		"on_update": ["miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach"],
 	},
 }
 
