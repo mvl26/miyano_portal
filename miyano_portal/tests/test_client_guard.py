@@ -88,9 +88,27 @@ class TestClientGuard(FrappeTestCase):
         """`Sales Order` không nằm trong `_TU_CHOI_DONG_HANG` — wrapper uỷ
         quyền nguyên trạng cho `frappe.client.get_list` gốc, và cơ chế lọc
         theo hàng ĐÃ CÓ TỪ TRƯỚC (`permission_query_conditions::sales_query`)
-        vẫn có hiệu lực, không bị wrapper này đụng vào."""
+        vẫn có hiệu lực, không bị wrapper này đụng vào.
+
+        UAT (2026-08-16): bản trước gọi `client_get_list` KHÔNG filter, dựa
+        vào `limit_page_length` mặc định (20) và thứ tự hàng mặc định của
+        `get_list` để mong `self.so_minh` (vừa tạo ở `setUp`) lọt vào kết
+        quả — giòn sẵn, y hệt loại lỗi `_draft_so` từng dính ở
+        `test_search_guard.py` (bốc trúng bản ghi tuỳ ý trên site dùng
+        chung). Site test tích luỹ Sales Order của "Bệnh viện Bạch Mai" qua
+        nhiều lượt chạy trước (54+ dòng tại thời điểm sửa) nên đơn vừa tạo
+        không chắc nằm trong trang đầu. Sửa CHO TẤT ĐỊNH bằng cách lọc thẳng
+        theo ĐÚNG hai bản ghi test này tự tạo — không xoá dữ liệu tích luỹ
+        (xoá chỉ dọn triệu chứng của hôm nay, sẽ đỏ lại lần sau; xem quyết
+        định gốc ở `_draft_so`). ĐỪNG "đơn giản hoá" test này về gọi không
+        filter như cũ."""
         frappe.set_user(USER_BVBM)
-        rows = client_get_list("Sales Order", fields=["name"])
+        rows = client_get_list(
+            "Sales Order",
+            fields=["name"],
+            filters=[["name", "in", [self.so_minh, self.so_khac]]],
+            limit_page_length=0,
+        )
         names = [r["name"] for r in rows]
         self.assertIn(self.so_minh, names)
         self.assertNotIn(self.so_khac, names)
