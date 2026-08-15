@@ -1,8 +1,13 @@
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal.api import portal
+from miyano_portal.portal_mua_le import TRANG_THAI_CHO_KHACH
 from miyano_portal.setup.install_notifications import install_portal_notifications
 from miyano_portal.setup.seed_demo import seed_demo
+from miyano_portal.tests.test_e6_mua_le import RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le
 
 
 class TestNotifications(FrappeTestCase):
@@ -116,33 +121,35 @@ class TestPatchBatThongBaoHeThong(FrappeTestCase):
 
 
 class TestNotificationLogEndToEnd(FrappeTestCase):
-    """Đóng đúng khoảng trống advisor nêu: chứng minh cờ `send_system_
-    notification = 1` THẬT SỰ sinh một dòng Notification Log cho đúng người,
-    không chỉ đọc field trên định nghĩa Notification."""
+    """BLOCKING FIX brief 2026-08-15 (trang thông báo) — chứng minh
+    `Notification Log` THẬT SỰ được tạo khi kênh Email HỎNG THẬT (không có
+    Email Account gửi ra trên site, KHÔNG dùng `mute_emails`).
+
+    Phiên bản trước của lớp test này dùng `frappe.flags.mute_emails = True`
+    để tránh đúng lỗi mà brief yêu cầu tái hiện — `mute_emails` khiến
+    `EmailAccount.find_outgoing` rơi về tài khoản dummy thay vì ném lỗi, nên
+    test đó XANH ngay cả khi tính năng CHẾT CÂM (chính là bug advisor phát
+    hiện: `Notification.send_notification_by_channel` — core Frappe — bọc
+    CẢ kênh Email lẫn nhánh tạo System Notification trong CÙNG MỘT
+    try/except; `send_an_email` ném lỗi thì dòng tạo System Notification
+    không bao giờ chạy tới). KHÔNG mute ở đây — để lỗi thật nổ ra, và khẳng
+    định `overrides/notification.py` (bọc riêng từng nhánh kênh, đăng ký qua
+    `override_doctype_class`) đã chặn đứng lỗi đó."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        _seed_mua_le()
 
     def setUp(self):
-        # Cùng lý do với TestSendSystemNotificationFlags — đi qua patch v1_19
-        # để phản ánh đúng trạng thái SAU MIGRATE (site test đã cài các bản
-        # ghi này với cờ cũ từ trước brief 2026-08-15).
-        from miyano_portal.patches.v1_19 import bat_thong_bao_he_thong_huong_khach as patch
-
-        patch.execute()
         seed_demo()
         frappe.db.delete("Notification Log", {"for_user": "bvbm@demo.miyano"})
-
-        # Site test không cấu hình Email Account mặc định — kênh Email của
-        # Notification (`send_an_email`) ném `OutgoingEmailError` NGAY khi
-        # resolve tài khoản gửi, và (phát hiện khi viết test này) exception
-        # đó nằm CHUNG một try/except với `create_system_notification` trong
-        # `Notification.send_notification_by_channel` (core Frappe) — email
-        # hỏng làm HỎNG LUÔN system notification dù hai việc tưởng độc lập.
-        # Cùng cơ chế test chuẩn của Frappe mà `test_e6_mua_le.
-        # test_gui_email_hai_phia` đã dùng: `mute_emails` khiến
-        # `EmailAccount.find_outgoing` rơi về tài khoản dummy thay vì ném
-        # lỗi. `frappe.flags` là dict toàn tiến trình, không tự rollback
-        # theo FrappeTestCase — phải tự thu hồi.
-        frappe.flags.mute_emails = True
-        self.addCleanup(frappe.flags.pop, "mute_emails", None)
+        self.assertFalse(
+            frappe.get_all("Email Account", filters={"enable_outgoing": 1}),
+            "Test này cần KHÔNG có Email Account gửi ra để tái hiện đúng lỗi thật "
+            "(đúng tình huống site chưa cấu hình email) — nếu site test bắt đầu "
+            "có Email Account, test không còn canh đúng bug nữa.",
+        )
 
     def test_don_xac_nhan_sinh_notification_log_cho_dung_khach(self):
         so = frappe.new_doc("Sales Order")
@@ -171,3 +178,38 @@ class TestNotificationLogEndToEnd(FrappeTestCase):
         self.assertEqual(len(logs), 1, "Phải có đúng một Notification Log cho khách")
         self.assertEqual(logs[0].read, 0)
         self.assertIn(so.name, logs[0].subject)
+
+    def test_bao_gia_san_sang_sinh_notification_log_du_dinh_kem_pdf(self):
+        """"Portal - Báo giá sẵn sàng" là bản ghi RỦI RO NHẤT: ngoài kênh
+        Email hỏng, nó còn `attach_print = 1` — `create_system_notification`
+        tự gọi `get_attachment(doc)` (`frappe.get_print`) TRƯỚC KHI tạo log,
+        nên một lỗi sinh PDF độc lập với email cũng có thể xoá mất log này
+        dù kênh Email đã được vá đúng. Đơn còn ở dạng nháp (`docstatus=0`)
+        khi vào "Chờ khách đồng ý" — `Print Settings.allow_print_for_draft`
+        phải bật (đã kiểm site test có bật) để `get_print` không tự chặn."""
+        frappe.set_user(USER_BVBM)
+        res = portal.portal_order_place(
+            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
+            request_id=_rid(),
+            mode="ban_le",
+        )
+        frappe.set_user("Administrator")
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        so.items[0].rate = 25000
+        so.workflow_state = TRANG_THAI_CHO_KHACH
+        so.save(ignore_permissions=True)
+
+        logs = frappe.get_all(
+            "Notification Log",
+            filters={
+                "for_user": "bvbm@demo.miyano",
+                "document_type": "Sales Order",
+                "document_name": so.name,
+                "subject": ["like", "Báo giá cho đơn hàng%"],
+            },
+            fields=["subject"],
+        )
+        self.assertEqual(
+            len(logs), 1,
+            "Phải có Notification Log 'Báo giá sẵn sàng' dù email hỏng và có đính PDF",
+        )

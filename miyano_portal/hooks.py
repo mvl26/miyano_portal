@@ -267,9 +267,14 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+# Brief 2026-08-15 (trang thông báo) — BLOCKING FIX: vá lỗi lõi Frappe khiến
+# `Notification Log` chết câm vĩnh viễn khi site không có Email Account gửi
+# ra. Xem docstring `overrides/notification.py` cho phân tích đầy đủ. Áp
+# dụng cho MỌI Notification trên site (bugfix lõi, không riêng 5 bản ghi
+# "Portal - *").
+override_doctype_class = {
+	"Notification": "miyano_portal.overrides.notification.Notification",
+}
 
 # Document Events
 # ---------------
