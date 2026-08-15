@@ -148,11 +148,16 @@ const leError = ref('')
 const leQtys = reactive({})
 let leSearchTimer = null
 
+const leTong = ref(0)
+const leStart = ref(0)
+const LE_LIMIT = 50
+const leConNua = computed(() => leItems.value.length < leTong.value)
+
 function availableLeQty(code) {
   return leQtys[code] ?? 1
 }
 
-async function loadLe() {
+async function loadLe(noiTiep = false) {
   // `mucLeChoPhep` giờ đến từ `store.me.cho_phep_mua_le` (dữ liệu THẬT,
   // không phải suy từ kết quả gọi này) — hàm này chỉ còn việc NẠP DANH MỤC
   // cho ngăn Mua lẻ, không kiêm việc dò quyền nữa (xem ghi chú ở khai báo
@@ -160,10 +165,18 @@ async function loadLe() {
   leLoading.value = true
   leError.value = ''
   try {
+    // `noiTiep = false` (đổi từ khoá / vào ngăn) → nạp lại từ đầu.
+    // `noiTiep = true` (bấm "Tải thêm") → nối vào cuối danh sách hiện có.
+    if (!noiTiep) leStart.value = 0
     const res = await api.call('portal_catalog_ban_le', {
       tim_kiem: search.value.trim() || undefined,
+      start: leStart.value,
+      limit: LE_LIMIT,
     })
-    leItems.value = res.items || []
+    const moi = res.items || []
+    leItems.value = noiTiep ? [...leItems.value, ...moi] : moi
+    leTong.value = res.tong || 0
+    leStart.value = leItems.value.length
     leItems.value.forEach((it) => {
       if (!(it.item_code in leQtys)) leQtys[it.item_code] = 1
     })
@@ -221,7 +234,7 @@ watch(mode, (m) => {
 watch(search, () => {
   if (mode.value !== 'le') return
   clearTimeout(leSearchTimer)
-  leSearchTimer = setTimeout(loadLe, 300)
+  leSearchTimer = setTimeout(() => loadLe(), 300)
 })
 
 onMounted(async () => {
@@ -489,6 +502,17 @@ watch(selected, loadItems)
           </template>
         </div>
       </template>
+
+      <p v-if="leItems.length" class="tag" style="margin-top: 10px">
+        Đang hiện {{ leItems.length }} / {{ leTong }} mặt hàng
+      </p>
+      <button
+        v-if="leConNua"
+        class="btn-o"
+        style="width: 100%; margin-top: 8px"
+        :disabled="leLoading"
+        @click="loadLe(true)"
+      >{{ leLoading ? 'Đang tải…' : 'Tải thêm' }}</button>
     </template>
 
     <!-- Sticky cart bar (mobile) — tổng cả hai ngăn -->
