@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate, statusBadge } from '../format'
@@ -20,13 +20,6 @@ const tong = ref(0)
 
 const FILTERS = ['', 'Chờ xác nhận', 'Đang xử lý', 'Đang giao', 'Hoàn thành', 'Đã huỷ']
 
-// Bộ lọc trạng thái lọc PHÍA CLIENT trên ĐÚNG một trang đã tải — cùng hành
-// vi trước đây (bản trước tải 100 đơn rồi lọc client), chỉ khác cỡ trang
-// giờ do khách chọn (10/20/50) thay vì cố định 100.
-const filtered = computed(() =>
-  filter.value ? orders.value.filter((o) => o.status_vi === filter.value) : orders.value
-)
-
 function pct(o) {
   return Math.round(Number(o.per_delivered || 0))
 }
@@ -40,6 +33,11 @@ async function load() {
     const res = await api.call('portal_order_history', {
       start: (trang.value - 1) * soDong.value,
       limit: soDong.value,
+      // Brief 2026-08-16 (vá hồi quy) — lọc trạng thái đẩy XUỐNG SERVER,
+      // cùng start/limit của trang đang xem. `filter.value || undefined`:
+      // '' (chip "Tất cả") bị JSON.stringify loại khỏi body, backend nhận
+      // trang_thai=None -> không lọc, đúng hành vi "Tất cả".
+      trang_thai: filter.value || undefined,
     })
     orders.value = res?.rows || []
     tong.value = res?.tong || 0
@@ -50,7 +48,14 @@ async function load() {
   }
 }
 
-watch([trang, soDong], load)
+// Đổi chip lọc -> về trang 1 (kết quả lọc mới có thể ít hơn trang đang
+// xem). Watcher [trang, soDong, filter] gộp cả hai thay đổi đồng bộ trong
+// cùng tick thành MỘT lần gọi `load()` (Vue dedupe theo watcher instance),
+// không phải hai round-trip.
+watch(filter, () => {
+  trang.value = 1
+})
+watch([trang, soDong, filter], load)
 
 onMounted(load)
 </script>
@@ -78,7 +83,7 @@ onMounted(load)
 
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
-    <div v-else-if="!filtered.length" class="empty">Không có đơn hàng nào.</div>
+    <div v-else-if="!orders.length" class="empty">Không có đơn hàng nào.</div>
 
     <!-- DESKTOP: bảng -->
     <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
@@ -90,7 +95,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="o in filtered" :key="o.name" class="clickable" @click="open(o.name)">
+          <tr v-for="o in orders" :key="o.name" class="clickable" @click="open(o.name)">
             <td><b>{{ o.name }}</b></td>
             <td>{{ fmtDate(o.transaction_date) }}</td>
             <td class="right">{{ fmtVND(o.grand_total) }}</td>
@@ -107,7 +112,7 @@ onMounted(load)
 
     <!-- MOBILE: thẻ -->
     <template v-else>
-      <div v-for="o in filtered" :key="o.name" class="card mb10 clickable" @click="open(o.name)">
+      <div v-for="o in orders" :key="o.name" class="card mb10 clickable" @click="open(o.name)">
         <div class="sb"><b>{{ o.name }}</b><span class="badge" :class="statusBadge(o.status_vi)">{{ o.status_vi }}</span></div>
         <p class="tag" style="margin-top: 4px">Đặt {{ fmtDate(o.transaction_date) }} · {{ fmtVND(o.grand_total) }}</p>
         <template v-if="pct(o) > 0">

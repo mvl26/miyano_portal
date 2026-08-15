@@ -22,11 +22,35 @@ from openpyxl import load_workbook
 
 from miyano_portal.api import kho as kho_api
 from miyano_portal.api import portal
+from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST
 from miyano_portal.setup.seed_kho_demo import seed_kho_demo
 
 BM_USER = "bvbm@demo.miyano"
+BVBM = "Bệnh viện Bạch Mai"
 
 SO_LUONG_DU_NHIEU = 55  # > mọi kích thước trang (10/20/50) đang có trong UI
+
+
+def _tao_don_test(customer, workflow_state, ngay=None):
+    """Dựng nhanh một Sales Order Draft cho test lọc trạng thái — cùng
+    khuôn `_tao_so_bao_gia` (test_e6_mua_le.py): `insert(ignore_permissions
+    =True)` rồi GHI ĐÈ `workflow_state` bằng `db.set_value` (BẪY: gán trước
+    insert() bị workflow engine tự ghi đè state mặc định ngay khi insert)."""
+    so = frappe.new_doc("Sales Order")
+    so.customer = customer
+    so.company = COMPANY
+    so.transaction_date = ngay or frappe.utils.today()
+    so.delivery_date = frappe.utils.add_days(so.transaction_date, 7)
+    so.selling_price_list = PRICE_LIST
+    so.custom_nguon_don = "Client Portal"
+    so.custom_loai_don = "Mua lẻ"
+    so.append("items", {"item_code": "VT0005", "qty": 1, "rate": 1000, "delivery_date": so.delivery_date})
+    so.taxes = []
+    so.taxes_and_charges = None
+    so.insert(ignore_permissions=True)
+    frappe.db.set_value("Sales Order", so.name, "workflow_state", workflow_state, update_modified=False)
+    so.reload()
+    return so
 
 
 class TestKhoVatTuListKiemHaiVai(FrappeTestCase):
@@ -310,3 +334,76 @@ class TestKhoPhieuListHinhDangMoi(FrappeTestCase):
             frappe.set_user("Administrator")
         self.assertIn("rows", ket_qua)
         self.assertIn("tong", ket_qua)
+
+
+class TestPortalOrderHistoryLocTrangThaiPhiaServer(FrappeTestCase):
+    """Hồi quy do đợt phân trang (brief 2026-08-16): chip lọc trạng thái ở
+    Orders.vue lọc PHÍA CLIENT trên đúng MỘT trang đã tải — khách chọn "xem
+    10" rồi bấm "Chờ xác nhận" thấy TRỐNG dù có đơn khớp ở trang 2. Test này
+    dựng đúng kịch bản đó: 12 đơn KHÔNG khớp bộ lọc (creation MỚI HƠN, nên
+    đứng đầu danh sách không lọc) rồi 3 đơn "Chờ xác nhận" (creation CŨ HƠN,
+    rơi vào "trang 2" nếu không lọc)."""
+
+    def test_loc_trang_thai_tim_thay_don_o_ngoai_trang_dau_khong_loc(self):
+        frappe.set_user(BM_USER)
+        try:
+            muc_tieu = [_tao_don_test(BVBM, "Chờ khách đồng ý") for _ in range(3)]
+            for _ in range(12):
+                _tao_don_test(BVBM, "Khách huỷ")
+
+            # Không lọc, trang đầu (limit=10) — đúng hành vi cũ: 12 đơn "Đã
+            # huỷ" mới hơn lấp đầy, cả 3 đơn mục tiêu bị đẩy ra "trang 2".
+            khong_loc = portal.portal_order_history(limit=10, start=0)
+            ten_khong_loc = {r["name"] for r in khong_loc["rows"]}
+            for so in muc_tieu:
+                self.assertNotIn(
+                    so.name, ten_khong_loc,
+                    "phát hiện sai kịch bản test: đơn mục tiêu phải nằm ngoài trang đầu KHÔNG lọc",
+                )
+
+            # Có lọc — server phải tìm ra đủ 3 đơn NGAY Ở TRANG ĐẦU, không
+            # phụ thuộc chỗ chúng đứng trong danh sách không lọc.
+            co_loc = portal.portal_order_history(limit=10, start=0, trang_thai="Chờ xác nhận")
+            ten_co_loc = {r["name"] for r in co_loc["rows"]}
+            for so in muc_tieu:
+                self.assertIn(so.name, ten_co_loc, "đơn khớp bộ lọc phải tìm được dù ở 'trang 2' nếu không lọc")
+            for r in co_loc["rows"]:
+                self.assertEqual(r["status_vi"], "Chờ xác nhận", "trang lọc không được lẫn đơn khác trạng thái")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_tong_dem_dung_theo_bo_loc_dang_ap(self):
+        frappe.set_user(BM_USER)
+        try:
+            for _ in range(3):
+                _tao_don_test(BVBM, "Chờ khách đồng ý")
+
+            # Ground truth độc lập: lấy TOÀN BỘ đơn (limit lớn, không lọc),
+            # tự đếm `status_vi == "Chờ xác nhận"` bằng đúng field production
+            # đã tính — không dựa vào con số cố định vì site có dữ liệu demo
+            # sẵn khác thuộc cùng khách hàng.
+            tat_ca = portal.portal_order_history(limit=1000, start=0)["rows"]
+            dem_that = sum(1 for r in tat_ca if r["status_vi"] == "Chờ xác nhận")
+            self.assertGreaterEqual(dem_that, 3)
+
+            trang1 = portal.portal_order_history(limit=1, start=0, trang_thai="Chờ xác nhận")
+            self.assertEqual(
+                trang1["tong"], dem_that,
+                "tong phải đếm ĐÚNG bộ lọc đang áp, không phải tổng toàn bộ đơn",
+            )
+            self.assertEqual(len(trang1["rows"]), 1, "limit=1 phải cắt đúng 1 dòng dù tong lớn hơn")
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_khong_truyen_trang_thai_giu_nguyen_hanh_vi_cu(self):
+        """Mọi caller cũ (test_e2e_flow.py, test_tracking.py, test_e6_mua_
+        le.py, Dashboard.vue) gọi KHÔNG truyền `trang_thai` — phải KHÔNG lọc
+        gì, y hệt trước bản vá này."""
+        frappe.set_user(BM_USER)
+        try:
+            khong_truyen = portal.portal_order_history(limit=1000, start=0)
+            rong = portal.portal_order_history(limit=1000, start=0, trang_thai=None)
+            self.assertEqual(khong_truyen["tong"], rong["tong"])
+            self.assertEqual({r["name"] for r in khong_truyen["rows"]}, {r["name"] for r in rong["rows"]})
+        finally:
+            frappe.set_user("Administrator")

@@ -1005,8 +1005,53 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
     return "Có chênh lệch ⚠" if co_chenh_lech else "Đã ghi sổ"
 
 
+# Brief 2026-08-16 (vá hồi quy phân trang) — trước bản này, chip lọc trạng
+# thái ở Orders.vue lọc PHÍA CLIENT trên đúng MỘT trang đã tải: khách chọn
+# "xem 10" rồi bấm "Chờ xác nhận" thấy TRỐNG dù đơn khớp nằm ở trang 2 —
+# khách kết luận SAI là mình không có đơn nào đang chờ. `status_vi` (nhãn
+# khách nhìn thấy) là GIÁ TRỊ SUY RA từ `status`/`per_delivered`/
+# `workflow_state` qua `_so_status_vi_full`, không phải cột DB — hàm dưới
+# đây dịch NGƯỢC mỗi nhãn trong `FILTERS` (Orders.vue) thành đúng bộ
+# filters/or_filters SQL tương đương, để lọc được NGAY TRONG TRUY VẤN, dùng
+# CHUNG cho cả `portal_order_history` (lọc + đếm `tong`) và
+# `portal_dashboard_kpi` (đếm KPI) — viết tay điều kiện này hai lần là đúng
+# kiểu lệch nhau đã từng bắt ở `_so_status_vi`/`_so_status_vi_full`.
+_TRANG_THAI_GHI_DE_WORKFLOW = ["Báo giá hết hạn", "Khách huỷ"]
+
+
+def _dieu_kien_loc_trang_thai_don(trang_thai: str) -> tuple:
+    """Trả `(filters, or_filters)` khớp ĐÚNG nhánh của `_so_status_vi_full`
+    ứng với nhãn `trang_thai` (một trong các chip của `Orders.vue`, KHÔNG
+    kể "Tất cả"). Ném lỗi nếu nhãn lạ — không âm thầm trả về "không lọc gì"
+    khi frontend gửi một chip mà backend chưa biết."""
+    if trang_thai == "Đã huỷ":
+        # `workflow_state == "Khách huỷ"` ĐÈ lên MỌI `status` (kể cả khi
+        # `status` chưa phải "Cancelled" — huỷ qua cổng không submit/cancel
+        # ERPNext, xem `_so_status_vi_full`) — OR thuần, không cần AND gì
+        # thêm, nên đi qua `or_filters` (nếu nhét vào `filters` sẽ bị AND
+        # nhầm với chính nó).
+        return [], [["status", "=", "Cancelled"], ["workflow_state", "=", "Khách huỷ"]]
+
+    khong_ghi_de = [["workflow_state", "not in", _TRANG_THAI_GHI_DE_WORKFLOW]]
+    if trang_thai == "Chờ xác nhận":
+        return khong_ghi_de + [["status", "=", "Draft"], ["per_delivered", "<=", 0]], None
+    if trang_thai == "Đang xử lý":
+        return khong_ghi_de + [
+            ["status", "not in", ["Completed", "Closed", "Cancelled", "Draft"]],
+            ["per_delivered", "<=", 0],
+        ], None
+    if trang_thai == "Đang giao":
+        return khong_ghi_de + [
+            ["status", "not in", ["Completed", "Closed", "Cancelled"]],
+            ["per_delivered", ">", 0],
+        ], None
+    if trang_thai == "Hoàn thành":
+        return khong_ghi_de + [["status", "=", "Completed"]], None
+    frappe.throw(f"Trạng thái lọc không hợp lệ: {trang_thai}")
+
+
 @frappe.whitelist()
-def portal_order_history(limit=20, start=0) -> dict:
+def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
     `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
     LUÔN — endpoint này không nuôi dropdown nào (khác ba endpoint kiêm-
@@ -1014,14 +1059,30 @@ def portal_order_history(limit=20, start=0) -> dict:
     Dashboard.vue. Đã cập nhật MỌI caller (Dashboard.vue, test_e2e_flow.py,
     test_e6_mua_le.py, test_tracking.py) sang đọc `.rows`.
 
+    `trang_thai` (brief 2026-08-16, vá hồi quy) — nhãn tiếng Việt của MỘT
+    chip lọc (Orders.vue `FILTERS`), lọc PHÍA SERVER qua
+    `_dieu_kien_loc_trang_thai_don` thay vì client tự lọc mảng đã tải.
+    `None`/rỗng = không lọc, giữ NGUYÊN hành vi cũ cho mọi caller không
+    truyền tham số này.
+
     Đếm `tong` qua `frappe.get_list` (không phải `frappe.db.count`/
     `frappe.get_all`) — Sales Order được scoping theo khách hàng qua
     `permission_query_conditions` (hooks.py), `get_all`/`db.count` BỎ QUA
-    tầng đó và sẽ đếm lẫn đơn của khách khác.
+    tầng đó và sẽ đếm lẫn đơn của khách khác. `frappe.db.count` cũng KHÔNG
+    nhận `or_filters` (cần cho nhánh "Đã huỷ" ở trên) — `get_list` nhận cả
+    hai, và vẫn tôn trọng scoping.
     """
-    tong = frappe.get_list("Sales Order", fields=["count(name) as tong"])[0].tong
+    filters, or_filters = [], None
+    if trang_thai:
+        filters, or_filters = _dieu_kien_loc_trang_thai_don(trang_thai)
+
+    tong = frappe.get_list(
+        "Sales Order", filters=filters, or_filters=or_filters,
+        fields=["count(name) as tong"],
+    )[0].tong
     rows = frappe.get_list(
         "Sales Order",
+        filters=filters, or_filters=or_filters,
         # review (Phần C báo thiếu) — custom_loai_don/workflow_state/
         # custom_yeu_cau_goc: danh sách đơn không phân biệt được đơn "Mua
         # lẻ" với "Theo HĐNT" (badge/icon giỏ 2 ngăn), và không biết đơn nào
