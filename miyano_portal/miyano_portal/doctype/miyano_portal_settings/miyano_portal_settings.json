@@ -8,7 +8,6 @@
   "nguong_duyet_2_tang",
   "sla_xu_ly_don_gio",
   "sec_mua_le",
-  "price_list_ban_le",
   "hieu_luc_bao_gia_ngay",
   "sla_yeu_cau_gio",
   "sec_du_tru",
@@ -39,12 +38,6 @@
    "fieldname": "sec_mua_le",
    "fieldtype": "Section Break",
    "label": "Mua lẻ & yêu cầu hàng hoá"
-  },
-  {
-   "fieldname": "price_list_ban_le",
-   "fieldtype": "Link",
-   "label": "Price List bán lẻ",
-   "options": "Price List"
   },
   {
    "default": "7",

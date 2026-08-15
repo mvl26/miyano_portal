@@ -41,24 +41,6 @@ def dam_bao_duoc_mua_le(customer: str) -> None:
         )
 
 
-def price_list_ban_le() -> str:
-    """BR-R3 / VĐ-12 — Price List bán lẻ PHẢI được cấu hình trước khi bật
-    nhánh mua lẻ. KHÔNG rơi về danh mục rỗng lặng lẽ: một Settings chưa được
-    lưu (`tabSingles` rỗng, xem `patches/v1_6/seed_portal_settings_defaults.py`)
-    và một Settings CỐ Ý để trống trường này đều phải dừng ở đây với thông
-    điệp rõ ràng, không phải trả `catalog=[]` khiến khách tưởng "không có
-    hàng bán lẻ" trong khi thật ra là "chưa ai cấu hình".
-    """
-    pl = frappe.db.get_single_value("Miyano Portal Settings", "price_list_ban_le")
-    if not pl:
-        frappe.throw(
-            "Chưa cấu hình Price List bán lẻ (Miyano Portal Settings). "
-            "Vui lòng liên hệ quản trị viên hệ thống.",
-            frappe.ValidationError,
-        )
-    return pl
-
-
 def hieu_luc_bao_gia_ngay() -> int:
     """BR-R5 — mặc định 7 ngày.
 

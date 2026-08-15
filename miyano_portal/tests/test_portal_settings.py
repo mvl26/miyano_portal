@@ -3,8 +3,14 @@
 `00_INDEX.md` xếp cả hai là việc chung P0, làm trước mọi epic: E2 đọc
 `nguong_duyet_2_tang` + `sla_xu_ly_don_gio`, E4 đọc
 `nguong_cham_luan_chuyen_ngay`, E5 đọc `so_ngay_adu` +
-`so_ngay_du_lieu_toi_thieu`, E6 đọc `price_list_ban_le` +
-`hieu_luc_bao_gia_ngay` + `sla_yeu_cau_gio`.
+`so_ngay_du_lieu_toi_thieu`, E6 đọc `hieu_luc_bao_gia_ngay` +
+`sla_yeu_cau_gio`.
+
+Việc dọn xoá — `price_list_ban_le` từng ở đây (BR-R3/VĐ-12) nhưng thiết kế
+lại mua lẻ §4.5 đã bỏ hẳn việc tra giá qua Price List cấu hình sẵn (đơn mua
+lẻ vào "Chờ xác nhận" với `rate = 0`, sales điền giá sau) — trường và hàm
+`portal_mua_le.price_list_ban_le()` hết caller, xoá bằng patch
+`patches/v1_16/xoa_price_list_ban_le_settings.py`.
 """
 
 import frappe
@@ -23,7 +29,6 @@ class TestMiyanoPortalSettings(FrappeTestCase):
         mong_doi = {
             "nguong_duyet_2_tang": "Currency",
             "sla_xu_ly_don_gio": "Int",
-            "price_list_ban_le": "Link",
             "hieu_luc_bao_gia_ngay": "Int",
             "sla_yeu_cau_gio": "Int",
             "so_ngay_adu": "Int",

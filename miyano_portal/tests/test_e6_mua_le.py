@@ -8,8 +8,8 @@ Fixtures riêng của module này (KHÔNG sửa `setup/seed_demo.py`): một Pri
 List bán lẻ + hai item bán lẻ, gắn thêm vào dữ liệu `seed_demo()` sẵn có
 (Bệnh viện Bạch Mai có HĐNT với VT0005/HC0009). `FrappeTestCase` rollback
 một lần mỗi CLASS — mỗi `setUp` tự đặt lại field có thể bị ca trước bẻ
-(`custom_cho_phep_mua_le`, `price_list_ban_le`...) để các test method trong
-cùng class không ăn theo trạng thái của nhau.
+(`custom_cho_phep_mua_le`...) để các test method trong cùng class không ăn
+theo trạng thái của nhau.
 """
 
 import json
@@ -44,9 +44,12 @@ def _kho_mac_dinh():
 
 
 def _dam_bao_item_ban_le(item_code: str, ten: str, gia) -> None:
-    """Item bật `custom_ban_le_portal`, có Item Default (company/kho) để
-    `resolve_ban_le_company` suy được company, và (tuỳ `gia`) một dòng
-    Item Price trong `PL_BAN_LE`."""
+    """Item với Item Default (company/kho) để `resolve_ban_le_company` suy
+    được company, và (tuỳ `gia`) một dòng Item Price trong `PL_BAN_LE`.
+
+    Việc 2(a) — KHÔNG còn set `custom_ban_le_portal`: cờ này đã xoá (custom
+    field xoá bằng `patches/v1_16/xoa_custom_field_ban_le_portal.py`), danh
+    mục lẻ không lọc theo nó từ thiết kế lại §4.1."""
     kho = _kho_mac_dinh()
     if not frappe.db.exists("Item", item_code):
         doc = frappe.get_doc({
@@ -57,17 +60,15 @@ def _dam_bao_item_ban_le(item_code: str, ten: str, gia) -> None:
             "stock_uom": "Cái",
             "is_stock_item": 1,
             "description": "Hộp 10 cái",
-            "custom_ban_le_portal": 1,
         })
         if kho:
             doc.append("item_defaults", {"company": COMPANY, "default_warehouse": kho})
         doc.insert(ignore_permissions=True)
     else:
         doc = frappe.get_doc("Item", item_code)
-        doc.custom_ban_le_portal = 1
         if kho and not any(d.company == COMPANY and d.default_warehouse for d in doc.item_defaults):
             doc.append("item_defaults", {"company": COMPANY, "default_warehouse": kho})
-        doc.save(ignore_permissions=True)
+            doc.save(ignore_permissions=True)
 
     existing = frappe.db.get_value(
         "Item Price", {"item_code": item_code, "price_list": PL_BAN_LE, "selling": 1}, "name"
@@ -98,7 +99,6 @@ def _seed_mua_le():
             "selling": 1, "currency": "VND",
         }).insert(ignore_permissions=True)
 
-    frappe.db.set_single_value("Miyano Portal Settings", "price_list_ban_le", PL_BAN_LE)
     frappe.db.set_single_value("Miyano Portal Settings", "hieu_luc_bao_gia_ngay", 7)
 
     frappe.db.set_value("Customer", BVBM, "custom_cho_phep_mua_le", 1)
@@ -107,18 +107,9 @@ def _seed_mua_le():
     _dam_bao_item_ban_le(RETAIL_CO_GIA, "Khẩu trang y tế lẻ", 25000)
     _dam_bao_item_ban_le(RETAIL_THIEU_GIA, "Kit test nhanh lẻ", None)
 
-    # VT_HDNT đã thuộc HĐNT của BVBM (seed_demo) — gắn thêm cờ bán lẻ để
-    # dựng đúng tình huống BR-R7: một mặt hàng CÓ MẶT ở cả hai danh mục.
-    frappe.db.set_value("Item", VT_HDNT, "custom_ban_le_portal", 1)
-    # thiết kế lại mua lẻ §4.1 — HC0009 KHÔNG bật custom_ban_le_portal:
-    # trước đây bị lọc khỏi danh mục lẻ; giờ filter đó đã bỏ nên PHẢI xuất
-    # hiện (test_danh_muc_khong_con_loc_theo_custom_ban_le_portal).
-    frappe.db.set_value("Item", "HC0009", "custom_ban_le_portal", 0)
-
-    # §4.5 — item KHÔNG hoạt động (disabled=1): thay thế fixture
-    # "custom_ban_le_portal" cũ cho phòng thủ tầng hai của `_xay_don_ban_le`
-    # (§4.1 bỏ hẳn cờ đó khỏi điều kiện thành viên danh mục, retarget sang
-    # `disabled`).
+    # §4.5 — item KHÔNG hoạt động (disabled=1) là chốt phòng thủ tầng hai
+    # của `_xay_don_ban_le` (§4.1 chỉ còn `disabled` làm điều kiện thành
+    # viên danh mục, `custom_ban_le_portal` đã xoá — Việc 2(a)).
     _dam_bao_item_ban_le(RETAIL_NGUNG_KD, "Hàng ngừng kinh doanh", None)
     frappe.db.set_value("Item", RETAIL_NGUNG_KD, "disabled", 1)
 
@@ -137,20 +128,24 @@ class TestCatalogBanLe(FrappeTestCase):
 
     # ---------- thiết kế lại mua lẻ §4.1 — bỏ lọc custom_ban_le_portal ----------
     def test_danh_muc_khong_con_loc_theo_custom_ban_le_portal(self):
-        """HC0009 KHÔNG bật `custom_ban_le_portal` — trước đây bị lọc khỏi
-        danh mục lẻ (BR-R6 cũ), giờ danh mục là TOÀN BỘ `Item` với
-        `disabled=0` (§4.1: "khách không cần biết Miyano có gì"). Dùng
-        `tim_kiem` để khoanh kết quả về đúng fixture, không đọc cả `tabItem`
-        của site (seed_demo/demo_kho_flow còn nhiều Item khác)."""
+        """HC0009 không hề nằm trong fixture "bán lẻ" — trước đây một cờ
+        `custom_ban_le_portal` (BR-R6 cũ) quyết định thành viên danh mục,
+        giờ danh mục là TOÀN BỘ `Item` với `disabled=0` (§4.1: "khách không
+        cần biết Miyano có gì"). Cờ đó đã xoá hẳn (Việc 2(a),
+        `patches/v1_16/xoa_custom_field_ban_le_portal.py`), tên test giữ
+        nguyên để chỉ thẳng chốt hồi quy đang bảo vệ. Dùng `tim_kiem` để
+        khoanh kết quả về đúng fixture, không đọc cả `tabItem` của site
+        (seed_demo/demo_kho_flow còn nhiều Item khác)."""
         frappe.set_user(USER_BVBM)
         out = portal.portal_catalog_ban_le(tim_kiem="HC0009")["items"]
         ma = {r["item_code"] for r in out}
-        self.assertIn("HC0009", ma, "filter custom_ban_le_portal phải đã bị bỏ (§4.1)")
+        self.assertIn("HC0009", ma, "danh mục không được lọc theo bất kỳ cờ bán lẻ nào (§4.1)")
 
     def test_danh_muc_van_gom_ca_item_da_bat_co_ban_le_cu(self):
-        """Item vẫn còn cờ `custom_ban_le_portal=1` từ dữ liệu cũ (RETAIL_CO_
-        GIA, RETAIL_THIEU_GIA) không được biến mất chỉ vì cờ đó không còn ý
-        nghĩa lọc — chúng hợp lệ vì có `disabled=0`, không phải vì cờ cũ."""
+        """RETAIL_CO_GIA/RETAIL_THIEU_GIA (item bình thường, không còn cờ gì
+        đặc biệt kể từ khi `custom_ban_le_portal` bị xoá) vẫn phải xuất
+        hiện trong danh mục — chúng hợp lệ vì có `disabled=0`, không nhờ
+        một cờ bán lẻ nào."""
         frappe.set_user(USER_BVBM)
         out = portal.portal_catalog_ban_le(tim_kiem="RTL-E6-00")["items"]
         ma = {r["item_code"] for r in out}
@@ -316,8 +311,8 @@ class TestDatHangBanLe(FrappeTestCase):
         """`tabItem` chạy collation `utf8mb4_unicode_ci` (case-insensitive):
         MariaDB coi "vt0005" và "VT0005" là CÙNG một bản ghi, nhưng phép so
         `item_code in thuoc_hdnt` (Python `in` trên `set`) không biết điều
-        đó. Gửi thẳng mã viết thường của mặt hàng dual-listed (thuộc HĐNT
-        hiệu lực + có custom_ban_le_portal=1) — PHẢI vẫn bị BR-R7 chặn, và
+        đó. Gửi thẳng mã viết thường của mặt hàng dual-listed (VT_HDNT —
+        thuộc HĐNT hiệu lực CỦA seed_demo) — PHẢI vẫn bị BR-R7 chặn, và
         lỗi phải báo đúng mã CHÍNH TẮC (không phải chuỗi thô client gõ) vì
         đó là mã Frappe thực sự sẽ lưu nếu chốt không chặn kịp."""
         rid = _rid()

@@ -43,3 +43,5 @@ miyano_portal.patches.v1_15.loc_dong_giu_cho_khoi_mau_xac_nhan_don_hang
 miyano_portal.patches.v1_15.doi_nhan_hop_dong_khung
 miyano_portal.patches.v1_15.gioi_han_bao_gia_pdf_mua_le
 miyano_portal.patches.v1_15.dong_bo_dinh_dang_tien_bao_gia
+miyano_portal.patches.v1_16.xoa_custom_field_ban_le_portal
+miyano_portal.patches.v1_16.xoa_price_list_ban_le_settings

@@ -188,10 +188,8 @@ async function loadLe(noiTiep = false) {
       if (mode.value === 'le') mode.value = 'hd'
       leError.value = e.message || 'Đơn vị của bạn chưa được bật chế độ Mua lẻ.'
     } else {
-      // VĐ-12 (Price List bán lẻ chưa cấu hình) hoặc lỗi khác — hiện thông
-      // điệp thật tại ngăn Mua lẻ, không chôn trong một nhánh không ai vào
-      // được (đúng điều `portal_mua_le.price_list_ban_le()` viết ra để tránh
-      // — "KHÔNG rơi về danh mục rỗng lặng lẽ").
+      // Lỗi khác (mạng, server 5xx...) — hiện thông điệp thật tại ngăn Mua
+      // lẻ, không chôn trong một nhánh không ai vào được.
       leError.value = e.message || 'Không tải được danh mục mua lẻ.'
     }
   } finally {
