@@ -1107,6 +1107,44 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     return {"rows": rows, "tong": tong}
 
 
+def _dem_don_theo_trang_thai(trang_thai: str) -> int:
+    filters, or_filters = _dieu_kien_loc_trang_thai_don(trang_thai)
+    return frappe.get_list(
+        "Sales Order", filters=filters, or_filters=or_filters,
+        fields=["count(name) as n"],
+    )[0].n
+
+
+@frappe.whitelist()
+def portal_dashboard_kpi() -> dict:
+    """Brief 2026-08-16 (vá hồi quy phân trang) — Dashboard.vue trước đây
+    suy 3 ô KPI (đơn chờ xác nhận/đang giao, hoá đơn chưa thanh toán) từ
+    DANH SÁCH ĐÃ PHÂN TRANG (`portal_order_history`/`portal_invoices`, limit
+    mặc định 10/20). Với `limit=10`, một khách có 15 đơn "Chờ xác nhận" thật
+    chỉ thấy ô hiện một con số nhỏ hơn — SAI trên đúng màn đầu tiên khách
+    nhìn thấy mỗi lần đăng nhập, hỏng niềm tin vào toàn bộ số liệu của cổng.
+
+    Ba con số ở đây LUÔN đếm trên TOÀN BỘ dữ liệu của khách (không limit/
+    start), độc lập với cỡ trang khách đang chọn ở Orders.vue/Invoices.vue.
+    "Tổng công nợ" KHÔNG có ở đây — `portal_me().outstanding` đã là một truy
+    vấn tổng hợp riêng từ trước, không suy từ danh sách phân trang, nên
+    không phải hồi quy của đợt này.
+
+    Đếm qua `frappe.get_list` (không phải `get_all`/`db.count`) — Sales
+    Order/Sales Invoice được scoping theo khách hàng qua
+    `permission_query_conditions` (hooks.py); `get_all`/`db.count` bỏ qua
+    tầng đó và sẽ đếm lẫn dữ liệu khách khác.
+    """
+    return {
+        "don_cho_xac_nhan": _dem_don_theo_trang_thai("Chờ xác nhận"),
+        "don_dang_giao": _dem_don_theo_trang_thai("Đang giao"),
+        "hoa_don_chua_thanh_toan": frappe.get_list(
+            "Sales Invoice", filters={"outstanding_amount": [">", 0]},
+            fields=["count(name) as n"],
+        )[0].n,
+    }
+
+
 @frappe.whitelist()
 def portal_order_track(order) -> dict:
     so = frappe.get_doc("Sales Order", order)

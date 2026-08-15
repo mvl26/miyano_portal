@@ -407,3 +407,115 @@ class TestPortalOrderHistoryLocTrangThaiPhiaServer(FrappeTestCase):
             self.assertEqual({r["name"] for r in khong_truyen["rows"]}, {r["name"] for r in rong["rows"]})
         finally:
             frappe.set_user("Administrator")
+
+
+DEBIT_TO = "Debtors - MYN"
+INCOME_ACCOUNT = "Sales - MYN"
+COST_CENTER = "Main - MYN"
+
+
+def _tao_hoa_don_test(customer, no=True):
+    """Sales Invoice SUBMIT, `update_stock=0` (không cần Delivery Note) —
+    cùng khuôn `_tao_si` (test_e7_hddt.py). `no=True` để lại `outstanding_
+    amount > 0` (chưa thanh toán); `no=False` thanh toán đủ ngay để loại
+    khỏi KPI "chưa thanh toán"."""
+    si = frappe.new_doc("Sales Invoice")
+    si.company = COMPANY
+    si.customer = customer
+    si.posting_date = frappe.utils.today()
+    si.set_posting_time = 1
+    si.debit_to = DEBIT_TO
+    si.update_stock = 0
+    si.append("items", {
+        "item_code": "VT0005", "qty": 1, "rate": 1000,
+        "income_account": INCOME_ACCOUNT, "cost_center": COST_CENTER,
+    })
+    si.insert(ignore_permissions=True)
+    si.submit()
+    if not no:
+        # `Payment Entry.set_missing_values` gọi thẳng `frappe.has_permission
+        # (throw=True)` bất kể `ignore_permissions` của `insert()` — BẪY
+        # riêng của doctype này (khác Sales Order/Sales Invoice). Tạo tạm
+        # bằng Administrator rồi trả lại phiên BM_USER cho phần còn lại của
+        # test.
+        nguoi_dang_goi = frappe.session.user
+        frappe.set_user("Administrator")
+        try:
+            pe = frappe.get_doc({
+                "doctype": "Payment Entry", "payment_type": "Receive", "company": COMPANY,
+                "party_type": "Customer", "party": customer, "paid_amount": si.grand_total,
+                "received_amount": si.grand_total, "paid_from": DEBIT_TO,
+                "paid_to": "Cash - MYN", "references": [{
+                    "reference_doctype": "Sales Invoice", "reference_name": si.name,
+                    "allocated_amount": si.grand_total,
+                }],
+            })
+            pe.insert(ignore_permissions=True)
+            pe.submit()
+        finally:
+            frappe.set_user(nguoi_dang_goi)
+    si.reload()
+    return si
+
+
+class TestPortalDashboardKpiKhongPhuThuocPhanTrang(FrappeTestCase):
+    """Brief 2026-08-16 — Dashboard.vue trước đây suy 3 ô KPI (đơn chờ xác
+    nhận/đang giao, hoá đơn chưa thanh toán) từ DANH SÁCH ĐÃ PHÂN TRANG
+    (`portal_order_history`/`portal_invoices`, limit mặc định 20/10 tuỳ nơi
+    gọi). Với `limit=10`, khách có 15 đơn "Chờ xác nhận" thật chỉ thấy ô
+    hiện 3-10 — hỏng NGAY màn đầu tiên khách nhìn thấy mỗi lần đăng nhập."""
+
+    def test_kpi_dem_toan_bo_khong_phu_thuoc_limit_cua_danh_sach(self):
+        frappe.set_user(BM_USER)
+        try:
+            SO_LUONG = 15  # > mọi limit Dashboard.vue từng dùng (10/20)
+            for _ in range(SO_LUONG):
+                _tao_don_test(BVBM, "Chờ khách đồng ý")
+
+            # Ground truth độc lập — cùng cách lỗi 1 đã canh: đếm tay trên
+            # TOÀN BỘ danh sách (limit lớn), không dựa số cố định vì site có
+            # dữ liệu demo sẵn khác thuộc cùng khách hàng.
+            tat_ca = portal.portal_order_history(limit=1000, start=0)["rows"]
+            dem_that = sum(1 for r in tat_ca if r["status_vi"] == "Chờ xác nhận")
+            self.assertGreaterEqual(dem_that, SO_LUONG)
+
+            # Trang ĐẦU limit=10 (đúng cỡ Dashboard.vue cũ dùng) không thể
+            # đủ chỗ cho toàn bộ — canh giữ kịch bản bug (KPI giả thấp) còn
+            # tái hiện được nếu ai đó lại suy KPI từ danh sách phân trang.
+            trang_dau = portal.portal_order_history(limit=10, start=0)["rows"]
+            dem_trang_dau = sum(1 for r in trang_dau if r["status_vi"] == "Chờ xác nhận")
+            self.assertLess(
+                dem_trang_dau, dem_that,
+                "phát hiện sai kịch bản test: trang đầu limit=10 phải KHÔNG đủ để canh KPI",
+            )
+
+            kpi = portal.portal_dashboard_kpi()
+            self.assertEqual(
+                kpi["don_cho_xac_nhan"], dem_that,
+                "KPI phải đếm TOÀN BỘ đơn của khách, không phải chỉ trang đầu",
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_kpi_hoa_don_chua_thanh_toan_dem_toan_bo(self):
+        frappe.set_user(BM_USER)
+        try:
+            SO_LUONG = 12  # > limit mặc định `portal_invoices` (20 vẫn ổn,
+            # nhưng Dashboard.vue cũ có thể gọi limit nhỏ hơn — canh > 10)
+            for _ in range(SO_LUONG):
+                _tao_hoa_don_test(BVBM, no=True)
+            _tao_hoa_don_test(BVBM, no=False)  # đã thanh toán — KHÔNG được đếm
+
+            tat_ca = frappe.get_list(
+                "Sales Invoice", filters={"customer": BVBM, "outstanding_amount": [">", 0]},
+                fields=["count(name) as n"],
+            )[0].n
+            self.assertGreaterEqual(tat_ca, SO_LUONG)
+
+            kpi = portal.portal_dashboard_kpi()
+            self.assertEqual(
+                kpi["hoa_don_chua_thanh_toan"], tat_ca,
+                "KPI hoá đơn chưa TT phải đếm TOÀN BỘ, không chỉ trang đầu portal_invoices",
+            )
+        finally:
+            frappe.set_user("Administrator")

@@ -12,14 +12,17 @@ const error = ref('')
 const me = ref(null)
 const contracts = ref([])
 const orders = ref([])
-const invoices = ref([])
+// Brief 2026-08-16 (vá hồi quy phân trang) — trước bản này 3 ô KPI dưới
+// đây tính từ `orders.value`/`invoices.value` (danh sách đã PHÂN TRANG,
+// limit 10/20) — SAI ngay khi khách có nhiều hơn một trang dữ liệu. Giờ
+// lấy từ `portal_dashboard_kpi`, một truy vấn đếm/cộng RIÊNG trên TOÀN BỘ
+// dữ liệu của khách, không phụ thuộc cỡ trang. Không còn cần gọi
+// `portal_invoices` ở màn này — danh sách hoá đơn không hiện ở Dashboard.
+const kpi = ref({ don_cho_xac_nhan: 0, don_dang_giao: 0, hoa_don_chua_thanh_toan: 0 })
 
 const now = new Date()
 const updatedAt = `${fmtDate(now.toISOString())} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
-const kpiPending = computed(() => orders.value.filter((o) => o.status_vi === 'Chờ xác nhận').length)
-const kpiDelivering = computed(() => orders.value.filter((o) => o.status_vi === 'Đang giao').length)
-const kpiUnpaidInvoices = computed(() => invoices.value.filter((i) => Number(i.outstanding_amount || 0) > 0).length)
 const outstanding = computed(() => (me.value ? me.value.outstanding : 0))
 
 const recentOrders = computed(() => orders.value.slice(0, 5))
@@ -27,10 +30,11 @@ const contract = computed(() => (contracts.value.length ? contracts.value[0] : n
 
 onMounted(async () => {
   try {
-    const [meRes, contractsRes, ordersRes] = await Promise.all([
+    const [meRes, contractsRes, ordersRes, kpiRes] = await Promise.all([
       api.call('portal_me'),
       api.call('portal_contracts'),
       api.call('portal_order_history'),
+      api.call('portal_dashboard_kpi'),
     ])
     me.value = meRes
     store.setMe(meRes)
@@ -38,13 +42,7 @@ onMounted(async () => {
     // brief 2026-08-15 (phân trang) — portal_order_history/portal_invoices
     // giờ trả {"rows": [...], "tong": ...} thay vì list trần.
     orders.value = ordersRes?.rows || []
-    // Hoá đơn dùng cho KPI "chưa thanh toán"; lỗi ở đây không chặn dashboard.
-    try {
-      const invRes = await api.call('portal_invoices')
-      invoices.value = invRes?.rows || []
-    } catch (e) {
-      invoices.value = []
-    }
+    kpi.value = kpiRes || kpi.value
   } catch (e) {
     error.value = e.message || 'Không tải được dữ liệu.'
   } finally {
@@ -75,9 +73,9 @@ function orderByContract(contractName) {
     </div>
 
     <div class="kpis">
-      <div class="card kpi"><div class="n">{{ kpiPending }}</div><div class="t">Đơn chờ xác nhận</div></div>
-      <div class="card kpi"><div class="n">{{ kpiDelivering }}</div><div class="t">Đơn đang giao</div></div>
-      <div class="card kpi"><div class="n">{{ kpiUnpaidInvoices }}</div><div class="t">Hoá đơn chưa thanh toán</div></div>
+      <div class="card kpi"><div class="n">{{ kpi.don_cho_xac_nhan }}</div><div class="t">Đơn chờ xác nhận</div></div>
+      <div class="card kpi"><div class="n">{{ kpi.don_dang_giao }}</div><div class="t">Đơn đang giao</div></div>
+      <div class="card kpi"><div class="n">{{ kpi.hoa_don_chua_thanh_toan }}</div><div class="t">Hoá đơn chưa thanh toán</div></div>
       <div class="card kpi">
         <div class="n" style="color: var(--red)">{{ fmtVNDShort(outstanding) }}</div>
         <div class="t">Tổng công nợ</div>
