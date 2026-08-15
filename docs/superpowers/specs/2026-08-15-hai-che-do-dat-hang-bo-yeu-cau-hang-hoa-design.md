@@ -124,18 +124,24 @@ Khi ô tìm kiếm không ra kết quả: mở sẵn khối này và **prefill t
 
 **Ở `Cart.vue`, ngăn Mua lẻ:** hiện các dòng đặt ngoài thành một nhóm riêng dưới nhóm hàng có mã, tiêu đề **"Hàng chưa có mã — Miyano sẽ tìm nguồn"**, sửa/xoá được tại chỗ. Gửi lên qua tham số `dat_ngoai` đã có sẵn của `portal_order_place`.
 
-#### Đơn chỉ có dòng đặt ngoài — QUYẾT ĐỊNH ĐANG MỞ
+#### Đơn chỉ có dòng đặt ngoài — Item giữ chỗ
 
-Hôm nay `portal_order_place(mode="ban_le")` **từ chối** đơn có `items` rỗng. Đã kiểm thực nghiệm và ghi trong `api/portal.py:655–661`: ERPNext **không lưu nổi** một `Sales Order` với bảng `items` rỗng (crash ở `accounts_controller.set_payment_schedule`, `grand_total` là `None`). Đó là giới hạn thật của framework, không phải lựa chọn.
+Hôm nay `portal_order_place(mode="ban_le")` **từ chối** đơn có `items` rỗng. Ghi chú ở `api/portal.py:655–661` đúng: ERPNext không lưu nổi `Sales Order` với bảng `items` rỗng (crash ở `accounts_controller.set_payment_schedule`, `grand_total` là `None`).
 
-Nhưng hệ quả nghiệp vụ đi **ngược nguyên tắc nền của chính tài liệu này**: khách cần ba món Miyano chưa có mã thì **không đặt được đơn nào cả** — đúng tình huống mà nhóm "đặt ngoài" sinh ra để phục vụ.
+Nhưng chặn thẳng thì khách cần ba món Miyano chưa có mã sẽ **không đặt được đơn nào cả** — ngược đúng nguyên tắc nền của tài liệu này. **Quyết định của chủ dự án: dùng Item giữ chỗ.**
 
-Hai lối ra, chờ chủ dự án chọn (§8.6):
+**Đã kiểm thực nghiệm trên `erptest.local`** (spike có rollback, site không đổi): `Sales Order` với đúng một dòng `Item` `is_stock_item = 0`, `qty = 1`, `rate = 0` **lưu được**, `grand_total = 0.0`, `docstatus = 0`. Không phải suy diễn.
 
-- **(A) Item giữ chỗ.** Tạo một `Item` không quản kho `HANG-DAT-NGOAI` (`is_stock_item = 0`) có Item Default để `resolve_ban_le_company()` suy được công ty. Đơn toàn hàng chưa có mã vẫn lập được với một dòng giữ chỗ SL 1, giá 0; sales thay bằng dòng thật khi khớp mã. Chốt `before_submit` sẵn có vẫn chặn xác nhận khi còn dòng chưa xử lý, nên không có gì giao đi khi chưa giải quyết xong. Giá phải trả: một dòng giữ chỗ hiện trên chứng từ cho tới lúc sales xử lý.
-- **(B) Chặn, báo rõ.** Client chặn sớm: *"Đơn cần ít nhất một mặt hàng chọn từ danh mục."* Không có dòng lạ trên chứng từ, nhưng khách rơi vào tình huống trên thì bế tắc.
+Thiết kế:
 
-**Chưa chốt thì chưa viết kế hoạch triển khai cho phần này.**
+- Một `Item` kỹ thuật **`HANG-DAT-NGOAI`** — "Hàng đặt ngoài (chờ Miyano khớp mã)", `is_stock_item = 0`, tạo qua patch idempotent.
+- **Chỉ chèn khi giỏ Mua lẻ không có mặt hàng thật nào.** Giỏ hỗn hợp **không** được chèn dòng này.
+
+  Đây là ràng buộc cứng, không phải tuỳ chọn: `resolve_ban_le_company()` **giao** tập company của **mọi** mặt hàng trong giỏ (`portal_mua_le.py:270–280`). Thêm `HANG-DAT-NGOAI` vào một giỏ hỗn hợp sẽ thu hẹp phép giao và có thể làm **rỗng** nó — tức là làm hỏng một đơn vốn đang hợp lệ. Chèn vô điều kiện là tự tạo ra lỗi mà giỏ hỗn hợp hôm nay không có.
+- `HANG-DAT-NGOAI` phải có `Item Default` với `default_warehouse` khai cho company mặc định toàn hệ thống — nếu không `resolve_ban_le_company()` trả `None` và đơn bị từ chối vì lý do khác. Patch phải khai luôn, không để admin tự nhớ.
+- Dòng giữ chỗ: `qty = 1`, `rate = 0`. Sales thay bằng dòng thật khi khớp mã; chốt `before_submit` sẵn có vẫn chặn xác nhận khi còn dòng `custom_dat_ngoai` chưa xử lý, nên không có gì giao đi khi chưa giải quyết xong.
+- **Trên cổng, khách không bao giờ nhìn thấy dòng này.** `portal_order_track`/`portal_order_history`/`OrderDetail.vue` lọc bỏ `HANG-DAT-NGOAI` khỏi danh sách hàng; khách chỉ thấy nhóm "Đang chờ Miyano xác nhận nguồn". Dòng giữ chỗ là chi tiết kỹ thuật nội bộ — để nó lọt ra cổng là đúng thứ nguyên tắc nền cấm.
+- **PDF báo giá cũng lọc bỏ dòng này** — vì cùng lý do.
 
 **Ở `OrderDetail.vue`:** đơn Mua lẻ hiện hai nhóm tách bạch — hàng có mã, và **"Đang chờ Miyano xác nhận nguồn"** cho các dòng `custom_dat_ngoai` chưa có `item_khop`. Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi chú nhỏ "(từ yêu cầu: <tên khách gõ>)" để khách đối chiếu được cái mình gõ với cái Miyano khớp.
 
@@ -201,7 +207,10 @@ Email gửi hỏng **không được chặn việc chuyển trạng thái** — 
 | `Portal Item Request` vẫn tạo/đọc được bằng tài khoản nhân viên Desk | Bỏ khỏi cổng không làm hỏng back-office |
 | Khách MỚI tạo (chưa ai đụng cờ) gọi `portal_catalog_ban_le` → 200 | Mặc định BẬT có hiệu lực |
 | Khách bị tắt cờ thủ công → vẫn 403 `khong_duoc_mua_le` | Đổi mặc định không phải bỏ chốt |
-| `portal_order_place(mode="ban_le")` với chỉ dòng `dat_ngoai`, `items` rỗng → lỗi rõ ràng | Giới hạn ERPNext được xử lý tử tế, không nổ traceback |
+| `portal_order_place(mode="ban_le")` chỉ có dòng `dat_ngoai` → đơn lập được, có đúng 1 dòng `HANG-DAT-NGOAI` | Khách toàn hàng lạ vẫn đặt được — đúng nguyên tắc nền |
+| Giỏ **hỗn hợp** (hàng thật + dòng đặt ngoài) → **KHÔNG** có dòng `HANG-DAT-NGOAI` | Không phá `resolve_ban_le_company()` của đơn vốn hợp lệ |
+| `portal_order_track` và PDF báo giá của đơn có dòng giữ chỗ → **không** chứa `HANG-DAT-NGOAI` | Chi tiết kỹ thuật không lọt ra phía khách |
+| Đơn chỉ có dòng giữ chỗ, dòng đặt ngoài chưa khớp mã → `before_submit` chặn | Không giao đi thứ chưa ai xử lý |
 | Đơn có dòng đặt ngoài đã khớp mã → PDF báo giá chứa dòng đó | Khách không nhận báo giá thiếu món |
 | `portal_bao_gia_pdf` với tên đơn của khách KHÁC → chặn | Cách ly dữ liệu theo phiên |
 | `portal_bao_gia_pdf` khi đơn còn nháp (chưa gửi khách) → chặn | Không lộ giá sales chưa chốt |
@@ -245,5 +254,5 @@ Không sửa đè thiết kế 14/08 — nó là lịch sử của commit `55467
 3. **Bỏ ba getter `cartLe*` khỏi `store.js` sẽ làm mọi chỗ đang gọi chúng thành `undefined` chứ không báo lỗi.** Grep toàn bộ `frontend/src` cho `cartLeTotal`, `cartLeSubtotal`, `cartLeVat` trước khi xoá.
 4. **Build lại SPA** (`bench build --app miyano_portal`) — `public/frontend/index.js` là bản dựng sẵn, không tự cập nhật theo `frontend/src`.
 5. **Không thêm state/transition workflow nào.** `"Chờ xác nhận" --[Gửi khách duyệt]--> "Chờ khách đồng ý"` đã có từ `patches/v1_4`. Thêm transition trùng là sinh dòng thừa trong workflow đang chạy.
-6. **§3.4 còn một quyết định mở** (đơn chỉ có dòng đặt ngoài — Item giữ chỗ hay chặn). Phần còn lại của spec triển khai được ngay; riêng phần này chờ chốt.
+6. **`HANG-DAT-NGOAI` chỉ chèn khi giỏ không còn mặt hàng thật nào** — xem §3.4. Chèn vô điều kiện sẽ làm hỏng đơn giỏ hỗn hợp qua `resolve_ban_le_company()`. Phải có test cho đúng tình huống này.
 7. **Chạy `bench migrate` trên site trước khi test** — patch đổi mặc định `custom_cho_phep_mua_le` phải chạy, nếu không test "khách mới mặc định mua lẻ được" sẽ đỏ vì lý do sai.
