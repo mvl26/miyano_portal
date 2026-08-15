@@ -351,6 +351,11 @@ doc_events = {
 			# Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi
 			# còn dòng "đặt ngoài" chưa xử lý (chưa khớp `item_khop`).
 			"miyano_portal.portal_mua_le.kiem_dat_ngoai_da_xu_ly",
+			# Việc thêm (controller, ngoài Task 9) — CHỐT MỚI, cạnh chốt trên:
+			# chốt trên chỉ nhìn `custom_dat_ngoai`, không nhìn `items` — nên
+			# không bắt được dòng giữ chỗ `ITEM_GIU_CHO` còn sót lại trong
+			# `items` dù mọi dòng đặt ngoài đã khớp mã. Xem docstring hàm.
+			"miyano_portal.portal_mua_le.kiem_khong_con_dong_giu_cho",
 		],
 	},
 }

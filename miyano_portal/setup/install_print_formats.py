@@ -14,12 +14,14 @@ HTML = """
   </tr></thead>
   <tbody>
   {% for i in doc.items %}
+    {%- if not la_dong_giu_cho(i.item_code) %}
     <tr>
       <td>{{ i.item_code }}</td><td>{{ i.item_name }}</td>
       <td class="text-right">{{ i.qty }}</td>
       <td class="text-right">{{ "{:,.0f}".format(i.rate) }} ₫</td>
       <td class="text-right">{{ "{:,.0f}".format(i.amount) }} ₫</td>
     </tr>
+    {%- endif %}
   {% endfor %}
   </tbody>
 </table>

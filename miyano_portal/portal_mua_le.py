@@ -197,6 +197,35 @@ def kiem_dat_ngoai_da_xu_ly(doc, method=None) -> None:
     )
 
 
+def kiem_khong_con_dong_giu_cho(doc, method=None) -> None:
+    """Việc thêm (controller, ngoài Task 9) — CHỐT MỚI, cạnh
+    `kiem_dat_ngoai_da_xu_ly`: chốt đó chỉ nhìn `custom_dat_ngoai` (còn dòng
+    nào chưa khớp `item_khop` hay không), KHÔNG hề nhìn `items` — nên một
+    đơn có TẤT CẢ dòng đặt ngoài đã khớp mã (chốt kia hài lòng) vẫn có thể
+    submit trong khi dòng giữ chỗ `ITEM_GIU_CHO` còn nằm nguyên trong
+    `items`, vì không có gì bắt sales GỠ nó ra sau khi khớp mã xong.
+
+    VÌ SAO CẦN: `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ (đã lọc khỏi
+    `portal_order_track` — xem `la_dong_giu_cho` — và khỏi mẫu in "Miyano -
+    Báo giá"), nhưng mẫu in "Miyano - Xác nhận đơn hàng" (chứng từ khách
+    THẬT SỰ nhận sau khi đơn được duyệt) không lọc nó. Không có chốt này,
+    một đơn toàn hàng chưa có mã có thể được xác nhận và giao trong khi
+    khách nhận PDF xác nhận có một dòng "HANG-DAT-NGOAI" vô nghĩa với họ.
+
+    Ở `before_submit`, CẠNH `kiem_dat_ngoai_da_xu_ly` (đăng ký cùng chỗ
+    trong `hooks.py::doc_events["Sales Order"]["before_submit"]`) — cùng lý
+    do: field `items`/`custom_dat_ngoai` không `allow_on_submit`, nên chốt
+    chỉ cần đứng đúng MỘT lần, ở đây.
+    """
+    if any(la_dong_giu_cho(i.item_code) for i in doc.get("items") or []):
+        frappe.throw(
+            f"Đơn còn dòng giữ chỗ kỹ thuật ({ITEM_GIU_CHO}). Gỡ dòng này khỏi "
+            "danh sách hàng và thay bằng dòng hàng thật đã khớp mã trước khi "
+            "xác nhận đơn.",
+            frappe.ValidationError,
+        )
+
+
 def la_dong_giu_cho(item_code) -> bool:
     """Dùng CHUNG bởi Python và Jinja (đăng ký trong `hooks.py::jinja`).
 

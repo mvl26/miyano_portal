@@ -39,3 +39,4 @@ miyano_portal.patches.v1_14.install_bao_gia_san_sang_notification
 miyano_portal.patches.v1_15.bat_mua_le_mac_dinh
 miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai
 miyano_portal.patches.v1_15.install_print_format_bao_gia
+miyano_portal.patches.v1_15.loc_dong_giu_cho_khoi_mau_xac_nhan_don_hang
