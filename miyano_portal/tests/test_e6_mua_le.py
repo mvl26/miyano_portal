@@ -1367,3 +1367,141 @@ class TestSuaSoLuong(FrappeTestCase):
         )
         self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
         self.assertEqual(float(frappe.db.get_value("Sales Order Dat Ngoai Item", dn_name, "so_luong")), 8.0)
+
+
+# ---------- Việc 2/brief 2026-08-15 (bao-gia-hai-chieu) — portal_order_huy ----------
+class TestHuyDon(FrappeTestCase):
+    def setUp(self):
+        _seed_mua_le()
+        frappe.flags.mute_emails = True
+        self.addCleanup(frappe.flags.pop, "mute_emails", None)
+        self.addCleanup(frappe.set_user, "Administrator")
+
+    def test_huy_chuyen_khach_huy_docstatus_van_0(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+        self.assertEqual(kq["trang_thai_moi"], "Khách huỷ")
+
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Khách huỷ"
+        )
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "docstatus"), 0,
+            "huỷ THẬT nhưng KHÔNG phải cancel ERPNext — vẫn là nháp, chỉ đóng qua workflow_state",
+        )
+        cmt = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Sales Order", "reference_name": so.name},
+            pluck="content",
+        )
+        self.assertTrue(any("Đặt nhầm" in (c or "") for c in cmt))
+
+    def test_huy_don_khong_o_cho_khach_dong_y_bi_chan(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        frappe.db.set_value(
+            "Sales Order", so.name, "workflow_state", "Chờ xác nhận", update_modified=False
+        )
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+    def test_huy_don_khach_khac_bi_chan(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_PXN)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+    def test_ly_do_qua_ngan_bi_chan(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_huy(so.name, "Ngắn quá")
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Chờ khách đồng ý",
+            "lý do không đạt tối thiểu thì đơn KHÔNG được đổi trạng thái",
+        )
+
+    def test_khong_tai_dung_trang_thai_tu_choi(self):
+        """Đúng bài học `patches/v1_8/mo_rong_workflow_e6.py`: state 'Từ
+        chối' gắn Notification 'Miyano đã từ chối đơn của bạn' — không được
+        tái dùng cho khách tự huỷ."""
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+        self.assertNotEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Từ chối"
+        )
+
+    def test_cap_nhat_yeu_cau_goc_thanh_khach_huy(self):
+        yc = _tao_yeu_cau_da_bao_gia(BVBM, USER_BVBM)
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000, yeu_cau=yc)
+
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value("Portal Item Request", yc, "trang_thai"), "Khách huỷ"
+        )
+
+    def test_gui_email_hai_phia(self):
+        frappe.db.set_value("Customer", BVBM, "account_manager", "sales_user@demo.miyano")
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        frappe.db.set_value("Sales Order", so.name, "contact_email", USER_BVBM, update_modified=False)
+        frappe.db.delete("Email Queue", {"reference_name": so.name})
+
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+        frappe.set_user("Administrator")
+        nguoi_nhan = set(frappe.get_all(
+            "Email Queue Recipient",
+            filters={"parent": ["in", frappe.get_all(
+                "Email Queue", filters={"reference_name": so.name}, pluck="name",
+            )]},
+            pluck="recipient",
+        ))
+        self.assertIn(USER_BVBM, nguoi_nhan, "khách phải nhận email xác nhận đã huỷ")
+        self.assertIn(
+            "sales_user@demo.miyano", nguoi_nhan,
+            "sales phụ trách (Miyano) phải nhận email — 'hai phía'",
+        )
+
+    def test_sales_mo_lai_don_da_huy_ve_cho_xac_nhan(self):
+        """Review I-4 (brief nhắc lại) — state mới PHẢI có lối ra, không
+        được là ngõ cụt khi khách đổi ý."""
+        from frappe.model.workflow import apply_workflow
+
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+        frappe.set_user("Administrator")
+        so.reload()
+        self.assertEqual(so.workflow_state, "Khách huỷ")
+        so = apply_workflow(so, "Mở lại")
+        self.assertEqual(so.workflow_state, "Chờ xác nhận")
+
+    def test_status_vi_bao_da_huy_khong_con_hien_cho_ban_dong_y(self):
+        """Đúng lỗi brief mở đầu: 'khách bấm huỷ xong đơn vẫn hiện chờ bạn
+        đồng ý -> tưởng chưa ăn'. Kiểm CẢ hai endpoint dùng chung
+        `_so_status_vi_full` (track + history)."""
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_huy(so.name, "Đặt nhầm, không cần nữa")
+
+        info = portal.portal_order_track(so.name)
+        self.assertEqual(info["status_vi"], "Đã huỷ")
+        self.assertIsNone(
+            info["chap_nhan"],
+            "đơn đã huỷ không còn ở 'Chờ khách đồng ý' -> không còn banner chấp nhận",
+        )
+
+        rows = portal.portal_order_history()
+        row = next(r for r in rows if r["name"] == so.name)
+        self.assertEqual(row["status_vi"], "Đã huỷ")

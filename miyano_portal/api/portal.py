@@ -1,5 +1,6 @@
 import frappe
 from miyano_portal import einvoice
+from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import get_portal_customer, han_muc_con
 from miyano_portal.portal_dat_hang import (
     kiem_boi_so,
@@ -954,6 +955,18 @@ def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
     """
     if workflow_state == "Báo giá hết hạn":
         return "Báo giá đã hết hiệu lực"
+    # Việc 2/brief 2026-08-15 — cùng lý do trên: `portal_order_huy` huỷ THẬT
+    # (workflow_state = "Khách huỷ") nhưng KHÔNG submit/cancel ERPNext
+    # (`docstatus` vẫn 0 — chỉ Sales Manager mới "Mở lại" được, không phải
+    # cancel hồi phục kiểu ERPNext chuẩn). Không bọc ở đây thì đơn khách vừa
+    # tự huỷ đọc ra y hệt "Chờ xác nhận" đang sống — ĐÚNG lỗi brief mở đầu
+    # đã nêu ("khách bấm huỷ xong đơn vẫn hiện 'chờ bạn đồng ý' -> tưởng
+    # chưa ăn"), chỉ khác chỗ đứng (trước ở `portal_request_cancel`, giờ ở
+    # đây). Dùng lại đúng nhãn "Đã huỷ" mà `_so_status_vi` đã dùng cho
+    # `so_status == "Cancelled"` — cùng badge đỏ `b-red` ở frontend
+    # (`format.js::statusBadge`), không cần sửa gì bên đó.
+    if workflow_state == "Khách huỷ":
+        return "Đã huỷ"
     return _so_status_vi(so_status, per_delivered)
 
 
@@ -2037,3 +2050,67 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     bao_khach_sua_so_luong(customer, so.name, thay_doi)
 
     return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
+
+
+@frappe.whitelist()
+def portal_order_huy(order, ly_do) -> dict:
+    """Việc 2 / brief 2026-08-15 (bao-gia-hai-chieu) — nút Huỷ = HUỶ THẬT.
+
+    Quyết định chủ dự án (brief, mục B): đơn ĐÓNG NGAY, email hai phía —
+    khác hẳn `portal_request_cancel` cũ (chỉ ghi comment + ToDo, KHÔNG đóng
+    đơn — khách bấm xong đơn vẫn hiện "chờ bạn đồng ý", tưởng chưa ăn).
+    `portal_request_cancel` VẪN giữ nguyên cho đơn ĐÃ XÁC NHẬN (`docstatus`
+    khác 0 không huỷ thẳng được qua đường này) — endpoint MỚI này chỉ phục
+    vụ đúng đơn nháp đang "Chờ khách đồng ý".
+
+    Chuyển sang state MỚI "Khách huỷ" (`patches/v1_18/mo_rong_workflow_
+    khach_huy.py`) — KHÔNG tái dùng "Từ chối": state đó gắn Notification
+    "Miyano đã từ chối đơn của bạn", dùng lại sẽ gửi sai thông điệp cho
+    chính khách vừa tự huỷ (bài học đã trả giá, xem docstring patch).
+    """
+    customer = get_portal_customer()
+    so = frappe.get_doc("Sales Order", order)
+    # `frappe.get_doc` KHÔNG tự kiểm quyền — phải tự đối chiếu `customer`
+    # của đơn với khách suy từ PHIÊN, không nhận `customer` từ client.
+    if so.customer != customer:
+        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
+    if so.get("workflow_state") != TRANG_THAI_CHO_KHACH:
+        frappe.throw(
+            "Chỉ huỷ được qua đây khi đơn đang chờ quý khách đồng ý. Đơn đã "
+            "xác nhận, vui lòng dùng chức năng yêu cầu huỷ trên đơn.",
+            frappe.ValidationError,
+        )
+
+    ly_do = (ly_do or "").strip()
+    if len(ly_do) < LY_DO_TOI_THIEU_KHACH:
+        frappe.throw(
+            f"Vui lòng nêu lý do (tối thiểu {LY_DO_TOI_THIEU_KHACH} ký tự).",
+            frappe.ValidationError,
+        )
+
+    nguoi_bam = frappe.session.user
+    from frappe.model.workflow import apply_workflow
+
+    # Cùng khuôn/lý do với `portal_order_accept` — transition "Khách huỷ"
+    # chỉ mở cho "System Manager", không phải role Customer.
+    session = frappe.local.session
+    frappe.local.user_perms = None
+    session.user = "Administrator"
+    try:
+        so = apply_workflow(so, "Khách huỷ")
+        so.add_comment(
+            "Comment", f"[Portal] Khách huỷ đơn bởi {nguoi_bam} — lý do: {ly_do}"
+        )
+    finally:
+        session.user = nguoi_bam
+        frappe.local.user_perms = None
+
+    # US-E6.5 cùng khuôn — ghi vào cạnh "Khách huỷ" mà máy trạng thái
+    # `Portal Item Request` đã dựng sẵn (CHUYEN_TRANG_THAI_HOP_LE, mọi
+    # trạng thái đều cho phép chuyển sang "Khách huỷ"). Phòng thủ, không
+    # ném lỗi (xem docstring `cap_nhat_yeu_cau_goc`).
+    cap_nhat_yeu_cau_goc(so, "Khách huỷ")
+
+    gui_email_khach_huy(so, ly_do)
+
+    return {"trang_thai_moi": so.get("workflow_state")}

@@ -74,6 +74,37 @@ def _gui_email_het_han(so, han_hieu_luc) -> None:
             )
 
 
+def gui_email_khach_huy(so, ly_do: str) -> None:
+    """Việc 2 / brief 2026-08-15 (bao-gia-hai-chieu) — email HAI PHÍA khi
+    khách bấm nút Huỷ ở "Chờ khách đồng ý" (`api/portal.py::portal_order_
+    huy`). Cùng khuôn `_gui_email_het_han`: không bao giờ để lỗi gửi mail
+    chặn hành động chính (đơn đã huỷ THẬT, khách/sales cần biết, không phải
+    ngược lại), gửi được người nào thì gửi người đó.
+    """
+    noi_dung = (
+        f"<p>Đơn <b>{so.name}</b> (khách hàng {so.customer}) đã được "
+        f"<b>chính khách hàng huỷ</b> trên cổng khách hàng.</p>"
+        f"<p>Lý do: {ly_do}</p>"
+    )
+    for nguoi_nhan in {_email_khach(so), _email_sales_phu_trach(so.customer)}:
+        if not nguoi_nhan:
+            continue
+        try:
+            frappe.sendmail(
+                recipients=[nguoi_nhan],
+                subject=f"Đơn {so.name} đã bị khách hàng huỷ",
+                message=noi_dung,
+                reference_doctype="Sales Order",
+                reference_name=so.name,
+                now=False,
+            )
+        except Exception:
+            frappe.log_error(
+                title="portal_bao_gia: gửi email khách huỷ thất bại",
+                message=frappe.get_traceback(),
+            )
+
+
 def quet_bao_gia_het_han(moc=None) -> int:
     """Quét MỌI SO còn ở "Chờ khách đồng ý" (nháp, `docstatus=0`) mà
     `han_hieu_luc_bao_gia(so)` đã trôi qua so với `moc` (mặc định hôm nay).
