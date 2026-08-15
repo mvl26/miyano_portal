@@ -14,6 +14,10 @@ from frappe.utils import add_days, flt, getdate
 
 TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 
+# Spec 2026-08-15 §3.4 — mã kỹ thuật giữ chỗ cho đơn TOÀN hàng chưa có mã.
+# Dựng bởi `patches/v1_15/create_item_giu_cho_dat_ngoai.py`.
+ITEM_GIU_CHO = "HANG-DAT-NGOAI"
+
 
 def dam_bao_duoc_mua_le(customer: str) -> None:
     """BR-R1 / NL-10.1 — chốt DUY NHẤT bảo vệ toàn bộ nhánh mua lẻ, cả đọc
@@ -191,6 +195,32 @@ def kiem_dat_ngoai_da_xu_ly(doc, method=None) -> None:
         "Khớp mã hàng (hoặc tạo mã mới) cho từng dòng trước khi xác nhận đơn.",
         frappe.ValidationError,
     )
+
+
+def la_dong_giu_cho(item_code) -> bool:
+    """Dùng CHUNG bởi Python và Jinja (đăng ký trong `hooks.py::jinja`).
+
+    Mẫu in "Miyano - Báo giá" phải lọc dòng giữ chỗ. Viết `{% if i.item_code
+    != "HANG-DAT-NGOAI" %}` trong template là chép hằng số sang một nơi
+    không ai grep tới: đổi `ITEM_GIU_CHO` thì template lặng lẽ hết lọc và
+    khách nhận báo giá có một dòng kỹ thuật, không test nào đỏ.
+    """
+    return item_code == ITEM_GIU_CHO
+
+
+def can_chen_giu_cho(items, dat_ngoai) -> bool:
+    """CHỈ chèn `ITEM_GIU_CHO` khi giỏ không còn mặt hàng thật nào.
+
+    Đây là ràng buộc cứng, không phải tối ưu. `resolve_ban_le_company()`
+    GIAO tập company của MỌI mặt hàng trong giỏ (chỉ company nào khai
+    `default_warehouse` cho đủ mọi mã mới hợp lệ). Chèn `ITEM_GIU_CHO` vào
+    một giỏ hỗn hợp sẽ thu hẹp phép giao đó và có thể làm nó RỖNG — tức là
+    làm hỏng một đơn vốn đang đặt được, vì một dòng khách không hề yêu cầu.
+
+    Giỏ rỗng hoàn toàn (không hàng thật, không dòng đặt ngoài) trả False:
+    không có nhu cầu nào để phục vụ, để `portal_order_place` từ chối như cũ.
+    """
+    return not items and bool(dat_ngoai)
 
 
 def items_thuoc_hdnt_hieu_luc(customer: str) -> set:

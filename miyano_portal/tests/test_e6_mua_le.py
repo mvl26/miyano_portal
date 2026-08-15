@@ -18,7 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
-from miyano_portal.portal_mua_le import han_hieu_luc_bao_gia
+from miyano_portal.portal_mua_le import ITEM_GIU_CHO, han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
 
 BVBM = "Bệnh viện Bạch Mai"
@@ -576,18 +576,22 @@ class TestDatHangBanLe(FrappeTestCase):
             )
         # Chưa insert đơn nào — lỗi phải chặn TRƯỚC khi ghi.
 
-    def test_gio_hang_chi_co_dat_ngoai_khong_dat_duoc(self):
-        """Xác nhận thực nghiệm trên bench (không phải suy diễn): ERPNext
-        không lưu được một Sales Order với bảng `items` RỖNG — nên "đặt
-        ngoài" phải đi KÈM ít nhất một mặt hàng thật trong `items`, không tự
-        đứng thành một chứng từ (đúng khung §3 "nằm TRÊN CHÍNH phiếu mua").
-        Client phải nhận lỗi RÕ ("Giỏ hàng trống"), không phải traceback."""
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                items=json.dumps([]),
-                dat_ngoai=json.dumps([{"ten_hang": "X", "dvt": "Cái", "so_luong": 1}]),
-                mode="ban_le", request_id=_rid(),
-            )
+    def test_gio_hang_chi_co_dat_ngoai_van_dat_duoc(self):
+        """SUPERSEDED bởi spec 2026-08-15 §3.4 (xem
+        `tests/test_dat_ngoai_giu_cho.py` cho bộ test đầy đủ của thay đổi
+        này). Trước §3.4, ERPNext không lưu được một Sales Order với bảng
+        `items` RỖNG nên giỏ CHỈ có dòng "đặt ngoài" bị từ chối thẳng —
+        nhưng đó ngược nguyên tắc nền "khách đặt hàng, Miyano có trách nhiệm
+        gửi". §3.4 chèn Item giữ chỗ `HANG-DAT-NGOAI` (`portal_mua_le.
+        ITEM_GIU_CHO`) để ERPNext lưu được đơn; test này giữ nguyên vị trí
+        (không xoá) để đánh dấu rõ hành vi ĐÃ ĐỔI, không phải quên cập nhật."""
+        res = portal.portal_order_place(
+            items=json.dumps([]),
+            dat_ngoai=json.dumps([{"ten_hang": "X", "dvt": "Cái", "so_luong": 1}]),
+            mode="ban_le", request_id=_rid(),
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual([i.item_code for i in so.items], [ITEM_GIU_CHO])
 
     # ---------- thiết kế lại mua lẻ §4.3/§4.4 — đồng bộ da_xu_ly + chốt xác nhận ----------
     def test_da_xu_ly_tu_dong_theo_item_khop(self):

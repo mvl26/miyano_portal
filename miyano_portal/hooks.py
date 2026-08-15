@@ -96,8 +96,17 @@ website_route_rules = [
 # daily `quet_bao_gia_het_han` thay vì hardcode "+N ngày" trong template:
 # N đọc từ `Miyano Portal Settings.hieu_luc_bao_gia_ngay` (có thể đổi), hai
 # nơi tính ra hai con số khác nhau là đúng lỗi đã trả giá ở review I-2(a).
+# Spec 2026-08-15 §3.4 — `la_dong_giu_cho` (portal_mua_le.py) khai rõ trong
+# docstring của chính nó là "dùng CHUNG bởi Python và Jinja, đăng ký ở đây".
+# Đăng ký tại đây để câu đó ĐÚNG SỰ THẬT: một mẫu in tương lai lọc dòng giữ
+# chỗ `HANG-DAT-NGOAI` (`{% if la_dong_giu_cho(i.item_code) %}`) đọc CÙNG một
+# hằng số `ITEM_GIU_CHO` với Python, không chép chuỗi riêng — đổi hằng số thì
+# cả hai nơi đổi theo, không có nơi nào lặng lẽ hết lọc.
 jinja = {
-	"methods": ["miyano_portal.portal_mua_le.han_hieu_luc_bao_gia"],
+	"methods": [
+		"miyano_portal.portal_mua_le.han_hieu_luc_bao_gia",
+		"miyano_portal.portal_mua_le.la_dong_giu_cho",
+	],
 }
 
 # Installation

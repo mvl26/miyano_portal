@@ -7,6 +7,8 @@ from miyano_portal.portal_dat_hang import (
     ngay_giao_mac_dinh,
 )
 from miyano_portal.portal_mua_le import (
+    ITEM_GIU_CHO,
+    can_chen_giu_cho,
     cap_nhat_yeu_cau_goc,
     dam_bao_duoc_mua_le,
     han_hieu_luc_bao_gia,
@@ -644,6 +646,25 @@ def _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po,
         )
     frappe.local.response.pop("loi", None)
 
+    # §3.4 — đơn TOÀN hàng chưa có mã: chèn đúng MỘT dòng giữ chỗ để ERPNext
+    # lưu được đơn. Phải đặt TRƯỚC `resolve_ban_le_company()` vì hàm đó suy
+    # company từ chính `aggregated`. Xem `can_chen_giu_cho` để biết vì sao
+    # điều kiện là "giỏ không còn hàng thật", không phải "có dòng đặt ngoài".
+    if can_chen_giu_cho(aggregated, dong_dat_ngoai):
+        if not frappe.db.exists("Item", ITEM_GIU_CHO):
+            frappe.throw(
+                "Hệ thống chưa sẵn sàng nhận đơn toàn hàng chưa có mã. "
+                "Vui lòng liên hệ Miyano.",
+                frappe.ValidationError,
+            )
+        aggregated[ITEM_GIU_CHO] = 1
+        # `hop_le` (dựng ở vòng lặp phía trên, TRƯỚC khi `dong_dat_ngoai` tồn
+        # tại) là nguồn DUY NHẤT vòng lặp `so.append("items", ...)` bên dưới
+        # đọc — ghi riêng vào `aggregated` (cho `resolve_ban_le_company`) mà
+        # không ghi vào đây thì dòng giữ chỗ không bao giờ thành một dòng
+        # thật trên đơn, và `so.items` vẫn rỗng như trước khi có Task 5.
+        hop_le.append((ITEM_GIU_CHO, 1))
+
     # §3 — dòng "đặt ngoài" nằm TRÊN CHÍNH phiếu mua, không tự thành một
     # chứng từ riêng: `company`/kho giao vẫn suy từ CÁC MẶT HÀNG THẬT trong
     # giỏ. Xác nhận thực nghiệm trên bench (không phải suy diễn): ERPNext
@@ -778,13 +799,17 @@ def portal_order_place(
         frappe.throw(
             "Dòng đặt ngoài chỉ áp dụng cho chế độ Mua lẻ.", frappe.ValidationError
         )
-    if not items:
-        # §3/§4.3 — xác nhận thực nghiệm trên bench: ERPNext không lưu được
-        # một Sales Order với bảng `items` rỗng (xem docstring
-        # `_xay_don_ban_le`), nên giỏ hàng THẬT (không tính `dat_ngoai`)
-        # luôn phải khác rỗng, kể cả khi khách chỉ muốn gửi dòng đặt ngoài —
-        # dòng đặt ngoài đi KÈM một đơn có ít nhất một mặt hàng thật, không
-        # tự đứng thành một chứng từ.
+    if not items and not (mode == "ban_le" and dat_ngoai):
+        # ERPNext không lưu được `Sales Order` với bảng `items` rỗng (xác
+        # nhận thực nghiệm, xem docstring `_xay_don_ban_le`). Trước spec
+        # 15/08 điều đó được dịch thẳng thành "phải có ít nhất một mặt hàng
+        # thật" — nhưng khách cần TOÀN hàng Miyano chưa có mã thì không đặt
+        # được gì cả, ngược nguyên tắc "khách đặt hàng, Miyano có trách
+        # nhiệm gửi". §3.4: giỏ toàn dòng đặt ngoài đi tiếp, `_xay_don_ban_le`
+        # chèn một dòng giữ chỗ để ERPNext lưu được đơn.
+        #
+        # Giỏ rỗng HOÀN TOÀN (không hàng thật, không dòng đặt ngoài) vẫn bị
+        # từ chối: không có nhu cầu nào để phục vụ.
         frappe.throw("Giỏ hàng trống.")
 
     # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
