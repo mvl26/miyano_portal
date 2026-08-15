@@ -383,11 +383,31 @@ def _insert_so_idempotent(so, request_id) -> dict:
         # (`base_document.py:672`); `DuplicateEntryError` dành cho trùng
         # `name`. Bắt nhầm loại thì nhánh này không bao giờ chạy và tình
         # huống đua hiện ra thành lỗi 500 cho khách.
+        #
+        # UAT phát hiện: BẮT ĐÚNG LOẠI vẫn chưa đủ. Đo bằng hai tiến trình
+        # THẬT (hai kết nối CSDL riêng, không phải mô phỏng), tiến trình
+        # thua vẫn ném UniqueValidationError thô ra ngoài — 6/6 lần lặp.
+        # Nguyên nhân: MariaDB REPEATABLE READ. `so.insert()` phát hiện đúng
+        # xung đột vì kiểm tra khoá duy nhất của INSERT luôn đọc bản mới
+        # nhất ("current read"), bất kể snapshot. Nhưng câu SELECT thường
+        # (không khoá) NGAY SAU ĐÓ để tra lại đơn gốc vẫn đọc theo snapshot
+        # CŨ của giao dịch — snapshot đó chốt từ lần đọc ĐẦU TIÊN trong cùng
+        # giao dịch (chính là `da_co` ở đầu `portal_order_place`), tức TRƯỚC
+        # KHI tiến trình thắng cuộc commit. Nên `cu` ra `None` dù bản ghi đã
+        # nằm trong CSDL thật, và nhánh `if not cu: raise` ở dưới biến một
+        # cuộc đua đã xử lý đúng thành lỗi thô lộ ra ngoài.
+        #
+        # Vá: `for_update=True` ép câu SELECT này thành "current read" giống
+        # hệt cách INSERT tự kiểm tra khoá — luôn thấy bản mới nhất đã
+        # commit, không phụ thuộc snapshot cũ của giao dịch. Đơn gốc đã
+        # commit rồi (đó là lý do ta nhận UniqueValidationError), nên khoá
+        # này được cấp ngay, không chờ.
         cu = frappe.db.get_value(
             "Sales Order",
             {"custom_request_id": request_id},
             ["name", "grand_total"],
             as_dict=True,
+            for_update=True,
         )
         if not cu:
             # Một trường unique KHÁC trên Sales Order bị vi phạm, không phải

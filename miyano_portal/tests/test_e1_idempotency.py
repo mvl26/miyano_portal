@@ -126,6 +126,74 @@ class TestIdempotencyDatHang(FrappeTestCase):
         with self.assertRaises(frappe.UniqueValidationError):
             khac.insert(ignore_permissions=True)
 
+    def test_doc_lai_sau_dua_khong_thay_snapshot_cu_cua_giao_dich(self):
+        """UAT (sau khi hai lỗi trên đã sửa): chạy đúng cuộc đua bằng HAI
+        TIẾN TRÌNH THẬT, hai kết nối CSDL riêng (script ngoài `bench execute`,
+        không phải test này — `FrappeTestCase` không dựng được cảnh này, xem
+        lý do ở hai docstring trên), cùng `request_id`. Kết quả: KHÔNG có đơn
+        trùng (đúng), nhưng tiến trình thua vẫn ném `UniqueValidationError`
+        THÔ ra ngoài — 6/6 lần lặp, dù `except frappe.UniqueValidationError`
+        đã bắt đúng loại như `test_tang_document_map_loi_thanh_UniqueValidationError`
+        khoá.
+
+        Nguyên nhân thật (không phải bắt sai loại exception): MariaDB
+        REPEATABLE READ. `so.insert()` phát hiện đúng xung đột vì kiểm tra
+        khoá duy nhất lúc INSERT luôn đọc bản MỚI NHẤT ("current read"), bất
+        kể snapshot của giao dịch. Nhưng câu `frappe.db.get_value` THƯỜNG
+        (không khoá) ngay sau đó — để tra lại đơn gốc — vẫn đọc theo snapshot
+        CŨ, chốt từ lần đọc ĐẦU TIÊN trong CÙNG giao dịch (chính là `da_co`
+        ở đầu `portal_order_place`), tức TRƯỚC KHI tiến trình thắng cuộc
+        commit. Nên `cu` ra `None` dù bản ghi đã nằm trong CSDL thật, và
+        nhánh `if not cu: raise` biến một cuộc đua đã xử lý đúng thành lỗi
+        thô lộ ra ngoài.
+
+        Test này mô phỏng ĐÚNG hiệu ứng đó mà không cần thread thật: patch
+        `frappe.db.get_value` sao cho lệnh gọi KHÔNG có `for_update=True`
+        trả `None` (giả lập snapshot cũ chưa thấy đơn thắng cuộc commit),
+        còn lệnh gọi CÓ `for_update=True` đi qua thật (giả lập "current
+        read" thấy đúng bản mới nhất). `_insert_so_idempotent` phải gọi
+        đúng biến thể có khoá — nếu ai đó bỏ `for_update=True` đi, test này
+        đỏ lại ngay.
+        """
+        rid = _rid()
+        goc = self._dat(rid)
+
+        khac = frappe.new_doc("Sales Order")
+        khac.customer = "Bệnh viện Bạch Mai"
+        khac.transaction_date = frappe.utils.today()
+        khac.delivery_date = frappe.utils.add_days(frappe.utils.today(), 5)
+        khac.custom_request_id = rid
+        khac.append("items", {
+            "item_code": VT, "qty": 1, "rate": 1000,
+            "delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
+        })
+
+        goc_get_value = frappe.db.get_value
+
+        def _gia_lap_snapshot_cu(doctype, filters=None, *args, **kwargs):
+            if (
+                doctype == "Sales Order"
+                and isinstance(filters, dict)
+                and filters.get("custom_request_id") == rid
+                and not kwargs.get("for_update")
+            ):
+                return None  # snapshot cũ: chưa thấy đơn gốc đã commit
+            return goc_get_value(doctype, filters, *args, **kwargs)
+
+        frappe.db.get_value = _gia_lap_snapshot_cu
+        try:
+            ket_qua = portal._insert_so_idempotent(khac, rid)  # KHÔNG được ném lỗi thô
+        finally:
+            frappe.db.get_value = goc_get_value
+
+        self.assertTrue(ket_qua["da_ton_tai"])
+        self.assertEqual(ket_qua["sales_order"], goc["sales_order"])
+        self.assertEqual(ket_qua["total"], goc["total"])
+        self.assertEqual(
+            frappe.db.count("Sales Order", {"custom_request_id": rid}), 1,
+            "CSDL vẫn chỉ có đúng một đơn — cuộc đua vốn đã được ràng buộc unique chặn đúng",
+        )
+
     def test_dua_that_qua_endpoint_tra_don_cu_khong_nem_500(self):
         """TC-E1-02, phần chưa từng chạy end-to-end (P2 #8, kiểm thử hệ
         thống): `except frappe.UniqueValidationError` trong
