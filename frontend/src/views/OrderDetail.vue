@@ -184,6 +184,32 @@ async function load() {
 // đổi số lượng (không gửi nguyên giỏ) — payload gọn, và tránh gửi field
 // `rate`/`item_code` mà server không cần (server chỉ đọc `item_code`/`name`
 // + `qty`, đọc gì khác cũng bị bỏ qua, nhưng gửi thừa vẫn là gửi thừa).
+//
+// controller ruling 2026-08-16 — bản trước bỏ hẳn bước xác nhận vì
+// `window.confirm()` treo tab, với lý do "Đồng ý đặt hàng" cạnh đó cũng
+// không hỏi. Nửa đầu đúng (không quay lại window.confirm), nửa sau sai:
+// "Đồng ý đặt hàng" là bước TIẾN TỚI, còn nút này đặt `rate` các dòng đã
+// đổi về 0 và đẩy đơn về "Chờ xác nhận" — bấm nhầm là khách MẤT báo giá
+// đang có. Việc gây mất mát cần xác nhận. Dùng lại ĐÚNG khuôn `ReasonModal`
+// mà "Huỷ đơn" đang dùng (`minLen: 0` — không bắt nhập lý do, chỉ cần một
+// bước xác nhận trong modal của app, không phải dialog gốc trình duyệt).
+const guiLaiOpen = ref(false)
+
+function moGuiLai() {
+  const coDoi =
+    (data.value.items || []).some(
+      (it) => Number(soLuongMoiItems.value[it.item_code]) !== Number(it.qty)
+    ) ||
+    (data.value.dat_ngoai || []).some(
+      (d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong)
+    )
+  if (!coDoi) {
+    showToast('Chưa sửa số lượng dòng nào.', 'error')
+    return
+  }
+  guiLaiOpen.value = true
+}
+
 async function guiLaiBaoGia() {
   if (dangSuaSoLuong.value) return
   const doiItems = (data.value.items || [])
@@ -193,21 +219,17 @@ async function guiLaiBaoGia() {
     .filter((d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong))
     .map((d) => ({ name: d.name, qty: Number(soLuongMoiDatNgoai.value[d.name]) }))
   if (!doiItems.length && !doiDatNgoai.length) {
+    guiLaiOpen.value = false
     showToast('Chưa sửa số lượng dòng nào.', 'error')
     return
   }
-  // review — KHÔNG dùng `window.confirm()`: đây là dialog NGOÀI hệ modal
-  // của app (khác `ReasonModal` mà "Không đồng ý"/"Huỷ đơn" dùng), một số
-  // trình duyệt/tiện ích chặn hẳn dialog gốc, và "Đồng ý đặt hàng" ngay
-  // trên cùng banner — hành động HỆ TRỌNG hơn — cũng không hỏi lại. Đoạn
-  // text mô tả phía trên input đã nêu rõ hệ quả (đơn về "Chờ xác nhận",
-  // giá dòng đã đổi không còn hiệu lực) trước khi khách bấm nút.
   dangSuaSoLuong.value = true
   try {
     await api.call('portal_order_sua_so_luong', {
       order: name.value,
       dong: JSON.stringify({ items: doiItems, dat_ngoai: doiDatNgoai }),
     })
+    guiLaiOpen.value = false
     showToast('Đã gửi số lượng mới — đơn chuyển sang chờ Miyano báo giá lại.')
     load()
   } catch (e) {
@@ -374,7 +396,7 @@ onMounted(load)
               style="width: 90px; text-align: right"
             />
           </div>
-          <button class="btn-o" style="margin-top: 8px" :disabled="dangSuaSoLuong" @click="guiLaiBaoGia">
+          <button class="btn-o" style="margin-top: 8px" :disabled="dangSuaSoLuong" @click="moGuiLai">
             {{ dangSuaSoLuong ? 'Đang gửi…' : '✎ Gửi lại để báo giá' }}
           </button>
         </div>
@@ -595,6 +617,21 @@ onMounted(load)
         </div>
       </div>
     </template>
+
+    <!-- controller ruling 2026-08-16 — "Gửi lại để báo giá" đặt rate về 0 và
+         đẩy đơn về sales; cần một bước xác nhận (khác "Đồng ý đặt hàng", vốn
+         là bước tiến tới). `min-len="0"` — không bắt nhập lý do, chỉ xác
+         nhận trong đúng khuôn modal của app. -->
+    <ReasonModal
+      :open="guiLaiOpen"
+      title="Gửi lại để báo giá"
+      desc="Số lượng dòng đã đổi sẽ về giá 0 và đơn chuyển về 'Chờ xác nhận' để Miyano báo giá lại — báo giá hiện tại của các dòng đó KHÔNG còn hiệu lực. Bấm Xác nhận để tiếp tục."
+      :min-len="0"
+      :submitting="dangSuaSoLuong"
+      submit-label="Xác nhận gửi lại"
+      @close="guiLaiOpen = false"
+      @submit="guiLaiBaoGia"
+    />
 
     <ReasonModal
       :open="acceptOpen"
