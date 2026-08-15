@@ -139,6 +139,38 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         self.assertEqual(track["dat_ngoai"][0]["ten_hang"], DAT_NGOAI_MAU[0]["ten_hang"])
         self.assertFalse(track["dat_ngoai"][0]["da_xu_ly"])
 
+    def test_danh_muc_ban_le_khong_chua_item_giu_cho(self):
+        """review C-1(a) — `ITEM_GIU_CHO` có `disabled=0`, `is_sales_item=1`
+        (bắt buộc để đơn toàn hàng chưa có mã lưu được, §3.4) nên nếu
+        `portal_catalog_ban_le` không loại nó tường minh, nó lọt vào danh
+        mục như một sản phẩm khách duyệt được — đã kiểm trên site thật,
+        `tim_kiem="đặt ngoài"` khớp ngay chính tên item giữ chỗ."""
+        res = portal.portal_catalog_ban_le(tim_kiem="đặt ngoài")
+        ma = [r["item_code"] for r in res["items"]]
+        self.assertNotIn(
+            ITEM_GIU_CHO, ma,
+            "item giữ chỗ là chi tiết kỹ thuật nội bộ, không phải sản phẩm",
+        )
+        # Danh mục không lọc theo `tim_kiem` (không có gì khác khớp từ khoá
+        # này trong seed) — nếu khác 0 thì phải KHÔNG chứa ITEM_GIU_CHO ở tất
+        # cả các trang, không chỉ trang đầu.
+        res_toan_bo = portal.portal_catalog_ban_le(limit=1000)
+        self.assertNotIn(ITEM_GIU_CHO, [r["item_code"] for r in res_toan_bo["items"]])
+
+    def test_payload_gui_thang_item_giu_cho_bi_tu_choi(self):
+        """review C-1(b) — đường ghi phải tự chốt lại, không tin danh mục đã
+        lọc: khách (hoặc client bị sửa) gửi thẳng `item_code=ITEM_GIU_CHO`
+        trong payload `items` như bất kỳ mã nào khác."""
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                items=json.dumps([{"item_code": ITEM_GIU_CHO, "qty": 1}]),
+                dat_ngoai=json.dumps([]),
+                request_id=_rid(),
+                mode="ban_le",
+            )
+        # Đơn không được tạo ra — chốt phải chặn TRƯỚC khi ghi, không phải
+        # sau (không có Sales Order rác nào ứng với request_id vừa gửi).
+
     def test_mau_xac_nhan_don_hang_khong_in_dong_giu_cho(self):
         """Việc thêm (controller, ngoài Task 9), lớp phòng thủ THỨ HAI — nếu
         chốt `kiem_khong_con_dong_giu_cho` (ở `before_submit`) đúng thì dòng

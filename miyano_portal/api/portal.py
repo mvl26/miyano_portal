@@ -15,6 +15,7 @@ from miyano_portal.portal_mua_le import (
     han_hieu_luc_bao_gia,
     items_san_sang_giao,
     items_thuoc_hdnt_hieu_luc,
+    la_dong_giu_cho,
     qua_han_hieu_luc,
     resolve_ban_le_company,
     trang_thai_hang,
@@ -279,7 +280,15 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
     customer = get_portal_customer()
     dam_bao_duoc_mua_le(customer)  # BR-R1/NL-10.1
 
-    filters = {"disabled": 0}
+    # review C-1 — `ITEM_GIU_CHO` (`HANG-DAT-NGOAI`) là item KỸ THUẬT NỘI BỘ:
+    # `disabled=0`, `is_sales_item=1` (patch v1_15 cần vậy để đơn "toàn hàng
+    # chưa có mã" lưu được, §3.4) nên nếu không loại tường minh ở đây, nó lọt
+    # thẳng vào danh mục như một sản phẩm khách duyệt được — đúng thứ nguyên
+    # tắc nền "khách không cần biết Miyano có gì" cấm. Loại bằng `name` (==
+    # `item_code` chính tắc), KHÔNG lọc qua `is_sales_item`/`disabled`: hai cờ
+    # đó phục vụ mục đích khác (bật/tắt bán, còn kinh doanh hay không) và có
+    # thể đổi độc lập với việc đây là item giữ chỗ hay không.
+    filters = {"disabled": 0, "name": ["!=", ITEM_GIU_CHO]}
     if nhom:
         filters["item_group"] = nhom
     or_filters = None
@@ -576,6 +585,26 @@ def _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po,
         loi_boi_so = kiem_boi_so(item_code, qty)
         if loi_boi_so:
             loi.append(loi_boi_so)
+            continue
+        # review C-1 — chốt Ở ĐƯỜNG GHI, cạnh chốt danh mục ở
+        # `portal_catalog_ban_le`. `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ
+        # (§3.4) mà hàm NÀY tự chèn vào `hop_le` phía dưới KHI CẦN (đơn toàn
+        # hàng chưa có mã) — nhưng client cũng có thể gửi thẳng mã này trong
+        # payload `items`, y như bất kỳ item_code nào khác. Không có chốt
+        # này, nó vào `so.items` như một dòng khách "tự yêu cầu", rồi lọt vào
+        # phép giao company của `resolve_ban_le_company()` — đúng ràng buộc
+        # cứng mà `can_chen_giu_cho` dựng lên để CHÍNH hàm này tôn trọng khi
+        # tự chèn, bị phá từ hướng khác nếu chỉ sửa danh mục mà bỏ qua đây.
+        if la_dong_giu_cho(item_code):
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "mat_hang_giu_cho_khong_the_dat",
+                "thong_diep": (
+                    f"{item_code} là mã kỹ thuật nội bộ, không phải mặt hàng "
+                    f"đặt được. Nếu không tìm thấy mã cần mua, dùng khối "
+                    f"\"Không tìm thấy vật tư cần mua?\" để ghi thẳng tên hàng."
+                ),
+            })
             continue
         # Phòng thủ tầng hai, retarget theo §4.1: danh mục
         # `portal_catalog_ban_le` giờ chỉ lọc `disabled=0` (KHÔNG còn lọc
