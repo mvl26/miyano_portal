@@ -38,7 +38,14 @@ bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.
 bench build --app miyano_portal
 ```
 
-**Thứ tự bắt buộc:** Task 1–2 (gỡ) → Task 3–4 (sửa màn hỏng) → Task 5–7 (đặt ngoài) → Task 8 (bật mặc định) → Task 9 (báo giá) → Task 10–11 (đổi tên, tài liệu). Task 3 phải xong trước Task 5: dựng tính năng mới trên một màn đang hỏng thì không phân biệt được lỗi mới với lỗi cũ.
+**Thứ tự bắt buộc:** Task 1–2 (gỡ) → Task 3–4 (sửa màn hỏng) → Task 5–7 (đặt ngoài) → Task 8 (bật mặc định) → Task 9 (báo giá) → Task 10–11 (đổi tên, tài liệu).
+
+Hai ràng buộc thứ tự có lý do, đừng đảo:
+
+- **Task 3 trước Task 6**: dựng tính năng mới trên một màn đang hỏng thì không phân biệt được lỗi mới với lỗi cũ.
+- **Task 5 (server) trước Task 6 (UI)**: Task 6 mở nút Xác nhận cho giỏ chỉ có dòng tự nhập. Làm ngược lại thì giữa hai commit có một bản build cho khách bấm nút rồi nhận `"Giỏ hàng trống."` từ server.
+
+Task 3 một mình đã làm **màn Mua lẻ chạy lại được** — xem được bằng mắt trên cổng trước khi phần còn lại xong.
 
 ---
 
@@ -624,7 +631,344 @@ git commit -m "feat(portal): phân trang server-side cho danh mục mua lẻ"
 
 ---
 
-### Task 5: Khối khách tự nhập "hàng chưa có trong kho, cần đặt ngoài"
+### Task 5: Item giữ chỗ cho đơn toàn hàng chưa có mã
+
+**Files:**
+- Create: `miyano_portal/patches/v1_15/__init__.py`, `miyano_portal/patches/v1_15/create_item_giu_cho_dat_ngoai.py`
+- Modify: `miyano_portal/patches.txt`
+- Modify: `miyano_portal/portal_mua_le.py` (thêm hằng + hàm)
+- Modify: `miyano_portal/api/portal.py` (`portal_order_place` nhánh `ban_le`)
+- Create: `miyano_portal/tests/test_dat_ngoai_giu_cho.py`
+
+**Interfaces:**
+- Consumes: không (test gọi thẳng `portal.portal_order_place` bằng Python — **không** cần UI của Task 6)
+- Produces: `portal_mua_le.ITEM_GIU_CHO` (str = `"HANG-DAT-NGOAI"`), `portal_mua_le.can_chen_giu_cho(items, dat_ngoai) -> bool`, `portal_mua_le.la_dong_giu_cho(item_code) -> bool`. Server chấp nhận đơn `items` rỗng khi có `dat_ngoai`.
+
+**Vì sao task này đứng TRƯỚC phần UI:** nếu làm ngược lại, bản build sau Task-UI sẽ cho khách bấm "Xác nhận" trên giỏ chỉ có dòng tự nhập, còn server vẫn ném `"Giỏ hàng trống."` — một trạng thái hỏng ship ra giữa hai commit. Server mở đường trước, UI đi sau.
+
+- [ ] **Step 1: Viết test thất bại**
+
+Tạo `miyano_portal/tests/test_dat_ngoai_giu_cho.py`:
+
+```python
+"""Spec 2026-08-15 §3.4 — đơn mua lẻ TOÀN hàng chưa có mã.
+
+ERPNext không lưu nổi Sales Order với `items` rỗng (đã kiểm thực nghiệm, ghi
+ở api/portal.py:655). Item giữ chỗ `HANG-DAT-NGOAI` là lối ra — nhưng CHỈ khi
+giỏ không còn mặt hàng thật nào: `resolve_ban_le_company()` GIAO tập company
+của mọi mặt hàng trong giỏ, nên chèn vô điều kiện có thể làm RỖNG phép giao
+và hỏng một đơn giỏ hỗn hợp vốn đang hợp lệ.
+"""
+
+import json
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+
+from miyano_portal.api import portal
+from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+from miyano_portal.tests.test_e6_mua_le import (
+    BVBM, RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le,
+)
+
+DAT_NGOAI_MAU = [
+    {"ten_hang": "Găng tay nitrile size M", "dvt": "Hộp", "so_luong": 5},
+    {"ten_hang": "Dây truyền dịch", "dvt": "Cái", "so_luong": 20},
+]
+
+
+class TestDatNgoaiGiuCho(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        _seed_mua_le()
+
+    def setUp(self):
+        frappe.set_user(USER_BVBM)
+        frappe.db.set_value("Customer", BVBM, "custom_cho_phep_mua_le", 1)
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_don_toan_hang_chua_co_ma_van_dat_duoc(self):
+        res = portal.portal_order_place(
+            items=json.dumps([]),
+            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
+            request_id=_rid(),
+            mode="ban_le",
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual(
+            [i.item_code for i in so.items], [ITEM_GIU_CHO],
+            "đơn toàn hàng lạ phải có đúng MỘT dòng giữ chỗ",
+        )
+        self.assertEqual(len(so.custom_dat_ngoai), 2)
+
+    def test_gio_hon_hop_KHONG_chen_dong_giu_cho(self):
+        res = portal.portal_order_place(
+            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
+            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
+            request_id=_rid(),
+            mode="ban_le",
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        ma = [i.item_code for i in so.items]
+        self.assertNotIn(
+            ITEM_GIU_CHO, ma,
+            "chèn giữ chỗ vào giỏ hỗn hợp sẽ thu hẹp resolve_ban_le_company()",
+        )
+        self.assertEqual(ma, [RETAIL_CO_GIA])
+
+    def test_gio_rong_hoan_toan_van_bi_tu_choi(self):
+        """Không hàng có mã, KHÔNG cả dòng đặt ngoài — không có nhu cầu nào
+        để phục vụ, đơn rỗng là lỗi client chứ không phải tình huống nghiệp vụ."""
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_place(
+                items=json.dumps([]),
+                dat_ngoai=json.dumps([]),
+                request_id=_rid(),
+                mode="ban_le",
+            )
+
+    def test_khong_submit_duoc_khi_con_dong_chua_khop_ma(self):
+        res = portal.portal_order_place(
+            items=json.dumps([]),
+            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
+            request_id=_rid(),
+            mode="ban_le",
+        )
+        frappe.set_user("Administrator")
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        with self.assertRaises(frappe.ValidationError):
+            so.submit()
+```
+
+- [ ] **Step 2: Chạy test — phải ĐỎ**
+
+```bash
+bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_dat_ngoai_giu_cho
+```
+
+Kỳ vọng: `ImportError: cannot import name 'ITEM_GIU_CHO'`.
+
+- [ ] **Step 3: Thêm hằng và hàm quyết định vào `portal_mua_le.py`**
+
+Cạnh `TRANG_THAI_CHO_KHACH` (dòng 15):
+
+```python
+# Spec 2026-08-15 §3.4 — mã kỹ thuật giữ chỗ cho đơn TOÀN hàng chưa có mã.
+# Dựng bởi `patches/v1_15/create_item_giu_cho_dat_ngoai.py`.
+ITEM_GIU_CHO = "HANG-DAT-NGOAI"
+```
+
+Thêm hàm (cạnh `kiem_dat_ngoai_da_xu_ly`):
+
+```python
+def la_dong_giu_cho(item_code) -> bool:
+    """Dùng CHUNG bởi Python và Jinja (đăng ký trong `hooks.py::jinja`).
+
+    Mẫu in "Miyano - Báo giá" phải lọc dòng giữ chỗ. Viết `{% if i.item_code
+    != "HANG-DAT-NGOAI" %}` trong template là chép hằng số sang một nơi
+    không ai grep tới: đổi `ITEM_GIU_CHO` thì template lặng lẽ hết lọc và
+    khách nhận báo giá có một dòng kỹ thuật, không test nào đỏ.
+    """
+    return item_code == ITEM_GIU_CHO
+
+
+def can_chen_giu_cho(items, dat_ngoai) -> bool:
+    """CHỈ chèn `ITEM_GIU_CHO` khi giỏ không còn mặt hàng thật nào.
+
+    Đây là ràng buộc cứng, không phải tối ưu. `resolve_ban_le_company()`
+    GIAO tập company của MỌI mặt hàng trong giỏ (chỉ company nào khai
+    `default_warehouse` cho đủ mọi mã mới hợp lệ). Chèn `ITEM_GIU_CHO` vào
+    một giỏ hỗn hợp sẽ thu hẹp phép giao đó và có thể làm nó RỖNG — tức là
+    làm hỏng một đơn vốn đang đặt được, vì một dòng khách không hề yêu cầu.
+
+    Giỏ rỗng hoàn toàn (không hàng thật, không dòng đặt ngoài) trả False:
+    không có nhu cầu nào để phục vụ, để `portal_order_place` từ chối như cũ.
+    """
+    return not items and bool(dat_ngoai)
+```
+
+- [ ] **Step 4: Tạo patch dựng Item giữ chỗ**
+
+`miyano_portal/patches/v1_15/__init__.py` — file rỗng.
+
+`miyano_portal/patches/v1_15/create_item_giu_cho_dat_ngoai.py`:
+
+```python
+"""Spec 2026-08-15 §3.4 — Item kỹ thuật `HANG-DAT-NGOAI`.
+
+`is_stock_item = 0`: mặt hàng này không bao giờ tồn tại trong kho, nó chỉ
+giữ chỗ để ERPNext lưu được đơn (bảng `items` rỗng thì `Sales Order` crash ở
+`accounts_controller.set_payment_schedule` — đã kiểm thực nghiệm).
+
+Item Default với `default_warehouse` là BẮT BUỘC, không phải trang trí:
+`portal_mua_le.resolve_ban_le_company()` chỉ nhận company nào có
+`default_warehouse` khai cho mọi mặt hàng trong giỏ. Thiếu dòng này thì đơn
+toàn hàng lạ bị từ chối vì "không xác định được công ty giao hàng" — đúng
+thứ Item này sinh ra để tránh, hỏng vì một lý do khác.
+
+Idempotent: chạy lại chỉ bổ sung phần còn thiếu, không sinh trùng.
+"""
+
+import frappe
+
+# Một nguồn duy nhất cho mã này. Khai lại chuỗi ở đây thì patch và runtime
+# có thể trỏ vào hai Item khác nhau sau một lần đổi tên, và không có gì báo.
+from miyano_portal.portal_mua_le import ITEM_GIU_CHO as MA
+
+TEN = "Hàng đặt ngoài (chờ Miyano khớp mã)"
+
+
+def _nhom_item():
+    return (
+        frappe.db.get_value("Item Group", {"item_group_name": "Vật tư tiêu hao"}, "name")
+        or frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+    )
+
+
+def execute():
+    company = frappe.defaults.get_global_default("company")
+    if not company:
+        company = frappe.db.get_value("Company", {}, "name")
+    kho = frappe.db.get_value(
+        "Warehouse", {"company": company, "is_group": 0}, "name"
+    ) if company else None
+
+    if not frappe.db.exists("Item", MA):
+        doc = frappe.get_doc({
+            "doctype": "Item",
+            "item_code": MA,
+            "item_name": TEN,
+            "item_group": _nhom_item(),
+            "stock_uom": "Cái",
+            "is_stock_item": 0,
+            "is_sales_item": 1,
+            "is_purchase_item": 0,
+            "description": TEN,
+        })
+        if company and kho:
+            doc.append("item_defaults", {"company": company, "default_warehouse": kho})
+        doc.insert(ignore_permissions=True)
+        return
+
+    doc = frappe.get_doc("Item", MA)
+    thay_doi = False
+    if doc.is_stock_item:
+        doc.is_stock_item = 0
+        thay_doi = True
+    if company and kho and not any(
+        d.company == company and d.default_warehouse for d in doc.item_defaults
+    ):
+        doc.append("item_defaults", {"company": company, "default_warehouse": kho})
+        thay_doi = True
+    if thay_doi:
+        doc.save(ignore_permissions=True)
+```
+
+Thêm vào cuối `miyano_portal/patches.txt`:
+
+```
+miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai
+```
+
+- [ ] **Step 5: Nới chốt "Giỏ hàng trống" trong `portal_order_place`**
+
+`api/portal.py:788-795` hiện chặn mọi đơn `items` rỗng. Thay bằng:
+
+```python
+    if not items and not (mode == "ban_le" and dat_ngoai):
+        # ERPNext không lưu được `Sales Order` với bảng `items` rỗng (xác
+        # nhận thực nghiệm, xem docstring `_xay_don_ban_le`). Trước spec
+        # 15/08 điều đó được dịch thẳng thành "phải có ít nhất một mặt hàng
+        # thật" — nhưng khách cần TOÀN hàng Miyano chưa có mã thì không đặt
+        # được gì cả, ngược nguyên tắc "khách đặt hàng, Miyano có trách
+        # nhiệm gửi". §3.4: giỏ toàn dòng đặt ngoài đi tiếp, `_xay_don_ban_le`
+        # chèn một dòng giữ chỗ để ERPNext lưu được đơn.
+        #
+        # Giỏ rỗng HOÀN TOÀN (không hàng thật, không dòng đặt ngoài) vẫn bị
+        # từ chối: không có nhu cầu nào để phục vụ.
+        frappe.throw("Giỏ hàng trống.")
+```
+
+- [ ] **Step 6: Chèn dòng giữ chỗ trong `_xay_don_ban_le`**
+
+`aggregated` và `dong_dat_ngoai` chỉ cùng tồn tại **bên trong** `_xay_don_ban_le` (dòng 546–707) — `dong_dat_ngoai` được dựng ở ~619-650, `aggregated` là tham số. Chèn ngay **sau** vòng lặp dựng `dong_dat_ngoai` và **trước** dòng `company = resolve_ban_le_company(...)` (hiện ở dòng 662):
+
+```python
+    # §3.4 — đơn TOÀN hàng chưa có mã: chèn đúng MỘT dòng giữ chỗ để ERPNext
+    # lưu được đơn. Phải đặt TRƯỚC `resolve_ban_le_company()` vì hàm đó suy
+    # company từ chính `aggregated`. Xem `can_chen_giu_cho` để biết vì sao
+    # điều kiện là "giỏ không còn hàng thật", không phải "có dòng đặt ngoài".
+    if can_chen_giu_cho(aggregated, dong_dat_ngoai):
+        if not frappe.db.exists("Item", ITEM_GIU_CHO):
+            frappe.throw(
+                "Hệ thống chưa sẵn sàng nhận đơn toàn hàng chưa có mã. "
+                "Vui lòng liên hệ Miyano.",
+                frappe.ValidationError,
+            )
+        aggregated[ITEM_GIU_CHO] = 1
+```
+
+Thêm hai tên vào khối import sẵn có ở `api/portal.py:15` (giữ thứ tự chữ cái):
+
+```python
+from miyano_portal.portal_mua_le import (
+    ITEM_GIU_CHO,
+    can_chen_giu_cho,
+    cap_nhat_yeu_cau_goc,
+    dam_bao_duoc_mua_le,
+    ...
+)
+```
+
+- [ ] **Step 7: Chạy migrate rồi chạy test — phải XANH**
+
+```bash
+cd /home/hoangvietyeuem/frappe-bench-yhct
+bench --site erptest.local migrate
+bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_dat_ngoai_giu_cho
+```
+
+Kỳ vọng: 4/4 PASS.
+
+- [ ] **Step 8: Chạy patch hai lần để chứng minh idempotent**
+
+```bash
+bench --site erptest.local execute miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai.execute
+bench --site erptest.local execute miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai.execute
+```
+
+Kỳ vọng: cả hai lần chạy xong không lỗi. Kiểm không sinh Item Default trùng:
+
+```bash
+bench --site erptest.local console
+```
+
+```python
+doc = frappe.get_doc("Item", "HANG-DAT-NGOAI")
+print(doc.is_stock_item, [(d.company, d.default_warehouse) for d in doc.item_defaults])
+```
+
+Kỳ vọng: `0` và **đúng một** dòng Item Default.
+
+- [ ] **Step 9: Chạy toàn bộ test**
+
+```bash
+bench --site erptest.local run-tests --app miyano_portal
+```
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A miyano_portal/
+git commit -m "feat(portal): Item giữ chỗ cho đơn mua lẻ toàn hàng chưa có mã"
+```
+
+---
+
+### Task 6: Khối khách tự nhập "hàng chưa có trong kho, cần đặt ngoài"
 
 Back-end đã sẵn sàng từ `b938bea`: bảng con `custom_dat_ngoai`, tham số `dat_ngoai` của `portal_order_place`, validate tên/ĐVT/số lượng. Task này dựng đường vào cho khách.
 
@@ -634,8 +978,8 @@ Back-end đã sẵn sàng từ `b938bea`: bảng con `custom_dat_ngoai`, tham s�
 - Modify: `frontend/src/views/Cart.vue` (hiện nhóm dòng đặt ngoài + gửi lên)
 
 **Interfaces:**
-- Consumes: Task 3, Task 4 (`leTong`)
-- Produces: `store.cartDatNgoai` — **mảng** các `{ ten_hang, dvt, so_luong, ghi_chu }`; `store.themDongDatNgoai()`, `store.xoaDongDatNgoai(i)`, `store.clearDatNgoai()`. `store.cartCount` cộng thêm độ dài mảng này.
+- Consumes: Task 3, Task 4 (`leTong`), **Task 5** (server đã nhận đơn toàn dòng tự nhập — nếu chưa, nút Xác nhận sẽ ném `"Giỏ hàng trống."`)
+- Produces: `store.cartDatNgoai` — **mảng** các `{ ten_hang, dvt, so_luong, ghi_chu }`; `store.themDongDatNgoai()`, `store.xoaDongDatNgoai(i)`, `store.clearDatNgoai()`, getter `store.datNgoaiHopLe`. `store.cartCount` cộng thêm độ dài mảng này.
 
 - [ ] **Step 1: Thêm ngăn `cartDatNgoai` vào `store.js`**
 
@@ -857,327 +1201,6 @@ git commit -m "feat(portal): khối khách tự nhập hàng chưa có mã trên
 
 ---
 
-### Task 6: Item giữ chỗ cho đơn toàn hàng chưa có mã
-
-**Files:**
-- Create: `miyano_portal/patches/v1_15/__init__.py`, `miyano_portal/patches/v1_15/create_item_giu_cho_dat_ngoai.py`
-- Modify: `miyano_portal/patches.txt`
-- Modify: `miyano_portal/portal_mua_le.py` (thêm hằng + hàm)
-- Modify: `miyano_portal/api/portal.py` (`portal_order_place` nhánh `ban_le`)
-- Create: `miyano_portal/tests/test_dat_ngoai_giu_cho.py`
-
-**Interfaces:**
-- Consumes: Task 5 (client gửi được `dat_ngoai`)
-- Produces: `portal_mua_le.ITEM_GIU_CHO` (str = `"HANG-DAT-NGOAI"`), `portal_mua_le.can_chen_giu_cho(items, dat_ngoai) -> bool`
-
-- [ ] **Step 1: Viết test thất bại**
-
-Tạo `miyano_portal/tests/test_dat_ngoai_giu_cho.py`:
-
-```python
-"""Spec 2026-08-15 §3.4 — đơn mua lẻ TOÀN hàng chưa có mã.
-
-ERPNext không lưu nổi Sales Order với `items` rỗng (đã kiểm thực nghiệm, ghi
-ở api/portal.py:655). Item giữ chỗ `HANG-DAT-NGOAI` là lối ra — nhưng CHỈ khi
-giỏ không còn mặt hàng thật nào: `resolve_ban_le_company()` GIAO tập company
-của mọi mặt hàng trong giỏ, nên chèn vô điều kiện có thể làm RỖNG phép giao
-và hỏng một đơn giỏ hỗn hợp vốn đang hợp lệ.
-"""
-
-import json
-
-import frappe
-from frappe.tests.utils import FrappeTestCase
-
-from miyano_portal.api import portal
-from miyano_portal.portal_mua_le import ITEM_GIU_CHO
-from miyano_portal.tests.test_e6_mua_le import (
-    BVBM, RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le,
-)
-
-DAT_NGOAI_MAU = [
-    {"ten_hang": "Găng tay nitrile size M", "dvt": "Hộp", "so_luong": 5},
-    {"ten_hang": "Dây truyền dịch", "dvt": "Cái", "so_luong": 20},
-]
-
-
-class TestDatNgoaiGiuCho(FrappeTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        _seed_mua_le()
-
-    def setUp(self):
-        frappe.set_user(USER_BVBM)
-        frappe.db.set_value("Customer", BVBM, "custom_cho_phep_mua_le", 1)
-
-    def tearDown(self):
-        frappe.set_user("Administrator")
-
-    def test_don_toan_hang_chua_co_ma_van_dat_duoc(self):
-        res = portal.portal_order_place(
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(
-            [i.item_code for i in so.items], [ITEM_GIU_CHO],
-            "đơn toàn hàng lạ phải có đúng MỘT dòng giữ chỗ",
-        )
-        self.assertEqual(len(so.custom_dat_ngoai), 2)
-
-    def test_gio_hon_hop_KHONG_chen_dong_giu_cho(self):
-        res = portal.portal_order_place(
-            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        ma = [i.item_code for i in so.items]
-        self.assertNotIn(
-            ITEM_GIU_CHO, ma,
-            "chèn giữ chỗ vào giỏ hỗn hợp sẽ thu hẹp resolve_ban_le_company()",
-        )
-        self.assertEqual(ma, [RETAIL_CO_GIA])
-
-    def test_gio_rong_hoan_toan_van_bi_tu_choi(self):
-        """Không hàng có mã, KHÔNG cả dòng đặt ngoài — không có nhu cầu nào
-        để phục vụ, đơn rỗng là lỗi client chứ không phải tình huống nghiệp vụ."""
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                items=json.dumps([]),
-                dat_ngoai=json.dumps([]),
-                request_id=_rid(),
-                mode="ban_le",
-            )
-
-    def test_khong_submit_duoc_khi_con_dong_chua_khop_ma(self):
-        res = portal.portal_order_place(
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        frappe.set_user("Administrator")
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        with self.assertRaises(frappe.ValidationError):
-            so.submit()
-```
-
-- [ ] **Step 2: Chạy test — phải ĐỎ**
-
-```bash
-bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_dat_ngoai_giu_cho
-```
-
-Kỳ vọng: `ImportError: cannot import name 'ITEM_GIU_CHO'`.
-
-- [ ] **Step 3: Tạo patch dựng Item giữ chỗ**
-
-`miyano_portal/patches/v1_15/__init__.py` — file rỗng.
-
-`miyano_portal/patches/v1_15/create_item_giu_cho_dat_ngoai.py`:
-
-```python
-"""Spec 2026-08-15 §3.4 — Item kỹ thuật `HANG-DAT-NGOAI`.
-
-`is_stock_item = 0`: mặt hàng này không bao giờ tồn tại trong kho, nó chỉ
-giữ chỗ để ERPNext lưu được đơn (bảng `items` rỗng thì `Sales Order` crash ở
-`accounts_controller.set_payment_schedule` — đã kiểm thực nghiệm).
-
-Item Default với `default_warehouse` là BẮT BUỘC, không phải trang trí:
-`portal_mua_le.resolve_ban_le_company()` chỉ nhận company nào có
-`default_warehouse` khai cho mọi mặt hàng trong giỏ. Thiếu dòng này thì đơn
-toàn hàng lạ bị từ chối vì "không xác định được công ty giao hàng" — đúng
-thứ Item này sinh ra để tránh, hỏng vì một lý do khác.
-
-Idempotent: chạy lại chỉ bổ sung phần còn thiếu, không sinh trùng.
-"""
-
-import frappe
-
-MA = "HANG-DAT-NGOAI"
-TEN = "Hàng đặt ngoài (chờ Miyano khớp mã)"
-
-
-def _nhom_item():
-    return (
-        frappe.db.get_value("Item Group", {"item_group_name": "Vật tư tiêu hao"}, "name")
-        or frappe.db.get_value("Item Group", {"is_group": 0}, "name")
-    )
-
-
-def execute():
-    company = frappe.defaults.get_global_default("company")
-    if not company:
-        company = frappe.db.get_value("Company", {}, "name")
-    kho = frappe.db.get_value(
-        "Warehouse", {"company": company, "is_group": 0}, "name"
-    ) if company else None
-
-    if not frappe.db.exists("Item", MA):
-        doc = frappe.get_doc({
-            "doctype": "Item",
-            "item_code": MA,
-            "item_name": TEN,
-            "item_group": _nhom_item(),
-            "stock_uom": "Cái",
-            "is_stock_item": 0,
-            "is_sales_item": 1,
-            "is_purchase_item": 0,
-            "description": TEN,
-        })
-        if company and kho:
-            doc.append("item_defaults", {"company": company, "default_warehouse": kho})
-        doc.insert(ignore_permissions=True)
-        return
-
-    doc = frappe.get_doc("Item", MA)
-    thay_doi = False
-    if doc.is_stock_item:
-        doc.is_stock_item = 0
-        thay_doi = True
-    if company and kho and not any(
-        d.company == company and d.default_warehouse for d in doc.item_defaults
-    ):
-        doc.append("item_defaults", {"company": company, "default_warehouse": kho})
-        thay_doi = True
-    if thay_doi:
-        doc.save(ignore_permissions=True)
-```
-
-Thêm vào cuối `miyano_portal/patches.txt`:
-
-```
-miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai
-```
-
-- [ ] **Step 4: Thêm hằng và hàm quyết định vào `portal_mua_le.py`**
-
-Cạnh `TRANG_THAI_CHO_KHACH` (dòng 15):
-
-```python
-# Spec 2026-08-15 §3.4 — mã kỹ thuật giữ chỗ cho đơn TOÀN hàng chưa có mã.
-# Dựng bởi `patches/v1_15/create_item_giu_cho_dat_ngoai.py`.
-ITEM_GIU_CHO = "HANG-DAT-NGOAI"
-```
-
-Thêm hàm (cạnh `kiem_dat_ngoai_da_xu_ly`):
-
-```python
-def can_chen_giu_cho(items, dat_ngoai) -> bool:
-    """CHỈ chèn `ITEM_GIU_CHO` khi giỏ không còn mặt hàng thật nào.
-
-    Đây là ràng buộc cứng, không phải tối ưu. `resolve_ban_le_company()`
-    GIAO tập company của MỌI mặt hàng trong giỏ (chỉ company nào khai
-    `default_warehouse` cho đủ mọi mã mới hợp lệ). Chèn `ITEM_GIU_CHO` vào
-    một giỏ hỗn hợp sẽ thu hẹp phép giao đó và có thể làm nó RỖNG — tức là
-    làm hỏng một đơn vốn đang đặt được, vì một dòng khách không hề yêu cầu.
-
-    Giỏ rỗng hoàn toàn (không hàng thật, không dòng đặt ngoài) trả False:
-    không có nhu cầu nào để phục vụ, để `portal_order_place` từ chối như cũ.
-    """
-    return not items and bool(dat_ngoai)
-```
-
-- [ ] **Step 5: Nới chốt "Giỏ hàng trống" trong `portal_order_place`**
-
-`api/portal.py:788-795` hiện chặn mọi đơn `items` rỗng. Thay bằng:
-
-```python
-    if not items and not (mode == "ban_le" and dat_ngoai):
-        # ERPNext không lưu được `Sales Order` với bảng `items` rỗng (xác
-        # nhận thực nghiệm, xem docstring `_xay_don_ban_le`). Trước spec
-        # 15/08 điều đó được dịch thẳng thành "phải có ít nhất một mặt hàng
-        # thật" — nhưng khách cần TOÀN hàng Miyano chưa có mã thì không đặt
-        # được gì cả, ngược nguyên tắc "khách đặt hàng, Miyano có trách
-        # nhiệm gửi". §3.4: giỏ toàn dòng đặt ngoài đi tiếp, `_xay_don_ban_le`
-        # chèn một dòng giữ chỗ để ERPNext lưu được đơn.
-        #
-        # Giỏ rỗng HOÀN TOÀN (không hàng thật, không dòng đặt ngoài) vẫn bị
-        # từ chối: không có nhu cầu nào để phục vụ.
-        frappe.throw("Giỏ hàng trống.")
-```
-
-- [ ] **Step 6: Chèn dòng giữ chỗ trong `_xay_don_ban_le`**
-
-`aggregated` và `dong_dat_ngoai` chỉ cùng tồn tại **bên trong** `_xay_don_ban_le` (dòng 546–707) — `dong_dat_ngoai` được dựng ở ~619-650, `aggregated` là tham số. Chèn ngay **sau** vòng lặp dựng `dong_dat_ngoai` và **trước** dòng `company = resolve_ban_le_company(...)` (hiện ở dòng 662):
-
-```python
-    # §3.4 — đơn TOÀN hàng chưa có mã: chèn đúng MỘT dòng giữ chỗ để ERPNext
-    # lưu được đơn. Phải đặt TRƯỚC `resolve_ban_le_company()` vì hàm đó suy
-    # company từ chính `aggregated`. Xem `can_chen_giu_cho` để biết vì sao
-    # điều kiện là "giỏ không còn hàng thật", không phải "có dòng đặt ngoài".
-    if can_chen_giu_cho(aggregated, dong_dat_ngoai):
-        if not frappe.db.exists("Item", ITEM_GIU_CHO):
-            frappe.throw(
-                "Hệ thống chưa sẵn sàng nhận đơn toàn hàng chưa có mã. "
-                "Vui lòng liên hệ Miyano.",
-                frappe.ValidationError,
-            )
-        aggregated[ITEM_GIU_CHO] = 1
-```
-
-Thêm hai tên vào khối import sẵn có ở `api/portal.py:15` (giữ thứ tự chữ cái):
-
-```python
-from miyano_portal.portal_mua_le import (
-    ITEM_GIU_CHO,
-    can_chen_giu_cho,
-    cap_nhat_yeu_cau_goc,
-    dam_bao_duoc_mua_le,
-    ...
-)
-```
-
-- [ ] **Step 7: Chạy migrate rồi chạy test — phải XANH**
-
-```bash
-cd /home/hoangvietyeuem/frappe-bench-yhct
-bench --site erptest.local migrate
-bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_dat_ngoai_giu_cho
-```
-
-Kỳ vọng: 4/4 PASS.
-
-- [ ] **Step 8: Chạy patch hai lần để chứng minh idempotent**
-
-```bash
-bench --site erptest.local execute miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai.execute
-bench --site erptest.local execute miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai.execute
-```
-
-Kỳ vọng: cả hai lần chạy xong không lỗi. Kiểm không sinh Item Default trùng:
-
-```bash
-bench --site erptest.local console
-```
-
-```python
-doc = frappe.get_doc("Item", "HANG-DAT-NGOAI")
-print(doc.is_stock_item, [(d.company, d.default_warehouse) for d in doc.item_defaults])
-```
-
-Kỳ vọng: `0` và **đúng một** dòng Item Default.
-
-- [ ] **Step 9: Chạy toàn bộ test**
-
-```bash
-bench --site erptest.local run-tests --app miyano_portal
-```
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add -A miyano_portal/
-git commit -m "feat(portal): Item giữ chỗ cho đơn mua lẻ toàn hàng chưa có mã"
-```
-
----
-
 ### Task 7: Hiện dòng đặt ngoài trên chi tiết đơn, giấu dòng giữ chỗ
 
 **Files:**
@@ -1186,7 +1209,7 @@ git commit -m "feat(portal): Item giữ chỗ cho đơn mua lẻ toàn hàng ch�
 - Modify: `miyano_portal/tests/test_dat_ngoai_giu_cho.py` (thêm test)
 
 **Interfaces:**
-- Consumes: Task 6 (`ITEM_GIU_CHO`)
+- Consumes: Task 5 (`ITEM_GIU_CHO`), Task 6 (có dòng đặt ngoài thật để hiện)
 - Produces: `portal_order_track` trả thêm khoá `dat_ngoai` — list `{ ten_hang, dvt, so_luong, ghi_chu, da_xu_ly, item_khop }`; khoá `items` **không** chứa `ITEM_GIU_CHO`
 
 - [ ] **Step 1: Viết test thất bại**
@@ -1448,7 +1471,7 @@ git commit -m "feat(portal): mua lẻ mặc định BẬT cho mọi khách, gi�
 - Create: `miyano_portal/tests/test_bao_gia_pdf.py`
 
 **Interfaces:**
-- Consumes: Task 6 (`ITEM_GIU_CHO`), Task 7 (nguyên tắc lọc dòng giữ chỗ)
+- Consumes: Task 5 (`ITEM_GIU_CHO`, `la_dong_giu_cho`), Task 7 (nguyên tắc lọc dòng giữ chỗ)
 - Produces: Print Format `"Miyano - Báo giá"` (doc_type `Sales Order`); endpoint `portal_bao_gia_pdf(order)` trả PDF qua `frappe.local.response`
 
 - [ ] **Step 1: Viết test thất bại**
@@ -1581,7 +1604,7 @@ HTML_BG = """
   </tr></thead>
   <tbody>
   {% for i in doc.items %}
-    {%- if i.item_code != "HANG-DAT-NGOAI" %}
+    {%- if not la_dong_giu_cho(i.item_code) %}
     <tr>
       <td>{{ i.item_code }}</td><td>{{ i.item_name }}</td><td>{{ i.uom }}</td>
       <td class="text-right">{{ i.qty }}</td>
@@ -1614,13 +1637,18 @@ Thêm `(NAME_BG, "Sales Order", HTML_BG),` vào `FORMATS`.
 
 **Vì sao dòng đã khớp mã lại nằm ở bảng TRÊN:** khi sales đặt `item_khop`, hook `dong_bo_da_xu_ly_dat_ngoai` bật `da_xu_ly = 1` và sales chuyển nó thành dòng hàng thật trong `doc.items` — nên nó đã có mặt ở bảng đầu, kèm giá. Bảng dưới chỉ liệt kê phần **chưa** xử lý, để khách biết món nào còn đang chờ.
 
-`han_hieu_luc_bao_gia` dùng được trong Jinja vì đã nằm trong `jinja.methods` của app (cùng cách Notification "Portal - Báo giá sẵn sàng" đang gọi). Kiểm trước khi viết:
+**Đăng ký `la_dong_giu_cho` làm global Jinja.** `hooks.py:99` đã có khối `jinja` với `han_hieu_luc_bao_gia` (đã kiểm trên site: render ra `21/08/2026`, hoạt động thật). Thêm hàm thứ hai vào đúng khối đó:
 
-```bash
-grep -n "han_hieu_luc_bao_gia" miyano_portal/hooks.py
+```python
+jinja = {
+	"methods": [
+		"miyano_portal.portal_mua_le.han_hieu_luc_bao_gia",
+		# §3.6 — mẫu in "Miyano - Báo giá" lọc dòng giữ chỗ qua hàm này,
+		# KHÔNG hardcode mã trong template (xem docstring của hàm).
+		"miyano_portal.portal_mua_le.la_dong_giu_cho",
+	],
+}
 ```
-
-Nếu không có, thêm vào `jinja = {"methods": [...]}` trong `hooks.py`.
 
 - [ ] **Step 4: Đính PDF vào Notification đã có**
 
