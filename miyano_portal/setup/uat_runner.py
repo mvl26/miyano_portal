@@ -26,6 +26,52 @@ def submit_so(so_name: str) -> dict:
             "workflow_state": so.workflow_state, "status": so.status, "steps": steps}
 
 
+def bao_gia_gui_khach(so_name: str, gia_map: str | dict | None = None,
+                       khop_map: str | dict | None = None) -> dict:
+    """Miyano Sales (Mua lẻ): điền giá cho các dòng `items` theo `gia_map`
+    ({item_code: rate}), khớp mã cho các dòng `custom_dat_ngoai` theo
+    `khop_map` ({ten_hang: item_code_da_khop}), lưu, rồi bấm workflow "Gửi
+    khách duyệt" (Chờ xác nhận -> Chờ khách đồng ý). Chỉ set item_khop —
+    KHÔNG tự sinh dòng `items` mới (khớp hành vi thật: sales phải tự thêm
+    dòng items tương ứng nếu muốn dòng đặt ngoài lên đơn giá)."""
+    if isinstance(gia_map, str):
+        gia_map = json.loads(gia_map)
+    if isinstance(khop_map, str):
+        khop_map = json.loads(khop_map)
+
+    from frappe.model.workflow import apply_workflow, get_transitions
+
+    so = frappe.get_doc("Sales Order", so_name)
+    for it in so.items:
+        if gia_map and it.item_code in gia_map:
+            it.rate = gia_map[it.item_code]
+    for d in so.get("custom_dat_ngoai") or []:
+        if khop_map and d.ten_hang in khop_map:
+            d.item_khop = khop_map[d.ten_hang]
+    so.save()
+
+    trans = get_transitions(so)
+    action = next(t["action"] for t in trans if t["action"] == "Gửi khách duyệt")
+    so = apply_workflow(so, action)
+    so.reload()
+    return {"so": so_name, "workflow_state": so.workflow_state, "docstatus": so.docstatus,
+            "custom_ngay_gui_khach_duyet": str(so.custom_ngay_gui_khach_duyet),
+            "dat_ngoai": [(d.ten_hang, d.item_khop, d.da_xu_ly) for d in so.get("custom_dat_ngoai") or []]}
+
+
+def mo_lai_don(so_name: str) -> dict:
+    """Miyano Sales: bấm workflow "Mở lại" (từ "Khách huỷ" hoặc "Báo giá hết
+    hạn" -> "Chờ xác nhận")."""
+    from frappe.model.workflow import apply_workflow, get_transitions
+
+    so = frappe.get_doc("Sales Order", so_name)
+    trans = get_transitions(so)
+    action = next(t["action"] for t in trans if t["action"] == "Mở lại")
+    so = apply_workflow(so, action)
+    so.reload()
+    return {"so": so_name, "workflow_state": so.workflow_state, "docstatus": so.docstatus}
+
+
 def deliver_so(so_name: str, qty_map: str | dict | None = None) -> dict:
     """Warehouse ships: make a (possibly partial) Delivery Note and submit it.
 
