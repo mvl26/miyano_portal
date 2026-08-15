@@ -22,15 +22,22 @@ const isMobile = useIsMobile()
 
 const addresses = computed(() => store.me?.addresses || [])
 
+// §3.4 — một giỏ Mua lẻ CHỈ có dòng "đặt ngoài" (không dòng nào có mã) vẫn
+// là một giỏ Mua lẻ ĐANG CÓ HÀNG (xem `can_chen_giu_cho`/T5): thiếu vế
+// `cartDatNgoai.length > 0` ở đây thì tab mặc định rơi về "Theo HĐNT" và —
+// nặng hơn — `hienTabLe` bên dưới false luôn, khách không còn cách nào BẤM
+// sang tab Mua lẻ để thấy dòng mình vừa gõ hay xác nhận đơn.
+const coHangMuaLe = computed(() => store.cartLeLines.length > 0 || store.cartDatNgoai.length > 0)
+
 // Tab đang xem — mặc định mở ngăn nào đang có hàng; còn cả hai trống hoặc cả
 // hai đều có hàng thì mặc định Theo HĐNT (ngăn [Hiện có]).
-const tab = ref(store.cartLines.length === 0 && store.cartLeLines.length > 0 ? 'le' : 'hd')
+const tab = ref(store.cartLines.length === 0 && coHangMuaLe.value ? 'le' : 'hd')
 // Tab "Mua lẻ" chỉ hiện khi ngăn đó ĐANG CÓ hàng. Một khách không được bật
 // mua lẻ không bao giờ đưa được hàng vào `cartLe` (Catalog.vue chặn từ
 // nguồn — nút "+ Giỏ lẻ" chỉ tồn tại sau khi `portal_catalog_ban_le` xác
 // nhận quyền), nên "có hàng trong cartLe" và "được phép mua lẻ" là một —
 // dùng điều kiện rẻ hơn (không cần gọi lại API chỉ để dò quyền lần nữa).
-const hienTabLe = computed(() => store.cartLeLines.length > 0 || tab.value === 'le')
+const hienTabLe = computed(() => coHangMuaLe.value || tab.value === 'le')
 
 // ================= NGĂN THEO HĐNT [Hiện có] =================
 const hdLines = computed(() => store.cartLines)
@@ -102,7 +109,10 @@ async function hdConfirmOrder() {
 
 // ================= NGĂN MUA LẺ [MỚI] =================
 const leLines = computed(() => store.cartLeLines)
-const leEmpty = computed(() => leLines.value.length === 0)
+// §3.4 — nhóm "hàng chưa có mã" nằm trong ngăn Mua lẻ, không phải một ngăn
+// thứ ba trên UI: với khách đó vẫn là một phiếu mua lẻ.
+const dnLines = computed(() => store.cartDatNgoai)
+const leTrong = computed(() => leLines.value.length === 0 && store.datNgoaiHopLe.length === 0)
 const leDeliveryDate = ref(addWorkDaysISO(2))
 const leAddress = ref('')
 const lePo = ref('')
@@ -138,6 +148,7 @@ async function leConfirmOrder() {
     const itemsPayload = leLines.value.map((l) => ({ item_code: l.item_code, qty: l.qty }))
     const res = await api.call('portal_order_place', {
       items: JSON.stringify(itemsPayload),
+      dat_ngoai: JSON.stringify(store.datNgoaiHopLe),
       po: lePo.value || null,
       delivery_date: leDeliveryDate.value || null,
       note: leNote.value || null,
@@ -150,6 +161,7 @@ async function leConfirmOrder() {
     }
     lePlacedOrder.value = res
     store.clearCartLe()
+    store.clearDatNgoai()
     store.ketThucDatHangLe()
     leConfirmOpen.value = false
   } catch (e) {
@@ -196,7 +208,7 @@ onMounted(async () => {
          thành công!" biến mất chỉ sau một nhịp render, thay bằng thông điệp
          "Giỏ hàng trống" (server đã tạo đơn thành công, nhưng khách không
          còn thấy xác nhận). -->
-    <div v-if="hdEmpty && leEmpty && !hdPlacedOrder && !lePlacedOrder" class="card" style="color: var(--gray)">
+    <div v-if="hdEmpty && leTrong && !hdPlacedOrder && !lePlacedOrder" class="card" style="color: var(--gray)">
       Giỏ hàng trống – vào mục
       <a href="#" style="color: var(--blue2)" @click.prevent="router.push('/catalog')">Đặt hàng</a>
       để chọn mặt hàng.
@@ -327,7 +339,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-else-if="leEmpty" class="card" style="color: var(--gray)">
+        <div v-else-if="leTrong" class="card" style="color: var(--gray)">
           Ngăn Mua lẻ trống —
           <a href="#" style="color: var(--blue2)" @click.prevent="router.push('/catalog')">chọn thêm mặt hàng</a>.
         </div>
@@ -385,6 +397,22 @@ onMounted(async () => {
                   </div>
                 </div>
               </template>
+
+              <template v-if="dnLines.length">
+                <h4 style="margin: 14px 0 6px">Hàng chưa có mã — Miyano sẽ tìm nguồn</h4>
+                <div v-for="(d, i) in dnLines" :key="i" class="card mb10">
+                  <div class="field">
+                    <label>Tên hàng</label>
+                    <input v-model="d.ten_hang" />
+                  </div>
+                  <div class="sb" style="gap: 8px">
+                    <div class="field" style="flex: 1"><label>ĐVT</label><input v-model="d.dvt" /></div>
+                    <div class="field" style="flex: 1"><label>Số lượng</label><input v-model="d.so_luong" inputmode="numeric" /></div>
+                  </div>
+                  <div class="field"><label>Ghi chú</label><input v-model="d.ghi_chu" /></div>
+                  <button class="btn-o btn-sm" @click="store.xoaDongDatNgoai(i)">Xoá dòng</button>
+                </div>
+              </template>
             </div>
 
             <div>
@@ -407,7 +435,7 @@ onMounted(async () => {
                 <p class="tag">
                   Miyano sẽ báo giá sau khi tiếp nhận đơn. Bạn xác nhận giá trước khi đơn được giao.
                 </p>
-                <button class="btn" style="width: 100%; margin-top: 14px; background: var(--purple)" @click="leMoXacNhan">Xác nhận đặt đơn MUA LẺ →</button>
+                <button class="btn" style="width: 100%; margin-top: 14px; background: var(--purple)" :disabled="leTrong" @click="leMoXacNhan">Xác nhận đặt đơn MUA LẺ →</button>
                 <p class="tag" style="margin-top: 8px">Đơn ngoài HĐNT, không áp dụng hạn mức — Miyano sẽ xác nhận trước khi giao.</p>
               </div>
             </div>

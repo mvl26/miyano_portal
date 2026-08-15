@@ -237,6 +237,28 @@ watch(search, () => {
   leSearchTimer = setTimeout(() => loadLe(), 300)
 })
 
+// §3.4 — khối "hàng chưa có trong kho, cần đặt ngoài". Mở sẵn khi tìm không
+// ra kết quả: đúng chỗ và đúng ý định mà nút "Gửi yêu cầu cho Miyano" cũ
+// phục vụ, nhưng ở lại trên chính phiếu mua thay vì đẩy sang chứng từ khác.
+const dnMoKhoi = ref(false)
+
+const timKhongRa = computed(
+  () => mode.value === 'le' && !leLoading.value && !leError.value && leTong.value === 0
+)
+
+watch(timKhongRa, (khong) => {
+  if (!khong) return
+  dnMoKhoi.value = true
+  if (!store.cartDatNgoai.length) {
+    store.themDongDatNgoai({ ten_hang: search.value.trim() })
+  }
+})
+
+function themDongTrong() {
+  store.themDongDatNgoai({})
+  dnMoKhoi.value = true
+}
+
 onMounted(async () => {
   if (route.query.search) search.value = String(route.query.search)
   try {
@@ -513,6 +535,42 @@ watch(selected, loadItems)
         :disabled="leLoading"
         @click="loadLe(true)"
       >{{ leLoading ? 'Đang tải…' : 'Tải thêm' }}</button>
+
+      <div class="card" style="margin-top: 12px">
+        <div class="sb" style="cursor: pointer" @click="dnMoKhoi = !dnMoKhoi">
+          <b>Không tìm thấy vật tư cần mua?</b>
+          <span>{{ dnMoKhoi ? '▾' : '▸' }}</span>
+        </div>
+        <p class="tag" style="margin: 4px 0 0">
+          Ghi thẳng vào đây. Miyano sẽ tìm nguồn và báo giá cho bạn.
+        </p>
+
+        <template v-if="dnMoKhoi">
+          <div v-for="(d, i) in store.cartDatNgoai" :key="i" class="card mb10" style="margin-top: 10px">
+            <div class="field">
+              <label>Tên hàng <span class="req">*</span></label>
+              <input v-model="d.ten_hang" placeholder="VD: Găng tay nitrile không bột size M" />
+            </div>
+            <div class="sb" style="gap: 8px">
+              <div class="field" style="flex: 1">
+                <label>ĐVT <span class="req">*</span></label>
+                <input v-model="d.dvt" placeholder="Hộp" />
+              </div>
+              <div class="field" style="flex: 1">
+                <label>Số lượng <span class="req">*</span></label>
+                <input v-model="d.so_luong" inputmode="numeric" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Ghi chú</label>
+              <input v-model="d.ghi_chu" placeholder="Quy cách, hãng mong muốn…" />
+            </div>
+            <button class="btn-o btn-sm" @click="store.xoaDongDatNgoai(i)">Xoá dòng</button>
+          </div>
+
+          <button class="btn-o" style="width: 100%" @click="themDongTrong">+ Thêm dòng</button>
+        </template>
+      </div>
     </template>
 
     <!-- Sticky cart bar (mobile) — tổng cả hai ngăn -->

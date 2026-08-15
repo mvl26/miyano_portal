@@ -15,6 +15,12 @@ export const store = reactive({
   me: null, // { customer, customer_name, tax_id, outstanding, addresses }
   cart: {}, // ngăn Theo HĐNT
   cartLe: {}, // ngăn Mua lẻ [MỚI]
+  // Spec 2026-08-15 §3.4 — "hàng chưa có trong kho, cần đặt ngoài".
+  //
+  // MẢNG, không phải map theo `item_code` như hai ngăn kia: các dòng này
+  // CHƯA CÓ MÃ. Hai dòng cùng tên hàng là hợp lệ (khách đặt hai quy cách
+  // khác nhau mà chưa biết mã) — dùng map sẽ âm thầm nuốt mất dòng thứ hai.
+  cartDatNgoai: [],
   contract: null, // HĐNT đang chọn ở Catalog (dùng lại ở Cart)
   // Mã chống tạo đơn trùng (BR-O12). Sinh MỘT lần khi mở modal xác nhận và
   // giữ nguyên cho tới khi đơn được tạo xong — đó chính là cơ chế: bấm lại
@@ -38,7 +44,11 @@ export const store = reactive({
   // badge tab giỏ trong prototype ("Theo HĐNT (2) / Mua lẻ (1)" → nav "3").
   // `30_API_Spec`/FormSpec F-04: "Badge giỏ trên nav = tổng dòng hai ngăn".
   get cartCount() {
-    return Object.keys(this.cart).length + Object.keys(this.cartLe).length
+    return (
+      Object.keys(this.cart).length +
+      Object.keys(this.cartLe).length +
+      this.cartDatNgoai.length
+    )
   },
 
   get cartLines() {
@@ -112,6 +122,32 @@ export const store = reactive({
 
   clearCartLe() {
     this.cartLe = {}
+  },
+
+  themDongDatNgoai(dong) {
+    this.cartDatNgoai.push({
+      ten_hang: dong?.ten_hang || '',
+      dvt: dong?.dvt || '',
+      so_luong: dong?.so_luong || 1,
+      ghi_chu: dong?.ghi_chu || '',
+    })
+  },
+
+  xoaDongDatNgoai(i) {
+    this.cartDatNgoai.splice(i, 1)
+  },
+
+  clearDatNgoai() {
+    this.cartDatNgoai = []
+  },
+
+  // Dòng hợp lệ để gửi lên server — server vẫn validate lại (NL: client chỉ
+  // báo lỗi sớm), nhưng không gửi dòng rỗng khách bỏ trống là phép lịch sự
+  // tối thiểu với endpoint.
+  get datNgoaiHopLe() {
+    return this.cartDatNgoai.filter(
+      (d) => d.ten_hang.trim() && d.dvt.trim() && Number(d.so_luong) > 0
+    )
   },
 
   // --- Chống tạo đơn trùng (BR-O12) — ngăn Theo HĐNT ---
