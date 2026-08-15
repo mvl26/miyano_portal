@@ -6,7 +6,6 @@ import { store } from '../store'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
-import YeuCauModal from '../components/YeuCauModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -230,30 +229,6 @@ watch(search, () => {
   leSearchTimer = setTimeout(loadLe, 300)
 })
 
-// ---------------------------------------------------------------------
-// Nối luồng E6 #1 — "Không tìm thấy? Gửi yêu cầu", prefill từ khoá tìm kiếm.
-// ---------------------------------------------------------------------
-const ycModalOpen = ref(false)
-const ycPrefill = ref({})
-function moYeuCauKhongThay() {
-  ycPrefill.value = { loai: 'Tìm nguồn hàng mới', ten_hang: search.value.trim() }
-  ycModalOpen.value = true
-}
-// Nối luồng E6 #2 — dòng mua lẻ thiếu giá → [Yêu cầu báo giá].
-function moYeuCauBaoGia(it) {
-  ycPrefill.value = {
-    loai: 'Báo giá mua lẻ',
-    ten_hang: it.ten,
-    quy_cach: it.quy_cach,
-    dvt: it.dvt,
-  }
-  ycModalOpen.value = true
-}
-function onYcSaved(res) {
-  ycModalOpen.value = false
-  showToast(`Đã gửi ${res.name} — Miyano phản hồi trong 48h làm việc.`)
-}
-
 onMounted(async () => {
   if (route.query.search) search.value = String(route.query.search)
   try {
@@ -473,7 +448,7 @@ watch(selected, loadItems)
               <template v-else-if="!it.co_gia">
                 <td class="right">—</td>
                 <td><span class="badge b-gray">Chưa có giá lẻ</span></td>
-                <td colspan="2"><button class="btn-o btn-sm" @click="moYeuCauBaoGia(it)">Yêu cầu báo giá →</button></td>
+                <td colspan="2"></td>
               </template>
               <template v-else>
                 <td class="right">{{ fmtVND(it.gia_ban_le) }}</td>
@@ -505,7 +480,6 @@ watch(selected, loadItems)
           </template>
           <template v-else-if="!it.co_gia">
             <div class="sb"><span class="badge b-gray">Chưa có giá lẻ</span></div>
-            <button class="btn-o btn-sm" style="width: 100%; margin-top: 8px" @click="moYeuCauBaoGia(it)">Yêu cầu báo giá →</button>
           </template>
           <template v-else>
             <div class="sb">
@@ -525,13 +499,6 @@ watch(selected, loadItems)
       </template>
     </template>
 
-    <!-- Nối luồng E6 #1 — không tìm thấy hàng cần mua -->
-    <p class="tag" style="margin-top: 10px">
-      Không tìm thấy hàng cần mua?
-      <a href="#" style="color: var(--blue2)" @click.prevent="moYeuCauKhongThay"><b>Gửi yêu cầu cho Miyano</b></a>
-      <span class="newtag">MỚI</span>
-    </p>
-
     <!-- Sticky cart bar (mobile) — tổng cả hai ngăn -->
     <div v-if="isMobile && store.cartCount" class="cartbar">
       <button class="btn" @click="router.push('/cart')">
@@ -540,7 +507,5 @@ watch(selected, loadItems)
         <span>Xem giỏ ›</span>
       </button>
     </div>
-
-    <YeuCauModal :open="ycModalOpen" mode="tao" :initial="ycPrefill" @close="ycModalOpen = false" @saved="onYcSaved" />
   </div>
 </template>

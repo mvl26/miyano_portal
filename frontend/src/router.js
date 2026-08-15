@@ -19,8 +19,6 @@ import NccList from './views/NccList.vue'
 import KhoaPhongList from './views/KhoaPhongList.vue'
 import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
-import YeuCauList from './views/YeuCauList.vue'
-import YeuCauDetail from './views/YeuCauDetail.vue'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
@@ -29,8 +27,6 @@ const routes = [
   { path: '/cart', name: 'cart', component: Cart, meta: { title: 'Giỏ hàng' } },
   { path: '/orders', name: 'orders', component: Orders, meta: { title: 'Đơn hàng của tôi' } },
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
-  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Yêu cầu hàng hoá' } },
-  { path: '/yeu-cau/:name', name: 'yeu-cau-detail', component: YeuCauDetail, meta: { title: 'Chi tiết yêu cầu' } },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   { path: '/kho', name: 'kho', component: Kho, meta: { title: 'Kho của tôi' } },
   { path: '/kho/import', name: 'kho-import', component: ImportTonDau, meta: { title: 'Nhập tồn đầu kỳ' } },

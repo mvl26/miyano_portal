@@ -100,13 +100,6 @@ onMounted(async () => {
           <button class="btn-o" @click="router.push('/invoices')">Xem hoá đơn &amp; công nợ →</button>
         </div>
 
-        <!-- Yêu cầu hàng hoá [MỚI] — không có chỗ ở bottom nav 5 mục
-             (FormSpec §1.5), vào từ đây trên mobile giống Hoá đơn. -->
-        <div class="card mb10" style="margin-bottom: 14px">
-          <div class="h3">Yêu cầu hàng hoá <span class="newtag">MỚI</span></div>
-          <button class="btn-o" @click="router.push('/yeu-cau')">Xem yêu cầu hàng hoá →</button>
-        </div>
-
         <!-- Sales phụ trách (placeholder) -->
         <div class="card mb10" style="margin-bottom: 14px">
           <div class="h3">Sales phụ trách</div>

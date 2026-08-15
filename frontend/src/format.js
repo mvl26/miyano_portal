@@ -92,28 +92,6 @@ export function addWorkDaysISO(n) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// E6 [MỚI] — badge trạng thái Yêu cầu hàng hoá (F-22 danh sách / F-23 chi
-// tiết). Màu đúng nguyên văn FormSpec §3b/F-22: "Mới xám · Đang tìm nguồn
-// xanh dương · Cần thêm thông tin vàng · Đã báo giá cam · Đã có hàng xanh lá
-// · Đã chuyển thành đơn xanh lá đậm · Không đáp ứng đỏ · Khách huỷ/Hết hạn xám".
-// Không có riêng "xanh lá đậm" trong bảng token hiện có — dùng lại b-green,
-// khác biệt đã có sẵn qua chính nhãn chữ ("Đã có hàng" và "Đã chuyển thành
-// đơn" không bao giờ đứng cạnh nhau trên cùng một danh sách).
-export function yeuCauBadge(trangThai) {
-  const map = {
-    'Mới': 'b-gray',
-    'Đang tìm nguồn': 'b-blue',
-    'Cần thêm thông tin': 'b-yellow',
-    'Đã báo giá': 'b-orange',
-    'Đã có hàng': 'b-green',
-    'Đã chuyển thành đơn': 'b-green',
-    'Không đáp ứng được': 'b-red',
-    'Khách huỷ': 'b-gray',
-    'Hết hạn': 'b-gray',
-  }
-  return map[trangThai] || 'b-gray'
-}
-
 // Số ngày từ hôm nay tới ngày ISO (dương = còn hạn, âm = quá hạn).
 export function daysUntil(iso) {
   if (!iso) return null
