@@ -41,3 +41,4 @@ miyano_portal.patches.v1_15.create_item_giu_cho_dat_ngoai
 miyano_portal.patches.v1_15.install_print_format_bao_gia
 miyano_portal.patches.v1_15.loc_dong_giu_cho_khoi_mau_xac_nhan_don_hang
 miyano_portal.patches.v1_15.doi_nhan_hop_dong_khung
+miyano_portal.patches.v1_15.gioi_han_bao_gia_pdf_mua_le

@@ -116,8 +116,16 @@ DEFS = [
         "document_type": "Sales Order",
         "event": "Value Change",
         "value_changed": "workflow_state",
+        # review I-2 — thêm `custom_loai_don == 'Mua lẻ'`: "hiệu lực báo giá"
+        # là khái niệm CHỈ của Mua lẻ (portal_order_track trả `han_hieu_luc:
+        # None` cho đơn khác; `portal_bao_gia.quet_bao_gia_het_han` lọc đúng
+        # `custom_loai_don: "Mua lẻ"`). Thiếu điều kiện này thì MỌI đơn hợp
+        # đồng khung vào "Chờ khách đồng ý" (luồng E2 gốc) cũng gửi kèm một
+        # chứng từ đề "BÁO GIÁ / QUOTATION" với "Hiệu lực đến..." mà không
+        # job nào thi hành — sai sự thật nghiệp vụ khách đọc được.
         "condition": (
             "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.custom_loai_don == 'Mua lẻ' and "
             "doc.workflow_state == 'Chờ khách đồng ý'"
         ),
         "message": (
@@ -129,8 +137,19 @@ DEFS = [
             "cổng khách hàng để xem chi tiết và xác nhận."
         ),
         "send_system_notification": 1,
-        "attach_print": 1,
-        "print_format": "Miyano - Báo giá",
+        # review I-1 — `attach_print`/`print_format` KHÔNG đặt ở đây nữa.
+        # `Notification.print_format` là Link tới `Print Format`, và
+        # `Document.insert` chạy `_validate_links()` VÔ ĐIỀU KIỆN — nếu
+        # `execute()` của `v1_14.install_bao_gia_san_sang_notification` chạy
+        # trên một site đi qua patch này TRƯỚC khi mẫu in "Miyano - Báo giá"
+        # tồn tại (mẫu đó chỉ được tạo sau, ở `v1_15.install_print_format_
+        # bao_gia`), `doc.insert()` ở dưới ném `LinkValidationError` và
+        # `bench migrate` chết giữa chừng. `v1_15.install_print_format_
+        # bao_gia` là nơi DUY NHẤT ghi hai field này — nó dùng
+        # `frappe.db.set_value` (bỏ qua `_validate_links`), và luôn chạy SAU
+        # khi mẫu in đã tồn tại vì tự nó gọi `install_portal_print_formats()`
+        # trước khi set. Xem thêm `v1_15.gioi_han_bao_gia_pdf_mua_le` (patch
+        # cập nhật `condition` cho bản ghi đã cài trên site, review I-2).
     },
 ]
 

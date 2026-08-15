@@ -1538,11 +1538,36 @@ def portal_bao_gia_pdf(order) -> None:
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
 
+    # review I-2 — mẫu in "Miyano - Báo giá" chỉ có nghĩa cho đơn Mua lẻ
+    # (§3.6 "hạn hiệu lực báo giá" là khái niệm CHỈ của nhánh này, cùng lý do
+    # `condition` của Notification "Portal - Báo giá sẵn sàng" đã lọc theo
+    # `custom_loai_don`). `so.custom_loai_don` đã được đọc sẵn ở truy vấn
+    # phía trên — dùng nó, không để đơn hợp đồng khung tải được một chứng từ
+    # đề "Hiệu lực đến..." mà không job nào thi hành.
+    if so.custom_loai_don != "Mua lẻ":
+        frappe.throw(
+            "Đơn này không thuộc chế độ Mua lẻ — không có báo giá dạng PDF "
+            "để tải.",
+            frappe.ValidationError,
+        )
+
     # Chỉ từ lúc báo giá ĐÃ GỬI cho khách trở đi. Trước đó `rate` là con số
     # sales đang sửa — cho tải là biến một bản nháp thành cam kết.
     if so.workflow_state not in (TRANG_THAI_CHO_KHACH, "Chờ Miyano xác nhận", "Đã xác nhận"):
         frappe.throw(
             "Báo giá cho đơn này chưa được gửi. Vui lòng đợi Miyano báo giá.",
+            frappe.ValidationError,
+        )
+
+    # review Minor — nếu mẫu in "Miyano - Báo giá" chưa tồn tại (patch cài
+    # đặt chưa chạy, hoặc bị xoá thủ công), `frappe.get_print` ÂM THẦM rơi
+    # về mẫu Standard — mẫu đó in MỌI dòng, kể cả dòng giữ chỗ `ITEM_GIU_CHO`
+    # (chỉ mẫu "Miyano - Báo giá" mới biết lọc, xem `install_print_formats.
+    # py`). Kiểm tồn tại và báo lỗi rõ, không để rơi ngầm sang một chứng từ
+    # sai định dạng và có thể lộ chi tiết kỹ thuật nội bộ.
+    if not frappe.db.exists("Print Format", "Miyano - Báo giá"):
+        frappe.throw(
+            "Mẫu in báo giá chưa sẵn sàng. Vui lòng liên hệ quản trị viên hệ thống.",
             frappe.ValidationError,
         )
 
