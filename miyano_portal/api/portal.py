@@ -1006,7 +1006,20 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
 
 
 @frappe.whitelist()
-def portal_order_history(limit=20, start=0) -> list:
+def portal_order_history(limit=20, start=0) -> dict:
+    """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
+    `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
+    LUÔN — endpoint này không nuôi dropdown nào (khác ba endpoint kiêm-
+    hai-vai của api/kho.py), chỉ nguồn cho đúng màn Orders.vue + preview ở
+    Dashboard.vue. Đã cập nhật MỌI caller (Dashboard.vue, test_e2e_flow.py,
+    test_e6_mua_le.py, test_tracking.py) sang đọc `.rows`.
+
+    Đếm `tong` qua `frappe.get_list` (không phải `frappe.db.count`/
+    `frappe.get_all`) — Sales Order được scoping theo khách hàng qua
+    `permission_query_conditions` (hooks.py), `get_all`/`db.count` BỎ QUA
+    tầng đó và sẽ đếm lẫn đơn của khách khác.
+    """
+    tong = frappe.get_list("Sales Order", fields=["count(name) as tong"])[0].tong
     rows = frappe.get_list(
         "Sales Order",
         # review (Phần C báo thiếu) — custom_loai_don/workflow_state/
@@ -1016,7 +1029,9 @@ def portal_order_history(limit=20, start=0) -> list:
         # bắt khách mở từng đơn.
         fields=["name", "transaction_date", "grand_total", "status", "per_delivered",
                 "custom_loai_don", "workflow_state", "custom_yeu_cau_goc"],
-        order_by="transaction_date desc, creation desc",
+        # tiebreak `name` — `transaction_date`/`creation` không đủ duy
+        # nhất giữa hai trang (brief 2026-08-15).
+        order_by="transaction_date desc, creation desc, name desc",
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
@@ -1028,7 +1043,7 @@ def portal_order_history(limit=20, start=0) -> list:
         # ra (client đọc đúng ở màn này, sai ở màn kia).
         r["loai_don"] = r.pop("custom_loai_don") or "Theo HĐNT"
         r["yeu_cau_goc"] = r.pop("custom_yeu_cau_goc") or ""
-    return rows
+    return {"rows": rows, "tong": tong}
 
 
 @frappe.whitelist()
@@ -1248,7 +1263,38 @@ def portal_deliveries(limit=20, start=0) -> list:
 
 
 @frappe.whitelist()
-def portal_invoices(limit=20, start=0) -> list:
+def portal_invoices(limit=20, start=0) -> dict:
+    """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
+    `{"rows": [...], "tong": N, "qua_han_thanh_toan": ..., "sap_den_han_
+    so_luong": ...}`, LUÔN LUÔN (endpoint này không nuôi dropdown nào). Đã
+    cập nhật MỌI caller (Dashboard.vue, Invoices.vue, test_portal_read.py,
+    test_e7_hddt.py) sang đọc `.rows`.
+
+    `qua_han_thanh_toan`/`sap_den_han_so_luong` (bản trước Invoices.vue tự
+    tính từ TOÀN BỘ `invoices.value` client-side) giờ tính Ở SERVER trên
+    TOÀN BỘ hoá đơn còn nợ của khách — không phải chỉ trang đang xem, nếu
+    không hai con số này sẽ đổi theo trang khách đang lật, một hồi quy im
+    lặng đúng kiểu brief cảnh báo. Cùng công thức `daysUntil()`
+    (frontend/src/format.js): quá hạn = hạn TT đã qua hôm nay; sắp đến hạn
+    = còn 0-7 ngày VÀ còn nợ.
+    """
+    tong = frappe.get_list("Sales Invoice", fields=["count(name) as tong"])[0].tong
+
+    hom_nay = frappe.utils.nowdate()
+    qua_han_thanh_toan = 0.0
+    sap_den_han_so_luong = 0
+    for r in frappe.get_list(
+        "Sales Invoice", filters={"outstanding_amount": [">", 0]},
+        fields=["due_date", "outstanding_amount"],
+    ):
+        if not r.due_date:
+            continue
+        so_ngay = frappe.utils.date_diff(r.due_date, hom_nay)
+        if so_ngay < 0:
+            qua_han_thanh_toan += float(r.outstanding_amount or 0)
+        elif so_ngay <= 7:
+            sap_den_han_so_luong += 1
+
     rows = frappe.get_list(
         "Sales Invoice",
         # `customer` chỉ dùng NỘI BỘ để đối chiếu sở hữu bản ghi HĐĐT
@@ -1256,7 +1302,8 @@ def portal_invoices(limit=20, start=0) -> list:
         # phải một field mới lộ ra response.
         fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount",
                 "status", "customer"],
-        order_by="posting_date desc",
+        # tiebreak `name`.
+        order_by="posting_date desc, name desc",
         limit_page_length=int(limit), limit_start=int(start),
     )
     for r in rows:
@@ -1282,7 +1329,11 @@ def portal_invoices(limit=20, start=0) -> list:
         except Exception:
             frappe.log_error(title=f"HĐĐT: không dựng được khối cho {r['name']}")
             r["einvoice"] = einvoice.khoi_mac_dinh()
-    return rows
+    return {
+        "rows": rows, "tong": tong,
+        "qua_han_thanh_toan": qua_han_thanh_toan,
+        "sap_den_han_so_luong": sap_den_han_so_luong,
+    }
 
 
 def _ho_so_cua_hoa_don(invoice) -> tuple:

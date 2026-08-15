@@ -1502,6 +1502,6 @@ class TestHuyDon(FrappeTestCase):
             "đơn đã huỷ không còn ở 'Chờ khách đồng ý' -> không còn banner chấp nhận",
         )
 
-        rows = portal.portal_order_history()
+        rows = portal.portal_order_history()["rows"]
         row = next(r for r in rows if r["name"] == so.name)
         self.assertEqual(row["status_vi"], "Đã huỷ")

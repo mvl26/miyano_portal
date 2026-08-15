@@ -35,10 +35,13 @@ onMounted(async () => {
     me.value = meRes
     store.setMe(meRes)
     contracts.value = contractsRes || []
-    orders.value = ordersRes || []
+    // brief 2026-08-15 (phân trang) — portal_order_history/portal_invoices
+    // giờ trả {"rows": [...], "tong": ...} thay vì list trần.
+    orders.value = ordersRes?.rows || []
     // Hoá đơn dùng cho KPI "chưa thanh toán"; lỗi ở đây không chặn dashboard.
     try {
-      invoices.value = (await api.call('portal_invoices')) || []
+      const invRes = await api.call('portal_invoices')
+      invoices.value = invRes?.rows || []
     } catch (e) {
       invoices.value = []
     }

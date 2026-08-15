@@ -234,7 +234,7 @@ class TestBadgeGroups(_E7Fixture):
         # Công nợ vẫn hiển thị bình thường — cột outstanding_amount không bị
         # khối HĐĐT che mất, kiểm qua chính response `portal_invoices`.
         frappe.set_user(BM_USER)
-        rows = {r["name"]: r for r in portal.portal_invoices(limit=200)}
+        rows = {r["name"]: r for r in portal.portal_invoices(limit=200)["rows"]}
         self.assertIn(si.name, rows)
         self.assertIn("outstanding_amount", rows[si.name])
 
@@ -286,7 +286,7 @@ class TestBadgeGroups(_E7Fixture):
         self.assertEqual(block["ly_do_huy"], "Sai mã số thuế")
         # "Không bị giấu": dòng hoá đơn vẫn có trong danh sách của khách.
         frappe.set_user(BM_USER)
-        names = {r["name"] for r in portal.portal_invoices(limit=200)}
+        names = {r["name"] for r in portal.portal_invoices(limit=200)["rows"]}
         self.assertIn(si.name, names)
 
     def test_trang_thai_loi_disable_tai_va_hien_ho_tro(self):  # NL-12.4
@@ -332,7 +332,7 @@ class TestBadgeGroups(_E7Fixture):
         einvoice._FIELDS = ("name", "creation", "status", "truong_khong_ton_tai_xyz")
         try:
             frappe.set_user(BM_USER)
-            rows = {r["name"]: r for r in portal.portal_invoices(limit=200)}
+            rows = {r["name"]: r for r in portal.portal_invoices(limit=200)["rows"]}
         finally:
             einvoice._FIELDS = truoc
         self.assertIn(si.name, rows)

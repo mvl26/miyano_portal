@@ -56,12 +56,24 @@ class _KhoApiFixture(FrappeTestCase):
 
 class TestKhoPhieuList(_KhoApiFixture):
     def test_list_shows_only_own_kho_newest_first(self):
+        # `_KhoApiFixture.setUp()` không dọn `Customer Stock Receipt` (chỉ
+        # dọn sổ/tồn lô — xem docstring lớp) và `FrappeTestCase` chỉ
+        # rollback MỘT LẦN MỖI CLASS, không phải mỗi test method — phiếu do
+        # các test method CHẠY TRƯỚC trong cùng lớp này để lại vẫn còn.
+        # Lấy `tong` TRƯỚC khi tạo fixture của CHÍNH test này rồi so lệch,
+        # thay vì khẳng định một con số tuyệt đối (đã trả giá — xem sửa ở
+        # đây, brief 2026-08-15).
+        frappe.set_user(BM_USER)
+        tong_truoc = kho_api.kho_phieu_list("nhap")["tong"]
+        frappe.set_user("Administrator")
+
         r1 = self._nhap(so_lo="LO-A")
         r2 = self._nhap(kho=self.kho["kho_pxn"], vat_tu=self.kho["vt_pxn"], so_lo="LO-PXN")
         r3 = self._nhap(so_lo="LO-C")
 
         frappe.set_user(BM_USER)
-        rows = kho_api.kho_phieu_list("nhap")
+        ket_qua = kho_api.kho_phieu_list("nhap")
+        rows = ket_qua["rows"]
         names = [r["name"] for r in rows]
         self.assertIn(r1.name, names)
         self.assertIn(r3.name, names)
@@ -70,11 +82,15 @@ class TestKhoPhieuList(_KhoApiFixture):
         self.assertTrue(frappe.db.exists("Customer Stock Receipt", r2.name))
         self.assertNotIn(r2.name, names)
         self.assertEqual(names[0], r3.name, "mới nhất phải đứng đầu")
+        # brief 2026-08-15 (phân trang) — `tong` phải đếm ĐÚNG bộ filters
+        # của truy vấn trang (kho BM, không lẫn phiếu của PXN): tăng đúng 2
+        # (r1, r3) — r2 thuộc kho khác, không được tính.
+        self.assertEqual(ket_qua["tong"], tong_truoc + 2)
 
     def test_list_reports_vietnamese_status(self):
         doc = self._nhap()
         frappe.set_user(BM_USER)
-        rows = kho_api.kho_phieu_list("nhap")
+        rows = kho_api.kho_phieu_list("nhap")["rows"]
         row = next(r for r in rows if r["name"] == doc.name)
         self.assertEqual(row["trang_thai"], "Đã ghi sổ")
 
@@ -99,13 +115,25 @@ class TestKhoPhieuList(_KhoApiFixture):
         phải int như mọi lời gọi trực tiếp khác trong file này — mô phỏng
         đúng dạng dữ liệu một client thật gửi lên, không phải giá trị Python
         tiện tay của test."""
+        # Cùng lý do baseline ở test_list_shows_only_own_kho_newest_first —
+        # phiếu của test method chạy trước trong lớp này vẫn còn (rollback
+        # chỉ chạy một lần mỗi CLASS, không phải mỗi test).
+        frappe.set_user(BM_USER)
+        tong_truoc = kho_api.kho_phieu_list("nhap")["tong"]
+        frappe.set_user("Administrator")
+
         self._nhap(so_lo="LO-A")
         self._nhap(so_lo="LO-B")
         self._nhap(so_lo="LO-C")
         frappe.set_user(BM_USER)
-        rows = kho_api.kho_phieu_list("nhap", limit="1", start="0")
+        ket_qua = kho_api.kho_phieu_list("nhap", limit="1", start="0")
+        rows = ket_qua["rows"]
         self.assertEqual(len(rows), 1, "limit=\"1\" (chuỗi) phải giới hạn còn đúng 1 dòng")
-        rows_trang_2 = kho_api.kho_phieu_list("nhap", limit="1", start="1")
+        self.assertEqual(
+            ket_qua["tong"], tong_truoc + 3,
+            "tong phải đếm ĐỦ 3 dòng vừa tạo, không bị giới hạn bởi limit trang",
+        )
+        rows_trang_2 = kho_api.kho_phieu_list("nhap", limit="1", start="1")["rows"]
         self.assertEqual(len(rows_trang_2), 1)
         self.assertNotEqual(rows[0]["name"], rows_trang_2[0]["name"], "start=\"1\" phải lật trang")
 

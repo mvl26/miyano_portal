@@ -56,7 +56,7 @@ class TestPortalRead(FrappeTestCase):
         self.assertIsInstance(vt["item_group"], str)
 
     def test_invoices_status_is_vietnamese_and_has_due_date(self):
-        rows = portal.portal_invoices()
+        rows = portal.portal_invoices()["rows"]
         english = {"Unpaid", "Paid", "Overdue", "Partly Paid", "Draft",
                    "Partially Paid", "Return", "Credit Note Issued"}
         for r in rows:

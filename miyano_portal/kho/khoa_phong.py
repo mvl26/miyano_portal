@@ -88,21 +88,41 @@ def _thong_ke_90n(name: str) -> tuple[int, float]:
 	return so_phieu, float(tong[0][0] or 0)
 
 
-def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[dict]:
+def list_rows(
+	kho: str, tim_kiem: str | None = None, ca_inactive=False,
+	limit: int | None = None, start: int = 0,
+) -> list[dict] | dict:
 	"""Danh mục khoa phòng — cùng khuôn `kho_ncc_list()`: trả ĐỦ chi tiết mô
 	tả trong MỘT lượt, không chỉ vài cột hiển thị bảng (Gap 1, review E4
-	phần B — xem docstring ncc.list_rows() cho lý do đầy đủ)."""
+	phần B — xem docstring ncc.list_rows() cho lý do đầy đủ).
+
+	Brief 2026-08-15 (phân trang) — cùng ràng buộc/khuôn `ncc.list_rows()`:
+	endpoint `kho_khoa_phong_list` KIÊM HAI VAI (màn danh mục + dropdown
+	NhatKy.vue/BaoCaoNXT.vue), `limit=None` giữ nguyên hành vi cũ (list
+	đầy đủ), chỉ cắt trang khi `limit` được truyền — đọc docstring
+	`ncc.list_rows()` cho lý do đầy đủ (lọc Python, cắt trước khi tính
+	thống kê 90 ngày để không lãng phí truy vấn cho dòng không hiển thị).
+	"""
 	filters = {"kho": kho}
 	if not frappe.utils.cint(ca_inactive):
 		filters["active"] = 1
 	rows = frappe.get_all(
 		"Customer Department", filters=filters,
 		fields=["name", "ten_khoa_phong", "ma_khoa", "ghi_chu", "active"],
-		order_by="ten_khoa_phong asc",
+		# tiebreak `name` — `ten_khoa_phong` không unique.
+		order_by="ten_khoa_phong asc, name asc",
 	)
 	if tim_kiem:
 		hay = similarity.khong_dau(tim_kiem)
 		rows = [r for r in rows if hay in similarity.khong_dau(r.ten_khoa_phong)]
+
+	phan_trang = limit not in (None, "")
+	tong = len(rows)
+	if phan_trang:
+		limit = frappe.utils.cint(limit)
+		start = frappe.utils.cint(start)
+		rows = rows[start:start + limit]
+
 	out = []
 	for r in rows:
 		so_phieu_90n, gia_tri_90n = _thong_ke_90n(r.name)
@@ -115,7 +135,7 @@ def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[
 			"gia_tri_90n": gia_tri_90n,
 			"active": int(r.active or 0),
 		})
-	return out
+	return {"rows": out, "tong": tong} if phan_trang else out
 
 
 def save(kho: str, du_lieu: dict) -> dict:

@@ -60,9 +60,28 @@ def _thong_ke_90n(name: str) -> tuple[int, float]:
     return so_phieu, float(tong[0][0] or 0)
 
 
-def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[dict]:
+def list_rows(
+    kho: str, tim_kiem: str | None = None, ca_inactive=False,
+    limit: int | None = None, start: int = 0,
+) -> list[dict] | dict:
     """Danh mục NCC — cùng khuôn `kho_vat_tu_list()` (Phase 3): trả ĐỦ chi
     tiết mô tả trong MỘT lượt, không chỉ vài cột hiển thị bảng.
+
+    Brief 2026-08-15 (phân trang) — RÀNG BUỘC CỨNG: `kho_ncc_list` (api/
+    kho.py) KIÊM HAI VAI, vừa nguồn màn danh mục NCC vừa đổ dữ liệu ô lọc
+    dropdown ở NhatKy.vue/BaoCaoNXT.vue (hai màn đó gọi KHÔNG truyền
+    `limit`). `limit=None` (mặc định) giữ NGUYÊN hành vi cũ — trả list đầy
+    đủ. Chỉ khi `limit` được truyền mới cắt trang, và hình dạng trả về đổi
+    sang `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`).
+
+    Cắt trang TRƯỚC khi tính `_thong_ke_90n()` (mỗi dòng tốn thêm 2 truy
+    vấn) — cắt sau sẽ tính thống kê cho toàn bộ danh mục rồi vứt phần
+    không hiển thị, đúng lãng phí mà phân trang phải xoá bỏ. `tim_kiem` là
+    lọc PYTHON (so khớp không dấu qua `similarity.khong_dau`, không phải
+    SQL LIKE) nên phải lọc trước khi đếm `tong`/cắt trang, không thể đẩy
+    xuống SQL `limit_start`/`limit_page_length` như bẫy đã ghi ở
+    api/kho.py — đây là báo cáo/danh mục có lọc bằng Python, cùng nhóm với
+    `nhat_ky_rows()` (kho/reports.py), không phải truy vấn đơn giản.
 
     Gap 1 (review E4 phần B, báo lên từ agent giao diện): trước bản này chỉ
     có `name/ten_ncc/mst/so_phieu/gia_tri_90n/active` — bảng "NCC của tôi"
@@ -80,11 +99,21 @@ def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[
     rows = frappe.get_all(
         "Customer Supplier", filters=filters,
         fields=["name", "ten_ncc", "mst", "dien_thoai", "email", "dia_chi", "ghi_chu", "active"],
-        order_by="ten_ncc asc",
+        # tiebreak `name` — `ten_ncc` không unique, thứ tự phải TẤT ĐỊNH
+        # giữa hai trang (brief 2026-08-15).
+        order_by="ten_ncc asc, name asc",
     )
     if tim_kiem:
         hay = similarity.khong_dau(tim_kiem)
         rows = [r for r in rows if hay in similarity.khong_dau(r.ten_ncc)]
+
+    phan_trang = limit not in (None, "")
+    tong = len(rows)
+    if phan_trang:
+        limit = frappe.utils.cint(limit)
+        start = frappe.utils.cint(start)
+        rows = rows[start:start + limit]
+
     out = []
     for r in rows:
         so_phieu, gia_tri_90n = _thong_ke_90n(r.name)
@@ -100,7 +129,7 @@ def list_rows(kho: str, tim_kiem: str | None = None, ca_inactive=False) -> list[
             "gia_tri_90n": gia_tri_90n,
             "active": int(r.active or 0),
         })
-    return out
+    return {"rows": out, "tong": tong} if phan_trang else out
 
 
 def save(kho: str, du_lieu: dict) -> dict:

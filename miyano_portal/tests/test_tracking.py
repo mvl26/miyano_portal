@@ -18,7 +18,7 @@ class TestTracking(FrappeTestCase):
         )["sales_order"]
 
     def test_history_shows_order(self):
-        names = {r["name"] for r in portal.portal_order_history()}
+        names = {r["name"] for r in portal.portal_order_history()["rows"]}
         self.assertIn(self.so, names)
 
     def test_track_has_milestones(self):

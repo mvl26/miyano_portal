@@ -107,6 +107,26 @@ def _so_thuc(gia_tri, nhan: str) -> float:
         frappe.throw(f"{nhan} không hợp lệ.", frappe.ValidationError)
 
 
+def _ap_dung_phan_trang(rows: list, limit, start) -> tuple[list, int | None]:
+	"""Cắt trang TUỲ CHỌN cho các báo cáo kho (Phase 5) — brief 2026-08-15.
+
+	Các hàm `reports.*_rows()` gọi ở đây đều dựng ĐỦ danh sách trong Python
+	(gộp/luỹ kế từ sổ kho — không thể đẩy LIMIT xuống SQL, cùng lý do
+	`nhat_ky_rows()` đã dựng sẵn), nên cắt trang phải làm SAU khi có đủ
+	danh sách, ở tầng gọi này. `limit` không được truyền (`None`/rỗng) ->
+	trả nguyên `rows` và `None` — hành vi cũ, dùng cho MỌI caller hiện có
+	(kể cả `kho_bao_cao_excel`, nơi chỉ gọi thẳng `reports.*_rows()` mà
+	không qua endpoint này — xuất Excel vì vậy KHÔNG bao giờ bị cắt trang,
+	đúng chốt "xuất luôn toàn bộ" đã chốt với chủ dự án).
+	"""
+	if limit in (None, ""):
+		return rows, None
+	tong = len(rows)
+	limit = _so_nguyen(limit, "Số dòng mỗi trang")
+	start = _so_nguyen(start, "Vị trí bắt đầu", 0)
+	return rows[start:start + limit], tong
+
+
 def _doctype_tu_loai(loai: str) -> str:
     dt = _LOAI_TO_DOCTYPE.get(loai)
     if not dt:
@@ -240,13 +260,19 @@ def kho_me() -> dict:
 
 
 @frappe.whitelist()
-def kho_ton(tim=None) -> list:
+def kho_ton(tim=None, limit=None, start=0) -> list | dict:
 	"""Tồn hiện tại, gộp các lô về một dòng cho mỗi vật tư.
 
 	Phép gộp thật sự sống ở `reports.ton_hien_tai_rows()` — dùng chung với báo
 	cáo "Tồn kho khách hàng" phía desk (Phase 6), vốn gọi lại đúng hàm này cho
-	từng kho rồi gắn thêm khách hàng, chứ không viết lại phép cộng lần hai."""
-	return reports.ton_hien_tai_rows(get_portal_kho(), tim)
+	từng kho rồi gắn thêm khách hàng, chứ không viết lại phép cộng lần hai.
+	KHÔNG thêm limit/start vào chính `ton_hien_tai_rows()` — cắt trang ở
+	ĐÂY (xem `_ap_dung_phan_trang`) để hàm dùng chung đó vẫn trả ĐỦ danh
+	sách cho từng kho khi desk_reports.py lặp qua nhiều kho."""
+	rows, tong = _ap_dung_phan_trang(
+		reports.ton_hien_tai_rows(get_portal_kho(), tim), limit, start
+	)
+	return {"rows": rows, "tong": tong} if tong is not None else rows
 
 
 @frappe.whitelist()
@@ -263,7 +289,7 @@ def kho_lo(vat_tu) -> list:
 
 
 @frappe.whitelist()
-def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
+def kho_vat_tu_list(tim=None, ca_tat=0, limit=None, start=0) -> list | dict:
 	"""Danh mục vật tư của kho — nguồn cho ô chọn vật tư ở hai màn phiếu VÀ
 	cho màn danh mục.
 
@@ -271,6 +297,18 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 	bị lớp typing của Frappe chặn bằng thông điệp tiếng Anh trước khi hàm chạy.
 	Mặc định 0 nên hành vi cũ (chỉ trả vật tư đang dùng) giữ nguyên cho hai màn
 	phiếu vốn gọi hàm này không tham số.
+
+	Brief 2026-08-15 (phân trang) — RÀNG BUỘC CỨNG: endpoint này KIÊM HAI
+	VAI, vừa nguồn cho màn "Danh mục vật tư" vừa đổ dữ liệu cho ô lọc
+	dropdown ở NhatKy.vue/BaoCaoNXT.vue (hai màn đó gọi KHÔNG truyền
+	`limit`). Phân trang vì vậy TUỲ CHỌN: `limit=None` (mặc định, mọi
+	caller cũ) giữ NGUYÊN hành vi — trả list đầy đủ. Chỉ khi `limit` được
+	truyền mới cắt trang, hình dạng trả về đổi sang `{"rows": [...],
+	"tong": N}` (khuôn `portal_catalog_ban_le`). `tim` là lọc PYTHON
+	(substring thô trên "mã tên"), không phải SQL LIKE — không thể cắt
+	NGAY TRONG SQL như `kho_phieu_list`: đây là danh mục có lọc bằng
+	Python, phải lọc/đếm `tong` TRƯỚC khi cắt trang, cùng khuôn
+	`kho/ncc.py::list_rows()`/`kho/khoa_phong.py::list_rows()`.
 	"""
 	kho = get_portal_kho()
 	filters = {"kho": kho}
@@ -285,17 +323,27 @@ def kho_vat_tu_list(tim=None, ca_tat=0) -> list:
 		        # được giá trị ĐANG LƯU trước khi khách bấm sửa.
 		        "ton_toi_thieu", "diem_dat_lai", "ton_toi_da", "lead_time_ngay",
 		        "boi_so_dat"],
-		order_by="ten_vat_tu asc",
+		# tiebreak `name` — `ten_vat_tu` không unique, thứ tự phải TẤT ĐỊNH
+		# giữa hai trang.
+		order_by="ten_vat_tu asc, name asc",
 	)
 	if tim:
 		hay = str(tim).strip().lower()
 		rows = [r for r in rows if hay in f"{r['ma_vat_tu']} {r['ten_vat_tu']}".lower()]
-	# MỘT truy vấn cho cả danh mục, không phải mỗi dòng một truy vấn.
+
+	phan_trang = limit not in (None, "")
+	tong = len(rows)
+	if phan_trang:
+		limit = _so_nguyen(limit, "Số dòng mỗi trang")
+		start = _so_nguyen(start, "Vị trí bắt đầu", 0)
+		rows = rows[start:start + limit]
+
+	# MỘT truy vấn cho cả trang, không phải mỗi dòng một truy vấn.
 	co_ps = vat_tu_mod.cac_vat_tu_co_phat_sinh(kho)
 	for r in rows:
 		vat_tu_mod._chuan_hoa_row(r)
 		r["co_phat_sinh"] = r["name"] in co_ps
-	return rows
+	return {"rows": rows, "tong": tong} if phan_trang else rows
 
 
 @frappe.whitelist()
@@ -390,9 +438,15 @@ def _resolve_owned_spreadsheet(file_url: str) -> bytes:
 
 @frappe.whitelist()
 @_ncc_action
-def kho_ncc_list(tim_kiem=None, ca_inactive=0) -> list:
-	"""Danh mục NCC của kho — US-E4.1."""
-	return ncc_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive)
+def kho_ncc_list(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> list | dict:
+	"""Danh mục NCC của kho — US-E4.1.
+
+	Brief 2026-08-15 (phân trang) — endpoint này KIÊM HAI VAI (màn danh
+	mục + dropdown NhatKy.vue/BaoCaoNXT.vue). `limit=None` giữ nguyên
+	hành vi cũ; phân trang thật sự nằm ở `kho/ncc.py::list_rows()` — xem
+	docstring ở đó.
+	"""
+	return ncc_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive, limit, start)
 
 
 @frappe.whitelist()
@@ -415,9 +469,15 @@ def kho_ncc_save(data) -> dict:
 
 @frappe.whitelist()
 @_khoa_action
-def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0) -> list:
-	"""Danh mục khoa phòng của kho — US-E8.1."""
-	return khoa_phong_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive)
+def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> list | dict:
+	"""Danh mục khoa phòng của kho — US-E8.1.
+
+	Brief 2026-08-15 (phân trang) — endpoint này KIÊM HAI VAI (màn danh
+	mục + dropdown NhatKy.vue/BaoCaoNXT.vue). `limit=None` giữ nguyên
+	hành vi cũ; phân trang thật sự nằm ở `kho/khoa_phong.py::list_rows()`
+	— xem docstring ở đó.
+	"""
+	return khoa_phong_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive, limit, start)
 
 
 @frappe.whitelist()
@@ -498,7 +558,7 @@ def _phieu_to_dict(doc) -> dict:
 
 @frappe.whitelist()
 @_phieu_action
-def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong=None) -> list:
+def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong=None) -> dict:
 	# `limit`/`start` CỐ Ý không gắn type hint `int`: build này (Frappe
 	# v15.113) tự validate kiểu tham số của hàm whitelist theo type hint qua
 	# `frappe.utils.typing_validations` — kể cả khi gọi trực tiếp trong test
@@ -510,6 +570,14 @@ def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong
 	# vì lớp đó nằm NGOÀI nó. Bỏ type hint để tham số tới tay hàm ở dạng thô,
 	# rồi tự ép bằng `_so_nguyen()` bên dưới với thông điệp tiếng Việt — đúng
 	# khuôn mà `kho_lo_goi_y`/`kho_canh_bao_han` đã dùng cho `so_luong`/`so_ngay`.
+	#
+	# Brief 2026-08-15 (phân trang) — ĐỔI hình dạng trả về từ list sang
+	# `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
+	# LUÔN (không tuỳ chọn như ba endpoint kiêm-hai-vai kho_vat_tu_list/
+	# kho_ncc_list/kho_khoa_phong_list — endpoint này KHÔNG nuôi dropdown
+	# nào, chỉ nguồn cho đúng hai màn PhieuNhap/PhieuXuat). Đã cập nhật MỌI
+	# caller (test_kho_phieu_api.py, test_e4_ncc.py, PhieuNhap.vue,
+	# PhieuXuat.vue) sang đọc `.rows`.
 	kho = get_portal_kho()
 	doctype = _doctype_tu_loai(loai)
 	loai_field = _LOAI_FIELD[doctype]
@@ -530,17 +598,25 @@ def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong
 		if khoa_phong:
 			_khoa_cua_kho(khoa_phong, kho)
 			filters["khoa_phong"] = khoa_phong
+	# `frappe.db.count` KHÔNG nhận `or_filters` (không dùng ở đây, nhưng giữ
+	# đúng khuôn `get_all(...count(name)...)` đã trả giá ở portal_catalog_
+	# ban_le) — đếm bằng ĐÚNG bộ `filters` của truy vấn trang dưới.
+	tong = frappe.get_all(
+		doctype, filters=filters, fields=["count(name) as tong"],
+	)[0].tong
 	rows = frappe.get_all(
 		doctype,
 		filters=filters,
 		fields=fields,
-		order_by="creation desc",
+		# tiebreak `name` — `creation` không đủ duy nhất khi nhiều phiếu
+		# tạo trong cùng một giây.
+		order_by="creation desc, name desc",
 		limit_page_length=_so_nguyen(limit, "Số dòng mỗi trang", 20),
 		limit_start=_so_nguyen(start, "Vị trí bắt đầu", 0),
 	)
 	for row in rows:
 		row["trang_thai"] = _TRANG_THAI.get(int(row["docstatus"]), "")
-	return rows
+	return {"rows": rows, "tong": tong}
 
 
 @frappe.whitelist()
@@ -935,26 +1011,40 @@ def kho_phieu_pdf(doctype: str, name: str) -> None:
 
 
 @frappe.whitelist()
-def kho_bao_cao_nxt(tu_ngay, den_ngay, tim=None, vat_tu=None) -> dict:
+def kho_bao_cao_nxt(tu_ngay, den_ngay, tim=None, vat_tu=None, limit=None, start=0) -> dict:
 	"""Báo cáo Nhập-Xuất-Tồn. Không truyền `vat_tu`: một dòng cho mỗi vật tư.
 	Có truyền `vat_tu`: bung xuống mức lô CỦA CHÍNH vật tư đó — `vat_tu` do
 	client gửi nên phải qua _vat_tu_cua_kho() trước khi chạm ledger, đúng
 	nguyên tắc đầu file (đây là tham số duy nhất của cả ba báo cáo Phase 5 mà
 	client tự chọn giá trị).
+
+	Brief 2026-08-15 (phân trang) — CHỈ mức "vat_tu" (bảng chính của màn
+	BaoCaoNXT) phân trang. Mức "lo" (bung một vật tư xuống lô) là màn CHI
+	TIẾT của một vật tư — theo giả định đã chốt với chủ dự án, chi tiết
+	KHÔNG phân trang — nên `limit`/`start` bị bỏ qua khi có `vat_tu`.
 	"""
 	kho = get_portal_kho()
 	if vat_tu:
 		_vat_tu_cua_kho(vat_tu, kho)
 		return {"muc": "lo", "vat_tu": vat_tu, "rows": reports.nxt_lot_rows(kho, vat_tu, tu_ngay, den_ngay)}
-	return {"muc": "vat_tu", "rows": reports.nxt_item_rows(kho, tu_ngay, den_ngay, tim)}
+	rows, tong = _ap_dung_phan_trang(
+		reports.nxt_item_rows(kho, tu_ngay, den_ngay, tim), limit, start
+	)
+	out = {"muc": "vat_tu", "rows": rows}
+	if tong is not None:
+		out["tong"] = tong
+	return out
 
 
 @frappe.whitelist()
-def kho_the_kho(vat_tu: str, tu_ngay, den_ngay) -> list:
+def kho_the_kho(vat_tu: str, tu_ngay, den_ngay, limit=None, start=0) -> list | dict:
 	"""Thẻ kho của một vật tư trong khoảng ngày."""
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(vat_tu, kho)
-	return reports.the_kho_rows(kho, vat_tu, tu_ngay, den_ngay)
+	rows, tong = _ap_dung_phan_trang(
+		reports.the_kho_rows(kho, vat_tu, tu_ngay, den_ngay), limit, start
+	)
+	return {"rows": rows, "tong": tong} if tong is not None else rows
 
 
 @frappe.whitelist()
@@ -976,7 +1066,7 @@ def kho_nhat_ky(vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, 
 
 
 @frappe.whitelist()
-def kho_bao_cao_dot(tu_ngay, den_ngay, vat_tu=None, nguon=None) -> list:
+def kho_bao_cao_dot(tu_ngay, den_ngay, vat_tu=None, nguon=None, limit=None, start=0) -> list | dict:
 	"""NXT theo đợt hàng, phân bổ FIFO — US-E4.7/UC-44. `vat_tu` là lọc TUỲ
 	CHỌN do client gửi — kiểm sở hữu qua _vat_tu_cua_kho() TRƯỚC khi lọc, cùng
 	khuôn kho_bao_cao_nxt()/kho_the_kho(): một vat_tu của kho khác phải trả
@@ -986,31 +1076,46 @@ def kho_bao_cao_dot(tu_ngay, den_ngay, vat_tu=None, nguon=None) -> list:
 	kho = get_portal_kho()
 	if vat_tu:
 		_vat_tu_cua_kho(vat_tu, kho)
-	return reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon)
+	rows, tong = _ap_dung_phan_trang(
+		reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon), limit, start
+	)
+	return {"rows": rows, "tong": tong} if tong is not None else rows
 
 
 @frappe.whitelist()
 @_khoa_action
-def kho_bao_cao_cap_phat(tu_ngay, den_ngay, khoa_phong=None, vat_tu=None) -> dict:
+def kho_bao_cao_cap_phat(tu_ngay, den_ngay, khoa_phong=None, vat_tu=None, limit=None, start=0) -> dict:
 	"""Báo cáo cấp phát theo khoa phòng — US-E8.5/UC-56/BR-CP4. `khoa_phong`/
 	`vat_tu` là lọc TUỲ CHỌN do client gửi — kiểm sở hữu TRƯỚC khi lọc, cùng
-	khuôn kho_bao_cao_dot()."""
+	khuôn kho_bao_cao_dot().
+
+	Brief 2026-08-15 (phân trang) — báo cáo này GOM NHÓM theo khoa phòng
+	(`{"nhom": [...]}`), không phải một danh sách dòng phẳng như các báo
+	cáo khác. Phân trang ở đây cắt theo ĐƠN VỊ NHÓM (mỗi khoa phòng một
+	"trang"), không cắt dòng `dong` bên trong từng nhóm — cùng tinh thần
+	"chi tiết không phân trang" (chi tiết ở đây là các dòng của MỘT khoa)."""
 	kho = get_portal_kho()
 	if khoa_phong:
 		_khoa_cua_kho(khoa_phong, kho)
 	if vat_tu:
 		_vat_tu_cua_kho(vat_tu, kho)
-	return reports.bao_cao_cap_phat_rows(kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu)
+	ket_qua = reports.bao_cao_cap_phat_rows(kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu)
+	nhom, tong = _ap_dung_phan_trang(ket_qua["nhom"], limit, start)
+	ket_qua["nhom"] = nhom
+	if tong is not None:
+		ket_qua["tong"] = tong
+	return ket_qua
 
 
 @frappe.whitelist()
-def kho_canh_bao_han(so_ngay=90) -> list:
+def kho_canh_bao_han(so_ngay=90, limit=None, start=0) -> list | dict:
 	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
 	kho = get_portal_kho()
 	so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 	if so_ngay < 0:
 		frappe.throw("Số ngày không hợp lệ.", frappe.ValidationError)
-	return reports.canh_bao_han_rows(kho, so_ngay)
+	rows, tong = _ap_dung_phan_trang(reports.canh_bao_han_rows(kho, so_ngay), limit, start)
+	return {"rows": rows, "tong": tong} if tong is not None else rows
 
 
 @frappe.whitelist()

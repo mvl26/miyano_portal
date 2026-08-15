@@ -321,9 +321,9 @@ class TestPhieuMuaNgoai(_E4Fixture):
         self.assertEqual(out["docstatus"], 1)
         self.assertEqual(out["thieu_chung_tu"], 1)
 
-        rows_thieu = kho_api.kho_phieu_list("nhap", thieu_chung_tu=1)
+        rows_thieu = kho_api.kho_phieu_list("nhap", thieu_chung_tu=1)["rows"]
         self.assertIn(out["name"], [r["name"] for r in rows_thieu])
-        rows_du = kho_api.kho_phieu_list("nhap", thieu_chung_tu=0)
+        rows_du = kho_api.kho_phieu_list("nhap", thieu_chung_tu=0)["rows"]
         self.assertNotIn(out["name"], [r["name"] for r in rows_du])
 
     def test_mua_ngoai_with_chung_tu_has_no_flag(self):

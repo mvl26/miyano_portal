@@ -24,4 +24,4 @@ class TestE2EFlow(FrappeTestCase):
         self.assertEqual(track["status_vi"], "Chờ xác nhận")
         # isolation: the other customer cannot see this order
         frappe.set_user("pxnabc@demo.miyano")
-        self.assertNotIn(so, {r["name"] for r in portal.portal_order_history()})
+        self.assertNotIn(so, {r["name"] for r in portal.portal_order_history()["rows"]})
