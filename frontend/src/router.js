@@ -19,6 +19,7 @@ import NccList from './views/NccList.vue'
 import KhoaPhongList from './views/KhoaPhongList.vue'
 import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
+import ThongBao from './views/ThongBao.vue'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
@@ -41,6 +42,7 @@ const routes = [
   { path: '/kho/khoa-phong', name: 'kho-khoa-phong', component: KhoaPhongList, meta: { title: 'Danh mục khoa phòng' } },
   { path: '/kho/nhat-ky', name: 'kho-nhat-ky', component: NhatKy, meta: { title: 'Nhật ký vật tư' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
+  { path: '/thong-bao', name: 'thong-bao', component: ThongBao, meta: { title: 'Thông báo' } },
 ]
 
 // base '/portal' → URL dạng /portal/dashboard, /portal/orders, ...

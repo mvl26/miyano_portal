@@ -13,6 +13,15 @@ import { reactive } from 'vue'
 // Mỗi dòng: item_code → { item_code, item_name, uom, rate, vat_pct, remaining, qty }
 export const store = reactive({
   me: null, // { customer, customer_name, tax_id, outstanding, addresses }
+  // Brief 2026-08-15 (trang thông báo) — số thông báo chưa đọc cho badge
+  // trên nav. Nạp ở `App.vue` (mount, mọi trang) và ở chính trang Thông báo
+  // (nguồn dữ liệu chính xác nhất); `ThongBao.vue` giảm số này TẠI CHỖ khi
+  // khách bấm mở một thông báo, khỏi phải gọi lại danh sách chỉ để đổi một
+  // con số.
+  chuaDocThongBao: 0,
+  setChuaDocThongBao(n) {
+    this.chuaDocThongBao = n
+  },
   cart: {}, // ngăn Theo HĐNT
   cartLe: {}, // ngăn Mua lẻ [MỚI]
   // Spec 2026-08-15 §3.4 — "hàng chưa có trong kho, cần đặt ngoài".

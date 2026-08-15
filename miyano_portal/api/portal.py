@@ -2114,3 +2114,150 @@ def portal_order_huy(order, ly_do) -> dict:
     gui_email_khach_huy(so, ly_do)
 
     return {"trang_thai_moi": so.get("workflow_state")}
+
+
+# ---------------------------------------------------------------- trang Thông báo
+# Brief 2026-08-15 (trang thông báo) Phần 3 — dùng thẳng `Notification Log`
+# có sẵn của Frappe (KHÔNG dựng doctype mới). Hai endpoint dưới đây KHÔNG
+# nhận `user`/`customer` từ client — mọi thứ suy từ `frappe.session.user`.
+
+
+def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
+    """Suy đường dẫn trong SPA cho một Notification Log, kiểm sở hữu CHÍNH
+    chứng từ đang trỏ tới trước khi trả.
+
+    `for_user` của Notification Log đã lọc đúng người nhận (người gọi truyền
+    `customer` suy từ CHÍNH phiên đó), nhưng KHÔNG phải bằng chứng người đó
+    có quyền đọc document đang trỏ tới — một bản ghi định tuyến sai (dữ liệu
+    cũ, lỗi ở nơi khác) vẫn có thể mang `for_user` đúng mà `document_name`
+    lại là chứng từ CỦA KHÁCH KHÁC. Đối chiếu lại `customer` của CHÍNH
+    document trước khi trả link là lớp kiểm thứ hai, không phụ thuộc việc
+    `for_user` đã lọc đúng hay chưa.
+
+    Trả `None` khi không suy được / không map được loại chứng từ / không sở
+    hữu — trang Thông báo vẫn hiện dòng chữ, chỉ ẩn nút đi tới chứng từ.
+    """
+    if not document_type or not document_name or not customer:
+        return None
+    try:
+        if document_type == "Sales Order":
+            if frappe.db.get_value("Sales Order", document_name, "customer") != customer:
+                return None
+            return f"/orders/{document_name}"
+
+        if document_type == "Sales Invoice":
+            if frappe.db.get_value("Sales Invoice", document_name, "customer") != customer:
+                return None
+            # Cổng chưa có trang chi tiết một Sales Invoice riêng — "Hoá đơn &
+            # công nợ" liệt kê tất cả, cùng khuôn brief (`v.v.` — minh hoạ,
+            # không phải danh sách đóng).
+            return "/invoices"
+
+        if document_type == "Delivery Note":
+            if frappe.db.get_value("Delivery Note", document_name, "customer") != customer:
+                return None
+            # Cổng không có trang chi tiết Delivery Note riêng — phiếu giao
+            # hiện trong khối "Tiến trình giao hàng" của CHÍNH đơn hàng.
+            so = frappe.db.get_value(
+                "Delivery Note Item",
+                {"parent": document_name, "against_sales_order": ["is", "set"]},
+                "against_sales_order",
+            )
+            return f"/orders/{so}" if so else None
+
+        if document_type == "Customer Stock Receipt":
+            kho = frappe.db.get_value("Customer Stock Receipt", document_name, "kho")
+            # `not kho` gộp CẢ HAI: chứng từ không tồn tại (ví dụ phiếu nháp
+            # đã bị `delivery_hook._huy_theo_delivery_note` xoá hẳn khi DN bị
+            # huỷ — Notification Log trỏ tới một `document_name` không còn
+            # nữa) VÀ chứng từ tồn tại nhưng không thuộc kho của khách này.
+            kho_customer = frappe.db.get_value("Customer Warehouse", kho, "customer") if kho else None
+            if not kho or kho_customer != customer:
+                return None
+            return f"/kho/nhap/{document_name}"
+    except Exception:
+        return None
+    return None
+
+
+def _customer_phien_hien_tai() -> str | None:
+    """`get_portal_customer()` nhưng KHÔNG ném lỗi — trang Thông báo vẫn
+    phải chạy được (chỉ mất khả năng suy link) cho một tài khoản lỗi cấu
+    hình (chưa gắn Customer nào), thay vì 500 cả trang."""
+    try:
+        return get_portal_customer()
+    except frappe.PermissionError:
+        return None
+
+
+@frappe.whitelist()
+def portal_thong_bao_list(start=0, limit=20) -> dict:
+    """Danh sách thông báo của CHÍNH khách đang đăng nhập + số chưa đọc cho
+    badge nav. Lọc `for_user = frappe.session.user` — KHÔNG nhận user/
+    customer từ client."""
+    user = frappe.session.user
+    start = frappe.utils.cint(start)
+    limit = min(frappe.utils.cint(limit) or 20, 100)
+
+    rows = frappe.get_all(
+        "Notification Log",
+        filters={"for_user": user},
+        fields=[
+            "name", "subject", "email_content", "document_type",
+            "document_name", "read", "creation",
+        ],
+        order_by="creation desc",
+        limit_start=start,
+        limit_page_length=limit,
+    )
+    chua_doc = frappe.db.count("Notification Log", {"for_user": user, "read": 0})
+
+    customer = _customer_phien_hien_tai()
+    items = [
+        {
+            "name": r.name,
+            "subject": r.subject,
+            "noi_dung": r.email_content,
+            "doc_type": r.document_type,
+            "doc_name": r.document_name,
+            "da_doc": bool(r.read),
+            "ngay": r.creation,
+            "link": _lien_ket_thong_bao(r.document_type, r.document_name, customer),
+        }
+        for r in rows
+    ]
+    return {"items": items, "chua_doc": chua_doc}
+
+
+@frappe.whitelist()
+def portal_thong_bao_doc(name) -> dict:
+    """Bấm MỘT thông báo: kiểm sở hữu (chỉ đọc được thông báo CỦA CHÍNH
+    mình — lọc `for_user` NGAY TRONG truy vấn, không load rồi kiểm sau),
+    suy link (tự kiểm sở hữu chứng từ đích — xem `_lien_ket_thong_bao`), rồi
+    đánh dấu đã đọc. KHÔNG nhận user từ client."""
+    user = frappe.session.user
+    log = frappe.db.get_value(
+        "Notification Log",
+        {"name": name, "for_user": user},
+        ["name", "subject", "email_content", "document_type", "document_name", "read"],
+        as_dict=True,
+    )
+    if not log:
+        # Không tồn tại HOẶC thuộc `for_user` khác — cùng một câu trả lời để
+        # không lộ ra sự khác biệt giữa hai trường hợp đó.
+        raise frappe.PermissionError("Không tìm thấy thông báo.")
+
+    customer = _customer_phien_hien_tai()
+    link = _lien_ket_thong_bao(log.document_type, log.document_name, customer)
+
+    if not log.read:
+        frappe.db.set_value("Notification Log", name, "read", 1, update_modified=False)
+
+    return {
+        "name": log.name,
+        "subject": log.subject,
+        "noi_dung": log.email_content,
+        "doc_type": log.document_type,
+        "doc_name": log.document_name,
+        "link": link,
+    }
