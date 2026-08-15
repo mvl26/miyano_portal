@@ -251,6 +251,12 @@ onMounted(load)
             {{ accepting ? 'Đang gửi…' : '✔ Đồng ý đặt hàng' }}
           </button>
           <button class="btn-o btn-danger" :disabled="accepting" @click="acceptOpen = true">✕ Không đồng ý…</button>
+          <a
+            class="btn-o"
+            :href="`/api/method/miyano_portal.api.portal.portal_bao_gia_pdf?order=${encodeURIComponent(name)}`"
+            target="_blank"
+            rel="noopener"
+          >⬇ Tải báo giá (PDF)</a>
         </div>
       </div>
 

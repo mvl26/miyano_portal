@@ -128,6 +128,8 @@ DEFS = [
             "cổng khách hàng để xem chi tiết và xác nhận."
         ),
         "send_system_notification": 1,
+        "attach_print": 1,
+        "print_format": "Miyano - Báo giá",
     },
 ]
 
@@ -155,5 +157,7 @@ def install_portal_notifications():
             # gửi riêng. Mặc định 0 cho mọi định nghĩa cũ — hành vi các
             # Notification hiện có KHÔNG đổi.
             "send_system_notification": d.get("send_system_notification", 0),
+            "attach_print": d.get("attach_print", 0),
+            "print_format": d.get("print_format"),
         })
         doc.insert(ignore_permissions=True)

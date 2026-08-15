@@ -8,6 +8,7 @@ from miyano_portal.portal_dat_hang import (
 )
 from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
+    TRANG_THAI_CHO_KHACH,
     can_chen_giu_cho,
     cap_nhat_yeu_cau_goc,
     dam_bao_duoc_mua_le,
@@ -1482,6 +1483,45 @@ def portal_document_download(doctype, name) -> None:
     )["html"]
     frappe.local.response.filename = f"{name}.pdf"
     frappe.local.response.filecontent = get_pdf(html)
+    frappe.local.response.type = "pdf"
+
+
+@frappe.whitelist()
+def portal_bao_gia_pdf(order) -> None:
+    """§3.6 — tải PDF báo giá của MỘT đơn mua lẻ.
+
+    Cùng khuôn `kho_phieu_pdf`/`portal_einvoice_download` (Quyết định nền số
+    8): trả file qua response, KHÔNG sinh URL công khai — người dùng cổng
+    không dùng được `/printview`.
+
+    `frappe.get_doc` KHÔNG tự kiểm quyền trong bản này, nên phải tự đối chiếu
+    `customer` của đơn với khách suy từ PHIÊN (Quyết định nền số 7) — không
+    nhận `customer` từ client dưới bất kỳ hình thức nào.
+    """
+    customer = get_portal_customer()
+    so = frappe.db.get_value(
+        "Sales Order", order,
+        ["name", "customer", "workflow_state", "custom_loai_don"],
+        as_dict=True,
+    )
+    if not so:
+        frappe.throw("Không tìm thấy đơn hàng.", frappe.DoesNotExistError)
+    if so.customer != customer:
+        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
+
+    # Chỉ từ lúc báo giá ĐÃ GỬI cho khách trở đi. Trước đó `rate` là con số
+    # sales đang sửa — cho tải là biến một bản nháp thành cam kết.
+    if so.workflow_state not in (TRANG_THAI_CHO_KHACH, "Chờ Miyano xác nhận", "Đã xác nhận"):
+        frappe.throw(
+            "Báo giá cho đơn này chưa được gửi. Vui lòng đợi Miyano báo giá.",
+            frappe.ValidationError,
+        )
+
+    pdf = frappe.get_print(
+        "Sales Order", so.name, print_format="Miyano - Báo giá", as_pdf=True
+    )
+    frappe.local.response.filename = f"BaoGia-{so.name}.pdf"
+    frappe.local.response.filecontent = pdf
     frappe.local.response.type = "pdf"
 
 
