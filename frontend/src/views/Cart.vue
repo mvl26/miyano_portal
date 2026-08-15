@@ -113,6 +113,17 @@ const leLines = computed(() => store.cartLeLines)
 // thứ ba trên UI: với khách đó vẫn là một phiếu mua lẻ.
 const dnLines = computed(() => store.cartDatNgoai)
 const leTrong = computed(() => leLines.value.length === 0 && store.datNgoaiHopLe.length === 0)
+// Tự soát sau khi làm xong T6: `leTrong` (dùng cho nút Xác nhận) đếm dòng
+// đặt ngoài HỢP LỆ (`datNgoaiHopLe`) — đúng cho nút, vì server chỉ nhận
+// dòng hợp lệ. Nhưng nếu dùng CHÍNH `leTrong` đó để ẨN/HIỆN cả khối "Ngăn
+// Mua lẻ", một dòng ĐANG GÕ DỞ (vd. dòng auto-điền khi tìm không ra, ĐVT
+// còn trống) sẽ bị coi là "trống" — `dnLines` (nơi khách sửa tiếp ĐVT) nằm
+// TRONG khối bị ẩn đó, khách không còn cách nào hoàn tất dòng mình vừa gõ.
+// Đây CHÍNH XÁC là lỗi "leEmpty" bản gốc (spec §3.4 clarification #4), chỉ
+// tái diễn qua một cửa khác. Cổng HIỂN THỊ vì vậy phải hỏi câu khác với
+// cổng NÚT: "có dòng đặt ngoài nào (kể cả đang gõ dở) không", không phải
+// "có dòng đặt ngoài HỢP LỆ không".
+const leTrongHienThi = computed(() => leLines.value.length === 0 && dnLines.value.length === 0)
 const leDeliveryDate = ref(addWorkDaysISO(2))
 const leAddress = ref('')
 const lePo = ref('')
@@ -208,7 +219,7 @@ onMounted(async () => {
          thành công!" biến mất chỉ sau một nhịp render, thay bằng thông điệp
          "Giỏ hàng trống" (server đã tạo đơn thành công, nhưng khách không
          còn thấy xác nhận). -->
-    <div v-if="hdEmpty && leTrong && !hdPlacedOrder && !lePlacedOrder" class="card" style="color: var(--gray)">
+    <div v-if="hdEmpty && leTrongHienThi && !hdPlacedOrder && !lePlacedOrder" class="card" style="color: var(--gray)">
       Giỏ hàng trống – vào mục
       <a href="#" style="color: var(--blue2)" @click.prevent="router.push('/catalog')">Đặt hàng</a>
       để chọn mặt hàng.
@@ -339,7 +350,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-else-if="leTrong" class="card" style="color: var(--gray)">
+        <div v-else-if="leTrongHienThi" class="card" style="color: var(--gray)">
           Ngăn Mua lẻ trống —
           <a href="#" style="color: var(--blue2)" @click.prevent="router.push('/catalog')">chọn thêm mặt hàng</a>.
         </div>
