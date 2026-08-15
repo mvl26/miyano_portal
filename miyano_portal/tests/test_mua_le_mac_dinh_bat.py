@@ -30,10 +30,23 @@ class TestMuaLeMacDinhBat(FrappeTestCase):
         }).insert(ignore_permissions=True)
         self.assertTrue(kh.custom_cho_phep_mua_le, "khách mới phải mua lẻ được ngay")
 
-    def test_khong_con_khach_nao_bi_tat(self):
-        con_tat = frappe.get_all(
-            "Customer",
-            filters={"custom_cho_phep_mua_le": 0, "disabled": 0},
-            pluck="name",
+    def test_patch_bat_co_cho_khach_dang_tat(self):
+        """Kiểm đúng thứ patch hứa — backfill khách hiện hữu — mà KHÔNG phán xét
+        trạng thái nghiệp vụ của site.
+
+        Bản trước assert "không Customer nào còn cờ 0", tức là cấm luôn điều
+        spec §3.5 cho phép: sales tắt cờ cho một khách cụ thể (khách nợ quá
+        hạn, chỉ cho mua theo hợp đồng). Test đó sẽ đỏ vào đúng ngày ai đó
+        làm đúng điều spec cho phép.
+        """
+        from miyano_portal.patches.v1_15.bat_mua_le_mac_dinh import execute
+
+        khach = frappe.db.get_value("Customer", {"disabled": 0}, "name")
+        frappe.db.set_value("Customer", khach, "custom_cho_phep_mua_le", 0)
+
+        execute()
+
+        self.assertEqual(
+            frappe.db.get_value("Customer", khach, "custom_cho_phep_mua_le"), 1,
+            "patch phải bật cờ cho khách hiện hữu đang tắt",
         )
-        self.assertEqual(con_tat, [], f"patch chưa bật cho khách hiện hữu: {con_tat}")
