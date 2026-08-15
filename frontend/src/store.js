@@ -97,7 +97,10 @@ export const store = reactive({
   // không trả giá (mọi đơn mua lẻ đi qua báo giá của Miyano), nên không có gì
   // để cộng. Ba getter `cartLeSubtotal`/`cartLeVat`/`cartLeTotal` đã bị xoá —
   // đừng dựng lại: chúng chỉ cộng ra 0 ₫ và làm khách tưởng hàng miễn phí.
-  // `cartCount` (đếm DÒNG, không đếm tiền) vẫn tính cả hai ngăn như cũ.
+  // review Minor — `cartCount` (đếm DÒNG, không đếm tiền) tính CẢ BA phần:
+  // hai ngăn giỏ (`cart`, `cartLe`) VÀ mảng đặt ngoài `cartDatNgoai` (§3.4,
+  // chưa có mã nên không nằm trong `cartLe`) — không còn là "hai ngăn" kể
+  // từ khi khối "hàng chưa có mã" ra đời, xem getter `cartCount` ở trên.
 
   addToCartLe(item, qty) {
     const c = this.cartLe[item.item_code]
@@ -137,8 +140,19 @@ export const store = reactive({
     this.cartDatNgoai.splice(i, 1)
   },
 
-  clearDatNgoai() {
-    this.cartDatNgoai = []
+  // review Minor — KHÔNG xoá TOÀN BỘ `cartDatNgoai` sau khi đặt đơn: chỉ
+  // đúng những dòng ĐÃ THẬT SỰ gửi đi (`daGui`, cùng khuôn `datNgoaiHopLe`
+  // dùng để dựng payload) mới bị bỏ. Dòng đang gõ dở (chưa đủ tên hàng/ĐVT/
+  // số lượng, `datNgoaiHopLe` đã lọc ra và KHÔNG gửi) phải được GIỮ LẠI —
+  // xoá vô điều kiện là cùng loại lỗi commit `d0ab1df` đã sửa (mất phần
+  // khách đang gõ không một lời báo), tái diễn qua một cửa khác.
+  //
+  // So sánh bằng REFERENCE: `datNgoaiHopLe` là `cartDatNgoai.filter(...)`,
+  // filter trả về cùng object reference cho mỗi dòng khớp điều kiện, nên
+  // `includes()` theo reference là đủ — không cần khoá định danh nào khác
+  // cho các dòng vốn CHƯA CÓ MÃ (xem khai báo `cartDatNgoai`).
+  xoaCacDongDaGui(daGui) {
+    this.cartDatNgoai = this.cartDatNgoai.filter((d) => !daGui.includes(d))
   },
 
   // Dòng hợp lệ để gửi lên server — server vẫn validate lại (NL: client chỉ

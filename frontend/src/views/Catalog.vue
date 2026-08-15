@@ -573,7 +573,9 @@ watch(selected, loadItems)
       </div>
     </template>
 
-    <!-- Sticky cart bar (mobile) — tổng cả hai ngăn -->
+    <!-- Sticky cart bar (mobile) — `store.cartCount` là SỐ DÒNG, không phải
+         tiền, cộng CẢ BA phần: hai ngăn giỏ (Theo hợp đồng khung, Mua lẻ)
+         VÀ mảng đặt ngoài chưa có mã (§3.4) — xem getter `cartCount`. -->
     <div v-if="isMobile && store.cartCount" class="cartbar">
       <button class="btn" @click="router.push('/cart')">
         <span>🧺 {{ store.cartCount }} mặt hàng</span>

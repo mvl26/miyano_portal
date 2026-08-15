@@ -124,6 +124,12 @@ const leTrong = computed(() => leLines.value.length === 0 && store.datNgoaiHopLe
 // cổng NÚT: "có dòng đặt ngoài nào (kể cả đang gõ dở) không", không phải
 // "có dòng đặt ngoài HỢP LỆ không".
 const leTrongHienThi = computed(() => leLines.value.length === 0 && dnLines.value.length === 0)
+// review I-3 — modal xác nhận cuối cùng phải đếm CẢ hai nhóm: hàng có mã
+// (`leLines`) VÀ dòng đặt ngoài hợp lệ sẽ thật sự gửi đi (`datNgoaiHopLe`).
+// Trước đây chỉ đếm `leLines.length` — khách gõ ba món Miyano chưa có mã
+// (đúng kịch bản chủ đạo của tính năng này) đọc được "0 mặt hàng" ngay lúc
+// cam kết, đọc như "sẽ không đặt gì cả".
+const leTongSoMatHang = computed(() => leLines.value.length + store.datNgoaiHopLe.length)
 const leDeliveryDate = ref(addWorkDaysISO(2))
 const leAddress = ref('')
 const lePo = ref('')
@@ -157,9 +163,14 @@ async function leConfirmOrder() {
   leLoiDong.value = []
   try {
     const itemsPayload = leLines.value.map((l) => ({ item_code: l.item_code, qty: l.qty }))
+    // review Minor — chốt LẠI danh sách "đã gửi" trước khi gọi API: đây là
+    // ĐÚNG những dòng nằm trong payload, dùng để dọn giỏ SAU KHI thành công
+    // mà không đụng tới dòng đang gõ dở phát sinh thêm trong lúc chờ phản
+    // hồi (`store.datNgoaiHopLe` có thể đã khác nếu đọc lại sau await).
+    const dongDatNgoaiDaGui = store.datNgoaiHopLe
     const res = await api.call('portal_order_place', {
       items: JSON.stringify(itemsPayload),
-      dat_ngoai: JSON.stringify(store.datNgoaiHopLe),
+      dat_ngoai: JSON.stringify(dongDatNgoaiDaGui),
       po: lePo.value || null,
       delivery_date: leDeliveryDate.value || null,
       note: leNote.value || null,
@@ -172,7 +183,10 @@ async function leConfirmOrder() {
     }
     lePlacedOrder.value = res
     store.clearCartLe()
-    store.clearDatNgoai()
+    // Chỉ xoá các dòng ĐÃ GỬI — dòng đang gõ dở (chưa hợp lệ nên không nằm
+    // trong `dongDatNgoaiDaGui`) phải còn nguyên trong giỏ. Xem docstring
+    // `xoaCacDongDaGui`.
+    store.xoaCacDongDaGui(dongDatNgoaiDaGui)
     store.ketThucDatHangLe()
     leConfirmOpen.value = false
   } catch (e) {
@@ -488,7 +502,7 @@ onMounted(async () => {
       <div class="card">
         <h3>Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 10px 0">
-          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leLines.length }} mặt hàng, sẽ được
+          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leTongSoMatHang }} mặt hàng, sẽ được
           gửi về hệ thống Supplycore của Miyano. Miyano sẽ báo giá rồi bạn xác nhận trước khi giao —
           không áp dụng hạn mức hợp đồng khung.
         </p>
@@ -504,7 +518,7 @@ onMounted(async () => {
         <div class="grab"></div>
         <h3 style="font-size: 16px">Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 8px 0">
-          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leLines.length }} mặt hàng — Miyano sẽ báo giá
+          Đơn <b>Mua lẻ</b> (ngoài hợp đồng khung), {{ leTongSoMatHang }} mặt hàng — Miyano sẽ báo giá
           rồi bạn xác nhận trước khi giao, không áp dụng hạn mức hợp đồng khung.
         </p>
         <div class="note">Quý khách đồng ý đặt đơn mua lẻ; Miyano sẽ báo giá trước khi giao.</div>

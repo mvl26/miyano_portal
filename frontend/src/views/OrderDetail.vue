@@ -36,6 +36,16 @@ const name = computed(() => route.params.name)
 // khác. Đọc field thật, không còn đoán.
 const laDonMuaLe = computed(() => data.value?.loai_don === 'Mua lẻ')
 
+// review I-4 — spec §3.4: "Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi
+// chú nhỏ '(từ yêu cầu: <tên khách gõ>)' để khách đối chiếu được cái mình
+// gõ với cái Miyano khớp." Server đã trả `item_khop`/`da_xu_ly` cho MỌI
+// dòng `dat_ngoai` (`portal_order_track`, `api/portal.py`) — tách ở đây
+// theo `da_xu_ly`, KHÔNG còn để mọi dòng nằm chung dưới tiêu đề "Đang chờ
+// Miyano xác nhận nguồn" như bản trước (bản đó chỉ đổi badge, dòng đã khớp
+// vẫn đọc như đang chờ).
+const datNgoaiDaKhop = computed(() => (data.value?.dat_ngoai || []).filter((d) => d.da_xu_ly))
+const datNgoaiChoXuLy = computed(() => (data.value?.dat_ngoai || []).filter((d) => !d.da_xu_ly))
+
 const acceptOpen = ref(false)
 const rejecting = ref(false)
 const accepting = ref(false)
@@ -302,21 +312,42 @@ onMounted(load)
             </tbody>
           </table>
 
-          <template v-if="(data.dat_ngoai || []).length">
+          <!-- review I-4 — dòng ĐÃ khớp mã (`da_xu_ly=1`) hiện CÙNG NHÓM
+               "hàng có mã" ở trên, không còn nằm dưới tiêu đề "Đang chờ".
+               Ghi chú "(từ yêu cầu: …)" giữ nguyên tên khách gõ để đối
+               chiếu; `item_khop` là mã Miyano đã tìm được. -->
+          <template v-if="datNgoaiDaKhop.length">
+            <h4 style="margin: 14px 12px 6px">Đã khớp mã (từ yêu cầu đặt ngoài)</h4>
+            <table>
+              <thead>
+                <tr><th>Mã đã khớp</th><th>Yêu cầu của bạn</th><th>ĐVT</th><th class="right">SL</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(d, i) in datNgoaiDaKhop" :key="'khop-' + i">
+                  <td><b>{{ d.item_khop }}</b> <span class="badge b-green">Đã tìm được nguồn</span></td>
+                  <td>
+                    <span class="tag">(từ yêu cầu: {{ d.ten_hang }})</span>
+                    <template v-if="d.ghi_chu"><br /><span class="tag">{{ d.ghi_chu }}</span></template>
+                  </td>
+                  <td>{{ d.dvt }}</td>
+                  <td class="right">{{ d.so_luong }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+
+          <template v-if="datNgoaiChoXuLy.length">
             <h4 style="margin: 14px 12px 6px">Đang chờ Miyano xác nhận nguồn</h4>
             <table>
               <thead>
                 <tr><th>Tên hàng</th><th>ĐVT</th><th class="right">SL</th><th>Tình trạng</th></tr>
               </thead>
               <tbody>
-                <tr v-for="(d, i) in data.dat_ngoai" :key="i">
+                <tr v-for="(d, i) in datNgoaiChoXuLy" :key="i">
                   <td>{{ d.ten_hang }}<br /><span v-if="d.ghi_chu" class="tag">{{ d.ghi_chu }}</span></td>
                   <td>{{ d.dvt }}</td>
                   <td class="right">{{ d.so_luong }}</td>
-                  <td>
-                    <span v-if="d.da_xu_ly" class="badge b-green">Đã tìm được nguồn</span>
-                    <span v-else class="badge b-gray">Miyano đang tìm nguồn</span>
-                  </td>
+                  <td><span class="badge b-gray">Miyano đang tìm nguồn</span></td>
                 </tr>
               </tbody>
             </table>
@@ -333,16 +364,29 @@ onMounted(load)
             <b>{{ fmtVND(it.amount) }}</b>
           </div>
 
-          <template v-if="(data.dat_ngoai || []).length">
+          <!-- review I-4 — cùng logic tách theo `da_xu_ly` như bản desktop. -->
+          <template v-if="datNgoaiDaKhop.length">
+            <h4 style="margin: 14px 0 6px">Đã khớp mã (từ yêu cầu đặt ngoài)</h4>
+            <div v-for="(d, i) in datNgoaiDaKhop" :key="'khop-' + i" class="rowline">
+              <span>
+                <b>{{ d.item_khop }}</b>
+                <br /><span style="font-size: 13px">(từ yêu cầu: {{ d.ten_hang }})</span>
+                <template v-if="d.ghi_chu"><br /><span style="font-size: 13px">{{ d.ghi_chu }}</span></template><br />
+                <span class="tag">{{ d.so_luong }} {{ d.dvt }}</span>
+              </span>
+              <span class="badge b-green">Đã tìm được nguồn</span>
+            </div>
+          </template>
+
+          <template v-if="datNgoaiChoXuLy.length">
             <h4 style="margin: 14px 0 6px">Đang chờ Miyano xác nhận nguồn</h4>
-            <div v-for="(d, i) in data.dat_ngoai" :key="i" class="rowline">
+            <div v-for="(d, i) in datNgoaiChoXuLy" :key="i" class="rowline">
               <span>
                 <b>{{ d.ten_hang }}</b>
                 <template v-if="d.ghi_chu"><br /><span style="font-size: 13px">{{ d.ghi_chu }}</span></template><br />
                 <span class="tag">{{ d.so_luong }} {{ d.dvt }}</span>
               </span>
-              <span v-if="d.da_xu_ly" class="badge b-green">Đã tìm được nguồn</span>
-              <span v-else class="badge b-gray">Miyano đang tìm nguồn</span>
+              <span class="badge b-gray">Miyano đang tìm nguồn</span>
             </div>
           </template>
         </div>
