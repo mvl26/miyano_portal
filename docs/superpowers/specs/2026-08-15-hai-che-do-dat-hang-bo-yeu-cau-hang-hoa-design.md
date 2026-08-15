@@ -73,7 +73,7 @@ Chuỗi cần đổi trên UI: `Catalog.vue` (nhãn bộ chuyển), badge `"Có 
 
 | Giữ | Vì sao |
 |---|---|
-| Doctype `Portal Item Request` + JSON | Nhân viên Miyano vẫn lập/xử lý trên Desk (quyết định 1) |
+| Doctype `Portal Item Request` + JSON | Nhân viên Miyano vẫn lập/xử lý trên Desk (quyết định 1). **Đã kiểm quyền Desk có thật**: `System Manager` và `Sales Manager` có `create`; `Sales User`, `Purchase User` chỉ `read`/`write`/`report`. Nếu muốn Sales User tự lập yêu cầu thì phải cấp thêm `create` — một dòng trong JSON, quyết định riêng |
 | Báo cáo `demand_pipeline_yêu_cầu_hàng_hoá` + `setup/install_e6_desk_reports.py` | Công cụ back-office, không liên quan cổng |
 | Job `portal_sla.quet_yeu_cau_qua_han` + `Settings.sla_yeu_cau_gio` | SLA 48h vẫn áp cho yêu cầu do nhân viên lập |
 | `hooks.py:153` `permission_query_conditions` và `hooks.py:192` `has_permission` | Gỡ đường vào, **không gỡ hàng rào**. Role `Customer` không còn endpoint nào chạm doctype này, nhưng bỏ chốt phân quyền là mở sẵn lỗ hổng cho lần sau |
@@ -124,8 +124,18 @@ Khi ô tìm kiếm không ra kết quả: mở sẵn khối này và **prefill t
 
 **Ở `Cart.vue`, ngăn Mua lẻ:** hiện các dòng đặt ngoài thành một nhóm riêng dưới nhóm hàng có mã, tiêu đề **"Hàng chưa có mã — Miyano sẽ tìm nguồn"**, sửa/xoá được tại chỗ. Gửi lên qua tham số `dat_ngoai` đã có sẵn của `portal_order_place`.
 
-Đơn Mua lẻ **được phép chỉ có dòng đặt ngoài** (không có dòng hàng có mã nào)?
-→ **Không.** `_xay_don_ban_le` hiện đã bắt `items` khác rỗng, và ERPNext bắt buộc `Sales Order` có ít nhất một dòng hợp lệ. Client phải chặn sớm với thông báo rõ: *"Đơn cần ít nhất một mặt hàng chọn từ danh mục. Nếu tất cả đều là hàng chưa có mã, vui lòng liên hệ Miyano."* Đây là **giới hạn kỹ thuật cứng của ERPNext**, không phải lựa chọn thiết kế — ghi rõ để không ai định "sửa cho tiện" về sau.
+#### Đơn chỉ có dòng đặt ngoài — QUYẾT ĐỊNH ĐANG MỞ
+
+Hôm nay `portal_order_place(mode="ban_le")` **từ chối** đơn có `items` rỗng. Đã kiểm thực nghiệm và ghi trong `api/portal.py:655–661`: ERPNext **không lưu nổi** một `Sales Order` với bảng `items` rỗng (crash ở `accounts_controller.set_payment_schedule`, `grand_total` là `None`). Đó là giới hạn thật của framework, không phải lựa chọn.
+
+Nhưng hệ quả nghiệp vụ đi **ngược nguyên tắc nền của chính tài liệu này**: khách cần ba món Miyano chưa có mã thì **không đặt được đơn nào cả** — đúng tình huống mà nhóm "đặt ngoài" sinh ra để phục vụ.
+
+Hai lối ra, chờ chủ dự án chọn (§8.6):
+
+- **(A) Item giữ chỗ.** Tạo một `Item` không quản kho `HANG-DAT-NGOAI` (`is_stock_item = 0`) có Item Default để `resolve_ban_le_company()` suy được công ty. Đơn toàn hàng chưa có mã vẫn lập được với một dòng giữ chỗ SL 1, giá 0; sales thay bằng dòng thật khi khớp mã. Chốt `before_submit` sẵn có vẫn chặn xác nhận khi còn dòng chưa xử lý, nên không có gì giao đi khi chưa giải quyết xong. Giá phải trả: một dòng giữ chỗ hiện trên chứng từ cho tới lúc sales xử lý.
+- **(B) Chặn, báo rõ.** Client chặn sớm: *"Đơn cần ít nhất một mặt hàng chọn từ danh mục."* Không có dòng lạ trên chứng từ, nhưng khách rơi vào tình huống trên thì bế tắc.
+
+**Chưa chốt thì chưa viết kế hoạch triển khai cho phần này.**
 
 **Ở `OrderDetail.vue`:** đơn Mua lẻ hiện hai nhóm tách bạch — hàng có mã, và **"Đang chờ Miyano xác nhận nguồn"** cho các dòng `custom_dat_ngoai` chưa có `item_khop`. Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi chú nhỏ "(từ yêu cầu: <tên khách gõ>)" để khách đối chiếu được cái mình gõ với cái Miyano khớp.
 
@@ -152,7 +162,11 @@ Nội dung bắt buộc: mã đơn · khách hàng · ngày lập · **hạn hi�
 
 **Phải in cả dòng `custom_dat_ngoai` đã khớp mã.** Nếu không, khách nhận bản báo giá thiếu đúng những món họ tự gõ vào — chính phần họ lo nhất.
 
-**Trên Desk:** nút `Gửi báo giá` trên `Sales Order` (client script hoặc `Notification`) — chuyển trạng thái sang "Chờ khách đồng ý" và gửi email kèm PDF cho khách + sales phụ trách, dùng lại `portal_bao_gia._email_khach()` / `_email_sales_phu_trach()`.
+**Trên Desk: KHÔNG thêm nút mới, KHÔNG thêm transition mới.** Đã kiểm `patches/v1_4/mo_rong_workflow_e2.py`: transition `"Chờ xác nhận" --[Gửi khách duyệt]--> "Chờ khách đồng ý"` (allowed `Sales User`) **đã tồn tại**. Sales điền giá rồi bấm đúng hành động đó như hiện nay.
+
+Việc cần thêm là **gắn email vào chính lúc chuyển trạng thái**: hook `on_update` của `Sales Order` đã có `portal_mua_le.ghi_ngay_gui_khach_duyet` chạy mỗi khi đơn CHUYỂN VÀO "Chờ khách đồng ý" — thêm vào đó việc sinh PDF báo giá và gửi cho khách + sales phụ trách, dùng lại `portal_bao_gia._email_khach()` / `_email_sales_phu_trach()`.
+
+Email gửi hỏng **không được chặn việc chuyển trạng thái** — cùng nguyên tắc phòng thủ với `portal_thong_bao.py` và `portal_bao_gia._gui_email_het_han`. Khách vẫn xem và tải được báo giá trên cổng dù email thất bại.
 
 **Trên cổng:** khối "Chờ bạn đồng ý" trên `OrderDetail.vue` (đang có ở dòng ~247, cạnh nút "✔ Đồng ý đặt hàng") thêm nút **`Tải báo giá (PDF)`** → endpoint mới `portal_bao_gia_pdf(name)`:
 
@@ -230,4 +244,6 @@ Không sửa đè thiết kế 14/08 — nó là lịch sử của commit `55467
 2. **`Settings.hieu_luc_bao_gia_ngay` phải sống sót** — PDF báo giá và job đóng đơn quá hạn đều đọc nó. Chỉ `sla_yeu_cau_gio` là gắn với tính năng bị bỏ, và nó cũng được giữ (§3.2).
 3. **Bỏ ba getter `cartLe*` khỏi `store.js` sẽ làm mọi chỗ đang gọi chúng thành `undefined` chứ không báo lỗi.** Grep toàn bộ `frontend/src` cho `cartLeTotal`, `cartLeSubtotal`, `cartLeVat` trước khi xoá.
 4. **Build lại SPA** (`bench build --app miyano_portal`) — `public/frontend/index.js` là bản dựng sẵn, không tự cập nhật theo `frontend/src`.
-5. **Chạy `bench migrate` trên site trước khi test** — patch đổi mặc định `custom_cho_phep_mua_le` phải chạy, nếu không test "khách mới mặc định mua lẻ được" sẽ đỏ vì lý do sai.
+5. **Không thêm state/transition workflow nào.** `"Chờ xác nhận" --[Gửi khách duyệt]--> "Chờ khách đồng ý"` đã có từ `patches/v1_4`. Thêm transition trùng là sinh dòng thừa trong workflow đang chạy.
+6. **§3.4 còn một quyết định mở** (đơn chỉ có dòng đặt ngoài — Item giữ chỗ hay chặn). Phần còn lại của spec triển khai được ngay; riêng phần này chờ chốt.
+7. **Chạy `bench migrate` trên site trước khi test** — patch đổi mặc định `custom_cho_phep_mua_le` phải chạy, nếu không test "khách mới mặc định mua lẻ được" sẽ đỏ vì lý do sai.
