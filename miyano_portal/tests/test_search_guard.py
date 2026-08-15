@@ -2,6 +2,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.search_guard import search_link, search_widget
+from miyano_portal.setup.seed_demo import COMPANY as SEED_COMPANY
+from miyano_portal.setup.seed_demo import ITEMS as SEED_ITEMS
 from miyano_portal.setup.seed_demo import seed_demo
 
 BVBM = "Bệnh viện Bạch Mai"
@@ -15,8 +17,17 @@ USER_SALES = "sales_user@demo.miyano"
 
 
 def _draft_so(customer: str) -> str:
-    item = frappe.get_all("Item", limit=1, pluck="name")[0]
-    company = frappe.get_all("Company", limit=1, pluck="name")[0]
+    # Company + Item cố định theo seed_demo() thay vì "Item/Company đầu tiên
+    # tìm thấy" — trên site dùng chung, `get_all(..., limit=1)` không order_by
+    # có thể bốc trúng bất cứ bản ghi nào: một Item disabled (rò từ fixture
+    # test_e6_mua_le, vd. RTL-E6-003) làm insert lỗi ngay; một Item is_stock
+    # thật (vd. DTRC-GLU5, catalog Miyano) mà default_warehouse không khớp
+    # Company vừa bốc trúng làm lỗi "Delivery warehouse required" — cả hai đã
+    # xảy ra thật. seed_demo() (gọi ở setUp) tự đảm bảo Company này và Item
+    # đầu của SEED_ITEMS tồn tại, không bị disabled, và có default_warehouse
+    # khớp Company, nên cặp giá trị dưới đây luôn hợp lệ dù DB có rác gì khác.
+    item = SEED_ITEMS[0]["item_code"]
+    company = SEED_COMPANY
     so = frappe.new_doc("Sales Order")
     so.customer = customer
     so.company = company
