@@ -1,8 +1,9 @@
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import api from '../api'
 import { fmtVND, fmtDate, daysUntil } from '../format'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
 
@@ -19,6 +20,10 @@ const listError = ref('')
 const items = ref([])
 const search = ref('')
 let searchTimer = null
+// Brief 2026-08-15 (phân trang).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 // --- Trạng thái mở rộng theo từng dòng + cache lô hàng ---
 const expanded = reactive({}) // vat_tu -> bool
@@ -28,7 +33,13 @@ async function loadTon() {
   listLoading.value = true
   listError.value = ''
   try {
-    items.value = (await api.callKho('kho_ton', { tim: search.value || undefined })) || []
+    const res = await api.callKho('kho_ton', {
+      tim: search.value || undefined,
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+    })
+    items.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     listError.value = e.message || 'Không tải được tồn kho.'
   } finally {
@@ -36,8 +47,11 @@ async function loadTon() {
   }
 }
 
+watch([trang, soDong], loadTon)
+
 function onSearchInput() {
   clearTimeout(searchTimer)
+  trang.value = 1
   searchTimer = setTimeout(loadTon, 300)
 }
 
@@ -233,6 +247,7 @@ onUnmounted(() => clearTimeout(searchTimer))
             </template>
           </tbody>
         </table>
+        <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </div>
 
       <!-- MOBILE: thẻ -->
@@ -272,6 +287,7 @@ onUnmounted(() => clearTimeout(searchTimer))
             </div>
           </div>
         </div>
+        <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </template>
     </template>
   </div>

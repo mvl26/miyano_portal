@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -15,20 +16,34 @@ const rows = ref([])
 // BR-N2/NL-7.2 (F-14): lọc phiếu "thiếu chứng từ NCC" — backend đã hỗ trợ
 // (kho_phieu_list(thieu_chung_tu=1)) nhưng chưa màn nào hiện bộ lọc.
 const chiThieuChungTu = ref(false)
+// Brief 2026-08-15 (phân trang).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    rows.value = await api.callKho('kho_phieu_list', {
-      loai: 'nhap', limit: 50,
+    const res = await api.callKho('kho_phieu_list', {
+      loai: 'nhap',
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
       thieu_chung_tu: chiThieuChungTu.value ? 1 : undefined,
     })
+    rows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     error.value = e.message || 'Không tải được danh sách phiếu nhập.'
   } finally {
     loading.value = false
   }
+}
+
+watch([trang, soDong], load)
+function locThayDoi() {
+  trang.value = 1
+  load()
 }
 
 function badge(docstatus) {
@@ -61,7 +76,7 @@ onMounted(load)
     </div>
 
     <label class="card mb10" style="display: flex; align-items: center; gap: 8px; font-size: 13px; width: fit-content">
-      <input type="checkbox" v-model="chiThieuChungTu" @change="load" style="width: auto" />
+      <input type="checkbox" v-model="chiThieuChungTu" @change="locThayDoi" style="width: auto" />
       Chỉ phiếu thiếu chứng từ NCC
     </label>
 
@@ -115,5 +130,7 @@ onMounted(load)
         <span v-if="r.thieu_chung_tu" class="badge b-orange" style="margin-top: 6px">Thiếu chứng từ</span>
       </div>
     </template>
+
+    <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
   </div>
 </template>

@@ -6,8 +6,19 @@ import { useIsMobile } from '../useMobile'
 import {
   NXT_COLUMNS, NXT_LOT_COLUMNS, THE_KHO_COLUMNS, CANH_BAO_COLUMNS,
 } from '../kho-bao-cao-columns'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
+
+// Brief 2026-08-15 (phân trang) — MỘT bộ trang/số dòng/tong DÙNG CHUNG cho
+// cả năm tab (chỉ một tab hiện trên màn tại một thời điểm — xem chuỗi
+// v-if/v-else-if của template). Xuất Excel (`kho_bao_cao_excel`) KHÔNG
+// dùng các state này — nó gọi thẳng `reports.*_rows()` ở server, luôn
+// xuất TOÀN BỘ bất kể trang JSON đang xem (đã có test canh:
+// test_phan_trang.TestBaoCaoExcelLuonXuatToanBo).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 // --- Khoảng ngày: mặc định tháng hiện tại ---
 function pad(n) {
@@ -49,8 +60,10 @@ async function loadNXT() {
   try {
     const out = await api.callKho('kho_bao_cao_nxt', {
       tu_ngay: tuNgay.value, den_ngay: denNgay.value, tim: search.value || undefined,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
     })
     nxtRows.value = out.rows || []
+    tong.value = out.tong || 0
   } catch (e) {
     nxtError.value = e.message || 'Không tải được báo cáo Nhập - Xuất - Tồn.'
   } finally {
@@ -60,6 +73,7 @@ async function loadNXT() {
 
 function onSearchInput() {
   clearTimeout(searchTimer)
+  trang.value = 1
   searchTimer = setTimeout(loadNXT, 300)
 }
 
@@ -100,14 +114,18 @@ async function loadVatTuList() {
 async function loadTheKho() {
   if (!vatTuChon.value) {
     theKhoRows.value = []
+    tong.value = 0
     return
   }
   theKhoLoading.value = true
   theKhoError.value = ''
   try {
-    theKhoRows.value = await api.callKho('kho_the_kho', {
+    const res = await api.callKho('kho_the_kho', {
       vat_tu: vatTuChon.value, tu_ngay: tuNgay.value, den_ngay: denNgay.value,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
     })
+    theKhoRows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     theKhoError.value = e.message || 'Không tải được thẻ kho.'
   } finally {
@@ -125,7 +143,12 @@ async function loadCanhBao() {
   canhBaoLoading.value = true
   canhBaoError.value = ''
   try {
-    canhBaoRows.value = await api.callKho('kho_canh_bao_han', { so_ngay: soNgay.value })
+    const res = await api.callKho('kho_canh_bao_han', {
+      so_ngay: soNgay.value,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
+    })
+    canhBaoRows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     canhBaoError.value = e.message || 'Không tải được cảnh báo hạn dùng.'
   } finally {
@@ -175,11 +198,14 @@ async function loadDot() {
   dotLoading.value = true
   dotError.value = ''
   try {
-    dotRows.value = await api.callKho('kho_bao_cao_dot', {
+    const res = await api.callKho('kho_bao_cao_dot', {
       tu_ngay: tuNgay.value, den_ngay: denNgay.value,
       vat_tu: dotVatTuChon.value || undefined,
       nguon: dotNguon.value || undefined,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
     })
+    dotRows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     dotError.value = e.message || 'Không tải được báo cáo NXT theo đợt.'
   } finally {
@@ -196,9 +222,15 @@ async function loadCp() {
   cpLoading.value = true
   cpError.value = ''
   try {
-    cpResult.value = await api.callKho('kho_bao_cao_cap_phat', {
+    // Phân trang theo ĐƠN VỊ NHÓM (khoa phòng) — xem docstring
+    // kho_bao_cao_cap_phat (api/kho.py). `tong` ở đây là số NHÓM, không
+    // phải số dòng chi tiết.
+    const res = await api.callKho('kho_bao_cao_cap_phat', {
       tu_ngay: tuNgay.value, den_ngay: denNgay.value,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
     })
+    cpResult.value = res
+    tong.value = res?.tong || 0
   } catch (e) {
     cpError.value = e.message || 'Không tải được báo cáo cấp phát theo khoa.'
   } finally {
@@ -214,18 +246,29 @@ function reload() {
   else loadCp()
 }
 
-function chonTab(key) {
-  tab.value = key
+// Đổi tab/bộ lọc -> về lại trang 1 (trang cũ của tab/bộ lọc trước có thể
+// không còn tồn tại ở dữ liệu mới) rồi nạp lại.
+function locThayDoi() {
+  trang.value = 1
   reload()
 }
 
+function chonTab(key) {
+  tab.value = key
+  locThayDoi()
+}
+
 watch(vatTuChon, () => {
-  if (tab.value === 'the_kho') loadTheKho()
+  if (tab.value === 'the_kho') locThayDoi()
 })
 
 watch([dotVatTuChon, dotNguon], () => {
-  if (tab.value === 'dot') loadDot()
+  if (tab.value === 'dot') locThayDoi()
 })
+
+// PhanTrang.vue tự đổi trang.value/soDong.value (v-model) — nghe ở đây để
+// gọi lại API của tab đang xem.
+watch([trang, soDong], reload)
 
 // --- Xuất Excel: cùng bộ tham số của tab đang xem, gọi thẳng endpoint (GET,
 // mở tab mới) — cùng khuôn mẫu với nút "In phiếu" ở PhieuNhapDetail.vue/
@@ -289,11 +332,11 @@ onMounted(() => {
       <div class="flex" style="flex-wrap: wrap; gap: 14px">
         <div class="field" style="margin-bottom: 0">
           <label>Từ ngày</label>
-          <input type="date" v-model="tuNgay" @change="reload" />
+          <input type="date" v-model="tuNgay" @change="locThayDoi" />
         </div>
         <div class="field" style="margin-bottom: 0">
           <label>Đến ngày</label>
-          <input type="date" v-model="denNgay" @change="reload" />
+          <input type="date" v-model="denNgay" @change="locThayDoi" />
         </div>
         <div class="field" style="margin-bottom: 0; flex: 1; min-width: 200px" v-if="tab === 'nxt'">
           <label>Tìm vật tư</label>
@@ -311,7 +354,7 @@ onMounted(() => {
         <div class="field" style="margin-bottom: 0" v-if="tab === 'canh_bao'">
           <label>Số ngày cảnh báo</label>
           <input
-            type="number" min="0" v-model.number="soNgay" @change="loadCanhBao"
+            type="number" min="0" v-model.number="soNgay" @change="locThayDoi"
             style="width: 100px"
           />
         </div>
@@ -412,6 +455,7 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+      <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
 
     <!-- ============ TAB: THẺ KHO ============ -->
@@ -441,6 +485,7 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+      <PhanTrang v-if="vatTuChon" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
 
     <!-- ============ TAB: CẢNH BÁO HẠN DÙNG ============ -->
@@ -481,6 +526,7 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+      <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
 
     <!-- ============ TAB: NXT THEO ĐỢT HÀNG (US-E4.7) ============ -->
@@ -529,6 +575,7 @@ onMounted(() => {
           Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô — BR-D1). Cờ chậm luân chuyển khi
           tuổi tồn vượt ngưỡng cấu hình của kho (Miyano Portal Settings).
         </p>
+        <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </template>
     </template>
 
@@ -578,7 +625,12 @@ onMounted(() => {
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="3" style="text-align: right"><b>Tổng cộng</b></td>
+                <!-- Brief 2026-08-15 (phân trang) — báo cáo này cắt theo
+                     ĐƠN VỊ NHÓM (khoa phòng), nên "Tổng cộng" ở đây vẫn LUÔN
+                     là tổng TOÀN KỲ (mọi khoa, mọi trang) — server tính
+                     trước khi cắt trang. Ghi rõ "toàn kỳ" để không hiểu
+                     nhầm là tổng của riêng các nhóm đang hiện trên trang. -->
+                <td colspan="3" style="text-align: right"><b>Tổng cộng (toàn kỳ)</b></td>
                 <td class="right"><b>{{ fmtVND(cpResult.tong_gia_tri) }}</b></td>
                 <td colspan="2"></td>
               </tr>
@@ -589,6 +641,7 @@ onMounted(() => {
           Nhóm theo khoa, drill xuống phiếu; "Chưa gắn khoa" tách riêng — không lẫn vào khoa nào (BR-CP4).
           Phiếu bị đảo không tính vào báo cáo.
         </p>
+        <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </template>
     </template>
   </div>

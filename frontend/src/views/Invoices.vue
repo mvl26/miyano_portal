@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import api from '../api'
 import { store } from '../store'
 import { showToast } from '../toast'
 import HoaDonNhap from '../components/HoaDonNhap.vue'
 import { fmtVND, fmtDate, invoiceBadge, daysUntil } from '../format'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
 
@@ -13,6 +14,10 @@ const loading = ref(true)
 const error = ref('')
 const invoices = ref([])
 const outstanding = ref(0)
+// Brief 2026-08-15 (phân trang) — server-side, thay cho limit:100 cố định.
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 // Tên hoá đơn đang xổ khối HĐĐT (F-08) — CHỈ MỘT dòng mở tại một thời điểm,
 // đúng hành vi `toggleEinv()` của bản mẫu. Dữ liệu khối đã có sẵn trong
 // `inv.einvoice` từ `portal_invoices` (Câu 1), bấm dòng KHÔNG gọi thêm API.
@@ -97,18 +102,14 @@ async function yeuCauHoTro(invName, feiName) {
   }
 }
 
-const overdueTotal = computed(() =>
-  invoices.value.reduce((a, inv) => {
-    const d = daysUntil(inv.due_date)
-    return a + (d !== null && d < 0 ? Number(inv.outstanding_amount || 0) : 0)
-  }, 0)
-)
-const dueSoonCount = computed(() =>
-  invoices.value.filter((inv) => {
-    const d = daysUntil(inv.due_date)
-    return d !== null && d >= 0 && d <= 7 && Number(inv.outstanding_amount || 0) > 0
-  }).length
-)
+// Brief 2026-08-15 (phân trang) — hai con số này giờ TÍNH Ở SERVER trên
+// TOÀN BỘ hoá đơn còn nợ (`portal_invoices` trả kèm `qua_han_thanh_toan`/
+// `sap_den_han_so_luong`), không còn tính từ `invoices.value` (chỉ MỘT
+// trang) — bản trước tính client-side trên tối đa 100 dòng đã là gần
+// đúng; tính trên một trang 10-50 dòng sẽ sai hẳn theo từng lần lật trang,
+// đúng kiểu hồi quy im lặng brief cảnh báo.
+const overdueTotal = ref(0)
+const dueSoonCount = ref(0)
 
 function pdfUrl(name) {
   return (
@@ -119,15 +120,31 @@ function pdfUrl(name) {
   )
 }
 
+async function loadInvoices() {
+  try {
+    const res = await api.call('portal_invoices', {
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+    })
+    invoices.value = res?.rows || []
+    tong.value = res?.tong || 0
+    overdueTotal.value = res?.qua_han_thanh_toan || 0
+    dueSoonCount.value = res?.sap_den_han_so_luong || 0
+  } catch (e) {
+    error.value = e.message || 'Không tải được hoá đơn.'
+  }
+}
+
+watch([trang, soDong], loadInvoices)
+
 onMounted(async () => {
   try {
-    const [me, invs] = await Promise.all([
+    const [me] = await Promise.all([
       store.me ? Promise.resolve(store.me) : api.call('portal_me'),
-      api.call('portal_invoices', { limit: 100 }),
+      loadInvoices(),
     ])
     store.setMe(me)
     outstanding.value = me.outstanding
-    invoices.value = invs || []
   } catch (e) {
     error.value = e.message || 'Không tải được hoá đơn.'
   } finally {
@@ -308,6 +325,8 @@ onMounted(async () => {
           </div>
         </div>
       </template>
+
+      <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
   </div>
 </template>

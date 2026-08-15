@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
 
@@ -35,12 +36,11 @@ const lotOptions = ref([]) // dựng lại mỗi lần tải KHÔNG lọc theo l
 
 const loading = ref(false)
 const error = ref('')
-const result = ref({ tong_dong: 0, trang: 1, so_dong_moi_trang: 50, dong: [] })
+const result = ref({ tong_dong: 0, trang: 1, so_dong_moi_trang: 20, dong: [] })
+// Brief 2026-08-15 (phân trang) — ĐỔI cặp nút Trước/Sau tự chế trước đây
+// sang PhanTrang.vue (cùng bộ phân trang với cả cổng, chọn được 10/20/50).
 const trang = ref(1)
-
-const tongTrang = computed(() =>
-  Math.max(1, Math.ceil((result.value.tong_dong || 0) / (result.value.so_dong_moi_trang || 50)))
-)
+const soDong = ref(20)
 
 function fmtQty(v) {
   return Number(v || 0).toLocaleString('vi-VN')
@@ -86,7 +86,7 @@ async function loadKhoaPhong() {
 
 async function load() {
   if (!vatTuChon.value) {
-    result.value = { tong_dong: 0, trang: 1, so_dong_moi_trang: 50, dong: [] }
+    result.value = { tong_dong: 0, trang: 1, so_dong_moi_trang: soDong.value, dong: [] }
     return
   }
   loading.value = true
@@ -101,6 +101,7 @@ async function load() {
       lo: loFilter.value || undefined,
       khoa_phong: khoaFilter.value || undefined,
       trang: trang.value,
+      so_dong_moi_trang: soDong.value,
     })
     result.value = out
     if (!loFilter.value) {
@@ -110,7 +111,7 @@ async function load() {
     }
   } catch (e) {
     error.value = e.message || 'Không tải được nhật ký vật tư.'
-    result.value = { tong_dong: 0, trang: 1, so_dong_moi_trang: 50, dong: [] }
+    result.value = { tong_dong: 0, trang: 1, so_dong_moi_trang: soDong.value, dong: [] }
   } finally {
     loading.value = false
   }
@@ -140,16 +141,9 @@ watch([vatTuChon, tuNgay, denNgay], () => {
   load()
 })
 
-function trangTruoc() {
-  if (trang.value <= 1) return
-  trang.value -= 1
-  load()
-}
-function trangSau() {
-  if (trang.value >= tongTrang.value) return
-  trang.value += 1
-  load()
-}
+// PhanTrang.vue tự đổi trang.value/soDong.value (v-model) khi khách bấm
+// Trước/Sau hoặc đổi số dòng/trang — nghe ở đây để gọi lại API.
+watch([trang, soDong], load)
 
 function phieuUrl(r) {
   return r.loai === 'Nhập' ? `/kho/nhap/${r.phieu}` : `/kho/xuat/${r.phieu}`
@@ -289,16 +283,10 @@ onMounted(() => {
         </table>
       </div>
 
-      <div class="flex" style="justify-content: space-between; margin-top: 10px">
-        <p class="tag">{{ result.tong_dong }} dòng · trang {{ trang }}/{{ tongTrang }}</p>
-        <div class="flex" style="gap: 8px">
-          <button class="btn-o btn-sm" :disabled="trang <= 1" @click="trangTruoc">‹ Trang trước</button>
-          <button class="btn-o btn-sm" :disabled="trang >= tongTrang" @click="trangSau">Trang sau ›</button>
-        </div>
-      </div>
+      <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="result.tong_dong" />
       <p class="tag" style="margin-top: 6px">
         Vật tư đang xem: {{ tenVatTu(vatTuChon) }}.
-        <template v-if="!loaiFilter && !nguonFilter && !loFilter && trang >= tongTrang">
+        <template v-if="!loaiFilter && !nguonFilter && !loFilter && trang * soDong >= result.tong_dong">
           Tồn sau giao dịch dòng cuối = tồn hiện tại (đối chiếu màn Tồn kho).
         </template>
       </p>

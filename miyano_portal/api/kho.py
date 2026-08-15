@@ -1048,20 +1048,28 @@ def kho_the_kho(vat_tu: str, tu_ngay, den_ngay, limit=None, start=0) -> list | d
 
 
 @frappe.whitelist()
-def kho_nhat_ky(vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1, khoa_phong=None) -> dict:
+def kho_nhat_ky(
+	vat_tu: str, tu_ngay, den_ngay, lo=None, loai=None, nguon=None, trang=1, khoa_phong=None,
+	so_dong_moi_trang=None,
+) -> dict:
 	"""Nhật ký vật tư — US-E4.6/UC-43. `vat_tu` do client gửi nên phải qua
 	_vat_tu_cua_kho() trước, đúng nguyên tắc đầu file. `trang` CỐ Ý không có
 	type hint số — cùng lý do với `limit`/`start` của kho_phieu_list.
 	`khoa_phong` (E8/US-E8.4) là lọc tuỳ chọn, cũng phải qua _khoa_cua_kho()
-	trước khi lọc."""
+	trước khi lọc. `so_dong_moi_trang` (brief 2026-08-15) — khách chọn
+	10/20/50 qua PhanTrang.vue; không truyền thì giữ mặc định 50 dòng cũ
+	(reports.nhat_ky_rows)."""
 	kho = get_portal_kho()
 	_vat_tu_cua_kho(vat_tu, kho)
 	if khoa_phong:
 		_khoa_cua_kho(khoa_phong, kho)
 	trang = _so_nguyen(trang, "Trang", 1)
+	kwargs = {}
+	if so_dong_moi_trang not in (None, ""):
+		kwargs["so_dong_moi_trang"] = _so_nguyen(so_dong_moi_trang, "Số dòng mỗi trang")
 	return reports.nhat_ky_rows(
 		kho, vat_tu, tu_ngay, den_ngay, so_lo=lo, loai=loai, nguon=nguon,
-		trang=trang, khoa_phong=khoa_phong,
+		trang=trang, khoa_phong=khoa_phong, **kwargs,
 	)
 
 

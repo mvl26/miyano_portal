@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -12,6 +13,10 @@ const isMobile = useIsMobile()
 const loading = ref(true)
 const error = ref('')
 const rows = ref([])
+// Brief 2026-08-15 (phân trang).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 // E8/US-E8.4: lọc danh sách phiếu xuất theo khoa phòng.
 const khoaPhongList = ref([])
@@ -20,6 +25,8 @@ const khoaPhongLoc = ref('') // '' = tất cả
 async function loadKhoaPhongList() {
   try {
     // ca_inactive=1: một phiếu cũ gắn khoa đã tắt vẫn phải lọc được.
+    // KHÔNG truyền `limit` — đây là dropdown lọc, phải thấy ĐỦ khoa phòng
+    // (brief 2026-08-15, ràng buộc cứng kho_khoa_phong_list kiêm hai vai).
     khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
   } catch (e) {
     // Ô lọc sẽ chỉ thiếu tuỳ chọn, không chặn cả danh sách.
@@ -35,14 +42,25 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    rows.value = await api.callKho('kho_phieu_list', {
-      loai: 'xuat', limit: 50, khoa_phong: khoaPhongLoc.value || undefined,
+    const res = await api.callKho('kho_phieu_list', {
+      loai: 'xuat',
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+      khoa_phong: khoaPhongLoc.value || undefined,
     })
+    rows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     error.value = e.message || 'Không tải được danh sách phiếu xuất.'
   } finally {
     loading.value = false
   }
+}
+
+watch([trang, soDong], load)
+function locThayDoi() {
+  trang.value = 1
+  load()
 }
 
 function badge(docstatus) {
@@ -80,7 +98,7 @@ onMounted(() => {
     <!-- E8/US-E8.4: lọc theo khoa phòng -->
     <div class="field" style="max-width: 320px">
       <label>Khoa phòng nhận</label>
-      <select v-model="khoaPhongLoc" @change="load">
+      <select v-model="khoaPhongLoc" @change="locThayDoi">
         <option value="">— Tất cả —</option>
         <option v-for="k in khoaPhongList" :key="k.name" :value="k.name">
           {{ k.ten_khoa_phong }}{{ k.active ? '' : ' (đã tắt)' }}
@@ -136,5 +154,7 @@ onMounted(() => {
         </p>
       </div>
     </template>
+
+    <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
   </div>
 </template>

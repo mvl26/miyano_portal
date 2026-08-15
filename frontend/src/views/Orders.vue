@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate, statusBadge } from '../format'
 import { useIsMobile } from '../useMobile'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -12,9 +13,16 @@ const loading = ref(true)
 const error = ref('')
 const orders = ref([])
 const filter = ref('')
+// Brief 2026-08-15 (phân trang) — server-side, thay cho limit:100 cố định.
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 const FILTERS = ['', 'Chờ xác nhận', 'Đang xử lý', 'Đang giao', 'Hoàn thành', 'Đã huỷ']
 
+// Bộ lọc trạng thái lọc PHÍA CLIENT trên ĐÚNG một trang đã tải — cùng hành
+// vi trước đây (bản trước tải 100 đơn rồi lọc client), chỉ khác cỡ trang
+// giờ do khách chọn (10/20/50) thay vì cố định 100.
 const filtered = computed(() =>
   filter.value ? orders.value.filter((o) => o.status_vi === filter.value) : orders.value
 )
@@ -26,15 +34,25 @@ function open(name) {
   router.push({ name: 'order-detail', params: { name } })
 }
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
   try {
-    orders.value = (await api.call('portal_order_history', { limit: 100 })) || []
+    const res = await api.call('portal_order_history', {
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+    })
+    orders.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     error.value = e.message || 'Không tải được đơn hàng.'
   } finally {
     loading.value = false
   }
-})
+}
+
+watch([trang, soDong], load)
+
+onMounted(load)
 </script>
 
 <template>
@@ -98,5 +116,7 @@ onMounted(async () => {
         </template>
       </div>
     </template>
+
+    <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
   </div>
 </template>

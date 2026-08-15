@@ -541,22 +541,26 @@ def nhat_ky_rows(
 	kho: str, vat_tu: str, tu_ngay, den_ngay,
 	so_lo: str | None = None, loai: str | None = None,
 	nguon: str | None = None, trang: int = 1, khoa_phong: str | None = None,
+	so_dong_moi_trang: int = _NHAT_KY_TRANG,
 ) -> dict:
 	"""Nhật ký vật tư (US-E4.6, UC-43, BR-D2) — bản MÀN HÌNH, phân trang server
-	50 dòng. Phép tính thật nằm ở `_nhat_ky_filtered_rows()`; xem docstring ở
-	đó cho các bất biến (đối chiếu kho_ton, dòng da_dao không bị giấu, luỹ kế
-	tính trước khi lọc). `khoa_phong` (E8/US-E8.4) là lọc HIỂN THỊ như
+	(mặc định 50 dòng, brief 2026-08-15 cho phép khách chọn 10/20/50 qua
+	PhanTrang.vue — `so_dong_moi_trang` thay cho hằng số cứng cũ). Phép
+	tính thật nằm ở `_nhat_ky_filtered_rows()`; xem docstring ở đó cho các
+	bất biến (đối chiếu kho_ton, dòng da_dao không bị giấu, luỹ kế tính
+	trước khi lọc). `khoa_phong` (E8/US-E8.4) là lọc HIỂN THỊ như
 	so_lo/loai/nguon — không đổi ý nghĩa cột tồn luỹ kế."""
 	filtered = _nhat_ky_filtered_rows(
 		kho, vat_tu, tu_ngay, den_ngay, so_lo, loai, nguon, khoa_phong
 	)
 	trang = max(1, int(trang or 1))
-	start = (trang - 1) * _NHAT_KY_TRANG
+	so_dong_moi_trang = max(1, int(so_dong_moi_trang or _NHAT_KY_TRANG))
+	start = (trang - 1) * so_dong_moi_trang
 	return {
 		"tong_dong": len(filtered),
 		"trang": trang,
-		"so_dong_moi_trang": _NHAT_KY_TRANG,
-		"dong": filtered[start:start + _NHAT_KY_TRANG],
+		"so_dong_moi_trang": so_dong_moi_trang,
+		"dong": filtered[start:start + so_dong_moi_trang],
 	}
 
 

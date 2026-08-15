@@ -6,6 +6,7 @@ import { store } from '../store'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,6 +57,22 @@ const filtered = computed(() => {
       (it.item_name || '').toLowerCase().includes(q)
     )
   })
+})
+
+// Brief 2026-08-15 (phân trang) — ngăn Theo HĐNT lọc PHÍA CLIENT (danh mục
+// đã tải hết về một lần, theo hạn mức hợp đồng — không phải server-side
+// như ngăn Mua lẻ), nên phân trang ở đây cũng CẮT PHÍA CLIENT trên mảng
+// `filtered` đã có sẵn, không gọi thêm API.
+const trangHd = ref(1)
+const soDongHd = ref(20)
+const filteredTrang = computed(() => {
+  const bd = (trangHd.value - 1) * soDongHd.value
+  return filtered.value.slice(bd, bd + soDongHd.value)
+})
+// Đổi bộ lọc (tìm/nhóm/hợp đồng) hoặc đổi số dòng/trang -> về lại trang 1,
+// nếu không khách có thể đứng ở một trang không còn dữ liệu.
+watch([search, group, selected], () => {
+  trangHd.value = 1
 })
 
 function usedPct(it) {
@@ -149,15 +166,17 @@ const leQtys = reactive({})
 let leSearchTimer = null
 
 const leTong = ref(0)
-const leStart = ref(0)
-const LE_LIMIT = 50
-const leConNua = computed(() => leItems.value.length < leTong.value)
+// Brief 2026-08-15 (phân trang) — ĐỔI nút "Tải thêm" (tích luỹ dòng) sang
+// PhanTrang.vue (cùng bộ phân trang với cả cổng): mỗi trang là MỘT lượt
+// gọi API độc lập, không còn nối chồng danh sách.
+const leTrang = ref(1)
+const leSoDong = ref(20)
 
 function availableLeQty(code) {
   return leQtys[code] ?? 1
 }
 
-async function loadLe(noiTiep = false) {
+async function loadLe() {
   // `mucLeChoPhep` giờ đến từ `store.me.cho_phep_mua_le` (dữ liệu THẬT,
   // không phải suy từ kết quả gọi này) — hàm này chỉ còn việc NẠP DANH MỤC
   // cho ngăn Mua lẻ, không kiêm việc dò quyền nữa (xem ghi chú ở khai báo
@@ -165,18 +184,13 @@ async function loadLe(noiTiep = false) {
   leLoading.value = true
   leError.value = ''
   try {
-    // `noiTiep = false` (đổi từ khoá / vào ngăn) → nạp lại từ đầu.
-    // `noiTiep = true` (bấm "Tải thêm") → nối vào cuối danh sách hiện có.
-    if (!noiTiep) leStart.value = 0
     const res = await api.call('portal_catalog_ban_le', {
       tim_kiem: search.value.trim() || undefined,
-      start: leStart.value,
-      limit: LE_LIMIT,
+      start: (leTrang.value - 1) * leSoDong.value,
+      limit: leSoDong.value,
     })
-    const moi = res.items || []
-    leItems.value = noiTiep ? [...leItems.value, ...moi] : moi
+    leItems.value = res.items || []
     leTong.value = res.tong || 0
-    leStart.value = leItems.value.length
     leItems.value.forEach((it) => {
       if (!(it.item_code in leQtys)) leQtys[it.item_code] = 1
     })
@@ -224,7 +238,10 @@ function setMode(m) {
 // kết quả cũ (lần dò quyền lúc vào trang) trong khi ô tìm kiếm đã đổi chữ,
 // bảng và ô tìm kiếm lệch nhau.
 watch(mode, (m) => {
-  if (m === 'le') loadLe()
+  if (m === 'le') {
+    leTrang.value = 1
+    loadLe()
+  }
 })
 
 // Debounce 300ms (FormSpec §1.2) — chỉ áp cho ngăn Mua lẻ, ngăn HĐNT lọc
@@ -232,8 +249,18 @@ watch(mode, (m) => {
 watch(search, () => {
   if (mode.value !== 'le') return
   clearTimeout(leSearchTimer)
+  // Đổi từ khoá tìm -> về lại trang 1 (trang cũ có thể không còn khớp kết
+  // quả mới). Luôn gọi loadLe() lại sau debounce dù `leTrang` có đổi hay
+  // không (đang sẵn ở trang 1 thì gán lại không tự kích hoạt watch bên
+  // dưới) — chốt cuối là lần gọi debounce này, không phải watch trang.
+  leTrang.value = 1
   leSearchTimer = setTimeout(() => loadLe(), 300)
 })
+
+// Brief 2026-08-15 (phân trang) — điều hướng trang/đổi số dòng của
+// PhanTrang.vue (ngăn Mua lẻ) phải gọi lại API ngay, không debounce (khác
+// gõ tìm kiếm ở trên).
+watch([leTrang, leSoDong], () => loadLe())
 
 // §3.4 — khối "hàng chưa có trong kho, cần đặt ngoài". Mở sẵn khi tìm không
 // ra kết quả: đúng chỗ và đúng ý định mà nút "Gửi yêu cầu cho Miyano" cũ
@@ -359,7 +386,7 @@ watch(selected, loadItems)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="it in filtered" :key="it.item_code">
+              <tr v-for="it in filteredTrang" :key="it.item_code">
                 <td><b>{{ it.item_code }}</b></td>
                 <td>
                   {{ it.item_name }}<br />
@@ -404,11 +431,12 @@ watch(selected, loadItems)
               </tr>
             </tbody>
           </table>
+          <PhanTrang v-model:trang="trangHd" v-model:so-dong="soDongHd" :tong="filtered.length" />
         </div>
 
         <!-- MOBILE: thẻ -->
         <template v-else>
-          <div v-for="it in filtered" :key="it.item_code" class="card item mb10">
+          <div v-for="it in filteredTrang" :key="it.item_code" class="card item mb10">
             <div class="nm">{{ it.item_code }} · {{ it.item_name }}</div>
             <div class="tag" style="margin: 2px 0 6px">{{ it.item_group }} · VAT {{ it.vat_pct }}% · {{ it.uom }}</div>
             <div class="sb">
@@ -440,6 +468,7 @@ watch(selected, loadItems)
             </div>
             <div v-if="boiSo(it) > 1" class="muted sm">Đặt theo bội số {{ boiSo(it) }} {{ it.uom }}</div>
           </div>
+          <PhanTrang v-model:trang="trangHd" v-model:so-dong="soDongHd" :tong="filtered.length" />
         </template>
       </template>
     </template>
@@ -523,16 +552,7 @@ watch(selected, loadItems)
         </div>
       </template>
 
-      <p v-if="leItems.length" class="tag" style="margin-top: 10px">
-        Đang hiện {{ leItems.length }} / {{ leTong }} mặt hàng
-      </p>
-      <button
-        v-if="leConNua"
-        class="btn-o"
-        style="width: 100%; margin-top: 8px"
-        :disabled="leLoading"
-        @click="loadLe(true)"
-      >{{ leLoading ? 'Đang tải…' : 'Tải thêm' }}</button>
+      <PhanTrang v-model:trang="leTrang" v-model:so-dong="leSoDong" :tong="leTong" />
 
       <div class="card" style="margin-top: 12px">
         <div class="sb" style="cursor: pointer" @click="dnMoKhoi = !dnMoKhoi">

@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import api from '../api'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import VatTuModal from '../components/VatTuModal.vue'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
 const rows = ref([])
@@ -11,6 +12,13 @@ const loading = ref(true)
 const error = ref('')
 const tim = ref('')
 const caTat = ref(false)
+// Brief 2026-08-15 (phân trang) — truyền `limit` nên kho_vat_tu_list trả
+// dạng {rows, tong} (nhánh phân trang của endpoint, KHÁC nhánh dropdown
+// không truyền limit mà NhatKy.vue/BaoCaoNXT.vue dùng).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
+let timTimer = null
 
 const modalOpen = ref(false)
 const modalMode = ref('tao')
@@ -20,23 +28,36 @@ const modalCoPhatSinh = ref(false)
 
 const exportUrl = api.khoDownloadUrl('kho_vat_tu_export')
 
-const hienThi = computed(() => {
-  const q = tim.value.trim().toLowerCase()
-  if (!q) return rows.value
-  return rows.value.filter((r) => `${r.ma_vat_tu} ${r.ten_vat_tu}`.toLowerCase().includes(q))
-})
-
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    rows.value = await api.callKho('kho_vat_tu_list', { ca_tat: caTat.value ? 1 : 0 })
+    const res = await api.callKho('kho_vat_tu_list', {
+      ca_tat: caTat.value ? 1 : 0,
+      tim: tim.value.trim() || undefined,
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+    })
+    rows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     error.value = e.message || 'Không tải được danh mục vật tư.'
   } finally {
     loading.value = false
   }
 }
+
+watch([trang, soDong], load)
+function locThayDoi() {
+  trang.value = 1
+  load()
+}
+// Debounce 300ms — cùng khuôn ngăn Mua lẻ của Catalog.vue.
+watch(tim, () => {
+  clearTimeout(timTimer)
+  trang.value = 1
+  timTimer = setTimeout(() => load(), 300)
+})
 
 function moTao() {
   modalMode.value = 'tao'
@@ -78,14 +99,14 @@ onMounted(load)
     <div class="card mb10 flex" style="gap: 12px; align-items: center; flex-wrap: wrap">
       <input v-model="tim" placeholder="Tìm theo mã hoặc tên…" style="flex: 1; min-width: 200px" />
       <label style="display: flex; align-items: center; gap: 6px">
-        <input type="checkbox" v-model="caTat" @change="load" />
+        <input type="checkbox" v-model="caTat" @change="locThayDoi" />
         Hiện cả vật tư đã tắt
       </label>
     </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
-    <div v-else-if="!hienThi.length" class="empty">Chưa có vật tư nào.</div>
+    <div v-else-if="!rows.length" class="empty">Chưa có vật tư nào.</div>
 
     <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
       <table>
@@ -96,7 +117,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in hienThi" :key="r.name">
+          <tr v-for="r in rows" :key="r.name">
             <td>{{ r.ma_vat_tu }}</td>
             <td>{{ r.ten_vat_tu }}</td>
             <td>{{ r.dvt }}</td>
@@ -115,7 +136,7 @@ onMounted(load)
     </div>
 
     <div v-else>
-      <div v-for="r in hienThi" :key="r.name" class="card mb10">
+      <div v-for="r in rows" :key="r.name" class="card mb10">
         <div class="sb">
           <b>{{ r.ma_vat_tu }}</b>
           <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
@@ -127,6 +148,8 @@ onMounted(load)
         <button class="btn-o btn-sm" @click="moSua(r)">Sửa</button>
       </div>
     </div>
+
+    <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
 
     <VatTuModal
       :open="modalOpen"

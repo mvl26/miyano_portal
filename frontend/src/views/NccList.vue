@@ -1,14 +1,20 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import api from '../api'
 import { fmtVND } from '../format'
 import { useIsMobile } from '../useMobile'
 import NccModal from '../components/NccModal.vue'
+import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
 const rows = ref([])
 const loading = ref(true)
 const error = ref('')
+// Brief 2026-08-15 (phân trang) — truyền `limit` nên kho_ncc_list trả dạng
+// {rows, tong} (nhánh phân trang, KHÁC nhánh dropdown không truyền limit).
+const trang = ref(1)
+const soDong = ref(20)
+const tong = ref(0)
 
 const modalOpen = ref(false)
 const modalMode = ref('tao')
@@ -21,13 +27,21 @@ async function load() {
     // ca_inactive=1: NCC đã tắt vẫn phải hiện trong danh mục (làm mờ + badge
     // "Đã tắt"), không được biến mất — người dùng cần thấy lịch sử NCC từng
     // dùng, chỉ ô chọn trên phiếu mới lọc active=1.
-    rows.value = await api.callKho('kho_ncc_list', { ca_inactive: 1 })
+    const res = await api.callKho('kho_ncc_list', {
+      ca_inactive: 1,
+      start: (trang.value - 1) * soDong.value,
+      limit: soDong.value,
+    })
+    rows.value = res?.rows || []
+    tong.value = res?.tong || 0
   } catch (e) {
     error.value = e.message || 'Không tải được danh mục NCC.'
   } finally {
     loading.value = false
   }
 }
+
+watch([trang, soDong], load)
 
 function moTao() {
   modalMode.value = 'tao'
@@ -131,6 +145,8 @@ onMounted(load)
         <p v-if="!r.active && r.so_phieu" class="tag" style="margin-top: 6px">đã dùng trên phiếu — không xoá được</p>
       </div>
     </template>
+
+    <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
 
     <NccModal :open="modalOpen" :initial="modalInitial" :mode="modalMode" @saved="onSaved" @close="modalOpen = false" />
   </div>
