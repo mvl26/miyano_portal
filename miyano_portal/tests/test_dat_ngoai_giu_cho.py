@@ -88,3 +88,20 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         with self.assertRaises(frappe.ValidationError):
             so.submit()
+
+    def test_cong_khong_bao_gio_thay_dong_giu_cho(self):
+        res = portal.portal_order_place(
+            items=json.dumps([]),
+            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
+            request_id=_rid(),
+            mode="ban_le",
+        )
+        track = portal.portal_order_track(order=res["sales_order"])
+        ma = [i["item_code"] for i in track["items"]]
+        self.assertNotIn(
+            ITEM_GIU_CHO, ma,
+            "dòng giữ chỗ là chi tiết kỹ thuật nội bộ, không được lọt ra cổng",
+        )
+        self.assertEqual(len(track["dat_ngoai"]), 2)
+        self.assertEqual(track["dat_ngoai"][0]["ten_hang"], DAT_NGOAI_MAU[0]["ten_hang"])
+        self.assertFalse(track["dat_ngoai"][0]["da_xu_ly"])

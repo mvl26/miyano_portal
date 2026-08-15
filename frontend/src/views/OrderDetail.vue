@@ -295,6 +295,26 @@ onMounted(load)
               </tr>
             </tbody>
           </table>
+
+          <template v-if="(data.dat_ngoai || []).length">
+            <h4 style="margin: 14px 12px 6px">Đang chờ Miyano xác nhận nguồn</h4>
+            <table>
+              <thead>
+                <tr><th>Tên hàng</th><th>ĐVT</th><th class="right">SL</th><th>Tình trạng</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(d, i) in data.dat_ngoai" :key="i">
+                  <td>{{ d.ten_hang }}<br /><span v-if="d.ghi_chu" class="tag">{{ d.ghi_chu }}</span></td>
+                  <td>{{ d.dvt }}</td>
+                  <td class="right">{{ d.so_luong }}</td>
+                  <td>
+                    <span v-if="d.da_xu_ly" class="badge b-green">Đã tìm được nguồn</span>
+                    <span v-else class="badge b-gray">Miyano đang tìm nguồn</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
         </div>
         <div v-else class="card">
           <div class="h3">Mặt hàng</div>
@@ -306,6 +326,19 @@ onMounted(load)
             </span>
             <b>{{ fmtVND(it.amount) }}</b>
           </div>
+
+          <template v-if="(data.dat_ngoai || []).length">
+            <h4 style="margin: 14px 0 6px">Đang chờ Miyano xác nhận nguồn</h4>
+            <div v-for="(d, i) in data.dat_ngoai" :key="i" class="rowline">
+              <span>
+                <b>{{ d.ten_hang }}</b>
+                <template v-if="d.ghi_chu"><br /><span style="font-size: 13px">{{ d.ghi_chu }}</span></template><br />
+                <span class="tag">{{ d.so_luong }} {{ d.dvt }}</span>
+              </span>
+              <span v-if="d.da_xu_ly" class="badge b-green">Đã tìm được nguồn</span>
+              <span v-else class="badge b-gray">Miyano đang tìm nguồn</span>
+            </div>
+          </template>
         </div>
 
         <!-- Giao hàng -->

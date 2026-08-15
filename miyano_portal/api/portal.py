@@ -1135,12 +1135,24 @@ def portal_order_track(order) -> dict:
         "yeu_cau_goc": so.get("custom_yeu_cau_goc") or "",
         "chap_nhan": chap_nhan,
         "milestones": milestones,
+        # §3.4 — LỌC dòng giữ chỗ khỏi phía khách. Khách không gõ ra nó,
+        # không đặt nó, và nó không phải hàng: để nó lọt ra cổng là phơi một
+        # chi tiết kỹ thuật nội bộ ra đúng chỗ nguyên tắc nền cấm.
         "items": [
             {"item_code": i.item_code,
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
              "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
             for i in so.items
+            if i.item_code != ITEM_GIU_CHO
+        ],
+        # §3.4 — nhóm "hàng chưa có mã". `item_khop`/`da_xu_ly` để client
+        # tách được dòng Miyano đã tìm ra nguồn khỏi dòng còn đang chờ.
+        "dat_ngoai": [
+            {"ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
+             "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
+             "item_khop": d.item_khop or ""}
+            for d in (so.get("custom_dat_ngoai") or [])
         ],
         "deliveries": deliveries,
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
