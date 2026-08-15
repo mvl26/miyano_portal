@@ -188,14 +188,9 @@ async function loadLe() {
 
 function addLe(it) {
   const qty = Math.max(1, parseInt(leQtys[it.item_code]) || 1)
+  // §3.3 — KHÔNG truyền `rate`/`vat_pct`: endpoint không trả giá nữa.
   store.addToCartLe(
-    {
-      item_code: it.item_code,
-      item_name: it.ten,
-      uom: it.dvt,
-      rate: it.gia_ban_le,
-      vat_pct: it.vat || 0,
-    },
+    { item_code: it.item_code, item_name: it.ten, uom: it.dvt },
     qty
   )
   showToast(`Đã thêm ${qty} ${it.dvt} · ${it.ten} vào giỏ mua lẻ`)
@@ -428,30 +423,28 @@ watch(selected, loadItems)
           <thead>
             <tr>
               <th>Mã</th><th>Tên / quy cách</th><th>ĐVT</th>
-              <th class="right">Giá bán lẻ (chưa VAT)</th><th>Tình trạng</th>
+              <th>Tình trạng</th>
               <th style="width: 120px">Số lượng</th><th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="it in leItems" :key="it.item_code" :style="it.thuoc_hdnt ? 'opacity:.6' : ''">
               <td><b>{{ it.item_code }}</b></td>
-              <td>{{ it.ten }}<br /><span v-if="it.quy_cach" class="tag">{{ it.quy_cach }} · VAT {{ it.vat }}%</span><span v-else class="tag">VAT {{ it.vat }}%</span></td>
+              <td>{{ it.ten }}<br /><span v-if="it.quy_cach" class="tag">{{ it.quy_cach }}</span></td>
               <td>{{ it.dvt }}</td>
               <template v-if="it.thuoc_hdnt">
-                <td class="right">—</td>
                 <td colspan="3">
                   <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
                     <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
                   </a>
                 </td>
               </template>
-              <template v-else-if="!it.co_gia">
-                <td class="right">—</td>
-                <td><span class="badge b-gray">Chưa có giá lẻ</span></td>
-                <td colspan="2"></td>
+              <template v-else-if="!it.san_sang_ban">
+                <td colspan="3">
+                  <span class="badge b-gray">Miyano đang cập nhật — vui lòng liên hệ</span>
+                </td>
               </template>
               <template v-else>
-                <td class="right">{{ fmtVND(it.gia_ban_le) }}</td>
                 <td><span class="badge" :class="it.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">{{ it.trang_thai_hang }}</span></td>
                 <td>
                   <div class="step">
@@ -471,19 +464,18 @@ watch(selected, loadItems)
       <template v-else>
         <div v-for="it in leItems" :key="it.item_code" class="card item mb10" :style="it.thuoc_hdnt ? 'opacity:.6' : ''">
           <div class="nm">{{ it.item_code }} · {{ it.ten }}</div>
-          <div class="tag" style="margin: 2px 0 6px">{{ it.quy_cach ? it.quy_cach + ' · ' : '' }}VAT {{ it.vat }}% · {{ it.dvt }}</div>
+          <div class="tag" style="margin: 2px 0 6px">{{ it.quy_cach ? it.quy_cach + ' · ' : '' }}{{ it.dvt }}</div>
 
           <template v-if="it.thuoc_hdnt">
             <a href="#" @click.prevent="chuyenSangHdnt(it.item_code)">
               <span class="badge b-blue">Có trong HĐNT — đặt ở chế độ Theo HĐNT</span>
             </a>
           </template>
-          <template v-else-if="!it.co_gia">
-            <div class="sb"><span class="badge b-gray">Chưa có giá lẻ</span></div>
+          <template v-else-if="!it.san_sang_ban">
+            <div class="sb"><span class="badge b-gray">Miyano đang cập nhật — vui lòng liên hệ</span></div>
           </template>
           <template v-else>
             <div class="sb">
-              <span class="pr">{{ fmtVND(it.gia_ban_le) }}</span>
               <span class="badge" :class="it.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">{{ it.trang_thai_hang }}</span>
             </div>
             <div class="sb" style="margin-top: 10px">
@@ -503,7 +495,6 @@ watch(selected, loadItems)
     <div v-if="isMobile && store.cartCount" class="cartbar">
       <button class="btn" @click="router.push('/cart')">
         <span>🧺 {{ store.cartCount }} mặt hàng</span>
-        <span>{{ fmtVND(store.cartTotal + store.cartLeTotal) }}</span>
         <span>Xem giỏ ›</span>
       </button>
     </div>

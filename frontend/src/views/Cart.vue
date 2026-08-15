@@ -334,8 +334,8 @@ onMounted(async () => {
 
         <template v-else>
           <div class="note">
-            Ngăn <b>Mua lẻ</b> — không thuộc HĐNT, không hạn mức; Miyano sẽ xác nhận giá và lượng
-            trước khi giao. Đặt thành <b>đơn riêng</b>.
+            Ngăn <b>Mua lẻ</b> — không thuộc HĐNT, không hạn mức. Miyano sẽ báo giá rồi
+            bạn xác nhận trước khi giao. Đặt thành <b>đơn riêng</b>.
           </div>
           <div v-if="leError" class="note" style="color: var(--red); border-color: #fecaca; background: #fef2f2">{{ leError }}</div>
           <div v-if="leLoiDong.length" class="note note-loi">
@@ -349,15 +349,14 @@ onMounted(async () => {
                 <table>
                   <thead>
                     <tr>
-                      <th>MẶT HÀNG</th><th>ĐVT</th><th class="right">Giá lẻ</th>
-                      <th style="width: 120px">SL</th><th class="right">Thành tiền</th><th></th>
+                      <th>MẶT HÀNG</th><th>ĐVT</th>
+                      <th style="width: 120px">SL</th><th></th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="l in leLines" :key="l.item_code" :class="{ 'dong-loi': leMaLoi.has(l.item_code) }">
                       <td><b>{{ l.item_code }}</b> {{ l.item_name }}</td>
                       <td>{{ l.uom }}</td>
-                      <td class="right">{{ fmtVND(l.rate) }}</td>
                       <td>
                         <div class="step">
                           <button @click="leStepDown(l.item_code, l.qty)">−</button>
@@ -365,7 +364,6 @@ onMounted(async () => {
                           <button @click="leStepUp(l)">+</button>
                         </div>
                       </td>
-                      <td class="right"><b>{{ fmtVND(l.qty * l.rate) }}</b></td>
                       <td><button class="btn-o btn-sm" style="color: var(--red); border-color: var(--red)" @click="store.removeFromCartLe(l.item_code)">✕</button></td>
                     </tr>
                   </tbody>
@@ -377,14 +375,13 @@ onMounted(async () => {
                     <span><b>{{ l.item_code }}</b><br /><span style="font-size: 13px">{{ l.item_name }}</span></span>
                     <button class="btn-o btn-sm" style="color: var(--red); border-color: var(--red)" @click="store.removeFromCartLe(l.item_code)">✕</button>
                   </div>
-                  <div class="tag" style="margin: 4px 0 8px">{{ fmtVND(l.rate) }} / {{ l.uom }}</div>
+                  <div class="tag" style="margin: 4px 0 8px">{{ l.uom }}</div>
                   <div class="sb">
                     <div class="step">
                       <button @click="leStepDown(l.item_code, l.qty)">−</button>
                       <input :value="l.qty" @change="leQtyInput(l, $event)" inputmode="numeric" />
                       <button @click="leStepUp(l)">+</button>
                     </div>
-                    <b class="pr">{{ fmtVND(l.qty * l.rate) }}</b>
                   </div>
                 </div>
               </template>
@@ -407,10 +404,9 @@ onMounted(async () => {
                 <div class="field"><label>Ghi chú</label><textarea rows="2" v-model="leNote" placeholder="Ghi chú cho Miyano..."></textarea></div>
               </div>
               <div class="card">
-                <div class="sb"><span>Tạm tính</span><b>{{ fmtVND(store.cartLeSubtotal) }}</b></div>
-                <div class="sb" style="margin-top: 6px"><span>VAT</span><b>{{ fmtVND(store.cartLeVat) }}</b></div>
-                <hr class="sep" />
-                <div class="sb" style="font-size: 17px"><span><b>Tổng cộng</b></span><b style="color: var(--purple)">{{ fmtVND(store.cartLeTotal) }}</b></div>
+                <p class="tag">
+                  Miyano sẽ báo giá sau khi tiếp nhận đơn. Bạn xác nhận giá trước khi đơn được giao.
+                </p>
                 <button class="btn" style="width: 100%; margin-top: 14px; background: var(--purple)" @click="leMoXacNhan">Xác nhận đặt đơn MUA LẺ →</button>
                 <p class="tag" style="margin-top: 8px">Đơn ngoài HĐNT, không áp dụng hạn mức — Miyano sẽ xác nhận trước khi giao.</p>
               </div>
@@ -453,11 +449,11 @@ onMounted(async () => {
       <div class="card">
         <h3>Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 10px 0">
-          Đơn <b>Mua lẻ</b> (ngoài HĐNT), tổng giá trị <b>{{ fmtVND(store.cartLeTotal) }}</b> sẽ được
-          gửi về hệ thống Supplycore của Miyano. Đơn cần Miyano xác nhận giá và lượng trước khi giao —
+          Đơn <b>Mua lẻ</b> (ngoài HĐNT), {{ leLines.length }} mặt hàng, sẽ được
+          gửi về hệ thống Supplycore của Miyano. Miyano sẽ báo giá rồi bạn xác nhận trước khi giao —
           không áp dụng hạn mức hợp đồng nguyên tắc.
         </p>
-        <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt đơn mua lẻ theo đơn giá đã niêm yết.</div>
+        <div class="note">Bằng việc xác nhận, quý khách đồng ý đặt đơn mua lẻ; Miyano sẽ báo giá trước khi giao.</div>
         <div class="flex" style="justify-content: flex-end; margin-top: 14px">
           <button class="btn-o" @click="leConfirmOpen = false">Quay lại</button>
           <button class="btn" style="background: var(--purple)" :disabled="lePlacing" @click="leConfirmOrder">{{ lePlacing ? 'Đang gửi…' : 'Xác nhận đặt đơn mua lẻ' }}</button>
@@ -469,10 +465,10 @@ onMounted(async () => {
         <div class="grab"></div>
         <h3 style="font-size: 16px">Xác nhận gửi đơn mua lẻ?</h3>
         <p style="font-size: 13px; margin: 8px 0">
-          Đơn <b>Mua lẻ</b> (ngoài HĐNT), tổng <b>{{ fmtVND(store.cartLeTotal) }}</b> — Miyano xác nhận
-          giá và lượng trước khi giao, không áp dụng hạn mức hợp đồng nguyên tắc.
+          Đơn <b>Mua lẻ</b> (ngoài HĐNT), {{ leLines.length }} mặt hàng — Miyano sẽ báo giá
+          rồi bạn xác nhận trước khi giao, không áp dụng hạn mức hợp đồng nguyên tắc.
         </p>
-        <div class="note">Quý khách đồng ý đặt đơn mua lẻ theo đơn giá đã niêm yết.</div>
+        <div class="note">Quý khách đồng ý đặt đơn mua lẻ; Miyano sẽ báo giá trước khi giao.</div>
         <button class="btn" style="width: 100%; margin-top: 8px; background: var(--purple)" :disabled="lePlacing" @click="leConfirmOrder">{{ lePlacing ? 'Đang gửi…' : 'Xác nhận đặt đơn mua lẻ' }}</button>
         <button class="btn-o" style="width: 100%; margin-top: 8px; border: none" @click="leConfirmOpen = false">Quay lại</button>
       </div>

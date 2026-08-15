@@ -83,22 +83,22 @@ export const store = reactive({
     return Object.values(this.cartLe)
   },
 
-  get cartLeSubtotal() {
-    return this.cartLeLines.reduce((a, l) => a + l.qty * l.rate, 0)
-  },
-
-  get cartLeVat() {
-    return this.cartLeLines.reduce((a, l) => a + (l.qty * l.rate * (l.vat_pct || 0)) / 100, 0)
-  },
-
-  get cartLeTotal() {
-    return this.cartLeSubtotal + this.cartLeVat
-  },
+  // Spec 2026-08-15 §3.3 — ngăn Mua lẻ KHÔNG có tiền: `portal_catalog_ban_le`
+  // không trả giá (mọi đơn mua lẻ đi qua báo giá của Miyano), nên không có gì
+  // để cộng. Ba getter `cartLeSubtotal`/`cartLeVat`/`cartLeTotal` đã bị xoá —
+  // đừng dựng lại: chúng chỉ cộng ra 0 ₫ và làm khách tưởng hàng miễn phí.
+  // `cartCount` (đếm DÒNG, không đếm tiền) vẫn tính cả hai ngăn như cũ.
 
   addToCartLe(item, qty) {
     const c = this.cartLe[item.item_code]
     if (c) c.qty += qty
-    else this.cartLe[item.item_code] = { ...item, qty }
+    // Dòng lẻ chỉ mang thông tin nhận dạng + số lượng. KHÔNG có `rate`.
+    else this.cartLe[item.item_code] = {
+      item_code: item.item_code,
+      item_name: item.item_name,
+      uom: item.uom,
+      qty,
+    }
   },
 
   setQtyLe(code, qty) {
