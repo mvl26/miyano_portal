@@ -20,7 +20,11 @@ from miyano_portal.portal_mua_le import (
     resolve_ban_le_company,
     trang_thai_hang,
 )
-from miyano_portal.portal_thong_bao import bao_thieu_gia, bao_yeu_cau_ho_tro_hddt
+from miyano_portal.portal_thong_bao import (
+    bao_khach_sua_so_luong,
+    bao_thieu_gia,
+    bao_yeu_cau_ho_tro_hddt,
+)
 
 
 def _gia_hien_hanh(item_code: str, price_list: str):
@@ -1188,7 +1192,13 @@ def portal_order_track(order) -> dict:
         # không đặt nó, và nó không phải hàng: để nó lọt ra cổng là phơi một
         # chi tiết kỹ thuật nội bộ ra đúng chỗ nguyên tắc nền cấm.
         "items": [
-            {"item_code": i.item_code,
+            # `name` — Việc 1 (brief 2026-08-15) — `portal_order_sua_so_luong`
+            # khớp dòng payload khách gửi lên với dòng THẬT trên đơn qua
+            # `item_code` (duy nhất trong MỘT đơn, xem `_xay_don_ban_le`
+            # aggregate theo item_code khi tạo đơn); `name` đi kèm ở đây để
+            # client có thể tham chiếu nếu cần, cùng khuôn với `dat_ngoai`
+            # bên dưới (dat_ngoai không có khoá tự nhiên nào khác).
+            {"name": i.name, "item_code": i.item_code,
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
              "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
@@ -1198,7 +1208,11 @@ def portal_order_track(order) -> dict:
         # §3.4 — nhóm "hàng chưa có mã". `item_khop`/`da_xu_ly` để client
         # tách được dòng Miyano đã tìm ra nguồn khỏi dòng còn đang chờ.
         "dat_ngoai": [
-            {"ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
+            # `name` — Việc 1 (brief 2026-08-15): dòng đặt ngoài KHÔNG có
+            # khoá nghiệp vụ tự nhiên nào khác (ten_hang/dvt có thể trùng
+            # giữa hai dòng) — `portal_order_sua_so_luong` khớp payload sửa
+            # số lượng theo `name` của chính child row này.
+            {"name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
              "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
              "item_khop": d.item_khop or ""}
             for d in (so.get("custom_dat_ngoai") or [])
@@ -1782,3 +1796,244 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
             )
 
     return {"trang_thai_moi": so.get("workflow_state")}
+
+
+@frappe.whitelist()
+def portal_order_sua_so_luong(order, dong) -> dict:
+    """Việc 1 / brief 2026-08-15 (bao-gia-hai-chieu) — khách SỬA SỐ LƯỢNG
+    trên một đơn Mua lẻ đang "Chờ khách đồng ý".
+
+    Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
+    báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc
+    Miyano vào một mức giá ở sản lượng khác hẳn mà không ai đồng ý. Nên:
+    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của MỌI dòng đã
+    đổi số lượng bị đặt về 0 (báo giá cũ hết hiệu lực cho dòng đó).
+
+    Chuyển trạng thái DÙNG LẠI transition "Khách không đồng ý" ("Chờ khách
+    đồng ý" -> "Chờ xác nhận", allowed "System Manager") — brief: "KHÔNG
+    thêm trạng thái mới cho nhánh này". Không lộ ra khách: `apply_workflow`
+    chỉ ghi Comment kiểu "Workflow" với TÊN TRẠNG THÁI ĐÍCH (`frappe/model/
+    workflow.py:148`), không ghi tên action — nên việc dùng chung action với
+    nhánh "Không đồng ý" không tạo ra dấu vết sai lệch nào trên timeline;
+    Comment nghiệp vụ riêng (cũ -> mới) do CHÍNH hàm này ghi ngay bên dưới
+    mới là thứ khách/sales đọc được.
+
+    `dong` — JSON (hoặc dict) dạng:
+        {"items": [{"item_code": str, "qty": float}, ...],
+         "dat_ngoai": [{"name": str, "qty": float}, ...]}
+    CHỈ đọc `item_code`/`name` (để KHỚP một dòng ĐÃ CÓ SẴN trên đơn) và
+    `qty` — mọi field khác trong mỗi phần tử (`rate`, hoặc `item_code` không
+    khớp dòng nào) bị bỏ qua/từ chối hoàn toàn, không có đường nào để
+    payload tự thêm dòng mới hay tự đổi giá. Số lượng 0 = bỏ dòng đó.
+    """
+    customer = get_portal_customer()
+    so = frappe.get_doc("Sales Order", order)
+    # `frappe.get_doc` KHÔNG tự kiểm quyền ở build này — phải tự đối chiếu
+    # `customer` của đơn với khách suy từ PHIÊN, không nhận `customer` từ
+    # client dưới bất kỳ hình thức nào (Quyết định nền số 7/8).
+    if so.customer != customer:
+        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
+    if so.get("workflow_state") != TRANG_THAI_CHO_KHACH:
+        frappe.throw(
+            "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
+        )
+    # review (song song portal_order_accept) — "hiệu lực báo giá" (BR-R5)
+    # CHỈ có nghĩa cho Mua lẻ; state "Chờ khách đồng ý" cũng được luồng E2
+    # gốc dùng cho đơn HĐNT, nơi không có khái niệm hiệu lực N ngày.
+    if so.get("custom_loai_don") != "Mua lẻ":
+        frappe.throw(
+            "Chỉ áp dụng cho đơn Mua lẻ.", frappe.ValidationError
+        )
+    if qua_han_hieu_luc(so):
+        han = han_hieu_luc_bao_gia(so)
+        frappe.local.response["ly_do"] = "qua_han_hieu_luc"
+        frappe.throw(
+            f"Báo giá cho đơn {so.name} đã hết hiệu lực ngày "
+            f"{frappe.utils.formatdate(han, 'dd/mm/yyyy')}. Gửi yêu cầu báo "
+            f"giá mới nếu vẫn cần hàng.",
+            frappe.ValidationError,
+        )
+
+    if isinstance(dong, str):
+        dong = frappe.parse_json(dong)
+    dong = dong or {}
+    doi_items = dong.get("items") or []
+    doi_dat_ngoai = dong.get("dat_ngoai") or []
+
+    # review (I-4 tương tự _xay_don_ban_le) — dòng giữ chỗ kỹ thuật nội bộ
+    # KHÔNG BAO GIỜ là một dòng khách "sửa được": không lộ ra `portal_order_
+    # track` (đã lọc `ITEM_GIU_CHO`) nên khách bình thường không có cách nào
+    # gõ đúng mã này, nhưng payload có thể bị sửa tay — chặn tường minh,
+    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `_xay_don_ban_le`.
+    for d in doi_items:
+        if la_dong_giu_cho((d.get("item_code") or "").strip()):
+            frappe.throw(
+                f"{ITEM_GIU_CHO} là mã kỹ thuật nội bộ, không phải dòng hàng "
+                "sửa được.",
+                frappe.ValidationError,
+            )
+
+    # KHÔNG cho "thêm dòng" — mọi item_code/name trong payload phải khớp
+    # một dòng ĐÃ CÓ trên đơn. Kiểm TRƯỚC khi đụng vào bất kỳ dòng nào (một
+    # payload lẫn cả sửa hợp lệ VÀ một dòng lạ phải bị từ chối TOÀN BỘ,
+    # không âm thầm áp phần hợp lệ rồi bỏ qua phần lạ).
+    ma_dang_co = {i.item_code for i in so.items}
+    doi_items_theo_ma: dict[str, dict] = {}
+    for d in doi_items:
+        ma = (d.get("item_code") or "").strip()
+        if not ma:
+            continue
+        if ma not in ma_dang_co:
+            frappe.throw(
+                f"Không tìm thấy mặt hàng {ma} trong đơn — không thể thêm "
+                "dòng mới qua sửa số lượng.",
+                frappe.ValidationError,
+            )
+        doi_items_theo_ma[ma] = d
+
+    ten_dat_ngoai_dang_co = {d.name for d in (so.get("custom_dat_ngoai") or [])}
+    doi_dat_ngoai_theo_ten: dict[str, dict] = {}
+    for d in doi_dat_ngoai:
+        ten = d.get("name")
+        if not ten:
+            continue
+        if ten not in ten_dat_ngoai_dang_co:
+            frappe.throw(
+                "Không tìm thấy dòng đặt ngoài trong đơn — không thể thêm "
+                "dòng mới qua sửa số lượng.",
+                frappe.ValidationError,
+            )
+        doi_dat_ngoai_theo_ten[ten] = d
+
+    # review — GIỮ NGUYÊN các Document con đã có (không dựng dict tay từ
+    # đầu): rebuild bằng dict tay sẽ ÂM THẦM làm rớt mọi field khác của
+    # dòng (uom, conversion_factor, description...) và sinh `name`/`idx`
+    # MỚI cho những dòng KHÔNG đổi gì — hỏng luôn việc khớp theo `name` ở
+    # lần sửa dat_ngoai TIẾP THEO. `so.set(field, [... cùng object cũ ...])`
+    # giữ nguyên name/idx (frappe `_init_child` chỉ gán idx/tên MỚI khi đối
+    # tượng CHƯA có, xem `base_document.py::_init_child`).
+    thay_doi: list[str] = []
+
+    giu_items = []
+    for i in list(so.items):
+        match = doi_items_theo_ma.get(i.item_code)
+        if match is None:
+            giu_items.append(i)
+            continue
+        try:
+            qty_moi = float(match.get("qty"))
+        except (TypeError, ValueError):
+            frappe.throw(f"{i.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
+        if qty_moi < 0:
+            frappe.throw(f"{i.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
+        if qty_moi == 0:
+            thay_doi.append(f"{i.item_code}: {i.qty} → bỏ dòng")
+            continue
+        if float(i.qty or 0) != qty_moi:
+            thay_doi.append(
+                f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
+                "còn hiệu lực, chờ báo giá lại)"
+            )
+            i.qty = qty_moi
+            # `rate` VÀ `price_list_rate` — cả hai về 0. Chỉ đặt `rate` mà để
+            # nguyên `price_list_rate` có nguy cơ một luồng tính giá khác của
+            # ERPNext coi `price_list_rate` là nguồn sự thật và ghi đè lại
+            # `rate` khi lưu; đặt cả hai về 0 loại hẳn khả năng đó.
+            i.rate = 0
+            i.price_list_rate = 0
+        giu_items.append(i)
+
+    giu_dat_ngoai = []
+    for d in list(so.get("custom_dat_ngoai") or []):
+        match = doi_dat_ngoai_theo_ten.get(d.name)
+        if match is None:
+            giu_dat_ngoai.append(d)
+            continue
+        try:
+            qty_moi = float(match.get("qty"))
+        except (TypeError, ValueError):
+            frappe.throw(f"{d.ten_hang}: số lượng không hợp lệ.", frappe.ValidationError)
+        if qty_moi < 0:
+            frappe.throw(f"{d.ten_hang}: số lượng không hợp lệ.", frappe.ValidationError)
+        if qty_moi == 0:
+            thay_doi.append(f"{d.ten_hang} (đặt ngoài): {d.so_luong} → bỏ dòng")
+            continue
+        if float(d.so_luong or 0) != qty_moi:
+            thay_doi.append(f"{d.ten_hang} (đặt ngoài): {d.so_luong} → {qty_moi}")
+            d.so_luong = qty_moi
+        giu_dat_ngoai.append(d)
+
+    if not thay_doi:
+        frappe.throw("Không có thay đổi số lượng nào để gửi.", frappe.ValidationError)
+
+    # §3.4 — ERPNext không lưu được `items` rỗng (xem docstring
+    # `_xay_don_ban_le`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
+    # còn gì để Miyano báo giá lại — hướng khách sang nút Huỷ (huỷ THẬT,
+    # đóng đơn ngay) thay vì để endpoint này chặn mập mờ.
+    giu_items_that = [i for i in giu_items if i.item_code != ITEM_GIU_CHO]
+    if not giu_items_that and not giu_dat_ngoai:
+        frappe.throw(
+            "Đơn sẽ không còn dòng hàng nào sau khi sửa. Nếu muốn huỷ toàn "
+            "bộ đơn, vui lòng dùng nút Huỷ đơn.",
+            frappe.ValidationError,
+        )
+    if not giu_items_that and giu_dat_ngoai:
+        # Giỏ hàng THẬT rỗng nhưng còn dòng đặt ngoài — cùng tình huống
+        # `can_chen_giu_cho` xử lý lúc TẠO đơn: chèn dòng giữ chỗ để
+        # ERPNext lưu được `items` khác rỗng.
+        if not frappe.db.exists("Item", ITEM_GIU_CHO):
+            frappe.throw(
+                "Hệ thống chưa sẵn sàng nhận đơn toàn hàng chưa có mã. "
+                "Vui lòng liên hệ Miyano.",
+                frappe.ValidationError,
+            )
+        item_warehouse = _resolve_item_warehouse(ITEM_GIU_CHO, so.company)
+        if not item_warehouse:
+            frappe.throw(
+                f"Không tìm thấy kho giao hàng cho mặt hàng {ITEM_GIU_CHO} "
+                f"tại công ty {so.company}. Vui lòng liên hệ quản trị viên "
+                "hệ thống.",
+                frappe.ValidationError,
+            )
+        giu_items.append({
+            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0,
+            "warehouse": item_warehouse, "delivery_date": so.delivery_date,
+        })
+
+    nguoi_bam = frappe.session.user
+    from frappe.model.workflow import apply_workflow
+
+    # Cùng lý do/khuôn với `portal_order_accept`: transition "Khách không
+    # đồng ý" chỉ mở cho "System Manager", không phải role Customer. Đổi
+    # DUY NHẤT `session.user` (KHÔNG đụng `sid`/`data`) — xem chú thích dài
+    # ở `portal_order_accept` giải thích vì sao `frappe.set_user()` không an
+    # toàn ở đây.
+    session = frappe.local.session
+    frappe.local.user_perms = None
+    session.user = "Administrator"
+    try:
+        # Lưu thay đổi số lượng TRƯỚC — `apply_workflow()` tự gọi
+        # `doc.load_from_db()` NGAY ĐẦU HÀM (frappe/model/workflow.py:102),
+        # nên gọi nó trên `so` đang mang thay đổi CHƯA LƯU sẽ XOÁ SẠCH thay
+        # đổi đó trước khi kịp áp dụng gì cả.
+        so.set("items", [])
+        for row in giu_items:
+            so.append("items", row)
+        so.set("custom_dat_ngoai", [])
+        for row in giu_dat_ngoai:
+            so.append("custom_dat_ngoai", row)
+        so.save()
+
+        so = apply_workflow(so, "Khách không đồng ý")
+        noi_dung = (
+            f"[Portal] Khách sửa số lượng bởi {nguoi_bam} — về \"Chờ xác "
+            "nhận\" để báo giá lại:<br>" + "<br>".join(thay_doi)
+        )
+        so.add_comment("Comment", noi_dung)
+    finally:
+        session.user = nguoi_bam
+        frappe.local.user_perms = None
+
+    bao_khach_sua_so_luong(customer, so.name, thay_doi)
+
+    return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}

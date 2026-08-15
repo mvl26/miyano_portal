@@ -1133,3 +1133,237 @@ class TestJobBaoGiaHetHan(FrappeTestCase):
         self.assertIn(
             "sales_user@demo.miyano", nguoi_nhan, "sales phụ trách (Miyano) phải nhận email — 'hai phía'",
         )
+
+
+def _tao_so_dat_ngoai_cho_khach(customer, user, items=None, dat_ngoai=None):
+    """Dựng SO "Chờ khách đồng ý" đi qua ĐÚNG `portal_order_place` (không
+    viết tay `Sales Order`/`custom_dat_ngoai`) — cùng lý do
+    `test_han_hieu_luc_tinh_tu_ngay_gui_khach_duyet_khong_phai_ngay_lap` dùng
+    `apply_workflow` thật thay vì `db.set_value` khi test đang cần bảng con
+    `custom_dat_ngoai` có `name`/`idx` THẬT như production (không phải một
+    dict tay không có định danh ổn định để khớp trong
+    `portal_order_sua_so_luong`)."""
+    frappe.set_user(user)
+    res = portal.portal_order_place(
+        items=json.dumps(items or []),
+        dat_ngoai=json.dumps(dat_ngoai or []),
+        mode="ban_le", request_id=_rid(),
+    )
+    frappe.set_user("Administrator")
+    frappe.db.set_value(
+        "Sales Order", res["sales_order"], "workflow_state", "Chờ khách đồng ý",
+        update_modified=False,
+    )
+    return frappe.get_doc("Sales Order", res["sales_order"])
+
+
+# ---------- Việc 1/brief 2026-08-15 (bao-gia-hai-chieu) — portal_order_sua_so_luong ----------
+class TestSuaSoLuong(FrappeTestCase):
+    def setUp(self):
+        _seed_mua_le()
+        self.addCleanup(frappe.set_user, "Administrator")
+
+    def test_sua_so_luong_ve_cho_xac_nhan_rate_ve_0(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        row_name = so.items[0].name
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 5}]})
+        )
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+
+        # Đọc THẲNG từ DB (không phải doc trong bộ nhớ) — chứng minh giá trị
+        # đã THỰC SỰ được lưu qua `so.save()`, không chỉ đúng trên object
+        # Python đang giữ trước khi `apply_workflow` load lại từ DB.
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Chờ xác nhận"
+        )
+        self.assertEqual(float(frappe.db.get_value("Sales Order Item", row_name, "qty")), 5.0)
+        self.assertEqual(
+            float(frappe.db.get_value("Sales Order Item", row_name, "rate")), 0.0,
+            "báo giá cũ không còn hiệu lực ở số lượng mới — rate phải về 0",
+        )
+
+        cmt = frappe.get_all(
+            "Comment",
+            filters={"reference_doctype": "Sales Order", "reference_name": so.name},
+            pluck="content",
+        )
+        self.assertTrue(
+            any(RETAIL_CO_GIA in (c or "") and "5" in (c or "") and "1" in (c or "") for c in cmt),
+            "Comment phải ghi rõ cũ -> mới",
+        )
+
+    def test_qua_han_hieu_luc_bi_chan(self):
+        ngay_lap = frappe.utils.add_days(frappe.utils.today(), -8)
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000, ngay_lap=ngay_lap)
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_sua_so_luong(
+                so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 3}]})
+            )
+        self.assertEqual(frappe.local.response.get("ly_do"), "qua_han_hieu_luc")
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Chờ khách đồng ý",
+            "báo giá hết hạn bị chặn TRƯỚC khi đụng gì tới đơn",
+        )
+
+    def test_don_khach_khac_bi_chan(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_PXN)
+        with self.assertRaises(frappe.PermissionError):
+            portal.portal_order_sua_so_luong(
+                so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 3}]})
+            )
+
+    def test_payload_co_doi_rate_bi_bo_qua(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+        row_name = so.items[0].name
+
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_sua_so_luong(
+            so.name,
+            json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 3, "rate": 999999}]}),
+        )
+        self.assertEqual(
+            float(frappe.db.get_value("Sales Order Item", row_name, "rate")), 0.0,
+            "rate client gửi lên phải bị bỏ qua hoàn toàn — server luôn tự đặt 0",
+        )
+
+    def test_payload_them_dong_moi_bi_tu_choi(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_sua_so_luong(
+                so.name,
+                json.dumps({"items": [{"item_code": RETAIL_THIEU_GIA, "qty": 2}]}),
+            )
+        self.assertEqual(
+            frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Chờ khách đồng ý",
+            "thêm dòng mới bị từ chối thì đơn KHÔNG được đổi trạng thái",
+        )
+
+    def test_bo_het_moi_dong_bi_chan_huong_sang_nut_huy(self):
+        so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError) as cm:
+            portal.portal_order_sua_so_luong(
+                so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 0}]})
+            )
+        self.assertIn("Huỷ", str(cm.exception))
+
+    def test_khong_ap_dung_cho_don_hdnt(self):
+        """Đơn HĐNT ở "Chờ khách đồng ý" (luồng E2 gốc, US-E2.5) không phải
+        Mua lẻ — sửa số lượng chỉ có nghĩa cho nhánh QT10."""
+        so = frappe.new_doc("Sales Order")
+        so.customer = BVBM
+        so.company = COMPANY
+        so.transaction_date = frappe.utils.today()
+        so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 7)
+        so.selling_price_list = PRICE_LIST
+        so.custom_nguon_don = "Client Portal"
+        so.append("items", {
+            "item_code": VT_HDNT, "qty": 1, "rate": 1000, "delivery_date": so.delivery_date,
+        })
+        so.taxes = []
+        so.taxes_and_charges = None
+        so.insert(ignore_permissions=True)
+        frappe.db.set_value(
+            "Sales Order", so.name, "workflow_state", "Chờ khách đồng ý", update_modified=False
+        )
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_sua_so_luong(
+                so.name, json.dumps({"items": [{"item_code": VT_HDNT, "qty": 2}]})
+            )
+
+    def test_dat_ngoai_ve_0_khong_can_placeholder_khi_con_hang_that(self):
+        so = _tao_so_dat_ngoai_cho_khach(
+            BVBM, USER_BVBM,
+            items=[{"item_code": RETAIL_CO_GIA, "qty": 2}],
+            dat_ngoai=[{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 5}],
+        )
+        dn_name = so.custom_dat_ngoai[0].name
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"dat_ngoai": [{"name": dn_name, "qty": 0}]})
+        )
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+
+        so.reload()
+        self.assertEqual(len(so.custom_dat_ngoai), 0)
+        self.assertEqual(len(so.items), 1, "mặt hàng thật vẫn còn — không cần chèn placeholder")
+        self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
+
+    def test_items_ve_0_con_dat_ngoai_thi_chen_placeholder(self):
+        so = _tao_so_dat_ngoai_cho_khach(
+            BVBM, USER_BVBM,
+            items=[{"item_code": RETAIL_CO_GIA, "qty": 2}],
+            dat_ngoai=[{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 5}],
+        )
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 0}]})
+        )
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+
+        so.reload()
+        ma = {i.item_code for i in so.items}
+        self.assertIn(
+            ITEM_GIU_CHO, ma,
+            "items rỗng hàng thật nhưng còn dat_ngoai -> phải chèn dòng giữ chỗ để ERPNext lưu được",
+        )
+        self.assertEqual(len(so.custom_dat_ngoai), 1, "dòng đặt ngoài không đổi phải còn nguyên")
+
+    def test_khong_the_sua_dong_giu_cho(self):
+        """Đơn TOÀN dat_ngoai đã có sẵn dòng giữ chỗ trong `items` — payload
+        không được phép nhắm vào chính dòng kỹ thuật nội bộ đó."""
+        so = _tao_so_dat_ngoai_cho_khach(
+            BVBM, USER_BVBM, items=[],
+            dat_ngoai=[{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 5}],
+        )
+        ma = {i.item_code for i in so.items}
+        self.assertIn(ITEM_GIU_CHO, ma, "fixture phải có sẵn placeholder để test có ý nghĩa")
+
+        frappe.set_user(USER_BVBM)
+        with self.assertRaises(frappe.ValidationError):
+            portal.portal_order_sua_so_luong(
+                so.name, json.dumps({"items": [{"item_code": ITEM_GIU_CHO, "qty": 5}]})
+            )
+
+    def test_hai_lan_sua_lien_tiep_dat_ngoai_van_khop_ten(self):
+        """review — chốt hồi quy cho cách viết KHÔNG rebuild bằng dict tay:
+        sửa dat_ngoai LẦN 1 (không đổi tới 0) rồi sửa LẦN 2 vẫn phải khớp
+        được đúng `name` cũ — nếu implementation từng sinh `name` MỚI cho
+        dòng giữ nguyên, khớp theo `name` ở lần 2 sẽ IM LẶNG không tìm thấy
+        gì (bug lớp `_init_child` mà brief round-trip review đã cảnh báo)."""
+        so = _tao_so_dat_ngoai_cho_khach(
+            BVBM, USER_BVBM,
+            items=[{"item_code": RETAIL_CO_GIA, "qty": 2}],
+            dat_ngoai=[{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 5}],
+        )
+        dn_name = so.custom_dat_ngoai[0].name
+
+        frappe.set_user(USER_BVBM)
+        portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 3}]})
+        )
+        frappe.set_user("Administrator")
+        frappe.db.set_value(
+            "Sales Order", so.name, "workflow_state", "Chờ khách đồng ý", update_modified=False
+        )
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"dat_ngoai": [{"name": dn_name, "qty": 8}]})
+        )
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+        self.assertEqual(float(frappe.db.get_value("Sales Order Dat Ngoai Item", dn_name, "so_luong")), 8.0)

@@ -167,6 +167,41 @@ def bao_yeu_cau_ho_tro_hddt(customer: str, sales_invoice: str, fei: str | None =
     return dem
 
 
+def bao_khach_sua_so_luong(customer: str, order: str, thay_doi: list) -> bool:
+    """Việc 1/brief 2026-08-15 — khách sửa số lượng ở "Chờ khách đồng ý" ->
+    đơn về "Chờ xác nhận" cho sales báo giá lại (`portal_order_sua_so_luong`).
+    Trả `True` nếu vừa gửi.
+
+    KHÔNG chống spam theo cửa sổ thời gian: mỗi lần gọi hàm này ứng với
+    ĐÚNG một lần khách bấm "Gửi lại để báo giá" — một `name` (mã đơn) có thể
+    hợp lệ nhận nhiều thông báo khác nhau qua thời gian (sửa lần 1, sales
+    báo giá lại, khách sửa lần 2...), khác `bao_thieu_gia` (chặn theo NGÀY
+    vì một mặt hàng thiếu giá là MỘT sự kiện lặp lại mỗi lần khách thử đặt).
+    Cùng khuôn `bao_yeu_cau_moi`.
+
+    Không bao giờ ném lỗi: đây là hiệu ứng phụ SAU KHI đơn đã ghi nhận thay
+    đổi thành công, không được phép biến việc đó thành lỗi cho khách.
+    """
+    nguoi_nhan = _sales_phu_trach(customer)
+    if not nguoi_nhan:
+        return False
+
+    frappe.get_doc({
+        "doctype": "Notification Log",
+        "subject": f"Portal - Khách sửa số lượng: {order}",
+        "for_user": nguoi_nhan,
+        "type": "Alert",
+        "document_type": "Sales Order",
+        "document_name": order,
+        "email_content": (
+            f"Khách hàng <b>{customer}</b> vừa sửa số lượng trên đơn "
+            f"<b>{order}</b>, đơn đã về \"Chờ xác nhận\" để báo giá lại:<br>"
+            + "<br>".join(thay_doi)
+        ),
+    }).insert(ignore_permissions=True)
+    return True
+
+
 def bao_chenh_lech(customer: str, phieu: str) -> bool:
     """US-E3.3 / BR-K17. Trả `True` nếu vừa gửi, `False` nếu không gửi.
 
