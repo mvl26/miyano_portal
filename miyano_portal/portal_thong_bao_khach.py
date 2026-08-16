@@ -30,6 +30,7 @@ import frappe
 
 TIEN_TO_DA_NHAP_HANG = "Portal - Đã nhập hàng"
 TIEN_TO_KIEM_HANG = "Portal - Kiểm hàng"
+TIEN_TO_HEN_GIAO = "Portal - Hẹn lịch giao"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
@@ -244,6 +245,55 @@ def bao_kiem_hang_ket_qua(doc, tieu_de: str, noi_dung: str) -> int:
                 message=frappe.get_traceback(with_context=True),
                 reference_doctype="Portal Delivery Inspection",
                 reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0
+
+
+def bao_hen_giao_lai(so, loai: str, ngay_moi, ly_do: str) -> int:
+    """Miyano hẹn lại lịch giao → báo khách.
+
+    Chống trùng theo (ĐƠN + LOẠI + NGÀY), KHÔNG chỉ theo tên đơn: một đơn có
+    thể bị hẹn lại nhiều lần (hàng vẫn chưa về), và mỗi lần hẹn là một tin
+    khách CẦN biết. Chặn theo mình tên đơn sẽ nuốt mọi lần hẹn từ lần thứ hai
+    — đúng loại im lặng tệ nhất ở đây, vì khách đang chờ chính con số đó.
+    """
+    try:
+        nguoi_nhan = _portal_users_cua_khach(so.customer)
+        if not nguoi_nhan:
+            _log_khong_co_tai_khoan_cong(so.customer, so.name)
+            return 0
+
+        ngay_vi = frappe.utils.formatdate(ngay_moi)
+        chu_de = f"{TIEN_TO_HEN_GIAO}: {so.name} — {loai} {ngay_vi}"
+        noi_dung = (
+            f"Miyano thông báo về đơn hàng <b>{so.name}</b>: <b>{loai.lower()}</b>, "
+            f"dự kiến giao ngày <b>{ngay_vi}</b>.<br>"
+            f"Lý do: {frappe.utils.escape_html(ly_do)}"
+        )
+        dem = 0
+        for u in nguoi_nhan:
+            if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": u}):
+                continue
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": chu_de,
+                "for_user": u,
+                "type": "Alert",
+                "document_type": "Sales Order",
+                "document_name": so.name,
+                "email_content": noi_dung,
+            }).insert(ignore_permissions=True)
+            dem += 1
+        return dem
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Hẹn giao: lỗi khi gửi thông báo cho khách",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Sales Order",
+                reference_name=so.name,
             )
         except Exception:
             pass

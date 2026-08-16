@@ -704,3 +704,242 @@ class TestKiemHangDuLieuThat(_KiemHangBase):
 		])
 		self.assertEqual(kq["trang_thai"], kh.TT_CHO_XU_LY)
 		self.assertTrue(kq["co_hang_hong"])
+
+
+class TestKiemHangHangThieuVaHenGiao(_KiemHangBase):
+	"""Vai NHÂN VIÊN, 2026-08-16 — trả lời khách về hàng thiếu.
+
+	Điểm phải chốt: một biên bản VỪA có hàng hỏng VỪA thiếu hàng. Bản trước
+	gộp cả hai vào `trang_thai`, nên `kiem_hang_duyet_tra` đẩy sang "Đã duyệt
+	trả" là nửa THIẾU thành vô hình — cổng xử lý nó chỉ mở ở "Chờ xử lý", và
+	không ai trả lời khách được nữa. Không test nào của bản trước chạm tới
+	trường hợp hỗn hợp này.
+	"""
+
+	def _don_giao_thieu(self, sl_nhan=6, sl_tra=0):
+		"""Đơn THẬT → phiếu giao → biên bản báo thiếu (và hỏng nếu sl_tra>0)."""
+		so = frappe.new_doc("Sales Order")
+		so.company = COMPANY
+		so.customer = self.customer
+		so.transaction_date = frappe.utils.today()
+		so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 3)
+		so.append("items", {
+			"item_code": ITEM, "qty": 10, "rate": 95000,
+			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
+			"delivery_date": frappe.utils.getdate(so.delivery_date),
+		})
+		so.insert(ignore_permissions=True)
+		so.submit()
+
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+		dn = make_delivery_note(so.name)
+		dn.company = COMPANY
+		for r in dn.items:
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": sl_nhan, "sl_tra": sl_tra,
+		                     "ly_do": "Thiếu/hỏng khi nhận"}])
+		return so, dn, frappe.get_doc("Portal Delivery Inspection", kq["name"])
+
+	def test_bien_ban_vua_hong_vua_thieu_van_tra_loi_duoc_phan_thieu(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=6, sl_tra=2)  # 10 giao, 2 hỏng, 2 thiếu
+		self.assertTrue(bb.co_hang_hong)
+		self.assertTrue(bb.co_thieu_hang())
+
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_duyet_tra(bb.name)
+			bb.reload()
+			self.assertEqual(bb.trang_thai, kh.TT_DA_DUYET_TRA)
+			# ĐÂY là chỗ bản trước chết: cổng xử lý hàng thiếu khoá theo
+			# `trang_thai`, mà `trang_thai` giờ thuộc về luồng trả hàng.
+			kq = kh.kiem_hang_hen_giao(
+				bb.name, frappe.utils.add_days(frappe.utils.today(), 5),
+				"Sẽ giao bù", "Hàng về kho ngày 5 tới",
+			)
+		finally:
+			frappe.set_user("Administrator")
+
+		bb.reload()
+		self.assertEqual(bb.xu_ly_thieu, "Sẽ giao bù")
+		self.assertEqual(kq["loai"], "Sẽ giao bù")
+		# Luồng trả hàng KHÔNG bị lời hẹn giao đụng vào.
+		self.assertEqual(bb.trang_thai, kh.TT_DA_DUYET_TRA)
+
+	def test_giao_bu_khong_doi_ngay_cam_ket_goc(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		ngay_goc = frappe.get_doc("Sales Order", so.name).delivery_date
+		hen = frappe.utils.add_days(frappe.utils.today(), 9)
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_hen_giao(bb.name, hen, "Sẽ giao bù", "Chờ hàng nhập khẩu")
+		finally:
+			frappe.set_user("Administrator")
+		so.reload()
+		self.assertEqual(so.delivery_date, ngay_goc,
+		                 "«Sẽ giao bù» phải GIỮ ngày cam kết gốc — đó là lịch sử.")
+		self.assertEqual(str(so.custom_ngay_hen_giao), str(frappe.utils.getdate(hen)))
+
+	def test_doi_ngay_giao_cap_nhat_ca_don_va_tung_dong(self):
+		"""Đổi mỗi header là để lại một đơn 'trễ hạn' vĩnh viễn trên mọi báo
+		cáo giao hàng của ERPNext — chúng đọc `Sales Order Item.delivery_date`."""
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		hen = frappe.utils.add_days(frappe.utils.today(), 12)
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_hen_giao(bb.name, hen, "Đã đổi ngày giao", "Khách đồng ý dời")
+		finally:
+			frappe.set_user("Administrator")
+		so.reload()
+		self.assertEqual(so.delivery_date, frappe.utils.getdate(hen))
+		for r in so.items:
+			self.assertEqual(r.delivery_date, frappe.utils.getdate(hen))
+
+	def test_khach_thay_loi_hen_tren_chi_tiet_don(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		hen = frappe.utils.add_days(frappe.utils.today(), 6)
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_hen_giao(bb.name, hen, "Sẽ giao bù", "Nhà cung cấp giao chậm")
+		finally:
+			frappe.set_user("Administrator")
+
+		self._nhu_khach()
+		try:
+			d = api.portal_order_track(so.name)
+			bb_khach = api.portal_kiem_hang_get(dn.name)["bien_ban"]
+		finally:
+			frappe.set_user("Administrator")
+		self.assertIsNotNone(d["hen_giao"])
+		self.assertEqual(d["hen_giao"]["loai"], "Sẽ giao bù")
+		self.assertEqual(d["hen_giao"]["ngay"], str(frappe.utils.getdate(hen)))
+		self.assertEqual(bb_khach["xu_ly_thieu"], "Sẽ giao bù")
+
+	def test_khach_nhan_thong_bao_moi_lan_hen_lai(self):
+		"""Hẹn lại lần hai là một tin khách CẦN biết — chống trùng theo tên
+		đơn sẽ nuốt mất nó, đúng con số khách đang chờ."""
+		from miyano_portal.portal_hen_giao import hen_giao_lai
+
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		frappe.set_user(self.staff)
+		try:
+			hen_giao_lai(so.name, frappe.utils.add_days(frappe.utils.today(), 5),
+			             "Sẽ giao bù", "Lần một: chờ hàng")
+			hen_giao_lai(so.name, frappe.utils.add_days(frappe.utils.today(), 15),
+			             "Sẽ giao bù", "Lần hai: hàng vẫn chưa về")
+		finally:
+			frappe.set_user("Administrator")
+		bao = frappe.get_all("Notification Log", filters={
+			"document_type": "Sales Order", "document_name": so.name,
+			"subject": ["like", "Portal - Hẹn lịch giao%"],
+		}, pluck="subject")
+		self.assertEqual(len(bao), 2, f"Phải có 2 thông báo, đang có: {bao}")
+
+	def test_khong_hen_giao_lai_vao_qua_khu(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		frappe.set_user(self.staff)
+		try:
+			with self.assertRaises(frappe.ValidationError):
+				kh.kiem_hang_hen_giao(
+					bb.name, frappe.utils.add_days(frappe.utils.today(), -1),
+					"Sẽ giao bù", "ngày quá khứ",
+				)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_khong_xu_ly_phan_thieu_hai_lan(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_hen_giao(bb.name, frappe.utils.add_days(frappe.utils.today(), 5),
+			                      "Sẽ giao bù", "Lần một")
+			with self.assertRaises(frappe.ValidationError):
+				kh.kiem_hang_da_xu_ly(bb.name, "đổi ý")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_bien_ban_khong_thieu_hang_thi_khong_hen_giao_duoc(self):
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Hỏng cả 3"}])  # 7+3=10, không thiếu
+		frappe.set_user(self.staff)
+		try:
+			with self.assertRaises(frappe.ValidationError):
+				kh.kiem_hang_hen_giao(kq["name"], frappe.utils.add_days(frappe.utils.today(), 5),
+				                      "Sẽ giao bù", "không có gì thiếu")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_chi_thieu_hang_dong_lai_thi_trang_thai_ve_da_xu_ly(self):
+		so, dn, bb = self._don_giao_thieu(sl_nhan=7)
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_da_xu_ly(bb.name, "Đã giảm trừ công nợ")
+		finally:
+			frappe.set_user("Administrator")
+		bb.reload()
+		self.assertEqual(bb.xu_ly_thieu, "Không giao bù")
+		self.assertEqual(bb.trang_thai, kh.TT_DA_XU_LY)
+
+
+class TestHangTraVeVaoKhoRieng(_KiemHangBase):
+	"""QĐ chủ đầu tư 2026-08-16 — hàng hỏng trả về KHÔNG lẫn vào tồn bán được.
+
+	Với vật tư y tế đây là khác biệt có thật: `make_return_doc` chép nguyên kho
+	của dòng gốc, tức bơm tiêm gãy kim quay lại đúng kho đang bán.
+	"""
+
+	def test_phieu_tra_hang_ghi_vao_kho_hang_tra_ve_cung_cong_ty(self):
+		from miyano_portal.kho_hang_tra_ve import dam_bao_kho
+
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		frappe.set_user(self.staff)
+		try:
+			r = kh.kiem_hang_duyet_tra(kq["name"])
+		finally:
+			frappe.set_user("Administrator")
+
+		tra = frappe.get_doc("Delivery Note", r["phieu_tra_hang"])
+		kho_mong_doi = dam_bao_kho(tra.company)
+		self.assertTrue(kho_mong_doi)
+		for row in tra.items:
+			self.assertEqual(
+				row.warehouse, kho_mong_doi,
+				"Hàng hỏng trả về phải vào kho «Hàng trả về», không phải kho bán được.",
+			)
+		self.assertEqual(
+			frappe.db.get_value("Warehouse", kho_mong_doi, "company"), tra.company,
+			"Kho trả về phải CÙNG công ty với phiếu giao — site có hai pháp nhân.",
+		)
+
+	def test_ghi_so_phieu_tra_hang_cong_ton_vao_kho_tra_ve(self):
+		"""«Làm nhập kho và ghi nhận vào kho» của nhân viên CHÍNH LÀ việc ghi
+		sổ phiếu trả hàng — test này chốt rằng tồn thật sự đổi, và đổi ở đúng
+		kho."""
+		from erpnext.stock.utils import get_stock_balance
+		from miyano_portal.kho_hang_tra_ve import dam_bao_kho
+
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		frappe.set_user(self.staff)
+		try:
+			r = kh.kiem_hang_duyet_tra(kq["name"])
+		finally:
+			frappe.set_user("Administrator")
+
+		tra = frappe.get_doc("Delivery Note", r["phieu_tra_hang"])
+		kho_tra = dam_bao_kho(tra.company)
+		truoc = get_stock_balance(ITEM, kho_tra)
+		ban_duoc_truoc = get_stock_balance(ITEM, KHO_MYN)
+		tra.submit()
+		self.assertEqual(get_stock_balance(ITEM, kho_tra), truoc + 3)
+		self.assertEqual(
+			get_stock_balance(ITEM, KHO_MYN), ban_duoc_truoc,
+			"Tồn kho BÁN ĐƯỢC không được đổi khi thu hồi hàng hỏng.",
+		)

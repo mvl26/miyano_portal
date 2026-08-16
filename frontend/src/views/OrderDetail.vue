@@ -551,6 +551,21 @@ onMounted(load)
         <!-- Giao hàng -->
         <div class="card">
           <div class="h3">Giao hàng</div>
+          <!-- Miyano hẹn lại lịch giao (2026-08-16). Đặt Ở ĐẦU khối giao
+               hàng: khi có lời hẹn thì đó là thứ khách vào trang này để đọc,
+               không phải danh sách đợt đã giao. -->
+          <div
+            v-if="data.hen_giao"
+            style="border: 1px solid var(--orange); border-radius: 8px; padding: 10px; margin-bottom: 12px"
+          >
+            <p style="margin: 0 0 4px">
+              <span class="badge b-orange">{{ data.hen_giao.loai }}</span>
+              <b style="margin-left: 8px">Dự kiến giao {{ fmtDate(data.hen_giao.ngay) }}</b>
+            </p>
+            <p v-if="data.hen_giao.ly_do" class="tag" style="margin: 0">
+              {{ data.hen_giao.ly_do }}
+            </p>
+          </div>
           <template v-if="data.deliveries.length">
             <div v-for="(d, i) in data.deliveries" :key="d.name" style="margin-bottom: 12px">
               <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDate(d.posting_date) }} ({{ d.percent }}%)</b></p>

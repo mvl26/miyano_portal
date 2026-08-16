@@ -44,6 +44,16 @@ required_apps = ["frappe/frappe", "erpnext"]
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
+
+# Desk — nút vai nhân viên. `Portal Delivery Inspection` trỏ về Delivery Note/
+# Sales Order bằng field **Data** (không Link, xem docstring
+# `_chan_trung_phieu_giao`), nên Frappe KHÔNG dựng mục "Connections" cho chúng:
+# không có hai file dưới đây, nhân viên đứng ở đơn hoặc phiếu giao không có
+# đường nào sang biên bản kiểm hàng của khách.
+doctype_js = {
+	"Sales Order": "public/js/sales_order.js",
+	"Delivery Note": "public/js/delivery_note.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}

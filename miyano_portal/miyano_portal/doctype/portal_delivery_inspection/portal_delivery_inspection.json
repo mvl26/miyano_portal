@@ -20,6 +20,9 @@
   "items",
   "sec_xu_ly",
   "phieu_tra_hang",
+  "xu_ly_thieu",
+  "ngay_hen_giao",
+  "ghi_chu_xu_ly",
   "col_2",
   "ly_do_tu_choi",
   "ghi_chu",
@@ -132,6 +135,26 @@
    "options": "Portal Delivery Inspection",
    "no_copy": 1,
    "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "xu_ly_thieu",
+   "fieldtype": "Select",
+   "label": "Xử lý hàng thiếu",
+   "options": "\nSẽ giao bù\nĐã đổi ngày giao\nKhông giao bù",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "ngay_hen_giao",
+   "fieldtype": "Date",
+   "label": "Ngày hẹn giao",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ghi_chu_xu_ly",
+   "fieldtype": "Small Text",
+   "label": "Nội dung Miyano báo khách",
    "read_only": 1
   }
  ],

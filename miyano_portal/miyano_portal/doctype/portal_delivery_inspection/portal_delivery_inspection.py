@@ -126,6 +126,19 @@ class PortalDeliveryInspection(Document):
 			for r in self.items
 		)
 
+	def co_thieu_hang(self) -> bool:
+		"""Có dòng nào hàng KHÔNG TỚI NƠI (không phải hỏng).
+
+		Tách khỏi `co_hang_hong` vì hai thứ có hai cách xử lý hoàn toàn khác
+		nhau: hỏng thì thu hồi, thiếu thì giao bù hoặc đổi ngày giao. Một biên
+		bản có thể có CẢ HAI, và trước bản 2026-08-16 nửa "thiếu" của một biên
+		bản như vậy bị bỏ rơi ngay khi nửa "hỏng" được duyệt.
+		"""
+		return any(
+			float(r.sl_giao or 0) - float(r.sl_nhan or 0) - float(r.sl_tra or 0) > EPS
+			for r in self.items
+		)
+
 	def before_submit(self):
 		self.trang_thai = TT_CHO_XU_LY if self.co_van_de() else TT_DA_XAC_NHAN
 

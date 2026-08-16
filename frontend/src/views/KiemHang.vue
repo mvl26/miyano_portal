@@ -207,6 +207,23 @@ onMounted(nap)
         </p>
       </div>
 
+      <!-- Trả lời của Miyano về phần hàng THIẾU. `v-if` ĐỘC LẬP, cố ý đứng
+           NGOÀI chuỗi v-if/v-else-if của khối hàng hỏng ngay trên: một biên
+           bản có thể vừa có hàng hỏng vừa thiếu hàng, và hai việc đó được
+           trả lời độc lập — nhét vào chuỗi else sẽ giấu mất một trong hai. -->
+      <div v-if="bienBan.xu_ly_thieu" class="card">
+        <div class="h3">Hàng thiếu — Miyano đã trả lời</div>
+        <p style="margin: 0 0 4px">
+          <span class="badge b-orange">{{ bienBan.xu_ly_thieu }}</span>
+          <b v-if="bienBan.ngay_hen_giao" style="margin-left: 8px">
+            Dự kiến giao {{ fmtDate(bienBan.ngay_hen_giao) }}
+          </b>
+        </p>
+        <p v-if="bienBan.ghi_chu_xu_ly" class="tag" style="margin: 0">
+          {{ bienBan.ghi_chu_xu_ly }}
+        </p>
+      </div>
+
       <div class="card">
         <div class="h3">Đối chiếu từng mặt hàng</div>
         <p v-if="!daGui" class="tag" style="margin-bottom: 10px">

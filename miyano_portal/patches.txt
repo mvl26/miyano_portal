@@ -48,3 +48,5 @@ miyano_portal.patches.v1_16.xoa_price_list_ban_le_settings
 miyano_portal.patches.v1_17.gom_truong_cong_khach_hang_vao_mot_muc
 miyano_portal.patches.v1_18.mo_rong_workflow_khach_huy
 miyano_portal.patches.v1_19.bat_thong_bao_he_thong_huong_khach
+miyano_portal.patches.v1_20.tao_kho_hang_tra_ve
+miyano_portal.patches.v1_20.create_hen_giao_custom_fields

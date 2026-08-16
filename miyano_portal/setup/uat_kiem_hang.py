@@ -15,6 +15,7 @@ import frappe
 
 from miyano_portal.api import portal as api
 from miyano_portal import portal_kiem_hang as kh
+from miyano_portal import portal_hen_giao as hen_giao
 
 KHACH = "Bệnh viện Bạch Mai"
 USER_KHACH = "bvbm@demo.miyano"
@@ -313,6 +314,79 @@ def chay(rollback: bool = True) -> None:
 		_ok("Bản bị từ chối giữ nguyên làm lịch sử", bb2)
 	else:
 		_fail("Bản bị từ chối giữ nguyên làm lịch sử", "đã bị đổi/huỷ")
+
+	# ------------------- vai nhân viên: hàng thiếu, hẹn giao, kho hàng trả về
+	from miyano_portal.kho_hang_tra_ve import dam_bao_kho
+
+	tra.reload()
+	kho_tra = dam_bao_kho(tra.company)
+	if kho_tra and all(r.warehouse == kho_tra for r in tra.items):
+		_ok("Hàng hỏng trả về vào kho «Hàng trả về», không lẫn tồn bán được", kho_tra)
+	else:
+		_fail("Hàng hỏng trả về vào kho «Hàng trả về»",
+		      f"đang ghi vào {[r.warehouse for r in tra.items]}")
+
+	# Biên bản VỪA hỏng VỪA thiếu — chỗ bản trước bỏ rơi nửa "thiếu".
+	frappe.set_user("Administrator")
+	so3, dn3 = _don_va_phieu_giao(rows=[{"item_code": ITEM, "qty": 10}])
+	frappe.set_user(USER_KHACH)
+	bb4 = api.portal_kiem_hang_gui(
+		dn3.name, [{"item_code": ITEM, "sl_nhan": 6, "sl_tra": 2, "ly_do": "2 vỡ, 2 không tới"}]
+	)["name"]
+	frappe.set_user(staff)
+	kh.kiem_hang_duyet_tra(bb4)
+	try:
+		r_hen = kh.kiem_hang_hen_giao(
+			bb4, frappe.utils.add_days(frappe.utils.today(), 7),
+			"Sẽ giao bù", "Hàng về kho tuần sau",
+		)
+		_ok("Biên bản vừa hỏng vừa thiếu: trả lời được CẢ phần thiếu",
+		    f"{r_hen['loai']} {r_hen['ngay_hen_giao']}")
+	except Exception as e:  # noqa: BLE001
+		_fail("Biên bản vừa hỏng vừa thiếu: trả lời được CẢ phần thiếu", str(e)[:120])
+
+	frappe.set_user("Administrator")
+	so3.reload()
+	if str(so3.custom_ngay_hen_giao) and so3.custom_loai_hen_giao == "Sẽ giao bù":
+		_ok("Lời hẹn ghi lên CHÍNH đơn hàng", f"{so3.name} → {so3.custom_ngay_hen_giao}")
+	else:
+		_fail("Lời hẹn ghi lên CHÍNH đơn hàng", "đơn không mang lời hẹn nào")
+
+	frappe.set_user(USER_KHACH)
+	track3 = api.portal_order_track(so3.name)
+	if track3.get("hen_giao") and track3["hen_giao"]["loai"] == "Sẽ giao bù":
+		_ok("Khách thấy lời hẹn trên chi tiết đơn", track3["hen_giao"]["ngay"])
+	else:
+		_fail("Khách thấy lời hẹn trên chi tiết đơn", str(track3.get("hen_giao")))
+
+	frappe.set_user(staff)
+	_mong_loi(
+		"Ngoại lệ: không xử lý phần thiếu hai lần",
+		lambda: kh.kiem_hang_da_xu_ly(bb4, "đổi ý"), frappe.ValidationError,
+	)
+	_mong_loi(
+		"Ngoại lệ: không hẹn giao vào ngày quá khứ",
+		lambda: hen_giao.hen_giao_lai(
+			so3.name, frappe.utils.add_days(frappe.utils.today(), -1),
+			"Sẽ giao bù", "ngày quá khứ",
+		),
+		frappe.ValidationError,
+	)
+
+	# "Đã đổi ngày giao" phải dời CẢ dòng — mọi báo cáo trễ hạn của ERPNext
+	# đọc `Sales Order Item.delivery_date`.
+	ngay_moi = frappe.utils.add_days(frappe.utils.today(), 14)
+	frappe.set_user(staff)
+	hen_giao.hen_giao_lai(so_goc.name, ngay_moi, "Đã đổi ngày giao", "Khách đồng ý dời lịch")
+	frappe.set_user("Administrator")
+	so_goc.reload()
+	if so_goc.delivery_date == frappe.utils.getdate(ngay_moi) and all(
+		r.delivery_date == frappe.utils.getdate(ngay_moi) for r in so_goc.items
+	):
+		_ok("«Đã đổi ngày giao» dời cả đơn lẫn từng dòng", str(ngay_moi))
+	else:
+		_fail("«Đã đổi ngày giao» dời cả đơn lẫn từng dòng",
+		      f"đơn={so_goc.delivery_date} dòng={[str(r.delivery_date) for r in so_goc.items]}")
 
 	# ---------------------------------------------------------------- kết quả
 	frappe.set_user("Administrator")

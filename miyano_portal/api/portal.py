@@ -21,6 +21,7 @@ from miyano_portal.portal_mua_le import (
     resolve_ban_le_company,
     trang_thai_hang,
 )
+from miyano_portal.portal_hen_giao import hen_giao_cua_don
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
     dong_tu_delivery_note,
@@ -1440,6 +1441,9 @@ def portal_order_track(order) -> dict:
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
         "hoa_don": _hoa_don_cua_don(so.name),
+        # Miyano hẹn lại lịch giao (2026-08-16, vai nhân viên). `None` khi
+        # chưa có lời hẹn nào — client ẩn hẳn khối, không hiện một khung rỗng.
+        "hen_giao": hen_giao_cua_don(so),
     }
 
 

@@ -19,6 +19,7 @@ from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_deliv
 	TT_TU_CHOI,
 )
 
+from miyano_portal.kho_hang_tra_ve import dam_bao_kho
 from miyano_portal.portal_mua_le import la_dong_giu_cho
 
 DOCTYPE = "Portal Delivery Inspection"
@@ -30,6 +31,10 @@ DOCTYPE = "Portal Delivery Inspection"
 ROLE_DUYET = ("System Manager", "Sales Manager")
 
 LY_DO_TOI_THIEU = 5
+
+XU_LY_GIAO_BU = "Sẽ giao bù"
+XU_LY_DOI_NGAY = "Đã đổi ngày giao"
+XU_LY_KHONG_GIAO_BU = "Không giao bù"
 
 
 def _kiem_role_duyet() -> None:
@@ -110,6 +115,10 @@ def _ra_dict(doc) -> dict:
 		"co_hang_hong": bool(doc.co_hang_hong),
 		"ly_do_tu_choi": doc.ly_do_tu_choi,
 		"phieu_tra_hang": doc.phieu_tra_hang,
+		"xu_ly_thieu": doc.xu_ly_thieu or "",
+		"ngay_hen_giao": str(doc.ngay_hen_giao) if doc.ngay_hen_giao else None,
+		"ghi_chu_xu_ly": doc.ghi_chu_xu_ly or "",
+		"co_thieu_hang": doc.co_thieu_hang(),
 		"ghi_chu": doc.ghi_chu,
 		"da_gui": doc.docstatus == 1,
 		# Bị từ chối = đường lùi DUY NHẤT của khách (spec §4.3). Không có cờ
@@ -227,6 +236,22 @@ def _tao_phieu_tra_hang(doc) -> str:
 		)
 
 	dn.items = giu
+	# Kho "Hàng trả về" (QĐ chủ đầu tư 2026-08-16). `make_return_doc` chép
+	# nguyên kho của dòng gốc, tức bơm tiêm gãy kim quay lại đúng kho bán được
+	# và bán tiếp cho bệnh viện sau. Kho phải CÙNG CÔNG TY với phiếu giao —
+	# site có hai pháp nhân, ghi nhầm công ty là một bút toán không hợp lệ.
+	kho_tra = dam_bao_kho(dn.company)
+	if kho_tra:
+		for row in dn.items:
+			row.warehouse = kho_tra
+	else:
+		# Không tìm/tạo được kho → GIỮ kho gốc và nêu rõ, thay vì lặng lẽ ghi
+		# hàng hỏng vào tồn bán được.
+		frappe.msgprint(
+			f"Không xác định được kho «Hàng trả về» của công ty {dn.company}. "
+			"Phiếu trả hàng đang để kho gốc — chọn lại kho trước khi ghi sổ.",
+			indicator="orange", alert=True,
+		)
 	for i, row in enumerate(dn.items, start=1):
 		row.idx = i
 	dn.flags.ignore_permissions = True
@@ -265,26 +290,91 @@ def kiem_hang_tu_choi(name: str, ly_do: str) -> dict:
 
 @frappe.whitelist()
 def kiem_hang_da_xu_ly(name: str, ghi_chu: str | None = None) -> dict:
-	"""Đóng biên bản chỉ THIẾU hàng (không có hàng hỏng để trả).
+	"""Đóng phần HÀNG THIẾU mà không giao bù.
 
-	Cách xử lý thật (giao bù, giảm trừ công nợ) nằm ngoài phạm vi cổng — cái
-	biên bản cần là một cái đóng tường minh để khách thôi thấy "Chờ xử lý".
+	`xu_ly_thieu` TÁCH khỏi `trang_thai` — đó là cả điểm của bản này. Một biên
+	bản vừa có hàng hỏng vừa thiếu hàng: `kiem_hang_duyet_tra` đẩy
+	`trang_thai` sang "Đã duyệt trả", và bản trước cổng này chỉ mở ở
+	"Chờ xử lý" nên nửa THIẾU thành vô hình, không ai trả lời khách được nữa.
+	Hai chuyện khác nhau thì hai field.
+
+	`trang_thai` chỉ được đụng tới khi biên bản KHÔNG có hàng hỏng — lúc đó
+	luồng trả hàng không sở hữu nó và "Đã xử lý" là cái đóng đúng.
 	"""
 	_kiem_role_duyet()
 	doc = frappe.get_doc(DOCTYPE, name)
-	if doc.trang_thai != TT_CHO_XU_LY:
+	_chan_chua_gui(doc)
+	if not doc.co_thieu_hang():
 		frappe.throw(
-			f"Biên bản đang ở trạng thái «{doc.trang_thai}».", frappe.ValidationError
+			"Biên bản này không có dòng thiếu hàng nào.", frappe.ValidationError
 		)
-	doc.db_set("trang_thai", TT_DA_XU_LY)
-	them = f" Ghi chú: {frappe.utils.escape_html(ghi_chu)}" if (ghi_chu or "").strip() else ""
+	if doc.xu_ly_thieu:
+		frappe.throw(
+			f"Phần hàng thiếu đã được xử lý («{doc.xu_ly_thieu}»).",
+			frappe.ValidationError,
+		)
+
+	ghi_chu = (ghi_chu or "").strip()
+	doc.db_set("xu_ly_thieu", XU_LY_KHONG_GIAO_BU)
+	doc.db_set("ghi_chu_xu_ly", ghi_chu)
+	if not doc.co_hang_hong and doc.trang_thai == TT_CHO_XU_LY:
+		doc.db_set("trang_thai", TT_DA_XU_LY)
+
+	them = f" Ghi chú: {frappe.utils.escape_html(ghi_chu)}" if ghi_chu else ""
 	_bao_khach(
 		doc,
-		"Đã xử lý",
-		f"Miyano đã xử lý biên bản kiểm hàng <b>{doc.name}</b> "
+		"Đã xử lý hàng thiếu",
+		f"Miyano đã xử lý phần hàng thiếu trên biên bản <b>{doc.name}</b> "
 		f"(phiếu giao {doc.delivery_note}).{them}",
 	)
-	return {"trang_thai": TT_DA_XU_LY}
+	return {"xu_ly_thieu": XU_LY_KHONG_GIAO_BU, "trang_thai": doc.trang_thai}
+
+
+@frappe.whitelist()
+def kiem_hang_hen_giao(name: str, ngay_moi, loai: str, ly_do: str) -> dict:
+	"""Trả lời phần hàng THIẾU bằng một lời hẹn giao có ngày.
+
+	Ghi lời hẹn lên CHÍNH đơn hàng (`portal_hen_giao.hen_giao_lai`) chứ không
+	chỉ lên biên bản: khách hỏi "bao giờ tôi nhận được hàng" ở trang đơn hàng,
+	không phải ở biên bản kiểm hàng. Biên bản chỉ giữ bản sao để nhân viên
+	nhìn thấy ngay tại chỗ mình vừa thao tác.
+	"""
+	from miyano_portal.portal_hen_giao import hen_giao_lai
+
+	_kiem_role_duyet()
+	doc = frappe.get_doc(DOCTYPE, name)
+	_chan_chua_gui(doc)
+	if not doc.co_thieu_hang():
+		frappe.throw(
+			"Biên bản này không có dòng thiếu hàng nào để hẹn giao.",
+			frappe.ValidationError,
+		)
+	if doc.xu_ly_thieu:
+		frappe.throw(
+			f"Phần hàng thiếu đã được xử lý («{doc.xu_ly_thieu}»).",
+			frappe.ValidationError,
+		)
+	if not doc.sales_order:
+		frappe.throw(
+			"Biên bản này không gắn với đơn hàng nào — không ghi lời hẹn lên "
+			"đơn được. Hẹn giao trực tiếp trên đơn hàng liên quan.",
+			frappe.ValidationError,
+		)
+
+	kq = hen_giao_lai(doc.sales_order, ngay_moi, loai, ly_do)
+	doc.db_set("xu_ly_thieu", kq["loai"])
+	doc.db_set("ngay_hen_giao", kq["ngay_hen_giao"])
+	doc.db_set("ghi_chu_xu_ly", (ly_do or "").strip())
+	if not doc.co_hang_hong and doc.trang_thai == TT_CHO_XU_LY:
+		doc.db_set("trang_thai", TT_DA_XU_LY)
+	# KHÔNG gọi `_bao_khach` ở đây: `hen_giao_lai` đã báo khách rồi, và báo
+	# hai lần cho một sự kiện là cách nhanh nhất để khách thôi đọc thông báo.
+	return {**kq, "xu_ly_thieu": doc.xu_ly_thieu, "trang_thai": doc.trang_thai}
+
+
+def _chan_chua_gui(doc) -> None:
+	if doc.docstatus != 1:
+		frappe.throw("Biên bản chưa được khách gửi.", frappe.ValidationError)
 
 
 def _bao_khach(doc, tieu_de: str, noi_dung: str) -> None:
