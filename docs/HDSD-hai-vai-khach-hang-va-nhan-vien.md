@@ -371,6 +371,11 @@ bằng cột **Loại đơn**:
 Báo cáo hỗ trợ: **Đơn chậm xử lý** (quá SLA) và **Demand pipeline yêu cầu hàng
 hoá**.
 
+> **Chỗ mở đầu ngày làm việc**: workspace **"Kho khách hàng"** (menu Desk → tìm
+> theo tên) gom sẵn mọi việc do khách đẩy sang. Mục *Việc từ cổng khách hàng*
+> có hai nút kèm **con số việc đang chờ**: **Biên bản kiểm hàng** và **Yêu cầu
+> hàng hoá**, cạnh đó là hai báo cáo *Đối soát giao nhận* và *Đơn chậm xử lý*.
+
 ---
 
 ## B2. Báo giá đơn mua lẻ
@@ -442,8 +447,11 @@ hành.
 > Đây là câu trả lời cho *"tôi muốn thấy được phiếu kiểm hàng, lý do nhận 1 phần,
 > lý do trả lại của khách hàng"*.
 
-**Ba đường vào:**
+**Bốn đường vào:**
 
+0. **Workspace "Kho khách hàng"** → mục *Việc từ cổng khách hàng* → shortcut
+   **Biên bản kiểm hàng**, có **con số việc đang chờ xử lý** ngay trên nút. Đây
+   là chỗ mở đầu ngày làm việc — ba đường dưới là để đi từ một chứng từ cụ thể.
 1. Thông báo *"Portal - Kiểm hàng có vấn đề"* → bấm thẳng vào biên bản
 2. Từ **Sales Order** hoặc **Delivery Note** → nút **Miyano → Biên bản kiểm hàng**
    *(nút này do app nạp vào Desk; không thấy nút → chạy `bench build --app
@@ -628,6 +636,7 @@ hỏng) và *Sẽ giao bù* (hàng thiếu).
 | Khách không nhận được thông báo | Tài khoản cổng chưa gắn đúng Contact | Xem `HDSD-tao-khach-hang…` mục A |
 | Sales không nhận cảnh báo kiểm hàng | Khách chưa gán nhân viên phụ trách | Hệ thống tự gửi cho **Sales Manager**; nên gán `account_manager` cho khách |
 | Không thấy nút **Miyano** trên Sales Order / Delivery Note | Asset của app chưa được build trên site | `bench build --app miyano_portal` rồi Ctrl+Shift+R |
+| Không thấy mục **Việc từ cổng khách hàng** trên workspace | Site chưa chạy patch mới nhất | `bench --site <site> migrate` |
 | Khách báo không nhận được **email** (thông báo trên cổng vẫn có) | Site chưa cấu hình **Email Account gửi ra** | Desk → Email Account → thêm tài khoản gửi. Mọi thông báo trên cổng vẫn chạy độc lập với email |
 
 ---

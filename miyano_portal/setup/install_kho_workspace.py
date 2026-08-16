@@ -20,6 +20,36 @@ _REPORT_SHORTCUTS = [
 	("Cảnh báo hạn dùng khách hàng", "red"),
 ]
 
+# Cổng khách hàng — việc do KHÁCH đẩy sang, nhân viên phải thấy được hàng chờ.
+#
+# Trước 16/08/2026 hai doctype này KHÔNG nằm trong workspace nào, không
+# shortcut, không thẻ đếm: đường vào duy nhất là thông báo (mất rồi thì thôi)
+# hoặc gõ tay tên doctype vào thanh tìm kiếm. Một hàng đợi mà không có chỗ nào
+# nhìn thấy nó thì không phải hàng đợi.
+#
+# `stats_filter` cho ra CON SỐ ngay trên shortcut — nhân viên mở Desk là biết
+# còn mấy việc, không phải bấm vào mới biết. Đó là lý do dùng shortcut có
+# filter chứ không phải một link trơn.
+_CONG_KHACH_SHORTCUTS = [
+	{
+		"label": "Biên bản kiểm hàng",
+		"link_to": "Portal Delivery Inspection",
+		"color": "orange",
+		"stats_filter": {"trang_thai": "Chờ xử lý", "docstatus": 1},
+	},
+	{
+		"label": "Yêu cầu hàng hoá",
+		"link_to": "Portal Item Request",
+		"color": "blue",
+		"stats_filter": {"trang_thai": "Mới"},
+	},
+]
+
+_CONG_KHACH_REPORTS = [
+	("Đối soát giao nhận", "red"),
+	("Đơn chậm xử lý", "orange"),
+]
+
 # (doctype thật, nhãn tiếng Việt hiển thị — đúng tên trong thiết kế gốc §3)
 _DOCTYPE_SHORTCUTS = [
 	("Customer Warehouse", "Kho Khách Hàng"),
@@ -41,8 +71,21 @@ def _build_content_and_shortcuts():
 	})]
 	shortcuts = []
 
+	content.append(_block("hdr-cong-khach", "header", {
+		"text": '<span class="h5">Việc từ cổng khách hàng</span>', "col": 12,
+	}))
+	for idx, sc in enumerate(_CONG_KHACH_SHORTCUTS):
+		content.append(_block(f"sc-cong-{idx}", "shortcut", {"shortcut_name": sc["label"], "col": 4}))
+		shortcuts.append({
+			"type": "DocType", "label": sc["label"], "link_to": sc["link_to"],
+			"color": sc["color"], "stats_filter": frappe.as_json(sc["stats_filter"]),
+		})
+	for idx, (label, color) in enumerate(_CONG_KHACH_REPORTS):
+		content.append(_block(f"sc-cong-rp-{idx}", "shortcut", {"shortcut_name": label, "col": 4}))
+		shortcuts.append({"type": "Report", "label": label, "link_to": label, "color": color})
+
 	content.append(_block("hdr-bao-cao", "header", {
-		"text": '<span class="h5">Báo cáo</span>', "col": 12,
+		"text": '<span class="h5">Báo cáo kho khách</span>', "col": 12,
 	}))
 	for idx, (label, color) in enumerate(_REPORT_SHORTCUTS):
 		content.append(_block(f"sc-report-{idx}", "shortcut", {"shortcut_name": label, "col": 4}))
@@ -59,9 +102,24 @@ def _build_content_and_shortcuts():
 
 
 def install_kho_workspace():
-	if frappe.db.exists("Workspace", TITLE):
-		return
+	"""Idempotent, và CẬP NHẬT được workspace đã tồn tại.
+
+	Bản đầu `return` ngay khi workspace có sẵn, nên mọi shortcut thêm về sau
+	không bao giờ tới được site đã cài — đúng cái bẫy đã làm hai doctype cổng
+	khách hàng nằm ngoài mọi workspace suốt từ đầu. Giờ ghi đè content +
+	shortcuts, giữ nguyên phần còn lại (roles, icon, sắp xếp cá nhân của
+	người dùng nằm ở doctype khác nên không bị đụng).
+	"""
 	content, shortcuts = _build_content_and_shortcuts()
+	if frappe.db.exists("Workspace", TITLE):
+		doc = frappe.get_doc("Workspace", TITLE)
+		doc.content = frappe.as_json(content)
+		doc.shortcuts = []
+		for sc in shortcuts:
+			doc.append("shortcuts", sc)
+		doc.flags.ignore_permissions = True
+		doc.save()
+		return
 	frappe.get_doc({
 		"doctype": "Workspace",
 		"label": TITLE,
