@@ -46,6 +46,18 @@ def execute():
                     "read_only": 1,
                 },
                 {
+                    "fieldname": "custom_hen_giao_luc",
+                    "label": "Hẹn lúc",
+                    "fieldtype": "Datetime",
+                    "insert_after": "custom_ngay_hen_giao",
+                    "allow_on_submit": 1,
+                    "read_only": 1,
+                    "description": (
+                        "Mốc để biết lời hẹn đã được thực hiện chưa: có phiếu "
+                        "giao nào ghi sổ SAU mốc này thì cổng thôi hiện lời hẹn."
+                    ),
+                },
+                {
                     "fieldname": "custom_ly_do_hen_giao",
                     "label": "Lý do / nội dung báo khách",
                     "fieldtype": "Small Text",

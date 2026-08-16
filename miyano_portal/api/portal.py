@@ -22,6 +22,9 @@ from miyano_portal.portal_mua_le import (
     trang_thai_hang,
 )
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
+from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_delivery_inspection import (
+    TT_TU_CHOI,
+)
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
     dong_tu_delivery_note,
@@ -2635,8 +2638,11 @@ def _chan_da_gui(delivery_note: str) -> None:
     """
     da_gui = frappe.db.get_value(
         "Portal Delivery Inspection",
+        # Hằng số, KHÔNG chuỗi viết tay: controller lọc cùng trạng thái này
+        # bằng `TT_TU_CHOI`, hai bản chuỗi rời nhau là một chỗ trôi âm thầm
+        # ngay lần đầu ai đó đổi tên trạng thái.
         {"delivery_note": delivery_note, "docstatus": 1,
-         "trang_thai": ["!=", "Từ chối"]},
+         "trang_thai": ["!=", TT_TU_CHOI]},
         "name",
     )
     if da_gui:

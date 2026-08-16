@@ -50,3 +50,4 @@ miyano_portal.patches.v1_18.mo_rong_workflow_khach_huy
 miyano_portal.patches.v1_19.bat_thong_bao_he_thong_huong_khach
 miyano_portal.patches.v1_20.tao_kho_hang_tra_ve
 miyano_portal.patches.v1_20.create_hen_giao_custom_fields
+miyano_portal.patches.v1_20.them_moc_hen_giao_luc

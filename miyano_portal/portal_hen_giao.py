@@ -80,6 +80,7 @@ def hen_giao_lai(order: str, ngay_moi, loai: str, ly_do: str) -> dict:
 	so.custom_loai_hen_giao = loai
 	so.custom_ngay_hen_giao = ngay_moi
 	so.custom_ly_do_hen_giao = ly_do
+	so.custom_hen_giao_luc = frappe.utils.now_datetime()
 	if loai == LOAI_DOI_NGAY:
 		so.delivery_date = ngay_moi
 		for row in so.items:
@@ -118,12 +119,49 @@ def _bao_khach(so, loai: str, ngay_moi, ly_do: str) -> None:
 
 
 def hen_giao_cua_don(so) -> dict | None:
-	"""Khối "Miyano đã hẹn lại" cho cổng khách hàng, hoặc None."""
+	"""Khối "Miyano đã hẹn lại" cho cổng khách hàng, hoặc None.
+
+	TỰ TẮT khi lời hẹn đã được thực hiện — có phiếu giao ghi sổ SAU mốc
+	`custom_hen_giao_luc`. Không có vế này, một lời hứa
+	ĐÃ GIỮ vẫn treo trên trang đơn của khách mãi mãi như thể còn đang chờ.
+
+	KHÔNG dùng `per_delivered >= 100` làm tín hiệu: một lời hẹn giao bù hàng
+	THAY THẾ cho phần hỏng được lập trên đơn đã giao đủ 100% — dùng con số đó
+	sẽ giấu lời hẹn ngay khi vừa tạo ra nó.
+	"""
 	ngay = so.get("custom_ngay_hen_giao")
 	if not ngay:
 		return None
+
+	moc = so.get("custom_hen_giao_luc")
+	if moc and _da_giao_sau(so.name, moc):
+		return None
+
 	return {
 		"loai": so.get("custom_loai_hen_giao") or "",
 		"ngay": str(ngay),
 		"ly_do": so.get("custom_ly_do_hen_giao") or "",
 	}
+
+
+def _da_giao_sau(order: str, moc) -> bool:
+	"""Có phiếu giao nào ghi sổ SAU mốc lời hẹn.
+
+	`is_return = 0` là vế bắt buộc: `make_return_doc` chép nguyên
+	`against_sales_order` sang phiếu TRẢ HÀNG, nên không loại nó ra thì việc
+	thu hồi hàng hỏng sẽ tự tắt lời hẹn giao bù — đúng cái lời hẹn được lập
+	RA vì phần hàng hỏng đó.
+
+	Cờ `is_return` nằm trên chứng từ CHA nên phải nối bảng; không có lối lọc
+	nào bằng `frappe.get_all` trên riêng bảng con.
+	"""
+	return bool(frappe.db.sql(
+		"""select 1 from `tabDelivery Note Item` dni
+		   inner join `tabDelivery Note` dn on dn.name = dni.parent
+		   where dni.against_sales_order = %s
+		     and dn.docstatus = 1
+		     and ifnull(dn.is_return, 0) = 0
+		     and dni.creation > %s
+		   limit 1""",
+		(order, moc),
+	))

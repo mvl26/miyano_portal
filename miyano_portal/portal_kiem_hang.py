@@ -277,6 +277,15 @@ def kiem_hang_tu_choi(name: str, ly_do: str) -> dict:
 		frappe.throw(
 			f"Biên bản đang ở trạng thái «{doc.trang_thai}».", frappe.ValidationError
 		)
+	if doc.xu_ly_thieu:
+		# Từ chối sau khi đã hứa lịch giao sẽ mở cho khách gửi lại biên bản
+		# mới, trong khi lời hẹn cũ vẫn nằm trên đơn hàng — khách đọc được
+		# một cam kết thuộc về một biên bản Miyano vừa bác bỏ.
+		frappe.throw(
+			f"Đã trả lời phần hàng thiếu («{doc.xu_ly_thieu}») trên biên bản này. "
+			"Điều chỉnh hoặc rút lời hẹn trên đơn hàng trước khi từ chối.",
+			frappe.ValidationError,
+		)
 	doc.db_set("ly_do_tu_choi", ly_do)
 	doc.db_set("trang_thai", TT_TU_CHOI)
 	_bao_khach(

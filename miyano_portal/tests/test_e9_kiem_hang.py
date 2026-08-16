@@ -943,3 +943,177 @@ class TestHangTraVeVaoKhoRieng(_KiemHangBase):
 			get_stock_balance(ITEM, KHO_MYN), ban_duoc_truoc,
 			"Tồn kho BÁN ĐƯỢC không được đổi khi thu hồi hàng hỏng.",
 		)
+
+
+ITEM_LO = "MYNTEST-KH-LO"
+LOT_KH = "LOTTEST-KIEMHANG-A"
+
+
+class TestTraHangTheoLo(_KiemHangBase):
+	"""Hàng theo LÔ là mặc định của một nhà phân phối vật tư y tế, không phải
+	trường hợp biên — `delivery_hook._lo_cua_dong()` tồn tại vì thế.
+
+	`make_return_doc` chép cả `serial_and_batch_bundle` của dòng gốc, mà bundle
+	đó mang kho RIÊNG trỏ về kho xuất. Đổi `row.warehouse` sang kho «Hàng trả
+	về» mà không đụng bundle thì ERPNext chặn lúc ghi sổ — và hàng hỏng không
+	bao giờ về được kho nào.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self._vat_tu_co_lo()
+
+	def _vat_tu_co_lo(self):
+		if not frappe.db.exists("Item", ITEM_LO):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ITEM_LO,
+				"item_name": "Vật tư test kiểm hàng theo lô",
+				"item_group": frappe.get_all(
+					"Item Group", filters={"is_group": 0}, pluck="name"
+				)[0],
+				"stock_uom": "Hộp", "is_stock_item": 1,
+				"has_batch_no": 1, "create_new_batch": 0,
+			}).insert(ignore_permissions=True)
+		if not frappe.db.exists("Batch", LOT_KH):
+			frappe.get_doc({
+				"doctype": "Batch", "batch_id": LOT_KH,
+				"item": ITEM_LO, "expiry_date": "2028-12-31",
+			}).insert(ignore_permissions=True)
+		make_stock_entry(
+			item_code=ITEM_LO, qty=50, to_warehouse=KHO_MYN, rate=1000,
+			batch_no=LOT_KH, company=COMPANY, purpose="Material Receipt",
+		)
+
+	def _dn_co_lo(self, qty=10):
+		dn = frappe.new_doc("Delivery Note")
+		dn.company = COMPANY
+		dn.customer = self.customer
+		dn.posting_date = frappe.utils.today()
+		dn.append("items", {
+			"item_code": ITEM_LO, "qty": qty, "rate": 95000,
+			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
+			"batch_no": LOT_KH, "use_serial_batch_fields": 1,
+		})
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+		return dn
+
+	def test_tra_hang_theo_lo_ghi_so_duoc_vao_kho_hang_tra_ve(self):
+		from erpnext.stock.utils import get_stock_balance
+		from miyano_portal.kho_hang_tra_ve import dam_bao_kho
+
+		dn = self._dn_co_lo(10)
+		kq = self._gui(dn, [{"item_code": ITEM_LO, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3 hộp"}])
+		frappe.set_user(self.staff)
+		try:
+			r = kh.kiem_hang_duyet_tra(kq["name"])
+		finally:
+			frappe.set_user("Administrator")
+
+		tra = frappe.get_doc("Delivery Note", r["phieu_tra_hang"])
+		kho_tra = dam_bao_kho(tra.company)
+		truoc = get_stock_balance(ITEM_LO, kho_tra)
+		# ĐÂY là bước bản trước chưa bao giờ chạy trên hàng có lô.
+		tra.submit()
+		self.assertEqual(get_stock_balance(ITEM_LO, kho_tra), truoc + 3)
+		for row in tra.items:
+			self.assertEqual(row.warehouse, kho_tra)
+
+
+class TestBannerHenGiaoTuTat(_KiemHangBase):
+	"""Một lời hứa ĐÃ GIỮ vẫn treo trên trang đơn của khách như thể còn đang
+	chờ — bốn test banner của bản trước đều chỉ chốt nó HIỆN RA, không cái nào
+	chốt nó TẮT ĐI."""
+
+	def _don_da_giao(self):
+		so = frappe.new_doc("Sales Order")
+		so.company = COMPANY
+		so.customer = self.customer
+		so.transaction_date = frappe.utils.today()
+		so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 3)
+		so.append("items", {
+			"item_code": ITEM, "qty": 10, "rate": 95000,
+			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
+			"delivery_date": frappe.utils.getdate(so.delivery_date),
+		})
+		so.insert(ignore_permissions=True)
+		so.submit()
+		return so
+
+	def _giao(self, so, qty=None):
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+		dn = make_delivery_note(so.name)
+		dn.company = COMPANY
+		for r in dn.items:
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+			if qty is not None:
+				r.qty = qty
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+		return dn
+
+	def _hen(self, so, loai="Sẽ giao bù"):
+		from miyano_portal.portal_hen_giao import hen_giao_lai
+		frappe.set_user(self.staff)
+		try:
+			return hen_giao_lai(
+				so.name, frappe.utils.add_days(frappe.utils.today(), 5),
+				loai, "Chờ hàng về kho",
+			)
+		finally:
+			frappe.set_user("Administrator")
+
+	def _banner(self, so):
+		from miyano_portal.portal_hen_giao import hen_giao_cua_don
+		return hen_giao_cua_don(frappe.get_doc("Sales Order", so.name))
+
+	def test_giao_xong_thi_loi_hen_thoi_hien(self):
+		so = self._don_da_giao()
+		self._giao(so, qty=6)
+		self._hen(so)
+		self.assertIsNotNone(self._banner(so), "Chưa giao bù thì lời hẹn phải còn.")
+		self._giao(so, qty=4)
+		self.assertIsNone(
+			self._banner(so),
+			"Đã giao sau lời hẹn mà banner vẫn treo — khách đọc một lời hứa đã giữ "
+			"như thể còn đang chờ.",
+		)
+
+	def test_phieu_TRA_HANG_khong_lam_tat_loi_hen(self):
+		"""`make_return_doc` chép nguyên `against_sales_order`. Không loại
+		`is_return` ra thì việc thu hồi hàng hỏng sẽ tự tắt đúng cái lời hẹn
+		giao bù được lập RA vì phần hàng hỏng đó."""
+		so = self._don_da_giao()
+		dn = self._giao(so)
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		self._hen(so)
+		frappe.set_user(self.staff)
+		try:
+			r = kh.kiem_hang_duyet_tra(kq["name"])
+		finally:
+			frappe.set_user("Administrator")
+		frappe.get_doc("Delivery Note", r["phieu_tra_hang"]).submit()
+		self.assertIsNotNone(
+			self._banner(so),
+			"Thu hồi hàng hỏng KHÔNG phải là đã giao bù.",
+		)
+
+	def test_khong_tu_choi_bien_ban_da_lo_hua_lich_giao(self):
+		so = self._don_da_giao()
+		dn = self._giao(so, qty=6)
+		# giao 6: nhận tốt 3 + hỏng 2 → THIẾU 1, mới có phần thiếu để hẹn giao.
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 3, "sl_tra": 2,
+		                     "ly_do": "2 vỡ, 1 không tới"}])
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_hen_giao(
+				kq["name"], frappe.utils.add_days(frappe.utils.today(), 5),
+				"Sẽ giao bù", "Giao bù phần thiếu",
+			)
+			with self.assertRaises(frappe.ValidationError):
+				kh.kiem_hang_tu_choi(kq["name"], "Đổi ý, không chấp nhận")
+		finally:
+			frappe.set_user("Administrator")
