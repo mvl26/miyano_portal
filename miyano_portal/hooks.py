@@ -116,6 +116,11 @@ jinja = {
 	"methods": [
 		"miyano_portal.portal_mua_le.han_hieu_luc_bao_gia",
 		"miyano_portal.portal_mua_le.la_dong_giu_cho",
+		# Đọc tiền thành chữ TIẾNG VIỆT cho chứng từ kế toán.
+		# `frappe.utils.money_in_words` đọc theo ngôn ngữ hệ thống (site này
+		# để tiếng Anh) nên in ra "Nine Hundred And Fifty Thousand" trên mẫu
+		# 02-VT — lỗi thật, không phải chuyện thẩm mỹ.
+		"miyano_portal.tien_bang_chu.tien_bang_chu",
 	],
 }
 
