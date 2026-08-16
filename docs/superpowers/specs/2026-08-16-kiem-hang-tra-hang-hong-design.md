@@ -64,7 +64,7 @@ Header:
 | Field | Kiểu | Ghi chú |
 |---|---|---|
 | `customer` | Link Customer | reqd, read_only — trục cách ly |
-| `delivery_note` | Link Delivery Note | reqd, unique-per-customer (§4.3) |
+| `delivery_note` | **Data** (không Link) | reqd; Link sẽ chặn nhân viên HUỶ phiếu giao — cùng lựa chọn ở `Customer Stock Receipt` |
 | `sales_order` | Data | denormalise để cổng link ngược về đơn |
 | `ngay_kiem` | Date | mặc định hôm nay |
 | `nguoi_kiem` | Data (Email) | read_only, lấy từ session |
@@ -89,6 +89,11 @@ Dòng (`Portal Delivery Inspection Item`):
 Phần còn lại `sl_giao − sl_nhan − sl_tra` = **thiếu, không tới nơi** — suy ra,
 KHÔNG lưu thành field riêng (một con số suy được mà đem lưu là một con số sẽ
 lệch).
+
+`dong_tu_delivery_note()` **lọc `HANG-DAT-NGOAI`**: chốt
+`kiem_khong_con_dong_giu_cho` (before_submit của Sales Order) khiến phiếu giao
+sinh từ đơn cổng không thể mang dòng giữ chỗ, nhưng một Delivery Note lập TAY
+trên Desk không đi qua chốt đó. Gác lối VÀO, không chỉ lối ra (bài học C-1).
 
 Ràng buộc (`validate`):
 1. `sl_nhan ≥ 0`, `sl_tra ≥ 0`.
@@ -117,11 +122,19 @@ Dùng `Select` + hàm whitelist có kiểm role, **không** dùng Frappe Workflo
 máy trạng thái này 5 nút, thêm một Workflow doctype nữa chỉ để có 3 transition
 là chi phí không đổi lại được gì (bài học chi phí quy trình, phiên 2026-08-15).
 
-### 4.3 Một biên bản cho một phiếu giao
+### 4.3 Một biên bản còn hiệu lực cho một phiếu giao
 
-`delivery_note` unique. Khách gửi nhầm rồi muốn sửa: bản đã gửi không sửa
-được; nhân viên "Từ chối" thì khách gửi lại được (biên bản cũ giữ nguyên làm
-lịch sử, bản mới là amend — dùng `amended_from` sẵn có của Frappe).
+Một phiếu giao chỉ có MỘT biên bản còn hiệu lực. Bản đã gửi không sửa được.
+
+**Đường lùi duy nhất của khách là bị từ chối.** Bản ở trạng thái "Từ chối"
+vẫn `docstatus=1` nhưng THÔI độc quyền phiếu giao: cả `_chan_trung_phieu_giao`
+(controller) lẫn `_chan_da_gui` (endpoint) đều loại nó ra, nên khách lập được
+một biên bản MỚI. Bản bị từ chối giữ nguyên làm lịch sử của cuộc trao đổi —
+KHÔNG dùng `amended_from` (amend đòi huỷ bản gốc, tức xoá dấu vết).
+
+Vì vậy `bien_ban_cua_dn()` phải `order_by="creation desc"`: sau một lần bị từ
+chối, phiếu giao có hai biên bản còn sống và khách phải thấy bản mới nhất.
+Cổng trả cờ `co_the_gui_lai` + `dong_goc` để client dựng lại form trắng.
 
 ### 4.4 Quan hệ với phiếu nhập kho (khách có kho)
 
@@ -138,9 +151,17 @@ kéo theo bút toán kho là đúng loại lỗi mà `_chan_tu_tao_phieu_dao()` 
 ### 4.5 Sinh phiếu trả hàng
 
 `erpnext.controllers.sales_and_purchase_return.make_return_doc("Delivery Note",
-<dn>)` → chỉnh `qty` từng dòng về `-sl_tra` (ERPNext dùng SL ÂM cho phiếu trả),
-xoá dòng `sl_tra = 0`, **để nháp** cho nhân viên kiểm rồi tự submit. Không
-submit hộ: tồn kho Miyano chỉ được cộng lại khi hàng về thật.
+<dn>)` → **phân bổ** `sl_tra` qua các dòng của mã đó theo thứ tự, mỗi dòng
+nhận tối đa phần nó đã giao; xoá dòng không trả; **để nháp** cho nhân viên
+kiểm rồi tự submit. Không submit hộ: tồn kho Miyano chỉ được cộng lại khi
+hàng về thật.
+
+Phân bổ chứ không dồn vào dòng đầu tiên: Miyano xuất theo lô nên một mã
+thường nằm trên nhiều dòng phiếu giao (`delivery_hook._lo_cua_dong`). Dồn 7
+cái hỏng vào một dòng chỉ giao 4 sẽ bị `validate_returned_qty` của ERPNext
+chặn — lỗi chỉ nổ trên dữ liệu thật. Nếu phân bổ xong vẫn còn dư (phiếu giao
+đã bị trả một phần trước đó) thì **báo lỗi rõ**, không lặng lẽ lập phiếu
+thiếu số.
 
 ### 4.6 Bịt khoảng trống "xem hoá đơn của đơn đó"
 

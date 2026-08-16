@@ -540,3 +540,167 @@ class TestKiemHangThongBaoNoiBo(_KiemHangBase):
 			"document_type": "Portal Delivery Inspection",
 			"document_name": kq["name"],
 		}))
+
+
+class TestKiemHangDuLieuThat(_KiemHangBase):
+	"""Ba lỗ hổng chỉ nổ trên hình dạng dữ liệu THẬT, không nổ trên fixture
+	một-dòng-một-mã của các class trên (review 2026-08-16)."""
+
+	def test_tra_hang_phan_bo_qua_nhieu_dong_cung_ma(self):
+		"""Miyano xuất theo lô nên một mã thường nằm trên nhiều dòng phiếu
+		giao. Dồn toàn bộ SL trả vào dòng ĐẦU TIÊN sẽ vượt SL của chính dòng
+		đó và bị `validate_returned_qty` của ERPNext chặn — lỗi chỉ xuất hiện
+		khi số trả lớn hơn dòng đầu."""
+		dn = self._dn([
+			{"item_code": ITEM, "qty": 4, "rate": 95000},
+			{"item_code": ITEM, "qty": 6, "rate": 95000},
+		])
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 3, "sl_tra": 7,
+		                     "ly_do": "Vỡ 7 hộp"}])
+		frappe.set_user(self.staff)
+		try:
+			r = kh.kiem_hang_duyet_tra(kq["name"])
+		finally:
+			frappe.set_user("Administrator")
+
+		tra = frappe.get_doc("Delivery Note", r["phieu_tra_hang"])
+		self.assertEqual(
+			sum(float(i.qty) for i in tra.items), -7,
+			"Tổng SL trên phiếu trả phải đúng bằng số khách báo hỏng.",
+		)
+		for i in tra.items:
+			self.assertLessEqual(
+				abs(float(i.qty)), 6,
+				"Không dòng nào được mang SL trả vượt SL nó đã giao.",
+			)
+
+	def test_bi_tu_choi_thi_khach_gui_lai_duoc(self):
+		"""spec §4.3 hứa khách có đường lùi sau khi bị từ chối. Bản bị từ chối
+		vẫn là docstatus=1, nên nếu `_chan_da_gui` không loại nó ra thì khách
+		đọc "Liên hệ Miyano" trên một màn khoá cứng và hết đường."""
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		frappe.set_user(self.staff)
+		try:
+			kh.kiem_hang_tu_choi(kq["name"], "Biên bản ký nhận ghi nguyên vẹn")
+		finally:
+			frappe.set_user("Administrator")
+
+		self._nhu_khach()
+		try:
+			d = api.portal_kiem_hang_get(dn.name)
+			self.assertTrue(
+				d["bien_ban"]["co_the_gui_lai"],
+				"Cổng phải báo cho client biết còn đường gửi lại.",
+			)
+			self.assertEqual(len(d["dong_goc"]), 1, "Phải trả kèm dòng gốc để gõ lại.")
+			moi = api.portal_kiem_hang_gui(
+				dn.name,
+				[{"item_code": ITEM, "sl_nhan": 8, "sl_tra": 2, "ly_do": "Đếm lại: 2 hỏng"}],
+			)
+			# Khách phải thấy BẢN MỚI, không phải bản đã bị từ chối.
+			sau = api.portal_kiem_hang_get(dn.name)
+		finally:
+			frappe.set_user("Administrator")
+
+		self.assertNotEqual(moi["name"], kq["name"])
+		self.assertEqual(sau["bien_ban"]["name"], moi["name"])
+		self.assertEqual(sau["bien_ban"]["trang_thai"], kh.TT_CHO_XU_LY)
+		# Bản bị từ chối GIỮ NGUYÊN làm lịch sử của cuộc trao đổi.
+		self.assertEqual(
+			frappe.db.get_value("Portal Delivery Inspection", kq["name"], "trang_thai"),
+			kh.TT_TU_CHOI,
+		)
+
+	def test_dong_giu_cho_khong_bao_gio_hien_tren_man_kiem_hang(self):
+		"""C-1 (2015-08-15) lặp lại đúng hình dạng cũ: ba lối ra đã gác,
+		lối VÀO thì chưa. `kiem_khong_con_dong_giu_cho` chặn Sales Order mang
+		dòng giữ chỗ, nhưng một Delivery Note lập TAY trên Desk không đi qua
+		chốt đó."""
+		from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+
+		if not frappe.db.exists("Item", ITEM_GIU_CHO):
+			self.skipTest(f"Site chưa có {ITEM_GIU_CHO}")
+		dn = self._dn([
+			{"item_code": ITEM, "qty": 10, "rate": 95000},
+			{"item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0},
+		])
+		self._nhu_khach()
+		try:
+			items = api.portal_kiem_hang_get(dn.name)["bien_ban"]["items"]
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(
+			[i["item_code"] for i in items], [ITEM],
+			f"{ITEM_GIU_CHO} là chi tiết kỹ thuật nội bộ, khách không được thấy.",
+		)
+
+	def test_kiem_hang_chay_tren_don_MUA_LE_that(self):
+		"""Chủ đầu tư yêu cầu kiểm hàng cho CẢ hai chế độ đặt hàng. Mọi test
+		trên đây dựng phiếu giao bằng tay hoặc từ đơn thường — chưa cái nào đi
+		qua `_xay_don_ban_le`, tức đường mà đơn mua lẻ THẬT đi."""
+		from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+
+		# BR-R1 — cờ cho phép mua lẻ. Bật tường minh trong test thay vì dựa
+		# vào giá trị mặc định của patch: một fixture dựa vào mặc định là một
+		# fixture sẽ đỏ vào ngày sales tắt cờ cho một khách nào đó.
+		frappe.db.set_value("Customer", self.customer, "custom_cho_phep_mua_le", 1)
+		self._nhu_khach()
+		try:
+			dat = api.portal_order_place(
+				items=[{"item_code": ITEM, "qty": 4}],
+				mode="ban_le",
+				request_id=frappe.generate_hash(length=12),
+				delivery_date=frappe.utils.add_days(frappe.utils.today(), 5),
+				dat_ngoai=[{"ten_hang": "Kẹp mạch máu cỡ S", "dvt": "Cái", "so_luong": 2}],
+			)
+		finally:
+			frappe.set_user("Administrator")
+		so = frappe.get_doc("Sales Order", dat["sales_order"])
+		self.assertEqual(so.get("custom_loai_don"), "Mua lẻ")
+
+		# Nhân viên chốt giá rồi xác nhận đơn — đường đi thật của một đơn lẻ.
+		for r in so.items:
+			if r.item_code != ITEM_GIU_CHO:
+				r.rate = 95000
+		so.items = [r for r in so.items if r.item_code != ITEM_GIU_CHO]
+		for d in (so.get("custom_dat_ngoai") or []):
+			d.da_xu_ly = 1
+			d.item_khop = ITEM_2
+		so.append("items", {
+			"item_code": ITEM_2, "qty": 2, "rate": 12000,
+			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
+			# `getdate` chứ không phải chuỗi: các dòng do `_xay_don_ban_le`
+			# tạo mang `datetime.date`, và `validate_delivery_date` của ERPNext
+			# gọi max() trên hỗn hợp str/date sẽ nổ.
+			"delivery_date": frappe.utils.getdate(so.delivery_date),
+		})
+		so.flags.ignore_permissions = True
+		so.save()
+		so.submit()
+
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+		dn = make_delivery_note(so.name)
+		dn.company = COMPANY
+		for r in dn.items:
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+
+		self._nhu_khach()
+		try:
+			d = api.portal_kiem_hang_get(dn.name)
+		finally:
+			frappe.set_user("Administrator")
+		ma = sorted(i["item_code"] for i in d["bien_ban"]["items"])
+		self.assertEqual(ma, sorted([ITEM, ITEM_2]))
+		self.assertNotIn(ITEM_GIU_CHO, ma)
+
+		kq = self._gui(dn, [
+			{"item_code": ITEM, "sl_nhan": 3, "sl_tra": 1, "ly_do": "Rách bao"},
+			{"item_code": ITEM_2, "sl_nhan": 2, "sl_tra": 0},
+		])
+		self.assertEqual(kq["trang_thai"], kh.TT_CHO_XU_LY)
+		self.assertTrue(kq["co_hang_hong"])

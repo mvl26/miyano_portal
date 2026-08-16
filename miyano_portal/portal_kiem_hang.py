@@ -19,6 +19,8 @@ from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_deliv
 	TT_TU_CHOI,
 )
 
+from miyano_portal.portal_mua_le import la_dong_giu_cho
+
 DOCTYPE = "Portal Delivery Inspection"
 
 # Role được phép quyết định trên biên bản. KHÔNG dùng `has_permission` của
@@ -57,6 +59,14 @@ def dong_tu_delivery_note(dn_name: str) -> list[dict]:
 		fields=["item_code", "item_name", "uom", "qty"],
 		order_by="idx asc",
 	):
+		# Dòng giữ chỗ `HANG-DAT-NGOAI` là chi tiết kỹ thuật nội bộ, khách
+		# không được thấy ở BẤT KỲ lối nào. `kiem_khong_con_dong_giu_cho`
+		# (before_submit của Sales Order) khiến một DN sinh từ đơn cổng không
+		# thể mang nó — nhưng một Delivery Note lập TAY trên Desk thì không
+		# đi qua chốt đó. Lọc ở đây là cái cửa vào, không phải cửa ra: bài
+		# học C-1 (2026-08-15) là gác ba lối ra rồi quên lối vào.
+		if la_dong_giu_cho(row.item_code):
+			continue
 		muc = gop.setdefault(row.item_code, {
 			"item_code": row.item_code,
 			"item_name": row.item_name,
@@ -72,14 +82,22 @@ def dong_tu_delivery_note(dn_name: str) -> list[dict]:
 
 
 def bien_ban_cua_dn(dn_name: str) -> dict | None:
-	"""Biên bản CÒN SỐNG (docstatus < 2) của một phiếu giao, hoặc None."""
-	ten = frappe.db.get_value(
-		DOCTYPE, {"delivery_note": dn_name, "docstatus": ["<", 2]}, "name"
+	"""Biên bản MỚI NHẤT còn sống (docstatus < 2) của một phiếu giao.
+
+	`order_by="creation desc"` chứ không lấy tuỳ ý: sau một lần bị từ chối,
+	phiếu giao có HAI biên bản còn sống (bản bị từ chối giữ làm lịch sử + bản
+	khách đang gửi lại). Khách phải thấy bản mới nhất.
+	"""
+	rows = frappe.get_all(
+		DOCTYPE,
+		filters={"delivery_note": dn_name, "docstatus": ["<", 2]},
+		pluck="name",
+		order_by="creation desc",
+		limit_page_length=1,
 	)
-	if not ten:
+	if not rows:
 		return None
-	doc = frappe.get_doc(DOCTYPE, ten)
-	return _ra_dict(doc)
+	return _ra_dict(frappe.get_doc(DOCTYPE, rows[0]))
 
 
 def _ra_dict(doc) -> dict:
@@ -94,6 +112,10 @@ def _ra_dict(doc) -> dict:
 		"phieu_tra_hang": doc.phieu_tra_hang,
 		"ghi_chu": doc.ghi_chu,
 		"da_gui": doc.docstatus == 1,
+		# Bị từ chối = đường lùi DUY NHẤT của khách (spec §4.3). Không có cờ
+		# này, màn kiểm hàng khoá cứng ở "đã gửi" và khách hết đường: bản bị
+		# từ chối vẫn là docstatus=1.
+		"co_the_gui_lai": doc.trang_thai == TT_TU_CHOI,
 		"items": [
 			{
 				"item_code": r.item_code,
@@ -168,21 +190,41 @@ def _tao_phieu_tra_hang(doc) -> str:
 	can_tra = {r.item_code: float(r.sl_tra or 0) for r in doc.items if float(r.sl_tra or 0) > EPS}
 	dn = make_return_doc("Delivery Note", doc.delivery_note)
 
+	# PHÂN BỔ qua nhiều dòng, KHÔNG dồn hết vào dòng đầu tiên. Miyano xuất
+	# hàng theo lô nên một mã thường nằm trên nhiều dòng Delivery Note (xem
+	# `delivery_hook._lo_cua_dong`). Dồn 7 cái hỏng vào một dòng chỉ giao 4 sẽ
+	# bị `validate_returned_qty` của ERPNext chặn — chính là loại lỗi chỉ nổ
+	# ở dữ liệu thật, nơi hàng đi từ nhiều lô.
+	#
+	# `make_return_doc` đã đặt `row.qty` = SL còn trả được của dòng đó, mang
+	# dấu ÂM. `abs()` để lấy trần phân bổ, rồi ghi lại phần thật sự trả.
 	giu = []
 	for row in dn.items:
-		sl = can_tra.get(row.item_code)
-		if not sl:
+		con = can_tra.get(row.item_code, 0.0)
+		if con <= EPS:
 			continue
-		row.qty = -sl
+		tran = abs(float(row.qty or 0))
+		if tran <= EPS:
+			continue
+		lay = min(con, tran)
+		row.qty = -lay
 		# `stock_qty`/`received_qty` được controller tính lại trong validate();
 		# chỉ đặt `qty` để không chốt cứng một giá trị sẽ lệch với hệ số quy
 		# đổi đơn vị của chính dòng đó.
+		can_tra[row.item_code] = con - lay
 		giu.append(row)
-		# Một mã hàng có thể xuất hiện nhiều dòng trên phiếu gốc (nhiều lô).
-		# Đã dồn toàn bộ SL trả vào DÒNG ĐẦU TIÊN gặp được và bỏ các dòng còn
-		# lại: chia lại theo lô là quyết định của kho Miyano lúc nhận hàng về,
-		# không phải của biên bản khách.
-		can_tra.pop(row.item_code)
+
+	con_thua = {k: v for k, v in can_tra.items() if v > EPS}
+	if con_thua:
+		# Không thể xảy ra nếu `_kiem_dong()` đúng (sl_tra ≤ sl_giao) VÀ phiếu
+		# giao chưa bị trả một phần trước đó. Nếu xảy ra thì đúng là trường
+		# hợp thứ hai — báo rõ thay vì lặng lẽ lập một phiếu trả thiếu số.
+		frappe.throw(
+			"Không lập được phiếu trả hàng: phiếu giao này không còn đủ số "
+			f"lượng để trả cho {', '.join(con_thua)} (có thể đã có phiếu trả "
+			"hàng khác trước đó).",
+			frappe.ValidationError,
+		)
 
 	dn.items = giu
 	for i, row in enumerate(dn.items, start=1):

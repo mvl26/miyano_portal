@@ -29,10 +29,20 @@ const sending = ref(false)
 const dn = ref('')
 const ngayGiao = ref(null)
 const bienBan = ref(null)
+const dongGoc = ref([])
 const rows = ref([])
 const ghiChu = ref('')
 
-const daGui = computed(() => !!(bienBan.value && bienBan.value.da_gui))
+// Miyano từ chối → khách được gõ lại. Không có chế độ này, màn khoá cứng ở
+// "đã gửi" (bản bị từ chối vẫn là docstatus=1) và khách hết đường đi.
+const guiLaiMode = ref(false)
+const coTheGuiLai = computed(
+  () => !!(bienBan.value && bienBan.value.co_the_gui_lai) && !guiLaiMode.value
+)
+
+const daGui = computed(
+  () => !!(bienBan.value && bienBan.value.da_gui) && !guiLaiMode.value
+)
 const trangThai = computed(() => (bienBan.value ? bienBan.value.trang_thai : 'Nháp'))
 
 const BADGE = {
@@ -80,6 +90,14 @@ function apDung(bb) {
   rows.value = (bb.items || []).map((i) => ({ ...i }))
 }
 
+// Gõ lại từ ĐẦU (dòng dựng từ chính phiếu giao), không chép lại các con số đã
+// bị từ chối: giữ chúng lại là mời khách gửi y nguyên thứ vừa bị bác.
+function batDauGuiLai() {
+  guiLaiMode.value = true
+  rows.value = dongGoc.value.map((i) => ({ ...i }))
+  ghiChu.value = ''
+}
+
 async function nap() {
   loading.value = true
   error.value = ''
@@ -87,6 +105,8 @@ async function nap() {
     const d = await api.call('portal_kiem_hang_get', { delivery_note: route.params.dn })
     dn.value = d.delivery_note
     ngayGiao.value = d.ngay_giao
+    dongGoc.value = d.dong_goc || []
+    guiLaiMode.value = false
     apDung(d.bien_ban)
   } catch (e) {
     error.value = e.message || 'Không mở được màn kiểm hàng.'
@@ -174,6 +194,9 @@ onMounted(nap)
       <div v-if="bienBan.ly_do_tu_choi" class="card" style="border-color: var(--red)">
         <div class="h3" style="color: var(--red)">Miyano chưa chấp nhận</div>
         <p>{{ bienBan.ly_do_tu_choi }}</p>
+        <button v-if="coTheGuiLai" class="btn btn-sm" style="margin-top: 8px" @click="batDauGuiLai">
+          Kiểm lại và gửi biên bản mới
+        </button>
       </div>
       <div v-else-if="bienBan.phieu_tra_hang" class="card">
         <div class="h3">Miyano đã duyệt trả hàng</div>

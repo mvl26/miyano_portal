@@ -2555,26 +2555,31 @@ def portal_kiem_hang_get(delivery_note) -> dict:
     customer = get_portal_customer()
     dn = _dn_kiem_hang_cua_khach(delivery_note, customer)
 
+    # `dong_goc` — dòng dựng lại từ CHÍNH phiếu giao, luôn đi kèm. Sau một
+    # lần bị từ chối, client cần một bộ dòng trắng để khách gõ lại mà không
+    # phải gọi thêm một vòng API nữa.
+    dong_goc = [{**d, "sl_thieu": 0.0} for d in dong_tu_delivery_note(delivery_note)]
+
     bien_ban = bien_ban_cua_dn(delivery_note)
     if bien_ban:
         return {"delivery_note": delivery_note, "ngay_giao": dn.posting_date,
-                "bien_ban": bien_ban, "moi": False}
+                "bien_ban": bien_ban, "dong_goc": dong_goc, "moi": False}
     return {
         "delivery_note": delivery_note,
         "ngay_giao": dn.posting_date,
         "moi": True,
+        "dong_goc": dong_goc,
         "bien_ban": {
             "name": None,
             "delivery_note": delivery_note,
             "trang_thai": "Nháp",
             "da_gui": False,
+            "co_the_gui_lai": False,
             "co_hang_hong": False,
             "ly_do_tu_choi": None,
             "phieu_tra_hang": None,
             "ghi_chu": "",
-            "items": [
-                {**d, "sl_thieu": 0.0} for d in dong_tu_delivery_note(delivery_note)
-            ],
+            "items": list(dong_goc),
         },
     }
 
@@ -2618,9 +2623,17 @@ def _bien_ban_sua_duoc(delivery_note: str):
 
 
 def _chan_da_gui(delivery_note: str) -> None:
+    """Đã gửi thì không sửa nữa — TRỪ bản bị Miyano từ chối.
+
+    Bản từ chối vẫn là `docstatus=1`; không loại nó ra ở đây thì khách bị từ
+    chối xong hết đường đi (spec §4.3 hứa ngược lại) — họ đọc "Liên hệ Miyano
+    nếu cần chỉnh sửa" trên một màn khoá cứng.
+    """
     da_gui = frappe.db.get_value(
         "Portal Delivery Inspection",
-        {"delivery_note": delivery_note, "docstatus": 1}, "name",
+        {"delivery_note": delivery_note, "docstatus": 1,
+         "trang_thai": ["!=", "Từ chối"]},
+        "name",
     )
     if da_gui:
         frappe.throw(

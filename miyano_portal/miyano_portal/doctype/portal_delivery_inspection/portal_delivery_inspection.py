@@ -55,6 +55,11 @@ class PortalDeliveryInspection(Document):
 				"delivery_note": self.delivery_note,
 				"docstatus": ["<", 2],
 				"name": ["!=", self.name],
+				# Bản đã bị TỪ CHỐI không chặn bản mới — đó chính là đường lùi
+				# spec §4.3 hứa cho khách. Giữ nó ở docstatus=1 làm lịch sử
+				# (huỷ đi là mất dấu vết cuộc trao đổi) nhưng thôi độc quyền
+				# phiếu giao.
+				"trang_thai": ["!=", TT_TU_CHOI],
 			},
 			"name",
 		)
