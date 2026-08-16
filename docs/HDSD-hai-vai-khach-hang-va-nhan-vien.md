@@ -174,8 +174,8 @@ Gửi xong màn hình hiện mã đơn và nút **Xem đơn hàng**.
 
 ## A4. Xem báo giá và trả lời (đơn mua lẻ)
 
-Khi Miyano báo giá xong, bạn nhận **thông báo** và đơn chuyển sang trạng thái
-**"Chờ bạn đồng ý"**. Mở đơn, đầu trang có khối màu cam:
+Khi Miyano báo giá xong, bạn nhận **thông báo trên cổng** (chuông 🔔) và đơn
+chuyển sang trạng thái **"Chờ bạn đồng ý"**. Mở đơn, đầu trang có khối màu cam:
 
 > ⏳ **Báo giá hiệu lực đến 23/08/2026.**
 
@@ -185,14 +185,15 @@ Bảng hàng lúc này **đã có đơn giá và thành tiền**. Ba lựa chọ
 |---|---|
 | **Đồng ý đặt hàng** | Đơn chuyển sang Miyano xác nhận rồi đưa vào giao hàng |
 | **Sửa số lượng…** | Bạn nhập số lượng mới từng dòng → **Gửi lại để báo giá**. Miyano báo giá lại từ đầu |
-| **Huỷ đơn…** | **Huỷ thật**, cần nêu lý do. Đơn đóng lại, hai bên nhận email |
+| **Huỷ đơn…** | **Huỷ thật**, cần nêu lý do. Đơn đóng lại; email báo hai bên nếu site đã cấu hình tài khoản gửi thư |
 
 Ba điều cần biết:
 - **"Gửi lại để báo giá" xoá sạch đơn giá cũ** — đơn quay về chờ Miyano báo lại.
   Vì vậy nút này có bước xác nhận, không bấm nhầm được.
 - Quá **hạn hiệu lực** mà chưa trả lời → đơn tự chuyển "Báo giá hết hạn". Muốn
   mua tiếp thì báo nhân viên kinh doanh mở lại.
-- Tải **PDF báo giá** bằng nút ⬇ trong khối báo giá.
+- Tải **PDF báo giá** bằng nút ⬇ trong khối báo giá. Bản PDF **lấy trên cổng**,
+  không đính kèm trong email — xem ghi chú về email ở [D](#d--sự-cố-thường-gặp).
 
 ---
 
@@ -317,8 +318,12 @@ Danh sách hoá đơn kèm: ngày, số tiền, còn nợ, hạn thanh toán, tr
 Đầu trang có hai cảnh báo tính trên **toàn bộ** hoá đơn còn nợ (không chỉ trang
 đang xem): **tổng quá hạn thanh toán** và **số hoá đơn sắp đến hạn (0–7 ngày)**.
 
-Nút ⬇ **Bản in** để tải hoá đơn. Với hoá đơn điện tử đã phát hành, tải được cả
-**PDF và XML**.
+Nút ⬇ **Bản in** để tải hoá đơn.
+
+Với hoá đơn điện tử: tải được **bản thể hiện PDF** của hoá đơn đã phát hành, và
+**bản in thử PDF** khi chứng từ còn ở dạng nháp (xem trong khối Giao hàng của
+chi tiết đơn). Hệ thống **không phát hành file XML** — module hoá đơn điện tử
+đang dùng không lưu XML, nên không có gì để giao.
 
 ---
 
@@ -389,8 +394,8 @@ hàng khách **tự gõ tay** vì không tìm thấy trong danh mục:
 
 **4. Bấm nút workflow "Gửi khách duyệt"** (góc trên bên phải).
 
-Đơn chuyển sang **"Chờ khách đồng ý"**, khách nhận thông báo và email kèm **PDF
-báo giá**.
+Đơn chuyển sang **"Chờ khách đồng ý"**, khách nhận **thông báo trên cổng** và tự
+tải được **PDF báo giá** ở đó. PDF **cố ý không đính kèm email** — xem [D](#d--sự-cố-thường-gặp).
 
 Bốn chốt chặn sẽ báo lỗi nếu bỏ sót:
 
@@ -441,6 +446,8 @@ hành.
 
 1. Thông báo *"Portal - Kiểm hàng có vấn đề"* → bấm thẳng vào biên bản
 2. Từ **Sales Order** hoặc **Delivery Note** → nút **Miyano → Biên bản kiểm hàng**
+   *(nút này do app nạp vào Desk; không thấy nút → chạy `bench build --app
+   miyano_portal` rồi tải lại trang, xem [D](#d--sự-cố-thường-gặp))*
 3. Danh sách **Biên bản kiểm hàng** (`Portal Delivery Inspection`), lọc theo
    khách / trạng thái / "Có hàng hỏng cần trả"
 
@@ -620,6 +627,8 @@ hỏng) và *Sẽ giao bù* (hàng thiếu).
 | Phiếu trả hàng không Submit được | Phiếu giao gốc đã bị trả một phần trước đó | Kiểm lại số lượng còn trả được |
 | Khách không nhận được thông báo | Tài khoản cổng chưa gắn đúng Contact | Xem `HDSD-tao-khach-hang…` mục A |
 | Sales không nhận cảnh báo kiểm hàng | Khách chưa gán nhân viên phụ trách | Hệ thống tự gửi cho **Sales Manager**; nên gán `account_manager` cho khách |
+| Không thấy nút **Miyano** trên Sales Order / Delivery Note | Asset của app chưa được build trên site | `bench build --app miyano_portal` rồi Ctrl+Shift+R |
+| Khách báo không nhận được **email** (thông báo trên cổng vẫn có) | Site chưa cấu hình **Email Account gửi ra** | Desk → Email Account → thêm tài khoản gửi. Mọi thông báo trên cổng vẫn chạy độc lập với email |
 
 ---
 
@@ -643,5 +652,10 @@ Những giới hạn dưới đây là **quyết định thiết kế**, không 
 
 ---
 
-*Tài liệu này mô tả hệ thống tại thời điểm 16/08/2026. Mọi luồng nêu ở đây đều đã
-được kiểm thử tự động (988 test) và chạy thử hai vai trên dữ liệu thật.*
+*Tài liệu này mô tả hệ thống tại thời điểm 16/08/2026.*
+
+*Phạm vi đã kiểm chứng: toàn bộ **luồng nghiệp vụ** của cả hai vai đã được kiểm
+thử tự động (988 test) và chạy thử trên dữ liệu thật; **màn hình cổng khách
+hàng** đã được soát bằng mắt trên trình duyệt. **Giao diện Desk** (ba nhóm nút
+mô tả ở B4–B7) chưa được soát bằng mắt tại thời điểm phát hành tài liệu — nếu
+thấy khác mô tả, báo lại để cập nhật.*
