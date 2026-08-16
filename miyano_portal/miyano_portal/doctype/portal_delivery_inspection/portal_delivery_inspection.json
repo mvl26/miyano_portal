@@ -1,0 +1,183 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BBKH-.#####",
+ "creation": "2026-08-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "customer",
+  "delivery_note",
+  "sales_order",
+  "col_1",
+  "ngay_kiem",
+  "nguoi_kiem",
+  "trang_thai",
+  "co_hang_hong",
+  "sec_items",
+  "items",
+  "sec_xu_ly",
+  "phieu_tra_hang",
+  "col_2",
+  "ly_do_tu_choi",
+  "ghi_chu",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Khách hàng",
+   "options": "Customer",
+   "reqd": 1,
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delivery_note",
+   "fieldtype": "Data",
+   "label": "Phiếu giao hàng",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Data",
+   "label": "Đơn hàng",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ngay_kiem",
+   "fieldtype": "Date",
+   "label": "Ngày kiểm",
+   "reqd": 1
+  },
+  {
+   "fieldname": "nguoi_kiem",
+   "fieldtype": "Data",
+   "label": "Người kiểm",
+   "options": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "trang_thai",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Nháp\nChờ xử lý\nĐã xác nhận\nĐã duyệt trả\nĐã thu hồi\nĐã xử lý\nTừ chối",
+   "reqd": 1,
+   "default": "Nháp",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "co_hang_hong",
+   "fieldtype": "Check",
+   "label": "Có hàng hỏng cần trả",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sec_items",
+   "fieldtype": "Section Break",
+   "label": "Chi tiết kiểm nhận"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Dòng hàng",
+   "options": "Portal Delivery Inspection Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_xu_ly",
+   "fieldtype": "Section Break",
+   "label": "Xử lý của Miyano"
+  },
+  {
+   "fieldname": "phieu_tra_hang",
+   "fieldtype": "Data",
+   "label": "Phiếu trả hàng",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ly_do_tu_choi",
+   "fieldtype": "Small Text",
+   "label": "Lý do từ chối",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ghi_chu",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú của khách"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "Portal Delivery Inspection",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Portal Delivery Inspection",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 1,
+   "report": 1,
+   "print": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "delivery_note",
+ "track_changes": 1
+}

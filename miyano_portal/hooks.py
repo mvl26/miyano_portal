@@ -160,6 +160,11 @@ permission_query_conditions = {
 	# DocPerm nào cho role Customer trên doctype này (xem JSON) nên đây, như
 	# các dòng trên, là lớp phòng thủ thứ hai — cổng thật là api/portal.py.
 	"Portal Item Request": "miyano_portal.permissions.yeu_cau_query",
+	# Kiểm hàng — `customer` trực tiếp, cùng khuôn Portal Item Request. Không
+	# có DocPerm nào cho role Customer (xem JSON): cổng thật là api/portal.py,
+	# entry này là lớp phòng thủ thứ hai.
+	"Portal Delivery Inspection": "miyano_portal.permissions.kiem_hang_query",
+	"Portal Delivery Inspection Item": "miyano_portal.permissions.kiem_hang_item_query",
 	# E7 — Fast EInvoice Document là doctype của module HĐĐT (team Dev, app
 	# erpnext), CỐ Ý không có DocPerm nào cho `Customer` (xem JSON gốc). Entry
 	# này là lớp phòng thủ thứ hai "chết có điều kiện", cùng khuôn tám
@@ -199,6 +204,8 @@ has_permission = {
 	# E6 — cùng khuôn Sales Order/Delivery Note/... ở trên (customer trực
 	# tiếp), không phải khuôn kho_child_has_permission (customer qua `kho`).
 	"Portal Item Request": "miyano_portal.permissions.generic_has_permission",
+	# Kiểm hàng — cùng khuôn (customer trực tiếp).
+	"Portal Delivery Inspection": "miyano_portal.permissions.generic_has_permission",
 	# E7 — cùng lớp phòng thủ thứ hai như entry query_conditions ở trên.
 	"Fast EInvoice Document": "miyano_portal.permissions.generic_has_permission",
 	"Customer Warehouse": "miyano_portal.kho.permissions.kho_has_permission",

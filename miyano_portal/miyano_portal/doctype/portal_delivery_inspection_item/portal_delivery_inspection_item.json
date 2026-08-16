@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "item_name",
+  "uom",
+  "sl_giao",
+  "sl_nhan",
+  "sl_tra",
+  "ly_do"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Mã hàng",
+   "options": "Item",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Tên hàng",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Data",
+   "label": "ĐVT",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sl_giao",
+   "fieldtype": "Float",
+   "label": "SL giao",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "sl_nhan",
+   "fieldtype": "Float",
+   "label": "SL nhận tốt",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "sl_tra",
+   "fieldtype": "Float",
+   "label": "SL hỏng, trả lại",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "ly_do",
+   "fieldtype": "Data",
+   "label": "Lý do",
+   "in_list_view": 1,
+   "columns": 2
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Portal Delivery Inspection Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

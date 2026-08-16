@@ -58,6 +58,31 @@ def yeu_cau_query(user=None):
     return _customer_condition("Portal Item Request", user)
 
 
+def kiem_hang_query(user=None):
+    """Biên bản kiểm hàng mang `customer` trực tiếp — cùng hình dạng
+    `Portal Item Request` ngay trên, KHÔNG phải hình dạng kho (`kho/
+    permissions.py`, lọc qua field `kho`). Doctype này CỐ Ý không gắn với
+    kho: nó phải chạy cho cả khách chưa mở kho (spec kiểm hàng §4.4)."""
+    return _customer_condition("Portal Delivery Inspection", user)
+
+
+def kiem_hang_item_query(user=None) -> str:
+    """Bảng con của biên bản kiểm hàng — không mang `customer` riêng, lọc qua
+    parent. Cùng khuôn `kho/permissions._child_condition()` nhưng nối theo
+    `customer` (không phải `kho`), vì cha ở đây mang `customer` trực tiếp."""
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    customers = get_allowed_customers(user)
+    if not customers:
+        return "1=0"
+    joined = ", ".join(frappe.db.escape(c) for c in customers)
+    return (
+        "`tabPortal Delivery Inspection Item`.`parent` in "
+        f"(select name from `tabPortal Delivery Inspection` where `customer` in ({joined}))"
+    )
+
+
 def einvoice_query(user=None):
     """E7 — `Fast EInvoice Document` là doctype của MODULE KHÁC (team Dev,
     `apps/erpnext/erpnext/einvoice/`), mảng `permissions` của nó chỉ còn

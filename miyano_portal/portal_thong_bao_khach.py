@@ -29,6 +29,7 @@ Brief 2026-08-15 (trang thông báo) — hai việc:
 import frappe
 
 TIEN_TO_DA_NHAP_HANG = "Portal - Đã nhập hàng"
+TIEN_TO_KIEM_HANG = "Portal - Kiểm hàng"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
@@ -201,3 +202,49 @@ def kiem_tra_dinh_tuyen_thong_bao_khach(doc, method=None) -> None:
         )
     except Exception:
         pass
+
+
+def bao_kiem_hang_ket_qua(doc, tieu_de: str, noi_dung: str) -> int:
+    """Miyano đã xử lý biên bản kiểm hàng → báo về cho khách.
+
+    Chống trùng theo (BIÊN BẢN + TIÊU ĐỀ), không chỉ theo tên biên bản: một
+    biên bản đi qua NHIỀU mốc khách cần biết ("đã duyệt trả" rồi "đã thu
+    hồi"), chặn theo mình tên chứng từ sẽ nuốt mất mốc thứ hai.
+
+    Không bao giờ ném lỗi — các endpoint gọi hàm này (`kiem_hang_duyet_tra`,
+    `kiem_hang_tu_choi`) đã đổi trạng thái THẬT rồi; một trục trặc ở khâu
+    thông báo không được phép làm hỏng thao tác đó.
+    """
+    try:
+        nguoi_nhan = _portal_users_cua_khach(doc.customer)
+        if not nguoi_nhan:
+            _log_khong_co_tai_khoan_cong(doc.customer, doc.name)
+            return 0
+
+        chu_de = f"{TIEN_TO_KIEM_HANG}: {tieu_de} — {doc.name}"
+        dem = 0
+        for u in nguoi_nhan:
+            if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": u}):
+                continue
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": chu_de,
+                "for_user": u,
+                "type": "Alert",
+                "document_type": "Portal Delivery Inspection",
+                "document_name": doc.name,
+                "email_content": noi_dung,
+            }).insert(ignore_permissions=True)
+            dem += 1
+        return dem
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Kiểm hàng: lỗi khi báo khách kết quả xử lý",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal Delivery Inspection",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0

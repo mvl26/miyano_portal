@@ -67,9 +67,25 @@ KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 # không bị _nap_doctype_kho() quét tới; "Portal Item Request" THÌ có, và phải
 # được phân loại vào một trong ba nhóm. Đứng tên ở đây (không chia sẻ tiền tố
 # với ai) vì nó là một danh mục độc lập, giống "Customer Supplier".
+# `Portal Delivery Inspection` (+ bảng con) — biên bản kiểm hàng, cùng ngã ba
+# đã mô tả cho "Portal Item Request" ngay trên: mang `customer` TRỰC TIẾP, hình
+# dạng Sales Order/Delivery Note chứ không phải hình dạng kho (lọc theo `kho`).
+# CỐ Ý không gắn với `Customer Warehouse` — nó phải chạy cho cả khách chưa mở
+# kho (spec 2026-08-16 §4.4), nên tuyệt đối KHÔNG được xếp vào họ "Customer
+# Stock *". Đứng tên đầy đủ ở đây vì không chia sẻ tiền tố với ai.
 KHO_DOCTYPES_KHAC: tuple[str, ...] = (
     "Customer Supplier", "Portal Item Request", "Customer Department",
+    "Portal Delivery Inspection", "Portal Delivery Inspection Item",
 )
+
+# Bảng con NẰM TRONG diện cách ly nhưng KHÔNG thuộc họ chứng từ kho — không có
+# field `kho`, nên `VoucherItemBase`/`voucher_item_readable` (thu hẹp theo
+# `kho`) không áp được. Chúng vẫn phải có override has_permission của riêng
+# mình (test_child_item_controllers_use_shared_has_permission chốt điều đó cho
+# MỌI bảng con); chỉ khác là bản override soi theo `customer` của chứng từ cha.
+# Danh sách này phải ở lại NGẮN: mỗi tên thêm vào là một bản logic phân quyền
+# thứ hai phải tự đứng vững, đúng loại trùng lặp FINDING N4 sinh ra để chống.
+CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = ("Portal Delivery Inspection Item",)
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
 # sách này tồn tại để việc thêm một doctype không-kho vào module trở thành một
@@ -389,6 +405,65 @@ def _make_khoa_phong(kho, ten):
     return doc
 
 
+def _item_kiem_hang() -> str:
+    """Item THẬT cho fixture biên bản (`item_code` là Link Item).
+
+    Tự tạo idempotent thay vì bốc một Item bất kỳ có sẵn: bài học Ruling 18 —
+    một fixture không có `order_by`/`disabled` filter sẽ bốc trúng Item bị tắt
+    do phiên làm việc khác tạo ra và đỏ ở một chỗ không liên quan gì.
+    """
+    ten = "KH-TEST-ITEM"
+    if not frappe.db.exists("Item", ten):
+        frappe.get_doc({
+            "doctype": "Item",
+            "item_code": ten,
+            "item_name": "Vật tư test kiểm hàng",
+            "item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
+            "stock_uom": "Nos",
+            "is_stock_item": 0,
+        }).insert(ignore_permissions=True)
+    return ten
+
+
+def _make_bien_ban(customer, vat_tu, dn_ao):
+    """Biên bản kiểm hàng tối thiểu — idempotent, cùng khuôn `_make_yeu_cau`.
+
+    `delivery_note` là Data (không Link) nên fixture KHÔNG cần dựng một
+    Delivery Note thật: mục đích duy nhất của bản ghi này là cho các vòng lặp
+    cách ly bên dưới có một dòng cha + một dòng con thuộc đúng một khách.
+    Dựng một DN thật ở đây sẽ kéo theo kho/tồn/công ty của ERPNext, tức là
+    một fixture nặng gấp bội cho zero giá trị an ninh thêm vào.
+
+    CỐ Ý **không** idempotent (khác `_make_yeu_cau`/`_make_ncc`): lớp
+    `TestKhoIsolationChildItems` có test XOÁ dòng con thật, nên một fixture
+    "tìm thấy thì trả về" sẽ đưa cho test sau một chứng từ đã rỗng dòng và đỏ
+    ở `items[0]` — một fixture tự đầu độc qua các test method (FrappeTestCase
+    rollback theo CLASS, không theo từng test). Mỗi lần gọi tạo một chứng từ
+    mới với `delivery_note` riêng để `_chan_trung_phieu_giao()` không chặn.
+
+    `vat_tu` chỉ dùng làm `item_name` cho dễ đọc; `item_code` là một Item THẬT
+    (`_item_kiem_hang`), vì đó là Link Item.
+    """
+    doc = frappe.get_doc({
+        "doctype": "Portal Delivery Inspection",
+        "customer": customer,
+        "delivery_note": f"{dn_ao}-{frappe.generate_hash(length=6)}",
+        "ngay_kiem": frappe.utils.nowdate(),
+        "nguoi_kiem": "test@demo.miyano",
+        "trang_thai": "Nháp",
+        "items": [{
+            "item_code": _item_kiem_hang(),
+            "item_name": vat_tu,
+            "uom": "Hộp",
+            "sl_giao": 10,
+            "sl_nhan": 10,
+            "sl_tra": 0,
+        }],
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
 def _make_yeu_cau(customer, ten_hang):
     """E6 — idempotent, cùng lý do với `_make_ncc`: setUp chạy lại nhiều lần
     trong cùng một class. `Portal Item Request` mang `customer` trực tiếp
@@ -661,18 +736,26 @@ class TestKhoIsolation(FrappeTestCase):
         for dt in kho_child_doctypes():
             with self.subTest(doctype=dt):
                 cls = get_controller(dt)
-                self.assertTrue(
-                    issubclass(cls, VoucherItemBase),
-                    f"{dt}: controller {cls!r} không kế thừa VoucherItemBase",
-                )
-                self.assertIs(
-                    cls.has_permission, VoucherItemBase.has_permission,
-                    f"{dt}: has_permission không phải bản dùng chung",
-                )
+                # Mắt xích đúng CHO MỌI bảng con trong diện cách ly: lớp phòng
+                # thủ thứ hai còn sống, tức controller có override
+                # has_permission của RIÊNG nó chứ không tụt về mặc định Frappe.
+                # Đây mới là điều FINDING N4 cần chốt; việc override đó nằm
+                # trong lớp cơ sở nào là chuyện của từng HỌ chứng từ.
                 self.assertIsNot(
                     cls.has_permission, Document.has_permission,
                     f"{dt}: has_permission tụt về mặc định của Frappe",
                 )
+                if dt not in CHILD_DOCTYPES_NGOAI_HO_KHO:
+                    # Họ chứng từ kho (lọc theo `kho`) — phải dùng CHUNG một
+                    # bản has_permission, đúng nguyên văn FINDING N4.
+                    self.assertTrue(
+                        issubclass(cls, VoucherItemBase),
+                        f"{dt}: controller {cls!r} không kế thừa VoucherItemBase",
+                    )
+                    self.assertIs(
+                        cls.has_permission, VoucherItemBase.has_permission,
+                        f"{dt}: has_permission không phải bản dùng chung",
+                    )
 
     def test_hooks_registered_for_every_kho_doctype(self):
         # FINDING 2 (review round 1): kiểm tra membership trong dict LITERAL
@@ -781,6 +864,11 @@ class TestKhoIsolationDeep(FrappeTestCase):
         self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa BM Test")
         self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa PXN Test")
 
+        # Kiểm hàng (2026-08-16): doctype kho cha thứ mười, mang `customer`
+        # trực tiếp như Portal Item Request.
+        self.bien_ban_bm = _make_bien_ban(CUSTOMER_BM, self.kho["vt_bm"], "DN-ISO-BM")
+        self.bien_ban_pxn = _make_bien_ban(CUSTOMER_PXN, self.kho["vt_pxn"], "DN-ISO-PXN")
+
         # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
@@ -792,6 +880,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Supplier": self.ncc_pxn.name,
             "Portal Item Request": self.yeu_cau_pxn.name,
             "Customer Department": self.khoa_pxn.name,
+            "Portal Delivery Inspection": self.bien_ban_pxn.name,
         }
         # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
@@ -807,6 +896,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Supplier": self.ncc_bm.name,
             "Portal Item Request": self.yeu_cau_bm.name,
             "Customer Department": self.khoa_bm.name,
+            "Portal Delivery Inspection": self.bien_ban_bm.name,
         }
         for nhan, m in (("pxn_records", self.pxn_records),
                         ("bm_records", self.bm_records)):
@@ -819,12 +909,14 @@ class TestKhoIsolationDeep(FrappeTestCase):
         return _ensure_staff_user()
 
     def _pxn_filter(self, doctype):
-        if doctype in ("Customer Warehouse", "Portal Item Request"):
+        if doctype in ("Customer Warehouse", "Portal Item Request",
+                       "Portal Delivery Inspection"):
             return {"customer": CUSTOMER_PXN}
         return {"kho": self.kho["kho_pxn"]}
 
     def _bm_filter(self, doctype):
-        if doctype in ("Customer Warehouse", "Portal Item Request"):
+        if doctype in ("Customer Warehouse", "Portal Item Request",
+                       "Portal Delivery Inspection"):
             return {"customer": CUSTOMER_BM}
         return {"kho": self.kho["kho_bm"]}
 
@@ -907,7 +999,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             with self.subTest(doctype=dt):
                 if dt == "Customer Warehouse":
                     rows = frappe.get_all(dt, filters={"name": kho}, pluck="name")
-                elif dt == "Portal Item Request":
+                elif dt in ("Portal Item Request", "Portal Delivery Inspection"):
                     rows = frappe.get_all(dt, filters={"customer": customer}, pluck="name")
                 else:
                     rows = frappe.get_all(dt, filters={"kho": kho}, pluck="name")
@@ -963,6 +1055,8 @@ class TestKhoIsolationChildItems(FrappeTestCase):
         self.receipt_pxn = _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "ZZLO-PXN")
         self.issue_bm = _make_issue(self.kho["kho_bm"], self.kho["vt_bm"], "LO-BM-A")
         self.issue_pxn = _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "ZZLO-PXN")
+        self.bien_ban_bm = _make_bien_ban(CUSTOMER_BM, self.kho["vt_bm"], "DN-ISO-BM")
+        self.bien_ban_pxn = _make_bien_ban(CUSTOMER_PXN, self.kho["vt_pxn"], "DN-ISO-PXN")
 
         # doctype của bảng con -> (tên doctype cha, tên dòng con của PXN,
         # tên dòng con của BM). Đây chính là bốn giá trị các test dưới đây
@@ -981,6 +1075,13 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 "bm_parent": self.issue_bm.name,
                 "pxn_row": self.issue_pxn.items[0].name,
                 "bm_row": self.issue_bm.items[0].name,
+            },
+            "Portal Delivery Inspection Item": {
+                "parent_doctype": "Portal Delivery Inspection",
+                "pxn_parent": self.bien_ban_pxn.name,
+                "bm_parent": self.bien_ban_bm.name,
+                "pxn_row": self.bien_ban_pxn.items[0].name,
+                "bm_row": self.bien_ban_bm.items[0].name,
             },
         }
         _assert_fixture_phu_het(self, self.child_map, kho_child_doctypes(),
@@ -1402,6 +1503,10 @@ class _KhoVoucherFixture(FrappeTestCase):
         # E8: cùng lý do — bản ghi tối thiểu cho mỗi khách.
         self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa BM Test")
         self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa PXN Test")
+        # Kiểm hàng (2026-08-16): cha + bảng con, cả hai đều nằm trong diện
+        # cách ly nên phải có dòng thật cho CẢ HAI khách.
+        self.bien_ban_bm = _make_bien_ban(CUSTOMER_BM, self.kho["vt_bm"], "DN-ISO-BM")
+        self.bien_ban_pxn = _make_bien_ban(CUSTOMER_PXN, self.kho["vt_pxn"], "DN-ISO-PXN")
 
         self.child_rows = {
             "Customer Stock Receipt Item": {
@@ -1411,6 +1516,10 @@ class _KhoVoucherFixture(FrappeTestCase):
             "Customer Stock Issue Item": {
                 "pxn": self.issue_pxn.items[0].name,
                 "bm": self.issue_bm.items[0].name,
+            },
+            "Portal Delivery Inspection Item": {
+                "pxn": self.bien_ban_pxn.items[0].name,
+                "bm": self.bien_ban_bm.items[0].name,
             },
         }
         _assert_fixture_phu_het(self, self.child_rows, kho_child_doctypes(),
@@ -1652,6 +1761,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
             "Customer Supplier": (self.ncc_bm.name, self.ncc_pxn.name),
             "Portal Item Request": (self.yeu_cau_bm.name, self.yeu_cau_pxn.name),
             "Customer Department": (self.khoa_bm.name, self.khoa_pxn.name),
+            "Portal Delivery Inspection": (self.bien_ban_bm.name, self.bien_ban_pxn.name),
         }
         _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():

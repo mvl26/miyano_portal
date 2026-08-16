@@ -12,6 +12,7 @@ TIEN_TO = "Portal - Thiếu giá"
 TIEN_TO_CHENH_LECH = "Portal - Chênh lệch nhận hàng"
 TIEN_TO_YEU_CAU_MOI = "Portal - Yêu cầu hàng hoá mới"
 TIEN_TO_HO_TRO_HDDT = "Portal - Yêu cầu hỗ trợ HĐĐT"
+TIEN_TO_KIEM_HANG = "Portal - Kiểm hàng có vấn đề"
 
 # Hai role của module HĐĐT (team Dev) — tạo bởi
 # `erpnext.einvoice.setup._make_roles()` khi `bench migrate`, KHÔNG phải role
@@ -238,3 +239,55 @@ def bao_chenh_lech(customer: str, phieu: str) -> bool:
         ),
     }).insert(ignore_permissions=True)
     return True
+
+
+def bao_kiem_hang_co_van_de(doc) -> bool:
+    """Khách gửi biên bản kiểm hàng có hàng thiếu/hỏng → báo sales phụ trách.
+
+    Chống trùng theo TÊN BIÊN BẢN (không theo ngày), cùng khuôn
+    `bao_chenh_lech`: một `Portal Delivery Inspection` chỉ submit đúng một
+    lần trong đời của tên chứng từ đó.
+
+    Không bao giờ ném lỗi — người gọi (`PortalDeliveryInspection.on_submit`)
+    đã bọc một lớp, hàm này vẫn tự chịu trách nhiệm cho đúng thiết kế của cả
+    cụm thông báo.
+    """
+    try:
+        nguoi_nhan = _sales_phu_trach(doc.customer)
+        if not nguoi_nhan:
+            return False
+
+        chu_de = f"{TIEN_TO_KIEM_HANG}: {doc.name} ({doc.customer})"
+        if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": nguoi_nhan}):
+            return False
+
+        if doc.co_hang_hong:
+            tom_tat = "báo có hàng <b>hỏng cần trả lại</b>"
+        else:
+            tom_tat = "báo <b>thiếu hàng</b> so với phiếu giao"
+
+        frappe.get_doc({
+            "doctype": "Notification Log",
+            "subject": chu_de,
+            "for_user": nguoi_nhan,
+            "type": "Alert",
+            "document_type": "Portal Delivery Inspection",
+            "document_name": doc.name,
+            "email_content": (
+                f"Khách hàng <b>{doc.customer}</b> đã kiểm phiếu giao "
+                f"<b>{doc.delivery_note}</b> và {tom_tat}. Mở biên bản "
+                f"<b>{doc.name}</b> để duyệt trả hàng hoặc từ chối."
+            ),
+        }).insert(ignore_permissions=True)
+        return True
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Kiểm hàng: lỗi khi báo sales biên bản có vấn đề",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal Delivery Inspection",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return False
