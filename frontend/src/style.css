@@ -77,6 +77,16 @@ button { cursor: pointer; font-size: 14px; }
   font-weight: 600;
 }
 .btn:hover { background: var(--blue2); }
+/* Nút bị vô hiệu phải TRÔNG như bị vô hiệu. Trước bản này cổng không có
+   style :disabled nào, nên một nút disabled trông hệt nút bấm được: khách
+   bấm, không có gì xảy ra, và không có gì giải thích tại sao. Phát hiện khi
+   soát màn Kiểm hàng bằng trình duyệt (2026-08-16) nhưng áp cho CẢ cổng —
+   mọi màn đều có nút disabled trong lúc đang gửi. */
+.btn:disabled, .btn-o:disabled, button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:disabled:hover { background: var(--blue); }
 .btn-o {
   background: #fff;
   color: var(--blue);
