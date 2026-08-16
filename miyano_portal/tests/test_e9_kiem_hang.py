@@ -485,3 +485,58 @@ class TestKiemHangHienTrenDonHang(_KiemHangBase):
 		# Khoảng trống 2026-08-16: đơn phải chỉ thẳng tới hoá đơn CỦA NÓ.
 		self.assertEqual([h["name"] for h in d["hoa_don"]], [si.name])
 		self.assertEqual(d["hoa_don"][0]["tong_tien"], float(si.grand_total))
+
+
+class TestKiemHangThongBaoNoiBo(_KiemHangBase):
+	"""Phát hiện trong UAT 2026-08-16 — khiếu nại rơi vào im lặng.
+
+	Khách hàng không có `account_manager` (Bệnh viện Bạch Mai trên site thật là
+	một ví dụ) thì `_sales_phu_trach` trả None và bản đầu của
+	`bao_kiem_hang_co_van_de` lặng lẽ `return False`: khách gửi biên bản báo
+	hàng hỏng, không nhân viên Miyano nào biết, và không có gì đỏ lên.
+	"""
+
+	def test_khach_khong_co_account_manager_van_bao_duoc_sales_manager(self):
+		frappe.db.set_value("Customer", self.customer, "account_manager", None)
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		nhan = frappe.get_all("Notification Log", filters={
+			"document_type": "Portal Delivery Inspection",
+			"document_name": kq["name"],
+			"subject": ["like", "Portal - Kiểm hàng có vấn đề%"],
+		}, pluck="for_user")
+		self.assertTrue(
+			nhan,
+			"Biên bản có hàng hỏng mà KHÔNG ai trong Miyano nhận được thông báo.",
+		)
+		# Người nhận phải là người LÀM ĐƯỢC gì đó với biên bản này.
+		for u in nhan:
+			self.assertIn(
+				"Sales Manager",
+				[r.role for r in frappe.get_doc("User", u).roles],
+				f"{u} nhận cảnh báo nhưng không có quyền duyệt/từ chối biên bản.",
+			)
+
+	def test_co_account_manager_thi_chi_bao_dung_nguoi_do(self):
+		"""Đường lui CHỈ dùng khi không có ai phụ trách — không gửi song song,
+		một khiếu nại không cần cả phòng cùng đọc."""
+		frappe.db.set_value("Customer", self.customer, "account_manager", self.staff)
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 7, "sl_tra": 3,
+		                     "ly_do": "Vỡ 3"}])
+		nhan = frappe.get_all("Notification Log", filters={
+			"document_type": "Portal Delivery Inspection",
+			"document_name": kq["name"],
+			"subject": ["like", "Portal - Kiểm hàng có vấn đề%"],
+		}, pluck="for_user")
+		self.assertEqual(nhan, [self.staff])
+
+	def test_nhan_du_thi_khong_lam_phien_ai(self):
+		frappe.db.set_value("Customer", self.customer, "account_manager", self.staff)
+		dn = self._dn()
+		kq = self._gui(dn, [{"item_code": ITEM, "sl_nhan": 10, "sl_tra": 0}])
+		self.assertFalse(frappe.get_all("Notification Log", filters={
+			"document_type": "Portal Delivery Inspection",
+			"document_name": kq["name"],
+		}))

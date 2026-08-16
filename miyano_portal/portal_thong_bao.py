@@ -26,6 +26,39 @@ def _sales_phu_trach(customer: str) -> str | None:
     return frappe.db.get_value("Customer", customer, "account_manager")
 
 
+def _nguoi_nhan_kiem_hang(customer: str) -> list[str]:
+    """Người nhận cảnh báo biên bản kiểm hàng có vấn đề.
+
+    KHÁC `_sales_phu_trach` ở đúng một điểm và điểm đó là cả lý do hàm này tồn
+    tại: `account_manager` rỗng thì **không** im lặng bỏ qua. Một biên bản
+    kiểm hàng có vấn đề là khiếu nại về hàng hỏng/thiếu — khách đang chờ
+    Miyano trả lời, và một khiếu nại rơi vào im lặng vì khách chưa được gán
+    nhân viên phụ trách là hỏng nghiệp vụ, không phải "không có ai để gửi".
+    Phát hiện trong UAT 2026-08-16: Bệnh viện Bạch Mai không có
+    `account_manager`, biên bản gửi đi mà không sales nào biết.
+
+    Đường lui là role `Sales Manager` — CHÍNH role được phép duyệt/từ chối
+    biên bản (`portal_kiem_hang.ROLE_DUYET`), nên người nhận luôn là người
+    làm được gì đó với nó. Chỉ dùng khi không có `account_manager`, không
+    phải gửi thêm song song: một khiếu nại không cần cả phòng cùng đọc.
+    """
+    sales = _sales_phu_trach(customer)
+    if sales and frappe.db.get_value("User", sales, "enabled"):
+        return [sales]
+    ung_vien = frappe.get_all(
+        "Has Role",
+        filters={"role": "Sales Manager", "parenttype": "User",
+                 "parent": ["not in", ("Administrator", "Guest")]},
+        pluck="parent",
+    )
+    # Lọc tài khoản đã tắt: `Has Role` không bị dọn khi User bị disable, nên
+    # không lọc ở đây là gửi cảnh báo vào một hộp thư không ai mở.
+    return [
+        u for u in dict.fromkeys(ung_vien)
+        if frappe.db.get_value("User", u, "enabled")
+    ]
+
+
 def bao_thieu_gia(customer: str, item_code: str) -> bool:
     """NL-1.4 / US-E1.4. Trả `True` nếu vừa gửi, `False` nếu không gửi.
 
@@ -253,33 +286,46 @@ def bao_kiem_hang_co_van_de(doc) -> bool:
     cụm thông báo.
     """
     try:
-        nguoi_nhan = _sales_phu_trach(doc.customer)
+        nguoi_nhan = _nguoi_nhan_kiem_hang(doc.customer)
         if not nguoi_nhan:
+            frappe.log_error(
+                title="Kiểm hàng: không tìm được người nhận cảnh báo",
+                message=(
+                    f"Biên bản {doc.name} của {doc.customer} có vấn đề nhưng "
+                    "site không có Sales Manager nào đang bật. Khiếu nại này "
+                    "hiện KHÔNG đến tay ai — gán account_manager cho khách "
+                    "hoặc bật một tài khoản Sales Manager."
+                ),
+            )
             return False
 
         chu_de = f"{TIEN_TO_KIEM_HANG}: {doc.name} ({doc.customer})"
-        if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": nguoi_nhan}):
-            return False
 
         if doc.co_hang_hong:
             tom_tat = "báo có hàng <b>hỏng cần trả lại</b>"
         else:
             tom_tat = "báo <b>thiếu hàng</b> so với phiếu giao"
 
-        frappe.get_doc({
-            "doctype": "Notification Log",
-            "subject": chu_de,
-            "for_user": nguoi_nhan,
-            "type": "Alert",
-            "document_type": "Portal Delivery Inspection",
-            "document_name": doc.name,
-            "email_content": (
-                f"Khách hàng <b>{doc.customer}</b> đã kiểm phiếu giao "
-                f"<b>{doc.delivery_note}</b> và {tom_tat}. Mở biên bản "
-                f"<b>{doc.name}</b> để duyệt trả hàng hoặc từ chối."
-            ),
-        }).insert(ignore_permissions=True)
-        return True
+        noi_dung = (
+            f"Khách hàng <b>{doc.customer}</b> đã kiểm phiếu giao "
+            f"<b>{doc.delivery_note}</b> và {tom_tat}. Mở biên bản "
+            f"<b>{doc.name}</b> để duyệt trả hàng hoặc từ chối."
+        )
+        da_gui = 0
+        for u in nguoi_nhan:
+            if frappe.db.exists("Notification Log", {"subject": chu_de, "for_user": u}):
+                continue
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": chu_de,
+                "for_user": u,
+                "type": "Alert",
+                "document_type": "Portal Delivery Inspection",
+                "document_name": doc.name,
+                "email_content": noi_dung,
+            }).insert(ignore_permissions=True)
+            da_gui += 1
+        return da_gui > 0
     except Exception:
         try:
             frappe.log_error(
