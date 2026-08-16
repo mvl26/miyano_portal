@@ -198,14 +198,21 @@ class TestPortalOrderTrackDotGiao(_KhoDnTestCase):
 		# False ở đây vì chưa lập chứng từ HĐĐT nào. Nằm trong bộ so sánh
 		# CHÍNH XÁC này là cố ý: một field mới lặng lẽ chui vào hợp đồng API
 		# §1.2 phải làm test đỏ.
+		# `kiem_hang` (E9, 2026-08-16): tóm tắt biên bản kiểm hàng của đợt giao
+		# này — `None` khi khách chưa lập. Thêm vào bộ so sánh CHÍNH XÁC này là
+		# một quyết định CÓ Ý THỨC, đúng như comment ngay trên yêu cầu: field
+		# này đã làm test đỏ khi vừa xuất hiện, và nó vào hợp đồng §1.2 vì
+		# khách cần biết đợt giao nào đã kiểm ngay trên màn chi tiết đơn.
 		self.assertEqual(g1, {
 			"so_dot": 1, "delivery_note": dn1.name, "ngay": dn1.posting_date,
 			"phan_tram": 60, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
+			"kiem_hang": None,
 			"phieu_nhap": {"name": phieu1.name, "trang_thai": "Nháp", "co_chenh_lech": False},
 		})
 		self.assertEqual(g2, {
 			"so_dot": 2, "delivery_note": dn2.name, "ngay": dn2.posting_date,
 			"phan_tram": 40, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
+			"kiem_hang": None,
 			"phieu_nhap": {"name": phieu2.name, "trang_thai": "Đã ghi sổ", "co_chenh_lech": False},
 		})
 

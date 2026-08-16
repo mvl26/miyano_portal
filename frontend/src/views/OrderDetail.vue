@@ -109,6 +109,21 @@ async function datLai() {
   }
 }
 
+// E9 — màu badge trạng thái biên bản kiểm hàng. Cùng bảng màu với
+// KiemHang.vue; giữ hai bản vì hai màn đọc hai nguồn khác nhau và một import
+// chéo giữa hai view chỉ vì bảy dòng ánh xạ là một cạnh phụ thuộc không đáng.
+const KIEM_HANG_BADGE = {
+  'Chờ xử lý': 'b-orange',
+  'Đã xác nhận': 'b-green',
+  'Đã duyệt trả': 'b-blue',
+  'Đã thu hồi': 'b-green',
+  'Đã xử lý': 'b-green',
+  'Từ chối': 'b-red',
+}
+function kiemHangBadge(tt) {
+  return KIEM_HANG_BADGE[tt] || 'b-gray'
+}
+
 // --- Hoá đơn nháp đính theo phiếu giao (E7b) --------------------------------
 // Cờ `d.co_hoa_don_nhap` đi sẵn trong `portal_order_track`; NỘI DUNG chỉ nạp
 // khi khách bấm xem — khác khối HĐĐT ở trang Hoá đơn (nhúng sẵn): ở đây có
@@ -560,6 +575,28 @@ onMounted(load)
                 </span>
                 <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
               </p>
+              <!-- E9 (2026-08-16) — kiểm hàng khi nhận. KHÔNG gắn với việc
+                   khách có kho hay không: `d.kiem_hang` luôn có mặt trên mọi
+                   đợt giao, `null` nghĩa là khách chưa lập biên bản. -->
+              <p class="tag" style="margin-top: 4px">
+                <template v-if="d.kiem_hang">
+                  Kiểm hàng:
+                  <router-link :to="`/kiem-hang/${d.name}`" style="text-decoration: underline">
+                    {{ d.kiem_hang.name }}
+                  </router-link>
+                  <span
+                    class="badge"
+                    :class="kiemHangBadge(d.kiem_hang.trang_thai)"
+                    style="margin-left: 6px"
+                  >{{ d.kiem_hang.trang_thai }}</span>
+                </template>
+                <template v-else>
+                  <router-link :to="`/kiem-hang/${d.name}`">
+                    <button class="btn-o btn-sm">Kiểm hàng đợt này</button>
+                  </router-link>
+                </template>
+              </p>
+
               <!-- E7b — hoá đơn nháp lập từ chính phiếu giao này. Neo ở đây
                    chứ không ở trang Hoá đơn: chứng từ HĐĐT sinh từ phiếu giao
                    có thể chưa có Sales Invoice nào để bám vào. -->
@@ -589,6 +626,28 @@ onMounted(load)
             </div>
           </template>
           <p v-else class="tag">Chưa có đợt giao hàng nào.</p>
+
+          <!-- Khoảng trống 2026-08-16 — trước bản này cổng chỉ có mốc "Hoá
+               đơn" bật/tắt và một trang Hoá đơn TOÀN CỤC; khách muốn xem hoá
+               đơn CỦA ĐƠN NÀY phải tự dò. `data.hoa_don` do
+               `portal_order_track` trả về, nối qua Sales Invoice Item. -->
+          <template v-if="data.hoa_don && data.hoa_don.length">
+            <hr class="sep" />
+            <div class="h3">Hoá đơn của đơn này</div>
+            <div v-for="h in data.hoa_don" :key="h.name" class="rowline">
+              <span>
+                <b>{{ h.name }}</b> · {{ fmtDate(h.ngay) }}<br />
+                <span class="tag">
+                  {{ fmtVND(h.tong_tien) }}
+                  <template v-if="h.con_no > 0"> · còn nợ {{ fmtVND(h.con_no) }}</template>
+                  <template v-if="h.han_thanh_toan"> · hạn {{ fmtDate(h.han_thanh_toan) }}</template>
+                </span>
+              </span>
+              <a :href="pdfUrl('Sales Invoice', h.name)" target="_blank" rel="noopener">
+                <button class="btn-o btn-sm">⬇ PDF</button>
+              </a>
+            </div>
+          </template>
 
           <hr class="sep" />
           <a :href="pdfUrl('Sales Order', data.order)" target="_blank" rel="noopener">

@@ -2525,7 +2525,7 @@ def portal_thong_bao_doc(name) -> dict:
 # thao tác đi qua đây với `ignore_permissions` sau khi đã tự kiểm sở hữu.
 
 
-def _dn_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
+def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
     """Nạp phiếu giao và chứng minh nó thuộc khách đang đăng nhập.
 
     Kiểm CẢ `docstatus == 1`: một phiếu giao còn nháp thì hàng chưa rời kho
@@ -2553,7 +2553,7 @@ def portal_kiem_hang_get(delivery_note) -> dict:
     """Mở màn kiểm hàng: trả biên bản đã có, hoặc một biên bản TRỐNG dựng sẵn
     từ dòng hàng của phiếu giao (chưa lưu gì)."""
     customer = get_portal_customer()
-    dn = _dn_cua_khach(delivery_note, customer)
+    dn = _dn_kiem_hang_cua_khach(delivery_note, customer)
 
     bien_ban = bien_ban_cua_dn(delivery_note)
     if bien_ban:
@@ -2634,7 +2634,7 @@ def _chan_da_gui(delivery_note: str) -> None:
 def portal_kiem_hang_luu(delivery_note, dong, ghi_chu=None) -> dict:
     """Lưu nháp — khách kiểm dở, đóng máy, mở lại vẫn còn."""
     customer = get_portal_customer()
-    _dn_cua_khach(delivery_note, customer)
+    _dn_kiem_hang_cua_khach(delivery_note, customer)
     _chan_da_gui(delivery_note)
     if isinstance(dong, str):
         dong = frappe.parse_json(dong)
@@ -2670,7 +2670,7 @@ def portal_kiem_hang_gui(delivery_note, dong, ghi_chu=None) -> dict:
     doc = frappe.get_doc("Portal Delivery Inspection", ket_qua["name"])
     # Role `Customer` KHÔNG có DocPerm nào trên doctype này (Quyết định #7) —
     # cổng là chính endpoint này, đã tự kiểm sở hữu phiếu giao ở
-    # `_dn_cua_khach`. Không có cờ này thì `submit()` ném PermissionError cho
+    # `_dn_kiem_hang_cua_khach`. Không có cờ này thì `submit()` ném PermissionError cho
     # đúng người được phép gửi.
     doc.flags.ignore_permissions = True
     doc.submit()

@@ -20,6 +20,7 @@ import KhoaPhongList from './views/KhoaPhongList.vue'
 import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
 import ThongBao from './views/ThongBao.vue'
+import KiemHang from './views/KiemHang.vue'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
@@ -29,6 +30,11 @@ const routes = [
   { path: '/orders', name: 'orders', component: Orders, meta: { title: 'Đơn hàng của tôi' } },
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
+  // Kiểm hàng (E9) — CỐ Ý không nằm dưới /kho: màn này chạy cho MỌI khách,
+  // kể cả khách chưa mở kho. Khoá theo tên PHIẾU GIAO (không phải tên biên
+  // bản) vì đó là thứ khách có trong tay khi mở màn lần đầu, lúc chưa có
+  // biên bản nào tồn tại.
+  { path: '/kiem-hang/:dn', name: 'kiem-hang', component: KiemHang, meta: { title: 'Kiểm hàng' } },
   { path: '/kho', name: 'kho', component: Kho, meta: { title: 'Kho của tôi' } },
   { path: '/kho/import', name: 'kho-import', component: ImportTonDau, meta: { title: 'Nhập tồn đầu kỳ' } },
   { path: '/kho/vat-tu', name: 'kho-vat-tu', component: DanhMucVatTu, meta: { title: 'Danh mục vật tư' } },
