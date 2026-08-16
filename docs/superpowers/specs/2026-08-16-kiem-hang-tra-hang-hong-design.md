@@ -170,6 +170,53 @@ thiếu số.
 grand_total / outstanding_amount`. `OrderDetail.vue` hiện danh sách + nút tải
 PDF qua `portal_document_download` sẵn có. KHÔNG đụng `portal_invoices`.
 
+## 4b. Vai nhân viên (bổ sung 2026-08-16, chiều Desk)
+
+Yêu cầu: báo giá mua lẻ · xem biên bản kiểm hàng + lý do · nhập kho hàng trả
+về · báo khách hàng thiếu (giao bù / đổi ngày giao).
+
+**Đã có, không làm gì thêm:**
+- *Báo giá mua lẻ*: nhân viên điền `rate` trên Sales Order rồi bấm workflow
+  "Gửi khách duyệt" (`Sales Order - Client Portal`). Không cần nút riêng.
+- *Áp cho cả đơn hợp đồng khung*: toàn bộ luồng kiểm hàng khoá theo **phiếu
+  giao**, không bao giờ theo loại đơn. Điều kiện này đã đúng từ đầu.
+
+**QĐ-3. Hàng trả về vào kho «Hàng trả về» riêng, không lẫn tồn bán được.**
+`make_return_doc` chép nguyên kho của dòng gốc — bơm tiêm gãy kim quay lại
+đúng kho đang bán. Kho tạo theo TỪNG công ty (`kho_hang_tra_ve.py`,
+idempotent, gọi được cả lúc migrate lẫn lúc chạy) và phải CÙNG công ty với
+phiếu giao: site có hai pháp nhân. Không tìm được kho → `msgprint` cảnh báo
+và giữ kho gốc, **không** lặng lẽ ghi hàng hỏng vào tồn bán được.
+
+"Làm nhập kho và ghi nhận vào kho" của nhân viên CHÍNH LÀ việc **ghi sổ phiếu
+trả hàng nháp** — không có bước thứ hai. Ghi sổ xong biên bản tự sang
+"Đã thu hồi" (hook `dong_bo_trang_thai_thu_hoi`).
+
+**QĐ-4. `xu_ly_thieu` tách khỏi `trang_thai`.**
+Một biên bản có thể VỪA có hàng hỏng VỪA thiếu hàng. `trang_thai` thuộc về
+luồng trả hàng; ngay khi `kiem_hang_duyet_tra` đẩy nó sang "Đã duyệt trả",
+mọi cổng xử lý khoá theo `trang_thai` sẽ khoá luôn nửa "thiếu" — khách không
+bao giờ được trả lời. Hai việc khác nhau thì hai field.
+
+**QĐ-5. Hẹn lịch giao: một cơ chế, hai lối vào.**
+`portal_hen_giao.hen_giao_lai(order, ngay_moi, loai, ly_do)` ghi lên CHÍNH
+đơn hàng. Hai lối vào: nút trên Sales Order (Miyano biết thiếu hàng TRƯỚC khi
+giao) và nút trên biên bản (`kiem_hang_hen_giao`, trả lời phần giao thiếu).
+Một cơ chế vì với khách chỉ có một câu hỏi — "bao giờ tôi nhận được hàng"; hai
+đường ghi vào hai chỗ sẽ cho hai câu trả lời mà không gì buộc phải khớp.
+
+| Loại | `delivery_date` | Ý nghĩa |
+|---|---|---|
+| `Sẽ giao bù` | **giữ nguyên** | Ngày cam kết gốc là ngày Miyano đã lỡ — giữ nó là giữ đúng lịch sử |
+| `Đã đổi ngày giao` | đổi CẢ đơn **lẫn từng dòng** | Mọi báo cáo trễ hạn của ERPNext đọc `Sales Order Item.delivery_date`; đổi mỗi header để lại một đơn "trễ hạn" vĩnh viễn |
+
+Thông báo cho khách chống trùng theo (ĐƠN + LOẠI + NGÀY), không theo tên đơn:
+hẹn lại lần hai là đúng con số khách đang chờ.
+
+**QĐ-6. Đường đi Desk.** `delivery_note`/`sales_order` là Data nên Frappe
+không dựng "Connections". `doctype_js` cho `Sales Order` + `Delivery Note`
+thêm nút "Biên bản kiểm hàng"; biên bản có nút ngược lại cho cả ba chứng từ.
+
 ## 5. Quyền
 
 Theo Quyết định #7 của dự án: **không cấp DocPerm nào cho role `Customer`** trên
