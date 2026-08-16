@@ -21,6 +21,10 @@ from miyano_portal.portal_mua_le import (
     resolve_ban_le_company,
     trang_thai_hang,
 )
+from miyano_portal.portal_kiem_hang import (
+    bien_ban_cua_dn,
+    dong_tu_delivery_note,
+)
 from miyano_portal.portal_thong_bao import (
     bao_khach_sua_so_luong,
     bao_thieu_gia,
@@ -1165,6 +1169,59 @@ def portal_dashboard_kpi() -> dict:
     }
 
 
+def _kiem_hang_tom_tat(r) -> dict | None:
+    """Tóm tắt biên bản kiểm hàng cho một đợt giao, hoặc None nếu khách chưa
+    lập. Client dùng để chọn giữa nút "Kiểm hàng" và một badge trạng thái."""
+    if not r:
+        return None
+    return {
+        "name": r.name,
+        "trang_thai": r.trang_thai,
+        "co_hang_hong": bool(r.co_hang_hong),
+        "da_gui": int(r.docstatus) == 1,
+    }
+
+
+def _hoa_don_cua_don(order: str) -> list:
+    """Hoá đơn phát sinh từ CHÍNH đơn hàng này.
+
+    Khoảng trống đã nêu trong đối chiếu 2026-08-16: cổng có mốc "Hoá đơn"
+    bật/tắt và một trang Hoá đơn TOÀN CỤC, nhưng không có đường nào từ một
+    đơn tới hoá đơn của nó — khách phải tự dò. Nối qua `Sales Invoice Item.
+    sales_order`, đúng cách ERPNext ghi liên kết đó.
+
+    `docstatus < 2` — hoá đơn đã huỷ không còn là hoá đơn của đơn này.
+    KHÔNG đụng `portal_invoices` (hình dạng trả về của nó là hợp đồng API đã
+    có người dùng).
+    """
+    ten = frappe.get_all(
+        "Sales Invoice Item",
+        filters={"sales_order": order, "docstatus": ["<", 2]},
+        pluck="parent",
+    )
+    ten = list(dict.fromkeys(ten))
+    if not ten:
+        return []
+    rows = frappe.get_all(
+        "Sales Invoice",
+        filters={"name": ["in", ten], "docstatus": ["<", 2]},
+        fields=["name", "posting_date", "due_date", "status",
+                "grand_total", "outstanding_amount"],
+        order_by="posting_date asc",
+    )
+    return [
+        {
+            "name": r.name,
+            "ngay": r.posting_date,
+            "han_thanh_toan": r.due_date,
+            "trang_thai": r.status,
+            "tong_tien": float(r.grand_total or 0),
+            "con_no": float(r.outstanding_amount or 0),
+        }
+        for r in rows
+    ]
+
+
 @frappe.whitelist()
 def portal_order_track(order) -> dict:
     so = frappe.get_doc("Sales Order", order)
@@ -1222,6 +1279,18 @@ def portal_order_track(order) -> dict:
     # khác trong app — một kho đã tắt được coi như "không có kho" ở đây,
     # nhất quán với việc hook cũng ngừng tự sinh phiếu cho kho đó.
     kho = frappe.db.get_value("Customer Warehouse", {"customer": so.customer, "active": 1}, "name")
+    # Biên bản kiểm hàng — MỘT truy vấn cho cả danh sách (không hỏi từng
+    # phiếu trong vòng lặp bên dưới), cùng khuôn `dn_co_nhap`. KHÔNG phụ
+    # thuộc `kho`: biên bản chạy cho mọi khách, kể cả khách chưa mở kho.
+    bien_ban_by_dn = {}
+    if dn_names:
+        for r in frappe.get_all(
+            "Portal Delivery Inspection",
+            filters={"delivery_note": ["in", dn_names], "docstatus": ["<", 2]},
+            fields=["name", "delivery_note", "docstatus", "trang_thai", "co_hang_hong"],
+        ):
+            bien_ban_by_dn[r.delivery_note] = r
+
     receipts_by_dn = {}
     if kho and dn_names:
         for r in frappe.get_all(
@@ -1276,6 +1345,7 @@ def portal_order_track(order) -> dict:
             "carrier": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
             "co_hoa_don_nhap": dn_name in dn_co_nhap,
+            "kiem_hang": _kiem_hang_tom_tat(bien_ban_by_dn.get(dn_name)),
         }
         if receipt:
             row["so_dot"] = so_dot
@@ -1290,6 +1360,7 @@ def portal_order_track(order) -> dict:
             "van_chuyen": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
             "co_hoa_don_nhap": dn_name in dn_co_nhap,
+            "kiem_hang": _kiem_hang_tom_tat(bien_ban_by_dn.get(dn_name)),
         }
         if phieu_nhap:
             dot["phieu_nhap"] = phieu_nhap
@@ -1368,6 +1439,7 @@ def portal_order_track(order) -> dict:
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
+        "hoa_don": _hoa_don_cua_don(so.name),
     }
 
 
@@ -2335,6 +2407,17 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
             )
             return f"/orders/{so}" if so else None
 
+        if document_type == "Portal Delivery Inspection":
+            r = frappe.db.get_value(
+                "Portal Delivery Inspection", document_name,
+                ["customer", "delivery_note"], as_dict=True,
+            )
+            # `not r` gộp cả "biên bản không còn tồn tại" lẫn "của khách
+            # khác" — cùng khuôn nhánh Customer Stock Receipt bên dưới.
+            if not r or r.customer != customer:
+                return None
+            return f"/kiem-hang/{r.delivery_note}"
+
         if document_type == "Customer Stock Receipt":
             kho = frappe.db.get_value("Customer Stock Receipt", document_name, "kho")
             # `not kho` gộp CẢ HAI: chứng từ không tồn tại (ví dụ phiếu nháp
@@ -2430,4 +2513,169 @@ def portal_thong_bao_doc(name) -> dict:
         "doc_type": log.document_type,
         "doc_name": log.document_name,
         "link": link,
+    }
+
+
+# ------------------------------------------------------------ kiểm hàng (E9)
+# Thiết kế: docs/superpowers/specs/2026-08-16-kiem-hang-tra-hang-hong-design.md
+#
+# Ba endpoint dưới đây KHÔNG nhận `customer` từ client — suy từ phiên, rồi đối
+# chiếu với `customer` của CHÍNH Delivery Note đang được kiểm. `Portal Delivery
+# Inspection` không có DocPerm nào cho role `Customer` (Quyết định #7), nên mọi
+# thao tác đi qua đây với `ignore_permissions` sau khi đã tự kiểm sở hữu.
+
+
+def _dn_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
+    """Nạp phiếu giao và chứng minh nó thuộc khách đang đăng nhập.
+
+    Kiểm CẢ `docstatus == 1`: một phiếu giao còn nháp thì hàng chưa rời kho
+    Miyano, không có gì để kiểm; một phiếu đã huỷ thì đợt giao đó không tồn
+    tại nữa. Cho lập biên bản trên hai loại đó sẽ sinh ra chứng từ khiếu nại
+    về một lần giao hàng chưa/không hề xảy ra.
+    """
+    dn = frappe.db.get_value(
+        "Delivery Note", delivery_note,
+        ["name", "customer", "docstatus", "posting_date"], as_dict=True,
+    )
+    if not dn or dn.customer != customer:
+        # Gộp "không tồn tại" và "của khách khác" vào một câu trả lời — không
+        # để người gọi dò được sự tồn tại của chứng từ khách khác.
+        raise frappe.PermissionError("Phiếu giao này không thuộc đơn vị của bạn.")
+    if dn.docstatus != 1:
+        frappe.throw(
+            "Phiếu giao này chưa được ghi sổ hoặc đã huỷ.", frappe.ValidationError
+        )
+    return dn
+
+
+@frappe.whitelist()
+def portal_kiem_hang_get(delivery_note) -> dict:
+    """Mở màn kiểm hàng: trả biên bản đã có, hoặc một biên bản TRỐNG dựng sẵn
+    từ dòng hàng của phiếu giao (chưa lưu gì)."""
+    customer = get_portal_customer()
+    dn = _dn_cua_khach(delivery_note, customer)
+
+    bien_ban = bien_ban_cua_dn(delivery_note)
+    if bien_ban:
+        return {"delivery_note": delivery_note, "ngay_giao": dn.posting_date,
+                "bien_ban": bien_ban, "moi": False}
+    return {
+        "delivery_note": delivery_note,
+        "ngay_giao": dn.posting_date,
+        "moi": True,
+        "bien_ban": {
+            "name": None,
+            "delivery_note": delivery_note,
+            "trang_thai": "Nháp",
+            "da_gui": False,
+            "co_hang_hong": False,
+            "ly_do_tu_choi": None,
+            "phieu_tra_hang": None,
+            "ghi_chu": "",
+            "items": [
+                {**d, "sl_thieu": 0.0} for d in dong_tu_delivery_note(delivery_note)
+            ],
+        },
+    }
+
+
+def _ap_dong_tu_client(doc, dong, delivery_note: str) -> None:
+    """Ghi số liệu khách gửi lên vào `doc.items`.
+
+    Dòng và mốc `sl_giao` LUÔN dựng lại từ chính Delivery Note, KHÔNG lấy từ
+    payload: `sl_giao` là mốc đối chiếu: nhận nó từ client tức là để khách tự
+    khai mình được giao bao nhiêu, và mọi ràng buộc "không nhận thừa" trong
+    controller sẽ so với một con số do chính bên bị ràng buộc cung cấp. Client
+    chỉ được đóng góp ba giá trị: `sl_nhan`, `sl_tra`, `ly_do`.
+    """
+    gui = {}
+    for d in (dong or []):
+        ma = (d.get("item_code") or "").strip()
+        if ma:
+            gui[ma] = d
+
+    doc.items = []
+    for goc in dong_tu_delivery_note(delivery_note):
+        d = gui.get(goc["item_code"], {})
+        doc.append("items", {
+            "item_code": goc["item_code"],
+            "item_name": goc["item_name"],
+            "uom": goc["uom"],
+            "sl_giao": goc["sl_giao"],
+            "sl_nhan": frappe.utils.flt(d.get("sl_nhan", goc["sl_giao"])),
+            "sl_tra": frappe.utils.flt(d.get("sl_tra", 0)),
+            "ly_do": (d.get("ly_do") or "").strip()[:140],
+        })
+
+
+def _bien_ban_sua_duoc(delivery_note: str):
+    """Bản nháp còn sửa được của phiếu giao này, hoặc None."""
+    ten = frappe.db.get_value(
+        "Portal Delivery Inspection",
+        {"delivery_note": delivery_note, "docstatus": 0}, "name",
+    )
+    return frappe.get_doc("Portal Delivery Inspection", ten) if ten else None
+
+
+def _chan_da_gui(delivery_note: str) -> None:
+    da_gui = frappe.db.get_value(
+        "Portal Delivery Inspection",
+        {"delivery_note": delivery_note, "docstatus": 1}, "name",
+    )
+    if da_gui:
+        frappe.throw(
+            f"Phiếu giao này đã có biên bản {da_gui} đã gửi. Liên hệ Miyano "
+            "nếu cần chỉnh sửa.",
+            frappe.ValidationError,
+        )
+
+
+@frappe.whitelist()
+def portal_kiem_hang_luu(delivery_note, dong, ghi_chu=None) -> dict:
+    """Lưu nháp — khách kiểm dở, đóng máy, mở lại vẫn còn."""
+    customer = get_portal_customer()
+    _dn_cua_khach(delivery_note, customer)
+    _chan_da_gui(delivery_note)
+    if isinstance(dong, str):
+        dong = frappe.parse_json(dong)
+
+    doc = _bien_ban_sua_duoc(delivery_note)
+    if not doc:
+        doc = frappe.new_doc("Portal Delivery Inspection")
+        doc.customer = customer
+        doc.delivery_note = delivery_note
+        doc.sales_order = frappe.db.get_value(
+            "Delivery Note Item",
+            {"parent": delivery_note, "against_sales_order": ["is", "set"]},
+            "against_sales_order",
+        )
+    doc.ngay_kiem = frappe.utils.nowdate()
+    doc.nguoi_kiem = frappe.session.user
+    doc.trang_thai = "Nháp"
+    doc.ghi_chu = (ghi_chu or "").strip()[:500]
+    _ap_dong_tu_client(doc, dong, delivery_note)
+    doc.save(ignore_permissions=True)
+    return {"name": doc.name, "trang_thai": doc.trang_thai}
+
+
+@frappe.whitelist()
+def portal_kiem_hang_gui(delivery_note, dong, ghi_chu=None) -> dict:
+    """Gửi biên bản cho Miyano (submit).
+
+    Lưu rồi submit trong CÙNG một lời gọi — không tin vào một bản nháp đã lưu
+    từ trước: khách có thể mở hai tab, và bản nháp trên server có thể cũ hơn
+    những gì họ đang nhìn thấy lúc bấm Gửi.
+    """
+    ket_qua = portal_kiem_hang_luu(delivery_note, dong, ghi_chu)
+    doc = frappe.get_doc("Portal Delivery Inspection", ket_qua["name"])
+    # Role `Customer` KHÔNG có DocPerm nào trên doctype này (Quyết định #7) —
+    # cổng là chính endpoint này, đã tự kiểm sở hữu phiếu giao ở
+    # `_dn_cua_khach`. Không có cờ này thì `submit()` ném PermissionError cho
+    # đúng người được phép gửi.
+    doc.flags.ignore_permissions = True
+    doc.submit()
+    return {
+        "name": doc.name,
+        "trang_thai": doc.trang_thai,
+        "co_hang_hong": bool(doc.co_hang_hong),
     }

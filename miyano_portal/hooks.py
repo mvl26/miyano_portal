@@ -303,7 +303,13 @@ doc_events = {
 	# hook này chạy thì Delivery Note đã ghi sổ kho ERPNext, đã ghi GL Entry,
 	# và đã có bundle lô do ERPNext tự sinh từ `batch_no`.
 	"Delivery Note": {
-		"on_submit": "miyano_portal.kho.delivery_hook.on_delivery_note_submit",
+		"on_submit": [
+			"miyano_portal.kho.delivery_hook.on_delivery_note_submit",
+			# Kiểm hàng (2026-08-16): phiếu TRẢ HÀNG được ghi sổ → biên bản
+			# kiểm hàng sinh ra nó chuyển sang "Đã thu hồi". Cùng ràng buộc
+			# tuyệt đối như hook ngay trên: không bao giờ ném lỗi ra ngoài.
+			"miyano_portal.portal_kiem_hang.dong_bo_trang_thai_thu_hoi",
+		],
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
 		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
 		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
