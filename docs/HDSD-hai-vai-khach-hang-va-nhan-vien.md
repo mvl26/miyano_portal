@@ -1,0 +1,647 @@
+# Hướng dẫn sử dụng — Cổng khách hàng & Desk nhân viên Miyano
+
+App `miyano_portal` · Cập nhật **16/08/2026**
+
+Tài liệu này mô tả **toàn bộ luồng nghiệp vụ và thao tác trên màn hình** cho hai
+vai:
+
+| Vai | Làm ở đâu | Phần |
+|---|---|---|
+| **Khách hàng** (bệnh viện, phòng xét nghiệm…) | Cổng khách hàng `/portal` | [A](#a--vai-khách-hàng) |
+| **Nhân viên Miyano** (sales, kho, kế toán) | Desk ERPNext `/app` | [B](#b--vai-nhân-viên-miyano) |
+
+Kèm theo: [C. Bảng tra trạng thái](#c--bảng-tra-trạng-thái) ·
+[D. Sự cố thường gặp](#d--sự-cố-thường-gặp) ·
+[E. Hệ thống cố ý KHÔNG làm](#e--hệ-thống-cố-ý-không-làm)
+
+**Địa chỉ môi trường thử nghiệm**
+
+- Cổng khách hàng: <http://192.168.61.129:8003/portal>
+- Desk nhân viên: <http://192.168.61.129:8003/app>
+
+> Tài liệu bổ trợ: `HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md` — cách **tạo
+> khách hàng, cấp tài khoản cổng và mở kho**. Tài liệu bạn đang đọc giả định các
+> việc đó đã xong.
+
+---
+
+## Bản đồ toàn cảnh — một đơn hàng đi qua đâu
+
+```
+KHÁCH                                        MIYANO (Desk)
+─────                                        ─────────────
+Đặt hàng ─────────────────────────────────►  Đơn về "Chờ xác nhận"
+   │                                              │
+   │  (mua lẻ)                                    ├─ điền đơn giá
+   │                                              ├─ khớp mã hàng khách gõ tay
+   │  ◄──────── báo giá ──────────────────────────┘  bấm "Gửi khách duyệt"
+   │
+   ├─ Đồng ý ─────────────────────────────►  "Chờ Miyano xác nhận" → Xác nhận
+   ├─ Sửa số lượng → xin báo giá lại ─────►  quay lại "Chờ xác nhận"
+   └─ Huỷ đơn ────────────────────────────►  "Khách huỷ" (mở lại được)
+                                                  │
+                                                  ├─ Lập phiếu giao (Delivery Note)
+   ◄────────── hàng tới ──────────────────────────┤
+   │                                              └─ Lập hoá đơn (Sales Invoice)
+   ├─ Kiểm hàng: nhận đủ / thiếu / hỏng
+   │      │
+   │      ├─ có hàng hỏng ──────────────►  Duyệt trả hàng → phiếu trả (nháp)
+   │      │                                       └─ Kho ghi sổ = NHẬP KHO
+   │      │   ◄──── "Đã thu hồi" ─────────────────┘
+   │      │
+   │      └─ có hàng thiếu ─────────────►  Hẹn lịch giao (giao bù / đổi ngày)
+   │          ◄──── lời hẹn hiện trên trang đơn ──┘
+   │
+   └─ Xem hoá đơn của đơn · thanh toán
+```
+
+---
+
+# A — VAI KHÁCH HÀNG
+
+## A0. Đăng nhập và bố cục màn hình
+
+Vào `/portal` → nhập email + mật khẩu đã được Miyano cấp.
+
+Menu bên trái (trên điện thoại nằm ở thanh dưới):
+
+| Mục | Dùng để |
+|---|---|
+| 🏠 **Tổng quan** | Nhìn nhanh tình hình: đơn, công nợ, hợp đồng |
+| 🛒 **Đặt hàng** | Chọn hàng, hai chế độ |
+| 📦 **Giỏ hàng** | Xem lại và gửi đơn |
+| 📋 **Đơn hàng của tôi** | Theo dõi, xem chi tiết, kiểm hàng |
+| 🏭 **Kho của tôi** | Quản lý kho nội bộ *(chỉ khách đã mở kho)* |
+| 🧾 **Hoá đơn & công nợ** | Hoá đơn, hạn thanh toán, hoá đơn điện tử |
+| 🔔 **Thông báo** | Việc mới, có số đỏ khi chưa đọc |
+| 🏥 **Hồ sơ đơn vị** | Thông tin đơn vị, địa chỉ, hợp đồng |
+
+> **Phân trang**: mọi danh sách đều có ô chọn **10 / 20 / 50** dòng mỗi trang ở
+> cuối bảng. Lựa chọn của bạn được nhớ lại cho lần sau.
+
+---
+
+## A1. Tổng quan
+
+Bốn ô số ở đầu trang:
+
+- **Đơn chờ xác nhận** — Miyano chưa chốt
+- **Đơn đang giao**
+- **Hoá đơn chưa thanh toán**
+- **Tổng công nợ**
+
+Bên dưới: **5 đơn gần nhất** (bấm vào dòng để mở chi tiết) và danh sách **hợp
+đồng khung còn hiệu lực** kèm % hạn mức đã dùng. Bấm *"Đặt hàng theo hợp đồng
+này →"* để nhảy thẳng sang màn Đặt hàng với hợp đồng đó được chọn sẵn.
+
+---
+
+## A2. Đặt hàng — hai chế độ
+
+Đầu trang có bộ chuyển hai ngăn:
+
+### A2.1 Ngăn "Theo hợp đồng khung"
+
+Dùng khi mặt hàng **nằm trong hợp đồng đã ký**.
+
+1. Chọn hợp đồng (nếu có nhiều).
+2. Bảng hiện các mặt hàng **thuộc hợp đồng đó**, kèm **đơn giá đã ký** và **hạn
+   mức còn lại**.
+3. Gõ số lượng → **Thêm vào giỏ**.
+
+Ràng buộc:
+- Vượt hạn mức còn lại → chặn ngay, kèm số còn lại cụ thể.
+- Một số mặt hàng có **bội số đặt hàng** (ví dụ chỉ đặt theo bội của 10) — sai
+  bội số sẽ bị chặn kèm gợi ý số hợp lệ.
+- Mặt hàng **ngoài hợp đồng không hiện ở ngăn này** — đó là mục đích của ngăn
+  Mua lẻ.
+
+### A2.2 Ngăn "Mua lẻ"
+
+Dùng khi cần mặt hàng **ngoài hợp đồng**.
+
+1. Gõ từ khoá vào thanh tìm kiếm → hệ thống tìm trong **toàn bộ danh mục vật tư
+   của Miyano**.
+2. **Không hiển thị giá** ở bước này — giá do Miyano báo sau (mục A4).
+3. Bấm **Thêm vào giỏ**.
+
+**Nếu không tìm thấy mặt hàng cần:** cuộn xuống khối *"Hàng chưa có trong danh
+mục"* và tự gõ:
+
+| Ô | Ví dụ |
+|---|---|
+| Tên hàng | Kẹp mạch máu cỡ S |
+| Đơn vị tính | Cái |
+| Số lượng | 20 |
+| Ghi chú | hãng nào cũng được, cần trước 25/08 |
+
+Miyano có trách nhiệm tìm nguồn và báo lại. **Bạn không cần biết Miyano đang có
+gì trong kho.**
+
+Hai lưu ý:
+- Ngăn Mua lẻ chỉ hiện khi đơn vị bạn **đã được Miyano bật chế độ mua lẻ**. Chưa
+  thấy ngăn này → liên hệ nhân viên kinh doanh.
+- Mặt hàng **đang nằm trong hợp đồng khung còn hiệu lực** sẽ báo *"Có trong hợp
+  đồng khung — đặt ở chế độ Theo hợp đồng khung"* và không cho mua lẻ. Đây là
+  chốt chống lách hạn mức hợp đồng.
+
+---
+
+## A3. Giỏ hàng và gửi đơn
+
+Giỏ có **hai ngăn riêng biệt** vì hai chế độ đi thành **hai đơn khác nhau**:
+
+| | Theo hợp đồng khung | Mua lẻ |
+|---|---|---|
+| Hiện giá, thành tiền, VAT | ✔ | ✘ (chưa có giá) |
+| Nút gửi | *Xác nhận đặt hàng →* | *Xác nhận đặt đơn MUA LẺ →* |
+| Sau khi gửi | Chờ Miyano xác nhận | Chờ Miyano **báo giá** |
+
+Trong mỗi ngăn: sửa số lượng trực tiếp, **Xoá dòng**, chọn **địa chỉ giao** và
+**ngày giao mong muốn**.
+
+Trước khi gửi cần điền:
+- **Địa chỉ giao hàng** (chọn từ danh sách địa chỉ của đơn vị)
+- **Ngày giao mong muốn** — hệ thống chặn ngày quá gần / quá khứ
+- **Số PO của bên bạn** (không bắt buộc)
+
+Gửi xong màn hình hiện mã đơn và nút **Xem đơn hàng**.
+
+> Bấm nút gửi hai lần (mạng chậm, lỡ tay) **không** tạo hai đơn — hệ thống nhận
+> ra và trả về đúng đơn đã tạo.
+
+---
+
+## A4. Xem báo giá và trả lời (đơn mua lẻ)
+
+Khi Miyano báo giá xong, bạn nhận **thông báo** và đơn chuyển sang trạng thái
+**"Chờ bạn đồng ý"**. Mở đơn, đầu trang có khối màu cam:
+
+> ⏳ **Báo giá hiệu lực đến 23/08/2026.**
+
+Bảng hàng lúc này **đã có đơn giá và thành tiền**. Ba lựa chọn:
+
+| Nút | Kết quả |
+|---|---|
+| **Đồng ý đặt hàng** | Đơn chuyển sang Miyano xác nhận rồi đưa vào giao hàng |
+| **Sửa số lượng…** | Bạn nhập số lượng mới từng dòng → **Gửi lại để báo giá**. Miyano báo giá lại từ đầu |
+| **Huỷ đơn…** | **Huỷ thật**, cần nêu lý do. Đơn đóng lại, hai bên nhận email |
+
+Ba điều cần biết:
+- **"Gửi lại để báo giá" xoá sạch đơn giá cũ** — đơn quay về chờ Miyano báo lại.
+  Vì vậy nút này có bước xác nhận, không bấm nhầm được.
+- Quá **hạn hiệu lực** mà chưa trả lời → đơn tự chuyển "Báo giá hết hạn". Muốn
+  mua tiếp thì báo nhân viên kinh doanh mở lại.
+- Tải **PDF báo giá** bằng nút ⬇ trong khối báo giá.
+
+---
+
+## A5. Theo dõi đơn hàng
+
+**Đơn hàng của tôi** → danh sách, lọc theo trạng thái, phân trang 10/20/50 →
+**Chi tiết**.
+
+Trang chi tiết gồm:
+
+**Tiến trình 5 mốc** — Đặt hàng → Xác nhận → Soạn hàng → Giao hàng → Hoá đơn.
+Mốc đã qua tô xanh.
+
+**Bảng hàng hoá** — mã, tên, ĐVT, SL đặt, đã giao, đơn giá, thành tiền.
+
+**Khối "Đang chờ Miyano xác nhận nguồn"** — các dòng bạn tự gõ tay mà Miyano
+chưa tìm được mã hàng tương ứng.
+
+**Khối Giao hàng** — mỗi đợt giao là một mục:
+
+- Số phiếu giao, ngày, % của đơn, hãng vận chuyển, số vận đơn
+- Nút ⬇ **Phiếu giao đợt n**
+- **Kiểm hàng đợt này** (hoặc badge trạng thái nếu đã kiểm) — xem A6
+- *Phiếu nhập kho* — chỉ hiện nếu đơn vị bạn đã mở kho
+- *Hoá đơn nháp* — bấm ▸ để xem nội dung hoá đơn điện tử trước khi phát hành
+
+**Khối "Miyano đã hẹn lại"** *(nếu có)* — hiện khi Miyano báo chưa đủ hàng:
+
+> 🟠 **Sẽ giao bù** — Dự kiến giao 21/08/2026
+> *Giao bù 1 hộp thay thế hàng hỏng, hàng về kho ngày 21/08*
+
+Khối này **tự biến mất** khi Miyano đã giao đợt tiếp theo.
+
+**Khối "Hoá đơn của đơn này"** — danh sách hoá đơn phát sinh từ chính đơn này,
+kèm số tiền, còn nợ, hạn thanh toán và nút ⬇ PDF.
+
+Cuối trang: ⬇ **PDF đơn hàng** · 🔁 **Đặt lại đơn này** (chép toàn bộ dòng hàng
+sang giỏ mới).
+
+---
+
+## A6. Kiểm hàng khi nhận — nhận một phần, trả lại phần hỏng
+
+**Áp dụng cho mọi đơn** (hợp đồng khung lẫn mua lẻ) và **mọi khách hàng**, kể cả
+đơn vị chưa mở kho.
+
+Vào chi tiết đơn → khối Giao hàng → **Kiểm hàng đợt này**.
+
+Màn hình hiện bảng đối chiếu, **mặc định là "nhận đủ"** — nếu hàng về đủ và tốt,
+bạn chỉ cần bấm Gửi.
+
+| Cột | Ý nghĩa |
+|---|---|
+| **SL giao** | Số Miyano ghi trên phiếu giao (không sửa được) |
+| **Nhận tốt** | Số bạn nhận và dùng được |
+| **Hỏng, trả lại** | Số hàng hỏng, bạn muốn Miyano thu hồi |
+| **Thiếu** | Tự tính = SL giao − Nhận tốt − Hỏng. Là phần **không tới nơi** |
+| **Lý do** | Bắt buộc khi có chênh lệch |
+
+**Ví dụ:** giao 10 hộp, 6 hộp tốt, 3 hộp vỡ, 1 hộp không thấy đâu
+→ Nhận tốt `6`, Hỏng trả lại `3`, cột Thiếu tự hiện `1`, lý do *"3 hộp vỡ khi
+vận chuyển, thiếu 1 hộp"*.
+
+Hai nút:
+
+- **Lưu nháp** — kiểm dở, đóng máy, mở lại vẫn còn
+- **Gửi biên bản** — có hộp xác nhận trước khi gửi. **Gửi xong không sửa được nữa**
+
+Lỗi hiện **ngay tại dòng sai**, màu đỏ, và nút Gửi mờ đi cho tới khi sửa xong.
+
+### Sau khi gửi
+
+| Trạng thái | Nghĩa là |
+|---|---|
+| **Đã xác nhận** | Bạn nhận đủ — đóng luôn, không làm phiền ai |
+| **Chờ xử lý** | Có hỏng và/hoặc thiếu, Miyano đang xem |
+| **Đã duyệt trả** | Miyano đồng ý thu hồi, bộ phận giao nhận sẽ liên hệ |
+| **Đã thu hồi** | Hàng hỏng đã về kho Miyano |
+| **Từ chối** | Miyano không chấp nhận — **lý do hiện ngay đầu màn hình** |
+| **Đã xử lý** | Miyano đã xử lý xong phần thiếu |
+
+**Bị từ chối thì làm gì?** Màn hình hiện nút **"Kiểm lại và gửi biên bản mới"**.
+Bấm vào, bảng trở về trắng để bạn đếm lại và gửi lần nữa. Biên bản cũ được giữ
+nguyên làm lịch sử trao đổi.
+
+**Phần hàng thiếu** được trả lời riêng, hiện thành khối *"Hàng thiếu — Miyano đã
+trả lời"* kèm hình thức (Sẽ giao bù / Đã đổi ngày giao) và ngày hẹn.
+
+---
+
+## A7. Kho của tôi *(chỉ đơn vị đã mở kho)*
+
+Tám mục con:
+
+| Mục | Dùng để |
+|---|---|
+| **Phiếu nhập** | Nhận hàng vào kho. Phiếu từ đơn Miyano **tự sinh sẵn ở dạng nháp**, bạn chỉ đối chiếu rồi ghi sổ |
+| **Phiếu xuất** | Cấp phát cho khoa phòng |
+| **Danh mục vật tư** | Vật tư nội bộ của đơn vị, có nhập từ Excel |
+| **Nhập tồn đầu kỳ** | Nạp tồn ban đầu bằng Excel |
+| **Báo cáo** | Nhập – Xuất – Tồn theo khoảng thời gian |
+| **Nhật ký vật tư** | Thẻ kho từng mặt hàng |
+| **NCC của tôi** | Nhà cung cấp khác ngoài Miyano |
+| **Khoa phòng** | Danh mục đơn vị nhận hàng nội bộ |
+
+Ràng buộc khi ghi sổ phiếu nhập từ đơn Miyano:
+- **Thực nhận không được vượt SL giao.** Nhận thừa thật thì lập phiếu "Nhập khác"
+  riêng.
+- Lệch so với SL giao → **bắt buộc nhập lý do**, và nhân viên Miyano nhận cảnh báo.
+- Lô đã hết hạn → chặn xuất, trừ khi tick xác nhận.
+
+> **Phiếu nhập kho** và **Biên bản kiểm hàng** (A6) là **hai việc khác nhau**:
+> phiếu nhập ghi sổ tồn kho *nội bộ của bạn*; biên bản kiểm hàng là *cuộc trao
+> đổi với Miyano* về đợt giao. Hai chứng từ không tự đồng bộ số liệu cho nhau.
+
+---
+
+## A8. Hoá đơn & công nợ
+
+Danh sách hoá đơn kèm: ngày, số tiền, còn nợ, hạn thanh toán, trạng thái.
+
+Đầu trang có hai cảnh báo tính trên **toàn bộ** hoá đơn còn nợ (không chỉ trang
+đang xem): **tổng quá hạn thanh toán** và **số hoá đơn sắp đến hạn (0–7 ngày)**.
+
+Nút ⬇ **Bản in** để tải hoá đơn. Với hoá đơn điện tử đã phát hành, tải được cả
+**PDF và XML**.
+
+---
+
+## A9. Thông báo
+
+Chuông 🔔 có số đỏ = số thông báo chưa đọc. Mỗi dòng có **nút đi thẳng tới chứng
+từ liên quan**.
+
+Các loại thông báo bạn sẽ nhận:
+
+| Thông báo | Bấm vào đi tới |
+|---|---|
+| Báo giá đã sẵn sàng | Chi tiết đơn |
+| Đơn được xác nhận / bị từ chối | Chi tiết đơn |
+| Miyano vừa giao hàng | Chi tiết đơn (hoặc phiếu nhập kho) |
+| Kiểm hàng: đã duyệt trả / đã thu hồi / từ chối | Màn kiểm hàng của đợt giao đó |
+| Hẹn lịch giao mới | Chi tiết đơn |
+
+---
+
+## A10. Hồ sơ đơn vị
+
+Thông tin đơn vị, mã số thuế, địa chỉ giao hàng, người liên hệ và danh sách hợp
+đồng khung. Cần sửa thông tin → liên hệ nhân viên kinh doanh Miyano.
+
+---
+
+# B — VAI NHÂN VIÊN MIYANO
+
+Làm trên **Desk ERPNext** (`/app`). Vai trò cần: `Sales User`, `Sales Manager`
+hoặc `System Manager` tuỳ thao tác.
+
+## B1. Nhận đơn từ cổng
+
+Đơn khách gửi lên là một **Sales Order** ở trạng thái **"Chờ xác nhận"**.
+
+Vào **Sales Order** → lọc `Trạng thái workflow = Chờ xác nhận`. Phân biệt hai loại
+bằng cột **Loại đơn**:
+
+| Loại đơn | Nghĩa | Việc phải làm |
+|---|---|---|
+| **Theo HĐNT** | Trong hợp đồng khung, **đã có giá** | Kiểm rồi xác nhận |
+| **Mua lẻ** | Ngoài hợp đồng, **chưa có giá** | Báo giá trước (B2) |
+
+Báo cáo hỗ trợ: **Đơn chậm xử lý** (quá SLA) và **Demand pipeline yêu cầu hàng
+hoá**.
+
+---
+
+## B2. Báo giá đơn mua lẻ
+
+> Đây là câu trả lời cho *"báo giá cho khách hàng khi khách mua lẻ vật tư không
+> có trong hợp đồng"*.
+
+Mở đơn Mua lẻ, làm ba việc rồi bấm một nút:
+
+**1. Điền đơn giá** cho từng dòng trong bảng `Items`.
+
+**2. Xử lý bảng "Dòng đặt ngoài (chưa có trong danh mục)"** — đây là những mặt
+hàng khách **tự gõ tay** vì không tìm thấy trong danh mục:
+
+- Tìm được mã hàng tương ứng → điền vào cột **Mã hàng khớp**, rồi **tự thêm một
+  dòng `Items`** tương ứng kèm đơn giá. Hệ thống *không* tự thêm hộ.
+- Không đáp ứng được → vẫn phải đánh dấu đã xử lý, và nên ghi chú lý do.
+
+**3. Gỡ dòng giữ chỗ `HANG-DAT-NGOAI`** nếu còn. Dòng này chỉ để giữ đơn đứng
+được khi khách đặt toàn hàng chưa có mã; khách không bao giờ nhìn thấy nó.
+
+**4. Bấm nút workflow "Gửi khách duyệt"** (góc trên bên phải).
+
+Đơn chuyển sang **"Chờ khách đồng ý"**, khách nhận thông báo và email kèm **PDF
+báo giá**.
+
+Bốn chốt chặn sẽ báo lỗi nếu bỏ sót:
+
+| Lỗi báo ra | Nghĩa |
+|---|---|
+| Còn dòng đặt ngoài chưa xử lý | Chưa khớp mã hoặc chưa đánh dấu |
+| Còn dòng `HANG-DAT-NGOAI` | Chưa gỡ dòng giữ chỗ |
+| Thiếu giá | Có dòng đơn giá = 0 |
+| Khách chưa được bật mua lẻ | Đơn vị chưa bật cờ Mua lẻ |
+
+### Khách trả lời thế nào
+
+| Khách bấm | Đơn chuyển sang | Bạn làm gì |
+|---|---|---|
+| Đồng ý | **Chờ Miyano xác nhận** | Bấm **Xác nhận** |
+| Sửa số lượng → gửi lại | **Chờ xác nhận** | Báo giá lại (giá cũ đã bị xoá) |
+| Huỷ đơn | **Khách huỷ** | Bấm **Mở lại** nếu khách đổi ý |
+| Không trả lời quá hạn | **Báo giá hết hạn** | Bấm **Mở lại** |
+
+---
+
+## B3. Xác nhận đơn và giao hàng
+
+**Xác nhận**: mở đơn ở "Chờ Miyano xác nhận" → nút **Xác nhận**. Đơn được Submit,
+khách thấy mốc "Xác nhận" sáng lên.
+
+**Giao hàng**: từ đơn đã xác nhận → *Create → Delivery Note*. Điền kho xuất, lô
+(nếu vật tư quản lý theo lô), hãng vận chuyển, số vận đơn → **Submit**.
+
+Ngay khi Submit:
+- Khách thấy đợt giao mới trên chi tiết đơn, có nút tải phiếu giao và nút **Kiểm
+  hàng đợt này**
+- Nếu khách **đã mở kho**: hệ thống tự sinh **Phiếu nhập kho nháp** trong kho của
+  khách và gửi thông báo
+
+**Hoá đơn**: từ đơn → *Create → Sales Invoice* → Submit. Nếu bật module hoá đơn
+điện tử, chứng từ HĐĐT được lập tự động và khách xem được bản nháp trước khi phát
+hành.
+
+---
+
+## B4. Xem biên bản kiểm hàng của khách
+
+> Đây là câu trả lời cho *"tôi muốn thấy được phiếu kiểm hàng, lý do nhận 1 phần,
+> lý do trả lại của khách hàng"*.
+
+**Ba đường vào:**
+
+1. Thông báo *"Portal - Kiểm hàng có vấn đề"* → bấm thẳng vào biên bản
+2. Từ **Sales Order** hoặc **Delivery Note** → nút **Miyano → Biên bản kiểm hàng**
+3. Danh sách **Biên bản kiểm hàng** (`Portal Delivery Inspection`), lọc theo
+   khách / trạng thái / "Có hàng hỏng cần trả"
+
+Trên biên bản, bảng **Chi tiết kiểm nhận** hiện đầy đủ, không phải bung dòng:
+
+| Cột | |
+|---|---|
+| Mã hàng · Tên hàng | |
+| **SL giao** | Miyano ghi trên phiếu giao |
+| **Nhận tốt** | Khách nhận được và dùng được |
+| **Hỏng, trả lại** | Khách đề nghị thu hồi |
+| **Lý do** | **Lý do khách nêu cho từng dòng** |
+
+Phần chênh còn lại (SL giao − Nhận tốt − Hỏng) là **hàng thiếu**. Ghi chú chung
+của khách nằm ở ô **Ghi chú của khách**.
+
+Nút **Chứng từ** dẫn sang Phiếu giao / Đơn hàng / Phiếu trả hàng liên quan.
+
+---
+
+## B5. Xử lý HÀNG HỎNG — duyệt trả và nhập kho
+
+Nhóm nút **Hàng hỏng** (chỉ hiện khi biên bản đang **Chờ xử lý**):
+
+### Duyệt trả hàng
+
+Bấm → xác nhận → hệ thống lập **phiếu giao ngược (Delivery Note, `is_return`) ở
+dạng NHÁP**:
+
+- Chỉ chứa các mặt hàng khách báo hỏng, số lượng **âm** đúng phần hỏng
+- Số lượng được **phân bổ qua nhiều dòng** nếu mặt hàng đó xuất từ nhiều lô
+- Kho nhận = **«Hàng trả về»** của đúng công ty trên phiếu giao gốc
+
+Biên bản chuyển sang **Đã duyệt trả**, khách nhận thông báo.
+
+### Ghi sổ phiếu trả hàng = NHẬP KHO
+
+> **Không có chứng từ thứ hai.** Việc ghi sổ phiếu trả hàng *chính là* bước nhập
+> kho.
+
+1. Mở phiếu trả hàng nháp (nút **Chứng từ → Phiếu trả hàng**)
+2. Kho kiểm hàng thực nhận, sửa số lượng / lô nếu lệch
+3. Đổi kho nếu hàng thực ra vẫn dùng tốt — mặc định là «Hàng trả về»
+4. **Submit**
+
+Ngay khi Submit:
+- Tồn kho **«Hàng trả về»** tăng lên
+- Tồn kho **bán được không đổi** — hàng hỏng không lẫn vào hàng bán
+- Biên bản tự chuyển **Đã thu hồi**, khách nhận thông báo
+
+> **Vì sao có kho riêng:** trước đây phiếu trả hàng ghi thẳng về kho đang bán,
+> tức bơm tiêm gãy kim quay lại đúng kho để bán cho bệnh viện tiếp theo. Với vật
+> tư y tế đây không phải chi tiết kế toán.
+
+### Từ chối
+
+Bấm **Từ chối biên bản** → **bắt buộc nêu lý do** (khách đọc đúng dòng đó).
+
+Sau khi từ chối, khách **được phép kiểm lại và gửi biên bản mới**. Biên bản bị từ
+chối giữ nguyên làm lịch sử.
+
+Không từ chối được nếu bạn **đã hứa lịch giao** cho phần thiếu trên biên bản đó —
+hệ thống chặn để không để lại một cam kết mồ côi trên đơn hàng.
+
+---
+
+## B6. Xử lý HÀNG THIẾU — hẹn lịch giao
+
+> Đây là câu trả lời cho *"khi chưa có hàng tôi muốn thông báo lại cho khách hàng
+> về hàng thiếu và sẽ vận chuyển sau hoặc đổi ngày giao hàng"*.
+
+Nhóm nút **Hàng thiếu** hiện khi biên bản có dòng thiếu và **chưa được trả lời**.
+Nhóm này **độc lập với luồng trả hàng** — một biên bản vừa có hàng hỏng vừa thiếu
+hàng thì xử lý được cả hai, theo thứ tự bất kỳ.
+
+### Hẹn lịch giao
+
+Bấm → điền ba ô:
+
+| Ô | |
+|---|---|
+| **Hình thức** | *Sẽ giao bù* hoặc *Đã đổi ngày giao* |
+| **Ngày hẹn giao** | Không nhận ngày quá khứ |
+| **Lý do** | Tối thiểu 5 ký tự — **khách đọc đúng dòng này** |
+
+Khác biệt giữa hai hình thức:
+
+| | Ngày giao của đơn | Dùng khi |
+|---|---|---|
+| **Sẽ giao bù** | **Giữ nguyên** | Miyano lỡ hẹn, giao phần còn lại sau. Giữ ngày gốc là giữ đúng lịch sử |
+| **Đã đổi ngày giao** | **Dời cả đơn lẫn từng dòng** | Hai bên thoả thuận lại lịch |
+
+> Đổi ngày phải đổi **cả từng dòng**, không chỉ tiêu đề — mọi báo cáo giao hàng
+> trễ của ERPNext đọc ngày ở dòng. Hệ thống làm việc này giúp bạn.
+
+Kết quả: lời hẹn ghi lên **chính đơn hàng**, khách thấy khối cam trên trang đơn và
+nhận thông báo. Khối này **tự tắt** khi bạn giao đợt tiếp theo.
+
+### Đóng, không giao bù
+
+Dùng khi phần thiếu được xử lý ngoài hệ thống (giảm trừ công nợ, khách bỏ qua…).
+Ghi chú gửi khách không bắt buộc.
+
+---
+
+## B7. Hẹn lịch giao khi CHƯA giao hàng
+
+Trường hợp Miyano biết trước là chưa gom đủ hàng, **không cần đợi khách kiểm hàng**.
+
+Mở **Sales Order** đã xác nhận → nút **Miyano → Hẹn lịch giao mới** → điền đúng ba
+ô như B6.
+
+Cùng một cơ chế, cùng chỗ ghi, cùng thông báo. Khách chỉ có một câu hỏi — *"bao
+giờ tôi nhận được hàng?"* — nên chỉ có một chỗ trả lời.
+
+Hẹn lại nhiều lần được: **mỗi lần hẹn là một thông báo riêng** gửi cho khách.
+
+---
+
+## B8. Báo cáo
+
+| Báo cáo | Trả lời câu hỏi |
+|---|---|
+| **Đơn chậm xử lý** | Đơn nào quá SLA chưa ai đụng tới |
+| **Demand pipeline yêu cầu hàng hoá** | Khách đang cần gì mà Miyano chưa có |
+| **Đối soát giao nhận** | Đợt giao nào khách ghi nhận lệch số |
+| **Tồn kho khách hàng** | Khách còn bao nhiêu hàng |
+| **Nhập-Xuất-Tồn khách hàng** | Biến động kho khách theo kỳ |
+| **Tiêu thụ và đề xuất dự trù** | Khách nên đặt gì, bao nhiêu |
+| **Cảnh báo hạn dùng khách hàng** | Lô nào sắp hết hạn ở kho khách |
+| **Cấp phát theo khoa phòng** | Khoa nào dùng nhiều |
+| **Tỷ trọng nguồn cung** | Bao nhiêu % khách mua từ Miyano |
+| **Chất lượng dữ liệu kho khách** | Dòng thiếu lô/hạn cần bổ sung |
+
+---
+
+# C — Bảng tra trạng thái
+
+## C1. Đơn hàng
+
+| Trạng thái | Ai đang giữ việc | Bước tiếp |
+|---|---|---|
+| Chờ xác nhận | Miyano | Báo giá (mua lẻ) hoặc gửi duyệt |
+| Chờ khách đồng ý | **Khách** | Khách đồng ý / sửa SL / huỷ |
+| Chờ Miyano xác nhận | Miyano | Bấm Xác nhận |
+| Đã xác nhận | Miyano | Lập phiếu giao |
+| Từ chối | — | Đơn đóng |
+| Khách huỷ | — | Mở lại được |
+| Báo giá hết hạn | — | Mở lại được |
+
+## C2. Biên bản kiểm hàng
+
+| `Trạng thái` (luồng trả hàng) | | `Xử lý hàng thiếu` (độc lập) | |
+|---|---|---|---|
+| Chờ xử lý | Miyano đang xem | *(trống)* | Chưa trả lời khách |
+| Đã xác nhận | Khách nhận đủ, đóng | Sẽ giao bù | Giữ ngày gốc, hẹn giao phần còn lại |
+| Đã duyệt trả | Đã lập phiếu trả nháp | Đã đổi ngày giao | Dời hẳn ngày giao của đơn |
+| Đã thu hồi | Phiếu trả đã ghi sổ | Không giao bù | Đóng, xử lý ngoài hệ thống |
+| Từ chối | Khách gửi lại được | | |
+| Đã xử lý | Chỉ thiếu hàng, đã đóng | | |
+
+**Hai cột này độc lập.** Một biên bản có thể đồng thời ở *Đã duyệt trả* (hàng
+hỏng) và *Sẽ giao bù* (hàng thiếu).
+
+---
+
+# D — Sự cố thường gặp
+
+| Hiện tượng | Nguyên nhân | Xử lý |
+|---|---|---|
+| Khách không thấy ngăn **Mua lẻ** | Chưa bật cờ mua lẻ cho khách | Desk → Customer → bật "Cho phép mua lẻ" |
+| *"Có trong hợp đồng khung"* khi mua lẻ | Chống lách hạn mức hợp đồng | Đặt ở ngăn Theo hợp đồng khung |
+| Không xác nhận được đơn | Còn dòng đặt ngoài chưa xử lý, hoặc còn dòng `HANG-DAT-NGOAI` | Xem B2 |
+| Khách bấm Kiểm hàng báo *"chưa ghi sổ hoặc đã huỷ"* | Phiếu giao chưa Submit | Submit phiếu giao |
+| *"Phiếu giao này đã có biên bản… đã gửi"* | Đã kiểm rồi | Muốn khách gửi lại → **Từ chối** biên bản cũ |
+| Không duyệt trả hàng được | Biên bản không có dòng hàng hỏng | Dùng nhóm **Hàng thiếu** |
+| Phiếu trả hàng không Submit được | Phiếu giao gốc đã bị trả một phần trước đó | Kiểm lại số lượng còn trả được |
+| Khách không nhận được thông báo | Tài khoản cổng chưa gắn đúng Contact | Xem `HDSD-tao-khach-hang…` mục A |
+| Sales không nhận cảnh báo kiểm hàng | Khách chưa gán nhân viên phụ trách | Hệ thống tự gửi cho **Sales Manager**; nên gán `account_manager` cho khách |
+
+---
+
+# E — Hệ thống cố ý KHÔNG làm
+
+Những giới hạn dưới đây là **quyết định thiết kế**, không phải thiếu sót:
+
+1. **Không tự Submit phiếu trả hàng.** Tồn kho chỉ được cộng lại khi hàng về tay
+   kho thật.
+2. **Không tự thêm dòng `Items`** cho dòng khách gõ tay. Sales phải tự quyết mã
+   hàng và đơn giá.
+3. **Phiếu nhập kho của khách và Biên bản kiểm hàng không đồng bộ số liệu cho
+   nhau.** Hai chứng từ, hai mục đích.
+4. **Khách không sửa được biên bản đã gửi.** Đường lùi duy nhất là Miyano từ chối.
+5. **"Sẽ giao bù" không đổi ngày cam kết gốc.** Ngày Miyano đã lỡ vẫn nằm đó.
+6. **Khách không bao giờ nhìn thấy `HANG-DAT-NGOAI`** — nó bị lọc khỏi danh mục,
+   giỏ hàng, chi tiết đơn, màn kiểm hàng và mọi mẫu in.
+7. **Chỉ Sales Manager / System Manager được duyệt hoặc từ chối biên bản kiểm
+   hàng.** `Sales User` xem và ghi chú được, không quyết được — đó là cam kết
+   thương mại.
+
+---
+
+*Tài liệu này mô tả hệ thống tại thời điểm 16/08/2026. Mọi luồng nêu ở đây đều đã
+được kiểm thử tự động (988 test) và chạy thử hai vai trên dữ liệu thật.*
