@@ -37,6 +37,7 @@ const TABS = [
   { key: 'canh_bao', label: 'Cảnh báo hạn dùng' },
   { key: 'dot', label: 'NXT theo đợt hàng' },
   { key: 'cp', label: 'Cấp phát theo khoa' },
+  { key: 'cp_thang', label: 'Cấp phát theo tháng' },
 ]
 const tab = ref('nxt')
 
@@ -238,12 +239,50 @@ async function loadCp() {
   }
 }
 
+// --- Cấp phát theo THÁNG × khoa phòng (yêu cầu chủ đầu tư 2026-08-17) ---
+const cpThangLoading = ref(false)
+const cpThangError = ref('')
+const cpThangResult = ref({ tong_gia_tri: 0, nhom: [] })
+
+async function loadCpThang() {
+  cpThangLoading.value = true
+  cpThangError.value = ''
+  try {
+    // Phân trang theo ĐƠN VỊ NHÓM, mà một nhóm ở đây là một cặp (khoa
+    // phòng, THÁNG) — `tong` là số cặp có phát sinh, không phải số khoa và
+    // cũng không phải số dòng vật tư.
+    const res = await api.callKho('kho_bao_cao_cap_phat_thang', {
+      tu_ngay: tuNgay.value, den_ngay: denNgay.value,
+      start: (trang.value - 1) * soDong.value, limit: soDong.value,
+    })
+    cpThangResult.value = res
+    tong.value = res?.tong || 0
+  } catch (e) {
+    cpThangError.value = e.message || 'Không tải được báo cáo cấp phát theo tháng.'
+  } finally {
+    cpThangLoading.value = false
+  }
+}
+
+// Khoảng ngày mặc định của cả màn là THÁNG HIỆN TẠI — đúng cho N-X-T nhưng
+// làm một báo cáo "theo từng tháng" chỉ hiện đúng một tháng. Cố ý KHÔNG tự đổi
+// ngày khi người dùng bấm sang tab này (một bộ lọc tự thay đổi dưới tay người
+// dùng là thứ khó tin hơn là tiện): đưa hẳn một nút bấm, hiện chỉ trên tab
+// này, để họ tự mở rộng kỳ khi cần.
+function chon12Thang() {
+  const d = new Date(now.getFullYear(), now.getMonth() - 11, 1)
+  tuNgay.value = isoDate(d)
+  denNgay.value = isoDate(now)
+  locThayDoi()
+}
+
 function reload() {
   if (tab.value === 'nxt') loadNXT()
   else if (tab.value === 'the_kho') loadTheKho()
   else if (tab.value === 'canh_bao') loadCanhBao()
   else if (tab.value === 'dot') loadDot()
-  else loadCp()
+  else if (tab.value === 'cp') loadCp()
+  else loadCpThang()
 }
 
 // Đổi tab/bộ lọc -> về lại trang 1 (trang cũ của tab/bộ lọc trước có thể
@@ -295,6 +334,14 @@ function exportUrl() {
     // hành vi (xuatExcel() không mở tab nào khi url rỗng) thay vì gọi một
     // endpoint sẽ bị chặn ở whitelist _BAO_CAO_LOAI.
     return ''
+  }
+  if (tab.value === 'cp_thang') {
+    // Khác tab 'cp' ở trên: kho_bao_cao_excel CÓ nhận loai="cap_phat_thang"
+    // (bản bẻ phẳng tới mức vật tư). Một báo cáo theo tháng tồn tại để đối
+    // chiếu với bệnh viện hàng kỳ — thiếu đường xuất file thì nó chỉ nằm
+    // trên màn hình.
+    return `${base}?loai=cap_phat_thang&tu_ngay=${encodeURIComponent(tuNgay.value)}`
+      + `&den_ngay=${encodeURIComponent(denNgay.value)}`
   }
   // (Review E4 phần B, Gap 2 — ĐÃ SỬA) kho_bao_cao_excel giờ nhận loai="dot".
   let u = `${base}?loai=dot&tu_ngay=${encodeURIComponent(tuNgay.value)}&den_ngay=${encodeURIComponent(denNgay.value)}`
@@ -377,6 +424,12 @@ onMounted(() => {
             </option>
           </select>
         </div>
+        <!-- Chỉ tab "Cấp phát theo tháng": khoảng ngày mặc định của màn là
+             tháng hiện tại, nên nút này mở nhanh kỳ 12 tháng — xem
+             chon12Thang() cho lý do không tự đổi ngày khi bấm sang tab. -->
+        <button v-if="tab === 'cp_thang'" class="btn-o btn-sm" @click="chon12Thang">
+          12 tháng gần nhất
+        </button>
         <!-- F-5 (review E8): kho_bao_cao_excel CHƯA hỗ trợ tab "Cấp phát
              theo khoa" (loai="cap_phat" không có trong _BAO_CAO_LOAI — quyết
              định phạm vi, xem báo cáo bàn giao) — exportUrl() đã trả ''
@@ -580,7 +633,7 @@ onMounted(() => {
     </template>
 
     <!-- ============ TAB: CẤP PHÁT THEO KHOA (US-E8.5) ============ -->
-    <template v-else>
+    <template v-else-if="tab === 'cp'">
       <div v-if="cpLoading" class="loading">Đang tải…</div>
       <div v-else-if="cpError" class="empty">{{ cpError }}</div>
       <div v-else-if="!cpResult.nhom.length" class="empty">Không có phiếu Xuất sử dụng nào trong khoảng ngày đã chọn.</div>
@@ -640,6 +693,67 @@ onMounted(() => {
         <p class="tag" style="margin-top: 8px">
           Nhóm theo khoa, drill xuống phiếu; "Chưa gắn khoa" tách riêng — không lẫn vào khoa nào (BR-CP4).
           Phiếu bị đảo không tính vào báo cáo.
+        </p>
+        <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
+      </template>
+    </template>
+
+    <!-- ====== TAB: CẤP PHÁT THEO THÁNG × KHOA PHÒNG (2026-08-17) ====== -->
+    <template v-else>
+      <div v-if="cpThangLoading" class="loading">Đang tải…</div>
+      <div v-else-if="cpThangError" class="empty">{{ cpThangError }}</div>
+      <div v-else-if="!cpThangResult.nhom.length" class="empty">
+        Không có phiếu Xuất sử dụng nào trong khoảng ngày đã chọn.
+      </div>
+      <template v-else>
+        <div class="card" style="padding: 0; overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Khoa phòng / Vật tư</th>
+                <th>Tháng</th>
+                <th class="right">SL</th>
+                <th class="right">Giá trị</th>
+                <th class="right">Số phiếu</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="n in cpThangResult.nhom" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}`">
+                <tr :style="n.khoa_phong ? 'background:#f1f5f9' : 'background:#fffbeb'">
+                  <td><b>{{ n.ten_hien_thi }}</b></td>
+                  <td><b>{{ n.nhan_thang }}</b></td>
+                  <!-- Ô SL của dòng tiêu đề để TRỐNG có chủ ý: tổng số lượng
+                       của một khoa trong một tháng là phép cộng hộp với chai
+                       với cái. Thay vào đó là "số mặt hàng" — một phép đếm,
+                       cộng được. -->
+                  <td class="right"><span class="tag">{{ n.so_mat_hang }} mặt hàng</span></td>
+                  <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b> <span class="tag">{{ n.pct }}%</span></td>
+                  <td class="right"><b>{{ n.so_phieu }}</b></td>
+                </tr>
+                <tr v-for="(d, idx) in n.dong" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}|${idx}`">
+                  <td style="padding-left: 24px">{{ d.vat_tu }}</td>
+                  <td></td>
+                  <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
+                  <td class="right">{{ fmtVND(d.gia_tri) }}</td>
+                  <td class="right">{{ d.so_phieu }}</td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr>
+                <!-- Cùng lý do tab "Cấp phát theo khoa": server tính tổng
+                     TRƯỚC khi cắt trang, nên đây luôn là tổng toàn kỳ. -->
+                <td colspan="3" style="text-align: right"><b>Tổng cộng (toàn kỳ)</b></td>
+                <td class="right"><b>{{ fmtVND(cpThangResult.tong_gia_tri) }}</b></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="tag" style="margin-top: 8px">
+          Mỗi dòng đậm là một khoa phòng trong một tháng; các dòng thụt vào là chi tiết theo vật tư —
+          chỉ ở mức đó số lượng mới cộng được (cùng ĐVT). Tháng không phát sinh thì không có dòng.
+          Phiếu bị đảo không tính; "Chưa gắn khoa" tách riêng.
         </p>
         <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </template>

@@ -43,7 +43,7 @@ from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_
 # được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
 # "nhat_ky"/"dot" thêm ở Gap 2 (review E4 phần B) — hai nút Excel bị khoá ở
 # NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này.
-_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot"}
+_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -1116,6 +1116,34 @@ def kho_bao_cao_cap_phat(tu_ngay, den_ngay, khoa_phong=None, vat_tu=None, limit=
 
 
 @frappe.whitelist()
+@_khoa_action
+def kho_bao_cao_cap_phat_thang(
+	tu_ngay, den_ngay, khoa_phong=None, vat_tu=None, limit=None, start=0
+) -> dict:
+	"""Cấp phát GỘP THEO THÁNG cho từng khoa phòng — yêu cầu chủ đầu tư
+	2026-08-17. Cùng khuôn `kho_bao_cao_cap_phat()`: kiểm sở hữu
+	`khoa_phong`/`vat_tu` TRƯỚC khi lọc, phân trang theo ĐƠN VỊ NHÓM.
+
+	Một "nhóm" ở đây là một (khoa phòng, THÁNG), không phải một khoa phòng như
+	endpoint kia — nên `tong` là số cặp khoa×tháng có phát sinh. Chi tiết theo
+	vật tư bên trong mỗi nhóm không bị cắt trang (cùng tinh thần "chi tiết
+	không phân trang")."""
+	kho = get_portal_kho()
+	if khoa_phong:
+		_khoa_cua_kho(khoa_phong, kho)
+	if vat_tu:
+		_vat_tu_cua_kho(vat_tu, kho)
+	ket_qua = reports.cap_phat_thang_rows(
+		kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+	)
+	nhom, tong = _ap_dung_phan_trang(ket_qua["nhom"], limit, start)
+	ket_qua["nhom"] = nhom
+	if tong is not None:
+		ket_qua["tong"] = tong
+	return ket_qua
+
+
+@frappe.whitelist()
 def kho_canh_bao_han(so_ngay=90, limit=None, start=0) -> list | dict:
 	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
 	kho = get_portal_kho()
@@ -1186,6 +1214,22 @@ def kho_bao_cao_excel(
 		rows = reports.bao_cao_dot_rows(kho, tu_ngay, den_ngay, vat_tu=vat_tu, nguon=nguon)
 		columns = reports.DOT_COLUMNS
 		filename, sheet = "nxt_theo_dot_hang.xlsx", "NXT theo dot"
+	elif loai == "cap_phat_thang":
+		if not (tu_ngay and den_ngay):
+			frappe.throw("Thiếu khoảng ngày để xuất báo cáo.", frappe.ValidationError)
+		if khoa_phong:
+			_khoa_cua_kho(khoa_phong, kho)
+		if vat_tu:
+			_vat_tu_cua_kho(vat_tu, kho)
+		# Bản BẺ PHẲNG của đúng dữ liệu endpoint JSON vừa trả: một dòng Excel
+		# = một (khoa phòng, tháng, vật tư). Nhóm-đã-gộp không bẻ phẳng được
+		# thành bảng hai chiều nếu không xuống tới vật tư, và số lượng chỉ có
+		# nghĩa ở mức đó (xem reports.CAP_PHAT_THANG_COLUMNS).
+		rows = reports.cap_phat_thang_flat_rows(
+			kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+		)
+		columns = reports.CAP_PHAT_THANG_COLUMNS
+		filename, sheet = "cap_phat_theo_thang_khoa_phong.xlsx", "Cap phat theo thang"
 	else:
 		so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 		if so_ngay < 0:

@@ -467,6 +467,15 @@ class TestKhoBaoCaoExcel(_KhoBmTestCase):
 			self._js_array("DOT_COLUMNS"),
 		)
 
+	def test_cap_phat_thang_excel_columns_match_js_labels(self):
+		"""Yêu cầu chủ đầu tư 2026-08-17. Tab "Cấp phát theo tháng" CÓ nút
+		Excel (khác tab "Cấp phát theo khoa", cố tình không có) — nên bộ cột
+		của nó phải nằm dưới cùng phép canh như năm bộ kia."""
+		self.assertEqual(
+			[label for label, _ in reports.CAP_PHAT_THANG_COLUMNS],
+			self._js_array("CAP_PHAT_THANG_COLUMNS"),
+		)
+
 	def test_nhat_ky_excel_exports_beyond_the_fifty_row_screen_page(self):
 		"""Excel KHÔNG được cắt theo trang 50 dòng như màn hình — NL-8.3 chỉ
 		bắt buộc chọn kỳ, không giới hạn số dòng xuất. Dựng 55 dòng nhật ký

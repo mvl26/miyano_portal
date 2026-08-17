@@ -701,3 +701,315 @@ class TestBaoCaoCapPhat(_KhoE8Fixture):
             return kho_api.kho_bao_cao_cap_phat("2026-08-01", "2026-08-12")
         finally:
             frappe.set_user("Administrator")
+
+
+# ---------------------------------------------------------------------------
+# Yêu cầu chủ đầu tư 2026-08-17 — cấp phát GỘP THEO THÁNG × khoa phòng
+# ---------------------------------------------------------------------------
+
+
+class TestBaoCaoCapPhatTheoThang(_KhoE8Fixture):
+    """Kỳ 01/06 - 31/08/2026, kho Bạch Mai:
+
+      * Khoa Hồi sức, tháng 06: MỘT phiếu hai vật tư — Găng 4 hộp x46.000
+        (184.000) + Cồn 5 chai x17.000 (85.000) = 269.000;
+      * Khoa Hồi sức, tháng 07: một phiếu Găng 3 hộp ĐÃ HUỶ (phiếu đảo bị ép
+        nằm TRONG kỳ) — tháng 07 phải KHÔNG có dòng nào;
+      * Khoa Hồi sức, tháng 08: Găng 2 hộp = 92.000;
+      * Khoa Xét nghiệm, tháng 08: Găng 3 hộp = 138.000;
+      * Chưa gắn khoa, tháng 06: Găng 1 hộp = 46.000.
+
+    Tổng kỳ = 545.000.
+
+    Vì sao bộ số này chứ không phải bộ số của TestBaoCaoCapPhat: ba tính chất
+    mà chỉ báo cáo THEO THÁNG mới có cơ hội làm sai đều nằm trong đó — biên
+    giữa hai tháng, một tháng bị rỗng vì phiếu đảo (mà không được kéo tháng
+    khác lệch theo), và một phiếu nhiều vật tư (số phiếu phải ĐẾM PHÂN BIỆT,
+    số lượng KHÔNG được cộng qua hai ĐVT).
+    """
+
+    TU_NGAY = "2026-06-01"
+    DEN_NGAY = "2026-08-31"
+
+    def setUp(self):
+        super().setUp()
+        # Lô riêng đúng đơn giá của bộ số trên (LO-A của fixture là 50.000).
+        self._nhap(self.kho["kho_bm"], self.kho["vt_bm"], "LO-GANG", 100, 46000, self.han)
+        existing = frappe.db.get_value(
+            "Customer Warehouse Item", {"kho": self.kho["kho_bm"], "ma_vat_tu": "CON-70"}, "name"
+        )
+        if existing:
+            self.vt_con = frappe.get_doc("Customer Warehouse Item", existing)
+        else:
+            self.vt_con = frappe.get_doc({
+                "doctype": "Customer Warehouse Item", "kho": self.kho["kho_bm"],
+                "ma_vat_tu": "CON-70", "ten_vat_tu": "Cồn 70° 500ml", "dvt": "Chai",
+            })
+            self.vt_con.insert(ignore_permissions=True)
+        self._nhap(self.kho["kho_bm"], self.vt_con.name, "LO-CON", 100, 17000, self.han)
+
+        self.khoa_hs = _make_khoa(self.kho["kho_bm"], "Khoa Hồi sức")
+        self.khoa_xn = _make_khoa(self.kho["kho_bm"], "Khoa Xét nghiệm")
+
+        # Tháng 06 — MỘT phiếu, HAI vật tư khác ĐVT (Hộp/Chai).
+        self.phieu_t6 = self._xuat_nhieu("2026-06-10", self.khoa_hs.name, [
+            (self.kho["vt_bm"], "LO-GANG", 4),
+            (self.vt_con.name, "LO-CON", 5),
+        ])
+        # Tháng 06 — chưa gắn khoa (kho chưa bật bắt buộc, mặc định của fixture).
+        self._xuat_nhieu("2026-06-20", None, [(self.kho["vt_bm"], "LO-GANG", 1)])
+        # Tháng 08.
+        self._xuat_nhieu("2026-08-05", self.khoa_hs.name, [(self.kho["vt_bm"], "LO-GANG", 2)])
+        self._xuat_nhieu("2026-08-07", self.khoa_xn.name, [(self.kho["vt_bm"], "LO-GANG", 3)])
+
+        # Tháng 07 — xuất rồi huỷ. Cùng bài học F-2 (review E8): _tao_phieu_dao
+        # luôn đặt ngày = HÔM NAY, nên nếu không ép phiếu đảo vào TRONG kỳ thì
+        # nó bị bộ lọc ngày loại hộ và chốt `loai_xuat != "Xuất sử dụng"` không
+        # hề được test này chạm tới — test sẽ xanh vì lý do sai.
+        self.phieu_t7 = self._xuat_nhieu(
+            "2026-07-05", self.khoa_hs.name, [(self.kho["vt_bm"], "LO-GANG", 3)]
+        )
+        self.phieu_t7.cancel()
+        self.dao_t7 = frappe.db.get_value(
+            "Customer Stock Issue", {"phieu_goc": self.phieu_t7.name}, "name"
+        )
+        frappe.db.set_value("Customer Stock Issue", self.dao_t7, "ngay", "2026-07-20")
+        frappe.db.set_value(
+            "Customer Stock Ledger Entry", {"chung_tu": self.dao_t7}, "ngay", "2026-07-20"
+        )
+
+    def _xuat_nhieu(self, ngay, khoa_phong, items):
+        """Một phiếu xuất NHIỀU dòng — `_xuat()` của fixture chỉ dựng một dòng,
+        mà tính chất "một phiếu nhiều vật tư vẫn là MỘT phiếu" thì không thể
+        test bằng phiếu một dòng."""
+        doc = frappe.get_doc({
+            "doctype": "Customer Stock Issue",
+            "kho": self.kho["kho_bm"], "ngay": ngay, "loai_xuat": "Xuất sử dụng",
+            "khoa_phong": khoa_phong, "nguoi_nhan": "ĐD. Trực",
+            "items": [
+                {"vat_tu": vt, "so_lo": lo, "so_luong": sl} for vt, lo, sl in items
+            ],
+        })
+        doc.insert(ignore_permissions=True)
+        doc.submit()
+        return doc
+
+    # --- helpers -----------------------------------------------------------
+
+    def _chay(self, **kwargs):
+        """Qua ĐÚNG cổng cổng khách — kho phải suy từ phiên BM_USER, không
+        truyền tay vào reports.*, giống hệt SPA thật."""
+        frappe.set_user(BM_USER)
+        try:
+            return kho_api.kho_bao_cao_cap_phat_thang(self.TU_NGAY, self.DEN_NGAY, **kwargs)
+        finally:
+            frappe.set_user("Administrator")
+
+    def _theo_khoa_thang(self, ket_qua=None):
+        kq = ket_qua or self._chay()
+        return {(n["ten_hien_thi"], n["thang"]): n for n in kq["nhom"]}
+
+    # --- các con số --------------------------------------------------------
+
+    def test_gop_dung_tung_thang_cho_tung_khoa(self):
+        kq = self._chay()
+        m = self._theo_khoa_thang(kq)
+
+        self.assertAlmostEqual(m[("Khoa Hồi sức", "2026-06")]["gia_tri"], 269000, places=2)
+        self.assertAlmostEqual(m[("Khoa Hồi sức", "2026-08")]["gia_tri"], 92000, places=2)
+        self.assertAlmostEqual(m[("Khoa Xét nghiệm", "2026-08")]["gia_tri"], 138000, places=2)
+        self.assertAlmostEqual(m[("Chưa gắn khoa", "2026-06")]["gia_tri"], 46000, places=2)
+        self.assertAlmostEqual(kq["tong_gia_tri"], 545000, places=2)
+
+    def test_thang_khong_phat_sinh_thi_khong_co_dong(self):
+        """Khoa Hồi sức không có gì trong tháng 07 (phiếu duy nhất đã huỷ) —
+        không được sinh ra một dòng 0 đồng, và cũng không được vắng mặt ở hai
+        tháng nó CÓ phát sinh."""
+        m = self._theo_khoa_thang()
+        self.assertNotIn(("Khoa Hồi sức", "2026-07"), m)
+        self.assertIn(("Khoa Hồi sức", "2026-06"), m)
+        self.assertIn(("Khoa Hồi sức", "2026-08"), m)
+
+    def test_phieu_dao_khong_lam_lech_thang_khac(self):
+        """Phiếu đảo nằm TRONG kỳ (ép ở setUp) nên chỉ chốt `loai_xuat` mới
+        loại được nó. Nếu chốt đó vỡ, dòng bù trừ 3 hộp x46.000 = 138.000 (số
+        lượng DƯƠNG trên sổ, bị hàm đảo dấu thành ÂM) sẽ hiện ra thành một
+        tháng 07 giá trị -138.000 và kéo tổng kỳ từ 545.000 xuống 407.000 —
+        cả hai khẳng định dưới đây tự đỏ."""
+        # Chống test rỗng nghĩa: khẳng định phiếu đảo THẬT SỰ đang nằm trong
+        # kỳ và mang số lượng DƯƠNG trên sổ. Không có ba dòng này thì cả test
+        # có thể xanh chỉ vì bộ lọc ngày đã loại hộ, và phép loại theo
+        # `loai_xuat` chưa từng được chạm tới (đúng lỗi F-2 của review E8).
+        self.assertIsNotNone(self.dao_t7)
+        so_lieu_dao = frappe.db.get_all(
+            "Customer Stock Ledger Entry",
+            filters={"chung_tu": self.dao_t7},
+            fields=["ngay", "so_luong", "da_dao"],
+        )
+        self.assertTrue(so_lieu_dao)
+        for r in so_lieu_dao:
+            self.assertTrue(
+                frappe.utils.getdate(self.TU_NGAY)
+                <= frappe.utils.getdate(r.ngay)
+                <= frappe.utils.getdate(self.DEN_NGAY)
+            )
+            self.assertGreater(r.so_luong, 0)
+            self.assertEqual(int(r.da_dao or 0), 0)
+
+        kq = self._chay()
+        m = self._theo_khoa_thang(kq)
+        self.assertNotIn(("Khoa Hồi sức", "2026-07"), m)
+        self.assertAlmostEqual(kq["tong_gia_tri"], 545000, places=2)
+        for n in kq["nhom"]:
+            self.assertGreaterEqual(n["gia_tri"], 0, f"{n['ten_hien_thi']}/{n['thang']} âm")
+            for d in n["dong"]:
+                self.assertGreaterEqual(d["sl"], 0)
+
+    def test_so_phieu_dem_phan_biet_khong_dem_dong(self):
+        """Một phiếu 2 vật tư = MỘT phiếu, hai mặt hàng. Đếm dòng sẽ ra 2 và
+        biến báo cáo tháng thành thứ không đối chiếu được với sổ giấy."""
+        n = self._theo_khoa_thang()[("Khoa Hồi sức", "2026-06")]
+        self.assertEqual(n["so_phieu"], 1)
+        self.assertEqual(n["so_mat_hang"], 2)
+        for d in n["dong"]:
+            self.assertEqual(d["so_phieu"], 1)
+
+    def test_khong_cong_so_luong_qua_hai_dvt(self):
+        """4 hộp Găng + 5 chai Cồn KHÔNG được thành "9" ở bất cứ đâu: mỗi vật
+        tư một dòng, giữ nguyên ĐVT của nó."""
+        n = self._theo_khoa_thang()[("Khoa Hồi sức", "2026-06")]
+        theo_dvt = {d["dvt"]: d["sl"] for d in n["dong"]}
+        self.assertEqual(theo_dvt.get("Hộp"), 4)
+        self.assertEqual(theo_dvt.get("Chai"), 5)
+        self.assertNotIn(9, [d["sl"] for d in n["dong"]])
+        # Và dòng tiêu đề nhóm KHÔNG mang khoá "sl" nào cả — chỗ duy nhất số
+        # lượng có nghĩa là dòng vật tư.
+        self.assertNotIn("sl", n)
+
+    def test_chua_gan_khoa_tach_rieng_va_nam_cuoi(self):
+        kq = self._chay()
+        khoa_values = [n["khoa_phong"] for n in kq["nhom"]]
+        self.assertIn(None, khoa_values, "nhóm Chưa gắn khoa phải có mặt, không bị giấu")
+        self.assertIsNone(kq["nhom"][-1]["khoa_phong"], "Chưa gắn khoa phải ở cuối bảng")
+
+    def test_nhan_thang_va_thu_tu_sap_xep(self):
+        kq = self._chay()
+        m = self._theo_khoa_thang(kq)
+        self.assertEqual(m[("Khoa Hồi sức", "2026-06")]["nhan_thang"], "06/2026")
+
+        # Khoa trước, tháng TĂNG DẦN trong cùng khoa — các tháng của một khoa
+        # phải nằm liền nhau để đọc được xu hướng tiêu thụ.
+        co_ten = [(n["ten_hien_thi"], n["thang"]) for n in kq["nhom"] if n["khoa_phong"]]
+        self.assertEqual(co_ten, sorted(co_ten))
+        hs = [t for ten, t in co_ten if ten == "Khoa Hồi sức"]
+        self.assertEqual(hs, ["2026-06", "2026-08"])
+
+    def test_loc_theo_mot_khoa_phong(self):
+        m = self._theo_khoa_thang(self._chay(khoa_phong=self.khoa_xn.name))
+        self.assertEqual(set(m), {("Khoa Xét nghiệm", "2026-08")})
+
+    def test_phan_trang_cat_theo_cap_khoa_thang(self):
+        """`tong` là số CẶP (khoa, tháng) có phát sinh — 4 trong bộ số này —
+        không phải số khoa (3) và cũng không phải số dòng vật tư (5)."""
+        kq = self._chay(limit=2, start=0)
+        self.assertEqual(kq["tong"], 4)
+        self.assertEqual(len(kq["nhom"]), 2)
+        # Tổng vẫn là tổng TOÀN KỲ, tính trước khi cắt trang.
+        self.assertAlmostEqual(kq["tong_gia_tri"], 545000, places=2)
+
+    def test_khach_khac_khong_thay_du_lieu_bach_mai(self):
+        frappe.set_user(PXN_USER)
+        try:
+            kq = kho_api.kho_bao_cao_cap_phat_thang(self.TU_NGAY, self.DEN_NGAY)
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(kq["nhom"], [])
+        self.assertAlmostEqual(kq["tong_gia_tri"], 0, places=2)
+
+    # --- Excel: cùng con số với màn hình ------------------------------------
+
+    def test_excel_be_phang_dung_bang_so_lieu_man_hinh(self):
+        from miyano_portal.kho import reports
+
+        kho = self.kho["kho_bm"]
+        grouped = reports.cap_phat_thang_rows(kho, self.TU_NGAY, self.DEN_NGAY)
+        flat = reports.cap_phat_thang_flat_rows(kho, self.TU_NGAY, self.DEN_NGAY)
+
+        # Số dòng phẳng = tổng số dòng vật tư của mọi nhóm; tổng tiền khớp.
+        self.assertTrue(flat)
+        self.assertEqual(len(flat), sum(len(n["dong"]) for n in grouped["nhom"]))
+        self.assertAlmostEqual(
+            sum(r["gia_tri"] for r in flat), grouped["tong_gia_tri"], places=2
+        )
+        # Mỗi dòng phẳng mang đủ khoá của bộ cột xuất Excel — thiếu một khoá
+        # thì build_xlsx im lặng để ô trống.
+        for _label, field in reports.CAP_PHAT_THANG_COLUMNS:
+            for r in flat:
+                self.assertIn(field, r)
+
+    # --- Desk (mọi khách hàng) ---------------------------------------------
+
+    def test_desk_report_khong_ro_ri_giua_khach_hang(self):
+        from miyano_portal.kho import desk_reports
+
+        rows_bm = desk_reports.cap_phat_thang_theo_khoa_rows(
+            customer="Bệnh viện Bạch Mai", tu_ngay=self.TU_NGAY, den_ngay=self.DEN_NGAY,
+        )
+        rows_pxn = desk_reports.cap_phat_thang_theo_khoa_rows(
+            customer="PXN ABC", tu_ngay=self.TU_NGAY, den_ngay=self.DEN_NGAY,
+        )
+        self.assertTrue(rows_bm)
+        self.assertEqual(rows_pxn, [])
+        for r in rows_bm:
+            self.assertEqual(r["customer"], "Bệnh viện Bạch Mai")
+
+        m = {(r["khoa_phong"], r["thang"]): r for r in rows_bm}
+        self.assertAlmostEqual(m[("Khoa Hồi sức", "2026-06")]["gia_tri"], 269000, places=2)
+        self.assertEqual(m[("Khoa Hồi sức", "2026-06")]["so_phieu"], 1)
+        self.assertEqual(m[("Khoa Hồi sức", "2026-06")]["so_mat_hang"], 2)
+
+    def test_desk_report_co_y_khong_co_cot_so_luong(self):
+        """Chốt của một quyết định, không phải của một phép tính: ở mức
+        (khoa, tháng) không được có cột số lượng — nó cộng hộp với chai. Nếu
+        có ai thêm vào sau này, test này đỏ và buộc đọc lại lý do."""
+        from miyano_portal.kho import desk_reports
+        from miyano_portal.miyano_portal.report.cấp_phát_theo_tháng_và_khoa_phòng import (
+            cấp_phát_theo_tháng_và_khoa_phòng as rp,
+        )
+
+        rows = desk_reports.cap_phat_thang_theo_khoa_rows(
+            customer="Bệnh viện Bạch Mai", tu_ngay=self.TU_NGAY, den_ngay=self.DEN_NGAY,
+        )
+        self.assertTrue(rows)
+        self.assertNotIn("sl", rows[0])
+        self.assertNotIn("sl", [c["fieldname"] for c in rp.COLUMNS])
+
+    def test_desk_report_execute_chay_duoc_va_mac_dinh_12_thang(self):
+        """Chạy qua ĐÚNG `execute()` (đường Desk thật), và khoảng ngày mặc
+        định phải phủ 12 tháng gần nhất — không phải tháng hiện tại, vì một
+        báo cáo "theo từng tháng" mặc định một tháng thì vô dụng."""
+        from miyano_portal.miyano_portal.report.cấp_phát_theo_tháng_và_khoa_phòng import (
+            cấp_phát_theo_tháng_và_khoa_phòng as rp,
+        )
+
+        # KHÔNG truyền tu_ngay/den_ngay — đây chính là điều cần test.
+        columns, data = rp.execute({"customer": "Bệnh viện Bạch Mai"})
+        self.assertTrue(columns)
+
+        thang_thay_duoc = {r["thang"] for r in data}
+        thang_cu = min(
+            frappe.utils.getdate(x) for x in ("2026-06-10", "2026-08-05")
+        ).strftime("%Y-%m")
+        hom_nay = frappe.utils.getdate(frappe.utils.today())
+        # Fixture đặt dữ liệu ở tháng 06/2026; chỉ khẳng định khi "hôm nay"
+        # còn nằm trong 12 tháng kể từ đó — nếu suite chạy sau 06/2027 thì dữ
+        # liệu cố định ra ngoài kỳ mặc định một cách hợp lệ, và một test tự
+        # đỏ theo lịch thì tệ hơn là không có test (bài học "date rot").
+        trong_tam = frappe.utils.date_diff(hom_nay, frappe.utils.getdate("2026-06-10")) < 330
+        if trong_tam:
+            self.assertIn(
+                thang_cu, thang_thay_duoc,
+                "khoảng ngày mặc định phải phủ 12 tháng — nếu nó là THÁNG HIỆN "
+                "TẠI như báo cáo N-X-T thì tháng 06 biến mất và báo cáo "
+                '"theo từng tháng" chỉ còn đúng một tháng',
+            )

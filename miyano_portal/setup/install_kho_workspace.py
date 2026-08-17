@@ -18,6 +18,12 @@ _REPORT_SHORTCUTS = [
 	("Tồn kho khách hàng", "yellow"),
 	("Nhập-Xuất-Tồn khách hàng", "blue"),
 	("Cảnh báo hạn dùng khách hàng", "red"),
+	# Yêu cầu chủ đầu tư 2026-08-17 — báo cáo cấp phát gộp theo tháng × khoa
+	# phòng. Có shortcut ngay từ đầu vì đây là con số nhân viên phải mở HÀNG
+	# THÁNG khi đối chiếu với bệnh viện; bốn report kho còn lại (đối soát, chất
+	# lượng dữ liệu, tiêu thụ, tỷ trọng, cấp phát mức dòng) vẫn vào qua menu
+	# Report — chúng phục vụ việc tra cứu theo tình huống, không theo kỳ.
+	("Cấp phát theo tháng và khoa phòng", "green"),
 ]
 
 # Cổng khách hàng — việc do KHÁCH đẩy sang, nhân viên phải thấy được hàng chờ.

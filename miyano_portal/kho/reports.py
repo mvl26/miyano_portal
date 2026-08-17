@@ -117,6 +117,24 @@ DOT_COLUMNS = [
 	("Chậm luân chuyển", "cham_luan_chuyen"),
 ]
 
+# Báo cáo cấp phát THEO THÁNG × KHOA PHÒNG — yêu cầu chủ đầu tư 2026-08-17.
+#
+# Cột xuất Excel ở mức (khoa phòng, tháng, VẬT TƯ) — KHÔNG ở mức (khoa, tháng):
+# tổng "số lượng" của một khoa trong một tháng là con số vô nghĩa vì nó cộng
+# hộp với chai với cái. Chỉ khi đã xuống tới một vật tư thì ĐVT mới cố định và
+# `sl` mới cộng được. Mức (khoa, tháng) vì vậy chỉ có TIỀN + các phép ĐẾM
+# (số phiếu, số mặt hàng), và đó đúng là bộ số của dòng tiêu đề nhóm trên màn
+# hình — xem docstring cap_phat_thang_rows().
+CAP_PHAT_THANG_COLUMNS = [
+	("Khoa phòng", "ten_khoa_phong"),
+	("Tháng", "nhan_thang"),
+	("Vật tư", "vat_tu"),
+	("ĐVT", "dvt"),
+	("SL cấp phát", "sl"),
+	("Giá trị", "gia_tri"),
+	("Số phiếu", "so_phieu"),
+]
+
 _CHUNG_TU_LABEL = {
 	"Customer Stock Receipt": "Phiếu nhập",
 	"Customer Stock Issue": "Phiếu xuất",
@@ -972,6 +990,12 @@ def bao_cao_cap_phat_rows(
 		nhom["dong"].append({
 			"phieu": row["phieu"],
 			"ngay": row["ngay"],
+			# `vat_tu` là TÊN để hiển thị; `vat_tu_id` là DOCNAME. Mọi phép
+			# gộp về sau (cap_phat_thang_rows) phải nhóm theo docname: trong
+			# CÙNG một kho, `ma_vat_tu` mới là thứ unique, `ten_vat_tu` thì
+			# không — gộp theo tên sẽ âm thầm cộng hai vật tư khác nhau (có
+			# thể khác cả ĐVT) vào một dòng số lượng.
+			"vat_tu_id": row["vat_tu"],
 			"vat_tu": info.get("ten_vat_tu") or row["vat_tu"],
 			"dvt": info.get("dvt") or "",
 			"sl": _r(row["sl"]),
@@ -1007,6 +1031,144 @@ def bao_cao_cap_phat_rows(
 	nhom_out.sort(key=lambda r: (r["khoa_phong"] is None, r["ten_hien_thi"]))
 
 	return {"tong_gia_tri": round(tong_gia_tri, 2), "nhom": nhom_out}
+
+
+def _thang_key(ngay) -> tuple[str, str]:
+	"""(khoá sắp xếp "2026-08", nhãn hiển thị "08/2026") của một ngày.
+
+	Đi qua `getdate()` chứ KHÔNG cắt chuỗi `str(ngay)[:7]`: `ngay` tới từ
+	`frappe.get_all` nên là `datetime.date` chứ không phải chuỗi, và một
+	`str()` trên date vẫn ra "2026-08-05" nên phép cắt chuỗi sẽ *chạy được*
+	trên dữ liệu thật rồi vỡ đúng lúc có ai truyền vào một chuỗi "05/08/2026".
+	"""
+	d = frappe.utils.getdate(ngay)
+	return f"{d.year:04d}-{d.month:02d}", f"{d.month:02d}/{d.year:04d}"
+
+
+def cap_phat_thang_rows(
+	kho: str, tu_ngay, den_ngay, khoa_phong: str | None = None, vat_tu: str | None = None,
+) -> dict:
+	"""Cấp phát GỘP THEO THÁNG cho TỪNG KHOA PHÒNG — yêu cầu chủ đầu tư
+	2026-08-17 ("báo cáo kho ghi nhận theo từng tháng đối với từng khoa phòng").
+
+	KHÔNG truy vấn `Customer Stock Ledger Entry` lần nữa: hàm này là một lượt
+	GỘP trên đầu ra của `bao_cao_cap_phat_rows()`, nên nó thừa hưởng nguyên
+	bốn tính chất đúng đã được lập luận và test ở đó — loại phiếu đảo HAI LỚP
+	(`da_dao=0` ở tầng sổ + `loai_xuat == "Xuất sử dụng"` ở tầng phiếu), đảo
+	dấu số lượng/giá trị của dòng xuất, và nhóm `khoa_phong=None` →
+	"Chưa gắn khoa" tách riêng. Viết lại truy vấn ở đây chính là cách sinh ra
+	đúng loại bug mà `khoa_phong.py:_thong_ke_90n` đã ghi dài dòng: hai con số
+	của CÙNG một khoa, trên hai màn cạnh nhau, chọi nhau.
+
+	Chỉ có `nhap`/`xuat` bên phía KHÁCH mới có khoa phòng, và khoa phòng nằm
+	trên PHIẾU XUẤT — không có "nhập-xuất-tồn theo khoa phòng" nào tồn tại
+	được, vì khoa phòng không bao giờ nhập hàng vào kho. Báo cáo này vì vậy
+	thuần về CẤP PHÁT (xuất sử dụng), không phải một bản N-X-T cắt theo khoa.
+
+	Trả về nhóm ở mức (khoa phòng, tháng):
+	  * `gia_tri` — tiền cấp phát của khoa đó trong tháng đó;
+	  * `so_phieu` — ĐẾM PHÂN BIỆT phiếu, không đếm dòng: một phiếu 5 vật tư
+	    vẫn là MỘT phiếu;
+	  * `so_mat_hang` — đếm phân biệt vật tư (theo docname);
+	  * `dong` — chi tiết theo vật tư, nơi DUY NHẤT `sl` có nghĩa (ĐVT cố
+	    định trong một vật tư).
+
+	Tháng KHÔNG phát sinh thì không có dòng: một khoa × một tháng toàn số 0
+	không mang thông tin nào, mà lại nhân số dòng lên bằng (số khoa × số tháng
+	trong kỳ) — kỳ 12 tháng của một bệnh viện 40 khoa sẽ ra 480 dòng rỗng.
+	"""
+	goc = bao_cao_cap_phat_rows(
+		kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+	)
+
+	buckets: dict[tuple, dict] = {}
+	for nhom in goc["nhom"]:
+		for d in nhom["dong"]:
+			thang, nhan = _thang_key(d["ngay"])
+			# Khoá gộp là DOCNAME khoa phòng (None cho "Chưa gắn khoa"), không
+			# phải `ten_hien_thi`: `ten_khoa_phong` không unique (xem
+			# khoa_phong.list_rows, phải tiebreak bằng `name`), gộp theo tên
+			# sẽ trộn hai khoa trùng tên thành một.
+			key = (nhom["khoa_phong"], thang)
+			b = buckets.setdefault(key, {
+				"khoa_phong": nhom["khoa_phong"],
+				"ten_hien_thi": nhom["ten_hien_thi"],
+				"thang": thang,
+				"nhan_thang": nhan,
+				"gia_tri": 0.0,
+				"_phieu": set(),
+				"_vat_tu": {},
+			})
+			b["gia_tri"] += d["gia_tri"]
+			b["_phieu"].add(d["phieu"])
+			vt = b["_vat_tu"].setdefault(d["vat_tu_id"], {
+				"vat_tu": d["vat_tu"], "dvt": d["dvt"],
+				"sl": 0.0, "gia_tri": 0.0, "_phieu": set(),
+			})
+			vt["sl"] += d["sl"]
+			vt["gia_tri"] += d["gia_tri"]
+			vt["_phieu"].add(d["phieu"])
+
+	tong_gia_tri = sum(b["gia_tri"] for b in buckets.values())
+
+	nhom_out = []
+	for b in buckets.values():
+		gia_tri = round(b["gia_tri"], 2)
+		nhom_out.append({
+			"khoa_phong": b["khoa_phong"],
+			"ten_hien_thi": b["ten_hien_thi"],
+			"thang": b["thang"],
+			"nhan_thang": b["nhan_thang"],
+			"gia_tri": gia_tri,
+			"pct": round(gia_tri / tong_gia_tri * 100, 1) if tong_gia_tri > EPS else 0.0,
+			"so_phieu": len(b["_phieu"]),
+			"so_mat_hang": len(b["_vat_tu"]),
+			"dong": sorted(
+				[
+					{
+						"vat_tu": v["vat_tu"], "dvt": v["dvt"],
+						"sl": _r(v["sl"]), "gia_tri": round(v["gia_tri"], 2),
+						"so_phieu": len(v["_phieu"]),
+					}
+					for v in b["_vat_tu"].values()
+				],
+				key=lambda r: r["vat_tu"],
+			),
+		})
+
+	# Khoa trước, tháng sau — câu hỏi của chủ đầu tư là "khoa này tiêu thụ
+	# thế nào qua các tháng", nên các tháng của MỘT khoa phải nằm liền nhau.
+	# "Chưa gắn khoa" luôn cuối bảng, cùng lý do đã ghi ở bao_cao_cap_phat_rows.
+	nhom_out.sort(key=lambda r: (r["khoa_phong"] is None, r["ten_hien_thi"], r["thang"]))
+
+	return {"tong_gia_tri": round(tong_gia_tri, 2), "nhom": nhom_out}
+
+
+def cap_phat_thang_flat_rows(
+	kho: str, tu_ngay, den_ngay, khoa_phong: str | None = None, vat_tu: str | None = None,
+) -> list[dict]:
+	"""Cùng dữ liệu `cap_phat_thang_rows()` nhưng BẺ PHẲNG cho xuất Excel —
+	mỗi dòng một (khoa phòng, tháng, vật tư), khớp đúng bộ
+	CAP_PHAT_THANG_COLUMNS.
+
+	Bẻ phẳng từ chính đầu ra đã gộp, không tính lại: màn hình và file xuất
+	phải là CÙNG một con số (quy ước round-tripping-spreadsheets ghi ở đầu
+	file này)."""
+	out = []
+	for nhom in cap_phat_thang_rows(
+		kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+	)["nhom"]:
+		for d in nhom["dong"]:
+			out.append({
+				"ten_khoa_phong": nhom["ten_hien_thi"],
+				"nhan_thang": nhom["nhan_thang"],
+				"vat_tu": d["vat_tu"],
+				"dvt": d["dvt"],
+				"sl": d["sl"],
+				"gia_tri": d["gia_tri"],
+				"so_phieu": d["so_phieu"],
+			})
+	return out
 
 
 def build_xlsx(columns: list[tuple[str, str]], rows: list[dict], sheet_title: str) -> bytes:

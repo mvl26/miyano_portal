@@ -76,6 +76,20 @@ export const NHAT_KY_COLUMNS = [
   { label: 'Người ghi sổ', field: 'nguoi_ghi_so' },
 ]
 
+// Yêu cầu chủ đầu tư 2026-08-17 — cấp phát gộp theo tháng × khoa phòng. PHẢI
+// khớp reports.CAP_PHAT_THANG_COLUMNS. Bảng trên màn hình hiện dữ liệu này ở
+// dạng NHÓM (dòng tiêu đề khoa+tháng, rồi các dòng vật tư), còn file Excel bẻ
+// phẳng thành từng dòng vật tư — cùng con số, cùng bộ cột, khác cách xếp.
+export const CAP_PHAT_THANG_COLUMNS = [
+  { label: 'Khoa phòng', field: 'ten_khoa_phong' },
+  { label: 'Tháng', field: 'nhan_thang' },
+  { label: 'Vật tư', field: 'vat_tu' },
+  { label: 'ĐVT', field: 'dvt' },
+  { label: 'SL cấp phát', field: 'sl' },
+  { label: 'Giá trị', field: 'gia_tri' },
+  { label: 'Số phiếu', field: 'so_phieu' },
+]
+
 export const DOT_COLUMNS = [
   { label: 'Đợt (phiếu nhập)', field: 'dot' },
   { label: 'Ngày nhận', field: 'ngay_nhan' },

@@ -77,6 +77,15 @@ REPORTS = [
 		"report_name": "Cấp phát theo khoa phòng",
 		"ref_doctype": "Customer Stock Ledger Entry",
 	},
+	# Yêu cầu chủ đầu tư 2026-08-17 — bản GỘP THEO THÁNG của report ngay trên.
+	# Cùng khuôn an ninh, cùng ref_doctype. KHÔNG thay thế report kia: một cái
+	# ở mức dòng chi tiết (có số lượng theo vật tư), một cái ở mức tháng × khoa
+	# (chỉ tiền + phép đếm) — xem docstring desk_reports.cap_phat_thang_theo_
+	# khoa_rows() cho lý do mức tháng không được có cột số lượng.
+	{
+		"report_name": "Cấp phát theo tháng và khoa phòng",
+		"ref_doctype": "Customer Stock Ledger Entry",
+	},
 ]
 
 

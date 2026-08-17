@@ -559,6 +559,48 @@ def cap_phat_theo_khoa_rows(customer: str | None = None, tu_ngay=None, den_ngay=
 	return sorted(out, key=lambda r: (r["customer_name"], r["khoa_phong"], r["ngay"], r["phieu"]))
 
 
+def cap_phat_thang_theo_khoa_rows(
+	customer: str | None = None, tu_ngay=None, den_ngay=None,
+) -> list[dict]:
+	"""Cấp phát THEO THÁNG × KHOA PHÒNG của mọi khách hàng — yêu cầu chủ đầu
+	tư 2026-08-17. Cùng khuôn `cap_phat_theo_khoa_rows()`: lặp kho, gọi lại
+	`reports.cap_phat_thang_rows()`, gắn thêm customer/kho. Không phép cộng
+	nào sống ở đây.
+
+	Ở mức GỘP (khoa phòng, tháng), CỐ Ý không có cột "SL": số lượng của một
+	khoa trong một tháng cộng hộp với chai với cái, là con số không đọc được.
+	Ba con số ở đây đều cộng/đếm được thật — tiền, số phiếu (đếm phân biệt),
+	số mặt hàng. Ai cần số lượng theo từng vật tư thì dùng report
+	"Cấp phát theo khoa phòng" (mức dòng, đã có từ E8) hoặc tab tương ứng trên
+	cổng khách — hai report là hai câu hỏi khác nhau, không phải bản trùng.
+	"""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	names = _customer_names([k["customer"] for k in khos])
+
+	out = []
+	for k in khos:
+		for nhom in reports.cap_phat_thang_rows(k["name"], tu_ngay, den_ngay)["nhom"]:
+			out.append({
+				"customer": k["customer"],
+				"customer_name": names.get(k["customer"]) or k["customer"],
+				"kho": k["name"],
+				"ten_kho": k["ten_kho"],
+				"thang": nhom["thang"],
+				"nhan_thang": nhom["nhan_thang"],
+				# `ten_hien_thi` (không phải `khoa_phong`) — "Chưa gắn khoa"
+				# thay vì một ô trống, cùng lý do cap_phat_theo_khoa_rows().
+				"khoa_phong": nhom["ten_hien_thi"],
+				"so_phieu": nhom["so_phieu"],
+				"so_mat_hang": nhom["so_mat_hang"],
+				"gia_tri": nhom["gia_tri"],
+			})
+	return sorted(
+		out, key=lambda r: (r["customer_name"], r["ten_kho"], r["khoa_phong"], r["thang"])
+	)
+
+
 def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay=None) -> list[dict]:
 	"""US-E5.5 (UC-51) — "Tỷ trọng nguồn cung" (share-of-wallet): giá trị +
 	SL nhập theo nguồn (Miyano vs từng NCC khác) trong một kỳ, từ phiếu nhập
