@@ -722,29 +722,50 @@ class TestThongBaoApDungPhamVi(_NenCachLy):
 
 
 class TestC3ThieuCotKhoaFailClosed(_NenCachLy):
-	"""C3 (review vòng sửa 2, CRITICAL) — chính vế khoa vừa thêm vào
-	`permissions.py` (Vòng sửa 1, C2) sinh SQL tham chiếu
-	`` `tabSales Order`.`custom_khoa_phong` `` trên MỌI truy vấn Sales
-	Order/Delivery Note/Sales Invoice của MỌI Website User — không còn giới
-	hạn ở 21 hàm `api/portal.py` nữa. Nếu patch
-	`v1_23/them_khoa_phong_vao_don_hang` CHƯA THỰC SỰ chạy trên site đích
-	(bẫy đã ghi nhận: `install_app` có thể "hoàn thành giả" patch — ghi
-	Patch Log mà không chạy DDL thật), mọi truy vấn đó chết bằng MariaDB lỗi
-	1054 (unknown column) — cổng khách SẬP HOÀN TOÀN, không phải suy giảm
-	êm. `permissions._cot_khoa_phong_ton_tai()` là lưới an toàn: thiếu cột
-	thì fail-closed (`"1=0"`)+ghi Error Log, KHÔNG ném lỗi CSDL thô ra
-	khách."""
+	"""C3 (review vòng sửa 2, CRITICAL) — vế khoa thêm vào `permissions.py`
+	(Vòng sửa 1, C2) sinh SQL tham chiếu `` `tabSales Order`.
+	`custom_khoa_phong` `` trên MỌI truy vấn Sales Order/Delivery Note/Sales
+	Invoice của MỌI Website User — không còn giới hạn ở 21 hàm
+	`api/portal.py` nữa. Nếu patch `v1_23/them_khoa_phong_vao_don_hang`
+	CHƯA THỰC SỰ chạy trên site đích (bẫy đã ghi nhận: `install_app` có thể
+	"hoàn thành giả" patch — ghi Patch Log mà không chạy DDL thật), mọi
+	truy vấn đó chết bằng MariaDB lỗi 1054 (unknown column) — cổng khách
+	SẬP HOÀN TOÀN, không phải suy giảm êm.
+
+	`portal_context._cot_khoa_phong_ton_tai()` (chuyển từ `permissions.py`
+	sang `portal_context.py` ở Vòng sửa 3, V2 — để cả tầng hook LẪN
+	`dam_bao_xem_duoc`/`_ten_don_trong_pham_vi` ở `api/portal.py` dùng
+	CHUNG một nguồn kiểm tra) là lưới an toàn: thiếu cột thì fail-closed
+	(`"1=0"` ở tầng hook, `PermissionError(LOI_KHONG_THAY)` ở tầng
+	endpoint), KHÔNG ném lỗi CSDL thô ra khách."""
 
 	def setUp(self):
 		super().setUp()
 		self.don_a = self._don(self.kp_a.name)
 		# Chốt cache cấp tiến trình — reset TRƯỚC mỗi test để không ăn theo
 		# kết quả (True, cột THẬT tồn tại trên site test) của lần gọi trước.
-		permissions._cot_khoa_ton_tai = None
+		portal_context._cot_khoa_ton_tai = None
 		self.addCleanup(self._reset_cache)
+		# V1 (review vòng sửa 3) — `frappe.log_error()` (gọi khi giả lập
+		# thiếu cột) ghi vào `tabError Log`, MyISAM (phi giao dịch) nên SỐNG
+		# SÓT qua rollback cuối class — đúng bẫy repo này đã tự học và tự vá
+		# ở năm chỗ khác (`test_e3_doi_soat.py`, `test_kho_delivery_hook.py`,
+		# `test_thong_bao_khach.py`, `test_khoa_phong_theo_khach.py`,
+		# `test_e9_kiem_hang.py`). Không dọn thì mỗi lần chạy suite bồi thêm
+		# rác vĩnh viễn vào site dùng chung.
+		self.addCleanup(
+			frappe.db.delete,
+			"Error Log",
+			# `frappe.log_error(title=...)` lưu vào field `method` (Data),
+			# KHÔNG có field `title` thật trên doctype Error Log của bản
+			# Frappe này (đã kiểm JSON: chỉ có `method`/`error`/`reference_*`)
+			# — xác nhận bằng thực nghiệm, `frappe.db.delete(..., {"title":
+			# ...})` ném OperationalError "Unknown column 'title'".
+			{"method": "Thiếu cột Sales Order.custom_khoa_phong"},
+		)
 
 	def _reset_cache(self):
-		permissions._cot_khoa_ton_tai = None
+		portal_context._cot_khoa_ton_tai = None
 
 	def test_dieu_kien_sql_tra_1_bang_0_khi_thieu_cot(self):
 		from unittest.mock import patch as mock_patch
@@ -787,6 +808,27 @@ class TestC3ThieuCotKhoaFailClosed(_NenCachLy):
 			"Sales Order", filters={"customer": KHACH}, pluck="name"
 		)
 		self.assertIn(self.don_a, ten)
+
+	def test_portal_order_track_fail_closed_khong_phai_loi_csdl_khi_thieu_cot(self):
+		"""V2 (review vòng sửa 3, Important) — bằng chứng cho ĐÚNG con
+		đường khách hàng thật đi qua: `portal_order_track` gọi
+		`dam_bao_xem_duoc` TRƯỚC `so.check_permission("read")`
+		(`api/portal.py`), không qua tầng hook (`permissions.py`) chút nào.
+		Trước bản vá V2, lưới an toàn C3 chỉ nằm ở `permissions.py` — đường
+		NÀY (đường endpoint, nơi phần lớn traffic cổng thật đi qua) vẫn ăn
+		`frappe.db.get_value(..., "custom_khoa_phong")` thô, tức vẫn sập
+		bằng lỗi CSDL nếu thiếu cột. Sau bản vá, `dam_bao_xem_duoc` tự gọi
+		CHUNG `_cot_khoa_phong_ton_tai()` (chuyển sang `portal_context.py`)
+		— khẳng định ở đây: nhân viên khoa nhận `PermissionError` (thông
+		điệp `LOI_KHONG_THAY`, không tiết lộ "thiếu cột"), TUYỆT ĐỐI không
+		phải một `OperationalError`/`ProgrammingError` từ MariaDB."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			with self.assertRaises(frappe.PermissionError) as cm:
+				portal_api.portal_order_track(self.don_a)
+		self.assertEqual(str(cm.exception), portal_context.LOI_KHONG_THAY)
 
 
 class TestC5NguoiDungNoiBoKhongPhaiAdministrator(_NenCachLy):

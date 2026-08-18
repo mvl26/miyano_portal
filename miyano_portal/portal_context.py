@@ -82,6 +82,74 @@ def pham_vi_don(user: str | None = None) -> dict:
     return {"custom_khoa_phong": khoa_phong}
 
 
+# VÒNG SỬA 2 (C3 — CRITICAL), CHUYỂN VÀO ĐÂY Ở VÒNG SỬA 3 (V2, Important).
+# Cache CẤP TIẾN TRÌNH — không phải `None` nghĩa là "chưa biết", `True`/
+# `False` là kết quả đã kiểm. Nhớ Ở ĐÂY (không hỏi lại `information_schema`/
+# Redis mỗi lần) vì hàm dùng biến này chạy trên MỌI truy vấn Sales Order/
+# Delivery Note/Sales Invoice của MỌI Website User — không phải một lần
+# mỗi request.
+#
+# Đặt ở `portal_context.py` (không phải `permissions.py`, nơi hàm này SINH
+# RA ở Vòng sửa 2) để CẢ HAI bên dùng chung được MỘT nguồn kiểm tra: hook
+# framework (`permissions.py`, import module này) LẪN các endpoint whitelist
+# (`api/portal.py`/`dam_bao_xem_duoc` ngay dưới đây, cùng module này) —
+# `permissions.py` không import được ngược lại từ `api/portal.py` (vòng
+# import), nên vị trí TRUNG LẬP này là chỗ duy nhất cả hai phía cùng chạm
+# tới mà không tạo vòng.
+_cot_khoa_ton_tai: bool | None = None
+
+
+def _cot_khoa_phong_ton_tai() -> bool:
+    """Có cột `Sales Order.custom_khoa_phong` THẬT trong CSDL không.
+
+    Vòng sửa 1 (C2) đưa `custom_khoa_phong` vào `permission_query_
+    conditions`/`has_permission` (`permissions.py`) — tức MỌI đường đọc
+    Sales Order/Delivery Note/Sales Invoice của MỌI khách cổng. Nếu patch
+    `v1_23/them_khoa_phong_vao_don_hang` CHƯA THỰC SỰ chạy trên site đích,
+    SQL sinh ra tham chiếu một cột không tồn tại → MariaDB ném lỗi 1054
+    (unknown column) → CỔNG KHÁCH SẬP HOÀN TOÀN, không phải suy giảm êm.
+
+    Đây KHÔNG phải rủi ro lý thuyết: `install_app` trên dự án này từng ghi
+    nhận "hoàn thành giả" patch — ghi Patch Log mà không thực sự chạy DDL
+    (xem memory `miyano-portal-install-patch-trap`). Một dòng trong
+    `patches.txt` không phải bằng chứng cột đã tồn tại.
+
+    VÒNG SỬA 3 (V2, review độc lập, Important) — bản Vòng sửa 2 chỉ gọi hàm
+    này từ `permissions.py` (tầng hook: `frappe.client.*`, reportview,
+    `/printview`, REST). Nhưng phần lớn traffic cổng THẬT đi qua 21 hàm
+    whitelist ở `api/portal.py`, và khoảng 13 trong số đó gọi THẲNG
+    `dam_bao_xem_duoc()`/`_ten_don_trong_pham_vi()` — hai hàm đó đọc
+    `custom_khoa_phong` qua `frappe.db.get_value`/`frappe.get_all` mà KHÔNG
+    hề qua tầng hook. Thiếu cột thì đường đó vẫn ăn lỗi CSDL thô, đúng chỗ
+    docstring bản Vòng sửa 2 (sai) khẳng định đã được che. `dam_bao_xem_
+    duoc()` giờ gọi hàm NÀY trước khi chạm cột — lưới an toàn giờ phủ CẢ
+    HAI tầng bằng CÙNG một nguồn kiểm tra, không phải hai bản sao lệch nhau.
+
+    Hàm này là LƯỚI AN TOÀN CHO LÚC TRIỂN KHAI, KHÔNG PHẢI giấy phép để
+    deploy mà không chạy `bench migrate`: thiếu cột thì MỌI Website User bị
+    fail-closed (không thấy gì, an toàn) thay vì gặp lỗi CSDL thô, nhưng
+    cổng vẫn "câm" với đúng người lẽ ra phải thấy dữ liệu của mình — vá
+    triệu chứng, không thay được `bench migrate`."""
+    global _cot_khoa_ton_tai
+    if _cot_khoa_ton_tai is None:
+        _cot_khoa_ton_tai = bool(frappe.db.has_column("Sales Order", "custom_khoa_phong"))
+        if not _cot_khoa_ton_tai:
+            frappe.log_error(
+                title="Thiếu cột Sales Order.custom_khoa_phong",
+                message=(
+                    "Phân quyền theo khoa phòng (miyano_portal.portal_context/"
+                    "permissions/api.portal) đang chạy trên một site CHƯA có "
+                    "cột Sales Order.custom_khoa_phong. Mọi Website User đang "
+                    "bị chặn fail-closed trên Sales Order/Delivery Note/Sales "
+                    "Invoice thay vì gặp lỗi CSDL — cổng \"câm\" thay vì sập, "
+                    "nhưng khách không thấy được đơn của chính họ. Chạy `bench "
+                    "--site <site> migrate` để thêm cột (patch miyano_portal."
+                    "patches.v1_23.them_khoa_phong_vao_don_hang)."
+                ),
+            )
+    return _cot_khoa_ton_tai
+
+
 LOI_KHONG_THAY = "Không tìm thấy chứng từ."
 
 
@@ -129,6 +197,15 @@ def dam_bao_xem_duoc(
         pham_vi = pham_vi_don(user)
     if not pham_vi:
         return
+    # VÒNG SỬA 3 (V2, review độc lập, Important) — kiểm TRƯỚC khi chạm bất
+    # kỳ SQL nào tham chiếu `custom_khoa_phong` ở dưới. Một Quản lý
+    # (`pham_vi` rỗng, đã `return` ở trên) không bao giờ chạm cột này qua
+    # đây — chỉ Nhân viên khoa (đường CÓ giới hạn) mới cần lưới an toàn.
+    # Thiếu cột thì FAIL-CLOSED bằng ĐÚNG thông điệp `LOI_KHONG_THAY` (không
+    # tiết lộ nguyên nhân thật cho khách — "cột CSDL bị thiếu" không phải
+    # thứ một khách hàng cần/được biết), không phải để MariaDB 1054 lộ ra.
+    if not _cot_khoa_phong_ton_tai():
+        raise frappe.PermissionError(LOI_KHONG_THAY)
     if doctype == "Sales Order":
         cua = frappe.db.get_value("Sales Order", name, "custom_khoa_phong")
     elif doctype == "Delivery Note":

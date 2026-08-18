@@ -7,6 +7,7 @@ from miyano_portal.dat_hang import (
 )
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
+    _cot_khoa_phong_ton_tai,
     dam_bao_xem_duoc,
     get_portal_customer,
     get_portal_member,
@@ -868,10 +869,22 @@ def portal_order_track(order) -> dict:
 
 def _ten_don_trong_pham_vi() -> list | None:
     """`None` = không giới hạn theo khoa (Quản lý). Ngược lại: danh sách tên
-    `Sales Order` thuộc ĐÚNG khoa của người gọi (có thể rỗng)."""
+    `Sales Order` thuộc ĐÚNG khoa của người gọi (có thể rỗng).
+
+    VÒNG SỬA 3 (V2, review độc lập, Important) — `frappe.get_all` bên dưới
+    tham chiếu THẲNG `custom_khoa_phong`, cùng lưới an toàn với
+    `dam_bao_xem_duoc` (`portal_context.py`, dùng CHUNG `_cot_khoa_phong_
+    ton_tai()`, không viết lại phép kiểm cột thứ hai): Quản lý (`pham_vi`
+    rỗng) không bao giờ chạm cột này — chỉ Nhân viên khoa mới cần. Thiếu
+    cột thì trả `[]` (KHÔNG phải `None`) — `_loc_qua_don_cha` bên dưới coi
+    `None` là "không giới hạn" (Quản lý) và một danh sách rỗng là "giới hạn
+    nhưng không khớp gì" (sentinel `__khong_don_nao__`); trả nhầm `None` ở
+    đây sẽ MỞ TOANG danh sách cho đúng người lẽ ra phải bị chặn."""
     pham_vi = pham_vi_don()
     if not pham_vi:
         return None
+    if not _cot_khoa_phong_ton_tai():
+        return []
     return frappe.get_all(
         "Sales Order", filters={"custom_khoa_phong": pham_vi["custom_khoa_phong"]},
         pluck="name",
