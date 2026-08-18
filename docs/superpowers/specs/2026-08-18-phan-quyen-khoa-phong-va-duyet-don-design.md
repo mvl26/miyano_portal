@@ -51,7 +51,9 @@ khoa lập đề nghị mua, quản lý bệnh viện xem và duyệt.
 | **QĐ-KP-5** | Mã đề nghị đặt theo gì? | **Theo khoa phòng**, kèm ô tìm theo mã/tên vật tư |
 | **QĐ-KP-6** | Module kho có cách ly theo khoa không? | **Có** |
 | **QĐ-KP-7** | Tồn kho — thứ không chia theo khoa được — thì sao? | **Ẩn các màn tồn kho khỏi nhân viên khoa, nhưng khi lập phiếu xuất vẫn hiện tồn của mặt hàng đang chọn** |
-| **QĐ-KP-8** | Quản lý bệnh viện có tự tạo tài khoản không? | **Không.** Quản lý gán khoa, bật/tắt thành viên, lập uỷ quyền; **tạo tài khoản thì Miyano cấp** (đề xuất của bên thực hiện, chủ đầu tư chưa phản đối) |
+| **QĐ-KP-8** | Quản lý bệnh viện có tự tạo tài khoản không? | **Không.** Quản lý gán khoa, bật/tắt thành viên, lập uỷ quyền; **tạo tài khoản thì Miyano cấp**. *(Chủ đầu tư xác nhận 18/08: "nhân viên có tài khoản và được gán khoa bởi quản lý nhưng tài khoản sẽ được tạo ở phía Miyano")* |
+| **QĐ-KP-9** | Phiếu đề nghị ghi những gì để truy vết? | **Tên người yêu cầu, ngày giờ, và LÝ DO yêu cầu** — lý do thành field riêng bắt buộc, không gộp vào ô ghi chú |
+| **QĐ-KP-10** | Ai xoá được phiếu đề nghị? | Nhân viên xoá được **phiếu nháp của mình**; quản lý gỡ được phiếu đã gửi — nhưng **gỡ = chuyển trạng thái Đã huỷ, không xoá khỏi CSDL** (xem §5.4b) |
 
 ---
 
@@ -196,6 +198,18 @@ Giá phải trả: tách phần lõi của `portal_order_place` thành hàm dùn
 chuyển từ tầng đơn hàng xuống đây), `nguoi_duyet`, `thoi_diem_duyet`,
 `duyet_voi_tu_cach`, `uy_quyen`, `ly_do_tu_choi`, `sales_order`.
 
+**Khối truy vết (QĐ-KP-9)** — ba thứ hiện ngay đầu phiếu, không phải đi tìm
+trong lịch sử:
+
+| Trường | Nguồn | Ghi chú |
+|---|---|---|
+| `nguoi_yeu_cau` | `owner`, chỉ đọc | Hệ thống ghi, không nhập tay — đây là **user thao tác**, không phải một cái tên gõ vào |
+| `thoi_diem_gui` | Datetime, chỉ đọc | Ghi lúc bấm **Gửi duyệt**, không phải lúc tạo nháp. Nháp soạn ba ngày rồi mới gửi thì mốc truy vết là lúc gửi |
+| `ly_do_yeu_cau` | Small Text, **bắt buộc khi Gửi duyệt** | Vì sao khoa cần hàng này. Field RIÊNG, không gộp vào `ghi_chu`: một ô để trống được thì sẽ luôn trống, và đúng lúc cần truy vết thì không có gì để đọc |
+
+`ly_do_yeu_cau` bắt buộc **ở bước Gửi duyệt**, không phải lúc lưu nháp — bắt điền
+ngay từ dòng đầu tiên sẽ khiến người ta gõ "abc" cho xong.
+
 `customer` và `khoa_phong` **chỉ đọc, hệ thống ghi từ phiên đăng nhập** — không
 nhận từ client. Người của khoa Huyết học không lập được đề nghị mang tên khoa
 khác kể cả khi sửa payload.
@@ -230,9 +244,28 @@ Nháp ──Gửi duyệt──► Chờ duyệt ──Duyệt──► Đã duy
  └──Huỷ──► Đã huỷ
 ```
 
-Khoa tự huỷ được khi còn **Nháp** hoặc **Chờ duyệt**. Sau khi đã duyệt thì nó là
-Sales Order — huỷ theo luật huỷ đơn đang có, và **chỉ quản lý huỷ được**: đơn đã
-do quản lý chịu trách nhiệm thì không để nhân viên khoa rút lại một mình.
+### 5.4b Xoá và huỷ — hai việc khác nhau (QĐ-KP-10)
+
+Chủ đầu tư yêu cầu cả nhân viên lẫn quản lý **xoá được phiếu**. Nhưng yêu cầu đó
+đụng thẳng vào QĐ-KP-9 (*"ghi tên ngày giờ lý do để sau này truy vết"*): một
+phiếu xoá khỏi cơ sở dữ liệu thì không truy vết được gì cả. Phân đôi theo việc
+phiếu **đã được ai khác nhìn thấy hay chưa**:
+
+| Trạng thái | Ai làm được | Việc gì xảy ra |
+|---|---|---|
+| **Nháp** (chưa gửi) | Nhân viên lập phiếu, và quản lý | **XOÁ THẬT.** Chưa ai ngoài người lập nhìn thấy, chưa sinh mã, không có gì để truy vết |
+| **Chờ duyệt** trở đi | Quản lý | **Chuyển sang `Đã huỷ`**, phiếu còn nguyên. Đã có mã, quản lý đã nhìn thấy, đã vào danh sách chờ duyệt |
+| **Đã duyệt** | Quản lý | Đã thành Sales Order — theo luật huỷ đơn đang có |
+
+Nút trên màn hình vẫn ghi **"Xoá"** ở trạng thái Nháp và **"Huỷ phiếu"** từ Chờ
+duyệt trở đi, để người dùng thấy đúng việc mình đang làm.
+
+Nhân viên **không** huỷ được phiếu đã gửi: một phiếu đang nằm trong danh sách chờ
+của quản lý mà biến mất giữa chừng là thứ khó chịu nhất cho người duyệt. Muốn rút
+thì nhờ quản lý, hoặc quản lý từ chối.
+
+Sửa số lượng: nhân viên sửa thoải mái khi còn **Nháp**; từ **Chờ duyệt** trở đi
+chỉ quản lý sửa (`so_luong_duyet`), và `so_luong_de_nghi` khoá vĩnh viễn (§5.3).
 
 ### 5.5 Quản lý đặt hàng trực tiếp — vẫn một đường giấy tờ
 
