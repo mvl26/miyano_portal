@@ -53,6 +53,7 @@ khoa lập đề nghị mua, quản lý bệnh viện xem và duyệt.
 | **QĐ-KP-7** | Tồn kho — thứ không chia theo khoa được — thì sao? | **Ẩn các màn tồn kho khỏi nhân viên khoa, nhưng khi lập phiếu xuất vẫn hiện tồn của mặt hàng đang chọn** |
 | **QĐ-KP-8** | Quản lý bệnh viện có tự tạo tài khoản không? | **Không.** Quản lý gán khoa, bật/tắt thành viên, lập uỷ quyền; **tạo tài khoản thì Miyano cấp**. *(Chủ đầu tư xác nhận 18/08: "nhân viên có tài khoản và được gán khoa bởi quản lý nhưng tài khoản sẽ được tạo ở phía Miyano")* |
 | **QĐ-KP-9** | Phiếu đề nghị ghi những gì để truy vết? | **Tên người yêu cầu, ngày giờ, và LÝ DO yêu cầu** — lý do thành field riêng bắt buộc, không gộp vào ô ghi chú |
+| **QĐ-KP-11** | Người được uỷ quyền có duyệt được đơn của chính mình? | **Có, nhưng đơn đó mang nhãn `Tự duyệt khi được uỷ quyền`** và lọc ra được thành danh sách riêng cho quản lý hậu kiểm khi quay về. Không chặn công việc mà vẫn có dấu vết |
 | **QĐ-KP-10** | Ai xoá được phiếu đề nghị? | Nhân viên xoá được **phiếu nháp của mình**; quản lý gỡ được phiếu đã gửi — nhưng **gỡ = chuyển trạng thái Đã huỷ, không xoá khỏi CSDL** (xem §5.4b) |
 
 ---
@@ -326,9 +327,20 @@ Ba chi tiết không được bỏ:
 2. **Mỗi lần duyệt ghi rõ tư cách** (`Quản lý chính` / `Được uỷ quyền` + trỏ về
    phiếu uỷ quyền). Không ghi thì ba tháng sau không ai giải thích được vì sao
    một người không phải quản lý lại duyệt được đơn đó.
-3. **Không tự duyệt đề nghị của chính mình.** Người được uỷ quyền vẫn là nhân
-   viên một khoa và vẫn lập đề nghị cho khoa mình; để họ tự duyệt là mất hẳn ý
-   nghĩa của bước duyệt. Trường hợp này đẩy về quản lý chính.
+3. **Tự duyệt được, nhưng phải để lại dấu (QĐ-KP-11).** Người được uỷ quyền vẫn
+   là nhân viên một khoa và vẫn lập đề nghị cho khoa mình. Chặn hẳn thì đúng
+   nguyên tắc kiểm soát nhưng làm tắc đúng tình huống uỷ quyền sinh ra để gỡ:
+   quản lý đi vắng, chính người được uỷ quyền cần mua gấp. Nên **cho duyệt**, và:
+
+   * phiếu mang cờ `tu_duyet` (chỉ đọc, hệ thống đặt khi `nguoi_duyet == owner`);
+   * màn của quản lý có bộ lọc **"Đơn tự duyệt khi tôi vắng"** để soát lại một
+     lượt khi quay về;
+   * cờ này **suy ra, không nhập tay** — một cờ tự khai thì đúng lúc cần nó nhất
+     sẽ không được khai.
+
+   Đây là kiểm soát **hậu kiểm** thay cho **tiền kiểm**. Nói rõ ra vì nó khác
+   với thứ bước duyệt vốn hứa: với những đơn này, hệ thống ghi nhận chứ không
+   ngăn chặn.
 
 ### 5.8 Thông báo
 
