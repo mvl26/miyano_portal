@@ -579,9 +579,11 @@ def tao_sales_order(
     người gọi (endpoint cổng suy từ phiên đăng nhập qua `get_portal_customer`;
     đường duyệt đề nghị mua sau này sẽ suy từ chính `Đề nghị mua` được duyệt).
 
-    `khoa_phong` — Task 8 mới nối vào Sales Order; ở đây CHỈ NHẬN và BỎ QUA
-    vì chưa có field nào để ghi (khai sẵn chữ ký để đường duyệt đề nghị gọi
-    được ngay từ task này, không phải sửa chữ ký lần nữa ở Task 8).
+    `khoa_phong` — ghi lên `Sales Order.custom_khoa_phong` (Task 8), nguồn
+    DUY NHẤT cho mọi phép lọc theo khoa về sau (xem docstring patch
+    `them_khoa_phong_vao_don_hang`). `None` = đơn cấp bệnh viện, không quy về
+    khoa nào — hợp lệ (đường duyệt đề nghị mua của quản lý bệnh viện, hoặc
+    khách chưa dùng mô hình khoa phòng).
     """
     mode = (mode or "hdnt").strip()
     if mode not in ("hdnt", "ban_le"):
@@ -706,5 +708,14 @@ def tao_sales_order(
         so = _xay_don_ban_le(customer, aggregated, dat_ngoai, delivery_date, address, po, note, request_id)
     else:
         so = _xay_don_hdnt(customer, contract, bo, aggregated, delivery_date, address, po, note, request_id)
+
+    # Khoa phòng đứng tên đơn — nguồn của MỌI phép lọc theo khoa về sau
+    # (phiếu giao, hoá đơn, biên bản kiểm đều lọc qua đơn cha, không có
+    # field riêng). `None` = đơn cấp bệnh viện, chỉ quản lý thấy.
+    if khoa_phong:
+        cua = frappe.db.get_value("Customer Department", khoa_phong, "customer")
+        if cua != customer:
+            raise frappe.PermissionError("Khoa phòng không thuộc đơn vị của bạn.")
+        so.custom_khoa_phong = khoa_phong
 
     return _insert_so_idempotent(so, request_id)

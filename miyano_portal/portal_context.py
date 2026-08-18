@@ -82,6 +82,67 @@ def pham_vi_don(user: str | None = None) -> dict:
     return {"custom_khoa_phong": khoa_phong}
 
 
+LOI_KHONG_THAY = "Không tìm thấy chứng từ."
+
+
+def dam_bao_xem_duoc(doctype: str, name: str) -> None:
+    """Chặn ở mọi endpoint ĐỌC MỘT chứng từ theo phạm vi khoa phòng (bước 8).
+
+    Thông báo lỗi CỐ Ý giống hệt cho hai trường hợp "không có thật" và "của
+    khoa khác": phân biệt hai cái đó là để lộ sự tồn tại của chứng từ, và
+    trong bệnh viện thì "khoa Dược có đơn mã X" đã là thông tin. Việc này chỉ
+    làm được vì `frappe.db.get_value`/`frappe.db.sql` trả rỗng cho một `name`
+    không tồn tại thay vì ném lỗi — nên "không có thật" tự rơi vào NHÁNH SO
+    SÁNH giống hệt "của khoa khác" (cả hai đều cho `cua != pham_vi[...]`),
+    KHÔNG PHẢI hai đường code riêng cùng chung một câu chữ.
+
+    Đây là kiểm phạm vi THEO KHOA — hoàn toàn KHÔNG thay cho kiểm phạm vi
+    THEO KHÁCH HÀNG (`so.check_permission("read")`/so sánh `customer` đã có
+    sẵn ở từng endpoint): với Quản lý (`pham_vi_don()` trả `{}`), hàm này
+    return ngay và chốt khách hàng vẫn hoàn toàn dựa vào phép kiểm cũ đó —
+    ĐỪNG xoá phép kiểm `customer` đã có khi thêm hàm này vào một endpoint.
+
+    `Sales Order` mang `custom_khoa_phong` trực tiếp; `Delivery Note`/`Sales
+    Invoice` quy về đơn cha qua bảng dòng (`against_sales_order`/
+    `sales_order`) — MỘT nguồn sự thật, không nhân bản field khoa phòng đi
+    các nơi (xem docstring patch `them_khoa_phong_vao_don_hang`). Một chứng
+    từ nối tới NHIỀU đơn thuộc NHIỀU khoa khác nhau (biên bản gộp — chưa gặp
+    trong luồng hiện tại, các hàm `make_delivery_note`/`make_sales_invoice`
+    của ERPNext chỉ map từ MỘT đơn) bị coi là MƠ HỒ và ĐÓNG, không phải MỞ:
+    `cua` = `None` trong trường hợp đó, không khớp bất kỳ khoa thật nào.
+    """
+    pham_vi = pham_vi_don()
+    if not pham_vi:
+        return
+    if doctype == "Sales Order":
+        cua = frappe.db.get_value("Sales Order", name, "custom_khoa_phong")
+    elif doctype == "Delivery Note":
+        hang = frappe.db.sql(
+            """select distinct so.custom_khoa_phong
+               from `tabDelivery Note Item` dni
+               inner join `tabSales Order` so on so.name = dni.against_sales_order
+               where dni.parent = %s""",
+            (name,),
+        )
+        cua = hang[0][0] if len(hang) == 1 else None
+    elif doctype == "Sales Invoice":
+        hang = frappe.db.sql(
+            """select distinct so.custom_khoa_phong
+               from `tabSales Invoice Item` sii
+               inner join `tabSales Order` so on so.name = sii.sales_order
+               where sii.parent = %s""",
+            (name,),
+        )
+        cua = hang[0][0] if len(hang) == 1 else None
+    else:
+        raise NotImplementedError(
+            f"dam_bao_xem_duoc chưa biết quy {doctype} về đơn cha — "
+            "thêm nhánh ở đây, đừng viết điều kiện lọc rời tại endpoint."
+        )
+    if cua != pham_vi["custom_khoa_phong"]:
+        raise frappe.PermissionError(LOI_KHONG_THAY)
+
+
 def get_portal_customer(user: str | None = None) -> str:
     customers = get_allowed_customers(user)
     if not customers:

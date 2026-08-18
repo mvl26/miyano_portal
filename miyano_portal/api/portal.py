@@ -6,7 +6,12 @@ from miyano_portal.dat_hang import (
     _resolve_item_warehouse,
 )
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
-from miyano_portal.portal_context import get_portal_customer, han_muc_con
+from miyano_portal.portal_context import (
+    dam_bao_xem_duoc,
+    get_portal_customer,
+    han_muc_con,
+    pham_vi_don,
+)
 from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
     TRANG_THAI_CHO_KHACH,
@@ -431,6 +436,15 @@ def _dieu_kien_loc_trang_thai_don(trang_thai: str) -> tuple:
     frappe.throw(f"Trạng thái lọc không hợp lệ: {trang_thai}")
 
 
+def _pham_vi_filters() -> list:
+    """`pham_vi_don()` (dict `{"custom_khoa_phong": ...}` hoặc `{}`) đổi
+    sang khuôn `filters` kiểu LIST mà `frappe.get_list` trên `Sales Order`
+    đang dùng ở file này (`_dieu_kien_loc_trang_thai_don` trả cùng khuôn) —
+    một hàm chuyển khuôn DÙNG CHUNG, không phải mỗi endpoint tự viết
+    `["custom_khoa_phong", "=", ...]` một kiểu riêng."""
+    return [["custom_khoa_phong", "=", v] for v in pham_vi_don().values()]
+
+
 @frappe.whitelist()
 def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
@@ -456,6 +470,9 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     filters, or_filters = [], None
     if trang_thai:
         filters, or_filters = _dieu_kien_loc_trang_thai_don(trang_thai)
+    # Bước 8 — Nhân viên khoa chỉ thấy đơn của khoa mình; Quản lý
+    # (`pham_vi_don() == {}`) không bị lọc thêm gì ở đây.
+    filters = filters + _pham_vi_filters()
 
     tong = frappe.get_list(
         "Sales Order", filters=filters, or_filters=or_filters,
@@ -490,6 +507,7 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
 
 def _dem_don_theo_trang_thai(trang_thai: str) -> int:
     filters, or_filters = _dieu_kien_loc_trang_thai_don(trang_thai)
+    filters = filters + _pham_vi_filters()
     return frappe.get_list(
         "Sales Order", filters=filters, or_filters=or_filters,
         fields=["count(name) as n"],
@@ -520,8 +538,10 @@ def portal_dashboard_kpi() -> dict:
         "don_cho_xac_nhan": _dem_don_theo_trang_thai("Chờ xác nhận"),
         "don_dang_giao": _dem_don_theo_trang_thai("Đang giao"),
         "hoa_don_chua_thanh_toan": frappe.get_list(
-            "Sales Invoice", filters={"outstanding_amount": [">", 0]},
-            fields=["count(name) as n"],
+            "Sales Invoice",
+            filters=[["outstanding_amount", ">", 0]]
+            + _loc_qua_don_cha("Sales Invoice Item", "sales_order"),
+            fields=["count(distinct `tabSales Invoice`.name) as n"],
         )[0].n,
     }
 
@@ -581,10 +601,16 @@ def _hoa_don_cua_don(order: str) -> list:
 
 @frappe.whitelist()
 def portal_order_track(order) -> dict:
+    # Bước 8 — chặn theo KHOA trước tiên: `dam_bao_xem_duoc` tự no-op cho
+    # Quản lý (pham_vi_don() == {}) và ném CÙNG một thông báo cho "đơn không
+    # có thật" lẫn "đơn của khoa khác" (không có gì để `frappe.get_doc`
+    # đụng vào rồi mới ném DoesNotExistError với văn xuôi khác).
+    dam_bao_xem_duoc("Sales Order", order)
     so = frappe.get_doc("Sales Order", order)
     # frappe.get_doc does not auto-check permissions on load; check_permission()
     # is what actually invokes the has_permission hook (Task 5) that scopes
-    # this to the caller's own customer.
+    # this to the caller's own customer — kiểm KHÁCH HÀNG, KHÔNG thay cho
+    # kiểm khoa phòng ở trên.
     so.check_permission("read")
     delivered = (so.per_delivered or 0) > 0
     billed = (so.per_billed or 0) > 0
@@ -826,10 +852,44 @@ def portal_order_track(order) -> dict:
     }
 
 
+def _ten_don_trong_pham_vi() -> list | None:
+    """`None` = không giới hạn theo khoa (Quản lý). Ngược lại: danh sách tên
+    `Sales Order` thuộc ĐÚNG khoa của người gọi (có thể rỗng)."""
+    pham_vi = pham_vi_don()
+    if not pham_vi:
+        return None
+    return frappe.get_all(
+        "Sales Order", filters={"custom_khoa_phong": pham_vi["custom_khoa_phong"]},
+        pluck="name",
+    )
+
+
+def _loc_qua_don_cha(child_doctype: str, link_field: str) -> list:
+    """Filter kiểu LIST cho `frappe.get_list` trên một doctype DẪN XUẤT
+    (Delivery Note/Sales Invoice) — lọc QUA ĐƠN CHA bằng cách nối bảng dòng
+    (`child_doctype`), KHÔNG có field khoa phòng riêng trên chính doctype đó
+    (một nguồn sự thật, xem docstring `dam_bao_xem_duoc`). `[]` (không lọc
+    gì thêm) cho Quản lý; một sentinel không khớp bản ghi nào khi khoa CHƯA
+    có đơn nào (danh sách `_ten_don_trong_pham_vi()` rỗng — `["in", []]`
+    không đáng tin cậy trên mọi bản Frappe nên tự đóng bằng một giá trị
+    không bao giờ khớp thay vì phó mặc)."""
+    so_names = _ten_don_trong_pham_vi()
+    if so_names is None:
+        return []
+    return [[child_doctype, link_field, "in", so_names or ["__khong_don_nao__"]]]
+
+
 @frappe.whitelist()
 def portal_deliveries(limit=20, start=0) -> list:
+    filters = _loc_qua_don_cha("Delivery Note Item", "against_sales_order")
     return frappe.get_list(
         "Delivery Note",
+        filters=filters,
+        # `distinct` — một phiếu giao có THỂ có nhiều dòng cùng trỏ về một
+        # đơn (nhiều mặt hàng); không có nó, phép nối bảng dòng ở trên nhân
+        # bản CHÍNH phiếu giao đó trên danh sách, hỏng cả số lượng lẫn phân
+        # trang một cách im lặng.
+        distinct=True,
         fields=["name", "posting_date", "status"],
         order_by="posting_date desc",
         limit_page_length=int(limit), limit_start=int(start),
@@ -852,13 +912,28 @@ def portal_invoices(limit=20, start=0) -> dict:
     (frontend/src/format.js): quá hạn = hạn TT đã qua hôm nay; sắp đến hạn
     = còn 0-7 ngày VÀ còn nợ.
     """
-    tong = frappe.get_list("Sales Invoice", fields=["count(name) as tong"])[0].tong
+    # Bước 8 — CẢ BA truy vấn dưới đây phải cùng một bộ lọc khoa phòng: đây
+    # là đúng bẫy "hồi quy im lặng" mà docstring hàm này đang cảnh báo (phân
+    # trang) áp cho một trục khác — lọc mỗi `rows` mà bỏ sót `tong`/
+    # `qua_han_thanh_toan`/`sap_den_han_so_luong` thì nhân viên khoa vẫn đọc
+    # được TỔNG CÔNG NỢ TOÀN BỆNH VIỆN ngay trên khối KPI, dữ liệu vẫn rò dù
+    # danh sách chi tiết đã lọc đúng.
+    pham_vi_hd = _loc_qua_don_cha("Sales Invoice Item", "sales_order")
+
+    tong = frappe.get_list(
+        "Sales Invoice", filters=pham_vi_hd,
+        # `count(distinct name)`, KHÔNG `distinct=True` + `count(name)`: một
+        # hoá đơn khớp NHIỀU dòng của cùng một đơn (nhiều mặt hàng) sẽ bị
+        # phép nối bảng dòng ở `_loc_qua_don_cha` đếm lặp nếu chỉ đếm `name`.
+        fields=["count(distinct `tabSales Invoice`.name) as tong"],
+    )[0].tong
 
     hom_nay = frappe.utils.nowdate()
     qua_han_thanh_toan = 0.0
     sap_den_han_so_luong = 0
     for r in frappe.get_list(
-        "Sales Invoice", filters={"outstanding_amount": [">", 0]},
+        "Sales Invoice", filters=[["outstanding_amount", ">", 0]] + pham_vi_hd,
+        distinct=True,
         fields=["due_date", "outstanding_amount"],
     ):
         if not r.due_date:
@@ -871,6 +946,8 @@ def portal_invoices(limit=20, start=0) -> dict:
 
     rows = frappe.get_list(
         "Sales Invoice",
+        filters=pham_vi_hd,
+        distinct=True,
         # `customer` chỉ dùng NỘI BỘ để đối chiếu sở hữu bản ghi HĐĐT
         # (`einvoice.block_for` — F-08/E7), bị `pop` trước khi trả về, KHÔNG
         # phải một field mới lộ ra response.
@@ -917,6 +994,7 @@ def _ho_so_cua_hoa_don(invoice) -> tuple:
     ghi — bản gốc + bản điều chỉnh/thay thế + bản lập lại sau huỷ nội bộ —
     không được chỉ lấy MỘT). Dùng chung cho cả hai endpoint bên dưới, tránh
     hai nơi tự viết lại khối kiểm quyền."""
+    dam_bao_xem_duoc("Sales Invoice", invoice)
     customer = get_portal_customer()
     si = frappe.get_doc("Sales Invoice", invoice)
     # `frappe.get_doc` KHÔNG tự kiểm quyền — `check_permission` là nơi hook
@@ -935,6 +1013,7 @@ def _dn_cua_khach(delivery_note):
     mới là nơi hook `has_permission` (`permissions.generic_has_permission`)
     thật sự chạy, và chốt `dn.customer` là lớp thứ hai không phụ thuộc cấu
     hình DocPerm/User Permission."""
+    dam_bao_xem_duoc("Delivery Note", delivery_note)
     customer = get_portal_customer()
     dn = frappe.get_doc("Delivery Note", delivery_note)
     dn.check_permission("read")
@@ -1118,6 +1197,7 @@ def portal_einvoice_ho_tro(invoice, fei=None) -> dict:
 
 @frappe.whitelist()
 def portal_request_cancel(order, reason) -> dict:
+    dam_bao_xem_duoc("Sales Order", order)
     so = frappe.get_doc("Sales Order", order)
     so.check_permission("read")
     if so.docstatus != 0:
@@ -1222,6 +1302,10 @@ def portal_provision(customer, email, send_invite=False) -> dict:
 def portal_document_download(doctype, name) -> None:
     if doctype not in ("Sales Order", "Delivery Note", "Sales Invoice"):
         frappe.throw("Loại chứng từ không hợp lệ.")
+    # Vệ guard trên CHỈ CHO QUA đúng 3 doctype `dam_bao_xem_duoc` đã có nhánh
+    # — `NotImplementedError` của hàm đó (doctype lạ) không bao giờ tới được
+    # đây để lộ ra khách như một lỗi 500.
+    dam_bao_xem_duoc(doctype, name)
     doc = frappe.get_doc(doctype, name)
     # frappe.get_doc does NOT auto-enforce has_permission in this build, so the
     # isolation check must be done explicitly before any data leaves the server.
@@ -1256,6 +1340,7 @@ def portal_bao_gia_pdf(order) -> None:
     `customer` của đơn với khách suy từ PHIÊN (Quyết định nền số 7) — không
     nhận `customer` từ client dưới bất kỳ hình thức nào.
     """
+    dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.db.get_value(
         "Sales Order", order,
@@ -1319,6 +1404,7 @@ def portal_reorder(order: str) -> dict:
     Dòng còn đặt được một phần thì HẠ số lượng xuống phần còn lại chứ không
     loại cả dòng — còn 1 mà đơn cũ đặt 3 thì khách vẫn nên đặt được 1.
     """
+    dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.get_doc("Sales Order", order)
     # `frappe.get_doc` KHÔNG chạy hook `has_permission` ở build này — phải
@@ -1381,6 +1467,7 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     không thì mọi thao tác đồng ý đều mang danh "Administrator" và không truy
     được ai đã đồng ý.
     """
+    dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.get_doc("Sales Order", order)
     # `frappe.get_doc` KHÔNG chạy hook has_permission ở build này — phải tự kiểm.
@@ -1522,6 +1609,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     khớp dòng nào) bị bỏ qua/từ chối hoàn toàn, không có đường nào để
     payload tự thêm dòng mới hay tự đổi giá. Số lượng 0 = bỏ dòng đó.
     """
+    dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.get_doc("Sales Order", order)
     # `frappe.get_doc` KHÔNG tự kiểm quyền ở build này — phải tự đối chiếu
@@ -1751,6 +1839,7 @@ def portal_order_huy(order, ly_do) -> dict:
     "Miyano đã từ chối đơn của bạn", dùng lại sẽ gửi sai thông điệp cho
     chính khách vừa tự huỷ (bài học đã trả giá, xem docstring patch).
     """
+    dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.get_doc("Sales Order", order)
     # `frappe.get_doc` KHÔNG tự kiểm quyền — phải tự đối chiếu `customer`
@@ -1884,6 +1973,51 @@ def _customer_phien_hien_tai() -> str | None:
         return None
 
 
+def _pham_vi_phien_hien_tai() -> dict:
+    """`pham_vi_don()` nhưng KHÔNG ném lỗi — cùng lý do `_customer_phien_
+    hien_tai()` ngay trên: trang Thông báo vẫn phải chạy cho một tài khoản
+    lỗi cấu hình, coi như KHÔNG giới hạn theo khoa (`{}`) thay vì 500 cả
+    trang."""
+    try:
+        return pham_vi_don()
+    except frappe.PermissionError:
+        return {}
+
+
+# `_lien_ket_thong_bao`/`dam_bao_xem_duoc` biết quy đúng ba doctype này về
+# đơn cha. `Customer Stock Receipt`/`Portal Delivery Inspection` KHÔNG có
+# mặt ở đây — CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
+# nào (`Customer Warehouse` không gắn khoa phòng, xem thiết kế "kho khách
+# hàng"), nên một thông báo "đã nhập hàng" là thông tin cấp bệnh viện, cùng
+# hạng với `portal_catalog` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ
+# quên áp phạm vi.
+_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
+
+
+def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict) -> bool:
+    """`False` = ẨN CẢ DÒNG thông báo, không chỉ null hoá `link`.
+
+    `_lien_ket_thong_bao` chỉ null `link` khi không sở hữu chứng từ đích —
+    đủ để chặn NAVIGATE nhưng `subject` (vd. "Portal - Đơn mới: SAL-ORD-...")
+    vẫn mang thẳng tên chứng từ ra ngoài. Với cách ly THEO KHOA, riêng
+    `subject` đã là rò rỉ (một nhân viên khoa B đọc được "khoa A vừa có đơn
+    SAL-ORD-2026-00099" dù không bấm vào xem được) — nên hàm này ẩn hẳn dòng
+    thay vì chỉ tắt nút đi tới.
+
+    Biết fan-out lúc TẠO thông báo (`portal_thong_bao_khach._portal_users_
+    cua_khach`) hiện gửi cho MỌI thành viên đang active của khách hàng, chưa
+    lọc theo khoa (docstring hàm đó tự ghi nhận, để dành việc đó cho phần mở
+    rộng khác) — lọc Ở ĐÂY (đường đọc) vẫn đạt đúng mục tiêu cách ly từ góc
+    nhìn của người xem, dù việc TẠO THỪA vẫn còn đó."""
+    if not pham_vi or document_type not in _THONG_BAO_DOCTYPE_LOC_KHOA or not document_name:
+        return True
+    try:
+        dam_bao_xem_duoc(document_type, document_name)
+        return True
+    except frappe.PermissionError:
+        return False
+
+
 @frappe.whitelist()
 def portal_thong_bao_list(start=0, limit=20) -> dict:
     """Danh sách thông báo của CHÍNH khách đang đăng nhập + số chưa đọc cho
@@ -1907,6 +2041,7 @@ def portal_thong_bao_list(start=0, limit=20) -> dict:
     chua_doc = frappe.db.count("Notification Log", {"for_user": user, "read": 0})
 
     customer = _customer_phien_hien_tai()
+    pham_vi = _pham_vi_phien_hien_tai()
     items = [
         {
             "name": r.name,
@@ -1919,7 +2054,13 @@ def portal_thong_bao_list(start=0, limit=20) -> dict:
             "link": _lien_ket_thong_bao(r.document_type, r.document_name, customer),
         }
         for r in rows
+        if _thong_bao_trong_pham_vi(r.document_type, r.document_name, pham_vi)
     ]
+    # `chua_doc` (badge nav) CỐ Ý chưa lọc theo khoa — đây là một CON SỐ,
+    # không phải nội dung chứng từ; thu hẹp nó đòi kiểm dam_bao_xem_duoc trên
+    # MỌI thông báo chưa đọc của user (không chỉ trang đang xem), một chi phí
+    # không tương xứng với rủi ro (một con số badge, không phải tên/mã chứng
+    # từ). Ghi nhận là giới hạn đã biết, không phải bị bỏ sót.
     return {"items": items, "chua_doc": chua_doc}
 
 
@@ -1939,6 +2080,13 @@ def portal_thong_bao_doc(name) -> dict:
     if not log:
         # Không tồn tại HOẶC thuộc `for_user` khác — cùng một câu trả lời để
         # không lộ ra sự khác biệt giữa hai trường hợp đó.
+        raise frappe.PermissionError("Không tìm thấy thông báo.")
+
+    pham_vi = _pham_vi_phien_hien_tai()
+    if not _thong_bao_trong_pham_vi(log.document_type, log.document_name, pham_vi):
+        # CÙNG thông điệp với "không tồn tại"/"thuộc user khác" ở trên —
+        # nguyên tắc constraint #1: không phân biệt lý do để khỏi lộ sự tồn
+        # tại của chứng từ đích.
         raise frappe.PermissionError("Không tìm thấy thông báo.")
 
     customer = _customer_phien_hien_tai()
@@ -1974,6 +2122,7 @@ def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
     tại nữa. Cho lập biên bản trên hai loại đó sẽ sinh ra chứng từ khiếu nại
     về một lần giao hàng chưa/không hề xảy ra.
     """
+    dam_bao_xem_duoc("Delivery Note", delivery_note)
     dn = frappe.db.get_value(
         "Delivery Note", delivery_note,
         ["name", "customer", "docstatus", "posting_date"], as_dict=True,
