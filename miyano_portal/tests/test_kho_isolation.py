@@ -624,6 +624,17 @@ class TestKhoIsolation(FrappeTestCase):
             ct.append("links", {"link_doctype": "Customer", "link_name": cust})
             ct.name = contact_name
             ct.insert(ignore_permissions=True, set_name=contact_name)
+        # Task 5 (18/08/2026): get_portal_kho() gọi get_allowed_customers(),
+        # giờ đọc `Portal Member` chứ không còn đọc Contact/Dynamic Link ở
+        # trên nữa. Thiếu bước này, hàm chặn sớm ở "chưa gắn với khách hàng
+        # nào" (get_portal_member) thay vì đi tới đúng chỗ test này canh —
+        # "chưa được mở kho" (bước kiểm Customer Warehouse, sau khi đã xác
+        # định được khách hàng).
+        if not frappe.db.exists("Portal Member", {"user": u}):
+            frappe.get_doc({
+                "doctype": "Portal Member", "user": u, "customer": cust,
+                "vai_tro": "Quản lý",
+            }).insert(ignore_permissions=True)
         frappe.set_user(u)
         with self.assertRaises(frappe.PermissionError) as ctx:
             get_portal_kho()

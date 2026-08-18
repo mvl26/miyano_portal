@@ -74,27 +74,34 @@ class TestKhoApi(FrappeTestCase):
     # ------------------------------------------------------------------
 
     def test_no_customer_link_denies_every_endpoint(self):
-        """A Website User whose Contact exists but links to NO customer must
-        be denied by every endpoint with a Vietnamese PermissionError, and
-        must get no data back — not an empty-but-silent result.
+        """A Website User whose portal identity has been cut must be denied
+        by every endpoint with a Vietnamese PermissionError, and must get no
+        data back — not an empty-but-silent result.
 
-        We sever the existing BM Contact's Customer link only inside a DB
-        savepoint scoped to this test, then roll back to the savepoint
-        before returning: no persisted change survives the test, and no
-        User record is created (User.insert() commits internally and could
-        not be cleanly undone — see seed_demo.py / task instructions).
+        MECHANISM CHANGED (Task 5, 18/08/2026): this used to sever the BM
+        Contact's `Dynamic Link` to Customer, because `get_allowed_customers()`
+        read identity through `Contact`/`Dynamic Link` at the time. Since Task
+        5, identity reads exclusively from `Portal Member` — severing the
+        Dynamic Link no longer denies anything (BM_USER's `Portal Member` row
+        is untouched by it), so the OLD mechanism silently stopped testing
+        what its name says. The INTENT is unchanged ("a portal user without
+        an active grant sees nothing everywhere"); only the mechanism moves
+        to match where the grant actually lives now: delete BM_USER's
+        `Portal Member` row instead.
+
+        Still scoped to a DB savepoint scoped to this test, then rolled back
+        before returning: no persisted change survives the test, and no User
+        record is created (User.insert() commits internally and could not be
+        cleanly undone — see seed_demo.py / task instructions).
         """
         frappe.set_user(BM_USER)
-        contact = frappe.db.get_value("Contact", {"user": BM_USER}, "name")
-        self.assertTrue(contact, "fixture assumption: BM_USER has a Contact")
+        tv = frappe.db.get_value("Portal Member", {"user": BM_USER}, "name")
+        self.assertTrue(tv, "fixture assumption: BM_USER has a Portal Member")
 
         sp = "test_no_customer_link_sp"
         frappe.db.savepoint(sp)
         try:
-            frappe.db.delete(
-                "Dynamic Link",
-                {"parenttype": "Contact", "parent": contact, "link_doctype": "Customer"},
-            )
+            frappe.db.delete("Portal Member", {"name": tv})
             for label, call in [
                 ("kho_me", lambda: kho_api.kho_me()),
                 ("kho_ton", lambda: kho_api.kho_ton()),
@@ -110,10 +117,11 @@ class TestKhoApi(FrappeTestCase):
             # frappe.db.rollback(save_point=...) undoes the row but not any
             # doc/value cache that a write may have populated in between —
             # savepoint rollback is DB-only (see frappe.database.savepoint
-            # docstring). Nothing here currently goes through a cached read
-            # path, but clearing defensively costs nothing and keeps this
-            # test from becoming a future source of cross-test flakiness.
-            frappe.clear_document_cache("Contact", contact)
+            # docstring). get_portal_member()/get_allowed_customers() read
+            # through frappe.db.get_value (uncached), so there is currently
+            # no cache to clear for Portal Member the way Contact needed —
+            # kept as a comment, not a call, so the next person who adds a
+            # cached read here knows to check this.
 
     def test_kho_lo_other_customers_item_raises_not_empty(self):
         """kho_lo on a vat_tu owned by another customer must raise

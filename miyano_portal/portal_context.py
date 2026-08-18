@@ -1,26 +1,70 @@
 import frappe
 
+QUAN_LY = "Quản lý"
+
+
+def get_portal_member(user: str | None = None) -> frappe._dict:
+    """Bản ghi thành viên cổng của user. Ném PermissionError nếu không có.
+
+    Đây là NGUỒN DUY NHẤT — không có nhánh dự phòng đọc `Contact`. Một
+    `Contact` có `user` mà không có `Portal Member` là LỖI CẤU HÌNH (patch
+    v1_23 điền cho tài khoản cũ, `portal_provision` tạo cho tài khoản mới),
+    không phải một trường hợp hợp lệ cần đỡ. Đỡ nó chính là dựng lại hai
+    nguồn sự thật mà việc chuyển đổi này tồn tại để dẹp.
+    """
+    user = user or frappe.session.user
+    tv = frappe.db.get_value(
+        "Portal Member", {"user": user, "active": 1},
+        ["name", "customer", "vai_tro", "khoa_phong"], as_dict=True,
+    )
+    if not tv:
+        raise frappe.PermissionError("Tài khoản chưa gắn với khách hàng nào.")
+    return tv
+
 
 def get_allowed_customers(user: str | None = None) -> list[str]:
-    """Customers linked to the user's Contact (Dynamic Link -> Customer)."""
+    """Khách hàng của user, đọc từ `Portal Member`.
+
+    Giữ NGUYÊN chữ ký trả `list[str]` (dù mỗi user đúng một khách hàng — một
+    user không thể thuộc hai `Portal Member` nhờ ràng buộc unique trên field
+    `user`) để mọi lời gọi hiện có (permissions.py, kho/permissions.py, các
+    hook has_permission/query_condition...) không phải đổi theo.
+    """
     user = user or frappe.session.user
-    contacts = frappe.get_all(
-        "Contact",
-        filters={"user": user},
-        pluck="name",
+    cust = frappe.db.get_value(
+        "Portal Member", {"user": user, "active": 1}, "customer"
     )
-    if not contacts:
-        return []
-    customers = frappe.get_all(
-        "Dynamic Link",
-        filters={
-            "parenttype": "Contact",
-            "parent": ["in", contacts],
-            "link_doctype": "Customer",
-        },
-        pluck="link_name",
-    )
-    return list(dict.fromkeys(customers))
+    return [cust] if cust else []
+
+
+def la_quan_ly(user: str | None = None) -> bool:
+    """Có quyền quản lý (nhìn xuyên mọi khoa phòng) TẠI THỜI ĐIỂM NÀY.
+
+    Hàm này PHỤ THUỘC THỜI GIAN. Bước 7 của đề án thêm uỷ quyền tạm thời và
+    vế thứ hai sẽ mọc ra ở đây — mọi nơi gọi PHẢI hỏi hàm này, KHÔNG được tự
+    đọc `vai_tro` (kể cả qua `get_portal_member().vai_tro`): người được uỷ
+    quyền vẫn mang vai trò "Nhân viên khoa" trong hồ sơ nhưng phải nhìn
+    xuyên mọi khoa trong thời gian uỷ quyền — tự đọc `vai_tro` sẽ bỏ sót vế
+    đó ngay khi nó được thêm vào.
+    """
+    try:
+        return get_portal_member(user).vai_tro == QUAN_LY
+    except frappe.PermissionError:
+        return False
+
+
+def pham_vi_don(user: str | None = None) -> dict:
+    """Điều kiện lọc đơn hàng theo khoa phòng cho user hiện tại.
+
+    `{}` = không giới hạn theo khoa (Quản lý, hoặc — sau bước 7 — người đang
+    được uỷ quyền). Vẫn phải kết hợp với giới hạn theo khách hàng
+    (`get_allowed_customers`/`get_portal_customer`) ở chỗ gọi — hàm này CHỈ
+    trả lời câu hỏi "trong nội bộ một khách hàng, còn giới hạn thêm theo
+    khoa phòng nào không", không tự nó giới hạn khách hàng.
+    """
+    if la_quan_ly(user):
+        return {}
+    return {"custom_khoa_phong": get_portal_member(user).khoa_phong}
 
 
 def get_portal_customer(user: str | None = None) -> str:

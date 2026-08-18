@@ -3,6 +3,8 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal import portal_context
+
 # VÒNG SỬA 3 (F5, re-review độc lập): bản trước dùng trực tiếp "Bệnh viện
 # Bạch Mai"/"PXN ABC" — hai khách THẬT trên site dùng chung erptest.local.
 # Điều đó khiến MỌI test trong file này ngầm giả định "chưa có quản lý
@@ -249,3 +251,47 @@ class TestPortalMemberGioiHanDaBiet(_NenThanhVien):
 			"Giới hạn đã biết: db_set() đi vòng được _chan_hai_quan_ly — "
 			"xem docstring _chan_hai_quan_ly trong portal_member.py.",
 		)
+
+
+class TestPhamViTheoVaiTro(_NenThanhVien):
+	def test_quan_ly_khong_bi_gioi_han_khoa(self):
+		tv = self._tv("zztest.ql7@demo.miyano")
+		self.assertEqual(portal_context.pham_vi_don(tv.user), {})
+		self.assertTrue(portal_context.la_quan_ly(tv.user))
+
+	def test_nhan_vien_khoa_bi_gioi_han_dung_khoa_cua_minh(self):
+		frappe.db.set_value("Customer", KHACH_BM, "custom_ma_ngan", "ZZBM")
+		self._tv("zztest.ql8@demo.miyano")
+		tv = self._tv(
+			"zztest.nv4@demo.miyano", vai_tro="Nhân viên khoa",
+			khoa_phong=self.kp_bm.name,
+		)
+		self.assertEqual(
+			portal_context.pham_vi_don(tv.user),
+			{"custom_khoa_phong": self.kp_bm.name},
+		)
+		self.assertFalse(portal_context.la_quan_ly(tv.user))
+
+	def test_get_allowed_customers_doc_portal_member(self):
+		tv = self._tv("zztest.ql9@demo.miyano")
+		self.assertEqual(portal_context.get_allowed_customers(tv.user), [KHACH_BM])
+
+	def test_thanh_vien_da_tat_khong_con_pham_vi_nao(self):
+		tv = self._tv("zztest.ql10@demo.miyano")
+		frappe.db.set_value("Portal Member", tv.name, "active", 0)
+		self.assertEqual(portal_context.get_allowed_customers(tv.user), [])
+
+
+class TestTuongThichNguoc(FrappeTestCase):
+	def test_sau_patch_moi_tai_khoan_cong_cu_deu_la_quan_ly(self):
+		"""Ràng buộc tự đặt cho cả đề án: không làm phiền khách đang dùng."""
+		for user in ("bvbm@demo.miyano", "bvminhduc@demo.miyano"):
+			tv = frappe.db.get_value(
+				"Portal Member", {"user": user}, ["vai_tro", "khoa_phong", "active"],
+				as_dict=True,
+			)
+			self.assertIsNotNone(tv, f"{user} chưa có Portal Member sau patch")
+			self.assertEqual(tv.vai_tro, "Quản lý")
+			self.assertFalse(tv.khoa_phong)
+			self.assertEqual(tv.active, 1)
+			self.assertEqual(portal_context.pham_vi_don(user), {})

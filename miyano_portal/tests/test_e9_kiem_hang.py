@@ -73,6 +73,19 @@ def _khach_va_user(customer: str, email: str) -> None:
 	):
 		ct.append("links", {"link_doctype": "Customer", "link_name": customer})
 		ct.save(ignore_permissions=True) if ct.name else ct.insert(ignore_permissions=True)
+	# Task 5 (18/08/2026): `portal_context.get_allowed_customers()` đổi từ đọc
+	# `Contact`/`Dynamic Link` sang đọc `Portal Member`. Đoạn Dynamic Link ở
+	# trên vẫn đúng cho mọi thứ CÒN LẠI đi qua Contact (thông báo, v.v.) —
+	# nhưng bản thân danh tính cổng thì không còn đi qua nó nữa. Thêm bước
+	# này là bản sao chính xác của việc tạo Contact+Dynamic Link phía trên:
+	# cùng một ý "dựng một tài khoản cổng thuộc khách hàng này", chỉ đổi
+	# đúng nguồn sự thật. Không có ca "hai tài khoản" nào trong file test
+	# này nên luôn active=1, không cần nhánh Quản lý-tắt của patch backfill.
+	if not frappe.db.exists("Portal Member", {"user": email}):
+		frappe.get_doc({
+			"doctype": "Portal Member", "user": email, "customer": customer,
+			"vai_tro": "Quản lý",
+		}).insert(ignore_permissions=True)
 
 
 def _staff_user() -> str:
