@@ -153,6 +153,8 @@ trên phiếu xuất kho thì hệ thống cũng không cho xoá.
 | *"Bệnh viện này đã có khoa phòng mang mã …"* | Mã khoa trùng trong cùng bệnh viện | Đổi mã khoa |
 | *"Mã khoa chỉ được dùng chữ cái không dấu và chữ số"* | Mã khoa có dấu, khoảng trắng hoặc ký tự lạ | Ví dụ đúng: `HUYETHOC` |
 | Khách báo **"không tìm thấy chứng từ"** khi mở một đơn | Đơn đó thuộc khoa khác | Đúng như thiết kế. Muốn xem hết thì phải là Quản lý |
+| Khách báo **"Tài khoản chưa được kích hoạt"** | Tài khoản đã cấp nhưng chưa gán khoa và chưa bật | Làm **bước 4** — gán khoa phòng rồi tích Hoạt động |
+| Khách báo **"Tài khoản chưa gắn với khách hàng nào"** | Tài khoản **không có** bản ghi Thành viên cổng nào — lỗi cấu hình | Tạo `Portal Member` cho tài khoản đó. Hai thông báo này khác nhau, đừng nhầm |
 
 > **Vì sao "của khoa khác" và "không có thật" báo giống hệt nhau:** phân biệt hai
 > cái đó chính là tiết lộ rằng chứng từ tồn tại. Trong bệnh viện, *"khoa Dược có
@@ -193,11 +195,15 @@ có một dòng trong `Error Log` nói rõ thiếu cột. Chạy migrate, restar
 
 Nói rõ để không ai chờ nhầm:
 
-1. **Kho vật tư chưa cách ly theo khoa.** Nhân viên khoa vẫn thấy toàn bộ màn Kho.
-   Thuộc bước 8 của thiết kế. **Và có một việc phải sửa trước khi làm bước đó:**
-   hai chỗ trong module kho đang giả định mọi khoa phòng đều gắn kho, nên một khoa
-   phòng **không gắn kho** sẽ báo lỗi quyền khi thao tác. Chưa hỏng vì chưa ai tạo
-   khoa phòng như vậy — nhưng sẽ hỏng đúng lần đầu bật cho một bệnh viện chưa mở kho.
+1. **Kho vật tư chưa cách ly theo khoa.** Nhân viên khoa vẫn thấy toàn bộ màn Kho —
+   thuộc bước 8 của thiết kế.
+
+   **Điều này có hệ quả cần biết, không phải chi tiết kỹ thuật:** phiếu nhập kho có
+   ghi số đơn hàng sinh ra nó. Nên tới khi bước 8 xong, một nhân viên khoa vẫn có
+   thể mở màn Kho, xem phiếu nhập và **đọc được số đơn của khoa khác** kèm mặt hàng
+   và tổng tiền của đợt giao đó. Họ không mở được chính đơn hàng, nhưng cách ly theo
+   khoa **chưa trọn vẹn** chừng nào bước 8 chưa chạy. Nếu bệnh viện hỏi, đừng nói
+   là đã cách ly xong.
 2. **Chưa có phiếu Đề xuất mua và luồng duyệt.** Nhân viên khoa hiện đặt hàng
    thẳng như trước, chỉ khác là đơn được đóng dấu khoa. Bước 5–6.
 3. **Chưa có uỷ quyền tạm thời.** Quản lý đi vắng thì chưa có ai duyệt thay. Bước 7.
