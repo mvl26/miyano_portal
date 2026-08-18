@@ -46,7 +46,24 @@ class PortalMember(Document):
 
 	def _chan_hai_quan_ly(self):
 		"""Mỗi bệnh viện đúng MỘT quản lý đang hoạt động. Nhiều quản lý cùng
-		lúc làm khái niệm uỷ quyền tạm thời trở nên vô nghĩa (spec QĐ-KP-4)."""
+		lúc làm khái niệm uỷ quyền tạm thời trở nên vô nghĩa (spec QĐ-KP-4).
+
+		GIỚI HẠN ĐÃ BIẾT (vòng sửa 2, review độc lập, chưa vá trong task này):
+		guard này chỉ chạy trong `validate()`, tức chỉ chặn được đường
+		`doc.save()`/`doc.insert()`. Hai đường sau ĐI VÒNG được hoàn toàn,
+		không qua validate(), không có ràng buộc DB nào đứng chặn:
+		  - `frappe.db.set_value("Portal Member", <name>, "active", 1)`
+		  - `doc.db_set("active", 1)` (hoặc field khác) trên một instance đã
+		    tải sẵn.
+		Hai insert `Quản lý` active=1 đồng thời (race condition) cũng lọt vì
+		đây là một lần đọc-rồi-throw ở tầng Python, không phải constraint
+		nguyên tử của DB. KHÔNG thêm unique index để vá trong task này — đó
+		là thay đổi schema nằm ngoài phạm vi, cân nhắc riêng ở lần sau.
+
+		VÌ VẬY: mọi code phía server tạo/sửa `Portal Member` (kể cả script
+		backfill Task 5) PHẢI đi qua `doc.save()`/`doc.insert()` — KHÔNG được
+		dùng `frappe.db.set_value()`/`doc.db_set()` cho các field ảnh hưởng
+		tới luật này (`vai_tro`, `khoa_phong`, `active`, `customer`)."""
 		if self.vai_tro != QUAN_LY or not self.active:
 			return
 		da_co = frappe.db.get_value(

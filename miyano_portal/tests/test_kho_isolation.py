@@ -115,26 +115,46 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = ("Portal Delivery Inspection Item
 # NÓ MANG `customer` — đọc kỹ cảnh báo E6 phía trên trước khi đồng ý với dòng
 # này: "mang dữ liệu của khách hàng thì KHÔNG được nhét vào
 # KHONG_PHAI_DOCTYPE_KHO". Trường hợp này khác về CHẤT, không phải một ngoại
-# lệ tiện tay:
-#   - Portal Item Request / Customer Department (đứng trong KHO_DOCTYPES_KHAC)
-#     có DocPerm cho vai trò khác, và có một đường đọc SANCTIONED thật sự cho
-#     khách qua api/*.py + get_portal_customer()/get_portal_kho() — đó là lý
-#     do chúng CẦN wiring permission_query_conditions/has_permission và cần
-#     một fixture thật trong TestKhoIsolationDeep để đo đường đọc đó.
-#   - `Portal Member` thì KHÔNG: JSON permissions của nó chỉ có System
-#     Manager/Sales Manager/Sales User — tuyệt đối không DocPerm nào cho role
-#     `Customer` (xem docstring đầu portal_member.py). Không có "đường đọc
-#     sanctioned" nào cho khách tồn tại — api/portal.py (Task 5) sẽ đọc bảng
-#     này bằng frappe.db.get_value/get_all nội bộ (phía server, có
-#     ignore_permissions ngầm), không phải một REST/list-view mà khách gọi
-#     trực tiếp. Vì chưa từng có DocPerm nào để mất, cơ chế "vòng 4" (gỡ
-#     DocPerm Customer khỏi doctype kho cha) không áp dụng — không có gì phải
-#     đóng.
-#   - KÍCH HOẠT PHÂN LOẠI LẠI: ngày nào `Portal Member` được cấp DocPerm cho
-#     role `Customer`, hoặc có một endpoint đọc nó qua frappe.client.get_list/
-#     REST/printview thay vì gọi hàm nội bộ, ngày đó nó PHẢI chuyển sang
-#     KHO_DOCTYPES_KHAC kèm wiring đầy đủ như các anh em ở trên — đừng để
-#     entry này đứng yên khi tiền đề đổi.
+# lệ tiện tay.
+#
+# SỬA LẠI (vòng sửa 2, review độc lập): bản trước của đoạn này viết rằng
+# "Portal Item Request / Customer Department có DocPerm cho vai trò khác,
+# Portal Member thì không" — CÂU ĐÓ SAI, và reviewer đã đọc thẳng JSON để bắt
+# nó: `customer_department.json` và `portal_item_request.json` có permissions
+# Y HỆT `portal_member.json` (System Manager/Sales Manager/Sales User, ZERO
+# DocPerm cho role Customer). Không lấy DocPerm làm căn cứ phân loại được —
+# cả ba đều không có gì để "mất" ở đó.
+#
+# Khác biệt THẬT nằm ở hai chỗ, cả hai đều kiểm chứng được trong hooks.py:
+#   - `Customer Department` mang field `kho` (Link → Customer Warehouse) và
+#     được nối vào permission_query_conditions/has_permission qua
+#     `kho.permissions.khoa_phong_query`/`kho_child_has_permission`
+#     (hooks.py, khối "Kho khách hàng") — nó thuộc HỌ kho, lọc theo `kho`.
+#   - `Portal Item Request` không có field `kho`, nhưng có một đường đọc
+#     SANCTIONED thật sự: khách tự đọc yêu cầu của mình qua permission_query_
+#     conditions=`permissions.yeu_cau_query` + has_permission=
+#     `permissions.generic_has_permission` (hooks.py, đoạn "E6") — hai hook
+#     đó lọc theo `customer` của SESSION USER khi Website User gọi
+#     frappe.get_list/get_all cho chính doctype này (dù không có DocPerm nào
+#     cấp quyền cơ bản để đi tới bước lọc đó — chúng là lớp phòng thủ thứ
+#     hai, sẽ có hiệu lực NẾU DocPerm bị cấp lại).
+#   - `Portal Member` có CẢ HAI: không field `kho`, và KHÔNG hook nào trong
+#     hai dict trên (permission_query_conditions/has_permission) nhắc tới
+#     tên nó. Nó chưa từng được thiết kế để một Website User tự
+#     `frappe.get_list("Portal Member", ...)` — bảng này sẽ chỉ được đọc từ
+#     phía SERVER, bằng frappe.db.get_value/get_all nội bộ (Task 5,
+#     api/portal.py), không phải một đường mà khách gọi trực tiếp và cần hook
+#     lọc theo session của họ.
+#
+# KÍCH HOẠT PHÂN LOẠI LẠI: ngày nào `Portal Member` (a) được cấp DocPerm cho
+# role `Customer` (qua JSON hoặc Role Permission Manager), HOẶC (b) có một
+# đường đọc mà một Website User tự gọi trực tiếp (frappe.client.get_list/
+# REST/printview) thay vì luôn đi qua hàm nội bộ phía server, ngày đó nó
+# PHẢI chuyển sang KHO_DOCTYPES_KHAC kèm wiring permission_query_conditions/
+# has_permission đầy đủ (theo khuôn `customer` trực tiếp của Portal Item
+# Request, KHÔNG phải khuôn `kho` của Customer Department — Portal Member
+# không có field `kho`) và một fixture thật trong TestKhoIsolationDeep —
+# đừng để entry này đứng yên khi tiền đề đổi.
 KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = (
     "Miyano Portal Settings", "Sales Order Dat Ngoai Item", "Portal Member",
 )

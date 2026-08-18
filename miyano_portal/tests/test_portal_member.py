@@ -133,3 +133,86 @@ class TestPortalMemberDuongThanhCong(_NenThanhVien):
 		self.assertEqual(tv.vai_tro, "Quản lý")
 		self.assertFalse(tv.khoa_phong)
 		self.assertEqual(tv.active, 1)
+
+
+class TestPortalMemberKhongLoRaChoKhach(FrappeTestCase):
+	"""F2 (vòng sửa 2, review độc lập): `Portal Member` đứng NGOÀI mọi vòng
+	lặp `_nap_doctype_kho()` trong test_kho_isolation.py — nó nằm trong
+	KHONG_PHAI_DOCTYPE_KHO nên không có mặt trong kho_doctypes()/
+	kho_parent_doctypes(), do đó KHÔNG được TestKhoDocPermConfig đo tới.
+
+	Hỏng ra sao nếu không có lưới an toàn riêng này: một cú click trong Role
+	Permission Manager tạo một `Custom DocPerm` cấp read cho role `Customer`
+	trên `Portal Member`. Vì doctype này không có hook permission_query_
+	conditions/has_permission nào (đúng như comment ở KHONG_PHAI_DOCTYPE_KHO
+	giải thích — nó chưa từng được thiết kế để khách tự đọc), DocPerm đó sẽ
+	là ĐƯỜNG DUY NHẤT quyết định quyền — và mọi tài khoản cổng sẽ đọc được
+	TOÀN BỘ bảng danh tính: mọi bệnh viện, mọi email, mọi vai trò. 1038 test
+	khác vẫn xanh hết vì không cái nào động tới doctype này. Ba test dưới
+	đây là lưới an toàn RIÊNG cho đúng một doctype `Portal Member`."""
+
+	def test_khong_co_docperm_nao_cho_role_customer(self):
+		rows = frappe.get_all(
+			"DocPerm", filters={"parent": "Portal Member", "role": "Customer"}
+		)
+		self.assertEqual(
+			rows, [],
+			"Portal Member không được có DocPerm nào cho role Customer trong "
+			"JSON — nếu đỏ, ai đó đã thêm quyền đọc trực tiếp cho khách vào "
+			"portal_member.json, mở lại đúng lỗ mà docstring đầu file cảnh báo.",
+		)
+
+	def test_khong_co_custom_docperm_nao_cho_role_customer(self):
+		rows = frappe.get_all(
+			"Custom DocPerm", filters={"parent": "Portal Member", "role": "Customer"}
+		)
+		self.assertEqual(
+			rows, [],
+			"Chưa ai được chỉnh quyền Portal Member qua Role Permission "
+			"Manager — nếu đỏ, một Custom DocPerm đã cấp quyền cho role "
+			"Customer, mở toang bảng danh tính cho MỌI tài khoản cổng vì "
+			"doctype này không có hook cách ly nào đứng sau.",
+		)
+
+	def test_website_user_khong_doc_duoc_portal_member(self):
+		# Tài khoản cổng THẬT trên site (không phải user zztest tạm) — đúng
+		# khuôn BM_USER trong test_kho_isolation.py.
+		self.assertFalse(
+			frappe.has_permission("Portal Member", "read", user="bvbm@demo.miyano"),
+			"Một tài khoản cổng thật (Website User) không được có quyền đọc "
+			"Portal Member — nếu True, xem hai test trên để biết DocPerm hay "
+			"Custom DocPerm nào vừa mở lỗ.",
+		)
+
+
+class TestPortalMemberGioiHanDaBiet(_NenThanhVien):
+	"""F3 (vòng sửa 2, review độc lập): `_chan_hai_quan_ly()` chỉ chạy trong
+	`validate()`. `frappe.db.set_value()`/`doc.db_set()` bỏ qua validate hoàn
+	toàn và không có ràng buộc DB nào đứng sau — nên vẫn đi vòng được luật
+	"mỗi bệnh viện đúng một quản lý đang hoạt động". Test dưới đây KHÔNG
+	kiểm một luật đang đứng vững; nó xác nhận GIỚI HẠN ĐÃ BIẾT này thật sự
+	tồn tại (xem docstring `_chan_hai_quan_ly` trong portal_member.py), để
+	không ai tưởng nhầm là lỗ hổng mới phát hiện ở vòng sau — và để nhắc:
+	Task 5 (backfill phía server) PHẢI luôn đi qua doc.save()."""
+
+	def test_db_set_di_vong_qua_luat_mot_quan_ly(self):
+		self._tv("zztest.ql7@demo.miyano")
+		# Tạo quản lý thứ hai ở trạng thái INACTIVE — guard bỏ qua ngay từ
+		# đầu (`not self.active`), nên insert này không đỏ.
+		user2 = self._user("zztest.ql8@demo.miyano")
+		ql2 = frappe.get_doc({
+			"doctype": "Portal Member", "user": user2,
+			"customer": KHACH_BM, "vai_tro": "Quản lý", "active": 0,
+		}).insert(ignore_permissions=True)
+		# Bật active bằng db_set — KHÔNG đi qua validate(), guard không hề
+		# được gọi lại.
+		ql2.db_set("active", 1)
+		so_quan_ly_active = frappe.db.count(
+			"Portal Member", {"customer": KHACH_BM, "vai_tro": "Quản lý", "active": 1}
+		)
+		self.assertEqual(
+			so_quan_ly_active, 2,
+			"Giới hạn đã biết: db_set() đi vòng được _chan_hai_quan_ly, để "
+			"lại HAI quản lý cùng active=1 cho một bệnh viện — xem docstring "
+			"_chan_hai_quan_ly trong portal_member.py.",
+		)
