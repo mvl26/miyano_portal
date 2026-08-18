@@ -6,11 +6,12 @@ Brief 2026-08-15 (trang thông báo) — hai việc:
 1. **Resolve** (Phần 3, `kho/delivery_hook.py` gọi `bao_da_nhap_hang`): thông
    báo "đã nhập hàng" KHÔNG đi qua khuôn `Notification` khai báo
    (`setup/install_notifications.py`) — app tự biết khách hàng nào, tự tra
-   tài khoản cổng của khách đó qua `Contact.user` (đảo chiều
-   `portal_context.get_allowed_customers`), rồi tạo thẳng `Notification Log`.
-   Đường này do app kiểm soát hoàn toàn nên "điểm giòn" (contact_email khác
-   tài khoản cổng) không áp dụng — ta resolve đúng người, không đoán qua một
-   field email.
+   tài khoản cổng của khách đó qua `Portal Member` (đảo chiều
+   `portal_context.get_allowed_customers`; từ 18/08/2026 không còn đi qua
+   `Contact.user` nữa — xem docstring `_portal_users_cua_khach`), rồi tạo
+   thẳng `Notification Log`. Đường này do app kiểm soát hoàn toàn nên "điểm
+   giòn" (contact_email khác tài khoản cổng) không áp dụng — ta resolve
+   đúng người, không đoán qua một field email.
 
 2. **Detect-and-log** (Phần 2, `hooks.py` doc_events): năm Notification
    "Portal - *" mới bật `send_system_notification` định tuyến người nhận qua
@@ -34,32 +35,37 @@ TIEN_TO_HEN_GIAO = "Portal - Hẹn lịch giao"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
-    """Tài khoản cổng (User) gắn với khách hàng, qua Contact (Dynamic Link).
+    """Tài khoản cổng (User) gắn với khách hàng — chiều NGƯỢC của
+    `portal_context.get_allowed_customers`.
 
-    Đảo chiều của `portal_context.get_allowed_customers` (User -> Customer):
-    hàm này đi từ Customer ra User. Chỉ trả User còn `enabled` — một tài
-    khoản đã khoá không nhận được Notification Log (`_get_user_ids` của
-    Frappe cũng lọc y hệt điều kiện này), báo cho một User đã khoá là báo
-    cho không ai cả.
+    Từ 18/08/2026 đọc `Portal Member`, không đi qua `Contact` nữa. Giữ đường
+    Contact ở đây trong khi `portal_context` đã chuyển sang `Portal Member`
+    sẽ tạo đúng thứ mà việc chuyển đổi này tồn tại để dẹp: hai câu trả lời
+    cho một câu hỏi. Cụ thể là hai kiểu sai đối xứng — user có Portal Member
+    mà thiếu Contact thì KHÔNG nhận được thông báo nào; user còn Contact cũ
+    mà đã tắt Portal Member thì NHẬN thông báo về dữ liệu mình không mở được
+    (`TestChieuNguocDanhTinh` trong test_portal_member.py khoá lại cả hai
+    chiều sai này).
+
+    Chỉ trả User còn `enabled`: `_get_user_ids` của Frappe cũng lọc y hệt,
+    báo cho một tài khoản đã khoá là báo cho không ai cả.
+
+    Chưa lọc theo khoa phòng — hàm này vẫn trả TOÀN BỘ thành viên đang hoạt
+    động của khách hàng (Quản lý lẫn Nhân viên khoa mọi khoa). Task 8 sẽ cần
+    một biến thể chỉ gửi cho thành viên MỘT khoa phòng cụ thể; chỗ mở rộng
+    tự nhiên là thêm tham số `khoa_phong` tuỳ chọn vào filters bên dưới,
+    không sửa hàm này thành hai hàm song song.
     """
-    contacts = frappe.get_all(
-        "Dynamic Link",
-        filters={
-            "parenttype": "Contact",
-            "link_doctype": "Customer",
-            "link_name": customer,
-        },
-        pluck="parent",
-    )
-    if not contacts:
-        return []
     users = frappe.get_all(
-        "Contact",
-        filters={"name": ["in", contacts], "user": ["is", "set"]},
-        pluck="user",
+        "Portal Member", filters={"customer": customer, "active": 1}, pluck="user"
     )
     if not users:
         return []
+    # `user` là field unique trên Portal Member (ràng buộc DB — xem
+    # test_mot_user_chi_thuoc_mot_benh_vien) nên mỗi user tối đa MỘT bản ghi
+    # ở đây, không như hàm cũ phải tự khử trùng lặp bằng set() vì một User
+    # có thể có nhiều Contact. Vẫn bọc set() một cách tường minh — không im
+    # lặng dựa vào ràng buộc đó, phòng khi nó đổi.
     return frappe.get_all(
         "User", filters={"name": ["in", set(users)], "enabled": 1}, pluck="name"
     )
@@ -81,10 +87,10 @@ def _log_khong_co_tai_khoan_cong(customer: str, phieu: str) -> None:
             title=tieu_de,
             message=(
                 f"Phiếu nhập {phieu} vừa tạo cho khách hàng <b>{customer}</b>, nhưng "
-                "khách này không có tài khoản cổng nào tra được qua Contact.user — "
-                "thông báo \"đã nhập hàng\" không gửi được cho ai. Nếu khách CẦN thấy "
-                "thông báo trên cổng, cấp tài khoản (portal_provision) và gắn Contact "
-                "đúng khách hàng."
+                "khách này không có tài khoản cổng nào tra được qua Portal Member "
+                "đang active — thông báo \"đã nhập hàng\" không gửi được cho ai. Nếu "
+                "khách CẦN thấy thông báo trên cổng, cấp tài khoản (portal_provision) "
+                "hoặc bật lại Portal Member đúng khách hàng."
             ),
             reference_doctype="Customer Stock Receipt",
             reference_name=phieu,
@@ -160,10 +166,15 @@ def kiem_tra_dinh_tuyen_thong_bao_khach(doc, method=None) -> None:
 
     CHỈ kiểm khi khách hàng CÓ tài khoản cổng (nếu không, contact_email
     không khớp ai là chuyện bình thường — khách chưa từng lên cổng, không
-    phải một lỗ hổng của tính năng thông báo). Việc kiểm scope theo đúng
-    tinh thần đó tránh log tràn ngập cho toàn bộ Delivery Note/Sales Invoice
-    của khách KHÔNG dùng cổng (hai Notification "Xuất giao"/"Hoá đơn phát
-    hành" không giới hạn `condition`, áp cho MỌI chứng từ trong hệ thống).
+    phải một lỗ hổng của tính năng thông báo). Từ 18/08/2026, "CÓ tài khoản
+    cổng" nghĩa là "CÓ ít nhất một Portal Member đang `active`" (qua
+    `_portal_users_cua_khach`, giờ đọc Portal Member) — một khách mà tài
+    khoản cổng duy nhất vừa bị tắt cũng rơi vào nhánh "chưa lên cổng" này và
+    không còn bị bắt lỗi định tuyến nữa, ĐÚNG tinh thần "không ai để báo thì
+    không phải lỗ hổng". Việc kiểm scope theo đúng tinh thần đó tránh log
+    tràn ngập cho toàn bộ Delivery Note/Sales Invoice của khách KHÔNG dùng
+    cổng (hai Notification "Xuất giao"/"Hoá đơn phát hành" không giới hạn
+    `condition`, áp cho MỌI chứng từ trong hệ thống).
 
     Không bao giờ ném lỗi: chạy trên đường `on_update` của ba doctype bán
     hàng cốt lõi.

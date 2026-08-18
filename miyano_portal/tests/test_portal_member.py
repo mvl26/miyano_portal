@@ -3,7 +3,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import portal_context
+from miyano_portal import portal_context, portal_thong_bao_khach
 
 # VÒNG SỬA 3 (F5, re-review độc lập): bản trước dùng trực tiếp "Bệnh viện
 # Bạch Mai"/"PXN ABC" — hai khách THẬT trên site dùng chung erptest.local.
@@ -314,3 +314,98 @@ class TestTuongThichNguoc(FrappeTestCase):
 			self.assertFalse(tv.khoa_phong)
 			self.assertEqual(tv.active, 1)
 			self.assertEqual(portal_context.pham_vi_don(user), {})
+
+
+class TestChieuNguocDanhTinh(_NenThanhVien):
+	"""Task 6 — chiều NGƯỢC của `portal_context.get_allowed_customers`:
+	`_portal_users_cua_khach` (Customer -> User) trong portal_thong_bao_khach
+	còn đi qua Contact trong khi chiều XUÔI đã chuyển sang Portal Member từ
+	Task 5. Hai test dưới đây khoá lại đúng hai kiểu sai đối xứng mà việc đó
+	để lại."""
+
+	def test_nguoi_nhan_thong_bao_lay_tu_portal_member(self):
+		"""User có Portal Member nhưng KHÔNG có Contact gắn đúng khách hàng
+		này vẫn phải nhận thông báo.
+
+		Lệch một chữ so với brief gốc: brief giả định fixture "user KHÔNG có
+		Contact" (`frappe.db.exists("Contact", {"user": ...})` falsy). Thực
+		tế không đúng — `User.on_update()` (frappe/core/doctype/user/user.py)
+		LUÔN enqueue `create_contact()` cho mọi User mới (đồng bộ khi
+		`frappe.flags.in_test`), tự tạo một Contact "mồ côi" gắn `user`
+		nhưng KHÔNG có `Dynamic Link` nào tới Customer nào cả. Test chạy y
+		hệt code brief cho ra RED sai lý do (assertFalse tự nó đỏ vì Contact
+		mồ côi này tồn tại, chưa kịp chạm tới nhánh `_portal_users_cua_khach`
+		đang muốn kiểm). Đổi sang khẳng định đúng tiền đề mà đường Contact
+		CŨ cần để tìm ra ai đó: không có `Dynamic Link` nào nối Contact tới
+		đúng khách hàng KHACH_BM — đó mới là điều kiện khiến đường Contact cũ
+		trả về rỗng."""
+		tv = self._tv("zztest.ql11@demo.miyano")
+		self.assertFalse(
+			frappe.db.exists(
+				"Dynamic Link",
+				{
+					"parenttype": "Contact",
+					"link_doctype": "Customer",
+					"link_name": KHACH_BM,
+				},
+			),
+			"fixture phải là trạng thái mà đường Contact CŨ (Dynamic Link) "
+			"không tra ra ai cho khách hàng này",
+		)
+		self.assertIn(
+			tv.user, portal_thong_bao_khach._portal_users_cua_khach(KHACH_BM)
+		)
+
+	def test_thanh_vien_da_tat_khong_nhan_thong_bao(self):
+		"""Portal Member `active=0` thì KHÔNG được trả về — dù đường Contact
+		CŨ vẫn còn tìm ra được (Contact không biết gì về cờ `active` của
+		Portal Member).
+
+		Nếu chỉ tắt Portal Member mà không gắn thêm Contact + Dynamic Link
+		nào ở đây, test này XANH GIẢ dưới cả code CŨ lẫn MỚI: đường Contact
+		cũ vốn dĩ đã trả về [] cho user này (không có Dynamic Link nào tới
+		KHACH_BM — xem giải thích Contact "mồ côi" ở test phía trên), nên
+		`assertNotIn` không kiểm được gì. Tự tạo Contact + Dynamic Link tới
+		KHACH_BM ở đây để dưới code CŨ, user này VẪN bị trả về (đường Contact
+		không lọc theo active của Portal Member) → assertNotIn phải ĐỎ; chỉ
+		sau khi sửa sang lọc theo Portal Member.active mới XANH thật."""
+		tv = self._tv("zztest.ql12@demo.miyano")
+		contact_name = f"{KHACH_BM}-{tv.user}-zztest"
+		ct = frappe.get_doc({
+			"doctype": "Contact", "first_name": "ZZTEST", "user": tv.user,
+		})
+		ct.name = contact_name
+		ct.append("email_ids", {"email_id": tv.user, "is_primary": 1})
+		ct.append("links", {"link_doctype": "Customer", "link_name": KHACH_BM})
+		ct.insert(ignore_permissions=True)
+		# Dùng frappe.delete_doc (không phải frappe.db.delete) — xoá đúng cả
+		# bảng con Contact Email/Dynamic Link, tránh đúng lỗ đã bắt ở Task 5.
+		self.addCleanup(
+			frappe.delete_doc, "Contact", contact_name,
+			ignore_permissions=True, force=True,
+		)
+
+		frappe.db.set_value("Portal Member", tv.name, "active", 0)
+		self.assertNotIn(
+			tv.user, portal_thong_bao_khach._portal_users_cua_khach(KHACH_BM)
+		)
+
+	def test_user_bi_khoa_khong_duoc_tinh(self):
+		"""Khoá lại đúng ràng buộc brief nêu rõ ("Chỉ trả User còn `enabled`
+		— giữ nguyên tính chất này của hàm cũ") NGAY TRÊN nguồn dữ liệu MỚI
+		(Portal Member), không chỉ dựa vào `test_user_bi_khoa_khong_duoc_tinh`
+		cũ trong test_thong_bao_khach.py — file đó dùng fixture seed_demo()
+		vẫn còn tạo cả Contact, nên không tách bạch được việc lọc enabled có
+		thật sự chạy trên nhánh Portal Member hay không.
+
+		Test này XANH GIẢ dưới cả code CŨ lẫn MỚI trước khi có ai động tới
+		bộ lọc `enabled` (code cũ, nếu còn nguyên, cũng lọc enabled ở đúng
+		bước cuối) — không phải một bài RED-first, mà là một chốt chặn hồi
+		quy cho đúng ràng buộc đã nêu trong brief. `frappe.db.set_value`
+		trên User đi vòng qua `on_update`, nên không tự sinh thêm Contact."""
+		tv = self._tv("zztest.ql13@demo.miyano")
+		frappe.db.set_value("User", tv.user, "enabled", 0)
+		self.addCleanup(frappe.db.set_value, "User", tv.user, "enabled", 1)
+		self.assertNotIn(
+			tv.user, portal_thong_bao_khach._portal_users_cua_khach(KHACH_BM)
+		)
