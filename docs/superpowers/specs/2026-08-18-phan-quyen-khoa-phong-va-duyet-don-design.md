@@ -99,6 +99,28 @@ dam_bao_xem_duoc(ct)      -> chặn ở mọi endpoint ĐỌC MỘT chứng từ
 `pham_vi_don()` trả "toàn bộ đơn của bệnh viện" khi `la_quan_ly()` đúng, và
 `{khoa_phong: <khoa của user>}` khi sai.
 
+**Chiều ngược lại cũng phải chuyển, nếu không lời hứa "một nguồn sự thật" là giả.**
+App hỏi cả câu ngược — "bệnh viện này có những user nào" — ở hai chỗ, và cả hai
+đang đi qua `Contact`:
+
+| Chỗ | Hôm nay | Phải đổi thành |
+|---|---|---|
+| `portal_thong_bao_khach._portal_users_cua_khach()` | Customer → Dynamic Link → Contact → User | đọc `Portal Member` |
+| `portal_provision()` (`api/portal.py:1758`) | tạo Contact + `User Permission` | tạo **thêm** `Portal Member` |
+
+Bỏ sót ô thứ nhất: user có `Portal Member` nhưng không có `Contact` sẽ **không
+nhận được thông báo nào**, còn user có `Contact` cũ đã bỏ thì **nhận thông báo về
+dữ liệu mà `pham_vi_don()` không cho mở** — đúng cái "hai câu trả lời cho một câu
+hỏi" mà §11.6 loại trừ.
+
+Bỏ sót ô thứ hai: patch bước 3 điền cho 6 tài khoản đang có, nhưng **mọi tài
+khoản cấp sau đó đều vô hình** với tầng danh tính mới.
+
+**Quy ước sau khi chuyển:** một `Contact` có `user` mà **không** có `Portal Member`
+là **lỗi cấu hình**, không phải trường hợp hợp lệ — `portal_provision` không tạo
+ra được tình huống đó nữa, và một kiểm tra chạy định kỳ ghi Error Log nếu nó xuất
+hiện. Viết ra thành luật thì patch bước 3 mới kiểm chứng được là đã chạy đủ.
+
 **Điểm dễ sai:** `pham_vi_don()` phải hỏi `la_quan_ly()`, **không** hỏi
 `vai_tro`. Người được uỷ quyền thường là nhân viên một khoa; trong thời gian uỷ
 quyền họ phải nhìn được đơn của mọi khoa, nếu không thì không duyệt được. Hết
@@ -380,6 +402,39 @@ Huyết học" là một con số không tồn tại. Muốn nó tồn tại th�
 — mỗi khoa một tồn riêng, cấp phát thành chuyển kho — lớn hơn cả phần đặt hàng
 cộng lại. **Không làm.**
 
+### 7.1b Chiều khoa đi VÀO tầng phân quyền kho đã có, không dựng tầng thứ hai
+
+`kho/permissions.py` **đã có sẵn** `permission_query_conditions` cho tám doctype
+kho (`_kho_condition`, `_child_condition`, `kho_child_has_permission`,
+`voucher_item_readable`, `_is_restricted_user`). Đọc chú thích trong `hooks.py`
+thì rõ vai trò của nó: với role `Customer` hiện tại **các hook này không bao giờ
+được gọi tới** (không có DocPerm nền thì framework chặn trước) — chúng là **lớp
+phòng thủ thứ hai**, còn **cổng thật là `api/kho.py`**.
+
+Nên chiều khoa phòng đi vào **cả hai**, không dựng cái thứ ba:
+
+* **Tầng chính** — `api/kho.py` gọi `pham_vi_don()` / `dam_bao_xem_duoc()`, cùng
+  đúng hai hàm mà phần đơn hàng dùng (§4.2).
+* **Tầng phòng thủ** — `_kho_condition` nhận thêm vế khoa phòng, để nếu ai đó cấp
+  lại DocPerm cho một role Website User trong tương lai thì lớp thứ hai vẫn trả
+  lời **giống** lớp thứ nhất. Hai lớp trả lời khác nhau còn tệ hơn một lớp.
+
+### 7.1c Số endpoint kho thật sự phải sửa
+
+`api/kho.py` có **38** hàm whitelist, nhưng không phải cái nào cũng đọc dữ liệu
+quy được về khoa. Phân loại:
+
+| Nhóm | Số | Việc |
+|---|---|---|
+| Đọc/ghi dữ liệu **có khoa** — phiếu xuất, báo cáo cấp phát (2 cái), nhật ký, đợt, xuất Excel, PDF, gợi ý người nhận, danh mục khoa | ~13 | Áp `pham_vi_don()` |
+| **Tồn kho** — tồn, lô, N-X-T, thẻ kho, cảnh báo hạn, cảnh báo tồn, min/max, gợi ý lô | ~8 | Ẩn khỏi nhân viên khoa, **trừ** chế độ tra một mặt hàng (§7.2) |
+| **Chỉ quản lý** hoặc trung tính — danh mục vật tư, NCC, nhập tồn đầu kỳ, phiếu nhập, `kho_me` | ~17 | Chặn theo vai trò, không cần lọc theo khoa |
+
+Con số này thay cho ước lượng "~15" lúc bàn thiết kế **và** cho con số thô 38:
+việc thật là **13 endpoint phải lọc + 8 phải thu hẹp**, phần còn lại chỉ chặn theo
+vai trò. Bước 8 vẫn nặng, nhưng nặng vì **8 endpoint tồn kho cần chế độ thu hẹp**
+chứ không phải vì 38 bộ lọc.
+
 ### 7.2 Xử lý nhóm không chia được (QĐ-KP-7)
 
 Nhân viên khoa **không có** các mục "Báo cáo N-X-T", "Thẻ kho", "Cảnh báo" trên
@@ -390,7 +445,15 @@ Lý do: ẩn sạch thì nhân viên khoa xuất mù — điền 20 hộp trong 
 lúc lưu mới báo lỗi. Thấy đủ để làm việc, không thấy được toàn cảnh kho.
 
 **Danh mục vật tư vẫn hiện** với nhân viên khoa — đó là catalogue, không phải dữ
-liệu của khoa nào, và không có nó thì không lập được phiếu xuất.
+liệu của khoa nào, và không có nó thì không lập được phiếu xuất (nhưng **sửa**
+danh mục là việc của quản lý).
+
+**Cách làm cụ thể — "chế độ thu hẹp", không phải chặn/mở nhị phân.** Hai endpoint
+`kho_ton` và `kho_lo_goi_y` là thứ form phiếu xuất cần: với nhân viên khoa, chúng
+**bắt buộc phải có tham số `vat_tu` cụ thể** và chỉ trả về đúng mặt hàng đó. Duyệt
+cả kho thì không, tra một mặt hàng đang chọn thì có. Sáu endpoint tồn kho còn lại
+(N-X-T, thẻ kho, cảnh báo hạn, cảnh báo tồn, min/max, danh sách lô toàn kho) chặn
+hẳn với nhân viên khoa.
 
 ---
 
@@ -449,12 +512,12 @@ rồi **bật cho từng bệnh viện một** — Hi-medic trước. Không có
 | **0** | Sửa 3 lỗi đã phát hiện 18/08 (phiếu trả hàng thành đợt giao / phiếu nháp lọt ra cổng / `so_dot` sai) | Hết đợt giao âm phần trăm |
 | **1** | Tách lõi đặt hàng ra `dat_hang.py` | **Không gì cả** — suite phải xanh, **không sửa một test nào** |
 | **2** | Khoa phòng chuyển từ kho lên bệnh viện; siết `ma_khoa`; thêm `Customer.custom_ma_ngan` | Màn khoa phòng ra khỏi mục Kho |
-| **3** | `Portal Member` + viết lại `portal_context` + patch 6 tài khoản + test đếm ngược | **Không gì cả** |
+| **3** | `Portal Member` + viết lại `portal_context` + **chuyển `_portal_users_cua_khach()` và `portal_provision()` sang `Portal Member`** (§4.2) + patch 6 tài khoản + test đếm ngược | **Không gì cả** |
 | **4** | Áp phạm vi lên ~20 endpoint đơn hàng; `Sales Order.custom_khoa_phong` | **Không gì cả** (chưa ai được gán khoa) |
 | **5** | `Đề nghị mua`: doctype, luồng duyệt, sinh mã, màn của khoa phòng | Bật được cho Hi-medic |
 | **6** | Màn duyệt của quản lý + ô tìm theo vật tư | |
 | **7** | Uỷ quyền tạm thời | |
-| **8** | Cách ly module kho (§7) | |
+| **8** | Cách ly module kho (§7): 13 endpoint áp phạm vi, 8 endpoint chuyển sang chế độ thu hẹp, thêm vế khoa vào `_kho_condition` | |
 | **9** | Màn thành viên & phân quyền cho quản lý | |
 
 Bước 1–4 không đổi gì với người dùng — **cố ý**. Bốn bước nền lên site trước,
@@ -463,17 +526,16 @@ thì nó lộ ra khi chưa có ai phụ thuộc vào nó.
 
 ### Rủi ro lớn nhất
 
-Bước 4 và bước 8 phải rà **65 endpoint** (27 ở `api/portal.py` + 38 ở
-`api/kho.py`). Con số kho là thứ em đo lại sau khi viết bản nháp: lúc bàn em
-ước ~15, thực tế **38** — gấp hai lần rưỡi. Ghi lại ở đây để bước 8 được ước
-lượng theo số thật, và vì nó đổi thứ tự ưu tiên: **bước 8 là bước nặng nhất của
-cả đề án**, không phải bước 5.
+Bước 4 và bước 8 phải **rà** cả **65 endpoint** (27 ở `api/portal.py` + 38 ở
+`api/kho.py`) để không sót cái nào, dù số phải **sửa** ít hơn nhiều — xem §7.1c
+cho phân loại phía kho. Con số 38 là thứ đo lại sau khi viết bản nháp; lúc bàn
+thiết kế ước ~15.
 
 Sót một chỗ nghĩa là khoa này đọc được dữ liệu khoa kia — trong bệnh viện đó là
 chuyện nghiêm trọng, không phải phiền toái.
 
-**Ba lớp chắn:** (a) chỉ có **một** hàm quyết định phạm vi, không phải 65 điều
-kiện lọc chép tay; (b) test đếm ngược bắt buộc mọi endpoint phải khai báo; (c)
+**Ba lớp chắn:** (a) chỉ có **một** hàm quyết định phạm vi cho cả đơn hàng lẫn
+kho, không phải mấy chục điều kiện lọc chép tay; (b) test đếm ngược bắt buộc mọi endpoint phải khai báo; (c)
 đến hết bước 4 vẫn **chưa ai được gán khoa**, nên kể cả sót thì cũng chưa lộ gì —
 có thời gian phát hiện trước khi bật.
 
