@@ -888,18 +888,32 @@ def _loc_qua_don_cha(child_doctype: str, link_field: str) -> list:
     không đáng tin cậy trên mọi bản Frappe nên tự đóng bằng một giá trị
     không bao giờ khớp thay vì phó mặc).
 
-    Minor đã biết (review vòng sửa 1) — bộ lọc này khoan dung hơn
-    `dam_bao_xem_duoc`/`_dieu_kien_khoa_qua_don_cha` (permissions.py, C2):
-    nó chỉ đòi "CÓ ÍT NHẤT MỘT dòng khớp khoa", không đòi "KHÔNG dòng nào
-    khác khoa" như hai chỗ kia. Một Delivery Note/Sales Invoice trộn dòng
-    của HAI khoa (chưa tái tạo được qua `make_delivery_note`/
-    `make_sales_invoice` chuẩn của ERPNext, chỉ map từ MỘT Sales Order) vì
-    thế có thể XUẤT HIỆN trên danh sách rồi 403 khi mở — vẫn fail-closed
-    trên hành động thật (không đọc được nội dung), chỉ lệch ở việc TÊN
-    chứng từ đó có lọt vào danh sách hay không. Không sửa bằng cú pháp
-    filter LIST của `frappe.get_list` (rủi ro viết sai điều kiện phức tạp
-    cao hơn lợi ích với một ca chưa tái tạo được) — ranh giới an ninh THẬT
-    vẫn là tầng `has_permission`/`dam_bao_xem_duoc`, không phải danh sách."""
+    SỬA (review vòng sửa 2, C4) — mô tả trước đây ở đây SAI, và sai đúng chỗ
+    nguy hiểm nhất (vị trí ranh giới an ninh thật). Bản Vòng sửa 1 bảo bộ
+    lọc NÀY khoan dung hơn `_dieu_kien_khoa_qua_don_cha` (permissions.py,
+    C2 — chỉ đòi "CÓ ÍT NHẤT MỘT dòng khớp khoa", không đòi "KHÔNG dòng nào
+    khác khoa"), nên một Delivery Note/Sales Invoice trộn hai khoa "có thể
+    XUẤT HIỆN trên danh sách rồi 403 khi mở". Điều đó ĐÚNG cho riêng hàm
+    NÀY, nhưng SAI cho kết quả THẬT khách nhận được: `portal_deliveries`/
+    `portal_invoices` (hai nơi DUY NHẤT gọi hàm này) gọi `frappe.get_list`
+    KHÔNG `ignore_permissions=True` — nên `permission_query_conditions`
+    (`delivery_query`/`invoice_query`, đã có vế khoa CHẶT từ C2) tự động
+    ANDED vào CHÍNH truy vấn đó bởi framework, không phải một bước lọc
+    riêng sau này. Kết quả cuối là GIAO của bộ lọc lỏng ở đây và bộ lọc
+    chặt của hook — tức CHẶT (hook thắng). Danh sách khách thấy đã ĐÚNG
+    NGAY từ đầu, không có khoảng hở "hiện ra rồi 403" trong thực tế.
+
+    Bộ lọc lỏng ở ĐÂY vẫn hữu ích (thu hẹp SQL sớm, đỡ join thừa khi hook
+    còn phải chạy lại chính phép join tương tự) nhưng KHÔNG PHẢI ranh giới
+    an ninh — ranh giới an ninh THẬT là hook (`permissions.py`), luôn luôn.
+    Ràng buộc ngầm PHẢI giữ: hai hàm gọi filter này TUYỆT ĐỐI không được
+    thêm `ignore_permissions=True` — làm vậy sẽ tắt hẳn hook và biến bộ lọc
+    lỏng ở đây thành tuyến phòng thủ DUY NHẤT, đúng lúc đó mô tả "khoan
+    dung hơn, có thể lộ tên chứng từ" ở trên mới thành sự thật. `test_
+    portal_deliveries_khop_chinh_xac_voi_frappe_get_list_qua_hook`/`test_
+    portal_invoices_...` (`tests/test_cach_ly_khoa_phong.py`, C6) ghim
+    đúng bất biến "kết quả endpoint == kết quả frappe.get_list thô qua
+    hook" — đỏ ngay nếu ai đó phá ràng buộc này."""
     so_names = _ten_don_trong_pham_vi()
     if so_names is None:
         return []

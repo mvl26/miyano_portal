@@ -18,7 +18,7 @@ from erpnext.selling.doctype.sales_order.sales_order import (
 	make_sales_invoice,
 )
 
-from miyano_portal import dat_hang, portal_context
+from miyano_portal import dat_hang, permissions, portal_context
 from miyano_portal.api import portal as portal_api
 
 KHACH = "ZZTEST8 Benh Vien"
@@ -719,3 +719,188 @@ class TestThongBaoApDungPhamVi(_NenCachLy):
 		with self.assertRaises(frappe.PermissionError) as khong_co:
 			portal_api.portal_thong_bao_doc("KHONG-CO-THAT-TB")
 		self.assertEqual(str(ngoai_pham_vi.exception), str(khong_co.exception))
+
+
+class TestC3ThieuCotKhoaFailClosed(_NenCachLy):
+	"""C3 (review vòng sửa 2, CRITICAL) — chính vế khoa vừa thêm vào
+	`permissions.py` (Vòng sửa 1, C2) sinh SQL tham chiếu
+	`` `tabSales Order`.`custom_khoa_phong` `` trên MỌI truy vấn Sales
+	Order/Delivery Note/Sales Invoice của MỌI Website User — không còn giới
+	hạn ở 21 hàm `api/portal.py` nữa. Nếu patch
+	`v1_23/them_khoa_phong_vao_don_hang` CHƯA THỰC SỰ chạy trên site đích
+	(bẫy đã ghi nhận: `install_app` có thể "hoàn thành giả" patch — ghi
+	Patch Log mà không chạy DDL thật), mọi truy vấn đó chết bằng MariaDB lỗi
+	1054 (unknown column) — cổng khách SẬP HOÀN TOÀN, không phải suy giảm
+	êm. `permissions._cot_khoa_phong_ton_tai()` là lưới an toàn: thiếu cột
+	thì fail-closed (`"1=0"`)+ghi Error Log, KHÔNG ném lỗi CSDL thô ra
+	khách."""
+
+	def setUp(self):
+		super().setUp()
+		self.don_a = self._don(self.kp_a.name)
+		# Chốt cache cấp tiến trình — reset TRƯỚC mỗi test để không ăn theo
+		# kết quả (True, cột THẬT tồn tại trên site test) của lần gọi trước.
+		permissions._cot_khoa_ton_tai = None
+		self.addCleanup(self._reset_cache)
+
+	def _reset_cache(self):
+		permissions._cot_khoa_ton_tai = None
+
+	def test_dieu_kien_sql_tra_1_bang_0_khi_thieu_cot(self):
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			dk = permissions.sales_query()
+		self.assertIn("1=0", dk)
+
+	def test_frappe_get_list_khong_nem_loi_csdl_khi_thieu_cot(self):
+		"""Phép kiểm THẬT nhất: gọi `frappe.get_list` (đường mà lỗi 1054 sẽ
+		lộ ra nếu chốt không hoạt động) — chỉ được trả rỗng, KHÔNG được ném
+		`OperationalError`."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			rows = frappe.get_list("Sales Order", filters={"customer": KHACH})
+		self.assertEqual(rows, [])
+
+	def test_ket_qua_kiem_duoc_nho_khong_hoi_lai_moi_lan(self):
+		"""`_cot_khoa_phong_ton_tai()` chỉ được gọi `frappe.db.has_column`
+		ĐÚNG MỘT LẦN cho nhiều lượt dựng điều kiện liên tiếp — nhớ trong
+		tiến trình, không hỏi lại CSDL/Redis mỗi lần (hàm này chạy trên MỌI
+		truy vấn)."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=True) as gia_lap:
+			permissions.sales_query()
+			permissions.delivery_query()
+			permissions.invoice_query()
+			self.assertEqual(gia_lap.call_count, 1)
+
+	def test_da_kiem_du_toan_ven_van_thay_dung_don_khi_co_cot(self):
+		"""Đối chứng: chốt KHÔNG được tự ý fail-closed khi cột THẬT SỰ có
+		(giá trị mặc định trên site test) — chỉ fail-closed khi thiếu."""
+		frappe.set_user(self.nv_a.user)
+		ten = frappe.get_list(
+			"Sales Order", filters={"customer": KHACH}, pluck="name"
+		)
+		self.assertIn(self.don_a, ten)
+
+
+class TestC5NguoiDungNoiBoKhongPhaiAdministrator(_NenCachLy):
+	"""C5 (review vòng sửa 2) — Frappe cho `Administrator` đi thẳng TRƯỚC
+	khi tới bất kỳ hook `has_permission`/`permission_query_conditions` nào
+	(`frappe/permissions.py::has_permission`, nhánh `user == "Administrator"`
+	return `True` ngay). Cả bộ suite (kể cả `setUp`/tearDown, và MỌI test
+	khác trong file này giữa hai lần `frappe.set_user`) chạy dưới
+	`Administrator` phần lớn thời gian — suite xanh KHÔNG PHẢI bằng chứng
+	rằng `_is_restricted_user` đúng cho một System User THẬT (nhân viên
+	Miyano ngồi Desk). Dựng một System User mang role `Sales User` (không
+	phải Administrator) và khẳng định họ KHÔNG bị vế khoa mới thêm chặn
+	nhầm."""
+
+	def setUp(self):
+		super().setUp()
+		self.don_a = self._don(self.kp_a.name)
+		self.staff_email = "zztest8.staff@miyano.vn"
+		if not frappe.db.exists("User", self.staff_email):
+			u = frappe.get_doc({
+				"doctype": "User", "email": self.staff_email, "first_name": "ZZ Staff",
+				"user_type": "System User", "send_welcome_email": 0,
+			})
+			u.append("roles", {"role": "Sales User"})
+			u.insert(ignore_permissions=True)
+
+	def test_nhan_vien_mien_khong_bi_gioi_han_theo_khoa(self):
+		frappe.set_user(self.staff_email)
+		ten = frappe.get_list(
+			"Sales Order", filters={"customer": KHACH}, pluck="name"
+		)
+		self.assertIn(
+			self.don_a, ten,
+			"System User (nhân viên Miyano) bị hook khoa phòng chặn nhầm — "
+			"_is_restricted_user phải trả False cho user_type=System User.",
+		)
+
+	def test_nhan_vien_mien_doc_duoc_ca_hai_khoa(self):
+		don_b = self._don(self.kp_b.name)
+		frappe.set_user(self.staff_email)
+		ten = frappe.get_list(
+			"Sales Order", filters={"customer": KHACH}, pluck="name"
+		)
+		self.assertIn(self.don_a, ten)
+		self.assertIn(don_b, ten)
+
+
+class TestC6HaiTangDongYVoiNhau(_NenCachLy):
+	"""C6 (review vòng sửa 2) — từ Vòng sửa 1 có HAI tầng quyết định phạm vi
+	cho cùng một chứng từ: endpoint cổng (`dam_bao_xem_duoc`/`pham_vi_don`,
+	`api/portal.py`) và hook framework (`permissions.py`, Vòng sửa 1 C2).
+	Hiện chúng đồng ý vì tầng hook luôn ANDed vào MỌI `frappe.get_list`
+	không `ignore_permissions` — nhưng KHÔNG assertion nào trong bộ test
+	trước đó khẳng định trực tiếp điều đó. Nếu ai đó đổi một endpoint liệt
+	kê (vd. `portal_deliveries`) sang `frappe.get_all(..., ignore_
+	permissions=True)`, hai tầng lệch NGAY (endpoint hết tự lọc chặt, hook
+	bị bỏ qua) mà không test nào ở Vòng sửa 1 bắt được — test dưới đây so
+	sánh TRỰC TIẾP kết quả hai đường cho CÙNG một chứng từ."""
+
+	def setUp(self):
+		super().setUp()
+		self.don_a = self._don(self.kp_a.name)
+
+	def test_sales_order_hai_duong_dong_y_cho_khoa_khac(self):
+		frappe.set_user(self.nv_b.user)
+		with self.assertRaises(frappe.PermissionError):
+			portal_api.portal_order_track(self.don_a)
+		ten = frappe.get_list(
+			"Sales Order", filters={"customer": KHACH}, pluck="name"
+		)
+		self.assertNotIn(self.don_a, ten)
+
+	def test_sales_order_hai_duong_dong_y_cho_chinh_khoa(self):
+		frappe.set_user(self.nv_a.user)
+		self.assertEqual(
+			portal_api.portal_order_track(self.don_a)["order"], self.don_a
+		)
+		ten = frappe.get_list(
+			"Sales Order", filters={"customer": KHACH}, pluck="name"
+		)
+		self.assertIn(self.don_a, ten)
+
+	def test_portal_deliveries_khop_chinh_xac_voi_frappe_get_list_qua_hook(self):
+		"""Ghim đúng kịch bản C6 nêu: nếu `portal_deliveries` bị đổi sang
+		một đường bỏ qua hook, test này phải đỏ vì hai tập hợp lệch nhau."""
+		so_a = self._don_submitted(self.kp_a.name)
+		dn_a = make_delivery_note(so_a.name)
+		dn_a.insert(ignore_permissions=True)
+
+		frappe.set_user(self.nv_b.user)
+		qua_endpoint = {r["name"] for r in portal_api.portal_deliveries(limit=200)}
+		qua_hook_truc_tiep = set(
+			frappe.get_list("Delivery Note", filters={"customer": KHACH}, pluck="name")
+		)
+		self.assertEqual(qua_endpoint, qua_hook_truc_tiep)
+		self.assertNotIn(dn_a.name, qua_endpoint)
+
+		frappe.set_user(self.nv_a.user)
+		qua_endpoint = {r["name"] for r in portal_api.portal_deliveries(limit=200)}
+		qua_hook_truc_tiep = set(
+			frappe.get_list("Delivery Note", filters={"customer": KHACH}, pluck="name")
+		)
+		self.assertEqual(qua_endpoint, qua_hook_truc_tiep)
+		self.assertIn(dn_a.name, qua_endpoint)
+
+	def test_portal_invoices_khop_chinh_xac_voi_frappe_get_list_qua_hook(self):
+		so_a = self._don_submitted(self.kp_a.name)
+		si_a = make_sales_invoice(so_a.name)
+		si_a.insert(ignore_permissions=True)
+
+		frappe.set_user(self.nv_b.user)
+		qua_endpoint = {r["name"] for r in portal_api.portal_invoices(limit=200)["rows"]}
+		qua_hook_truc_tiep = set(
+			frappe.get_list("Sales Invoice", filters={"customer": KHACH}, pluck="name")
+		)
+		self.assertEqual(qua_endpoint, qua_hook_truc_tiep)
+		self.assertNotIn(si_a.name, qua_endpoint)

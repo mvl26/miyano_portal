@@ -32,6 +32,56 @@ def _and_conditions(*conds: str) -> str:
     return " and ".join(f"({c})" for c in parts)
 
 
+# VÒNG SỬA 2 (review độc lập, C3 — CRITICAL). Cache CẤP TIẾN TRÌNH — không
+# phải `None` nghĩa là "chưa biết", `True`/`False` là kết quả đã kiểm. Nhớ
+# Ở ĐÂY (không hỏi lại `information_schema`/Redis mỗi lần) vì hàm dùng biến
+# này chạy trên MỌI truy vấn Sales Order/Delivery Note/Sales Invoice của
+# MỌI Website User — không phải một lần mỗi request.
+_cot_khoa_ton_tai: bool | None = None
+
+
+def _cot_khoa_phong_ton_tai() -> bool:
+    """Có cột `Sales Order.custom_khoa_phong` THẬT trong CSDL không.
+
+    Vòng sửa 1 (C2) đưa `custom_khoa_phong` vào `permission_query_
+    conditions`/`has_permission` — tức MỌI đường đọc Sales Order/Delivery
+    Note/Sales Invoice của MỌI khách cổng, không còn giới hạn ở 21 hàm
+    whitelist của `api/portal.py` như trước. Nếu patch `v1_23/them_khoa_
+    phong_vao_don_hang` CHƯA THỰC SỰ chạy trên site đích, SQL sinh ra ở đây
+    tham chiếu một cột không tồn tại → MariaDB ném lỗi 1054 (unknown
+    column) cho MỌI truy vấn đó → CỔNG KHÁCH SẬP HOÀN TOÀN, không phải suy
+    giảm êm.
+
+    Đây KHÔNG phải rủi ro lý thuyết: `install_app` trên dự án này từng ghi
+    nhận "hoàn thành giả" patch — ghi Patch Log mà không thực sự chạy DDL
+    (xem memory `miyano-portal-install-patch-trap`). Một dòng trong
+    `patches.txt` không phải bằng chứng cột đã tồn tại.
+
+    Hàm này là LƯỚI AN TOÀN CHO LÚC TRIỂN KHAI, KHÔNG PHẢI giấy phép để
+    deploy mà không chạy `bench migrate`: thiếu cột thì MỌI Website User bị
+    fail-closed (`"1=0"` — không thấy gì, an toàn) thay vì gặp lỗi CSDL thô,
+    nhưng cổng vẫn "câm" với đúng người lẽ ra phải thấy dữ liệu của mình —
+    vá triệu chứng, không thay được `bench migrate`."""
+    global _cot_khoa_ton_tai
+    if _cot_khoa_ton_tai is None:
+        _cot_khoa_ton_tai = bool(frappe.db.has_column("Sales Order", "custom_khoa_phong"))
+        if not _cot_khoa_ton_tai:
+            frappe.log_error(
+                title="Thiếu cột Sales Order.custom_khoa_phong",
+                message=(
+                    "Hook phân quyền theo khoa phòng (miyano_portal.permissions) "
+                    "đang chạy trên một site CHƯA có cột Sales Order.custom_"
+                    "khoa_phong. Mọi Website User đang bị chặn fail-closed "
+                    "(điều kiện 1=0) trên Sales Order/Delivery Note/Sales "
+                    "Invoice thay vì gặp lỗi CSDL — cổng \"câm\" thay vì sập, "
+                    "nhưng khách không thấy được đơn của chính họ. Chạy `bench "
+                    "--site <site> migrate` để thêm cột (patch miyano_portal."
+                    "patches.v1_23.them_khoa_phong_vao_don_hang)."
+                ),
+            )
+    return _cot_khoa_ton_tai
+
+
 def _dieu_kien_khoa_qua_don_cha(
     table: str, child_table: str, link_field: str, escaped_khoa: str
 ) -> str:
@@ -76,6 +126,9 @@ def _khoa_query_condition(doctype: str, table: str, user: str | None) -> str:
     user = user or frappe.session.user
     if not _is_restricted_user(user):
         return ""
+    if not _cot_khoa_phong_ton_tai():
+        # Vòng sửa 2 (C3) — lưới an toàn triển khai, xem docstring hàm đó.
+        return "1=0"
     try:
         pham_vi = pham_vi_don(user)
     except frappe.PermissionError:
@@ -104,6 +157,12 @@ def _khoa_ok_doc(doctype: str, name: str, user: str | None = None) -> bool:
     user = user or frappe.session.user
     if not _is_restricted_user(user):
         return True
+    if not _cot_khoa_phong_ton_tai():
+        # Vòng sửa 2 (C3) — cùng lưới an toàn với `_khoa_query_condition`,
+        # xem docstring `_cot_khoa_phong_ton_tai`. `dam_bao_xem_duoc` bên
+        # dưới tự đọc thẳng cột này qua `frappe.db.get_value`/`sql` — không
+        # chặn Ở ĐÂY thì lỗi CSDL thô sẽ lộ ra đúng chỗ hàm này định che.
+        return False
     try:
         dam_bao_xem_duoc(doctype, name, user=user)
         return True
