@@ -109,7 +109,35 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = ("Portal Delivery Inspection Item
 # khi has_permission của CHÍNH bảng con có cơ hội chạy (cùng nguyên tắc đã
 # nêu ở "Fast EInvoice Line" phía dưới) — đăng ký riêng cho bảng con này sẽ
 # không bao giờ được gọi tới, một entry chết chỉ gây hiểu lầm.
-KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = ("Miyano Portal Settings", "Sales Order Dat Ngoai Item")
+#
+# `Portal Member` (bước 3, nền phân quyền khoa phòng, 2026-08-18) — nguồn sự
+# thật cho danh tính cổng (user thuộc khách hàng nào, vai trò gì, khoa nào).
+# NÓ MANG `customer` — đọc kỹ cảnh báo E6 phía trên trước khi đồng ý với dòng
+# này: "mang dữ liệu của khách hàng thì KHÔNG được nhét vào
+# KHONG_PHAI_DOCTYPE_KHO". Trường hợp này khác về CHẤT, không phải một ngoại
+# lệ tiện tay:
+#   - Portal Item Request / Customer Department (đứng trong KHO_DOCTYPES_KHAC)
+#     có DocPerm cho vai trò khác, và có một đường đọc SANCTIONED thật sự cho
+#     khách qua api/*.py + get_portal_customer()/get_portal_kho() — đó là lý
+#     do chúng CẦN wiring permission_query_conditions/has_permission và cần
+#     một fixture thật trong TestKhoIsolationDeep để đo đường đọc đó.
+#   - `Portal Member` thì KHÔNG: JSON permissions của nó chỉ có System
+#     Manager/Sales Manager/Sales User — tuyệt đối không DocPerm nào cho role
+#     `Customer` (xem docstring đầu portal_member.py). Không có "đường đọc
+#     sanctioned" nào cho khách tồn tại — api/portal.py (Task 5) sẽ đọc bảng
+#     này bằng frappe.db.get_value/get_all nội bộ (phía server, có
+#     ignore_permissions ngầm), không phải một REST/list-view mà khách gọi
+#     trực tiếp. Vì chưa từng có DocPerm nào để mất, cơ chế "vòng 4" (gỡ
+#     DocPerm Customer khỏi doctype kho cha) không áp dụng — không có gì phải
+#     đóng.
+#   - KÍCH HOẠT PHÂN LOẠI LẠI: ngày nào `Portal Member` được cấp DocPerm cho
+#     role `Customer`, hoặc có một endpoint đọc nó qua frappe.client.get_list/
+#     REST/printview thay vì gọi hàm nội bộ, ngày đó nó PHẢI chuyển sang
+#     KHO_DOCTYPES_KHAC kèm wiring đầy đủ như các anh em ở trên — đừng để
+#     entry này đứng yên khi tiền đề đổi.
+KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = (
+    "Miyano Portal Settings", "Sales Order Dat Ngoai Item", "Portal Member",
+)
 
 # --------------------------------------------------------------------- AN-1
 # AN-1 (báo cáo kiểm thử hệ thống 2026-08-14, mục 4 / P1 #5): `_nap_doctype_
