@@ -946,3 +946,87 @@ class TestC6HaiTangDongYVoiNhau(_NenCachLy):
 		)
 		self.assertEqual(qua_endpoint, qua_hook_truc_tiep)
 		self.assertNotIn(si_a.name, qua_endpoint)
+
+
+class TestKhongLamPhienKhachDangDung(FrappeTestCase):
+	"""Task 9 — nghiệm thu ràng buộc tự đặt cho cả đề án: không làm phiền
+	khách hàng đang dùng. Sau bốn bước nền (1–4), mọi tài khoản cổng CŨ là
+	`Quản lý` không gắn khoa → `pham_vi_don()` trả `{}` → phải thấy ĐÚNG
+	những gì họ thấy trước khi đề án này tồn tại.
+
+	`TestTuongThichNguoc` (`test_portal_member.py`) đã khẳng định vai trò/
+	khoa phòng của Portal Member sau patch VÀ `pham_vi_don(user) == {}` cho
+	đúng hai tài khoản này — KHÔNG lặp lại khẳng định đó ở đây.
+	`TestDonCuKhongGanKhoa` (lớp trên trong file này) đã khẳng định MỘT đơn
+	cụ thể còn hiện ra. Còn thiếu đúng một việc: SỐ LƯỢNG chứng từ qua các
+	endpoint thật phải khớp CHÍNH XÁC — không thiếu, không thừa — với CSDL,
+	cho đúng khách hàng đó. Hai test dưới đây đo qua HAI endpoint khác nhau
+	(`portal_order_history`/Sales Order, `portal_invoices`/Sales Invoice —
+	khác hook quyền: `sales_query` so với `invoice_query` + `_loc_qua_don_
+	cha`), không phải một phép đo lặp lại dưới hai cái tên.
+
+	Dùng tài khoản cổng THẬT (`bvbm@demo.miyano`, `bvminhduc@demo.miyano`)
+	— đây là bài kiểm "khách đang dùng không bị phiền", một khách ZZTEST
+	mới dựng lên không kiểm đúng điều đang nói. CHỈ ĐỌC — không sửa gì.
+
+	Đo bằng SO SÁNH HAI VẾ cùng lúc, cùng điều kiện lọc — không ghim hằng
+	số (bài học Task 4). `frappe.db.count(..., {"customer": ...})` KHÔNG
+	thêm `docstatus < 2`: đọc `portal_order_history`/`portal_invoices`
+	(api/portal.py) cho thấy nhánh không lọc theo trạng thái không tự thêm
+	điều kiện `docstatus` nào — cơ chế loại bỏ chứng từ Đã huỷ (nếu có) nằm
+	ở UI (chip lọc `trang_thai`), không ở tầng đếm mặc định này. Brief gốc
+	của Task 9 giả định `docstatus < 2` — SAI với hành vi thật: đo tại
+	18/08/2026, "Bệnh viện Bạch Mai" có `SAL-ORD-2026-00027` docstatus=2
+	(Đã huỷ), và `tong` production ĐANG đếm luôn đơn đó (71, brief SẼ kỳ
+	vọng sai thành 70). Đã tự đo lại và sửa (xem `task-9-report.md`)."""
+
+	CAC_TAI_KHOAN_CU = ("bvbm@demo.miyano", "bvminhduc@demo.miyano")
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_tai_khoan_cu_van_thay_dung_so_luong_don_cua_benh_vien(self):
+		for user in self.CAC_TAI_KHOAN_CU:
+			khach = frappe.db.get_value("Portal Member", {"user": user}, "customer")
+			frappe.set_user(user)
+			ds = portal_api.portal_order_history()
+			frappe.set_user("Administrator")
+			# CÙNG lúc, CÙNG điều kiện lọc (chỉ `customer`, không thêm
+			# `docstatus` — xem docstring lớp) — so hai vế với nhau, không
+			# ghim một con số tuyệt đối.
+			that = frappe.db.count("Sales Order", {"customer": khach})
+			self.assertGreater(
+				that, 0,
+				f"{user} ({khach}): CSDL không còn đơn nào — phép so sánh "
+				f"0 == 0 không chứng minh được gì (bẫy Task 4)",
+			)
+			self.assertEqual(
+				ds["tong"], that,
+				f"{user} ({khach}): endpoint trả tong={ds['tong']}, "
+				f"CSDL đếm được {that} đơn",
+			)
+
+	def test_tai_khoan_cu_van_thay_dung_so_luong_hoa_don_cua_benh_vien(self):
+		"""Endpoint THỨ HAI. Đo thật 18/08/2026: Bệnh viện Bạch Mai hiện
+		KHÔNG có Sales Invoice nào (0 == 0 tự nó không chứng minh gì), Minh
+		Đức có 9 — chốt TỔNG hai tài khoản > 0 sau vòng lặp để cả test không
+		rỗng, thay vì đòi từng tài khoản một phải dương (đó là dữ liệu thật,
+		không phải điều test này được phép ép buộc)."""
+		tong_tat_ca = 0
+		for user in self.CAC_TAI_KHOAN_CU:
+			khach = frappe.db.get_value("Portal Member", {"user": user}, "customer")
+			frappe.set_user(user)
+			ds = portal_api.portal_invoices()
+			frappe.set_user("Administrator")
+			that = frappe.db.count("Sales Invoice", {"customer": khach})
+			tong_tat_ca += that
+			self.assertEqual(
+				ds["tong"], that,
+				f"{user} ({khach}): endpoint trả tong={ds['tong']}, "
+				f"CSDL đếm được {that} hoá đơn",
+			)
+		self.assertGreater(
+			tong_tat_ca, 0,
+			"cả hai tài khoản đều 0 hoá đơn — phép so sánh rỗng, không "
+			"chứng minh được gì (bẫy Task 4)",
+		)
