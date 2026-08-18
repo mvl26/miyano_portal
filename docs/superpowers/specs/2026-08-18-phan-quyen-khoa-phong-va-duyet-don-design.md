@@ -447,6 +447,27 @@ Huyết học" là một con số không tồn tại. Muốn nó tồn tại th�
 — mỗi khoa một tồn riêng, cấp phát thành chuyển kho — lớn hơn cả phần đặt hàng
 cộng lại. **Không làm.**
 
+### 7.0 ĐIỀU KIỆN TIÊN QUYẾT — khoa phòng không gắn kho hiện đang vỡ ở module kho
+
+Phát hiện trong lúc thi công bước 2 (18/08). Khi `Customer Department.kho` hạ
+xuống tuỳ chọn, một khoa phòng **customer-only** (`kho = None`) trở thành hợp lệ
+— đó chính là thứ Hi-medic cần. Nhưng hai chỗ trong module kho vẫn giả định mọi
+khoa phòng đều có kho:
+
+| Chỗ | Giả định sai | Hậu quả |
+|---|---|---|
+| `api/kho.py::_khoa_cua_kho` | xác nhận sở hữu bằng `Customer Department.kho == kho` | `None != kho` **luôn đúng** → `PermissionError` chắc chắn xảy ra ở `kho_khoa_phong_save`, `kho_nguoi_nhan_goi_y`, `kho_phieu_list`, `nhat_ky`, `bao_cao_cap_phat*` và các đường xuất |
+| `kho/khoa_phong.py::list_rows` | lọc `{"kho": kho}` | khoa customer-only **không bao giờ hiện** trong danh mục cổng khách duyệt |
+
+**Hôm nay chưa hỏng gì** vì chưa có khoa phòng nào không gắn kho. Nhưng ngay khi
+Miyano khai khoa phòng cho một bệnh viện chưa mở kho — đúng tình huống Hi-medic —
+khoa đó sẽ không sửa được và không lọc được qua cổng, kèm một `PermissionError`
+không nói lên điều gì.
+
+**Phải sửa hai chỗ này TRƯỚC mọi việc khác của bước 8:** đổi cả hai sang xác nhận
+theo `customer` (suy từ kho khi có kho), cùng phạm vi mà
+`CustomerDepartment._chan_trung_tuyet_doi()` đã dùng từ bước 2.
+
 ### 7.1b Chiều khoa đi VÀO tầng phân quyền kho đã có, không dựng tầng thứ hai
 
 `kho/permissions.py` **đã có sẵn** `permission_query_conditions` cho tám doctype
