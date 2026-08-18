@@ -4,7 +4,7 @@ Cùng khuôn với kho/ncc.py (đọc docstring ở đó trước): tầng này 
 về phiên đăng nhập, `kho` luôn do nơi gọi (api/kho.py) truyền vào sau khi đã
 resolve từ phiên.
 
-Chốt chặn "trùng tuyệt đối trong kho" (NL-4.13) sống ở
+Chốt chặn "trùng tuyệt đối trong BỆNH VIỆN" (NL-4.13) sống ở
 customer_department.py:validate() — chạy trên MỌI đường ghi (Desk lẫn
 endpoint này), không lặp lại ở đây. Module này chỉ tính thêm gợi ý "gần
 giống" (KHÔNG chặn) cho response của kho_khoa_phong_save, và gợi ý Người
@@ -23,8 +23,17 @@ _GOI_Y_NGUOI_NHAN_TOI_DA = 10
 
 
 def _existing_rows(kho: str, exclude: str | None) -> list:
+	"""Lọc theo `customer` (không phải `kho`) — vòng sửa 1, phát hiện 4:
+	`customer_department.py:_chan_trung_tuyet_doi()` đã chuyển sang lọc theo
+	`customer` từ bước 2 (khoa phòng khoá theo bệnh viện, không theo kho).
+	Từ bước 2, một khách có thể có VỪA khoa phòng gắn kho VỪA khoa phòng
+	KHÔNG gắn kho — nếu ở đây vẫn lọc theo `kho`, gợi ý "gần giống" bỏ sót
+	các khoa không gắn kho của cùng khách, và tệ hơn: xem trước
+	(`chi_kiem_tra`) có thể báo "không trùng" trong khi lưu thật lại bị
+	validate() chặn vì nó so đúng phạm vi `customer`."""
+	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
 	rows = frappe.get_all(
-		"Customer Department", filters={"kho": kho}, fields=["name", "ten_khoa_phong"]
+		"Customer Department", filters={"customer": customer}, fields=["name", "ten_khoa_phong"]
 	)
 	if exclude:
 		rows = [r for r in rows if r.name != exclude]
