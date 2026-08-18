@@ -22,7 +22,7 @@ viện dùng chung tài khoản đó, nên:
 - không chia được dữ liệu theo khoa phòng.
 
 Yêu cầu: **nhiều tài khoản cho một bệnh viện**, chia theo khoa phòng, nhân viên
-khoa lập đề nghị mua, quản lý bệnh viện xem và duyệt.
+khoa lập đề xuất mua, quản lý bệnh viện xem và duyệt.
 
 ## 2. Hiện trạng đã đo trên `erptest.local`
 
@@ -36,7 +36,7 @@ khoa lập đề nghị mua, quản lý bệnh viện xem và duyệt.
 | Endpoint cổng | **27 hàm `@frappe.whitelist()`** trong `api/portal.py` (khoảng **20** đụng tới đơn hàng hoặc thứ dẫn xuất) và **38 hàm** trong `api/kho.py` → **65 endpoint** phải rà. Con số kho lớn hơn ước lượng lúc bàn (~15) gấp hai lần rưỡi — xem §9 |
 | Hàm đặt hàng | `portal_order_place` dài **139 dòng**, ôm cả dựng dòng hàng, kiểm hạn mức HĐNT và định giá |
 | Workflow đang có | `Chờ xác nhận → Chờ Miyano xác nhận → Đã xác nhận / Từ chối`; **mọi** bước duyệt do `Sales User` của Miyano bấm. Chưa có bước nào cho người của bệnh viện |
-| `Portal Item Request` | Là yêu cầu **một mặt hàng** để tìm nguồn, không phải phiếu đề nghị nhiều dòng → **không tái dụng được** |
+| `Portal Item Request` | Là yêu cầu **một mặt hàng** để tìm nguồn, không phải phiếu đề xuất nhiều dòng → **không tái dụng được** |
 | Collation CSDL | `utf8mb4_unicode_ci`. Thử thật: `LIKE '%gang tay%'` trả về đúng 5 mặt hàng "Găng tay"; `'%GĂNG%'` cũng trả về → **không dấu và không phân biệt hoa thường đã có sẵn**, không cần cột chuẩn hoá |
 | Sổ cái kho | `Customer Stock Ledger Entry` và `Customer Stock Lot Balance` **không có** trường khoa phòng. `Customer Stock Issue` **có** `khoa_phong`; `Customer Stock Receipt` có `sales_order` (suy ra khoa được) |
 
@@ -48,13 +48,13 @@ khoa lập đề nghị mua, quản lý bệnh viện xem và duyệt.
 | **QĐ-KP-2** | Đơn có phải luôn qua quản lý duyệt? | **Mọi đơn đều phải duyệt.** Chưa duyệt thì Miyano không thấy |
 | **QĐ-KP-3** | Quản lý được làm gì khi duyệt? | **Sửa được cả mặt hàng lẫn số lượng** |
 | **QĐ-KP-4** | Bao nhiêu người duyệt? | **Một quản lý chính + uỷ quyền tạm thời** |
-| **QĐ-KP-5** | Mã đề nghị đặt theo gì? | **Theo khoa phòng**, kèm ô tìm theo mã/tên vật tư |
+| **QĐ-KP-5** | Mã đề xuất đặt theo gì? | **Theo khoa phòng**, kèm ô tìm theo mã/tên vật tư |
 | **QĐ-KP-6** | Module kho có cách ly theo khoa không? | **Có** |
 | **QĐ-KP-7** | Tồn kho — thứ không chia theo khoa được — thì sao? | **Ẩn các màn tồn kho khỏi nhân viên khoa, nhưng khi lập phiếu xuất vẫn hiện tồn của mặt hàng đang chọn** |
 | **QĐ-KP-8** | Quản lý bệnh viện có tự tạo tài khoản không? | **Không.** Quản lý gán khoa, bật/tắt thành viên, lập uỷ quyền; **tạo tài khoản thì Miyano cấp**. *(Chủ đầu tư xác nhận 18/08: "nhân viên có tài khoản và được gán khoa bởi quản lý nhưng tài khoản sẽ được tạo ở phía Miyano")* |
-| **QĐ-KP-9** | Phiếu đề nghị ghi những gì để truy vết? | **Tên người yêu cầu, ngày giờ, và LÝ DO yêu cầu** — lý do thành field riêng bắt buộc, không gộp vào ô ghi chú |
+| **QĐ-KP-9** | Phiếu đề xuất ghi những gì để truy vết? | **Tên người yêu cầu, ngày giờ, và LÝ DO yêu cầu** — lý do thành field riêng bắt buộc, không gộp vào ô ghi chú |
 | **QĐ-KP-11** | Người được uỷ quyền có duyệt được đơn của chính mình? | **Có, nhưng đơn đó mang nhãn `Tự duyệt khi được uỷ quyền`** và lọc ra được thành danh sách riêng cho quản lý hậu kiểm khi quay về. Không chặn công việc mà vẫn có dấu vết |
-| **QĐ-KP-10** | Ai xoá được phiếu đề nghị? | Nhân viên xoá được **phiếu nháp của mình**; quản lý gỡ được phiếu đã gửi — nhưng **gỡ = chuyển trạng thái Đã huỷ, không xoá khỏi CSDL** (xem §5.4b) |
+| **QĐ-KP-10** | Ai xoá được phiếu đề xuất? | Nhân viên xoá được **phiếu nháp của mình**; quản lý gỡ được phiếu đã gửi — nhưng **gỡ = chuyển trạng thái Đã huỷ, không xoá khỏi CSDL** (xem §5.4b) |
 
 ---
 
@@ -80,7 +80,7 @@ Hai luật chặn lúc `validate`:
    của bệnh viện khác — một lỗ phân quyền mở bằng một thao tác nhập liệu.
 
 Tắt (`active = 0`) thay vì xoá: một thành viên đã nghỉ vẫn phải còn đó để lịch
-sử duyệt và lịch sử đề nghị giải thích được.
+sử duyệt và lịch sử đề xuất giải thích được.
 
 ### 4.2 `portal_context` viết lại
 
@@ -143,12 +143,12 @@ không có chuyện "Khoa Huyết học" bên đặt hàng khác "Khoa Huyết h
 "Phòng Cấp cứu" đều được — không ràng buộc phải là "khoa" của bệnh viện lớn.
 
 `ma_khoa` siết lại: **bắt buộc, tự viết hoa, chỉ `A-Z0-9`, duy nhất trong một
-bệnh viện** (dùng để sinh mã đề nghị — xem §6).
+bệnh viện** (dùng để sinh mã đề xuất — xem §6).
 
 `Customer` thêm `custom_ma_ngan`: bắt buộc với khách dùng cổng, duy nhất. 6 giá
 trị. Kiểm **lúc bật tính năng cho bệnh viện** (lúc tạo `Portal Member` đầu tiên
 có `vai_tro = Nhân viên khoa`), **không** kiểm lúc nhân viên bấm gửi — không để
-một người soạn xong đề nghị rồi mới nhận một lỗi khó hiểu.
+một người soạn xong đề xuất rồi mới nhận một lỗi khó hiểu.
 
 ### 4.4 Một chốt phạm vi, không phải 20 bộ lọc
 
@@ -161,7 +161,7 @@ Thiết kế: mọi endpoint liệt kê gọi `pham_vi_don()`; mọi endpoint đ
 từ gọi `dam_bao_xem_duoc()`. Cộng **một test đếm ngược** (§8b).
 
 `Sales Order` nhận thêm `custom_khoa_phong` (Link Customer Department, chỉ đọc,
-ghi lúc tạo đơn từ phiếu đề nghị).
+ghi lúc tạo đơn từ phiếu đề xuất).
 
 **Thứ dẫn xuất không có trường khoa phòng riêng** — phiếu giao, hoá đơn, biên
 bản kiểm hàng đều lọc **qua đơn cha**. Một nguồn sự thật; không có chuyện phiếu
@@ -177,7 +177,7 @@ Bệnh viện nào chưa muốn dùng khoa phòng thì không phải làm gì c�
 
 ---
 
-## 5. `Đề nghị mua`
+## 5. `Đề xuất mua`
 
 ### 5.1 Vì sao là một doctype riêng, không phải Sales Order nháp
 
@@ -188,7 +188,7 @@ Bệnh viện nào chưa muốn dùng khoa phòng thì không phải làm gì c�
   doctype này. Đây chính là bài học của hai lỗi tuần 17–18/08.
 - **Số `SAL-ORD` chỉ sinh khi bệnh viện đã thật sự chốt** — không có đơn "ma"
   nằm trong danh sách, báo cáo, dashboard của Miyano.
-- Đối chiếu "đề nghị gốc / đã duyệt" thành **hai chứng từ**, không phải một cái diff.
+- Đối chiếu "đề xuất gốc / đã duyệt" thành **hai chứng từ**, không phải một cái diff.
 
 Giá phải trả: tách phần lõi của `portal_order_place` thành hàm dùng chung (§9).
 
@@ -212,29 +212,29 @@ trong lịch sử:
 ngay từ dòng đầu tiên sẽ khiến người ta gõ "abc" cho xong.
 
 `customer` và `khoa_phong` **chỉ đọc, hệ thống ghi từ phiên đăng nhập** — không
-nhận từ client. Người của khoa Huyết học không lập được đề nghị mang tên khoa
+nhận từ client. Người của khoa Huyết học không lập được đề xuất mang tên khoa
 khác kể cả khi sửa payload.
 
-**Dòng hàng** (`Đề nghị mua Item`): `item_code`, `dvt`, `so_luong_de_nghi`,
+**Dòng hàng** (`Đề xuất mua Item`): `item_code`, `dvt`, `so_luong_de_xuat`,
 `so_luong_duyet`, `don_gia`, `thanh_tien`, `nguon_dong`, `ghi_chu_quan_ly`.
 
 Bảng "đặt ngoài" **dùng lại `Sales Order Dat Ngoai Item`** đã có — child doctype
 gắn được vào nhiều cha, không tạo bảng mới.
 
-### 5.3 Giữ nguyên đề nghị gốc: quản lý **không xoá dòng, chỉ hạ về 0**
+### 5.3 Giữ nguyên đề xuất gốc: quản lý **không xoá dòng, chỉ hạ về 0**
 
 QĐ-KP-3 cho quản lý sửa cả mặt hàng lẫn số lượng, nên phải trả lời được "khoa
 xin gì / duyệt gì". Cách chắc nhất **không phải** là chụp một bản snapshot đặt
 cạnh bản sống — hai bản dữ liệu song song thì sớm muộn cũng lệch.
 
-- Khi khoa bấm **Gửi duyệt**, cột `so_luong_de_nghi` **khoá vĩnh viễn**. Không
+- Khi khoa bấm **Gửi duyệt**, cột `so_luong_de_xuat` **khoá vĩnh viễn**. Không
   ai sửa được nữa, kể cả quản lý, kể cả Miyano.
 - Quản lý chỉ chạm `so_luong_duyet`. Bỏ một mặt hàng = **hạ về 0**, không xoá dòng.
-- Quản lý thêm mặt hàng → dòng mới có `so_luong_de_nghi = 0`,
+- Quản lý thêm mặt hàng → dòng mới có `so_luong_de_xuat = 0`,
   `nguon_dong = "Quản lý thêm"`.
 - Sales Order sinh ra **chỉ từ dòng có `so_luong_duyet > 0`**.
 
-Kết quả: đề nghị gốc còn nguyên **theo cấu trúc**, không cần cơ chế nào giữ nó.
+Kết quả: đề xuất gốc còn nguyên **theo cấu trúc**, không cần cơ chế nào giữ nó.
 
 ### 5.4 Vòng đời
 
@@ -266,11 +266,11 @@ của quản lý mà biến mất giữa chừng là thứ khó chịu nhất ch
 thì nhờ quản lý, hoặc quản lý từ chối.
 
 Sửa số lượng: nhân viên sửa thoải mái khi còn **Nháp**; từ **Chờ duyệt** trở đi
-chỉ quản lý sửa (`so_luong_duyet`), và `so_luong_de_nghi` khoá vĩnh viễn (§5.3).
+chỉ quản lý sửa (`so_luong_duyet`), và `so_luong_de_xuat` khoá vĩnh viễn (§5.3).
 
 ### 5.5 Quản lý đặt hàng trực tiếp — vẫn một đường giấy tờ
 
-Quản lý bấm đặt trên giỏ hàng thì hệ thống vẫn lập một `Đề nghị mua`, **tự động
+Quản lý bấm đặt trên giỏ hàng thì hệ thống vẫn lập một `Đề xuất mua`, **tự động
 đánh Đã duyệt ngay** với `nguoi_duyet` là chính họ, rồi sinh Sales Order. Không
 phải bấm thêm nút nào, mà **mọi đơn trên hệ thống đều có đúng một chứng từ đề
 nghị đứng sau** — không có hai loại đơn với hai lịch sử khác nhau.
@@ -279,7 +279,7 @@ Nhân viên khoa gọi thẳng `portal_order_place` thì bị từ chối kèm t
 không phải lỗi 500 khó hiểu.
 
 **Quản lý không thuộc khoa nào (§4.1), nên phải chọn khoa lúc đặt.** Nếu bỏ qua
-điều này thì mã đề nghị của quản lý không có phần `[Mã khoa]` để mà sinh, và
+điều này thì mã đề xuất của quản lý không có phần `[Mã khoa]` để mà sinh, và
 `Sales Order.custom_khoa_phong` để trống khiến mọi thứ dẫn xuất từ đơn đó không
 quy về được khoa nào. Quy ước:
 
@@ -300,13 +300,13 @@ xảy ra cùng một thời điểm (§5.5), nên quy tắc "sinh lúc Gửi duy
 
 **Hạn mức hợp đồng khung là tài nguyên chung giữa các khoa.** Trước đây một bệnh
 viện một tài khoản nên không bao giờ có hai người cùng tiêu một hạn mức. Giờ hai
-khoa có thể cùng soạn đề nghị trên cùng một dòng hợp đồng.
+khoa có thể cùng soạn đề xuất trên cùng một dòng hợp đồng.
 
-→ **Đề nghị chỉ cảnh báo; hạn mức chỉ trừ lúc DUYỆT** (đúng như ERPNext trừ
+→ **Đề xuất chỉ cảnh báo; hạn mức chỉ trừ lúc DUYỆT** (đúng như ERPNext trừ
 `ordered_qty` lúc tạo đơn). Tới lúc duyệt mà hạn mức đã hết thì việc duyệt
 **thất bại kèm tên khoa đã tiêu mất** — không im lặng cắt số lượng xuống.
 
-**Giá có thể đổi giữa lúc đề nghị và lúc duyệt.** App đã có cơ chế đồng bộ giá HĐNT.
+**Giá có thể đổi giữa lúc đề xuất và lúc duyệt.** App đã có cơ chế đồng bộ giá HĐNT.
 
 → **Giá tính lại tại thời điểm duyệt** (đó là lúc Sales Order ra đời và là giá
 ràng buộc với Miyano), nhưng nếu khác giá khoa đã nhìn thấy thì **báo cho quản
@@ -328,7 +328,7 @@ Ba chi tiết không được bỏ:
    phiếu uỷ quyền). Không ghi thì ba tháng sau không ai giải thích được vì sao
    một người không phải quản lý lại duyệt được đơn đó.
 3. **Tự duyệt được, nhưng phải để lại dấu (QĐ-KP-11).** Người được uỷ quyền vẫn
-   là nhân viên một khoa và vẫn lập đề nghị cho khoa mình. Chặn hẳn thì đúng
+   là nhân viên một khoa và vẫn lập đề xuất cho khoa mình. Chặn hẳn thì đúng
    nguyên tắc kiểm soát nhưng làm tắc đúng tình huống uỷ quyền sinh ra để gỡ:
    quản lý đi vắng, chính người được uỷ quyền cần mua gấp. Nên **cho duyệt**, và:
 
@@ -349,8 +349,8 @@ thêm một hàm chọn người nhận theo khoa:
 
 | Việc | Ai nhận |
 |---|---|
-| Khoa gửi đề nghị | Quản lý + người đang được uỷ quyền |
-| Quản lý duyệt / từ chối | Người lập đề nghị + thành viên khác của khoa đó |
+| Khoa gửi đề xuất | Quản lý + người đang được uỷ quyền |
+| Quản lý duyệt / từ chối | Người lập đề xuất + thành viên khác của khoa đó |
 | Miyano xác nhận, hẹn giao, giao hàng | Quản lý + thành viên của khoa đứng tên đơn |
 
 Điều này cũng sửa một chỗ hôm nay đang thô: thông báo giao hàng gửi cho **mọi**
@@ -359,7 +359,7 @@ khoa Dược nhận thông báo về hàng của khoa Huyết học mỗi ngày.
 
 ---
 
-## 6. Mã đề nghị và tìm kiếm theo vật tư
+## 6. Mã đề xuất và tìm kiếm theo vật tư
 
 ### 6.1 Cấu trúc mã
 
@@ -393,7 +393,7 @@ viết tắt hiển nhiên) — không có tiền tố bệnh viện thì hoặc
 phải đếm chung khiến số của một bệnh viện nhảy cách. Có tiền tố thì **mỗi khoa
 của mỗi bệnh viện có dãy số liền mạch của riêng mình**.
 
-Vượt 99 đề nghị cùng tiền tố trong ngày thì **tràn sang 3 chữ số**, không quay
+Vượt 99 đề xuất cùng tiền tố trong ngày thì **tràn sang 3 chữ số**, không quay
 vòng — mã trùng tệ hơn mã dài.
 
 ### 6.2 Sinh mã lúc **Gửi duyệt**
@@ -403,13 +403,13 @@ Không sớm hơn, không muộn hơn:
 - Lúc còn **Nháp** giỏ hàng vẫn đang thay đổi → sinh mã lúc đó là sinh một cái sẽ sai.
 - Lúc **Duyệt** thì đã muộn — quản lý cần mã để gọi tên đơn khi trao đổi với khoa.
 - Sinh tại **Gửi duyệt** thì mã suy từ dữ liệu đã đóng băng (cùng thời điểm
-  `so_luong_de_nghi` khoá lại).
+  `so_luong_de_xuat` khoá lại).
 
 Mã hiện trên màn xác nhận **trước** khi khoa bấm gửi. Không cho sửa tay.
 
 ### 6.3 Ô tìm theo mã / tên vật tư
 
-Endpoint `de_nghi_mua_tim(tu_khoa, khoa_phong=None, gom_da_xu_ly=False)`:
+Endpoint `de_xuat_mua_tim(tu_khoa, khoa_phong=None, gom_da_xu_ly=False)`:
 
 - **Phạm vi lấy từ phiên đăng nhập**, qua đúng `pham_vi_don()` (§4.2). Quản lý và
   người đang được uỷ quyền tìm khắp các khoa; nhân viên khoa chỉ trong khoa mình.
@@ -507,7 +507,7 @@ hẳn với nhân viên khoa.
 ### 8a. Cách ly
 
 Với **mỗi họ endpoint** (đơn hàng, phiếu giao, hoá đơn, biên bản kiểm, thông báo,
-đề nghị mua, phiếu xuất kho, báo cáo cấp phát): nhân viên khoa A gọi trên chứng
+đề xuất mua, phiếu xuất kho, báo cáo cấp phát): nhân viên khoa A gọi trên chứng
 từ của khoa B → **`PermissionError`**, và **không lộ cả sự tồn tại** của nó —
 thông báo lỗi giống hệt trường hợp chứng từ không có thật.
 
@@ -522,10 +522,10 @@ endpoint thứ 28.
 
 | Test | Chốt điều gì |
 |---|---|
-| Gửi duyệt xong sửa `so_luong_de_nghi` → bị chặn | đề nghị gốc bất biến |
+| Gửi duyệt xong sửa `so_luong_de_xuat` → bị chặn | đề xuất gốc bất biến |
 | Quản lý hạ về 0 → dòng **còn nguyên**, Sales Order **không có** dòng đó | không xoá, chỉ hạ |
 | Hai khoa cùng tiêu một dòng hợp đồng; duyệt cái thứ hai → thất bại **kèm tên khoa đã tiêu** | hạn mức là tài nguyên chung |
-| Giá đổi giữa đề nghị và duyệt → báo quản lý, không đổi lặng lẽ | giá chốt lúc duyệt |
+| Giá đổi giữa đề xuất và duyệt → báo quản lý, không đổi lặng lẽ | giá chốt lúc duyệt |
 | Uỷ quyền ở **ba mốc** (trước / trong / sau) → tầm nhìn nở ra rồi thu lại | phạm vi phụ thuộc thời gian |
 | Người được uỷ quyền duyệt phiếu do chính mình lập → bị chặn | không tự duyệt |
 | Sinh mã: liền mạch trong một khoa; hai bệnh viện không đụng nhau; vượt 99 tràn 3 chữ số | mã duy nhất |
@@ -559,7 +559,7 @@ rồi **bật cho từng bệnh viện một** — Hi-medic trước. Không có
 | **2** | Khoa phòng chuyển từ kho lên bệnh viện; siết `ma_khoa`; thêm `Customer.custom_ma_ngan` | Màn khoa phòng ra khỏi mục Kho |
 | **3** | `Portal Member` + viết lại `portal_context` + **chuyển `_portal_users_cua_khach()` và `portal_provision()` sang `Portal Member`** (§4.2) + patch 6 tài khoản + test đếm ngược | **Không gì cả** |
 | **4** | Áp phạm vi lên ~20 endpoint đơn hàng; `Sales Order.custom_khoa_phong` | **Không gì cả** (chưa ai được gán khoa) |
-| **5** | `Đề nghị mua`: doctype, luồng duyệt, sinh mã, màn của khoa phòng | Bật được cho Hi-medic |
+| **5** | `Đề xuất mua`: doctype, luồng duyệt, sinh mã, màn của khoa phòng | Bật được cho Hi-medic |
 | **6** | Màn duyệt của quản lý + ô tìm theo vật tư | |
 | **7** | Uỷ quyền tạm thời | |
 | **8** | Cách ly module kho (§7): 13 endpoint áp phạm vi, 8 endpoint chuyển sang chế độ thu hẹp, thêm vế khoa vào `_kho_condition` | |
@@ -596,8 +596,8 @@ không bao giờ đỏ là một test không kiểm gì cả.
 
 | Màn | Ai dùng | Nội dung |
 |---|---|---|
-| `/de-nghi` | Nhân viên khoa | Danh sách phiếu của khoa mình, theo trạng thái |
-| `/de-nghi/:ma` | Cả hai | Hai cột **SL đề nghị / SL duyệt**; dòng bị cắt về 0 gạch ngang; dòng quản lý thêm có nhãn |
+| `/de-xuat` | Nhân viên khoa | Danh sách phiếu của khoa mình, theo trạng thái |
+| `/de-xuat/:ma` | Cả hai | Hai cột **SL đề xuất / SL duyệt**; dòng bị cắt về 0 gạch ngang; dòng quản lý thêm có nhãn |
 | `/duyet` | Quản lý + người được uỷ quyền | Lọc theo khoa, ô tìm theo vật tư, badge số phiếu chờ |
 | `/thanh-vien` | Quản lý | Gán khoa, bật/tắt thành viên, lập uỷ quyền. **Không tạo được tài khoản** (QĐ-KP-8) |
 
@@ -606,7 +606,7 @@ không bao giờ đỏ là một test không kiểm gì cả.
 - `Cart.vue` — nút cuối theo vai trò: nhân viên khoa thấy **"Gửi duyệt"**, quản
   lý thấy **"Đặt hàng"** như cũ. Hiện sẵn mã sẽ sinh trước khi bấm.
 - `Orders.vue` / `OrderDetail.vue` — thêm cột **Khoa phòng** và dòng
-  **"Từ đề nghị …"** trỏ ngược về phiếu gốc.
+  **"Từ đề xuất …"** trỏ ngược về phiếu gốc.
 - `KhoaPhongList.vue` — chuyển từ `/kho/khoa-phong` sang `/khoa-phong`, giữ
   chuyển hướng cho đường cũ. Bệnh viện chưa mở kho vẫn phải khai được khoa phòng.
 - Menu bên — hiện theo vai trò; nhân viên khoa không thấy mục Duyệt, mục Thành
@@ -621,7 +621,7 @@ không bao giờ đỏ là một test không kiểm gì cả.
    tài khoản trên hệ thống Miyano.
 3. **Không dựng kho riêng cho từng khoa.** Sổ cái không có chiều khoa phòng và
    sẽ không thêm — xem §7.1.
-4. **Không đổi tên 102 đơn `SAL-ORD-*` cũ.** Mã dễ đọc nằm trên phiếu đề nghị;
+4. **Không đổi tên 102 đơn `SAL-ORD-*` cũ.** Mã dễ đọc nằm trên phiếu đề xuất;
    đơn hàng chỉ chép lại vào `custom_ma_tra_cuu`.
 5. **Không dựng cơ chế thông báo thứ hai.** Dùng lại khuôn `Notification Log`.
 6. **Không giữ `Contact` làm căn cứ phân quyền song song với `Portal Member`.**
@@ -636,4 +636,4 @@ không bao giờ đỏ là một test không kiểm gì cả.
 | 2 | Mã bệnh viện (`BM`, `HM`…) do ai đặt và đặt theo quy tắc gì? | 2 |
 | 3 | Nhân viên khoa có được xem **hoá đơn và công nợ** của khoa mình không, hay công nợ là việc của quản lý? | 4 |
 | 4 | Đơn đã duyệt mà khoa muốn đổi số lượng (đã có `portal_order_sua_so_luong`) — khoa tự sửa được hay phải qua quản lý lần nữa? | 4 |
-| 5 | Người của khoa nghỉ việc: đề nghị và đơn của họ chuyển cho ai đứng tên? | 3 |
+| 5 | Người của khoa nghỉ việc: đề xuất và đơn của họ chuyển cho ai đứng tên? | 3 |
