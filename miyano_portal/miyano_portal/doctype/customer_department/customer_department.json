@@ -7,11 +7,12 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "kho", "ten_khoa_phong", "active", "col_1", "ma_khoa",
+  "customer", "kho", "ten_khoa_phong", "active", "col_1", "ma_khoa",
   "sec_1", "ghi_chu"
  ],
  "fields": [
-  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
+  {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "search_index": 1},
+  {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "search_index": 1, "description": "Tuỳ chọn — khoa phòng thuộc về bệnh viện, không thuộc về kho"},
   {"fieldname": "ten_khoa_phong", "fieldtype": "Data", "label": "Tên khoa phòng", "reqd": 1, "in_list_view": 1},
   {"fieldname": "active", "fieldtype": "Check", "label": "Hoạt động", "default": "1"},
   {"fieldname": "col_1", "fieldtype": "Column Break"},
