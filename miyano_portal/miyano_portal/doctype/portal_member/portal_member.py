@@ -22,7 +22,17 @@ class PortalMember(Document):
 		self._chan_thieu_ma_ngan()
 
 	def _chan_vai_tro_va_khoa_phong(self):
-		if self.vai_tro == NHAN_VIEN_KHOA and not self.khoa_phong:
+		"""VÒNG SỬA 2 (F5, phán quyết coordinator 18/08/2026): `khoa_phong`
+		CHỈ bắt buộc khi `active=1`. Chủ đầu tư mô tả luồng thật là "nhân
+		viên có tài khoản và ĐƯỢC GÁN KHOA BỞI QUẢN LÝ, nhưng tài khoản sẽ
+		được tạo ở phía Miyano" — tức tài khoản tồn tại TRƯỚC khi có khoa
+		phòng. Một bản ghi `Nhân viên khoa` chưa kích hoạt (`active=0`) là
+		CHỖ GIỮ CHỖ đang chờ quản lý gán khoa, không phải một bản ghi lỗi —
+		bắt nó phải có `khoa_phong` ngay lúc tạo sẽ chặn đúng luồng cấp
+		tài khoản trước/gán khoa sau mà chủ đầu tư yêu cầu (xem
+		`portal_provision` trong `api/portal.py`). Vế còn lại GIỮ NGUYÊN:
+		`Quản lý` không bao giờ được gắn khoa phòng, dù active hay không."""
+		if self.vai_tro == NHAN_VIEN_KHOA and self.active and not self.khoa_phong:
 			frappe.throw(
 				"Nhân viên khoa phải được gán một khoa phòng.", frappe.ValidationError
 			)
@@ -82,8 +92,16 @@ class PortalMember(Document):
 	def _chan_thieu_ma_ngan(self):
 		"""Mã ngắn của bệnh viện đi vào tên phiếu Đề nghị mua. Kiểm ĐÚNG LÚC
 		bật tính năng khoa phòng cho một bệnh viện — để tới lúc nhân viên bấm
-		gửi mới báo thiếu là bắt họ soạn xong rồi mới nhận một lỗi khó hiểu."""
-		if self.vai_tro != NHAN_VIEN_KHOA:
+		gửi mới báo thiếu là bắt họ soạn xong rồi mới nhận một lỗi khó hiểu.
+
+		Cùng lý do nới ở `_chan_vai_tro_va_khoa_phong` (vòng sửa 2): một bản
+		ghi `active=0` là chỗ giữ chỗ CHƯA kích hoạt tính năng khoa phòng cho
+		ai cả, nên chưa cần đòi Mã ngắn — đòi ngay lúc `portal_provision` cấp
+		tài khoản đặt chỗ sẽ chặn nhầm một luồng hợp lệ (cấp tài khoản khi
+		bệnh viện đó còn chưa có Mã ngắn). Kiểm vẫn chạy đúng lúc kích hoạt
+		thật (`active=1`), tức lúc tính năng khoa phòng THỰC SỰ bật cho
+		người này."""
+		if self.vai_tro != NHAN_VIEN_KHOA or not self.active:
 			return
 		if not frappe.db.get_value("Customer", self.customer, "custom_ma_ngan"):
 			frappe.throw(

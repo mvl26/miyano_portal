@@ -1157,7 +1157,50 @@ def portal_provision(customer, email, send_invite=False) -> dict:
             "doctype": "User Permission", "user": email,
             "allow": "Customer", "for_value": customer,
         }).insert(ignore_permissions=True)
-    return {"user": email}
+    # Từ 18/08/2026 `portal_context.get_allowed_customers()` chỉ đọc `Portal
+    # Member`, không còn đọc `Contact`/`Dynamic Link` nữa — thiếu bước này,
+    # tài khoản vừa cấp sẽ VÔ HÌNH với toàn bộ tầng phân quyền cổng ngay khi
+    # hàm này trả về (Task 5, phát hiện qua test_provision.py đỏ). Đi qua
+    # `doc.insert()` để `PortalMember.validate()` chạy, KHÔNG dùng
+    # `frappe.db.set_value()`/`doc.db_set()` — xem giới hạn đã biết của
+    # `_chan_hai_quan_ly` trong portal_member.py.
+    #
+    # VÒNG SỬA 2 (F5, phán quyết coordinator): chủ đầu tư mô tả luồng thật
+    # là "nhân viên có tài khoản và ĐƯỢC GÁN KHOA BỞI QUẢN LÝ, nhưng tài
+    # khoản sẽ được tạo ở phía Miyano" — tài khoản có TRƯỚC khoa phòng.
+    # Tài khoản ĐẦU TIÊN của một bệnh viện luôn là Quản lý, kích hoạt ngay
+    # (không có quản lý nào khác để chọi `_chan_hai_quan_ly`). Tài khoản
+    # SAU ĐÓ — bệnh viện đã có quản lý đang hoạt động — không thể tự nó là
+    # quản lý thứ hai, nên tạo dạng Nhân viên khoa CHƯA gán khoa (`active=0`
+    # — chỗ giữ chỗ hợp lệ nhờ `_chan_vai_tro_va_khoa_phong`/
+    # `_chan_thieu_ma_ngan` vừa nới ở vòng sửa này) và CHỜ quản lý gán khoa
+    # + bật lại. Đây KHÔNG còn cùng hình với ca "hai tài khoản" của patch
+    # backfill (`v1_23/backfill_portal_member.py`, vẫn tạo Quản lý+active=0
+    # vì backfill không có nghiệp vụ "quản lý gán khoa sau" đứng sau nó) —
+    # hai đường cố ý khác hình nhau, không phải một sai lệch cần hợp nhất.
+    if frappe.db.exists("Portal Member", {"user": email}):
+        cho_gan_khoa = frappe.db.get_value("Portal Member", {"user": email}, "active") == 0
+    else:
+        da_co_quan_ly = frappe.db.exists(
+            "Portal Member", {"customer": customer, "vai_tro": "Quản lý", "active": 1}
+        )
+        if da_co_quan_ly:
+            frappe.get_doc({
+                "doctype": "Portal Member", "user": email, "customer": customer,
+                "vai_tro": "Nhân viên khoa", "active": 0,
+            }).insert(ignore_permissions=True)
+            cho_gan_khoa = True
+        else:
+            frappe.get_doc({
+                "doctype": "Portal Member", "user": email, "customer": customer,
+                "vai_tro": "Quản lý", "active": 1,
+            }).insert(ignore_permissions=True)
+            cho_gan_khoa = False
+    # `cho_gan_khoa`: True nghĩa là tài khoản vừa cấp CHƯA dùng được — quản
+    # lý bệnh viện phải vào gán khoa phòng rồi bật `active` mới xong. Trả
+    # cờ này ra để người gọi (giao diện cấp tài khoản phía Miyano) biết còn
+    # một bước nữa, không để tài khoản "cấp xong nhưng chết lặng lẽ".
+    return {"user": email, "cho_gan_khoa": cho_gan_khoa}
 
 
 @frappe.whitelist()
