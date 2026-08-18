@@ -61,7 +61,7 @@ Ngoài ra: **hai lỗi** ở §2b, và **QĐ-HM-5** (mới) cần chốt.
 
 ---
 
-## 2b. Hai lỗi ĐANG CHẠY trên cổng khách (phát hiện khi rà YC-1)
+## 2b. Ba lỗi ĐANG CHẠY (phát hiện khi rà YC-1)
 
 Không phải bẫy tương lai — đã tái hiện bằng cách gọi thẳng
 `portal_order_track` **dưới đúng tài khoản của khách**, trên dữ liệu đang có:
@@ -89,16 +89,55 @@ của nó mang `qty` **âm** → phần trăm âm. Khách thấy "Đợt 4, −1
 qua. `MAT-DN-2026-00022` đang là nháp mà vẫn hiện thành "Đợt 2" trên màn hình
 Bạch Mai. Lỗi này **không giới hạn ở phiếu trả**: bất kỳ phiếu giao nháp nào
 của đơn cũng hiện ra như một đợt đã giao. Không ai chọn hành vi này — không có
-dòng nào trong `30_API_Spec` §1.2 hay trong test nào khẳng định nó (mọi
-Delivery Note trong `test_e3_giao_dien.py` đều đã `submit()`).
+dòng nào trong `30_API_Spec` §1.2 khẳng định nó, và **không test nào** khẳng
+định nó: mọi Delivery Note trong `test_e3_giao_dien.py`, `test_e7_hddt_nhap.py`
+và `test_e9_kiem_hang.py` đều đã `submit()` trước khi gọi `portal_order_track`.
+Chỗ duy nhất dùng phiếu nháp (`test_e9_kiem_hang.py:286`) khẳng định **ngược
+lại**: phiếu giao còn nháp thì khách **không kiểm hàng được**.
+
+**Lỗi 3 — SỐ ĐỢT SAI, và đã ghi xuống cơ sở dữ liệu.** Nặng hơn hai lỗi trên vì
+nó không chỉ hiển thị sai: `delivery_hook._so_dot()` đếm
+`len(danh_sach)` trên **mọi** Delivery Note `docstatus = 1` của đơn, **không
+loại `is_return`** — rồi ghi con số đó vào `Customer Stock Receipt.so_dot`,
+là phiếu nhập kho mà khách in và ký. Theo chính docstring của hàm, `so_dot` là
+**ảnh chụp, không tính lại** → số sai nằm lại vĩnh viễn.
+
+Đã đo trên dữ liệu đang có:
+
+```
+SAL-ORD-2026-00132 → phiếu nhập mang so_dot = 1, 2, 3, 5   (KHÔNG có đợt 4)
+   vì MAT-DN-2026-00034 (trả hàng, đã ghi sổ) chiếm mất số 4
+SAL-ORD-2026-00128 → phiếu nhập mang so_dot = 1, 3         (KHÔNG có đợt 2)
+   vì MAT-DN-2026-00028 (trả hàng, đã ghi sổ) chiếm mất số 2
+```
+
+**Quy ước đúng đã có sẵn trong chính app này:** `portal_hen_giao._da_giao_sau()`
+lọc `dn.docstatus = 1 and ifnull(dn.is_return, 0) = 0`, kèm chú thích giải
+thích đúng lý do. `_so_dot()` chỉ thiếu vế thứ hai. Sửa là **chép quy ước đã
+có**, không phải phát minh quy ước mới.
 
 **Vì sao phải xử trước YC-1:** YC-1 gắn "người nhận thực tế + thời điểm nhận"
 vào **từng đợt**. Xây trên một danh sách đợt đang lẫn phiếu trả và phiếu nháp
 thì sẽ có ô "người nhận hàng" nằm trên một phiếu trả hàng.
 
-**Sửa:** cùng MỘT chỗ — bộ lọc `dn_names` — vì `deliveries` và `dot_giao` dựng
-từ chung một vòng lặp. Lỗi 2 sửa dứt điểm (`docstatus = 1`). Lỗi 1 cần chốt
-QĐ-HM-5.
+**Sửa ở HAI chỗ** (đã grep toàn bộ `against_sales_order` trong app để chắc
+không còn chỗ thứ ba):
+
+| Chỗ | Lỗi | Ghi chú |
+|---|---|---|
+| `api/portal.py:1257` — bộ lọc `dn_names` | 1 + 2 | `deliveries` và `dot_giao` dựng từ chung một vòng lặp nên một sửa đổi chữa cả hai key |
+| `kho/delivery_hook.py:369` — truy vấn trong `_so_dot()` | 3 | Chỉ thêm vế `is_return`; `docstatus = 1` đã đúng sẵn |
+
+**Lỗi 2 và 3 sửa dứt điểm, KHÔNG cần ai quyết** — không có cách đọc nào khiến
+một phiếu nháp hay một phiếu trả hàng là "đợt giao". **Chỉ lỗi 1 cần
+QĐ-HM-5**, vì nó là câu hỏi "khách có nên nhìn thấy phiếu trả hàng ở đâu đó
+không". Đừng gói cả ba sau một câu hỏi sản phẩm.
+
+**Còn một việc riêng:** lỗi 3 đã ghi số sai vào các phiếu nhập đang tồn tại.
+Sửa code không chữa dữ liệu cũ. Cần chốt riêng: viết patch tính lại `so_dot`,
+hay để nguyên và ghi chú? (Docstring nói rõ `so_dot` vốn đã không tự tính lại
+khi một phiếu giữa chừng bị huỷ — tức là dữ liệu cũ vốn đã có sai số biết
+trước.)
 
 ---
 
@@ -382,7 +421,8 @@ danh mục đó là sinh ra đúng thứ hỗn loạn mà YC-2 tồn tại để
 
 | Bước | Nội dung | Phụ thuộc | Ghi chú |
 |---|---|---|---|
-| **0** | **Sửa hai lỗi §2b** (loại phiếu nháp; xử lý phiếu trả hàng) | QĐ-HM-5 (chỉ cho lỗi 1) | **Việc sửa lỗi, không phải tính năng mới.** Một bộ lọc, hai key `deliveries`/`dot_giao` cùng khỏi. Chặn YC-1 |
+| **0a** | **Sửa lỗi 2 + 3 ở §2b** (phiếu nháp lọt ra cổng; số đợt đếm cả phiếu trả) | **không chặn gì — làm được ngay** | **Việc sửa lỗi, không phải tính năng mới.** Hai vế `WHERE`, chép quy ước đã có ở `_da_giao_sau()`. Lỗi 3 ghi số sai xuống DB |
+| **0b** | **Sửa lỗi 1** (phiếu trả hàng hiện thành đợt giao, %% âm) | QĐ-HM-5 | Chặn YC-1 |
 | 1 | YC-3 (nhóm + NCC): rà `Item Group`, **lập danh mục `Supplier`**, nhập `Item Supplier`, 1 báo cáo | cần người Miyano chốt cây nhóm | Rẻ nhất về code, nhưng **nặng về dữ liệu** — `Supplier` đang 0 bản ghi. YC-2 phụ thuộc kết quả rà nhóm |
 | 2 | YC-1 (người nhận thực tế + thời điểm nhận theo đợt) | **bước 0**, QĐ-HM-4 | Giá trị thấy ngay: 25% đơn có phiếu giao là giao nhiều đợt (6/24, nhiều nhất 5 đợt) |
 | 3 | YC-4 (báo giao thiếu chủ động + SL còn thiếu) | — | Dùng lại cơ chế hẹn giao đã có. Phần "gửi cho mọi user" **đã xong sẵn** |
