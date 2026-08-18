@@ -1138,6 +1138,21 @@ def portal_provision(customer, email, send_invite=False) -> dict:
 
     if not frappe.db.exists("Customer", customer):
         frappe.throw("Không tìm thấy khách hàng.")
+    # VÒNG SỬA 3 (F5, review độc lập, Important): chặn SỚM, TRƯỚC mọi side
+    # effect (User/Contact/User Permission). Bản trước không kiểm điều này
+    # — nếu `email` đã có `Portal Member` thuộc một khách hàng KHÁC,
+    # hàm vẫn âm thầm tạo Contact + Dynamic Link + User Permission cho
+    # `customer` mới rồi trả về như cấp thành công, trong khi danh tính
+    # cổng (Portal Member) của user đó vẫn trỏ về khách hàng CŨ — tài khoản
+    # sẽ không bao giờ nhìn thấy `customer` mới, và người cấp không thấy gì
+    # bất thường để biết mà sửa.
+    khach_hien_co = frappe.db.get_value("Portal Member", {"user": email}, "customer")
+    if khach_hien_co and khach_hien_co != customer:
+        frappe.throw(
+            f'Tài khoản "{email}" đã thuộc khách hàng "{khach_hien_co}", không thể '
+            f'cấp thêm cho "{customer}". Một tài khoản chỉ thuộc một khách hàng.',
+            frappe.ValidationError,
+        )
     if not frappe.db.exists("User", email):
         u = frappe.get_doc({
             "doctype": "User", "email": email, "first_name": customer,

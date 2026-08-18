@@ -281,6 +281,25 @@ class TestPhamViTheoVaiTro(_NenThanhVien):
 		frappe.db.set_value("Portal Member", tv.name, "active", 0)
 		self.assertEqual(portal_context.get_allowed_customers(tv.user), [])
 
+	def test_nhan_vien_khoa_active_thieu_khoa_phong_fail_closed(self):
+		"""VÒNG SỬA 3 (F5, review độc lập, Important): `khoa_phong` rỗng ở
+		`active=1` không đi qua được validate() bình thường
+		(_chan_vai_tro_va_khoa_phong chặn) — chỉ tới được đây bằng đúng lỗ
+		đã biết (`db_set()` đi vòng qua validate(), xem `_chan_hai_quan_ly`/
+		`TestPortalMemberGioiHanDaBiet` ở trên). `pham_vi_don()` phải FAIL-
+		CLOSED (ném PermissionError), không được trả một bộ lọc trông hợp lệ
+		nhưng vô nghĩa (`{"custom_khoa_phong": None}`) — chỗ ĐỌC phải tự vệ
+		vì chỗ GHI có giới hạn đã biết không tự vệ được."""
+		self._tv("zztest.ql11@demo.miyano")
+		tv = self._tv(
+			"zztest.nv5@demo.miyano", vai_tro="Nhân viên khoa",
+			khoa_phong=self.kp_bm.name,
+		)
+		tv.db_set("khoa_phong", None)
+		with self.assertRaises(frappe.PermissionError) as cm:
+			portal_context.pham_vi_don(tv.user)
+		self.assertIn("chưa được gán khoa phòng", str(cm.exception))
+
 
 class TestTuongThichNguoc(FrappeTestCase):
 	def test_sau_patch_moi_tai_khoan_cong_cu_deu_la_quan_ly(self):

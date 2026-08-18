@@ -94,14 +94,18 @@ class PortalMember(Document):
 		bật tính năng khoa phòng cho một bệnh viện — để tới lúc nhân viên bấm
 		gửi mới báo thiếu là bắt họ soạn xong rồi mới nhận một lỗi khó hiểu.
 
-		Cùng lý do nới ở `_chan_vai_tro_va_khoa_phong` (vòng sửa 2): một bản
-		ghi `active=0` là chỗ giữ chỗ CHƯA kích hoạt tính năng khoa phòng cho
-		ai cả, nên chưa cần đòi Mã ngắn — đòi ngay lúc `portal_provision` cấp
-		tài khoản đặt chỗ sẽ chặn nhầm một luồng hợp lệ (cấp tài khoản khi
-		bệnh viện đó còn chưa có Mã ngắn). Kiểm vẫn chạy đúng lúc kích hoạt
-		thật (`active=1`), tức lúc tính năng khoa phòng THỰC SỰ bật cho
-		người này."""
-		if self.vai_tro != NHAN_VIEN_KHOA or not self.active:
+		VÒNG SỬA 3 (F5, review độc lập): KHÔNG nới theo `active` như
+		`_chan_vai_tro_va_khoa_phong` — hai guard này khác bản chất.
+		`khoa_phong` là dữ liệu CỦA BỆNH VIỆN, Miyano không biết lúc cấp tài
+		khoản nên nới hợp lý. `custom_ma_ngan` là dữ liệu CỦA MIYANO trên
+		`Customer`, người đang ngồi cấp tài khoản ĐẶT ĐƯỢC ngay lúc đó — nới
+		guard này chỉ dời lỗi từ người sửa được (Miyano, lúc cấp) sang người
+		không sửa được (quản lý bệnh viện, lúc bấm kích hoạt — nhận "chưa có
+		Mã ngắn" mà không tự xử lý được, phải gọi điện cho Miyano). Guard này
+		GIỮ NGUYÊN không điều kiện theo `active`: bất kỳ ai tạo một `Nhân
+		viên khoa` (kể cả `portal_provision` cấp tài khoản chờ gán khoa) đều
+		phải đặt Mã ngắn cho khách hàng trước, nếu chưa có."""
+		if self.vai_tro != NHAN_VIEN_KHOA:
 			return
 		if not frappe.db.get_value("Customer", self.customer, "custom_ma_ngan"):
 			frappe.throw(

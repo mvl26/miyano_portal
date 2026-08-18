@@ -190,6 +190,35 @@ def _ensure_contact(cust, email):
     return contact_name
 
 
+def _ensure_portal_member(cust, email):
+    """Bản ghi `Portal Member` cho tài khoản cổng demo.
+
+    VÒNG SỬA 3 (F5, review độc lập, Critical): trước bản sửa này,
+    `_ensure_portal_user` dừng lại ở `User`/`Contact`/`User Permission`,
+    không tạo `Portal Member` — trong khi `demo_kho_flow.py::_ensure_portal_user`
+    lại đi qua `portal_provision` (từ vòng sửa 2, giờ CÓ tạo `Portal
+    Member`). Hai đường gieo dữ liệu demo khác nhau là đúng hình hai-nguồn-
+    sự-thật mà cả Task 5 tồn tại để dẹp: trên site MỚI (DB rỗng, ví dụ CI),
+    patch backfill chèn 0 dòng vì chưa có `Contact` nào để đọc, rồi
+    `seed_demo()` sinh ra các tài khoản cổng KHÔNG có `Portal Member` —
+    danh tính chết ngay từ lúc seed, không phải lỗi test.
+
+    Không gọi thẳng `portal_provision` ở đây (khác với `demo_kho_flow.py`)
+    vì nó còn tạo `Contact` theo tên khác (`{customer}-{email}` thay vì
+    `{cust}-portal` mà `_ensure_contact` dùng) — giữ nguyên các hàm `_ensure_*`
+    hiện có, chỉ thêm đúng phần còn thiếu: `Portal Member`. Luôn tạo dạng
+    `Quản lý`/`active=1` — mỗi khách demo trong `CUSTOMERS` chỉ có đúng một
+    tài khoản cổng nên không có ai để `_chan_hai_quan_ly` chặn. Đi qua
+    `doc.insert()`, không `db_set`/`frappe.db.set_value()` (giới hạn đã biết
+    của `_chan_hai_quan_ly`, xem `portal_member.py`)."""
+    if frappe.db.exists("Portal Member", {"user": email}):
+        return
+    frappe.get_doc({
+        "doctype": "Portal Member", "user": email, "customer": cust,
+        "vai_tro": "Quản lý", "active": 1,
+    }).insert(ignore_permissions=True)
+
+
 def _ensure_user_permission(email, cust):
     if not frappe.db.exists(
         "User Permission", {"user": email, "allow": "Customer", "for_value": cust}
@@ -286,6 +315,7 @@ def seed_demo() -> dict:
         users.append(_ensure_portal_user(cust, c["email"]))
         _ensure_contact(cust, c["email"])
         _ensure_user_permission(c["email"], cust)
+        _ensure_portal_member(cust, c["email"])
 
     # Blanket Order + Party Specific Item restriction for the first demo customer.
     bo_customer = CUSTOMERS[0]["name"]

@@ -61,10 +61,25 @@ def pham_vi_don(user: str | None = None) -> dict:
     (`get_allowed_customers`/`get_portal_customer`) ở chỗ gọi — hàm này CHỈ
     trả lời câu hỏi "trong nội bộ một khách hàng, còn giới hạn thêm theo
     khoa phòng nào không", không tự nó giới hạn khách hàng.
-    """
+
+    VÒNG SỬA 3 (F5, review độc lập, Important): FAIL-CLOSED khi một `Nhân
+    viên khoa` `active=1` mà `khoa_phong` rỗng — ném `PermissionError` thay
+    vì trả `{"custom_khoa_phong": None}`. Bản trước trả một BỘ LỌC nhìn như
+    hợp lệ nhưng vô nghĩa: tuỳ cách chỗ gọi ghép điều kiện, `None` hoặc lọt
+    TOÀN BỘ đơn CHƯA gắn khoa của khách hàng đó (tức toàn bộ lịch sử đơn có
+    TRƯỚC khi đề án này tồn tại — âm thầm mở toang) hoặc khớp không ai (một
+    dạng "chết lặng lẽ" khác). `khoa_phong` rỗng ở `active=1` không nên xảy
+    ra qua `PortalMember.validate()` (được `_chan_vai_tro_va_khoa_phong`
+    canh) — nhưng validate() có GIỚI HẠN ĐÃ BIẾT bị đi vòng qua
+    `frappe.db.set_value()`/`doc.db_set()` (xem `_chan_hai_quan_ly` trong
+    `portal_member.py`), nên chỗ ĐỌC này phải tự vệ, không được tin việc
+    ghi luôn đúng."""
     if la_quan_ly(user):
         return {}
-    return {"custom_khoa_phong": get_portal_member(user).khoa_phong}
+    khoa_phong = get_portal_member(user).khoa_phong
+    if not khoa_phong:
+        raise frappe.PermissionError("Tài khoản chưa được gán khoa phòng.")
+    return {"custom_khoa_phong": khoa_phong}
 
 
 def get_portal_customer(user: str | None = None) -> str:
