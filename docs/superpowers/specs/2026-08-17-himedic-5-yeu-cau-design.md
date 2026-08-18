@@ -61,7 +61,14 @@ Ngoài ra: **hai lỗi** ở §2b, và **QĐ-HM-5** (mới) cần chốt.
 
 ---
 
-## 2b. Ba lỗi ĐANG CHẠY (phát hiện khi rà YC-1)
+## 2b. Ba lỗi ĐANG CHẠY (phát hiện khi rà YC-1) — ĐÃ SỬA 18/08/2026
+
+> **Cập nhật 18/08:** cả ba đã sửa (commit `678775e`), 3 test viết trước chạy
+> đỏ đúng lý do rồi mới sửa. Lỗi 1 làm theo **QĐ-HM-5 phương án (A)** — ẩn phiếu
+> trả khỏi danh sách đợt — vì không tách được khỏi lỗi 3: sửa cách đánh số mà để
+> nguyên hiển thị thì số trên màn hình và số trên phiếu nhập sẽ nói khác nhau.
+> Muốn đổi sang (B) sau này thì đó là việc sửa hiển thị, không phải sửa dữ liệu.
+> Phần dưới giữ nguyên để còn đọc lại được lỗi là gì và đo thế nào.
 
 Không phải bẫy tương lai — đã tái hiện bằng cách gọi thẳng
 `portal_order_track` **dưới đúng tài khoản của khách**, trên dữ liệu đang có:

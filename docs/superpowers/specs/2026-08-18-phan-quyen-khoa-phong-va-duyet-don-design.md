@@ -509,7 +509,7 @@ rồi **bật cho từng bệnh viện một** — Hi-medic trước. Không có
 
 | Bước | Nội dung | Người dùng thấy gì |
 |---|---|---|
-| **0** | Sửa 3 lỗi đã phát hiện 18/08 (phiếu trả hàng thành đợt giao / phiếu nháp lọt ra cổng / `so_dot` sai) | Hết đợt giao âm phần trăm |
+| **0** | ~~Sửa 3 lỗi đã phát hiện 18/08~~ — **XONG** (commit `678775e`, TDD, suite xanh) | Hết đợt giao âm phần trăm |
 | **1** | Tách lõi đặt hàng ra `dat_hang.py` | **Không gì cả** — suite phải xanh, **không sửa một test nào** |
 | **2** | Khoa phòng chuyển từ kho lên bệnh viện; siết `ma_khoa`; thêm `Customer.custom_ma_ngan` | Màn khoa phòng ra khỏi mục Kho |
 | **3** | `Portal Member` + viết lại `portal_context` + **chuyển `_portal_users_cua_khach()` và `portal_provision()` sang `Portal Member`** (§4.2) + patch 6 tài khoản + test đếm ngược | **Không gì cả** |
