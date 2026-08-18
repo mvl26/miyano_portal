@@ -352,6 +352,15 @@ def _so_dot_cua(dn) -> int | None:
 	tâm DN nào đứng đâu trong danh sách, chỉ đếm đã có bao nhiêu DN docstatus
 	=1 tính đến thời điểm hook đang chạy.
 
+	SỬA (18/08/2026): thêm vế `is_return = 0`. Bản trước đếm cả phiếu TRẢ
+	HÀNG — `make_return_doc` chép nguyên `against_sales_order` sang phiếu trả
+	nên nó lọt vào `danh_sach` và chiếm mất một số đợt. Đo được trên
+	`erptest.local`: SAL-ORD-2026-00132 có phiếu nhập mang `so_dot` = 1, 2, 3,
+	**5** (không có đợt 4); SAL-ORD-2026-00128 có 1, **3** (không có đợt 2).
+	Nặng hơn một lỗi hiển thị vì con số này GHI XUỐNG DB, trên phiếu nhập kho
+	khách in và ký — và theo đúng đoạn ngay dưới đây, nó không bao giờ được
+	tính lại. Quy ước lấy nguyên từ `portal_hen_giao._da_giao_sau()`.
+
 	CŨNG LƯU Ý: so_dot là ẢNH CHỤP tại thời điểm tạo phiếu, không tính lại
 	khi một DN giữa chừng bị huỷ — huỷ DN2 của ba DN không kéo so_dot=3 của
 	DN3 xuống 2. Đây là hạn chế đã biết, ngoài phạm vi phần A này.
@@ -370,7 +379,9 @@ def _so_dot_cua(dn) -> int | None:
 		"""select dni.parent
 		   from `tabDelivery Note Item` dni
 		   join `tabDelivery Note` dn on dn.name = dni.parent
-		   where dni.against_sales_order = %s and dn.docstatus = 1
+		   where dni.against_sales_order = %s
+		     and dn.docstatus = 1
+		     and ifnull(dn.is_return, 0) = 0
 		   group by dni.parent""",
 		so,
 		as_dict=False,

@@ -1251,14 +1251,37 @@ def portal_order_track(order) -> dict:
     # SO was already permission-checked above, so its own DNs are in scope.
     # order_by=creation: so "Đợt n" (array index, see OrderDetail.vue) reads
     # in the order the DNs actually happened, not arbitrary row order.
+    #
+    # `docstatus = 1` và `is_return = 0` — hai vế BẮT BUỘC, và bản trước
+    # thiếu CẢ HAI (lỗi đo được 18/08/2026, xem
+    # `docs/superpowers/specs/2026-08-17-himedic-5-yeu-cau-design.md` §2b):
+    #
+    #   * `docstatus < 2` cho phiếu NHÁP đi qua → khách thấy một phiếu chưa
+    #     ghi sổ như một đợt ĐÃ giao (đo thật: MAT-DN-2026-00022 còn nháp vẫn
+    #     hiện thành "Đợt 2" trên màn Bạch Mai).
+    #   * `make_return_doc` chép nguyên `against_sales_order` sang phiếu TRẢ
+    #     HÀNG, và dòng hàng của nó mang `qty` ÂM → phiếu trả hiện thành một
+    #     đợt giao với phần trăm âm (đo thật: "Đợt 4: -10.0%").
+    #
+    # Đây là CÙNG quy ước `portal_hen_giao._da_giao_sau()` đã dùng từ trước,
+    # không phải một luật mới. Cờ `is_return` nằm trên chứng từ CHA nên phải
+    # nối bảng — không có lối lọc nào bằng `frappe.get_all` trên riêng bảng
+    # con, đúng lý do `_da_giao_sau` cũng viết SQL tay.
     total_qty = sum(float(i.qty or 0) for i in so.items) or 0
-    dn_names = frappe.get_all(
-        "Delivery Note Item",
-        filters={"against_sales_order": so.name, "docstatus": ["<", 2]},
-        pluck="parent",
-        order_by="creation asc",
-    )
-    dn_names = list(dict.fromkeys(dn_names))
+    dn_names = [
+        r[0]
+        for r in frappe.db.sql(
+            """select dni.parent
+               from `tabDelivery Note Item` dni
+               inner join `tabDelivery Note` dn on dn.name = dni.parent
+               where dni.against_sales_order = %s
+                 and dn.docstatus = 1
+                 and ifnull(dn.is_return, 0) = 0
+               group by dni.parent
+               order by min(dni.creation) asc""",
+            (so.name,),
+        )
+    ]
 
     # E7b — cờ "đợt giao này đã có hoá đơn nháp", MỘT truy vấn cho cả danh
     # sách (không hỏi từng phiếu trong vòng lặp bên dưới). Chỉ là CỜ; nội

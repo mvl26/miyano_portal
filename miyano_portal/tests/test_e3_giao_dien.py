@@ -599,3 +599,94 @@ class TestE3DeskReportPermissions(_KhoDnTestCase):
 			result = frappe.desk.query_report.run(name, filters={})
 			self.assertIn("result", result, msg=f"report: {name}")
 			self.assertIsInstance(result["result"], list, msg=f"report: {name}")
+
+
+# ==================================================== Lỗi phát hiện 18/08/2026
+class TestDotGiaoLocPhieuKhongPhaiGiaoHang(_KhoDnTestCase):
+	"""Hai lỗi đo được trên `erptest.local` ngày 18/08 (xem
+	`docs/superpowers/specs/2026-08-17-himedic-5-yeu-cau-design.md` §2b), tái
+	hiện bằng cách gọi `portal_order_track` dưới đúng tài khoản khách:
+
+	    SAL-ORD-2026-00132 → "Đợt 4: MAT-DN-2026-00034  -10.0%"  (phiếu TRẢ HÀNG)
+	    SAL-ORD-2026-00056 → "Đợt 2: MAT-DN-2026-00022 -100.0%"  (trả hàng + NHÁP)
+
+	Quy ước ĐÚNG đã có sẵn trong app: `portal_hen_giao._da_giao_sau()` lọc
+	`dn.docstatus = 1 and ifnull(dn.is_return, 0) = 0` kèm chú thích lý do.
+	Hai chỗ dưới đây chỉ thiếu vế đó — sửa là chép quy ước đã có.
+	"""
+
+	def _dn_nhap(self, so, qty):
+		"""Phiếu giao còn NHÁP — cố ý không submit."""
+		dn = make_delivery_note(so.name)
+		dn.posting_date = frappe.utils.today()
+		dn.set_posting_time = 1
+		for r in dn.items:
+			r.qty = qty
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+		dn.insert(ignore_permissions=True)
+		return dn
+
+	def _dn_tra(self, dn_goc):
+		from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_return
+
+		tra = make_sales_return(dn_goc.name)
+		tra.posting_date = frappe.utils.today()
+		tra.set_posting_time = 1
+		for r in tra.items:
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+		tra.insert(ignore_permissions=True)
+		tra.submit()
+		return tra
+
+	def test_phieu_giao_con_nhap_khong_hien_tren_cong_khach(self):
+		"""Lỗi 2 — `docstatus < 2` cho cả nháp đi qua, nên một phiếu giao chưa
+		ghi sổ hiện ra với khách như một đợt ĐÃ giao."""
+		so = self._sales_order(qty=20)
+		dn_that = self._dn_tu_so(so, 12)
+		dn_nhap = self._dn_nhap(so, 8)
+		self.assertEqual(dn_nhap.docstatus, 0, "fixture phải là phiếu NHÁP")
+
+		frappe.set_user(BM_USER)
+		data = portal_api.portal_order_track(so.name)
+
+		ten_hien = [d["name"] for d in data["deliveries"]]
+		self.assertEqual(ten_hien, [dn_that.name])
+		self.assertNotIn(dn_nhap.name, ten_hien, "phiếu giao còn nháp lọt ra cổng khách")
+		self.assertEqual([d["delivery_note"] for d in data["dot_giao"]], [dn_that.name])
+
+	def test_phieu_tra_hang_khong_hien_thanh_mot_dot_giao(self):
+		"""Lỗi 1 — phiếu trả hàng mang cùng `against_sales_order` và có `qty`
+		ÂM, nên nó hiện thành một đợt giao với phần trăm âm."""
+		so = self._sales_order(qty=20)
+		dn = self._dn_tu_so(so, 20)
+		tra = self._dn_tra(dn)
+		self.assertEqual(tra.is_return, 1, "fixture phải là phiếu TRẢ HÀNG")
+		self.assertEqual(tra.docstatus, 1, "fixture phải đã ghi sổ")
+
+		frappe.set_user(BM_USER)
+		data = portal_api.portal_order_track(so.name)
+
+		self.assertEqual([d["name"] for d in data["deliveries"]], [dn.name])
+		self.assertNotIn(tra.name, [d["delivery_note"] for d in data["dot_giao"]])
+		self.assertTrue(
+			all(d["percent"] >= 0 for d in data["deliveries"]),
+			f"không đợt giao nào được mang phần trăm âm: {data['deliveries']}",
+		)
+
+	def test_phieu_tra_hang_khong_lam_lech_so_dot_ghi_xuong_phieu_nhap(self):
+		"""Lỗi 3 — `delivery_hook._so_dot()` đếm `len()` trên MỌI phiếu
+		docstatus=1 của đơn, không loại `is_return`, rồi GHI XUỐNG DB. Theo
+		docstring của chính hàm đó, `so_dot` là ảnh chụp không tính lại, nên
+		số sai nằm lại vĩnh viễn trên phiếu nhập khách in và ký."""
+		so = self._sales_order(qty=30)
+		dn1 = self._dn_tu_so(so, 10)
+		self._dn_tra(dn1)          # chiếm mất số 2 nếu không loại
+		dn2 = self._dn_tu_so(so, 10)
+
+		self.assertEqual(self._phieu_duy_nhat(dn1).so_dot, 1)
+		self.assertEqual(
+			self._phieu_duy_nhat(dn2).so_dot, 2,
+			"phiếu giao thứ HAI phải là đợt 2 — phiếu trả hàng không phải một đợt giao",
+		)
