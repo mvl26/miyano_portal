@@ -649,6 +649,38 @@ không bao giờ đỏ là một test không kiểm gì cả.
 
 ---
 
+## 11b. Nợ kỹ thuật đã biết, để lại có chủ đích (18/08/2026)
+
+Ghi ở đây thay vì trong sổ nháp vì sổ nháp sẽ mất. Ba mục, không cái nào là rò rỉ
+dữ liệu đang mở.
+
+**1. `notification_khoa_query` xử lý sai logic ba giá trị của SQL khi
+`document_type IS NULL`.** Điều kiện `document_type NOT IN (...)` trả `NULL` chứ
+không trả `TRUE` khi cột rỗng, nên cả mệnh đề thành `NULL` và dòng bị loại khỏi
+`WHERE` — trong khi ý định là "thông báo không thuộc ba doctype đơn hàng thì giữ
+hành vi cũ". Hướng lỗi là **giấu oan thông báo** (thu hẹp quá tay), không phải rò
+rỉ. Hiện chưa lỗi sống: đã grep mọi nơi tạo `Notification Log` trong app
+(`portal_thong_bao.py`, `portal_thong_bao_khach.py`, `portal_sla.py`,
+`install_notifications.py`, `install_workflow.py`) — **tất cả đều đặt
+`document_type` bằng chuỗi literal**, không luồng nào để rỗng.
+*Cách vá:* `(dtype_col is null or dtype_col not in (...) or <vế theo loại>)`.
+
+**2. Vế `Sales Invoice` của `notification_khoa_query` chưa có test chứng minh nó
+LỌC đúng** — chỉ có bằng chứng cú pháp đúng. Vế `Delivery Note` thì đã có test.
+Rủi ro thấp vì cùng dùng `_dieu_kien_khoa_qua_don_cha` với tham số y hệt
+`permissions.invoice_query()`, mà hàm đó **đã** được kiểm lọc thật qua
+`frappe.get_list("Sales Invoice", …)`. Phần chưa kiểm chỉ là lớp bọc `exists(...)`
+tương quan `document_name` — giống hệt vế `Delivery Note` đã kiểm.
+
+**3. DocShare vượt qua CẢ HAI tầng phân quyền.** `frappe/model/db_query.py` **OR**
+chuỗi share với toàn bộ `permission_query_conditions`, và `false_if_not_shared()`
+lật ngược một `has_permission` đã trả `False`. Hiện chưa có mã nào gọi `share.add`
+(đã grep, 0 kết quả), nên rủi ro là **thao tác tay**: một nhân viên Miyano bấm nút
+Share trên một Sales Order để hỗ trợ khách là thủng cách ly khoa cho đúng đơn đó.
+Kế thừa từ trục khách hàng, không phải do đề án này tạo ra.
+
+---
+
 ## 12. Câu hỏi còn mở
 
 | # | Câu hỏi | Chặn bước nào |
