@@ -769,9 +769,34 @@ class TestV1NotificationLogQuaHookKhongDuocRoRi(_NenCachLy):
 			"document_name": self.don_b,
 			"email_content": "Lý do: hàng chưa về kho Miyano.",
 		}).insert(ignore_permissions=True)
+		# Coordinator (2026-08-18, sau vòng vá đầu) — điều kiện SQL cho
+		# Delivery Note/Sales Invoice trong notification_khoa_query() chưa
+		# có luồng THẬT nào sinh ra hôm nay (bao_kiem_hang_ket_qua dùng
+		# document_type="Portal Delivery Inspection", bao_da_nhap_hang dùng
+		# "Customer Stock Receipt") — nhánh đó vì thế ĐANG ẨN, chưa có test
+		# xác nhận LỌC đúng (trước đó chỉ có bằng chứng nó PARSE đúng, gián
+		# tiếp qua việc không test nào khác trong suite ăn OperationalError).
+		# KHÔNG dựng cả một luồng nghiệp vụ giả chỉ để test — tạo THẲNG một
+		# Notification Log document_type="Delivery Note" trỏ tới phiếu giao
+		# của khoa A, đúng như coordinator chỉ định, để kiểm đúng vế SQL đó.
+		self.so_dn_a = self._don_submitted(self.kp_a.name)
+		self.dn_a = make_delivery_note(self.so_dn_a.name)
+		self.dn_a.insert(ignore_permissions=True)
+		self.log_dn_a = frappe.get_doc({
+			"doctype": "Notification Log",
+			"subject": f"Portal - Đã giao hàng: {self.dn_a.name}",
+			"for_user": self.nv_b.user,
+			"type": "Alert",
+			"document_type": "Delivery Note",
+			"document_name": self.dn_a.name,
+			"email_content": "Phiếu giao đã được lập.",
+		}).insert(ignore_permissions=True)
 
 	def tearDown(self):
-		frappe.db.delete("Notification Log", {"name": ["in", [self.log_a.name, self.log_b.name]]})
+		frappe.db.delete(
+			"Notification Log",
+			{"name": ["in", [self.log_a.name, self.log_b.name, self.log_dn_a.name]]},
+		)
 		super().tearDown()
 
 	def test_frappe_get_list_khong_tra_thong_bao_khoa_khac(self):
@@ -809,6 +834,27 @@ class TestV1NotificationLogQuaHookKhongDuocRoRi(_NenCachLy):
 			"Notification Log", "subject", filters={"name": self.log_b.name}
 		)
 		self.assertEqual(kq_minh.get("subject"), self.log_b.subject)
+
+	def test_frappe_get_list_khong_tra_thong_bao_delivery_note_khoa_khac(self):
+		"""Coordinator (2026-08-18) — kiểm ĐÚNG vế `Delivery Note` của
+		`notification_khoa_query` (quy về đơn cha qua `_dieu_kien_khoa_qua_
+		don_cha`), không chỉ vế `Sales Order` (hai test ngay trên). `dn_a`
+		(setUp) là phiếu giao của khoa A; `log_dn_a` gán `for_user=nv_b.user`
+		— đúng hình fan-out hiện tại (gửi cho mọi thành viên active của
+		khách hàng, chưa lọc khoa lúc tạo)."""
+		frappe.set_user(self.nv_b.user)
+		ten = frappe.get_list(
+			"Notification Log",
+			filters={"for_user": self.nv_b.user},
+			fields=["name", "subject", "document_name"],
+			pluck="name",
+		)
+		self.assertNotIn(
+			self.log_dn_a.name, ten,
+			"frappe.get_list phải bị vế khoa chặn cho document_type="
+			"'Delivery Note' — nhánh Delivery Note của notification_khoa_"
+			"query chưa lọc đúng.",
+		)
 
 
 class TestC3ThieuCotKhoaFailClosed(_NenCachLy):

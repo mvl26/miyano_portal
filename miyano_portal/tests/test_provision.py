@@ -61,12 +61,26 @@ class TestProvision(FrappeTestCase):
         self.assertFalse(tv.khoa_phong)
 
         # Tài khoản vừa cấp CHƯA dùng được — đúng ý định mới, không phải lỗi.
+        #
+        # SỬA (fix-wave 2026-08-18, V4, phán quyết coordinator có điều kiện):
+        # bản trước khẳng định câu thông điệp CŨ ("chưa gắn với khách hàng
+        # nào") — câu đó SAI cho đúng tình huống test này dựng: tài khoản
+        # BUYER2 đã CÓ Portal Member (ĐÃ gắn khách hàng "PXN ABC", assertion
+        # ở tv.vai_tro/tv.active/tv.khoa_phong phía trên xác nhận điều đó),
+        # chỉ chưa được kích hoạt. Ý ĐỊNH của test (tài khoản vừa cấp CHƯA
+        # dùng được — comment ngay trên) KHÔNG đổi, chỉ đổi câu chữ đúng
+        # nguyên nhân thật (xem portal_context._thong_diep_chua_thay_khach).
         frappe.set_user(BUYER2)
         self.addCleanup(frappe.set_user, "Administrator")
         from miyano_portal.portal_context import get_portal_customer
         with self.assertRaises(frappe.PermissionError) as cm:
             get_portal_customer()
-        self.assertIn("chưa gắn với khách hàng nào", str(cm.exception))
+        thong_diep = str(cm.exception)
+        self.assertIn("chưa được kích hoạt", thong_diep)
+        # Khẳng định thêm — nếu ai đó vô tình gộp lại thành một thông điệp
+        # chung cho cả hai nguyên nhân ("không có Portal Member" VÀ "có
+        # nhưng active=0"), test này phải đỏ.
+        self.assertNotIn("chưa gắn với khách hàng nào", thong_diep)
         frappe.set_user("Administrator")
 
         # Quản lý gán khoa + bật lại — đúng luồng chủ đầu tư mô tả ("nhân
