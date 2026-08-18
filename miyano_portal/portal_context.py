@@ -85,8 +85,22 @@ def pham_vi_don(user: str | None = None) -> dict:
 LOI_KHONG_THAY = "Không tìm thấy chứng từ."
 
 
-def dam_bao_xem_duoc(doctype: str, name: str) -> None:
+def dam_bao_xem_duoc(
+    doctype: str, name: str, user: str | None = None, pham_vi: dict | None = None
+) -> None:
     """Chặn ở mọi endpoint ĐỌC MỘT chứng từ theo phạm vi khoa phòng (bước 8).
+
+    `user` — VÒNG SỬA 1 (C2, review độc lập): các hook `has_permission` ở
+    `permissions.py` nhận một `user` TƯỜNG MINH từ framework (có thể khác
+    `frappe.session.user`, xem `_has_customer_permission` đã làm y hệt cho
+    lớp khách hàng) — hàm này giờ xuyên đúng `user` đó xuống `pham_vi_don()`
+    thay vì luôn đọc phiên hiện tại, để MỘT nguồn logic phục vụ được CẢ tầng
+    endpoint (`api/portal.py`, luôn gọi mặc định `user=None` = phiên hiện
+    tại) LẪN tầng hook permission.
+
+    `pham_vi` — truyền sẵn nếu người gọi đã tự tính `pham_vi_don()` MỘT LẦN
+    cho cả một danh sách (tránh hỏi lại CSDL mỗi dòng); mặc định `None` =
+    tự tính từ `user`/phiên hiện tại như trước.
 
     Thông báo lỗi CỐ Ý giống hệt cho hai trường hợp "không có thật" và "của
     khoa khác": phân biệt hai cái đó là để lộ sự tồn tại của chứng từ, và
@@ -111,7 +125,8 @@ def dam_bao_xem_duoc(doctype: str, name: str) -> None:
     của ERPNext chỉ map từ MỘT đơn) bị coi là MƠ HỒ và ĐÓNG, không phải MỞ:
     `cua` = `None` trong trường hợp đó, không khớp bất kỳ khoa thật nào.
     """
-    pham_vi = pham_vi_don()
+    if pham_vi is None:
+        pham_vi = pham_vi_don(user)
     if not pham_vi:
         return
     if doctype == "Sales Order":

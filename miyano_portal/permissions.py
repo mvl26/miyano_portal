@@ -1,5 +1,5 @@
 import frappe
-from miyano_portal.portal_context import get_allowed_customers
+from miyano_portal.portal_context import dam_bao_xem_duoc, get_allowed_customers, pham_vi_don
 
 
 def _is_restricted_user(user: str) -> bool:
@@ -25,20 +25,117 @@ def _has_customer_permission(doc, user=None):
     return doc.get("customer") in get_allowed_customers(user)
 
 
+def _and_conditions(*conds: str) -> str:
+    """Nối nhiều điều kiện SQL bằng AND, bỏ qua chuỗi rỗng ("" = "không
+    giới hạn thêm gì" — cùng quy ước `_customer_condition` đã dùng)."""
+    parts = [c for c in conds if c]
+    return " and ".join(f"({c})" for c in parts)
+
+
+def _dieu_kien_khoa_qua_don_cha(
+    table: str, child_table: str, link_field: str, escaped_khoa: str
+) -> str:
+    """Điều kiện SQL: TOÀN BỘ `Sales Order` mà `table` (Delivery Note/Sales
+    Invoice) nối tới (qua bảng dòng `child_table`) đều thuộc ĐÚNG khoa
+    `escaped_khoa` — khớp CHÍNH XÁC ngữ nghĩa "mơ hồ nhiều khoa = ĐÓNG" của
+    `dam_bao_xem_duoc` (một nguồn sự thật, không được lỏng hơn ở tầng hook
+    này): có ÍT NHẤT MỘT dòng khớp khoa VÀ KHÔNG dòng nào khác khoa/chưa
+    gắn khoa."""
+    return (
+        f"exists (select 1 from `tab{child_table}` cc "
+        f"inner join `tabSales Order` so on so.name = cc.`{link_field}` "
+        f"where cc.parent = `tab{table}`.name and so.custom_khoa_phong = {escaped_khoa}) "
+        f"and not exists (select 1 from `tab{child_table}` cc2 "
+        f"inner join `tabSales Order` so2 on so2.name = cc2.`{link_field}` "
+        f"where cc2.parent = `tab{table}`.name and "
+        f"(so2.custom_khoa_phong is null or so2.custom_khoa_phong != {escaped_khoa}))"
+    )
+
+
+def _khoa_query_condition(doctype: str, table: str, user: str | None) -> str:
+    """Điều kiện SQL bổ sung THEO KHOA cho `permission_query_conditions`,
+    dùng LẠI `pham_vi_don()` — KHÔNG viết lại logic khoa ở tầng này (Vòng
+    sửa 1, review độc lập, C2 — CRITICAL).
+
+    CHỈ áp cho ba doctype role `Customer` có DocPerm read TRỰC TIẾP (patch
+    `v1_0/grant_customer_role_read_perms.py` — Sales Order/Delivery Note/
+    Sales Invoice): các hook này vì thế là TẦNG PHÒNG THỦ ĐẦU TIÊN cho mọi
+    đường đọc KHÔNG qua 21 hàm whitelist của `api/portal.py`
+    (`frappe.client.get_list`/`get_value`, `frappe.desk.reportview`,
+    `/printview`, REST v1/v2, `search_guard.client_get_list`/`client_get`
+    khi doctype không phải bảng con) — KHÁC HẲN vai trò "lớp phòng thủ thứ
+    hai, chết có điều kiện" mà khối comment `has_permission` trong
+    `hooks.py` mô tả cho tám doctype kho (những doctype đó KHÔNG có DocPerm
+    nào cho `Customer` nên hook tương ứng không bao giờ được framework gọi
+    tới — Sales Order/Delivery Note/Sales Invoice thì NGƯỢC LẠI, luôn được
+    gọi cho mọi Website User).
+
+    Trước bản vá này, ba hàm dùng hàm này chỉ lọc theo `customer`
+    (`_customer_condition`) — một nhân viên khoa gọi thẳng kênh trên vẫn
+    thấy TOÀN BỘ đơn của MỌI khoa trong bệnh viện, kèm tổng tiền."""
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    try:
+        pham_vi = pham_vi_don(user)
+    except frappe.PermissionError:
+        # Fail-closed — cùng nguyên tắc `pham_vi_don()` đã lập (Nhân viên
+        # khoa `active=1` nhưng chưa gán khoa): không xác định được phạm vi
+        # thì KHÔNG được coi là "không giới hạn".
+        return "1=0"
+    if not pham_vi:
+        return ""
+    khoa = pham_vi["custom_khoa_phong"]
+    escaped = frappe.db.escape(khoa)
+    if doctype == "Sales Order":
+        return f"`tab{table}`.`custom_khoa_phong` = {escaped}"
+    if doctype == "Delivery Note":
+        return _dieu_kien_khoa_qua_don_cha(table, "Delivery Note Item", "against_sales_order", escaped)
+    if doctype == "Sales Invoice":
+        return _dieu_kien_khoa_qua_don_cha(table, "Sales Invoice Item", "sales_order", escaped)
+    return ""
+
+
+def _khoa_ok_doc(doctype: str, name: str, user: str | None = None) -> bool:
+    """`True` = KHÔNG bị chặn theo khoa. Vỏ bọc exception->bool quanh
+    `dam_bao_xem_duoc` (Vòng sửa 1, C2) — `has_permission` hook PHẢI trả
+    bool, không được ném; logic derive-đơn-cha vẫn sống DUY NHẤT trong
+    `dam_bao_xem_duoc`, không viết lại ở đây."""
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return True
+    try:
+        dam_bao_xem_duoc(doctype, name, user=user)
+        return True
+    except frappe.PermissionError:
+        return False
+
+
 def sales_query(user=None):
-    return _customer_condition("Sales Order", user)
+    return _and_conditions(
+        _customer_condition("Sales Order", user),
+        _khoa_query_condition("Sales Order", "Sales Order", user),
+    )
 
 
 def sales_has_permission(doc, ptype=None, user=None):
-    return _has_customer_permission(doc, user)
+    if not _has_customer_permission(doc, user):
+        return False
+    return _khoa_ok_doc("Sales Order", doc.get("name"), user)
 
 
 def delivery_query(user=None):
-    return _customer_condition("Delivery Note", user)
+    return _and_conditions(
+        _customer_condition("Delivery Note", user),
+        _khoa_query_condition("Delivery Note", "Delivery Note", user),
+    )
 
 
 def invoice_query(user=None):
-    return _customer_condition("Sales Invoice", user)
+    return _and_conditions(
+        _customer_condition("Sales Invoice", user),
+        _khoa_query_condition("Sales Invoice", "Sales Invoice", user),
+    )
 
 
 def blanket_query(user=None):
@@ -46,7 +143,18 @@ def blanket_query(user=None):
 
 
 def generic_has_permission(doc, ptype=None, user=None):
-    return _has_customer_permission(doc, user)
+    if not _has_customer_permission(doc, user):
+        return False
+    # Vòng sửa 1 (C2) — CHỈ Delivery Note/Sales Invoice có khoa (quy về đơn
+    # cha). Blanket Order/Portal Item Request/Portal Delivery Inspection/
+    # Fast EInvoice Document dùng CHUNG hàm này nhưng KHÔNG có khái niệm
+    # khoa phòng ở tầng này (hợp đồng khung cấp bệnh viện; ba doctype còn
+    # lại ngoài phạm vi review vòng sửa 1 — xem "mối lo còn lại" trong
+    # task-7-8-report.md) — giữ NGUYÊN hành vi cũ (chỉ lọc customer) cho
+    # chúng, không âm thầm mở rộng phạm vi thay đổi.
+    if doc.doctype in ("Delivery Note", "Sales Invoice"):
+        return _khoa_ok_doc(doc.doctype, doc.get("name"), user)
+    return True
 
 
 def yeu_cau_query(user=None):

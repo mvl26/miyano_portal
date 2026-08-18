@@ -712,9 +712,19 @@ def tao_sales_order(
     # Khoa phòng đứng tên đơn — nguồn của MỌI phép lọc theo khoa về sau
     # (phiếu giao, hoá đơn, biên bản kiểm đều lọc qua đơn cha, không có
     # field riêng). `None` = đơn cấp bệnh viện, chỉ quản lý thấy.
+    #
+    # Vòng sửa 1 (C1, review độc lập) — kiểm CẢ khoa↔khách hàng LẪN
+    # `active`. Bản trước chỉ kiểm khoa↔khách hàng: một khoa đã bị quản lý
+    # TẮT (`Customer Department.active = 0`, ví dụ khoa vừa giải thể/sáp
+    # nhập) vẫn đóng dấu được lên đơn mới — đơn đó sẽ không ai còn "đúng
+    # khoa" để mở, cùng lỗ với đơn CŨ chưa gắn khoa (`TestDonCuKhongGanKhoa`)
+    # nhưng lần này KHÔNG đọc được ngay từ MỌI THÀNH VIÊN của khoa đó, kể cả
+    # người vừa đặt.
     if khoa_phong:
-        cua = frappe.db.get_value("Customer Department", khoa_phong, "customer")
-        if cua != customer:
+        kp = frappe.db.get_value(
+            "Customer Department", khoa_phong, ["customer", "active"], as_dict=True
+        )
+        if not kp or kp.customer != customer or not kp.active:
             raise frappe.PermissionError("Khoa phòng không thuộc đơn vị của bạn.")
         so.custom_khoa_phong = khoa_phong
 

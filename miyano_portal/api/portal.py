@@ -9,6 +9,7 @@ from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     dam_bao_xem_duoc,
     get_portal_customer,
+    get_portal_member,
     han_muc_con,
     pham_vi_don,
 )
@@ -290,12 +291,25 @@ def portal_order_place(
     hàng từ PHIÊN ĐĂNG NHẬP rồi giao toàn bộ việc còn lại cho
     `dat_hang.tao_sales_order`. Chữ ký endpoint này giữ NGUYÊN — đổi tên
     tham số ở đây là đổi API mà `Cart.vue` không có gì buộc phải đổi theo.
+
+    C1 (review vòng sửa 1, CRITICAL) — `khoa_phong` đóng dấu lên đơn PHẢI
+    suy từ `Portal Member.khoa_phong` của CHÍNH PHIÊN đang gọi, qua
+    `get_portal_member()`, TUYỆT ĐỐI không nhận từ client dưới bất kỳ hình
+    thức nào: hàm này KHÔNG có tham số `khoa_phong` trong chữ ký, và không
+    được thêm — một tham số như vậy sẽ cho nhân viên khoa A tự đóng dấu đơn
+    thành khoa B (`dat_hang.tao_sales_order` chỉ kiểm khoa ↔ KHÁCH HÀNG,
+    chưa từng kiểm khoa ↔ NGƯỜI GỌI). Quản lý có `khoa_phong` rỗng nên đơn
+    họ đặt để trống — đúng ý nghĩa "đơn cấp bệnh viện".
+
+    Trước bản vá này, MỌI đơn đặt qua cổng có `custom_khoa_phong = NULL`
+    (tham số bị bỏ sót hoàn toàn ở đường ghi thật) — nhân viên khoa đặt xong
+    đơn thì CHÍNH HỌ không mở lại được đơn vừa đặt.
     """
     return dat_hang.tao_sales_order(
         get_portal_customer(),
         mode=mode, contract=contract, items=items, dat_ngoai=dat_ngoai,
         po=po, delivery_date=delivery_date, note=note, address=address,
-        request_id=request_id,
+        request_id=request_id, khoa_phong=get_portal_member().khoa_phong,
     )
 
 
@@ -872,7 +886,20 @@ def _loc_qua_don_cha(child_doctype: str, link_field: str) -> list:
     gì thêm) cho Quản lý; một sentinel không khớp bản ghi nào khi khoa CHƯA
     có đơn nào (danh sách `_ten_don_trong_pham_vi()` rỗng — `["in", []]`
     không đáng tin cậy trên mọi bản Frappe nên tự đóng bằng một giá trị
-    không bao giờ khớp thay vì phó mặc)."""
+    không bao giờ khớp thay vì phó mặc).
+
+    Minor đã biết (review vòng sửa 1) — bộ lọc này khoan dung hơn
+    `dam_bao_xem_duoc`/`_dieu_kien_khoa_qua_don_cha` (permissions.py, C2):
+    nó chỉ đòi "CÓ ÍT NHẤT MỘT dòng khớp khoa", không đòi "KHÔNG dòng nào
+    khác khoa" như hai chỗ kia. Một Delivery Note/Sales Invoice trộn dòng
+    của HAI khoa (chưa tái tạo được qua `make_delivery_note`/
+    `make_sales_invoice` chuẩn của ERPNext, chỉ map từ MỘT Sales Order) vì
+    thế có thể XUẤT HIỆN trên danh sách rồi 403 khi mở — vẫn fail-closed
+    trên hành động thật (không đọc được nội dung), chỉ lệch ở việc TÊN
+    chứng từ đó có lọt vào danh sách hay không. Không sửa bằng cú pháp
+    filter LIST của `frappe.get_list` (rủi ro viết sai điều kiện phức tạp
+    cao hơn lợi ích với một ca chưa tái tạo được) — ranh giới an ninh THẬT
+    vẫn là tầng `has_permission`/`dam_bao_xem_duoc`, không phải danh sách."""
     so_names = _ten_don_trong_pham_vi()
     if so_names is None:
         return []
@@ -1973,15 +2000,27 @@ def _customer_phien_hien_tai() -> str | None:
         return None
 
 
-def _pham_vi_phien_hien_tai() -> dict:
-    """`pham_vi_don()` nhưng KHÔNG ném lỗi — cùng lý do `_customer_phien_
-    hien_tai()` ngay trên: trang Thông báo vẫn phải chạy cho một tài khoản
-    lỗi cấu hình, coi như KHÔNG giới hạn theo khoa (`{}`) thay vì 500 cả
-    trang."""
+def _pham_vi_phien_hien_tai() -> dict | None:
+    """`pham_vi_don()` nhưng KHÔNG ném lỗi. Trả về MỘT TRONG BA, và người
+    gọi PHẢI phân biệt cả ba (không được gộp bằng `if not pham_vi`):
+
+    - `{}` — Quản lý, KHÔNG giới hạn theo khoa.
+    - `{"custom_khoa_phong": ...}` — Nhân viên khoa, giới hạn đúng khoa đó.
+    - `None` — KHÔNG xác định được phạm vi. Gồm cả tài khoản lỗi cấu hình
+      (chưa gắn `Portal Member` nào) LẪN — quan trọng hơn — một Nhân viên
+      khoa `active=1` CHƯA gán khoa, đúng ca `pham_vi_don()` cố ý fail-closed
+      (`portal_context.py`, docstring "VÒNG SỬA 3").
+
+    VÒNG SỬA 1 (review độc lập, I2 — Important): bản trước bắt
+    `PermissionError` rồi trả `{}` — LẬT NGƯỢC fail-closed thành fail-open
+    ĐÚNG Ở CA `pham_vi_don()` tồn tại để chặn. `None` khác `{}`: `bool(None)`
+    và `bool({})` đều `False` trong Python — `if not pham_vi:` gộp nhầm hai
+    ca này làm một chính là lỗi cũ, `_thong_bao_trong_pham_vi` bên dưới PHẢI
+    kiểm `is None` tường minh."""
     try:
         return pham_vi_don()
     except frappe.PermissionError:
-        return {}
+        return None
 
 
 # `_lien_ket_thong_bao`/`dam_bao_xem_duoc` biết quy đúng ba doctype này về
@@ -1994,7 +2033,7 @@ def _pham_vi_phien_hien_tai() -> dict:
 _THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
 
 
-def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict) -> bool:
+def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict | None) -> bool:
     """`False` = ẨN CẢ DÒNG thông báo, không chỉ null hoá `link`.
 
     `_lien_ket_thong_bao` chỉ null `link` khi không sở hữu chứng từ đích —
@@ -2004,15 +2043,29 @@ def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict) -> boo
     SAL-ORD-2026-00099" dù không bấm vào xem được) — nên hàm này ẩn hẳn dòng
     thay vì chỉ tắt nút đi tới.
 
+    `pham_vi is None` — VÒNG SỬA 1 (I2) — PHẢI kiểm TRƯỚC `not pham_vi`:
+    `None` (không xác định được phạm vi, xem `_pham_vi_phien_hien_tai`) và
+    `{}` (Quản lý, không giới hạn) đều `falsy` như nhau trong Python nhưng
+    mang Ý NGHĨA NGƯỢC NHAU — gộp chúng bằng `if not pham_vi: return True`
+    (bản trước) chính là lỗi lật fail-closed thành fail-open.
+
     Biết fan-out lúc TẠO thông báo (`portal_thong_bao_khach._portal_users_
     cua_khach`) hiện gửi cho MỌI thành viên đang active của khách hàng, chưa
     lọc theo khoa (docstring hàm đó tự ghi nhận, để dành việc đó cho phần mở
     rộng khác) — lọc Ở ĐÂY (đường đọc) vẫn đạt đúng mục tiêu cách ly từ góc
     nhìn của người xem, dù việc TẠO THỪA vẫn còn đó."""
-    if not pham_vi or document_type not in _THONG_BAO_DOCTYPE_LOC_KHOA or not document_name:
+    if document_type not in _THONG_BAO_DOCTYPE_LOC_KHOA or not document_name:
+        return True
+    if pham_vi is None:
+        # Fail-closed — không xác định được phạm vi thì KHÔNG được coi là
+        # "Quản lý, thấy hết".
+        return False
+    if not pham_vi:
         return True
     try:
-        dam_bao_xem_duoc(document_type, document_name)
+        # `pham_vi=pham_vi` — dùng LẠI giá trị đã tính MỘT LẦN cho cả trang
+        # (không hỏi `pham_vi_don()` lại mỗi dòng thông báo).
+        dam_bao_xem_duoc(document_type, document_name, pham_vi=pham_vi)
         return True
     except frappe.PermissionError:
         return False
