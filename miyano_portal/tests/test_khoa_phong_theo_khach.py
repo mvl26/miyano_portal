@@ -178,3 +178,15 @@ class TestPatchXacThucMaKhoaTheoLuatMoi(FrappeTestCase):
 
 		self._tao_gia_lap_cu("ZZTEST Patch Khoa D", "CHUNG")
 		patch.execute()  # không được ném lỗi
+
+
+class TestMaNganKhachHang(FrappeTestCase):
+	def test_field_ma_ngan_ton_tai_va_unique(self):
+		cf = frappe.db.get_value(
+			"Custom Field", {"dt": "Customer", "fieldname": "custom_ma_ngan"},
+			["fieldtype", "unique", "length"], as_dict=True,
+		)
+		self.assertIsNotNone(cf, "chưa có Customer.custom_ma_ngan")
+		self.assertEqual(cf.fieldtype, "Data")
+		self.assertEqual(cf.unique, 1)
+		self.assertEqual(cf.length, 10)

@@ -57,3 +57,4 @@ miyano_portal.patches.v1_21.gan_mau_in_mac_dinh
 miyano_portal.patches.v1_21.cap_nhat_02vt_tien_bang_chu
 miyano_portal.patches.v1_22.install_bao_cao_cap_phat_thang
 miyano_portal.patches.v1_23.khoa_phong_theo_khach_hang
+miyano_portal.patches.v1_23.them_ma_ngan_khach_hang
