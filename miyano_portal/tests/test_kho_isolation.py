@@ -120,10 +120,13 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = ("Portal Delivery Inspection Item
 # SỬA LẠI (vòng sửa 2, review độc lập): bản trước của đoạn này viết rằng
 # "Portal Item Request / Customer Department có DocPerm cho vai trò khác,
 # Portal Member thì không" — CÂU ĐÓ SAI, và reviewer đã đọc thẳng JSON để bắt
-# nó: `customer_department.json` và `portal_item_request.json` có permissions
-# Y HỆT `portal_member.json` (System Manager/Sales Manager/Sales User, ZERO
-# DocPerm cho role Customer). Không lấy DocPerm làm căn cứ phân loại được —
-# cả ba đều không có gì để "mất" ở đó.
+# nó. Không lấy DocPerm làm căn cứ phân loại được: cả ba JSON đều cấp quyền
+# cho các role NỘI BỘ (System Manager/Sales Manager/Sales User, và riêng
+# `portal_item_request.json` có thêm Purchase User) với vài khác biệt lặt
+# vặt giữa chúng (ai có write/export/delete) — KHÔNG quan trọng ở đây. Điều
+# duy nhất cả ba cùng có, và là điều thật sự liên quan: TUYỆT ĐỐI ZERO
+# DocPerm cho role `Customer`. Cả ba đều không có gì để "mất" ở đó — nên
+# DocPerm không phải là trục phân biệt.
 #
 # Khác biệt THẬT nằm ở hai chỗ, cả hai đều kiểm chứng được trong hooks.py:
 #   - `Customer Department` mang field `kho` (Link → Customer Warehouse) và

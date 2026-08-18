@@ -3,19 +3,33 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-KHACH_BM = "Bệnh viện Bạch Mai"
-KHACH_PXN = "PXN ABC"
+# VÒNG SỬA 3 (F5, re-review độc lập): bản trước dùng trực tiếp "Bệnh viện
+# Bạch Mai"/"PXN ABC" — hai khách THẬT trên site dùng chung erptest.local.
+# Điều đó khiến MỌI test trong file này ngầm giả định "chưa có quản lý
+# active thật nào cho Bạch Mai", một giả định sẽ vỡ đúng ngày Task 5 chạy
+# backfill (xem "Vòng sửa 3" trong task-4-report.md, mục F4/F5 — F4 tự bắt
+# đúng bẫy này trong chính vòng sửa 2). Chuyển hẳn sang hai Customer RIÊNG
+# của bộ test này, tiền tố ZZTEST, tự tạo trong setUp và tự xoá sạch (Portal
+# Member + Customer Department + Customer) trong addCleanup — cắt đứt phụ
+# thuộc vào dữ liệu thật thay vì vá từng chỗ giả định.
+KHACH_BM = "ZZTEST Benh Vien A"
+KHACH_PXN = "ZZTEST Benh Vien B"
 
-# Mã ngắn hợp lệ dùng riêng cho bộ test này (vòng sửa 1). Không phải "ZZ..."
-# như quy ước dữ liệu khác vì field bị giới hạn 10 ký tự và cần khớp cách
-# đặt mã ngắn thật (chữ hoa, ngắn gọn).
+# Mã ngắn hợp lệ dùng riêng cho bộ test này. Không phải "ZZ..." như quy ước
+# dữ liệu khác vì field bị giới hạn 10 ký tự.
 MA_NGAN_TEST_BM = "ZZTBM"
 
 
 class _NenThanhVien(FrappeTestCase):
 	def setUp(self):
-		frappe.db.delete("Portal Member", {"user": ["like", "zztest%"]})
-		frappe.db.delete("Customer Department", {"ten_khoa_phong": ["like", "ZZTEST%"]})
+		self._don_sach()
+		self.addCleanup(self._don_sach)
+		for ten in (KHACH_BM, KHACH_PXN):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": ten,
+				"customer_type": "Company", "customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
 		self.kp_bm = frappe.get_doc({
 			"doctype": "Customer Department", "customer": KHACH_BM,
 			"ten_khoa_phong": "ZZTEST Huyết học", "ma_khoa": "ZZHH",
@@ -24,21 +38,18 @@ class _NenThanhVien(FrappeTestCase):
 			"doctype": "Customer Department", "customer": KHACH_PXN,
 			"ten_khoa_phong": "ZZTEST Xét nghiệm", "ma_khoa": "ZZXN",
 		}).insert(ignore_permissions=True)
-		# VÒNG SỬA 1 (F1): trên site thật, Bệnh viện Bạch Mai KHÔNG có
-		# custom_ma_ngan. Nếu để nguyên, _chan_thieu_ma_ngan() bắt HẾT mọi
-		# kịch bản "Nhân viên khoa" trong file này TRƯỚC KHI hai luật kia
-		# (_chan_vai_tro_va_khoa_phong, _chan_khoa_cua_benh_vien_khac) có cơ
-		# hội được kiểm — hai test dưới xanh vì SAI lý do (xem "Vòng sửa 1"
-		# trong task-4-report.md, phần F1). Đặt một mã hợp lệ Ở ĐÂY để mỗi
-		# test chỉ còn phụ thuộc đúng MỘT luật mà tên nó nói tới, rồi
-		# addCleanup trả lại giá trị CŨ — Customer là bản ghi CHUNG của site
-		# dùng chung, KHÔNG nằm trong rollback-theo-class của FrappeTestCase
-		# (chỉ Portal Member/Customer Department mới do tay ta insert/xoá).
-		ma_ngan_cu = frappe.db.get_value("Customer", KHACH_BM, "custom_ma_ngan")
+		# Khách này do TA tạo, không phải Bạch Mai thật — không cần lưu/trả
+		# lại giá trị cũ (addCleanup ở trên xoá thẳng cả Customer).
 		frappe.db.set_value("Customer", KHACH_BM, "custom_ma_ngan", MA_NGAN_TEST_BM)
-		self.addCleanup(
-			lambda: frappe.db.set_value("Customer", KHACH_BM, "custom_ma_ngan", ma_ngan_cu)
-		)
+
+	def _don_sach(self):
+		"""Dọn sạch TOÀN BỘ dấu vết của bộ test này — chạy cả ở ĐẦU setUp
+		(phòng lần chạy trước bị ngắt giữa chừng để lại rác) lẫn ở CUỐI qua
+		addCleanup (dọn cho chính lần chạy này, và cho `bench run-tests`
+		chạy hai lần liên tiếp không tích rác — xem "Vòng sửa 3", F5)."""
+		frappe.db.delete("Portal Member", {"user": ["like", "zztest%"]})
+		frappe.db.delete("Customer Department", {"customer": ["in", (KHACH_BM, KHACH_PXN)]})
+		frappe.db.delete("Customer", {"name": ["in", (KHACH_BM, KHACH_PXN)]})
 
 	def _user(self, email):
 		if not frappe.db.exists("User", email):
@@ -147,8 +158,8 @@ class TestPortalMemberKhongLoRaChoKhach(FrappeTestCase):
 	conditions/has_permission nào (đúng như comment ở KHONG_PHAI_DOCTYPE_KHO
 	giải thích — nó chưa từng được thiết kế để khách tự đọc), DocPerm đó sẽ
 	là ĐƯỜNG DUY NHẤT quyết định quyền — và mọi tài khoản cổng sẽ đọc được
-	TOÀN BỘ bảng danh tính: mọi bệnh viện, mọi email, mọi vai trò. 1038 test
-	khác vẫn xanh hết vì không cái nào động tới doctype này. Ba test dưới
+	TOÀN BỘ bảng danh tính: mọi bệnh viện, mọi email, mọi vai trò. Bộ test
+	còn lại vẫn xanh hết vì không cái nào động tới doctype này. Ba test dưới
 	đây là lưới an toàn RIÊNG cho đúng một doctype `Portal Member`."""
 
 	def test_khong_co_docperm_nao_cho_role_customer(self):
@@ -176,7 +187,10 @@ class TestPortalMemberKhongLoRaChoKhach(FrappeTestCase):
 
 	def test_website_user_khong_doc_duoc_portal_member(self):
 		# Tài khoản cổng THẬT trên site (không phải user zztest tạm) — đúng
-		# khuôn BM_USER trong test_kho_isolation.py.
+		# khuôn BM_USER trong test_kho_isolation.py. Test này không đếm dữ
+		# liệu của Portal Member (chỉ hỏi có/không có quyền), nên KHÔNG dính
+		# giả định trạng thái dữ liệu như F4/F5 — an toàn giữ nguyên user
+		# thật.
 		self.assertFalse(
 			frappe.has_permission("Portal Member", "read", user="bvbm@demo.miyano"),
 			"Một tài khoản cổng thật (Website User) không được có quyền đọc "
@@ -190,10 +204,11 @@ class TestPortalMemberGioiHanDaBiet(_NenThanhVien):
 	`validate()`. `frappe.db.set_value()`/`doc.db_set()` bỏ qua validate hoàn
 	toàn và không có ràng buộc DB nào đứng sau — nên vẫn đi vòng được luật
 	"mỗi bệnh viện đúng một quản lý đang hoạt động". Test dưới đây KHÔNG
-	kiểm một luật đang đứng vững; nó xác nhận GIỚI HẠN ĐÃ BIẾT này thật sự
-	tồn tại (xem docstring `_chan_hai_quan_ly` trong portal_member.py), để
-	không ai tưởng nhầm là lỗ hổng mới phát hiện ở vòng sau — và để nhắc:
-	Task 5 (backfill phía server) PHẢI luôn đi qua doc.save()."""
+	kiểm một luật đang đứng vững ở CHIỀU DƯƠNG; nó xác nhận GIỚI HẠN ĐÃ BIẾT
+	này thật sự tồn tại (xem docstring `_chan_hai_quan_ly` trong
+	portal_member.py), để không ai tưởng nhầm là lỗ hổng mới phát hiện ở
+	vòng sau — và để nhắc: Task 5 (backfill phía server) PHẢI luôn đi qua
+	doc.save()."""
 
 	def test_db_set_di_vong_qua_luat_mot_quan_ly(self):
 		self._tv("zztest.ql7@demo.miyano")
@@ -204,15 +219,33 @@ class TestPortalMemberGioiHanDaBiet(_NenThanhVien):
 			"doctype": "Portal Member", "user": user2,
 			"customer": KHACH_BM, "vai_tro": "Quản lý", "active": 0,
 		}).insert(ignore_permissions=True)
-		# Bật active bằng db_set — KHÔNG đi qua validate(), guard không hề
-		# được gọi lại.
+
+		# CHIỀU DƯƠNG trước (vòng sửa 3, F4 — góp ý của re-review): guard vẫn
+		# phải SỐNG trên đường chính thống. doc.save() với cùng dữ liệu này
+		# (bật active=1 qua validate()) phải bị chặn đúng như
+		# test_moi_benh_vien_dung_mot_quan_ly_dang_hoat_dong ở trên.
+		ql2.active = 1
+		with self.assertRaises(frappe.ValidationError) as cm:
+			ql2.save(ignore_permissions=True)
+		self.assertIn("đã có quản lý", str(cm.exception))
+		# save() ném lỗi thì DB chưa đổi, nhưng field trong bộ nhớ của ql2 đã
+		# bị ta gán active=1 phía trên — nạp lại từ DB trước khi đi tiếp.
+		ql2.reload()
+		self.assertEqual(ql2.active, 0)
+
+		# CHIỀU ÂM: db_set đi vòng qua validate() hoàn toàn — đây mới là lỗ
+		# đang được tài liệu hoá (KHÔNG phải điều test này chứng minh là an
+		# toàn).
 		ql2.db_set("active", 1)
-		so_quan_ly_active = frappe.db.count(
-			"Portal Member", {"customer": KHACH_BM, "vai_tro": "Quản lý", "active": 1}
-		)
+		# Đo trên ĐÚNG bản ghi (vòng sửa 3, F4) — không đếm tuyệt đối trên cả
+		# bảng `Portal Member` bằng frappe.db.count(): trước vòng sửa 3, con
+		# số kỳ vọng là "2" giả định BÊN CẠNH `Customer` ZZTEST không có
+		# quản lý active thật nào khác — giả định đó không còn đúng sau khi
+		# Task 5 backfill (dù nay `Customer` này là ZZTEST riêng của bộ test,
+		# vẫn giữ nguyên tắc "đo đúng bản ghi" làm chuẩn cho mọi test tương
+		# tự sau này).
 		self.assertEqual(
-			so_quan_ly_active, 2,
-			"Giới hạn đã biết: db_set() đi vòng được _chan_hai_quan_ly, để "
-			"lại HAI quản lý cùng active=1 cho một bệnh viện — xem docstring "
-			"_chan_hai_quan_ly trong portal_member.py.",
+			frappe.db.get_value("Portal Member", ql2.name, "active"), 1,
+			"Giới hạn đã biết: db_set() đi vòng được _chan_hai_quan_ly — "
+			"xem docstring _chan_hai_quan_ly trong portal_member.py.",
 		)
