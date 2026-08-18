@@ -111,8 +111,16 @@ def list_rows(
 	đầy đủ), chỉ cắt trang khi `limit` được truyền — đọc docstring
 	`ncc.list_rows()` cho lý do đầy đủ (lọc Python, cắt trước khi tính
 	thống kê 90 ngày để không lãng phí truy vấn cho dòng không hiển thị).
-	"""
-	filters = {"kho": kho}
+
+	SỬA (fix-wave 2026-08-18, V3 — Ruling SAI §7.0 của kế hoạch gốc). Bản
+	trước lọc `{"kho": kho}` — cùng lỗi với `_khoa_cua_kho()` (`api/kho.py`,
+	đọc docstring ở đó): một khoa phòng của ĐÚNG khách hàng nhưng KHÔNG gắn
+	kho (hình HDSD dạy Miyano khai) sẽ không bao giờ hiện trong danh mục
+	cổng, dù nhân viên đứng đúng kho của bệnh viện mình. Lọc theo `customer`
+	(suy từ `kho`) — cùng phạm vi `_existing_rows()` ngay trên đã dùng từ
+	Vòng sửa 1, phát hiện 4."""
+	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+	filters = {"customer": customer}
 	if not frappe.utils.cint(ca_inactive):
 		filters["active"] = 1
 	rows = frappe.get_all(

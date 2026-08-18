@@ -228,8 +228,20 @@ def _ncc_cua_kho(ncc: str, kho: str) -> str:
 
 def _khoa_cua_kho(khoa_phong: str, kho: str) -> str:
 	"""E8 — cùng khuôn _ncc_cua_kho(): xác nhận một khoa phòng do client gửi
-	lên đúng là của kho người gọi TRƯỚC khi get_doc/save chạm vào nó."""
-	if frappe.db.get_value("Customer Department", khoa_phong, "kho") != kho:
+	lên đúng là của kho người gọi TRƯỚC khi get_doc/save chạm vào nó.
+
+	SỬA (fix-wave 2026-08-18, V3 — Ruling SAI §7.0 của kế hoạch gốc). Bản
+	trước so `Customer Department.kho == kho` — khoa phòng từ bước 2 (spec
+	"Khoa phòng thuộc BỆNH VIỆN, không thuộc kho") KHÔNG bắt buộc gắn kho
+	(`docs/HDSD-phan-quyen-khoa-phong.md` dạy chính Miyano khai để trống ô
+	Kho khi tạo khoa cho một "Nhân viên khoa" chưa cần quản lý kho) — một
+	khoa `kho=None` không bao giờ khớp một `kho` thật, `PermissionError`
+	chắc chắn dù cùng khách hàng với người gọi. Đổi sang so theo `customer`
+	suy TỪ `kho` của người gọi (`Customer Warehouse.customer`) — cùng phạm
+	vi `CustomerDepartment._chan_trung_tuyet_doi()` (Task 2) đã dùng, không
+	còn đòi hỏi CHÍNH khoa đó phải gắn kho."""
+	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+	if frappe.db.get_value("Customer Department", khoa_phong, "customer") != customer:
 		raise frappe.PermissionError("Khoa phòng không thuộc kho của đơn vị bạn.")
 	return khoa_phong
 

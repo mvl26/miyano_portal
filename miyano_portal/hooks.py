@@ -185,6 +185,17 @@ permission_query_conditions = {
 	# này là lớp phòng thủ thứ hai "chết có điều kiện", cùng khuôn tám
 	# doctype kho bên dưới — đọc docstring `permissions.einvoice_query`.
 	"Fast EInvoice Document": "miyano_portal.permissions.einvoice_query",
+	# V1 (fix-wave 2026-08-18, review tổng toàn nhánh — CRITICAL) — KHÁC
+	# HẲN các entry ở trên: `Notification Log` KHÔNG bị gỡ DocPerm (đây là
+	# doctype của core, cấp `read/report/export` cho role `All`, mà MỌI
+	# user — kể cả Website User — đều mang role đó). Entry này vì thế là
+	# lớp phòng thủ THẬT SỰ đang sống, không phải "chết có điều kiện": mọi
+	# Website User luôn qua được vòng kiểm role cơ bản, hook này LUÔN được
+	# gọi. Đọc docstring `permissions.notification_khoa_query` cho lý do
+	# đầy đủ (fan-out lúc tạo thông báo gửi cho MỌI thành viên active của
+	# khách hàng, chưa lọc theo khoa — hook này bù lại đúng vế đó ở đường
+	# đọc, AND thêm vào điều kiện `for_user` core đã có, không ghi đè).
+	"Notification Log": "miyano_portal.permissions.notification_khoa_query",
 	# ---------------------------------------------------------------------
 	# Kho khách hàng — ĐỌC comment ở khối has_permission bên dưới trước khi
 	# tin rằng các entry dưới đây là thứ đang bảo vệ dữ liệu kho. Kể từ vòng

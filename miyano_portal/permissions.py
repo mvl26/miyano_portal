@@ -219,3 +219,100 @@ def einvoice_query(user=None):
     (nơi khách có quyền qua `check_permission`), không bao giờ nhận tên
     `Fast EInvoice Document` trực tiếp từ client."""
     return _customer_condition("Fast EInvoice Document", user)
+
+
+# Ba doctype DUY NHẤT mang khái niệm khoa phòng (`custom_khoa_phong` trực
+# tiếp hoặc quy về đơn cha) — SONG SINH với `api/portal.py::_THONG_BAO_
+# DOCTYPE_LOC_KHOA` (không import chéo được, hai module không có quan hệ
+# phụ thuộc: `permissions.py` phục vụ tầng hook, `api/portal.py` phục vụ
+# tầng endpoint). Đổi một bên PHẢI soát bên còn lại — cùng khuôn "hai nơi
+# định nghĩa một khái niệm PHẢI khớp nhau" đã ghi ở nhiều chỗ khác trong đề
+# án (vd. `_TRANG_THAI_GHI_DE_WORKFLOW`/`_so_status_vi_full`).
+_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
+
+
+def notification_khoa_query(user=None) -> str:
+    """VÒNG VÁ FIX-WAVE (V1, review tổng toàn nhánh — CRITICAL).
+
+    `Notification Log` (core) cấp `read/report/export` cho role `All`
+    (JSON gốc `frappe/desk/doctype/notification_log/notification_log.json`),
+    mà `ALL_USER_ROLE` được framework gán cho MỌI user kể cả Website User
+    (`frappe/permissions.py`). `get_permission_query_conditions` của core
+    (`notification_log.py`) chỉ lọc `for_user = session.user` — KHÔNG có vế
+    khoa. Doctype này KHÔNG phải bảng con (`frappe.is_table`) nên
+    `rest_guard.chan_rest_doctype_con`/`search_guard.client_get_list` (hai
+    lưới chặn `frappe.client.*`/REST cho MỌI doctype "con" — xem hooks.py)
+    không áp dụng ở đây: `frappe.client.get_list`/`get_value`/
+    `frappe.get_list` đi THẲNG cho MỌI Website User.
+
+    `bao_hen_giao_lai`/`bao_kiem_hang_ket_qua` (`portal_thong_bao_khach.py`)
+    fan-out MỘT bản ghi `Notification Log` cho MỖI thành viên ĐANG ACTIVE
+    của KHÁCH HÀNG (chưa lọc theo khoa lúc TẠO — docstring `_portal_users_
+    cua_khach` tự nhận, để dành việc lọc khoa cho phần mở rộng này).
+    `for_user` vì thế đúng NGAY TỪ ĐẦU cho một nhân viên khoa B dù chứng từ
+    thuộc khoa A — điều kiện `for_user` của core không chặn được ca này, vì
+    nó không phải một quyền bị chiếm đoạt mà là một bản ghi ĐÚNG CHỦ nhưng
+    SAI PHẠM VI.
+
+    Hàm này thêm ĐÚNG vế khoa còn thiếu, dùng LẠI `_dieu_kien_khoa_qua_don_
+    cha` — KHÔNG viết lại logic quy-về-đơn-cha (cùng nguyên tắc
+    `_khoa_query_condition` ngay trên). CHỈ áp cho ba doctype có khái niệm
+    khoa phòng (`_THONG_BAO_DOCTYPE_LOC_KHOA`, cùng bộ ba với `api/
+    portal.py::_THONG_BAO_DOCTYPE_LOC_KHOA`) — thông báo KHÁC (`Customer
+    Stock Receipt`/kho, `Portal Delivery Inspection`/kiểm hàng, thông báo
+    hệ thống nội bộ Miyano...) giữ NGUYÊN hành vi cũ, không âm thầm mở rộng
+    phạm vi vá (đúng docstring `_THONG_BAO_DOCTYPE_LOC_KHOA` ở `api/
+    portal.py` đã giải thích: kho là tài sản CẤP BỆNH VIỆN, lọc theo khoa
+    ở đó là lỗi, không phải một chỗ quên).
+
+    Frappe AND mọi `permission_query_conditions` của MỌI app lại với nhau
+    (`frappe/model/db_query.py::get_permission_query_conditions`) — hook
+    của core (`for_user = ...`) và hook này CÙNG áp dụng, không hook nào
+    ghi đè hook kia; hàm này chỉ THU HẸP thêm, không bao giờ mở rộng."""
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    if not _cot_khoa_phong_ton_tai():
+        # Cùng lưới an toàn triển khai với _khoa_query_condition ngay trên
+        # — thiếu cột thì fail-closed, không để MariaDB 1054 lộ ra.
+        return "1=0"
+    try:
+        pham_vi = pham_vi_don(user)
+    except frappe.PermissionError:
+        # Fail-closed — cùng nguyên tắc _khoa_query_condition.
+        return "1=0"
+    if not pham_vi:
+        return ""
+    khoa = pham_vi["custom_khoa_phong"]
+    escaped = frappe.db.escape(khoa)
+    dtype_col = "`tabNotification Log`.`document_type`"
+    dname_col = "`tabNotification Log`.`document_name`"
+    dieu_kien_theo_loai = {
+        "Sales Order": (
+            f"exists (select 1 from `tabSales Order` where "
+            f"`tabSales Order`.name = {dname_col} and "
+            f"`tabSales Order`.custom_khoa_phong = {escaped})"
+        ),
+        "Delivery Note": (
+            f"exists (select 1 from `tabDelivery Note` where "
+            f"`tabDelivery Note`.name = {dname_col} and ("
+            + _dieu_kien_khoa_qua_don_cha(
+                "Delivery Note", "Delivery Note Item", "against_sales_order", escaped
+            )
+            + "))"
+        ),
+        "Sales Invoice": (
+            f"exists (select 1 from `tabSales Invoice` where "
+            f"`tabSales Invoice`.name = {dname_col} and ("
+            + _dieu_kien_khoa_qua_don_cha(
+                "Sales Invoice", "Sales Invoice Item", "sales_order", escaped
+            )
+            + "))"
+        ),
+    }
+    ve_theo_loai = " or ".join(
+        f"({dtype_col} = {frappe.db.escape(dt)} and {cond})"
+        for dt, cond in dieu_kien_theo_loai.items()
+    )
+    scoped = ", ".join(frappe.db.escape(t) for t in _THONG_BAO_DOCTYPE_LOC_KHOA)
+    return f"({dtype_col} not in ({scoped}) or {ve_theo_loai})"

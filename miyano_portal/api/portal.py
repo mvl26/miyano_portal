@@ -456,8 +456,31 @@ def _pham_vi_filters() -> list:
     sang khuôn `filters` kiểu LIST mà `frappe.get_list` trên `Sales Order`
     đang dùng ở file này (`_dieu_kien_loc_trang_thai_don` trả cùng khuôn) —
     một hàm chuyển khuôn DÙNG CHUNG, không phải mỗi endpoint tự viết
-    `["custom_khoa_phong", "=", ...]` một kiểu riêng."""
-    return [["custom_khoa_phong", "=", v] for v in pham_vi_don().values()]
+    `["custom_khoa_phong", "=", ...]` một kiểu riêng.
+
+    Nuôi `portal_order_history`/`_dem_don_theo_trang_thai` (nên cả `portal_
+    dashboard_kpi`) — HAI endpoint traffic cao nhất của cổng.
+
+    SỬA (fix-wave 2026-08-18, V2 — Important): bản trước xây filter tham
+    chiếu THẲNG `custom_khoa_phong` mà KHÔNG qua `_cot_khoa_phong_ton_tai()`
+    — khác với `_ten_don_trong_pham_vi()`/`dam_bao_xem_duoc()` (đã có lưới
+    từ Vòng sửa 3). Kết quả CUỐI CÙNG của `frappe.get_list` vẫn an toàn
+    trên site test hôm nay nhờ tầng hook (`permissions.sales_query`) CŨNG
+    chặn — nhưng đó là hai lớp AND lại che mất khoảng hở của nhau, không
+    phải bằng chứng lớp này tự an toàn: filter do hàm này sinh ra bị AND
+    thẳng vào WHERE cùng điều kiện hook, và MariaDB phải phân giải tên cột
+    `custom_khoa_phong` lúc PARSE — không có short-circuit theo giá trị
+    runtime của vế còn lại. Trên một site CHƯA chạy patch (cột thật sự
+    không tồn tại), câu đó vẫn ném 1054 thô bất kể hook có trả `"1=0"` hay
+    không. Thiếu cột thì FAIL-CLOSED (một filter không khớp bản ghi nào,
+    cùng sentinel `__khong_don_nao__` mà `_loc_qua_don_cha` đã dùng), KHÔNG
+    được để lỗi CSDL thô lọt ra."""
+    pham_vi = pham_vi_don()
+    if not pham_vi:
+        return []
+    if not _cot_khoa_phong_ton_tai():
+        return [["name", "in", ["__khong_don_nao__"]]]
+    return [["custom_khoa_phong", "=", v] for v in pham_vi.values()]
 
 
 @frappe.whitelist()
@@ -2079,8 +2102,22 @@ def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict | None)
     Biết fan-out lúc TẠO thông báo (`portal_thong_bao_khach._portal_users_
     cua_khach`) hiện gửi cho MỌI thành viên đang active của khách hàng, chưa
     lọc theo khoa (docstring hàm đó tự ghi nhận, để dành việc đó cho phần mở
-    rộng khác) — lọc Ở ĐÂY (đường đọc) vẫn đạt đúng mục tiêu cách ly từ góc
-    nhìn của người xem, dù việc TẠO THỪA vẫn còn đó."""
+    rộng khác).
+
+    SỬA (fix-wave 2026-08-18, V1 — CRITICAL): bản trước khẳng định "lọc Ở
+    ĐÂY (đường đọc) vẫn đạt đúng mục tiêu cách ly" — SAI, và sai đúng loại
+    "docstring hứa một tính chất an toàn mà mã không có" mà chính đề án này
+    đã xếp Critical (xem C4 — `_loc_qua_don_cha`). Hàm này chỉ chặn ĐÚNG
+    MỘT đường đọc: `portal_thong_bao_list`/`portal_thong_bao_doc`. `Notification
+    Log` có DocPerm `read/report/export` cho role `All` (core), không phải
+    bảng con nên `rest_guard`/`search_guard` không chặn — `frappe.get_list`/
+    `frappe.client.get_value` gọi thẳng vẫn đi qua, BỎ QUA hàm này hoàn
+    toàn. Ranh giới an ninh THẬT cho `Notification Log`, kể cả với nhân
+    viên khoa gọi ngoài hai endpoint này, là hook `permission_query_
+    conditions` (`permissions.notification_khoa_query`, đăng ký trong
+    `hooks.py`) — hàm NÀY chỉ là một lớp ẨN THÊM (ẩn cả dòng thay vì chỉ
+    null `link`) cho riêng hai màn Thông báo, không phải nguồn sự thật duy
+    nhất."""
     if document_type not in _THONG_BAO_DOCTYPE_LOC_KHOA or not document_name:
         return True
     if pham_vi is None:

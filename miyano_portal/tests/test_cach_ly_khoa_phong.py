@@ -19,7 +19,9 @@ from erpnext.selling.doctype.sales_order.sales_order import (
 )
 
 from miyano_portal import dat_hang, permissions, portal_context
+from miyano_portal.api import kho as kho_api
 from miyano_portal.api import portal as portal_api
+from miyano_portal.kho import khoa_phong as khoa_phong_mod
 
 KHACH = "ZZTEST8 Benh Vien"
 MA_NGAN = "ZZT8BV"
@@ -721,6 +723,94 @@ class TestThongBaoApDungPhamVi(_NenCachLy):
 		self.assertEqual(str(ngoai_pham_vi.exception), str(khong_co.exception))
 
 
+class TestV1NotificationLogQuaHookKhongDuocRoRi(_NenCachLy):
+	"""V1 (review tổng toàn nhánh — CRITICAL). `TestThongBaoApDungPhamVi`
+	ngay TRÊN chỉ khoá đúng MỘT đường đọc: `portal_thong_bao_list`/
+	`portal_thong_bao_doc` (`_thong_bao_trong_pham_vi`, `api/portal.py`).
+	`Notification Log` (core) cấp `read/report/export` cho role `All`
+	(JSON gốc), mà `ALL_USER_ROLE` được framework gán cho MỌI user kể cả
+	Website User (`frappe/permissions.py`); `get_permission_query_
+	conditions` của core chỉ lọc `for_user = session.user` — KHÔNG có vế
+	khoa; và doctype này KHÔNG phải bảng con (`frappe.is_table`) nên
+	`rest_guard`/`search_guard` không chặn. Nghĩa là `frappe.get_list`/
+	`frappe.client.get_value` đi THẲNG, bỏ qua toàn bộ tầng endpoint ở
+	`api/portal.py`.
+
+	`bao_hen_giao_lai`/`bao_kiem_hang_ket_qua` (`portal_thong_bao_khach.py`)
+	fan-out MỘT bản ghi `Notification Log` cho MỖI thành viên active của
+	KHÁCH HÀNG (chưa lọc theo khoa lúc TẠO — docstring `_portal_users_cua_
+	khach` tự nhận). `for_user` vì thế đúng ngay từ đầu cho nhân viên khoa
+	B dù chứng từ thuộc khoa A — điều kiện `for_user` của core không chặn
+	được ca này.
+
+	Test dưới đây gọi THẲNG hai đường đọc thô đó — KHÔNG qua `portal_api.*`
+	— để chứng minh lưới an toàn phải nằm ở tầng hook
+	(`permission_query_conditions`), đúng như V1 yêu cầu."""
+
+	def setUp(self):
+		super().setUp()
+		self.don_a = self._don(self.kp_a.name)
+		self.don_b = self._don(self.kp_b.name)
+		self.log_a = frappe.get_doc({
+			"doctype": "Notification Log",
+			"subject": f"Portal - Hẹn lịch giao: {self.don_a} — Giao lại 20/08/2026",
+			"for_user": self.nv_b.user,
+			"type": "Alert",
+			"document_type": "Sales Order",
+			"document_name": self.don_a,
+			"email_content": "Lý do: hàng chưa về kho Miyano.",
+		}).insert(ignore_permissions=True)
+		self.log_b = frappe.get_doc({
+			"doctype": "Notification Log",
+			"subject": f"Portal - Hẹn lịch giao: {self.don_b} — Giao lại 20/08/2026",
+			"for_user": self.nv_b.user,
+			"type": "Alert",
+			"document_type": "Sales Order",
+			"document_name": self.don_b,
+			"email_content": "Lý do: hàng chưa về kho Miyano.",
+		}).insert(ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.db.delete("Notification Log", {"name": ["in", [self.log_a.name, self.log_b.name]]})
+		super().tearDown()
+
+	def test_frappe_get_list_khong_tra_thong_bao_khoa_khac(self):
+		frappe.set_user(self.nv_b.user)
+		ten = frappe.get_list(
+			"Notification Log",
+			filters={"for_user": self.nv_b.user},
+			fields=["name", "subject", "document_name"],
+			pluck="name",
+		)
+		self.assertNotIn(
+			self.log_a.name, ten,
+			"frappe.get_list phải bị vế khoa chặn — hook permission_query_"
+			"conditions cho Notification Log chưa thu hẹp theo khoa.",
+		)
+		self.assertIn(
+			self.log_b.name, ten,
+			"Thông báo của ĐÚNG khoa mình phải vẫn thấy — không được chặn quá tay.",
+		)
+
+	def test_frappe_client_get_value_khong_tra_thong_bao_khoa_khac(self):
+		from frappe.client import get_value as client_get_value
+
+		frappe.set_user(self.nv_b.user)
+		kq_khac = client_get_value(
+			"Notification Log", "subject", filters={"name": self.log_a.name}
+		)
+		self.assertEqual(
+			kq_khac, {},
+			"frappe.client.get_value phải trả rỗng (không lộ subject/tên đơn "
+			"của khoa khác) — đúng ngữ nghĩa 'không tìm thấy' dam_bao_xem_"
+			"duoc dùng khắp đề án.",
+		)
+		kq_minh = client_get_value(
+			"Notification Log", "subject", filters={"name": self.log_b.name}
+		)
+		self.assertEqual(kq_minh.get("subject"), self.log_b.subject)
+
+
 class TestC3ThieuCotKhoaFailClosed(_NenCachLy):
 	"""C3 (review vòng sửa 2, CRITICAL) — vế khoa thêm vào `permissions.py`
 	(Vòng sửa 1, C2) sinh SQL tham chiếu `` `tabSales Order`.
@@ -829,6 +919,62 @@ class TestC3ThieuCotKhoaFailClosed(_NenCachLy):
 			with self.assertRaises(frappe.PermissionError) as cm:
 				portal_api.portal_order_track(self.don_a)
 		self.assertEqual(str(cm.exception), portal_context.LOI_KHONG_THAY)
+
+	def test_portal_order_history_fail_closed_khong_phai_loi_csdl_khi_thieu_cot(self):
+		"""V2 (review tổng toàn nhánh, Important) — `_pham_vi_filters()`
+		(`api/portal.py`, nuôi `portal_order_history`/`_dem_don_theo_trang_
+		thai`) TRƯỚC bản vá KHÔNG gọi `_cot_khoa_phong_ton_tai()` — an toàn
+		trên site test hôm nay CHỈ nhờ MAY MẮN cột thật sự tồn tại. Giả lập
+		"coi như thiếu cột" (mock `has_column=False`, cùng kỹ thuật các test
+		C3 khác trong lớp này): SAU bản vá, hai endpoint traffic cao nhất
+		này phải fail-closed (rỗng), KHÔNG được lặng lẽ trả dữ liệu thật chỉ
+		vì cột THẬT vẫn còn đó trên site test."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			kq = portal_api.portal_order_history()
+		self.assertEqual(kq["rows"], [])
+		self.assertEqual(kq["tong"], 0)
+
+	def test_portal_dashboard_kpi_fail_closed_khong_phai_loi_csdl_khi_thieu_cot(self):
+		"""Cùng lý do ngay trên — `portal_dashboard_kpi` đếm qua
+		`_dem_don_theo_trang_thai` -> `_pham_vi_filters()`, endpoint traffic
+		cao thứ hai (màn đầu tiên khách nhìn thấy mỗi lần đăng nhập)."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			kq = portal_api.portal_dashboard_kpi()
+		self.assertEqual(kq["don_cho_xac_nhan"], 0)
+		self.assertEqual(kq["don_dang_giao"], 0)
+
+	def test_pham_vi_filters_fail_closed_khong_tham_chieu_cot_khi_thieu(self):
+		"""V2 — bằng chứng RED THẬT (hai test round-trip ngay trên KHÔNG đỏ
+		trước bản vá: `permissions.sales_query()`, tầng hook, ĐÃ tự chặn
+		bằng `"1=0"` từ Vòng sửa 2/3, nên kết quả cuối cùng của
+		`frappe.get_list` vẫn rỗng dù `_pham_vi_filters()` chưa có lưới —
+		hai lớp AND lại, lớp hook che mất khoảng hở của lớp endpoint). Rủi
+		ro THẬT không nằm ở KẾT QUẢ (hook vẫn cứu được) mà ở CÂU SQL: filter
+		`["custom_khoa_phong", "=", ...]` bị AND vào WHERE cùng điều kiện
+		hook — MariaDB PHẢI phân giải tên cột đó lúc parse, không có
+		short-circuit theo giá trị runtime của vế còn lại. Trên một site
+		thật CHƯA chạy patch (cột thật sự không tồn tại), câu đó vẫn ném
+		1054 bất kể hook có trả `"1=0"` hay không. Kiểm TRỰC TIẾP giá trị
+		`_pham_vi_filters()` trả về — không round-trip qua `frappe.get_list`
+		— đúng kỹ thuật `test_dieu_kien_sql_tra_1_bang_0_khi_thieu_cot` đã
+		dùng để cô lập tầng hook."""
+		from unittest.mock import patch as mock_patch
+
+		frappe.set_user(self.nv_a.user)
+		with mock_patch("frappe.db.has_column", return_value=False):
+			filters = portal_api._pham_vi_filters()
+		self.assertFalse(
+			any("custom_khoa_phong" in str(f) for f in filters),
+			f"_pham_vi_filters() vẫn tham chiếu custom_khoa_phong dù cột "
+			f"được coi là thiếu — sẽ ném 1054 thô trên site chưa chạy "
+			f"patch, bất kể tầng hook có chặn hay không: {filters!r}",
+		)
 
 
 class TestC5NguoiDungNoiBoKhongPhaiAdministrator(_NenCachLy):
@@ -1030,3 +1176,73 @@ class TestKhongLamPhienKhachDangDung(FrappeTestCase):
 			"cả hai tài khoản đều 0 hoá đơn — phép so sánh rỗng, không "
 			"chứng minh được gì (bẫy Task 4)",
 		)
+
+
+class TestV3KhoaKhongGanKhoVanQuaDuocCong(_NenCachLy):
+	"""V3 (review tổng toàn nhánh — Ruling SAI, §7.0 của progress ledger).
+	Ruling gốc hoãn việc này với lý lẽ "hôm nay chưa có khoa phòng nào
+	không gắn kho" — lý lẽ đó TỰ HUỶ: `docs/HDSD-phan-quyen-khoa-phong.md`
+	(tài liệu vừa viết CHO chính đề án này) dạy nhân viên Miyano khai
+	`Customer Department` để TRỐNG ô Kho — đó là điều kiện để tạo Portal
+	Member vai "Nhân viên khoa" cho một khoa chưa có nhu cầu quản lý kho.
+
+	`kp_a`/`kp_b` (fixture `_NenCachLy`) vốn dĩ đã KHÔNG gắn kho (`_kp()`
+	không truyền `kho`) — đúng hình đó, không cần dựng thêm khoa nào khác.
+
+	`api/kho.py::_khoa_cua_kho` xác nhận sở hữu bằng so `Customer
+	Department.kho == kho` — khoa `kho=None` không bao giờ khớp một `kho`
+	thật, `PermissionError` chắc chắn dù cùng khách hàng. `kho/khoa_
+	phong.py::list_rows` lọc `{"kho": kho}` — khoa đó không bao giờ hiện
+	trong danh mục cổng, dù nhân viên đứng đúng kho của bệnh viện mình."""
+
+	def setUp(self):
+		super().setUp()
+		self.kho = frappe.db.get_value("Customer Warehouse", {"customer": KHACH})
+		if not self.kho:
+			self.kho = frappe.get_doc({
+				"doctype": "Customer Warehouse", "customer": KHACH,
+				"ten_kho": "ZZTEST8 Kho V3", "ma_kho": "ZZT8V3", "active": 1,
+				"ngay_bat_dau": frappe.utils.today(),
+			}).insert(ignore_permissions=True).name
+			self.addCleanup(
+				frappe.delete_doc, "Customer Warehouse", self.kho,
+				force=True, ignore_permissions=True,
+			)
+		self.assertIsNone(
+			frappe.db.get_value("Customer Department", self.kp_a.name, "kho"),
+			"Fixture lỗi: kp_a phải KHÔNG gắn kho để phép kiểm này có nghĩa "
+			"(đúng hình HDSD dạy Miyano khai).",
+		)
+
+	def _xoa_khach_khac(self, khach_khac):
+		frappe.db.delete("Customer Department", {"customer": khach_khac})
+		frappe.delete_doc("Customer", khach_khac, force=True, ignore_permissions=True)
+
+	def test_khoa_khong_gan_kho_hien_trong_danh_muc_cong(self):
+		rows = khoa_phong_mod.list_rows(self.kho)
+		self.assertIn(
+			self.kp_a.name, [r["name"] for r in rows],
+			"khoa không gắn kho phải VẪN hiện trong danh mục cổng — cùng "
+			"khách hàng với kho đang xem, không cần chính khoa đó gắn kho.",
+		)
+
+	def test_khoa_khong_gan_kho_van_xac_nhan_so_huu_duoc(self):
+		# Không được ném PermissionError — endpoint sửa (kho_khoa_phong_save)
+		# gọi thẳng hàm này trước khi cho sửa.
+		self.assertEqual(kho_api._khoa_cua_kho(self.kp_a.name, self.kho), self.kp_a.name)
+
+	def test_khoa_cua_kho_van_chan_khoa_cua_khach_khac(self):
+		khach_khac = "ZZTEST8V3 Benh Vien Khac"
+		if not frappe.db.exists("Customer", khach_khac):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": khach_khac,
+				"customer_type": "Company", "customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
+		self.addCleanup(self._xoa_khach_khac, khach_khac)
+		kp_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": khach_khac,
+			"ten_khoa_phong": "ZZTEST8V3 Khoa Khac",
+		}).insert(ignore_permissions=True)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api._khoa_cua_kho(kp_khac.name, self.kho)

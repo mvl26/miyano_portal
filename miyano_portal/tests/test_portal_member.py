@@ -409,3 +409,75 @@ class TestChieuNguocDanhTinh(_NenThanhVien):
 		self.assertNotIn(
 			tv.user, portal_thong_bao_khach._portal_users_cua_khach(KHACH_BM)
 		)
+
+
+class TestV4ThongDiepChoTaiKhoanChuaKichHoat(_NenThanhVien):
+	"""V4 (review tổng toàn nhánh — hệ quả R7 chưa ai nêu). Tài khoản
+	`Nhân viên khoa`/`active=0` ĐĂNG NHẬP ĐƯỢC (Frappe không khoá đăng nhập
+	theo field `active` của `Portal Member` — đó là cờ NGHIỆP VỤ của app,
+	không phải `User.enabled`). `get_allowed_customers()` lọc `active: 1`
+	nên trả rỗng cho tài khoản này, và `get_portal_member()`/`get_portal_
+	customer()`/`get_portal_kho()` (`portal_context.py`) đều ném CÙNG một
+	câu "Tài khoản chưa gắn với khách hàng nào." — SAI nguyên nhân: đúng
+	luồng R7 (`portal_provision` tạo tài khoản thứ hai trở đi của một bệnh
+	viện ở dạng `Nhân viên khoa`/`active=0`, CHỜ quản lý gán khoa rồi bật),
+	tài khoản này ĐÃ được gắn khách hàng, chỉ CHƯA được kích hoạt. Đây là
+	màn hình ĐẦU TIÊN của mọi nhân viên khoa mới — thông điệp sai khiến họ
+	gọi nhầm người (Miyano) thay vì đúng người sửa được (quản lý đơn vị
+	mình)."""
+
+	def _tv_raw(self, email, vai_tro, customer, khoa_phong, active):
+		"""Không dùng `_tv()` của `_NenThanhVien` — hàm đó không nhận
+		`active`, và test này CỐ Ý cần dựng đúng hình `active=0` (R7:
+		`_chan_vai_tro_va_khoa_phong` chỉ bắt `khoa_phong` khi `active=1`,
+		xem `portal_member.py`)."""
+		return frappe.get_doc({
+			"doctype": "Portal Member", "user": self._user(email),
+			"customer": customer, "vai_tro": vai_tro,
+			"khoa_phong": khoa_phong, "active": active,
+		}).insert(ignore_permissions=True)
+
+	def test_co_portal_member_nhung_chua_kich_hoat_bao_dung_nguyen_nhan(self):
+		email = "zztest.chuakichhoat@demo.miyano"
+		tv = self._tv_raw(email, "Nhân viên khoa", KHACH_BM, None, 0)
+		self.assertEqual(
+			frappe.db.get_value("Portal Member", tv.name, "active"), 0,
+			"Fixture lỗi: bản ghi phải active=0 để phép kiểm này có nghĩa.",
+		)
+		frappe.set_user(email)
+		with self.assertRaises(frappe.PermissionError) as cm:
+			portal_context.get_portal_customer()
+		thong_diep = str(cm.exception)
+		self.assertIn("chưa được kích hoạt", thong_diep)
+		self.assertIn("quản lý", thong_diep.lower())
+		self.assertNotEqual(
+			thong_diep, "Tài khoản chưa gắn với khách hàng nào.",
+			"Tài khoản NÀY đã có Portal Member (dù active=0) — không được "
+			"nhận câu dành cho tài khoản KHÔNG có bản ghi nào.",
+		)
+
+	def test_get_portal_member_cung_phan_biet_dung_nguyen_nhan(self):
+		email = "zztest.chuakichhoat2@demo.miyano"
+		tv = self._tv_raw(email, "Nhân viên khoa", KHACH_BM, None, 0)
+		frappe.set_user(tv.user)
+		with self.assertRaises(frappe.PermissionError) as cm:
+			portal_context.get_portal_member()
+		self.assertIn("chưa được kích hoạt", str(cm.exception))
+
+	def test_get_portal_kho_cung_phan_biet_dung_nguyen_nhan(self):
+		email = "zztest.chuakichhoat3@demo.miyano"
+		tv = self._tv_raw(email, "Nhân viên khoa", KHACH_BM, None, 0)
+		frappe.set_user(tv.user)
+		with self.assertRaises(frappe.PermissionError) as cm:
+			portal_context.get_portal_kho()
+		self.assertIn("chưa được kích hoạt", str(cm.exception))
+
+	def test_khong_co_portal_member_nao_giu_nguyen_thong_diep_cu(self):
+		"""Đối chứng CHIỀU NGƯỢC LẠI — tài khoản KHÔNG có bất kỳ `Portal
+		Member` nào (lỗi cấu hình thật, không phải R7) vẫn phải nhận ĐÚNG
+		câu cũ, không bị đổi lây."""
+		email = self._user("zztest.khonggan@demo.miyano")
+		frappe.set_user(email)
+		with self.assertRaises(frappe.PermissionError) as cm:
+			portal_context.get_portal_customer()
+		self.assertEqual(str(cm.exception), "Tài khoản chưa gắn với khách hàng nào.")

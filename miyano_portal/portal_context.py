@@ -2,6 +2,36 @@ import frappe
 
 QUAN_LY = "Quản lý"
 
+THONG_DIEP_CHUA_GAN_KHACH = "Tài khoản chưa gắn với khách hàng nào."
+
+
+def _thong_diep_chua_thay_khach(user: str) -> str:
+    """V4 (fix-wave 2026-08-18, review tổng toàn nhánh — hệ quả R7 chưa ai
+    nêu). Phân biệt HAI nguyên nhân khác nhau của cùng một câu hỏi "tài
+    khoản không thấy được khách hàng nào":
+
+    - KHÔNG có bản ghi `Portal Member` nào cho user này — lỗi cấu hình
+      thật (`THONG_DIEP_CHUA_GAN_KHACH`, giữ NGUYÊN câu cũ).
+    - CÓ bản ghi nhưng `active=0` — tài khoản ĐÃ được gắn khách hàng, chỉ
+      CHƯA được quản lý bật. Đúng luồng cấp tài khoản R7 (task-5-report):
+      `portal_provision` tạo tài khoản thứ hai trở đi của một bệnh viện ở
+      dạng `Nhân viên khoa`/`active=0`, CHỜ quản lý gán khoa rồi bật — đây
+      là màn hình ĐẦU TIÊN của mọi nhân viên khoa mới. Thông điệp cũ (dùng
+      chung cho cả hai ca) nói SAI nguyên nhân, khiến họ gọi nhầm người
+      (Miyano) thay vì đúng người sửa được (quản lý đơn vị mình).
+
+    Không lộ thêm gì ngoài phân biệt đó: không nói active=0 là do THIẾU
+    KHOA hay do QUẢN LÝ CHƯA BẤM NÚT kích hoạt — cả hai đều dẫn tới cùng
+    một hành động ("liên hệ quản lý của đơn vị bạn"), và bản thân sự tồn
+    tại của bản ghi `Portal Member` (không phải nội dung nó mang) là đủ để
+    phân biệt, không cần đọc thêm `vai_tro`/`khoa_phong`/`customer`."""
+    if frappe.db.exists("Portal Member", {"user": user}):
+        return (
+            "Tài khoản chưa được kích hoạt. Liên hệ quản lý của đơn vị bạn "
+            "để được gán khoa phòng và kích hoạt tài khoản."
+        )
+    return THONG_DIEP_CHUA_GAN_KHACH
+
 
 def get_portal_member(user: str | None = None) -> frappe._dict:
     """Bản ghi thành viên cổng của user. Ném PermissionError nếu không có.
@@ -18,7 +48,7 @@ def get_portal_member(user: str | None = None) -> frappe._dict:
         ["name", "customer", "vai_tro", "khoa_phong"], as_dict=True,
     )
     if not tv:
-        raise frappe.PermissionError("Tài khoản chưa gắn với khách hàng nào.")
+        raise frappe.PermissionError(_thong_diep_chua_thay_khach(user))
     return tv
 
 
@@ -124,6 +154,15 @@ def _cot_khoa_phong_ton_tai() -> bool:
     docstring bản Vòng sửa 2 (sai) khẳng định đã được che. `dam_bao_xem_
     duoc()` giờ gọi hàm NÀY trước khi chạm cột — lưới an toàn giờ phủ CẢ
     HAI tầng bằng CÙNG một nguồn kiểm tra, không phải hai bản sao lệch nhau.
+
+    SỬA (fix-wave 2026-08-18, V2 — Important): "phủ CẢ HAI tầng" ở trên
+    liệt kê THIẾU — `api/portal.py::_pham_vi_filters()` (nuôi `portal_
+    order_history`/`portal_dashboard_kpi`, hai endpoint traffic cao nhất)
+    cũng tham chiếu THẲNG `custom_khoa_phong` mà KHÔNG qua hàm này, cùng
+    một lỗ với `dam_bao_xem_duoc()`/`_ten_don_trong_pham_vi()` trước Vòng
+    sửa 3. Đã thêm lưới vào `_pham_vi_filters()` — giờ MỌI nơi ở tầng
+    endpoint tham chiếu `custom_khoa_phong` (ba hàm) đều gọi hàm NÀY
+    trước, cùng một nguồn kiểm tra với tầng hook.
 
     Hàm này là LƯỚI AN TOÀN CHO LÚC TRIỂN KHAI, KHÔNG PHẢI giấy phép để
     deploy mà không chạy `bench migrate`: thiếu cột thì MỌI Website User bị
@@ -238,7 +277,9 @@ def dam_bao_xem_duoc(
 def get_portal_customer(user: str | None = None) -> str:
     customers = get_allowed_customers(user)
     if not customers:
-        raise frappe.PermissionError("Tài khoản chưa gắn với khách hàng nào.")
+        # V4 (fix-wave 2026-08-18) — phân biệt "chưa gắn" với "có Portal
+        # Member nhưng active=0", xem docstring _thong_diep_chua_thay_khach.
+        raise frappe.PermissionError(_thong_diep_chua_thay_khach(user or frappe.session.user))
     return customers[0]
 
 
@@ -250,7 +291,8 @@ def get_portal_kho(user: str | None = None) -> str:
     """
     customers = get_allowed_customers(user)
     if not customers:
-        raise frappe.PermissionError("Tài khoản chưa gắn với khách hàng nào.")
+        # V4 (fix-wave 2026-08-18) — cùng phân biệt như get_portal_customer().
+        raise frappe.PermissionError(_thong_diep_chua_thay_khach(user or frappe.session.user))
     kho = frappe.db.get_value(
         "Customer Warehouse",
         {"customer": ["in", customers], "active": 1},
