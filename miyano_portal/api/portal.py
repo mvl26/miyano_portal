@@ -318,13 +318,21 @@ def portal_order_place(
     đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong Sales Order,
     hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau, `nguoi_duyet`
     là chính quản lý. CỐ Ý KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`
-    (QĐ điều phối viên 19/08) — hàm đó ném lỗi CỨNG khi vượt hạn mức
-    (`_kiem_han_muc`), trong khi `dat_hang.tao_sales_order` trả lỗi MỀM có
-    cấu trúc (`bi_loai`/`ly_do`) mà nhiều test (`test_e1_loi_co_cau_truc.py`
-    và các test E1 khác) đọc trực tiếp từ kết quả hàm NÀY. Route qua
-    `duyet_va_tao_don` sẽ đổi hợp đồng lỗi của `portal_order_place` cho MỌI
-    người gọi, không riêng nhân viên khoa — trong khi sáu tài khoản đang
-    chạy thật đều là quản lý và đi qua đúng đường này mỗi ngày.
+    (QĐ điều phối viên 19/08 — SỬA LẠI ở review M3, chữ dùng lần đầu SAI,
+    xem `task-7-report.md`): CẢ HAI đường đều NÉM (`frappe.throw`, đều
+    `ValidationError`) khi vượt hạn mức — không phải một MỀM một CỨNG.
+    Khác biệt thật là dữ liệu ĐI KÈM lúc ném: `dat_hang.tao_sales_order`
+    (nhánh HĐNT) ghi `frappe.local.response["loi"]` — danh sách CÓ CẤU
+    TRÚC theo từng dòng hàng (`item_code`/`ly_do`/`thong_diep`) — TRƯỚC khi
+    throw, mà nhiều test (`test_e1_loi_co_cau_truc.py` và các test E1
+    khác) đọc trực tiếp từ `frappe.local.response["loi"]` sau khi bắt
+    `ValidationError` từ kết quả hàm NÀY. `_kiem_han_muc` (bên trong
+    `duyet_va_tao_don`) chỉ `frappe.throw` một câu văn xuôi PHẲNG, không
+    ghi gì vào `frappe.local.response`. Route qua `duyet_va_tao_don` sẽ mất
+    dữ liệu có cấu trúc đó cho MỌI người gọi, không riêng nhân viên khoa —
+    trong khi sáu tài khoản đang chạy thật đều là quản lý và đi qua đúng
+    đường này mỗi ngày. (`bi_loai`/`ly_do` là khoá của MỘT HÀM KHÁC hẳn,
+    `portal_reorder` — không liên quan gì tới đường này; đừng nhầm.)
     """
     if not la_quan_ly():
         # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL/hạn mức khó
@@ -420,7 +428,11 @@ def _dam_bao_phieu_tu_duyet(
         "trang_thai": TRANG_THAI_DA_DUYET,
         "thoi_diem_gui": gio, "thoi_diem_duyet": gio,
         "nguoi_duyet": nguoi, "duyet_voi_tu_cach": "Quản lý chính",
-        "tu_duyet": 1,
+        # `tu_duyet` KHÔNG khai tay ở đây — `PortalDeXuatMua._suy_tu_duyet()`
+        # (validate(), Task 7 review M4) tự tính từ `nguoi_duyet == owner`
+        # ngay khi `insert()` chạy (`owner` đã là `frappe.session.user` từ
+        # trước validate()); giữ tay ở đây sẽ là hai nơi cùng viết một sự
+        # thật, đúng thứ `.duyet()` (Task 3) đã tự nhắc mình tránh.
     })
     try:
         doc.ma_de_xuat = sinh_ma(customer, khoa_phong)

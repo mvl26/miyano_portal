@@ -51,6 +51,23 @@ class PortalDeXuatMua(Document):
 	def validate(self):
 		self._chan_khoa_phong_khac_benh_vien()
 		self._chan_sua_so_luong_de_xuat()
+		self._suy_tu_duyet()
+
+	def _suy_tu_duyet(self):
+		"""`tu_duyet` LUÔN suy từ `nguoi_duyet == owner`, không bao giờ nhận
+		trực tiếp — kể cả từ `.duyet()` (Task 3) chính nó. Chuyển vào
+		`validate()` (Task 7, review M4) thay vì chỉ tính tay trong
+		`.duyet()`: đường `portal_order_place` → `_dam_bao_phieu_tu_duyet()`
+		(§5.5) tạo THẲNG một phiếu "Đã duyệt" mà KHÔNG đi qua `.duyet()`
+		(không có ai "đang chờ duyệt" để mà chuyển trạng thái tới) — nếu chỉ
+		tính trong `.duyet()`, đường đó buộc phải tự tính tay lần thứ hai,
+		đúng kiểu hai chỗ cùng viết một sự thật rồi sớm muộn lệch nhau mà
+		module này đã tự nhắc chính nó tránh (`de_xuat_duyet.py`,
+		"Ruling preflight C2"). `nguoi_duyet` rỗng (phiếu chưa từng duyệt)
+		thì bỏ qua — không ép `tu_duyet` về 0 sớm hơn cần thiết, dù giá trị
+		mặc định của field vốn đã là 0."""
+		if self.nguoi_duyet:
+			self.tu_duyet = 1 if self.nguoi_duyet == self.owner else 0
 
 	def _kiem_chuyen(self, dich):
 		if dich not in self.CHUYEN_HOP_LE.get(self.trang_thai, set()):
@@ -108,14 +125,17 @@ class PortalDeXuatMua(Document):
 
 		`tu_duyet` SUY RA từ `nguoi_duyet == self.owner`, không nhận tham số
 		riêng: một cờ tự khai đúng lúc cần nhất (chính người tạo phiếu tự
-		duyệt cho mình) sẽ không được khai nếu để caller tự truyền.
+		duyệt cho mình) sẽ không được khai nếu để caller tự truyền. Việc
+		tính giờ nằm ở `_suy_tu_duyet()` (gọi từ `validate()`), KHÔNG viết
+		tay ở đây nữa (Task 7, review M4) — để `portal_order_place` (tạo
+		THẲNG một phiếu "Đã duyệt", không qua `.duyet()`) không phải tự tính
+		lại phép suy này lần thứ hai.
 		"""
 		self._kiem_chuyen(TRANG_THAI_DA_DUYET)
 		self.nguoi_duyet = nguoi_duyet
 		self.thoi_diem_duyet = now_datetime()
 		self.duyet_voi_tu_cach = tu_cach
 		self.uy_quyen = uy_quyen
-		self.tu_duyet = 1 if nguoi_duyet == self.owner else 0
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
 

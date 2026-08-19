@@ -466,17 +466,38 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 		VẪN phải là lời mời gửi duyệt, không lộ chi tiết "khoa đã tắt" mà
 		chính nhân viên khoa không có quyền tự sửa.
 
-		Phép kiểm active gốc (`dat_hang.tao_sales_order` kiểm CẢ
-		`Customer Department.active`, không chỉ `customer`) không mất đi —
-		nó vẫn đứng cho quản lý (qua `khoa_phong_cho_don()`) và cho đường
-		duyệt đề xuất (`duyet_va_tao_don`); xem
+		SỬA (review I1) — bản trước của docstring này TỰ NHẬN phép kiểm
+		active gốc của `dat_hang.tao_sales_order` "vẫn đứng… qua
+		`khoa_phong_cho_don()`" và trỏ sang
 		`test_quan_ly_khong_chon_duoc_khoa_benh_vien_khac_qua_khoa_phong_
-		cho_don` ở `test_de_xuat_duyet.py` cho vế quản lý."""
+		cho_don` — SAI: test đó chỉ đổi BỆNH VIỆN, không đổi `active`, và
+		`khoa_phong_cho_don()` tự kiểm `active` bằng CHÍNH SQL của nó
+		(`portal_context.py`), không đi qua `dat_hang` chút nào. Test này
+		giờ CHỈ còn khẳng định "nhân viên khoa bị chặn hẳn, kể cả khi khoa
+		đã tắt" — vế "`dat_hang.tao_sales_order` tự nó có canh `active`
+		không" chuyển sang `test_dat_hang_tu_choi_khoa_da_tat` ngay dưới,
+		gọi THẲNG `dat_hang`, không qua `portal_order_place`."""
 		frappe.db.set_value("Customer Department", self.kp_a.name, "active", 0)
 		frappe.set_user(self.nv_a.user)
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			self._dat_qua_cong()
 		self.assertIn("gửi duyệt", str(ctx.exception))
+
+	def test_dat_hang_tu_choi_khoa_da_tat(self):
+		"""Review I1 — `dat_hang.tao_sales_order` PHẢI tự canh `Customer
+		Department.active` ở TẦNG CỦA NÓ, độc lập với `khoa_phong_cho_don()`
+		(tầng khoa ↔ NGƯỜI GỌI ở `portal_context.py`): hai tầng kiểm hai
+		việc khác nhau (khoa ↔ khách hàng ở đây, khoa ↔ người gọi ở kia),
+		và Task 7 đã bỏ mất đường TEST duy nhất từng chạm nhánh này khi viết
+		lại `test_khoa_da_tat_khong_dong_dau_duoc` để không còn gọi tới
+		`dat_hang` (nhân viên khoa bị chặn TRƯỚC đó rồi). Gọi THẲNG
+		`dat_hang.tao_sales_order` qua `_don()` — không qua
+		`portal_order_place`, vì nhân viên khoa không còn đặt trực tiếp
+		được nữa (xem các test trên); `_don()` không cần phiên đăng nhập."""
+		frappe.db.set_value("Customer Department", self.kp_a.name, "active", 0)
+		with self.assertRaises(frappe.PermissionError) as ctx:
+			self._don(self.kp_a.name)
+		self.assertIn("không thuộc đơn vị", str(ctx.exception))
 
 
 class TestCacEndpointDonKhacApDungPhamVi(_NenCachLy):

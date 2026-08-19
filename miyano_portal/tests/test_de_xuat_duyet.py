@@ -583,12 +583,17 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 	sau mỗi Sales Order: KHÔNG có hai loại đơn với hai lịch sử khác nhau
 	trên hệ thống.
 
-	QĐ điều phối viên (19/08/2026, vòng sửa sau report đầu của Task 7— xem
-	`task-7-report.md`): `portal_order_place` KHÔNG route qua
-	`de_xuat_duyet.duyet_va_tao_don`. Nó vẫn gọi THẲNG `dat_hang.
-	tao_sales_order` như trước Task 7 — giữ NGUYÊN hợp đồng lỗi MỀM
-	(`bi_loai`/`ly_do`) mà `_kiem_han_muc` (bên trong `duyet_va_tao_don`)
-	sẽ đổi thành lỗi CỨNG cho MỌI người gọi, không riêng nhân viên khoa; sáu
+	QĐ điều phối viên (19/08/2026, vòng sửa sau report đầu của Task 7 — xem
+	`task-7-report.md`, chữ dùng SỬA LẠI ở review M3): `portal_order_place`
+	KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`. Nó vẫn gọi THẲNG
+	`dat_hang.tao_sales_order` như trước Task 7 — giữ NGUYÊN cách hàm đó
+	báo lỗi vượt hạn mức: ghi `frappe.local.response["loi"]` (danh sách CÓ
+	CẤU TRÚC theo từng dòng hàng) RỒI MỚI `frappe.throw(..., ValidationError)`
+	— nhiều test (`test_e1_loi_co_cau_truc.py` và các test E1 khác) đọc
+	thẳng khoá đó. `_kiem_han_muc` (bên trong `duyet_va_tao_don`) cũng NÉM
+	`ValidationError` (không phải "mềm hơn"), nhưng chỉ một câu văn xuôi
+	PHẲNG, không ghi gì vào `frappe.local.response` — route qua đó sẽ MẤT
+	dữ liệu có cấu trúc cho MỌI người gọi, không riêng nhân viên khoa; sáu
 	tài khoản đang chạy thật đều là quản lý và đi đúng đường này mỗi ngày.
 	Chỉ SAU KHI Sales Order tạo xong mới ghi một phiếu "Đã duyệt" đứng sau.
 
@@ -612,6 +617,15 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 		# Khoa của MỘT bệnh viện KHÁC (kh_b, có sẵn trong fixture dùng
 		# chung) — để kiểm quản lý kh_a không đặt hộ được khoa của kh_b.
 		self.khoa_benh_vien_b = f.khoa_duoc
+		# Review I1 — khoa CÙNG bệnh viện kh_a nhưng SẼ TẮT (`active=0` đặt
+		# ngay trong từng test cần nó, không đặt sẵn ở đây để không ảnh
+		# hưởng các test khác dùng chung `setUp`). Khác `khoa_benh_vien_b`
+		# ở CHỖ SAI: cái đó sai vì khác BỆNH VIỆN, cái này sai vì đã TẮT —
+		# hai điều kiện độc lập của `khoa_phong_cho_don()`, phải có test
+		# riêng cho từng cái, không được để một test đại diện cho cả hai.
+		self.khoa_da_tat_a = _dam_bao_khoa(
+			self.kh_a, "Đã tắt (test task7)", "DXT7TAT"
+		)
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
 			"dxt7.ql@demo.miyano", self.kh_a, "Quản lý", None
@@ -663,6 +677,18 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError) as ctx:
 			portal_context.khoa_phong_cho_don(self.khoa_benh_vien_b)
 		self.assertIn("không thuộc", str(ctx.exception))
+
+	def test_quan_ly_khong_chon_duoc_khoa_da_tat_cung_benh_vien_qua_khoa_phong_cho_don(self):
+		"""Review I1 — điều kiện THỨ HAI của `khoa_phong_cho_don()`, ĐỘC
+		LẬP với "khác bệnh viện" ở test trên: khoa CÙNG bệnh viện `kh_a`
+		nhưng đã `active=0`. Trước review này, KHÔNG có test nào trong toàn
+		suite chạm được vế `active` của hàm — xoá `or not kp.active` khỏi
+		`khoa_phong_cho_don()` vẫn xanh hết nếu không có test này."""
+		frappe.db.set_value("Customer Department", self.khoa_da_tat_a, "active", 0)
+		frappe.set_user(self.user_quan_ly)
+		with self.assertRaises(frappe.PermissionError) as ctx:
+			portal_context.khoa_phong_cho_don(self.khoa_da_tat_a)
+		self.assertIn("hoạt động", str(ctx.exception))
 
 	def test_quan_ly_chon_toan_vien_qua_khoa_phong_cho_don(self):
 		"""VẾ DƯƠNG — `None` (Toàn viện) là hợp lệ, không phải lỗi."""

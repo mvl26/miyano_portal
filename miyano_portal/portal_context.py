@@ -135,12 +135,23 @@ def khoa_phong_cho_don(khoa_phong_client: str | None = None, user: str | None = 
       mới, cùng lý do `pham_vi_don()`/`dat_hang.tao_sales_order` đã kiểm
       `active` ở các đường khác. `khoa_phong_client` rỗng/`None` = "Toàn
       viện" (§5.5), hợp lệ — không phải lỗi.
+
+    Review Task 7 (I2) — PHẢI gọi `la_quan_ly(user)`, KHÔNG tự đọc
+    `get_portal_member(user).vai_tro` (bản đầu của hàm này làm vậy, và là
+    chỗ DUY NHẤT trong cả module vi phạm quy ước ngay cạnh nó — xem
+    docstring `la_quan_ly()` ở trên: "mọi nơi gọi PHẢI hỏi hàm này, KHÔNG
+    được tự đọc `vai_tro`"). Chưa có bug sống hôm nay (uỷ quyền tạm thời
+    ngoài phạm vi đề án này), nhưng khi nó triển khai, người được uỷ quyền
+    sẽ qua được chặn `la_quan_ly()` ở `portal_order_place` rồi vẫn bị hàm
+    NÀY ép về khoa riêng nếu nó tự đọc `vai_tro` — phủ nhận đúng thứ họ vừa
+    được trao, gãy lặng lẽ vì không có test nào bắt được (uỷ quyền chưa
+    tồn tại để mà test).
     """
-    tv = get_portal_member(user)
-    if tv.vai_tro != QUAN_LY:
-        return tv.khoa_phong
+    if not la_quan_ly(user):
+        return get_portal_member(user).khoa_phong
     if not khoa_phong_client:
         return None
+    tv = get_portal_member(user)
     kp = frappe.db.get_value(
         "Customer Department", khoa_phong_client, ["customer", "active"], as_dict=True
     )
