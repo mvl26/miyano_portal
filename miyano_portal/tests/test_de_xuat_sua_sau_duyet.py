@@ -19,6 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 from miyano_portal import de_xuat_duyet, portal_context
 from miyano_portal.api import de_xuat, portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+	SO_LUONG_XIN_SUA_TRONG,
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
@@ -67,6 +68,21 @@ def _dam_bao_thanh_vien(email, customer, vai_tro, khoa_phong):
 	return email
 
 
+def _item2():
+	"""Vật tư THỨ HAI, riêng của file này (cùng khuôn `test_de_xuat_duyet.py::
+	_item2`) — cần cho I2 (review Task 9): xin bỏ MỘT dòng về 0 mà đơn còn
+	dòng khác thì mới không vướng chốt "không còn dòng nào" của
+	`portal_order_sua_so_luong`."""
+	ten = "_TEST DX SUA ITEM 2"
+	if not frappe.db.exists("Item", ten):
+		frappe.get_doc({
+			"doctype": "Item", "item_code": ten, "item_name": ten,
+			"item_group": frappe.db.get_value("Item Group", {}, "name"),
+			"stock_uom": "Nos", "is_stock_item": 0,
+		}).insert(ignore_permissions=True)
+	return ten
+
+
 def _gan_contact_vao_khach(email, customer):
 	"""Cùng lý do `test_de_xuat_duyet.py` — `tao_sales_order` cần Contact
 	gắn đúng Customer để không ném "Contact Person does not belong to..."."""
@@ -90,6 +106,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.item = f.item
+		self.item2 = _item2()
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
@@ -105,17 +122,24 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		# (cùng khuôn `frappe.db.set_value(..., update_modified=False)` mà
 		# `test_e6_mua_le.py` dùng khắp nơi để dựng fixture ở trạng thái
 		# này, không đi qua đường workflow thật của sales).
+		# Dòng thứ hai (item2) — cần cho I2 (review Task 9): xin bỏ dòng
+		# `self.item` về 0 mà đơn còn `item2` thì mới không vướng chốt "đơn
+		# sẽ không còn dòng nào" của `portal_order_sua_so_luong`.
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
 			"loai_don": "Mua lẻ",
-			"items": [{"item_code": self.item, "so_luong_de_xuat": 10}],
+			"items": [
+				{"item_code": self.item, "so_luong_de_xuat": 10},
+				{"item_code": self.item2, "so_luong_de_xuat": 5},
+			],
 		})
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
 		doc.reload()
 		doc.items[0].so_luong_duyet = 10
+		doc.items[1].so_luong_duyet = 5
 		doc.save(ignore_permissions=True)
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
@@ -232,7 +256,12 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		self.assertEqual(so.items[0].qty, 10)
 		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
 		self.assertEqual(doc.trang_thai, "Đã duyệt")
-		self.assertFalse(doc.items[0].so_luong_xin_sua)   # dọn sạch yêu cầu cũ
+		# I2 (review Task 9) — dọn sạch yêu cầu cũ nghĩa là VỀ SENTINEL
+		# "chưa có yêu cầu" (SO_LUONG_XIN_SUA_TRONG = -1), KHÔNG phải về 0:
+		# 0 tự nó là một giá trị xin sửa hợp lệ (nghĩa "xin bỏ dòng này").
+		# assertFalse(-1) sẽ FAIL vì -1 là truthy — đúng ý, ép test này phải
+		# khẳng định đúng sentinel thay vì tình cờ đúng với giá trị cũ.
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
 
 	def test_nhan_vien_khong_tu_choi_sua_duoc(self):
 		"""VẾ ÂM cần cho `de_xuat_tu_choi_sua`."""
@@ -282,3 +311,90 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 			frappe.db.get_value("Sales Order", self.don_da_duyet, "workflow_state"),
 			"Chờ xác nhận",
 		)
+
+	# ---- I3 (review Task 9) — trạng thái không phục hồi được -------------
+	#
+	# `_kiem_chuyen(TRANG_THAI_DA_DUYET)` một mình KHÔNG đủ: cạnh đó hợp lệ
+	# từ CẢ "Chờ duyệt" (đường duyệt lần đầu thật) LẪN "Chờ duyệt sửa" (đường
+	# xin sửa). `duyet_sua()`/`tu_choi_sua()` phải tự kiểm đang đứng ĐÚNG ở
+	# "Chờ duyệt sửa" — thiếu chốt đó, gọi trên một phiếu "Chờ duyệt" (chưa
+	# từng xin sửa, chưa có Sales Order) đẩy thẳng phiếu sang "Đã duyệt" mà
+	# không có đơn nào đứng sau, và vì "Đã duyệt" chỉ còn cạnh ra là "Chờ
+	# duyệt sửa", `duyet()` thật (nơi duy nhất tạo khối truy vết + sinh đơn)
+	# không còn cách nào chạy lại — phiếu chết vĩnh viễn ở trạng thái nói dối.
+
+	def _phieu_dang_cho_duyet_lan_dau(self):
+		"""Phiếu ở "Chờ duyệt" — CHƯA từng được duyệt lần nào, chưa có Sales
+		Order đứng sau. Khác `self.phieu_da_duyet` (đã duyệt thật, có đơn)."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"loai_don": "Mua lẻ",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 3}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		return doc
+
+	def test_duyet_sua_tu_trang_thai_cho_duyet_thi_bi_chan(self):
+		doc = self._phieu_dang_cho_duyet_lan_dau()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.duyet_sua()
+		self.assertIn("không có yêu cầu xin sửa", str(ctx.exception))
+		doc.reload()
+		# Chốt của cả I3 — phiếu KHÔNG bị đẩy sang "Đã duyệt" giả (không có
+		# Sales Order đứng sau).
+		self.assertEqual(doc.trang_thai, "Chờ duyệt")
+		self.assertFalse(doc.sales_order)
+
+	def test_tu_choi_sua_tu_trang_thai_cho_duyet_thi_bi_chan(self):
+		doc = self._phieu_dang_cho_duyet_lan_dau()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.tu_choi_sua("không hợp lệ")
+		self.assertIn("không có yêu cầu xin sửa", str(ctx.exception))
+		doc.reload()
+		self.assertEqual(doc.trang_thai, "Chờ duyệt")
+		self.assertFalse(doc.sales_order)
+
+	# ---- I1 (review Task 9) — nhánh "không đi qua đề xuất" chưa ai chạm --
+	#
+	# `test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu` ở trên
+	# dùng `user_quan_ly` → `la_quan_ly()` trả True → guard `return` NGAY
+	# dòng đầu, CHƯA BAO GIỜ chạm nhánh `if not so.get("custom_de_xuat"):
+	# return`. Gọi THẲNG hàm ở đây, không qua endpoint: nhân viên gọi
+	# `portal_order_sua_so_luong` trên đơn cũ sẽ bị `dam_bao_xem_duoc` chặn
+	# SỚM HƠN (đơn cũ không có `custom_khoa_phong`) — một test xuyên endpoint
+	# sẽ xanh vì lý do KHÁC, không phải vì guard này đúng.
+
+	def test_dam_bao_duoc_sua_don_da_duyet_tra_ve_khi_khong_co_custom_de_xuat(self):
+		so_stub = frappe._dict({"custom_de_xuat": None})
+		with patch.object(portal_context, "la_quan_ly", return_value=False), \
+			patch.object(portal_context, "_cot_de_xuat_ton_tai", return_value=True):
+			# Không ném gì — đây chính là khẳng định. Nếu nhánh "return" bị
+			# xoá/hỏng, dòng dưới ném PermissionError và test này đỏ.
+			portal_context.dam_bao_duoc_sua_don_da_duyet(so_stub, user=self.user_huyethoc)
+
+	# ---- I2 (review Task 9) — so_luong_xin_sua = 0 là một yêu cầu THẬT ---
+
+	def test_nhan_vien_xin_bo_mot_dong_ve_0_quan_ly_duyet_sua_thi_dong_do_mat_that(self):
+		"""`so_luong_xin_sua = 0` là một giá trị XIN SỬA hợp lệ (đúng quy
+		ước "Số lượng 0 = bỏ dòng đó" của `portal_order_sua_so_luong`),
+		KHÔNG phải "chưa có yêu cầu". Trước bản vá, mọi tầng coi 0 là falsy
+		nên yêu cầu này bị bỏ qua LẶNG LẼ ở khắp nơi — phiếu báo "Chờ duyệt
+		sửa" thành công, quản lý bấm duyệt sửa, và không có gì xảy ra."""
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+			"items": [{"item_code": self.item, "qty": 0}],
+		})
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.items[0].so_luong_xin_sua, 0)   # KHÔNG bị bỏ qua
+
+		frappe.set_user(self.user_quan_ly)
+		de_xuat.de_xuat_duyet_sua(self.phieu_da_duyet)
+
+		so = frappe.get_doc("Sales Order", self.don_da_duyet)
+		ma_con_lai = {i.item_code for i in so.items}
+		self.assertNotIn(self.item, ma_con_lai)   # dòng xin bỏ THẬT SỰ mất
+		self.assertIn(self.item2, ma_con_lai)     # dòng KHÔNG xin sửa còn nguyên

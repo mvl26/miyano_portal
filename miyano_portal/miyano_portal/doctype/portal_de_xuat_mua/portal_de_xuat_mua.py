@@ -38,6 +38,21 @@ TRANG_THAI_DA_HUY = "Đã huỷ"
 # nó trong task này (chưa thêm vào options của field `trang_thai`).
 TRANG_THAI_CHO_DUYET_SUA = "Chờ duyệt sửa"
 
+# Task 9, I2 (review) — sentinel cho "dòng này CHƯA có yêu cầu xin sửa".
+# KHÔNG dùng `0`/`None`:
+#   - `0` tự nó là một giá trị xin sửa HỢP LỆ — đúng quy ước "Số lượng 0 =
+#     bỏ dòng đó" mà `portal_order_sua_so_luong` đã định nghĩa. Coi `0` là
+#     falsy = "chưa có yêu cầu" (bản đầu của Task 9) làm mất LẶNG LẼ đúng
+#     yêu cầu nguy hiểm nhất: khoa xin BỎ một mặt hàng.
+#   - `None` không sống sót qua một lần `save()`: field Float đi qua
+#     `BaseDocument.get_valid_dict()` (frappe/model/base_document.py), nơi
+#     mọi field thuộc `float_like_fields` bị ép `flt(value)` nếu chưa phải
+#     `float` — `flt(None)` trả `0.0`, tức Frappe tự đổi `None` thành `0`
+#     ngay trong lần lưu kế tiếp, quay lại đúng chỗ mơ hồ vừa nêu.
+# Số lượng thật không bao giờ âm (`portal_order_sua_so_luong` chặn `qty <
+# 0`), nên `-1` là sentinel AN TOÀN — không trùng bất kỳ giá trị hợp lệ nào.
+SO_LUONG_XIN_SUA_TRONG = -1
+
 
 class PortalDeXuatMua(Document):
 	CHUYEN_HOP_LE = {
@@ -137,7 +152,15 @@ class PortalDeXuatMua(Document):
 				row.don_gia = rate
 
 	def duyet(self, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None):
-		"""Nơi DUY NHẤT ghi `Đã duyệt` — cùng cả khối truy vết.
+		"""Nơi DUY NHẤT ghi `Đã duyệt` LẦN ĐẦU — cùng cả khối truy vết
+		(người duyệt, thời điểm, tư cách). SỬA (Minor, review Task 9):
+		`duyet_sua()`/`tu_choi_sua()` ở dưới, từ Task 9, cũng hợp lệ ghi
+		`Đã duyệt` — đó là VÒNG SỬA đi qua "Chờ duyệt sửa", KHÔNG tạo khối
+		truy vết mới (không đụng `nguoi_duyet`/`thoi_diem_duyet`/`duyet_voi_
+		tu_cach` — khối đó vẫn chỉ mang dấu của lần duyệt ĐẦU TIÊN, xem nợ
+		kỹ thuật điều phối viên đã ghi nhận), nên hàm NÀY vẫn là nơi DUY
+		NHẤT ghi khối truy vết đó — chỉ không còn là nơi duy nhất ghi TÊN
+		trạng thái "Đã duyệt" nữa.
 
 		`tu_duyet` SUY RA từ `nguoi_duyet == self.owner`, không nhận tham số
 		riêng: một cờ tự khai đúng lúc cần nhất (chính người tạo phiếu tự
@@ -193,13 +216,23 @@ class PortalDeXuatMua(Document):
 		luong`. Mã hàng không khớp dòng nào trên phiếu bị bỏ qua lặng lẽ —
 		endpoint gọi hàm này (`de_xuat.de_xuat_xin_sua`) không cho thêm
 		dòng mới, cùng luật `portal_order_sua_so_luong` đã áp cho khách.
+
+		I2 (review Task 9) — `qty` THIẾU (không có khoá, hoặc `None`) thì
+		BỎ QUA dòng đó (giữ nguyên sentinel `SO_LUONG_XIN_SUA_TRONG`, không
+		phải "chưa có yêu cầu"); `qty = 0` GHI THẲNG `0` — đó là một yêu cầu
+		THẬT ("xin bỏ dòng này"), không phải giá trị rỗng. Trước bản vá,
+		`float(row.get("qty") or 0)` gộp cả hai trường hợp làm một.
 		"""
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET_SUA)
 		theo_ma = {d.item_code: d for d in self.items}
 		for row in dong:
 			ma = row.get("item_code")
-			if ma in theo_ma:
-				theo_ma[ma].so_luong_xin_sua = float(row.get("qty") or 0)
+			if ma not in theo_ma:
+				continue
+			qty = row.get("qty")
+			if qty is None:
+				continue
+			theo_ma[ma].so_luong_xin_sua = float(qty)
 		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
 		self.save(ignore_permissions=True)
 
@@ -212,19 +245,56 @@ class PortalDeXuatMua(Document):
 		mới là nơi sửa đơn thật (và tự đồng bộ ngược `so_luong_duyet` lên
 		đúng phiếu này, xem "Ruling preflight C4" ở `api/portal.py`).
 		Hàm này chỉ dọn phần còn lại (`so_luong_xin_sua`) và đổi trạng
-		thái."""
+		thái.
+
+		I3 (review Task 9) — TỰ KIỂM đang đứng ĐÚNG ở `TRANG_THAI_CHO_
+		DUYET_SUA` TRƯỚC khi gọi `_kiem_chuyen`: cạnh `-> Đã duyệt` cũng hợp
+		lệ từ `Chờ duyệt` (đường duyệt LẦN ĐẦU thật). Thiếu chốt này, gọi
+		hàm trên một phiếu đang "Chờ duyệt" (chưa từng xin sửa, chưa có
+		Sales Order) sẽ đẩy thẳng phiếu sang "Đã duyệt" MÀ KHÔNG CÓ ĐƠN NÀO
+		đứng sau — và vì "Đã duyệt" chỉ còn đúng một cạnh ra
+		(`TRANG_THAI_CHO_DUYET_SUA`), `duyet()` thật (nơi duy nhất tạo khối
+		truy vết + sinh đơn) không còn cách nào chạy lại: phiếu chết vĩnh
+		viễn ở trạng thái nói dối. (Trước bản vá, hàm chỉ "tình cờ" an toàn
+		nhờ `doc.sales_order` rỗng làm `portal_order_sua_so_luong` ném lỗi
+		trước — đó là tác dụng phụ của endpoint gọi nó, không phải chốt của
+		chính hàm này; gọi trực tiếp trên `Document` như test dưới đây thì
+		không có tác dụng phụ đó để mà dựa vào.)
+
+		I2 (review Task 9) — so `so_luong_xin_sua >= 0`, KHÔNG so truthy:
+		`0` là một yêu cầu THẬT ("xin bỏ dòng này"), không phải "chưa có gì
+		để duyệt". Dọn về sentinel `SO_LUONG_XIN_SUA_TRONG`, KHÔNG về `0`."""
+		if self.trang_thai != TRANG_THAI_CHO_DUYET_SUA:
+			frappe.throw(
+				f'Phiếu đang ở trạng thái "{self.trang_thai}", không có yêu '
+				"cầu xin sửa nào đang chờ để duyệt.",
+				frappe.ValidationError,
+			)
 		self._kiem_chuyen(TRANG_THAI_DA_DUYET)
 		for d in self.items:
-			if d.so_luong_xin_sua:
+			if d.so_luong_xin_sua >= 0:
 				d.so_luong_duyet = d.so_luong_xin_sua
-				d.so_luong_xin_sua = 0
+				d.so_luong_xin_sua = SO_LUONG_XIN_SUA_TRONG
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
 
 	def tu_choi_sua(self, ly_do):
 		"""Quản lý TỪ CHỐI yêu cầu xin sửa — đơn giữ NGUYÊN số đã duyệt
 		trước đó (không đụng Sales Order), chỉ dọn `so_luong_xin_sua` và
-		ghi lý do vào `ghi_chu_quan_ly` của từng dòng có yêu cầu."""
+		ghi lý do vào `ghi_chu_quan_ly` của từng dòng có yêu cầu.
+
+		I3 (review Task 9) — cùng chốt TỰ KIỂM trạng thái với `duyet_sua()`
+		ở trên: xem docstring hàm đó để biết vì sao `_kiem_chuyen` một mình
+		không đủ.
+
+		I2 (review Task 9) — so `so_luong_xin_sua >= 0`, KHÔNG so truthy:
+		`0` là một yêu cầu THẬT, không phải "chưa có gì để từ chối"."""
+		if self.trang_thai != TRANG_THAI_CHO_DUYET_SUA:
+			frappe.throw(
+				f'Phiếu đang ở trạng thái "{self.trang_thai}", không có yêu '
+				"cầu xin sửa nào đang chờ để từ chối.",
+				frappe.ValidationError,
+			)
 		self._kiem_chuyen(TRANG_THAI_DA_DUYET)
 		if not (ly_do or "").strip():
 			frappe.throw(
@@ -232,9 +302,9 @@ class PortalDeXuatMua(Document):
 				frappe.ValidationError,
 			)
 		for d in self.items:
-			if d.so_luong_xin_sua:
+			if d.so_luong_xin_sua >= 0:
 				d.ghi_chu_quan_ly = ly_do
-				d.so_luong_xin_sua = 0
+				d.so_luong_xin_sua = SO_LUONG_XIN_SUA_TRONG
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
 

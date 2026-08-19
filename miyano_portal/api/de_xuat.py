@@ -241,14 +241,19 @@ def de_xuat_duyet_sua(ten) -> dict:
 	da_duyet` cho qua vì `la_quan_ly()` đúng) để sửa THẬT Sales Order, rồi
 	mới gọi `doc.duyet_sua()` dọn phần còn lại trên phiếu. Thứ tự này CỐ Ý:
 	nếu sửa đơn thất bại (hết hiệu lực báo giá, đơn không còn ở đúng
-	trạng thái...), phiếu KHÔNG được chuyển "Đã duyệt" sớm hơn thật."""
+	trạng thái...), phiếu KHÔNG được chuyển "Đã duyệt" sớm hơn thật.
+
+	I2 (review Task 9) — lọc `d.so_luong_xin_sua >= 0`, KHÔNG lọc truthy:
+	`0` là một yêu cầu THẬT ("xin bỏ dòng này", đúng quy ước của
+	`portal_order_sua_so_luong`), không phải "chưa có gì để duyệt". Lọc
+	truthy (bản đầu của Task 9) làm rớt LẶNG LẼ đúng yêu cầu nguy hiểm nhất."""
 	if not la_quan_ly():
 		raise frappe.PermissionError("Chỉ quản lý mới duyệt yêu cầu xin sửa được.")
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
 	dong = {
 		"items": [
-			{"item_code": d.item_code, "qty": float(d.so_luong_xin_sua or 0)}
-			for d in doc.items if d.so_luong_xin_sua
+			{"item_code": d.item_code, "qty": float(d.so_luong_xin_sua)}
+			for d in doc.items if d.so_luong_xin_sua >= 0
 		]
 	}
 	from miyano_portal.api import portal
