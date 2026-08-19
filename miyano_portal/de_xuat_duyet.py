@@ -13,16 +13,16 @@ phương thức doctype) CỐ Ý — hai hàm cùng tên `duyet` ở hai tầng 
 lỗi gọi nhầm.
 
 BẪY #2 §5.6 ("giá tính lại tại thời điểm duyệt, khác giá khoa đã thấy thì
-báo cho quản lý TRƯỚC KHI họ bấm") — VẾ MỘT (tính lại tại thời điểm duyệt)
-đã có SẴN nhờ kiến trúc: `dat_hang.tao_sales_order` luôn tra `Item Price`
-MỚI NHẤT tại thời điểm gọi (`_gia_hien_hanh`), không có snapshot giá nào bị
-cache lại rồi tái dùng lặng lẽ ở đây. VẾ HAI (báo TRƯỚC KHI bấm, tức một màn
-xem trước cho quản lý) KHÔNG cài ở task này: cột lưu "giá khoa đã thấy"
-(`Portal De Xuat Mua Item.don_gia`) tồn tại trên doctype nhưng KHÔNG có
-đường ghi nào trong app điền vào nó (đã kiểm bằng grep toàn app) — không có
-snapshot nào để so sánh, nên chưa có gì để cảnh báo. Việc này cần một task
-riêng ghi `don_gia` tại thời điểm khoa xem giá trước, rồi mới có một số để
-so với giá tính lại lúc duyệt.
+báo cho quản lý TRƯỚC KHI họ bấm") — vòng sửa (19/08/2026, sau report Task
+6 đầu tiên): VẾ MỘT (tính lại tại thời điểm duyệt) có SẴN nhờ kiến trúc:
+`dat_hang.tao_sales_order` luôn tra `Item Price` MỚI NHẤT tại thời điểm gọi
+(`_gia_hien_hanh`), không cache lại giá cũ. VẾ HAI (báo TRƯỚC KHI bấm) giờ
+có DỮ LIỆU: `PortalDeXuatMua.gui_duyet()` đóng dấu `don_gia` = giá hiện
+hành NGAY lúc gửi duyệt (cùng lúc `so_luong_de_xuat` bị khoá) — đó là "giá
+khoa đã thấy". `_kiem_gia_doi()` dưới đây so `don_gia` với giá tính lại
+NGAY LÚC DUYỆT và trả về `canh_bao_gia` trong kết quả — KHÔNG chặn việc
+duyệt, chỉ mang dữ liệu lên cho tầng hiển thị (kế hoạch B, ngoài phạm vi
+module này) tự quyết cách báo và có bắt xác nhận hay không.
 """
 
 import frappe
@@ -52,6 +52,11 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	if doc.loai_don == "HĐNT" and doc.hdnt:
 		_kiem_han_muc(doc, dong)
 
+	# §5.6 bẫy #2 — thu thập TRƯỚC khi tạo đơn: nếu `tao_sales_order` bên
+	# dưới ném lỗi (hạn mức/giá/kho...) thì không có đơn nào được duyệt, và
+	# không có gì đáng để cảnh báo cho một lần duyệt chưa từng xảy ra.
+	canh_bao_gia = _kiem_gia_doi(doc)
+
 	kq = dat_hang.tao_sales_order(
 		doc.customer,
 		mode="hdnt" if doc.loai_don == "HĐNT" else "ban_le",
@@ -72,7 +77,42 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		"custom_de_xuat": doc.name,
 		"custom_ma_tra_cuu": doc.ma_de_xuat,
 	})
-	return {"sales_order": kq["sales_order"], "de_xuat": doc.name}
+	return {
+		"sales_order": kq["sales_order"], "de_xuat": doc.name,
+		"canh_bao_gia": canh_bao_gia,
+	}
+
+
+def _kiem_gia_doi(doc) -> list[dict]:
+	"""§5.6 bẫy #2 — so giá tính lại NGAY LÚC DUYỆT với `don_gia` đã đóng
+	dấu lúc GỬI DUYỆT (`PortalDeXuatMua.gui_duyet`/`_dong_dau_gia`, "giá
+	khoa đã thấy"). KHÔNG chặn duyệt — chỉ trả DANH SÁCH các dòng lệch giá
+	để tầng hiển thị (kế hoạch B, ngoài phạm vi module này) tự quyết cách
+	báo và có bắt quản lý xác nhận hay không.
+
+	Dòng nào `don_gia` RỖNG thì BỎ QUA — không có gì để so (mua lẻ không
+	bao giờ có `don_gia`, §4.5; hoặc mặt hàng chưa có giá lúc gửi duyệt).
+	Đi qua TOÀN BỘ `doc.items`, không chỉ những dòng vào đơn (`dong`
+	tham số của `_kiem_han_muc`) — một dòng bị quản lý hạ về 0 lúc điều
+	chỉnh vẫn đáng để họ biết giá đã đổi, dù nó không còn vào đơn lần này.
+	"""
+	if doc.loai_don != "HĐNT" or not doc.hdnt:
+		return []
+	price_list = frappe.db.get_value("Customer", doc.customer, "default_price_list")
+	if not price_list:
+		return []
+	canh_bao = []
+	for row in doc.items:
+		if not row.don_gia:
+			continue
+		gia_moi = dat_hang._gia_hien_hanh(row.item_code, price_list)
+		if gia_moi and float(gia_moi) != float(row.don_gia):
+			canh_bao.append({
+				"item_code": row.item_code,
+				"gia_cu": float(row.don_gia),
+				"gia_moi": float(gia_moi),
+			})
+	return canh_bao
 
 
 def _kiem_han_muc(doc, dong):

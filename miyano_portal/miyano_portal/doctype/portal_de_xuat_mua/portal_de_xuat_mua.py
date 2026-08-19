@@ -70,8 +70,38 @@ class PortalDeXuatMua(Document):
 			# quản lý và khoa đã gọi tên nó bằng mã đó trong lúc trao đổi.
 			self.ma_de_xuat = sinh_ma(self.customer, self.khoa_phong)
 		self.thoi_diem_gui = now_datetime()
+		self._dong_dau_gia()
 		self.trang_thai = TRANG_THAI_CHO_DUYET
 		self.save(ignore_permissions=True)
+
+	def _dong_dau_gia(self):
+		"""§5.6 bẫy #2 (vòng sửa Task 6) — đóng dấu `don_gia` = giá hiện hành
+		TẠI THỜI ĐIỂM GỬI DUYỆT, cùng lúc `so_luong_de_xuat` bị khoá vĩnh
+		viễn (`_chan_sua_so_luong_de_xuat`). Đây là "giá khoa đã thấy" mà
+		`de_xuat_duyet.duyet_va_tao_don()` so với giá tính lại lúc DUYỆT để
+		cảnh báo quản lý — không cảnh báo được gì nếu không có số này.
+
+		Dùng ĐÚNG nguồn giá `dat_hang` dùng (`_gia_hien_hanh`) — hai đường
+		tra giá khác nhau sớm muộn cũng lệch, cùng lý do module đó không tự
+		viết một hàm tra giá thứ hai cho nhánh HĐNT/mua lẻ của chính nó.
+
+		CHỈ áp dụng HĐNT — mua lẻ không tra giá ở đâu cả trong toàn bộ luồng
+		(§4.5, `rate = 0`, sales điền khi báo giá), nên không có "giá khoa
+		đã thấy" nào để đóng dấu. Mặt hàng không tra được giá (chưa có
+		trong bảng giá hợp đồng) thì để `don_gia` RỖNG, KHÔNG throw — gửi
+		duyệt chưa phải lúc chặn vì thiếu giá, đó là việc của lúc duyệt/tạo
+		đơn (`dat_hang._xay_don_hdnt`).
+		"""
+		if self.loai_don != "HĐNT" or not self.hdnt:
+			return
+		price_list = frappe.db.get_value("Customer", self.customer, "default_price_list")
+		if not price_list:
+			return
+		from miyano_portal import dat_hang
+		for row in self.items:
+			rate = dat_hang._gia_hien_hanh(row.item_code, price_list)
+			if rate:
+				row.don_gia = rate
 
 	def duyet(self, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None):
 		"""Nơi DUY NHẤT ghi `Đã duyệt` — cùng cả khối truy vết.

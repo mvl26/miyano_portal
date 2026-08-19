@@ -239,6 +239,14 @@ class TestDeXuatDuyet(FrappeTestCase):
 			doc.ma_de_xuat,
 		)
 
+	def test_mua_le_khong_dong_dau_gia_va_khong_canh_bao(self):
+		"""§5.6 bẫy #2 chỉ áp dụng HĐNT — Mua lẻ không tra giá ở đâu cả
+		(§4.5), nên `don_gia` phải RỖNG và không có gì để cảnh báo."""
+		doc = self.phieu_huyethoc
+		self.assertFalse(doc.items[0].don_gia)
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertEqual(kq["canh_bao_gia"], [])
+
 	def test_bam_duyet_hai_lan_khong_tao_hai_don(self):
 		"""§5.2 — `request_id` chuyển xuống tầng phiếu: bấm Duyệt hai lần trả
 		về CÙNG một Sales Order, không tạo đơn trùng (BR-O12)."""
@@ -427,6 +435,24 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		doc.reload()
 		return doc
 
+	def _cho_duyet_hdnt_thuong(self, so_luong=2):
+		"""HĐNT trong hạn mức (còn lại 2, xem `setUp`) — dùng cho các test
+		giá, không muốn vướng bẫy hạn mức của lớp này."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"loai_don": "HĐNT", "hdnt": self.bo,
+			"items": [{"item_code": self.item, "so_luong_de_xuat": so_luong}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần giá"
+		doc.gui_duyet()
+		doc.reload()
+		doc.items[0].so_luong_duyet = so_luong
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		return doc
+
 	def test_het_han_muc_thi_duyet_that_bai_kem_ten_khoa(self):
 		"""§5.6 — không im lặng cắt số lượng xuống."""
 		doc = self._cho_duyet_vuot_han_muc()
@@ -449,6 +475,45 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(so.items[0].qty, 2)
 		self.assertEqual(so.items[0].blanket_order, self.bo)
+
+	# ---- §5.6 bẫy #2 — đóng dấu + cảnh báo giá (vòng sửa sau report) --
+
+	def test_gui_duyet_dong_dau_don_gia_bang_gia_hien_hanh(self):
+		"""VẾ DƯƠNG — `don_gia` phải CÓ giá trị ngay sau khi gửi duyệt, đúng
+		bằng giá hiện hành lúc đó (100, xem `setUp`)."""
+		doc = self._cho_duyet_hdnt_thuong()
+		self.assertEqual(doc.items[0].don_gia, 100)
+
+	def test_gia_doi_giua_gui_va_duyet_thi_co_canh_bao(self):
+		doc = self._cho_duyet_hdnt_thuong()
+		self.assertEqual(doc.items[0].don_gia, 100)
+		self._tao_gia(self.item, self.price_list, 150)    # giá đổi SAU khi gửi
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertEqual(len(kq["canh_bao_gia"]), 1)
+		cb = kq["canh_bao_gia"][0]
+		self.assertEqual(cb["item_code"], self.item)
+		self.assertEqual(cb["gia_cu"], 100)
+		self.assertEqual(cb["gia_moi"], 150)
+
+	def test_gia_khong_doi_thi_khong_canh_bao(self):
+		"""VẾ DƯƠNG — không báo động giả khi giá không hề đổi."""
+		doc = self._cho_duyet_hdnt_thuong()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertEqual(kq["canh_bao_gia"], [])
+
+	def test_co_canh_bao_gia_van_duyet_duoc(self):
+		"""Chốt bắt buộc — cảnh báo giá CHỈ mang thông tin, không được chặn
+		việc duyệt; Sales Order vẫn phải sinh ra."""
+		doc = self._cho_duyet_hdnt_thuong()
+		self._tao_gia(self.item, self.price_list, 150)
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertTrue(kq["canh_bao_gia"])
+		self.assertTrue(kq["sales_order"])
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(so.items[0].qty, 2)
+		# Giá tính lại tại thời điểm duyệt (vế 1 của bẫy #2) — đơn phải mang
+		# giá MỚI (150), không phải giá khoa đã thấy lúc gửi (100).
+		self.assertEqual(so.items[0].rate, 150)
 
 
 class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
