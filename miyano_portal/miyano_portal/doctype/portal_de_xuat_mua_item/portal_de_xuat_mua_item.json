@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "item_code", "item_name", "dvt", "so_luong_de_xuat", "so_luong_duyet",
-  "don_gia", "thanh_tien", "nguon_dong", "ghi_chu_quan_ly"
+  "so_luong_xin_sua", "don_gia", "thanh_tien", "nguon_dong", "ghi_chu_quan_ly"
  ],
  "fields": [
   {"fieldname": "item_code", "fieldtype": "Link", "label": "Mã hàng", "options": "Item", "reqd": 1, "in_list_view": 1, "columns": 3},
@@ -16,6 +16,8 @@
    "description": "Khoá vĩnh viễn ngay khi khoa bấm Gửi duyệt (spec §5.3) — không ai sửa được nữa, kể cả quản lý."},
   {"fieldname": "so_luong_duyet", "fieldtype": "Float", "label": "SL duyệt", "precision": "3", "default": "0", "in_list_view": 1, "columns": 1,
    "description": "Quản lý chỉnh ở đây. Bỏ một mặt hàng = hạ về 0, không xoá dòng (spec §5.3)."},
+  {"fieldname": "so_luong_xin_sua", "fieldtype": "Float", "label": "SL xin sửa", "precision": "3", "default": "0", "in_list_view": 1, "columns": 1,
+   "description": "Task 9 (§12 Q4) — nhân viên khoa ghi số muốn đổi SAU khi đơn đã duyệt. CỘT THỨ BA, không đè SL duyệt: quản lý phải thấy song song đã duyệt bao nhiêu / khoa xin đổi thành bao nhiêu."},
   {"fieldname": "don_gia", "fieldtype": "Currency", "label": "Đơn giá", "precision": "0", "in_list_view": 1, "columns": 1},
   {"fieldname": "thanh_tien", "fieldtype": "Currency", "label": "Thành tiền", "precision": "0", "read_only": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "nguon_dong", "fieldtype": "Select", "label": "Nguồn dòng", "options": "Khoa đề xuất\nQuản lý thêm", "default": "Khoa đề xuất", "in_list_view": 1, "columns": 2},

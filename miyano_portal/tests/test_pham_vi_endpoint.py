@@ -49,6 +49,12 @@ DA_AP_PHAM_VI: set[str] = {
 	# cho_quan_ly=True)` (trục khách hàng + khoa) CỘNG một chốt `la_quan_ly()`
 	# riêng (chỉ quản lý được gọi) — đúng khuôn đã lọc, không miễn.
 	"de_xuat_duyet_phieu", "de_xuat_tu_choi", "de_xuat_huy",
+	# Task 9 (19/08/2026, §12 Q4) — vòng sửa số lượng SAU khi đã duyệt.
+	# `de_xuat_xin_sua` mở đầu bằng `_phieu_cua_toi(..., cho_quan_ly=True)`
+	# (trục khách hàng + khoa). `de_xuat_duyet_sua`/`de_xuat_tu_choi_sua`
+	# cùng khuôn Task 6: `la_quan_ly()` riêng CỘNG `_phieu_cua_toi(...,
+	# cho_quan_ly=True)` — không cái nào miễn phạm vi.
+	"de_xuat_xin_sua", "de_xuat_duyet_sua", "de_xuat_tu_choi_sua",
 }
 
 # Endpoint CỐ Ý không lọc theo khoa — mỗi cái kèm lý do bằng chữ. Sửa tập

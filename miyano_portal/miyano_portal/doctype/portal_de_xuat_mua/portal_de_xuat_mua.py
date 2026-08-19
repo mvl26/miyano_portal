@@ -44,6 +44,16 @@ class PortalDeXuatMua(Document):
 		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET},
 		TRANG_THAI_CHO_DUYET: {TRANG_THAI_DA_DUYET, TRANG_THAI_TU_CHOI, TRANG_THAI_DA_HUY},
 		TRANG_THAI_TU_CHOI: {TRANG_THAI_CHO_DUYET, TRANG_THAI_DA_HUY},
+		# Task 9 (§12 Q4) — `Đã duyệt` THÔI là trạng thái kết thúc. Cạnh này
+		# là chỗ DUY NHẤT đi ra, và nó quay về đúng `Đã duyệt` sau khi quản
+		# lý xử lý yêu cầu xin sửa (đồng ý hoặc từ chối). Trước task này,
+		# "Đã duyệt" là một lá trong CHUYEN_HOP_LE (không xuất hiện làm
+		# chìa khoá) — thay đổi này là CỐ Ý, không phải sơ suất bỏ quên
+		# một cạnh: nhân viên khoa xin sửa số lượng một đơn đã duyệt phải
+		# đi qua đây, không được chạm thẳng Sales Order (xem `dam_bao_duoc_
+		# sua_don_da_duyet` ở `portal_context.py`).
+		TRANG_THAI_DA_DUYET: {TRANG_THAI_CHO_DUYET_SUA},
+		TRANG_THAI_CHO_DUYET_SUA: {TRANG_THAI_DA_DUYET},
 	}
 	# Trạng thái kết thúc CỐ Ý không xuất hiện làm chìa khoá — không có cạnh
 	# đi ra từ chúng. Cùng khuôn với `Portal Item Request`.
@@ -167,6 +177,65 @@ class PortalDeXuatMua(Document):
 		vẫn truy vết được sau này."""
 		self._kiem_chuyen(TRANG_THAI_DA_HUY)
 		self.trang_thai = TRANG_THAI_DA_HUY
+		self.save(ignore_permissions=True)
+
+	def xin_sua(self, dong: list[dict]):
+		"""Task 9 (§12 Q4) — nhân viên khoa xin sửa số lượng một đơn ĐÃ
+		được quản lý duyệt. Ghi lên CỘT THỨ BA `so_luong_xin_sua`, KHÔNG đè
+		`so_luong_duyet` (§5.3, không xoá dữ liệu gốc để ghi dữ liệu mới):
+		quản lý phải nhìn thấy song song "đã duyệt bao nhiêu" / "khoa xin
+		đổi thành bao nhiêu". Đơn Sales Order KHÔNG bị chạm ở đây — chỉ khi
+		quản lý gọi `duyet_sua()` (qua lõi `portal_order_sua_so_luong`) thì
+		đơn mới thật sự đổi.
+
+		`dong` — danh sách `{"item_code": str, "qty": float}`, cùng hình
+		dạng phần `items` của `dong` trong `portal.portal_order_sua_so_
+		luong`. Mã hàng không khớp dòng nào trên phiếu bị bỏ qua lặng lẽ —
+		endpoint gọi hàm này (`de_xuat.de_xuat_xin_sua`) không cho thêm
+		dòng mới, cùng luật `portal_order_sua_so_luong` đã áp cho khách.
+		"""
+		self._kiem_chuyen(TRANG_THAI_CHO_DUYET_SUA)
+		theo_ma = {d.item_code: d for d in self.items}
+		for row in dong:
+			ma = row.get("item_code")
+			if ma in theo_ma:
+				theo_ma[ma].so_luong_xin_sua = float(row.get("qty") or 0)
+		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
+		self.save(ignore_permissions=True)
+
+	def duyet_sua(self):
+		"""Quản lý ĐỒNG Ý với yêu cầu xin sửa — chép `so_luong_xin_sua`
+		sang `so_luong_duyet`, dọn `so_luong_xin_sua`, quay lại "Đã duyệt".
+
+		KHÔNG tự đụng Sales Order: endpoint gọi hàm này (`de_xuat.de_xuat_
+		duyet_sua`) PHẢI gọi lõi `portal_order_sua_so_luong` TRƯỚC — hàm đó
+		mới là nơi sửa đơn thật (và tự đồng bộ ngược `so_luong_duyet` lên
+		đúng phiếu này, xem "Ruling preflight C4" ở `api/portal.py`).
+		Hàm này chỉ dọn phần còn lại (`so_luong_xin_sua`) và đổi trạng
+		thái."""
+		self._kiem_chuyen(TRANG_THAI_DA_DUYET)
+		for d in self.items:
+			if d.so_luong_xin_sua:
+				d.so_luong_duyet = d.so_luong_xin_sua
+				d.so_luong_xin_sua = 0
+		self.trang_thai = TRANG_THAI_DA_DUYET
+		self.save(ignore_permissions=True)
+
+	def tu_choi_sua(self, ly_do):
+		"""Quản lý TỪ CHỐI yêu cầu xin sửa — đơn giữ NGUYÊN số đã duyệt
+		trước đó (không đụng Sales Order), chỉ dọn `so_luong_xin_sua` và
+		ghi lý do vào `ghi_chu_quan_ly` của từng dòng có yêu cầu."""
+		self._kiem_chuyen(TRANG_THAI_DA_DUYET)
+		if not (ly_do or "").strip():
+			frappe.throw(
+				"Lý do từ chối là bắt buộc khi từ chối yêu cầu xin sửa.",
+				frappe.ValidationError,
+			)
+		for d in self.items:
+			if d.so_luong_xin_sua:
+				d.ghi_chu_quan_ly = ly_do
+				d.so_luong_xin_sua = 0
+		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
 
 	def on_trash(self):

@@ -8,6 +8,7 @@ from miyano_portal.dat_hang import (
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     _cot_khoa_phong_ton_tai,
+    dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
     get_portal_customer,
     get_portal_member,
@@ -1843,6 +1844,11 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     # client dưới bất kỳ hình thức nào (Quyết định nền số 7/8).
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
+    # Task 9 (§12 Q4) — chặn theo VAI TRÒ, không chỉ theo workflow_state.
+    # Đơn đã đi qua đường đề xuất và được quản lý duyệt thì nhân viên khoa
+    # không sửa THẲNG số lượng ở đây nữa — họ phải xin sửa
+    # (`de_xuat.de_xuat_xin_sua`) rồi để quản lý gọi lại đúng hàm này.
+    dam_bao_duoc_sua_don_da_duyet(so)
     if so.get("workflow_state") != TRANG_THAI_CHO_KHACH:
         frappe.throw(
             "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
@@ -1923,6 +1929,10 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     # giữ nguyên name/idx (frappe `_init_child` chỉ gán idx/tên MỚI khi đối
     # tượng CHƯA có, xem `base_document.py::_init_child`).
     thay_doi: list[str] = []
+    # Task 9, Step 4b (Ruling preflight C4) — số MỚI của từng dòng THẬT SỰ
+    # đổi, dùng để đồng bộ ngược `so_luong_duyet` lên phiếu đề xuất đứng
+    # sau (nếu có) SAU KHI đơn lưu thành công. `0.0` = dòng bị bỏ.
+    doi_items_ap_dung: dict[str, float] = {}
 
     giu_items = []
     for i in list(so.items):
@@ -1938,6 +1948,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             frappe.throw(f"{i.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
         if qty_moi == 0:
             thay_doi.append(f"{i.item_code}: {i.qty} → bỏ dòng")
+            doi_items_ap_dung[i.item_code] = 0.0
             continue
         if float(i.qty or 0) != qty_moi:
             thay_doi.append(
@@ -1951,6 +1962,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             # `rate` khi lưu; đặt cả hai về 0 loại hẳn khả năng đó.
             i.rate = 0
             i.price_list_rate = 0
+            doi_items_ap_dung[i.item_code] = qty_moi
         giu_items.append(i)
 
     giu_dat_ngoai = []
@@ -2046,7 +2058,38 @@ def portal_order_sua_so_luong(order, dong) -> dict:
 
     bao_khach_sua_so_luong(customer, so.name, thay_doi)
 
+    # Task 9, Step 4b (Ruling preflight C4) — QUẢN LÝ sửa THẲNG (bỏ qua
+    # `de_xuat_xin_sua`/`de_xuat_duyet_sua`, hoặc chính `de_xuat_duyet_sua`
+    # gọi lại đúng hàm này) thì phiếu đề xuất đứng sau phải CÙNG cập nhật —
+    # không có bước này, hai chứng từ nói hai số khác nhau và khối truy vết
+    # §5.2 thành vô nghĩa. `so.get("custom_de_xuat")` an toàn khi cột chưa
+    # tồn tại (patch chưa chạy): Document.get() trả `None`, đơn giản BỎ QUA
+    # đồng bộ — đây không phải chốt phân quyền (đã qua ở
+    # `dam_bao_duoc_sua_don_da_duyet`), chỉ là tiện ích giữ hai chứng từ
+    # khớp nhau, nên không cần fail-closed ở đây.
+    de_xuat_ten = so.get("custom_de_xuat")
+    if de_xuat_ten and doi_items_ap_dung:
+        _dong_bo_so_luong_duyet_ve_phieu(de_xuat_ten, doi_items_ap_dung)
+
     return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
+
+
+def _dong_bo_so_luong_duyet_ve_phieu(ten_phieu: str, doi_items_ap_dung: dict[str, float]) -> None:
+    """Task 9, Step 4b — ghi ngược `so_luong_duyet` lên phiếu đề xuất sau khi
+    `portal_order_sua_so_luong` đã sửa Sales Order thành công.
+
+    Chỉ chạm dòng THẬT SỰ đổi (`doi_items_ap_dung`, đã tính trong vòng lặp
+    dựng `giu_items` ở trên) — không đụng field nào khác, kể cả khi `save()`
+    dưới đây đi qua `_chan_sua_so_luong_de_xuat()`: guard đó chỉ khoá
+    `so_luong_de_xuat`/`item_code`/xoá dòng, không khoá `so_luong_duyet`."""
+    phieu = frappe.get_doc("Portal De Xuat Mua", ten_phieu)
+    doi = False
+    for row in phieu.items:
+        if row.item_code in doi_items_ap_dung:
+            row.so_luong_duyet = doi_items_ap_dung[row.item_code]
+            doi = True
+    if doi:
+        phieu.save(ignore_permissions=True)
 
 
 @frappe.whitelist()
