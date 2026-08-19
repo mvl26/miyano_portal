@@ -17,6 +17,12 @@ const NAV = [
   // phiếu khoa mình, quản lý thấy toàn viện. Server (`de_xuat_danh_sach`
   // + `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
   { to: '/de-xuat', icon: '📝', label: 'Đề xuất mua', short: 'Đề xuất', key: 'de-xuat' },
+  // Man luong duyet (Task 5) — hàng chờ của quản lý. `requireQuanLy: true`
+  // lọc ở `navItems` bên dưới, ĐÚNG khoá `me.la_quan_ly` — KHÔNG tự suy từ
+  // `vai_tro === 'Quản lý'`. Lý do: kế hoạch sau thêm uỷ quyền tạm thời,
+  // khi đó một Nhân viên khoa đang được uỷ quyền vẫn phải thấy mục này —
+  // so chuỗi vai_tro sẽ bỏ sót và gãy lặng lẽ.
+  { to: '/duyet', icon: '✅', label: 'Duyệt', short: 'Duyệt', key: 'duyet', duyet: true, requireQuanLy: true },
   { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
   { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
   // Brief 2026-08-15 (trang thông báo) — mục nav MỚI, badge = số chưa đọc.
@@ -39,6 +45,12 @@ const BNAV = [
 const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
 const cartCount = computed(() => store.cartCount)
 const chuaDocThongBao = computed(() => store.chuaDocThongBao)
+const choDuyetCount = computed(() => store.choDuyetCount)
+
+// Man luong duyet (Task 5) — mục "Duyệt" chỉ hiện cho `me.la_quan_ly`. Lọc
+// TẠI ĐÂY (computed, phản ứng theo `store.me`) thay vì v-if rải trong
+// template — cùng nguyên tắc "hành động là dữ liệu" của de-xuat-actions.js.
+const navItems = computed(() => NAV.filter((n) => !n.requireQuanLy || store.me?.la_quan_ly))
 
 function isActive(key) {
   const name = route.name || ''
@@ -73,6 +85,25 @@ onMounted(async () => {
     // Badge chỉ là gợi ý phụ — im lặng bỏ qua, không được chặn cả trang vì
     // một lần gọi thất bại.
   }
+
+  // Man luong duyet (Task 5) — nạp `me` ở SHELL (không đợi view con): mục
+  // nav "Duyệt" và badge số phiếu chờ hiện trên MỌI trang, không riêng gì
+  // `/duyet`. `de_xuat_danh_sach` chỉ nhận MỘT `trang_thai` mỗi lần gọi nên
+  // gộp hai trạng thái ("Chờ duyệt" + "Chờ duyệt sửa") bằng hai lời gọi
+  // song song, cùng cách DuyetList.vue tự tải danh sách của nó.
+  try {
+    if (!store.me) store.setMe(await api.call('portal_me'))
+    if (store.me?.la_quan_ly) {
+      const [choDuyet, choDuyetSua] = await Promise.all([
+        api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt', limit: 200 }),
+        api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt sửa', limit: 200 }),
+      ])
+      store.setChoDuyetCount(choDuyet.length + choDuyetSua.length)
+    }
+  } catch {
+    // Badge/mục nav chỉ là gợi ý phụ ở tầng shell — im lặng bỏ qua, view
+    // `/duyet` tự tải lại dữ liệu thật khi khách vào đó.
+  }
 })
 </script>
 
@@ -83,7 +114,7 @@ onMounted(async () => {
       <div class="logo">MIYANO<span>◆</span> Portal</div>
       <nav class="nav">
         <router-link
-          v-for="n in NAV"
+          v-for="n in navItems"
           :key="n.key"
           :to="n.to"
           :class="{ on: isActive(n.key) }"
@@ -91,6 +122,7 @@ onMounted(async () => {
           <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
           <span v-if="n.cart && cartCount" class="cartn">{{ cartCount }}</span>
           <span v-if="n.thongBao && chuaDocThongBao" class="cartn">{{ chuaDocThongBao }}</span>
+          <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetCount }}</span>
         </router-link>
       </nav>
       <div class="who">

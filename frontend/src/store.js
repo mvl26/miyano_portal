@@ -22,6 +22,13 @@ export const store = reactive({
   setChuaDocThongBao(n) {
     this.chuaDocThongBao = n
   },
+  // Man /duyet (Task 5) — badge số phiếu đang chờ quản lý duyệt (gộp "Chờ
+  // duyệt" + "Chờ duyệt sửa") trên mục menu. Nạp ở App.vue (mọi trang, chỉ
+  // khi `la_quan_ly`) — cùng khuôn `chuaDocThongBao` ở trên.
+  choDuyetCount: 0,
+  setChoDuyetCount(n) {
+    this.choDuyetCount = n
+  },
   cart: {}, // ngăn Theo HĐNT
   cartLe: {}, // ngăn Mua lẻ [MỚI]
   // Spec 2026-08-15 §3.4 — "hàng chưa có trong kho, cần đặt ngoài".

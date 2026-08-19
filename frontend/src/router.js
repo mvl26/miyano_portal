@@ -7,6 +7,7 @@ import Orders from './views/Orders.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import DeXuatList from './views/DeXuatList.vue'
 import DeXuatDetail from './views/DeXuatDetail.vue'
+import DuyetList from './views/DuyetList.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
 import ImportTonDau from './views/ImportTonDau.vue'
@@ -35,6 +36,11 @@ const routes = [
   { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
   // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
   { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
+  // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +
+  // "Chờ duyệt sửa". Mục nav chỉ hiện cho `me.la_quan_ly` (App.vue), nhưng
+  // route KHÔNG khoá cứng theo vai trò: backend (`de_xuat_danh_sach` +
+  // `pham_vi_don()`) tự scope nếu một khách khác gõ thẳng URL.
+  { path: '/duyet', name: 'duyet', component: DuyetList, meta: { title: 'Duyệt' } },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   // Kiểm hàng (E9) — CỐ Ý không nằm dưới /kho: màn này chạy cho MỌI khách,
   // kể cả khách chưa mở kho. Khoá theo tên PHIẾU GIAO (không phải tên biên

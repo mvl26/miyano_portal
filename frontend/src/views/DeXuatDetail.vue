@@ -139,18 +139,44 @@ async function xacNhanLyDoRoiGui(lyDo) {
 // trên đơn (`so_luong_duyet > 0`) — dòng quản lý đã hạ về 0 không còn trên
 // Sales Order, xin sửa nó chỉ nhận lỗi "không còn trên đơn" từ server.
 const xinSuaOpen = ref(false)
+// review Task 5 (việc 5) — CỐ Ý giữ CHUỖI THÔ (không `v-model.number` ở
+// template), khoá theo `item_code`. `Number('')` = 0: nếu để Vue tự ép kiểu
+// lúc gõ, một ô bị XOÁ TRẮNG (rất hay gặp trên điện thoại) sẽ lặng lẽ biến
+// thành SỐ 0 — mà `0` mang nghĩa THẬT ở `de_xuat_xin_sua` ("xin bỏ mặt hàng
+// này khỏi đơn", chốt I2 Task 9 backend). Giữ chuỗi thô tới tận lúc gửi cho
+// phép phân biệt BA trạng thái: '' (chưa đổi gì — không gửi dòng này), '0'
+// (yêu cầu THẬT — xin bỏ), số khác 0 (đổi số lượng).
 const xinSuaSoLuong = ref({})
 const xinSuaDangGui = ref(false)
 const dongXinSua = computed(() => (doc.value?.items || []).filter((it) => Number(it.so_luong_duyet) > 0))
 function moXinSua() {
-  xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, it.so_luong_duyet]))
+  xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, String(it.so_luong_duyet)]))
   xinSuaOpen.value = true
+}
+// Dòng đang mang giá trị 0 TƯỜNG MINH (ô KHÔNG rỗng) — dùng để hiện cảnh
+// báo cạnh ô nhập, và để `guiXinSua()` phân biệt "xin bỏ" khỏi "chưa đổi".
+function laXinBoMatHang(it) {
+  const raw = xinSuaSoLuong.value[it.item_code]
+  return raw !== '' && raw !== undefined && raw !== null && Number(raw) === 0
 }
 async function guiXinSua() {
   if (xinSuaDangGui.value) return
-  const doiItems = dongXinSua.value
-    .filter((it) => Number(xinSuaSoLuong.value[it.item_code]) !== Number(it.so_luong_duyet))
-    .map((it) => ({ item_code: it.item_code, qty: Number(xinSuaSoLuong.value[it.item_code]) }))
+  const doiItems = []
+  for (const it of dongXinSua.value) {
+    const raw = xinSuaSoLuong.value[it.item_code]
+    // Ô để TRỐNG = "không đổi gì" — KHÔNG đưa vào `dong` gửi lên. Đây là
+    // điểm sửa chính của việc 5: trước đây `Number('')` = 0 khiến một ô bị
+    // xoá trắng do vô ý lặng lẽ thành yêu cầu xoá mặt hàng.
+    if (raw === '' || raw === undefined || raw === null) continue
+    const so = Number(raw)
+    // Giá trị gõ không hợp lệ (chữ, số âm...) — bỏ qua, không gửi rác lên
+    // server. `<input type="number">` đã chặn phần lớn, đây là lớp phòng
+    // thủ thứ hai.
+    if (!Number.isFinite(so) || so < 0) continue
+    if (so !== Number(it.so_luong_duyet)) {
+      doiItems.push({ item_code: it.item_code, qty: so })
+    }
+  }
   if (!doiItems.length) {
     showToast('Chưa sửa số lượng dòng nào.', 'error')
     return
@@ -171,6 +197,14 @@ async function guiXinSua() {
 function onClickAction(action) {
   if (action.method === 'de_xuat_gui_duyet') return nhanGuiDuyet(action)
   if (action.method === 'de_xuat_xin_sua') return moXinSua()
+  // Việc 3 (Task 5) — "Xoá" là hành động KHÔNG ĐẢO NGƯỢC ĐƯỢC DUY NHẤT của
+  // toolbar này: xoá thật khỏi CSDL (khác "Huỷ phiếu" — bản ghi còn nguyên).
+  // CHỈ thêm xác nhận cho method này — mọi when() khác của registry giữ
+  // nguyên, đã được đối chiếu với máy trạng thái thật.
+  if (action.method === 'de_xuat_xoa_nhap') {
+    if (!window.confirm('Xoá phiếu này? Dữ liệu sẽ bị xoá VĨNH VIỄN khỏi hệ thống — KHÔNG thể khôi phục.')) return
+    return chayHanhDong(action)
+  }
   if (action.args && action.args.length) {
     argModalAction.value = action
     return
@@ -358,10 +392,20 @@ onMounted(async () => {
             <b>{{ it.item_code }}</b>
             <template v-if="it.item_name"> — {{ it.item_name }}</template>
             <br /><span class="tag">Đang duyệt: {{ it.so_luong_duyet }} {{ it.dvt }}</span>
+            <!-- việc 5 — chỉ hiện khi ô mang số 0 TƯỜNG MINH (không phải ô
+                 trống): người dùng phải NHÌN THẤY mình đang xin gì, không
+                 đoán qua một con số. -->
+            <br v-if="laXinBoMatHang(it)" />
+            <span v-if="laXinBoMatHang(it)" class="tag" style="color: var(--red)">
+              Sẽ đề nghị bỏ mặt hàng này khỏi đơn
+            </span>
           </span>
+          <!-- KHÔNG `.number`: ô xoá trắng phải giữ nguyên chuỗi rỗng ''
+               (nghĩa "chưa đổi gì") thay vì bị Vue tự ép thành số 0 — xem
+               giải thích ở khai báo `xinSuaSoLuong`. -->
           <input
             type="number" min="0" step="any"
-            v-model.number="xinSuaSoLuong[it.item_code]"
+            v-model="xinSuaSoLuong[it.item_code]"
             style="width: 90px; text-align: right"
           />
         </div>

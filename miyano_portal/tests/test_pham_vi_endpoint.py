@@ -70,7 +70,14 @@ MIEN_PHAM_VI: dict[str, str] = {
 		"portal_dashboard_kpi: đó là ĐẾM HOÁ ĐƠN cụ thể, quy được về khoa "
 		"qua Sales Invoice Item.sales_order, đứng cạnh hai con số khác đã "
 		"lọc khoa trên cùng màn — để nó unscoped sẽ phá ngữ cảnh 'đây là "
-		"số liệu khoa tôi' của khối KPI đó."
+		"số liệu khoa tôi' của khối KPI đó. "
+		"Review Task 5 — bốn khoá MỚI `vai_tro`/`khoa_phong`/`la_quan_ly`/"
+		"`user` (Task 1) KHÔNG nằm trong lý do miễn ở trên: chúng KHÔNG "
+		"phải dữ liệu cấp bệnh viện, mà là HỒ SƠ CỦA CHÍNH PHIÊN gọi — "
+		"`get_portal_member()` đã tự scope người gọi trước khi các khoá "
+		"này được đọc ra, nên không có gì để 'lọc theo khoa' thêm nữa. "
+		"Đừng đọc bốn khoá này là bằng chứng 'cấp bệnh viện' như phần còn "
+		"lại của endpoint — đó là hai lý do miễn khác nhau đứng cạnh nhau."
 	),
 	"portal_contracts": "hợp đồng khung ký ở cấp bệnh viện, không thuộc khoa nào",
 	"portal_catalog": "danh mục hàng theo hợp đồng — cấp bệnh viện",
