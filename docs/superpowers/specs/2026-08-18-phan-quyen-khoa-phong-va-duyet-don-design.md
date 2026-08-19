@@ -709,3 +709,56 @@ Kế thừa từ trục khách hàng, không phải do đề án này tạo ra.
 | 3 | Nhân viên khoa có được xem **hoá đơn và công nợ** của khoa mình không, hay công nợ là việc của quản lý? | 4 |
 | ~~4~~ | ~~Đơn đã duyệt mà khoa muốn đổi số lượng — khoa tự sửa được hay phải qua quản lý lần nữa?~~ **ĐÃ TRẢ LỜI 19/08:** khoa **vẫn sửa được**, nhưng sửa xong đơn **quay lại quản lý duyệt lần nữa**. Thi công ở Task 9 của `plans/2026-08-19-de-xuat-mua-nen.md`. Lỗ hổng đo được trước khi hỏi: `portal_order_sua_so_luong` chỉ chặn theo `workflow_state`, không chặn theo vai trò → nhân viên khoa đổi 10 hộp thành 100 hộp sau khi quản lý đã duyệt. | 4 |
 | 5 | Người của khoa nghỉ việc: đề xuất và đơn của họ chuyển cho ai đứng tên? | 3 |
+
+---
+
+## 13. Gộp một luồng đặt hàng — chủ đầu tư chốt 19/08 (chưa thi công)
+
+**Không thi công trong nhánh `feat/de-xuat-mua`.** Ghi lại ở đây để không trôi; đây là đầu vào cho **một kế hoạch riêng, phải làm TRƯỚC kế hoạch B (màn hình)** — màn đặt hàng vẽ theo mô hình cũ rồi sửa là làm hai lần.
+
+### 13.1 Yêu cầu
+
+Cổng **không tách làm hai chế độ đặt hàng nữa**. Nhân viên khoa tìm trong một danh sách duy nhất và thêm vào yêu cầu — **không cần biết mặt hàng có trong hợp đồng khung hay không**. Hệ thống tự phân loại theo từng dòng:
+
+| Tầng | Điều kiện | Hành vi |
+|---|---|---|
+| 1 | Có dòng hợp đồng khung tương ứng | Hiện **giá sẵn**, gắn với hợp đồng, trừ hạn mức |
+| 2 | Có trong danh mục Item nhưng **chưa định giá** trong hợp đồng | **Chờ báo giá** |
+| 3 | Khách cần mà **hệ thống chưa có mã** ("hàng mới") | **Chờ báo giá**, gõ tay tên/ĐVT/số lượng |
+
+Cả ba gói gọn trong **một yêu cầu mua**, chờ quản lý duyệt. Đơn gửi về Miyano là **MỘT đơn** chứa cả hàng có giá lẫn hàng chưa có giá; Miyano điền giá và báo giá lại chính đơn đó; quy trình sau đó **giữ nguyên**. **Giữ nguyên cơ chế tình trạng của item.**
+
+### 13.2 Hai điểm chủ đầu tư xác nhận rõ khi được hỏi
+
+**(a) Hàng trong hợp đồng vốn giao được ngay, giờ PHẢI CHỜ** vì đứng chung đơn với hàng chưa có giá. Đây là **cái giá đã biết và đã chấp nhận**, không phải tác dụng phụ bị bỏ sót. Cả đơn đi qua **một** vòng báo giá.
+
+**(b) `loai_don` (HĐNT / Mua lẻ) ở ĐẦU PHIẾU là SAI CHỖ** — phải xuống **cấp dòng**. Một phiếu chứa cả ba tầng nên không có "loại" nào ở cấp phiếu là đúng.
+→ Điều này **phủ định một quyết định đã thi công** trong nhánh `feat/de-xuat-mua`: `Portal De Xuat Mua.loai_don` ở đầu phiếu, và `de_xuat_duyet.duyet_va_tao_don` rẽ nhánh `mode="hdnt"`/`"ban_le"` theo nó. Kế hoạch gộp phải dời trường này xuống dòng hoặc bỏ và suy ra.
+
+### 13.3 Hiện trạng đã đo (19/08) — ba cơ chế ĐÃ TỒN TẠI, chỉ bị ngăn
+
+| | `mode="hdnt"` | `mode="ban_le"` |
+|---|---|---|
+| Nguồn hàng | chỉ mặt hàng đã ký (`portal_catalog(contract)`) | **toàn bộ** Item hoạt động (`portal_catalog_ban_le`) |
+| Giá | từ hợp đồng | `rate = 0`, chờ báo giá |
+| Hàng chưa có mã | **`dat_hang.py:651` NÉM LỖI** *"Dòng đặt ngoài chỉ áp dụng cho chế độ Mua lẻ"* | được, qua `Sales Order Dat Ngoai Item` (`ten_hang`/`dvt`/`so_luong`/`item_khop`/`da_xu_ly`) |
+| Điều kiện | — | cờ `Customer.custom_cho_phep_mua_le` |
+
+Việc chính **không phải xây mới** mà là **gỡ vách ngăn và chuyển quyết định từ cấp ĐƠN xuống cấp DÒNG**.
+
+### 13.4 Sáu chỗ phải đổi
+
+1. **Lõi tạo đơn** — `tao_sales_order` hiện rẽ hai nhánh dựng đơn (`_xay_don_hdnt` / `_xay_don_ban_le`). Gộp thành một, quyết theo từng dòng.
+2. **Hạn mức chỉ áp cho dòng thuộc hợp đồng** — nhánh HĐNT hôm nay giả định MỌI dòng đều trên hợp đồng; đơn trộn phá giả định đó.
+3. **Cờ `custom_cho_phep_mua_le`** — **CÂU HỎI CÒN MỞ**, xem §13.5.
+4. **Tìm kiếm gộp ba nguồn** — hiện là hai endpoint, hai hình dạng dữ liệu. Cần một endpoint trả danh sách đã gắn nhãn *tầng nào* + *giá nếu có*.
+5. **Trạng thái đơn trộn** — cả đơn chờ một vòng báo giá, theo §13.2(a).
+6. **`loai_don` xuống cấp dòng**, theo §13.2(b).
+
+### 13.5 Câu hỏi còn mở
+
+**Cờ `custom_cho_phep_mua_le` xử thế nào?** Nếu không còn "chế độ mua lẻ" thì cờ này gác cái gì. Nó đang là chốt nghiệp vụ thật (NL-10.1), có khách bị tắt cố ý. Hai hướng: **bỏ hẳn**, hoặc **đổi nghĩa** thành *"được phép xin hàng ngoài hợp đồng"* (tức chặn tầng 2 và 3, vẫn cho tầng 1).
+
+### 13.6 Hệ quả có lợi
+
+Lỗi Critical C1 tìm được ở review tổng 19/08 — `portal_order_sua_so_luong` chỉ nhận đơn **Mua lẻ** đang "Chờ khách đồng ý", nên đơn HĐNT **không xin sửa số lượng được** — có gốc rễ chính là vách ngăn hai chế độ này. Dưới mô hình gộp, **mọi đơn đều đi qua vòng báo giá**, nên chốt "chỉ Mua lẻ" vốn đã sai hình dạng và sẽ tự tan. Mô hình gộp **gỡ nguyên nhân gốc**, không chỉ vá triệu chứng.
