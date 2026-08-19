@@ -33,7 +33,7 @@ Bốn bẫy đã biết (brief Task 8 + `test_de_xuat_duyet.py`):
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import de_xuat_duyet
+from miyano_portal import de_xuat_duyet, portal_context
 from miyano_portal.kho import delivery_hook
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
@@ -309,6 +309,33 @@ class TestThongBaoDuyet(FrappeTestCase):
 		de_xuat_duyet.duyet_va_tao_don(self.phieu.name, self.ql)
 		self.assertFalse(_co_nhan(self.duoc, self.phieu.name, "Portal De Xuat Mua"))
 
+	def test_phieu_toan_vien_khi_duyet_chi_quan_ly_nhan(self):
+		"""I1 (review Task 8) — `doc.khoa_phong` RỖNG (phiếu "Toàn viện") →
+		CHỈ Quản lý nhận, không thành viên khoa nào. Trước bản vá này, nhánh
+		"chỉ Quản lý" của `_portal_users_theo_khoa` đúng nhưng KHÔNG có bằng
+		chứng thực nghiệm ở dòng duyệt (dòng hẹn giao đã có
+		`test_don_toan_vien_chi_quan_ly_nhan`) — một đổi `doc.khoa_phong`
+		thành `doc.khoa_phong or "ALL"` sẽ không bị bắt."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": None,
+			"loai_don": "Mua lẻ",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 2}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		doc.items[0].so_luong_duyet = doc.items[0].so_luong_de_xuat
+		doc.save(ignore_permissions=True)
+		doc.reload()
+
+		de_xuat_duyet.duyet_va_tao_don(doc.name, self.ql)
+		self.assertTrue(_co_nhan(self.ql, doc.name, "Portal De Xuat Mua"))         # VẾ DƯƠNG
+		self.assertFalse(_co_nhan(self.huyethoc, doc.name, "Portal De Xuat Mua"))  # VẾ ÂM
+		self.assertFalse(_co_nhan(self.huyethoc2, doc.name, "Portal De Xuat Mua"))
+		self.assertFalse(_co_nhan(self.duoc, doc.name, "Portal De Xuat Mua"))
+
 
 # ======================================================================
 # Hàng 2 (từ chối) — cùng bảng người nhận với duyệt.
@@ -373,6 +400,28 @@ class TestThongBaoTuChoi(FrappeTestCase):
 		"""VẾ ÂM."""
 		self.phieu.tu_choi("thiếu chứng từ")
 		self.assertFalse(_co_nhan(self.duoc, self.phieu.name, "Portal De Xuat Mua"))
+
+	def test_phieu_toan_vien_khi_tu_choi_chi_quan_ly_nhan(self):
+		"""I1 (review Task 8) — cùng lý do với bản song sinh ở
+		`TestThongBaoDuyet.test_phieu_toan_vien_khi_duyet_chi_quan_ly_nhan`,
+		áp cho nhánh từ chối: `doc.khoa_phong` rỗng (phiếu "Toàn viện") →
+		CHỈ Quản lý nhận."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": None,
+			"loai_don": "Mua lẻ",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 2}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+
+		doc.tu_choi("thiếu chứng từ")
+		self.assertTrue(_co_nhan(self.ql, doc.name, "Portal De Xuat Mua"))         # VẾ DƯƠNG
+		self.assertFalse(_co_nhan(self.huyethoc, doc.name, "Portal De Xuat Mua"))  # VẾ ÂM
+		self.assertFalse(_co_nhan(self.huyethoc2, doc.name, "Portal De Xuat Mua"))
+		self.assertFalse(_co_nhan(self.duoc, doc.name, "Portal De Xuat Mua"))
 
 	def test_ly_do_tu_choi_co_trong_noi_dung(self):
 		self.phieu.tu_choi("thiếu chứng từ pháp lý")
@@ -554,3 +603,34 @@ class TestKhoaPhongDauTienDeliveryHook(FrappeTestCase):
 			}],
 		})
 		self.assertIsNone(delivery_hook._khoa_phong_dau_tien(dn))
+
+	def test_khong_dot_cot_khi_thieu_cot_custom_khoa_phong(self):
+		"""I2 (review Task 8) — `_khoa_phong_dau_tien` phải đi qua
+		`portal_context._cot_khoa_phong_ton_tai()` TRƯỚC khi chạm cột
+		`custom_khoa_phong`, cùng nguồn kiểm tra MỌI nơi khác trong app
+		dùng (`permissions.py`, `api/portal.py`) — không dò cột thứ hai.
+		Thiếu cột (site chưa chạy patch) → trả `None`, rơi về nhánh "gửi
+		thừa còn hơn gửi thiếu" của `bao_da_nhap_hang`, KHÔNG ném lỗi CSDL
+		thô. Cùng khuôn giả lập với `test_cach_ly_khoa_phong.py::
+		TestC3ThieuCotKhoaFailClosed` — mock `frappe.db.has_column`, không
+		đụng DDL thật."""
+		from unittest.mock import patch as mock_patch
+
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+
+		so = self._so(self.khoa_huyethoc)
+		dn = make_delivery_note(so.name)
+
+		# Chốt cache cấp tiến trình — reset TRƯỚC/SAU để không ăn theo kết
+		# quả (True, cột THẬT tồn tại trên site test) của lần gọi trước.
+		portal_context._cot_khoa_ton_tai = None
+		self.addCleanup(setattr, portal_context, "_cot_khoa_ton_tai", None)
+		# `_cot_khoa_phong_ton_tai()` tự ghi Error Log khi thiếu cột —
+		# `tabError Log` là MyISAM, sống qua rollback, phải tự dọn.
+		self.addCleanup(
+			frappe.db.delete, "Error Log",
+			{"method": "Thiếu cột Sales Order.custom_khoa_phong"},
+		)
+
+		with mock_patch("frappe.db.has_column", return_value=False):
+			self.assertIsNone(delivery_hook._khoa_phong_dau_tien(dn))

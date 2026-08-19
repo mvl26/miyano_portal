@@ -27,6 +27,7 @@ Ba điều dễ làm sai mà đã được cố định ở đây:
 
 import frappe
 
+from miyano_portal import portal_context
 from miyano_portal.kho.ledger import LOT_KHONG_CO
 from miyano_portal.portal_thong_bao_khach import bao_da_nhap_hang
 
@@ -338,9 +339,21 @@ def _khoa_phong_dau_tien(dn) -> str | None:
 	chung MỘT giá trị `None`, chấp nhận được vì cả hai đều nên rơi về nhánh
 	an toàn "báo thừa còn hơn báo thiếu", không phải nhánh "chỉ Quản lý"
 	của `_portal_users_theo_khoa` (đó là ĐÚNG nghĩa CHO SỰ KIỆN "gửi đề
-	xuất", KHÔNG phải nghĩa "không xác định được" của hàm này)."""
+	xuất", KHÔNG phải nghĩa "không xác định được" của hàm này).
+
+	VÒNG SỬA review Task 8 (I2) — đi qua `portal_context._cot_khoa_phong_
+	ton_tai()` TRƯỚC khi chạm cột `custom_khoa_phong`, cùng NGUỒN KIỂM TRA
+	mọi nơi khác trong app đã dùng cho đúng cột này (`permissions.py`,
+	`api/portal.py`) — không dò cột thứ hai. Thiếu cột (site chưa chạy
+	patch `v1_23/them_khoa_phong_vao_don_hang`) → trả `None`, rơi về nhánh
+	an toàn ở trên (báo TOÀN BỘ tài khoản, không phải hỏng lặng lẽ với lỗi
+	CSDL 1054 thô); `_cot_khoa_phong_ton_tai()` TỰ ghi một dòng Error Log
+	(chỉ MỘT lần, nhờ cache cấp tiến trình của chính nó) nên không cần ghi
+	log riêng ở đây."""
 	so = _sales_order_dau_tien(dn)
 	if not so:
+		return None
+	if not portal_context._cot_khoa_phong_ton_tai():
 		return None
 	return frappe.db.get_value("Sales Order", so, "custom_khoa_phong")
 
