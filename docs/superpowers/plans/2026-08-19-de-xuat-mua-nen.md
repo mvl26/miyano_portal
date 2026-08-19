@@ -46,6 +46,11 @@ Spec §5.2 viết "Đề xuất mua" (có dấu). Mọi doctype hiện có của
 `_chan_thieu_ma_ngan` chỉ ràng `Nhân viên khoa` (đã kiểm: guard `return` sớm khi `vai_tro != NHAN_VIEN_KHOA`). Nên một bệnh viện **chỉ có quản lý** có thể chưa có mã ngắn — mà mã ngắn là đoạn đầu của **mọi** mã đề xuất, kể cả đơn `CHUNG` của quản lý (§5.5). Không tự sinh mã thay: một mã tự đoán sẽ đi vào tên chứng từ vĩnh viễn.
 *Sai thì mất gì:* nếu chủ đầu tư muốn quản lý đặt hàng được ngay không cần mã ngắn, thì chỗ phải sửa là §6.1 (bỏ đoạn mã bệnh viện), không phải chỗ này.
 
+**QĐ-A4 — Hai mã song song, không thay thế nhau (chủ đầu tư chốt 19/08).**
+Khách hàng nhìn thấy **mã của họ** (`DXA-HUYETHOC-260819-01`); Miyano nhìn thấy **cả hai**; hoá đơn ghi **mã của bên đặt**; nhưng bản ghi nhận trên hệ thống **vẫn là `SAL-ORD-*` tự sinh**. Nghĩa là: `Sales Order.name` **không đổi** (§11 mục 4 đã chốt không đổi tên 102 đơn cũ), `custom_ma_tra_cuu` là chỗ chứa mã khách, và mọi nơi **hiển thị** cho khách phải đọc `custom_ma_tra_cuu` trước, rơi về `name` khi rỗng.
+Kế hoạch này chỉ **ghi dữ liệu và phơi qua API**. Việc **hiển thị** (cổng khách, màn desk Miyano) thuộc kế hoạch B; **mẫu in hoá đơn** là việc riêng chưa có kế hoạch.
+*Sai thì mất gì:* nếu chủ đầu tư thật sự muốn đổi luôn `Sales Order.name` thành mã khách, đó là một patch rename 102 đơn + mọi link trỏ tới chúng — việc lớn hơn nhiều và đi ngược §11 mục 4.
+
 ---
 
 ## File Structure
@@ -1131,6 +1136,27 @@ def _kiem_han_muc(doc, dong):
 
 *Người thi công:* `han_muc_con(blanket_order, item_code) -> tuple[float | None, float]` đã có sẵn ở `portal_context.py:336` — dùng lại, không viết mới. Field `Sales Order.custom_hdnt` **đã kiểm trên `erptest.local`**, có thật (`information_schema.columns`, 19/08). `Sales Order Item` còn có `blanket_order` chuẩn ERPNext — **không** nhầm hai cái: `custom_hdnt` ở đầu đơn là hợp đồng khung của Miyano, `blanket_order` ở dòng hàng là cơ chế lõi ERPNext.
 
+- [ ] **Step 4b: Phơi `ma_tra_cuu` qua API đơn hàng (QĐ-A4)**
+
+Thêm `custom_ma_tra_cuu` vào danh sách field mà `portal_order_history` và `portal_order_track` trả về, dưới khoá `ma_tra_cuu`. **Không** thay `name`: khách cần mã của họ để đọc, Miyano cần `SAL-ORD-*` để đối chiếu, và cổng phải trả **cả hai** cho kế hoạch B chọn cách hiển thị.
+
+```python
+	def test_api_don_hang_tra_ca_hai_ma(self):
+		frappe.set_user(self.user_quan_ly)
+		rows = portal.portal_order_history()
+		r = next(x for x in rows if x["name"] == self.don_da_duyet)
+		self.assertTrue(r["name"].startswith("SAL-ORD-"))   # mã hệ thống
+		self.assertIn("-HUYETHOC-", r["ma_tra_cuu"])        # mã của khách
+
+	def test_don_cu_khong_co_ma_tra_cuu_thi_khong_vo(self):
+		# 102 đơn cũ không có phiếu đề xuất đứng sau — field rỗng, KHÔNG lỗi.
+		# Đây là chốt tương thích ngược, phải xanh cả trước lẫn sau.
+		frappe.set_user(self.user_quan_ly)
+		rows = portal.portal_order_history()
+		r = next(x for x in rows if x["name"] == self.don_cu_khong_co_de_xuat)
+		self.assertFalse(r.get("ma_tra_cuu"))
+```
+
 - [ ] **Step 5: Thêm 3 endpoint + khai vào `DA_AP_PHAM_VI`**
 
 ```python
@@ -1451,6 +1477,25 @@ def dam_bao_duoc_sua_don_da_duyet(so, user=None):
 Thêm test cho chính nhánh fail-closed này — nếu không có nó thì nhánh nguy hiểm nhất là nhánh duy nhất không ai chạy qua:
 
 ```python
+	def test_nhan_vien_VAN_chap_nhan_bao_gia_duoc(self):
+		# Chủ đầu tư chốt 19/08: "quản lý duyệt 10 hộp, Miyano báo giá,
+		# nhân viên là xong là đơn đi thành sales order".
+		#
+		# CHỈ đổi số lượng mới phải quay lại quản lý. ĐỒNG Ý với báo giá —
+		# không đổi gì — thì nhân viên tự làm xong. Bắt duyệt lại ở đây sẽ
+		# làm tắc đúng con đường thông thường mà không kiểm soát thêm được
+		# gì: số lượng vẫn đúng số quản lý đã duyệt.
+		# KHÔNG khẳng định tên trạng thái đích: nó do Workflow document quyết
+		# định, không do code này, và plan chưa đọc Workflow đó. Khẳng định
+		# đúng thứ test này canh — nhân viên KHÔNG bị chặn, và đơn đã rời
+		# trạng thái chờ.
+		frappe.set_user(self.user_huyethoc)
+		portal.portal_order_accept(self.don_da_duyet, action="dong_y")
+		self.assertNotEqual(
+			frappe.db.get_value("Sales Order", self.don_da_duyet, "workflow_state"),
+			"Chờ khách đồng ý",
+		)
+
 	def test_thieu_cot_custom_de_xuat_thi_CHAN_chu_khong_tha(self):
 		"""Patch v1_24 chưa chạy → cổng phải ĐÓNG, không mở im lặng."""
 		frappe.set_user(self.user_huyethoc)
@@ -1496,5 +1541,7 @@ Không có dòng nào = patch chưa chạy trên site này (bẫy `install_app` 
 **Kế hoạch B — bước 6 (`docs/superpowers/plans/…-de-xuat-man-hinh.md`):** endpoint `de_xuat_mua_tim(tu_khoa, khoa_phong, gom_da_xu_ly)` (§6.3, khớp cả dòng đặt ngoài — bỏ sót thì phiếu toàn hàng chưa có mã sẽ **vô hình** trước ô tìm kiếm, đúng loại phiếu quản lý cần xem kỹ nhất); ba màn `/de-xuat`, `/de-xuat/:ma`, `/duyet`; sửa `Cart.vue`, `Orders.vue`, `OrderDetail.vue`, menu bên theo vai trò.
 
 **Kế hoạch C — bước 7:** doctype `Portal Delegation` + vế thứ hai của `la_quan_ly()` (hàm đã có docstring dặn trước chỗ này) + cờ `tu_duyet` suy ra + bộ lọc "Đơn tự duyệt khi tôi vắng".
+
+**Mẫu in hoá đơn (QĐ-A4) chưa có kế hoạch.** Chủ đầu tư yêu cầu hoá đơn ghi **mã của bên đặt**. Dữ liệu đã có sau kế hoạch này (`Sales Order.custom_ma_tra_cuu`); việc còn lại là sửa Print Format của Sales Invoice và đối chiếu với module hoá đơn điện tử Fast — **chưa khảo sát**, và bộ nhớ dự án đã ghi rằng hợp đồng dữ liệu của Fast khác với giả định của tài liệu BA. Không gộp bừa vào kế hoạch B.
 
 **Bước 8 (cách ly module kho) vẫn còn nợ** và **không trung lập**: `kho_phieu_get` trả field `sales_order` của phiếu nhập, nên nhân viên khoa vẫn đọc được số đơn, mặt hàng và tổng tiền của khoa khác. Xem spec §11b.
