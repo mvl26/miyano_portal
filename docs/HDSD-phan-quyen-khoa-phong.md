@@ -302,9 +302,11 @@ Phiếu chuyển sang **Chờ duyệt sửa** và quay lại hàng chờ của q
 > màn, phần "nhân viên lập" thì chưa. Nếu bệnh viện hỏi "chúng tôi bắt đầu dùng được
 > chưa", câu trả lời đúng là *chưa trọn vẹn*.
 
-Ngoài ra màn chi tiết **chưa có ô thêm mặt hàng mới** cho quản lý (§4 nói quản lý
-được thêm dòng — phần lõi làm được, nhưng phải làm trên Desk). Trên cổng, quản lý
-hiện chỉ **hạ số lượng, bỏ mặt hàng và ghi chú**.
+Ngoài ra màn chi tiết **chưa có ô thêm mặt hàng mới** cho quản lý. Trên cổng, quản
+lý hiện chỉ **hạ số lượng, bỏ mặt hàng và ghi chú** — muốn **thêm** một mặt hàng mà
+khoa không xin thì **quản lý bệnh viện không tự làm được**, phải báo nhân viên Miyano
+thêm giúp trên Desk. (Tài khoản bệnh viện là Website User, **không vào được** màn
+quản trị — đừng hướng dẫn họ "vào Desk mà làm".)
 
 ### Thông báo giờ gửi đúng người
 
