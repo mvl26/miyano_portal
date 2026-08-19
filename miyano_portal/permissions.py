@@ -270,7 +270,17 @@ def de_xuat_co_quyen(doc, ptype=None, user=None):
 
 def de_xuat_item_query(user=None) -> str:
     """Bảng con `Portal De Xuat Mua Item` — không mang `customer` riêng, lọc
-    qua parent. Cùng khuôn `kiem_hang_item_query` ngay trên."""
+    qua parent. Cùng khuôn `kiem_hang_item_query` ngay trên cho trục KHÁCH
+    HÀNG.
+
+    VÒNG VÁ (mang từ Task 4 sang Task 5, review phát hiện) — bản trước CHỈ
+    lọc theo `customer`, thiếu vế KHOA mà doctype cha (`de_xuat_query_
+    condition`) đã có: một nhân viên khoa Huyết học gọi thẳng kênh
+    `frappe.client.*`/reportview trên bảng con vẫn thấy dòng hàng của khoa
+    Dược cùng bệnh viện. Vá theo ĐÚNG khuôn hàm cha — dùng lại
+    `pham_vi_don()` (không viết lại logic khoa ở tầng này), `frappe.db.
+    escape` giá trị, rồi AND thêm điều kiện qua chứng từ cha (không có
+    field khoa riêng trên bảng con để so trực tiếp)."""
     user = user or frappe.session.user
     if not _is_restricted_user(user):
         return ""
@@ -278,9 +288,20 @@ def de_xuat_item_query(user=None) -> str:
     if not customers:
         return "1=0"
     joined = ", ".join(frappe.db.escape(c) for c in customers)
+    dieu_kien_cha = f"`customer` in ({joined})"
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        # Fail-closed — cùng nguyên tắc de_xuat_query_condition/_khoa_query_
+        # condition: không xác định được phạm vi thì không được coi là
+        # "không giới hạn".
+        return "1=0"
+    khoa = pv.get("custom_khoa_phong")
+    if khoa:
+        dieu_kien_cha += f" and `khoa_phong` = {frappe.db.escape(khoa)}"
     return (
         "`tabPortal De Xuat Mua Item`.`parent` in "
-        f"(select name from `tabPortal De Xuat Mua` where `customer` in ({joined}))"
+        f"(select name from `tabPortal De Xuat Mua` where {dieu_kien_cha})"
     )
 
 

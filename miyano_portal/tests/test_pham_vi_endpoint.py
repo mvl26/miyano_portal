@@ -23,10 +23,17 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal import portal_hen_giao, portal_kiem_hang, search_guard
+from miyano_portal.api import de_xuat as de_xuat_api
 from miyano_portal.api import kho as kho_api
 from miyano_portal.api import portal as portal_api
 
 # Endpoint ĐÃ đi qua `pham_vi_don()` hoặc `dam_bao_xem_duoc()`.
+#
+# Task 5 (19/08/2026) thêm 6 endpoint của `api/de_xuat.py` vào ĐÂY — module
+# mới không tự động bị `_endpoints()` soi tới, phải khai báo thủ công. Cả
+# sáu đều đi qua `get_portal_member()` (trục khách hàng) + `pham_vi_don()`
+# (trục khoa) trong chính `api/de_xuat.py::_phieu_cua_toi()`/
+# `de_xuat_tao_nhap()`/`de_xuat_danh_sach()` — không cái nào miễn.
 DA_AP_PHAM_VI: set[str] = {
 	"portal_order_history", "portal_order_track", "portal_dashboard_kpi",
 	"portal_deliveries", "portal_invoices", "portal_reorder",
@@ -36,6 +43,8 @@ DA_AP_PHAM_VI: set[str] = {
 	"portal_einvoice_download", "portal_einvoice_nhap",
 	"portal_einvoice_nhap_pdf", "portal_einvoice_ho_tro",
 	"portal_thong_bao_list", "portal_thong_bao_doc",
+	"de_xuat_tao_nhap", "de_xuat_luu_nhap", "de_xuat_xoa_nhap",
+	"de_xuat_gui_duyet", "de_xuat_danh_sach", "de_xuat_chi_tiet",
 }
 
 # Endpoint CỐ Ý không lọc theo khoa — mỗi cái kèm lý do bằng chữ. Sửa tập
@@ -120,7 +129,11 @@ def _endpoints(module) -> set[str]:
 
 class TestMoiEndpointKhaiBaoPhamVi(FrappeTestCase):
 	def test_moi_endpoint_portal_deu_da_khai_bao(self):
-		thuc_te = _endpoints(portal_api)
+		# Union với `de_xuat_api` (Task 5) — `api/de_xuat.py` là module MỚI,
+		# `_endpoints(portal_api)` một mình không bao giờ thấy nó. Không
+		# union thì test đếm ngược này vẫn xanh trong khi 6 endpoint mới
+		# không ai canh (đúng bẫy brief Task 5 đã cảnh báo).
+		thuc_te = _endpoints(portal_api) | _endpoints(de_xuat_api)
 		da_khai = DA_AP_PHAM_VI | set(MIEN_PHAM_VI)
 		chua_khai = thuc_te - da_khai
 		self.assertFalse(
@@ -132,7 +145,7 @@ class TestMoiEndpointKhaiBaoPhamVi(FrappeTestCase):
 
 	def test_khong_khai_bao_thua(self):
 		"""Tên trong hai tập mà không còn là endpoint nữa → tập đã mục."""
-		thuc_te = _endpoints(portal_api)
+		thuc_te = _endpoints(portal_api) | _endpoints(de_xuat_api)
 		thua = (DA_AP_PHAM_VI | set(MIEN_PHAM_VI)) - thuc_te
 		self.assertFalse(thua, f"Khai báo cho endpoint không còn tồn tại: {sorted(thua)}")
 
