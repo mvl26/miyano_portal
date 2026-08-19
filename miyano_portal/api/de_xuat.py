@@ -158,8 +158,22 @@ def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
 
 @frappe.whitelist()
 def de_xuat_chi_tiet(ten) -> dict:
+	"""M1 (review tổng 19/08) — dọn sentinel TRƯỚC KHI trả ra ngoài.
+
+	`so_luong_xin_sua` mặc định `-1` (`SO_LUONG_XIN_SUA_TRONG`) là quy ước
+	NỘI BỘ nghĩa "dòng này chưa có yêu cầu xin sửa". `doc.as_dict()` thô
+	đẩy thẳng `-1` ra API, và mọi tầng hiển thị phải tự biết luật đó — hoặc
+	hiện "SL xin sửa: -1" cho người dùng. Đổi về `None` ở ĐÚNG biên giới
+	của app là chỗ rẻ nhất và duy nhất không phải lặp lại.
+
+	CHỈ đổi giá trị ÂM: `0` là một yêu cầu THẬT ("xin bỏ dòng này", quy ước
+	của `portal_order_sua_so_luong`) và phải sống sót nguyên vẹn."""
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
-	return doc.as_dict()
+	kq = doc.as_dict()
+	for row in kq.get("items") or []:
+		if (row.get("so_luong_xin_sua") or 0) < 0:
+			row["so_luong_xin_sua"] = None
+	return kq
 
 
 def _ap_dieu_chinh(doc, dieu_chinh):
@@ -167,8 +181,13 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 	hàng = HẠ VỀ 0, không xoá dòng (§5.3). Thêm mặt hàng → dòng mới có
 	`so_luong_de_xuat = 0`, `nguon_dong = "Quản lý thêm"`.
 
-	CHỈ đọc `item_code` (để KHỚP dòng ĐÃ CÓ) và `so_luong_duyet` — mọi field
-	khác trong payload bị bỏ qua, cùng khuôn `portal_order_sua_so_luong`.
+	CHỈ đọc BA khoá: `item_code` (để KHỚP dòng ĐÃ CÓ, hoặc làm mã của dòng
+	mới), `so_luong_duyet` và `ghi_chu_quan_ly` — mọi field khác trong
+	payload bị bỏ qua, cùng khuôn `portal_order_sua_so_luong`. (M3, review
+	tổng 19/08 — bản trước viết "CHỈ đọc `item_code` và `so_luong_duyet` —
+	mọi field khác bị bỏ qua" ngay dưới một câu đã kể đúng cả ba, trong khi
+	code đọc `ghi_chu_quan_ly` thật: hai câu mâu thuẫn trong CÙNG một
+	docstring, và câu sai là câu mà người đọc dùng để quyết định.)
 	"""
 	dc = frappe.parse_json(dieu_chinh) if isinstance(dieu_chinh, str) else dieu_chinh
 	theo_ma = {d.item_code: d for d in doc.items}
@@ -179,9 +198,14 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 			if row.get("ghi_chu_quan_ly") is not None:
 				theo_ma[ma].ghi_chu_quan_ly = row["ghi_chu_quan_ly"]
 		else:
+			# M3 (review tổng) — CHÉP CẢ `ghi_chu_quan_ly`. Bản trước bỏ nó
+			# ở đúng nhánh này, không kèm lý do nào: quản lý gõ lý do cho
+			# mặt hàng HỌ VỪA THÊM (chính là dòng cần giải thích nhất — khoa
+			# không hề xin nó) thì lý do đó biến mất lặng lẽ.
 			doc.append("items", {
 				"item_code": ma, "so_luong_de_xuat": 0,
 				"so_luong_duyet": float(row.get("so_luong_duyet") or 0),
+				"ghi_chu_quan_ly": row.get("ghi_chu_quan_ly"),
 				"nguon_dong": "Quản lý thêm",
 			})
 	doc.save(ignore_permissions=True)
@@ -226,11 +250,13 @@ def de_xuat_xin_sua(ten, dong) -> dict:
 		dong = frappe.parse_json(dong)
 	items = (dong or {}).get("items") or []
 	doc.xin_sua(items)
-	# Task 8 — tái dùng ĐÚNG hàm "báo quản lý có phiếu chờ xử lý" đã có
-	# (chỉ Quản lý cần biết, không báo lại cho khoa vừa gửi — cùng khuôn
-	# `gui_duyet()`), không dựng thêm một mẫu thông báo riêng cho nhánh này.
-	from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
-	bao_de_xuat_gui_duyet(doc)
+	# M4 (review tổng 19/08) — thông báo RIÊNG cho việc xin sửa. Bản trước
+	# gọi lại `bao_de_xuat_gui_duyet`, nên quản lý nhận "Khoa vừa gửi đề
+	# xuất mua X chờ bạn duyệt" cho một phiếu ĐÃ DUYỆT TỪ TRƯỚC — sai việc.
+	# Người nhận vẫn là "chỉ Quản lý", giống bước gửi duyệt; chỉ tiền tố và
+	# nội dung là riêng (xem docstring `bao_de_xuat_xin_sua`).
+	from miyano_portal.portal_thong_bao_khach import bao_de_xuat_xin_sua
+	bao_de_xuat_xin_sua(doc)
 	return {"name": doc.name}
 
 

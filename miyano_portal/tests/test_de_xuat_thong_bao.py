@@ -30,6 +30,8 @@ Bốn bẫy đã biết (brief Task 8 + `test_de_xuat_duyet.py`):
      lớp, không tạo tuỳ tiện.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -540,6 +542,35 @@ class TestBaoHenGiaoLaiTheoKhoa(FrappeTestCase):
 		bao_hen_giao_lai(so, "Sẽ giao bù", self._ngay(), "hàng chưa về kho Miyano")
 		self.assertTrue(_co_nhan(self.ql, so.name, "Sales Order"))
 		self.assertFalse(_co_nhan(self.huyethoc, so.name, "Sales Order"))
+
+	# ---- M2 (review tổng) — thiếu cột thì rơi về "BÁO TẤT CẢ" ------------
+	#
+	# `kho/delivery_hook._khoa_phong_dau_tien` đã đi qua `portal_context.
+	# _cot_khoa_phong_ton_tai()` và thiếu cột thì rơi về nhánh AN TOÀN "báo
+	# TOÀN BỘ tài khoản của khách". Hàm này đọc `so.get("custom_khoa_phong")`
+	# TRẦN, nên cùng một điều kiện (patch `v1_23` chưa chạy) lại rơi về nhánh
+	# NGƯỢC LẠI — "chỉ Quản lý". Chốt của module: "gửi thừa còn hơn gửi
+	# thiếu".
+
+	def test_thieu_cot_khoa_phong_thi_bao_TAT_CA_khong_chi_quan_ly(self):
+		so = self._so_gia("SAL-ORD-TB5-05", self.khoa_huyethoc)
+		with patch.object(
+			portal_context, "_cot_khoa_phong_ton_tai", return_value=False
+		):
+			bao_hen_giao_lai(so, "Sẽ giao bù", self._ngay(), "hàng chưa về kho")
+		self.assertTrue(_co_nhan(self.ql, so.name, "Sales Order"))
+		self.assertTrue(_co_nhan(self.huyethoc, so.name, "Sales Order"))
+		# Chốt của M2 — khoa KHÁC cũng nhận: không xác định được khoa thì
+		# KHÔNG được thu hẹp, đúng chiều fallback của `delivery_hook`.
+		self.assertTrue(_co_nhan(self.duoc, so.name, "Sales Order"))
+
+	def test_CO_cot_khoa_phong_thi_van_thu_hep_dung_khoa(self):
+		"""VẾ DƯƠNG của test trên — lưới an toàn không được nới hành vi
+		bình thường (khoa Dược vẫn KHÔNG nhận tin của khoa Huyết học)."""
+		so = self._so_gia("SAL-ORD-TB5-06", self.khoa_huyethoc)
+		bao_hen_giao_lai(so, "Sẽ giao bù", self._ngay(), "hàng chưa về kho")
+		self.assertTrue(_co_nhan(self.huyethoc, so.name, "Sales Order"))
+		self.assertFalse(_co_nhan(self.duoc, so.name, "Sales Order"))
 
 
 # ======================================================================

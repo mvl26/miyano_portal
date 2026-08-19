@@ -334,6 +334,53 @@ class TestDeXuatEndpoint(FrappeTestCase):
 			de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		self.assertIn("không thuộc", str(ctx.exception))
 
+	# ---- M1 (review tổng) — sentinel -1 KHÔNG được lọt ra ngoài ---------
+	#
+	# `so_luong_xin_sua` mặc định `-1` là quy ước NỘI BỘ ("chưa có yêu cầu
+	# xin sửa"). `de_xuat_chi_tiet` trả `doc.as_dict()` thô nên đẩy thẳng
+	# `-1` ra API, và field còn `in_list_view: 1` không `hidden` nên nhân sự
+	# Miyano mở phiếu trên Desk thấy "SL xin sửa: -1" ở MỌI dòng.
+
+	def test_chi_tiet_khong_lo_sentinel_am_ra_ngoai(self):
+		frappe.set_user(self.user_huyethoc)
+		ket_qua = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		for row in ket_qua["items"]:
+			self.assertIsNone(row.get("so_luong_xin_sua"))
+
+	def test_chi_tiet_VAN_tra_so_xin_sua_that(self):
+		"""VẾ DƯƠNG — dọn sentinel không được nuốt luôn yêu cầu THẬT
+		(kể cả `0`, nghĩa "xin bỏ dòng này")."""
+		frappe.db.sql(
+			"""UPDATE `tabPortal De Xuat Mua Item` SET so_luong_xin_sua = 0
+			   WHERE parent = %s""",
+			self.phieu_huyethoc,
+		)
+		frappe.set_user(self.user_huyethoc)
+		ket_qua = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		for row in ket_qua["items"]:
+			self.assertEqual(row.get("so_luong_xin_sua"), 0)
+
+	def test_field_so_luong_xin_sua_an_tren_desk(self):
+		"""Chốt cấu hình — đọc THẲNG file JSON của doctype (nguồn sự thật),
+		không qua `frappe.get_meta` (đọc DB, chỉ đúng sau `bench migrate`)."""
+		import json as _json
+		import os
+
+		import miyano_portal
+
+		duong_dan = os.path.join(
+			os.path.dirname(miyano_portal.__file__),
+			"miyano_portal", "doctype", "portal_de_xuat_mua_item",
+			"portal_de_xuat_mua_item.json",
+		)
+		with open(duong_dan, encoding="utf-8") as f:
+			meta = _json.load(f)
+		field = next(
+			d for d in meta["fields"] if d["fieldname"] == "so_luong_xin_sua"
+		)
+		self.assertEqual(field.get("hidden"), 1)
+		self.assertFalse(field.get("in_list_view"))
+
 
 class TestDeXuatItemQueryVeKhoa(FrappeTestCase):
 	"""`permissions.de_xuat_item_query` — vế khoa còn thiếu (mang sang từ
@@ -439,3 +486,39 @@ class TestDeXuatItemQueryVeKhoa(FrappeTestCase):
 		ten = self._dong_qua_dieu_kien(self.user_huyethoc)
 		for d in self.dong_huyethoc:
 			self.assertIn(d, ten)
+
+	# ---- I4 (review tổng) — nửa vá ở TẦNG INSTANCE của bảng con ----------
+	#
+	# `permissions.de_xuat_item_query` (tầng hook, hai test ngay trên) ĐÃ có
+	# vế khoa, nhưng `PortalDeXuatMuaItem.has_permission` (tầng instance,
+	# CÙNG doctype) vẫn chỉ lọc `customer` — hai tầng cùng một doctype trả
+	# lời khác nhau cho cùng một câu hỏi.
+	#
+	# `super().has_permission()` của Frappe uỷ quyền dòng con cho doctype CHA
+	# (`frappe/permissions.py::has_child_permission`), mà `Portal De Xuat Mua`
+	# có ZERO DocPerm cho role `Customer` — nên nó trả `False` cho MỌI Website
+	# User và bộ lọc riêng của app không bao giờ chạy tới (đúng như docstring
+	# `portal_de_xuat_mua_item.py` tự khai: "LỚP PHÒNG THỦ THỨ HAI, chỉ sống
+	# lại nếu ai đó cấp DocPerm cho doctype cha"). Test dưới đây mô phỏng ĐÚNG
+	# cái "nếu" đó bằng cách vá `Document.has_permission` trả `True` — không
+	# cấp DocPerm thật (sẽ rò sang mọi test khác trong cùng site).
+
+	def _co_quyen_doc_dong(self, ten_dong, user):
+		from unittest.mock import patch
+
+		from frappe.model.document import Document
+
+		row = frappe.get_doc("Portal De Xuat Mua Item", ten_dong)
+		row.flags.ignore_permissions = False
+		with patch.object(Document, "has_permission", return_value=True):
+			return row.has_permission("read", user=user)
+
+	def test_instance_has_permission_chan_dong_hang_khoa_khac(self):
+		for d in self.dong_duoc:
+			self.assertFalse(self._co_quyen_doc_dong(d, self.user_huyethoc))
+
+	def test_instance_has_permission_cho_qua_dong_hang_khoa_minh(self):
+		"""VẾ DƯƠNG — thiếu test này thì một `return False` vô điều kiện
+		cũng qua được vế âm một mình."""
+		for d in self.dong_huyethoc:
+			self.assertTrue(self._co_quyen_doc_dong(d, self.user_huyethoc))

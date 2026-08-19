@@ -67,6 +67,27 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		khoa_phong=doc.khoa_phong,
 	)
 
+	# I1 (review tổng 19/08) — `tao_sales_order` trả ĐƠN CŨ kèm cờ
+	# `da_ton_tai=True` khi `custom_request_id` đã tồn tại (BR-O12, chống
+	# tạo đơn trùng — CỐ Ý ở tầng đó, nơi nó đúng: người dùng bấm lại nút
+	# Xác nhận). Ở TẦNG NÀY thì không: nếu bỏ qua cờ đó, phiếu này gắn lấy
+	# một đơn nó KHÔNG sinh ra rồi `doc.duyet()` như thường. Hai phiếu cùng
+	# nhận MỘT đơn: dòng vừa duyệt không có đơn nào đứng sau, hạn mức HĐNT
+	# không bị trừ, và khoa tưởng đã đặt hàng. Đường tới đây có thật —
+	# `request_id` mặc định là `doc.name`, và Frappe LÙI bộ đếm đặt tên khi
+	# bản ghi mới nhất của chuỗi bị xoá (`revert_series_if_last`), nên hai
+	# phiếu khác nhau CÓ THỂ mang cùng một tên/`request_id`. THẤT BẠI ỒN ÀO
+	# là cách hỏng duy nhất chấp nhận được ở đây.
+	if kq.get("da_ton_tai"):
+		frappe.throw(
+			f'Đơn hàng {kq["sales_order"]} đã được tạo trước đó cho mã yêu '
+			f'cầu "{doc.request_id or doc.name}" — phiếu này có thể đã được '
+			"duyệt rồi, hoặc mã yêu cầu bị trùng. Tải lại trang để xem "
+			"trạng thái mới nhất; nếu phiếu vẫn đang chờ duyệt thì liên hệ "
+			"Miyano, KHÔNG bấm duyệt lại.",
+			frappe.ValidationError,
+		)
+
 	# Ruling preflight C2 — KHÔNG tự viết trạng thái ở đây. `doc.duyet()`
 	# (Task 3) là nơi duy nhất viết trạng thái đã duyệt + khối truy vết;
 	# hai chỗ cùng viết một sự thật thì sớm muộn cũng lệch.

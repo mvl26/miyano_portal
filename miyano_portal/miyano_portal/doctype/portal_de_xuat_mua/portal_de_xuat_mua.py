@@ -76,7 +76,43 @@ class PortalDeXuatMua(Document):
 	def validate(self):
 		self._chan_khoa_phong_khac_benh_vien()
 		self._chan_sua_so_luong_de_xuat()
+		# I3 (review tổng) — SAU `_chan_sua_so_luong_de_xuat()` CỐ Ý: khi
+		# một thao tác vi phạm cả hai luật (thêm dòng trùng mã VỚI số lượng
+		# đề xuất khác 0 sau khi đã gửi duyệt), thông điệp về cột đã khoá
+		# vẫn là thông điệp đúng và cụ thể hơn cho người dùng.
+		self._chan_trung_ma_hang()
 		self._suy_tu_duyet()
+
+	def _chan_trung_ma_hang(self):
+		"""I3 (review tổng 19/08) — hai dòng cùng `item_code` làm số trên
+		phiếu GẤP ĐÔI số trên đơn.
+
+		Hậu quả đi vòng qua BA tầng, không tầng nào tự phát hiện được:
+		  * `api/de_xuat._ap_dieu_chinh` dựng `{d.item_code: d}` → chỉ dòng
+		    CUỐI nhận điều chỉnh của quản lý;
+		  * `dat_hang.tao_sales_order` GỘP hai dòng thành MỘT dòng SO;
+		  * `api/portal._dong_bo_so_luong_duyet_ve_phieu` ghi số ĐÃ GỘP
+		    ngược lên CẢ HAI dòng.
+		Phiếu X:6 + X:4 → SO X:10 → quản lý sửa còn 7 → phiếu nói 14, đơn
+		nói 7.
+
+		Chốt ở TẦNG THẤP NHẤT (`validate()` của doctype), không ở endpoint:
+		bốn đường ghi khác nhau (`de_xuat_luu_nhap`, `_ap_dieu_chinh`,
+		`portal_order_place` → `_dam_bao_phieu_tu_duyet`, và desk của nhân
+		sự Miyano) đều phải chịu cùng một luật, và một luật lặp ở bốn nơi
+		sớm muộn cũng lệch.
+		"""
+		da_thay = set()
+		for d in self.items:
+			if d.item_code in da_thay:
+				frappe.throw(
+					f'Mã hàng "{d.item_code}" xuất hiện nhiều hơn một dòng '
+					"trên phiếu. Gộp lại thành một dòng với tổng số lượng — "
+					"đơn hàng sinh ra luôn gộp các dòng cùng mã, nên để hai "
+					"dòng sẽ làm số trên phiếu và số trên đơn nói khác nhau.",
+					frappe.ValidationError,
+				)
+			da_thay.add(d.item_code)
 
 	def _suy_tu_duyet(self):
 		"""`tu_duyet` LUÔN suy từ `nguoi_duyet == owner`, không bao giờ nhận
@@ -113,6 +149,7 @@ class PortalDeXuatMua(Document):
 			self.ma_de_xuat = sinh_ma(self.customer, self.khoa_phong)
 		self.thoi_diem_gui = now_datetime()
 		self._dong_dau_gia()
+		self._dong_dau_so_luong_duyet()
 		self.trang_thai = TRANG_THAI_CHO_DUYET
 		self.save(ignore_permissions=True)
 		# Task 8 (§5.8) — CHỈ quản lý cần biết có phiếu chờ duyệt. Hàm này
@@ -121,6 +158,34 @@ class PortalDeXuatMua(Document):
 		# thái "Chờ duyệt" vừa ghi thành công.
 		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
 		bao_de_xuat_gui_duyet(self)
+
+	def _dong_dau_so_luong_duyet(self):
+		"""C2 (review tổng 19/08) — đóng dấu `so_luong_duyet = so_luong_de_
+		xuat` CÙNG LÚC cột đề xuất bị khoá (`_chan_sua_so_luong_de_xuat`).
+
+		§5.3 nói "Quản lý chỉ chạm `so_luong_duyet`. Bỏ một mặt hàng = HẠ VỀ
+		0" — "hạ về 0" chỉ có nghĩa nếu nó KHỞI ĐẦU KHÁC 0. Trước bản vá,
+		`so_luong_duyet` giữ default `"0"` từ lúc lưu nháp và không hàm nào
+		trong app đụng tới nó, nên quản lý bấm "duyệt nguyên trạng"
+		(`de_xuat_duyet_phieu(ten)` KHÔNG truyền `dieu_chinh` — chữ ký
+		`dieu_chinh=None` HỨA rằng đường đó chạy được) ăn thẳng
+		`frappe.throw("Không còn dòng nào có số lượng duyệt lớn hơn 0.")`
+		trên MỌI phiếu: không đơn nào sinh ra.
+
+		GHI CHÚ có chủ ý: phiếu bị Từ chối rồi sửa rồi GỬI LẠI đi qua đây
+		lần thứ hai, và lần đó sẽ ĐẶT LẠI `so_luong_duyet` theo cột đề xuất,
+		xoá điều chỉnh quản lý đã gõ ở vòng trước. Đúng ý: vòng trước kết
+		thúc bằng TỪ CHỐI (không có gì được duyệt), và phiếu gửi lại là một
+		đề nghị MỚI của khoa — quản lý phải nhìn lại từ đầu, không thừa
+		hưởng con số của một lần từ chối.
+
+		`_chan_sua_so_luong_de_xuat()` không cản: guard đó chỉ khoá
+		`so_luong_de_xuat`/`item_code`/việc xoá dòng, KHÔNG khoá cột duyệt
+		(xem `test_de_xuat_doctype.py::test_so_luong_duyet_van_sua_duoc_sau_
+		khi_gui`).
+		"""
+		for row in self.items:
+			row.so_luong_duyet = row.so_luong_de_xuat
 
 	def _dong_dau_gia(self):
 		"""§5.6 bẫy #2 (vòng sửa Task 6) — đóng dấu `don_gia` = giá hiện hành
@@ -222,9 +287,107 @@ class PortalDeXuatMua(Document):
 		phải "chưa có yêu cầu"); `qty = 0` GHI THẲNG `0` — đó là một yêu cầu
 		THẬT ("xin bỏ dòng này"), không phải giá trị rỗng. Trước bản vá,
 		`float(row.get("qty") or 0)` gộp cả hai trường hợp làm một.
+
+		C1 + I2 (review TỔNG 19/08) — MỌI chốt nằm TRƯỚC khi phiếu rời "Đã
+		duyệt". Xem `_kiem_don_dung_duoc_xin_sua()` và `_loc_thay_doi_that()`
+		ngay dưới: một phiếu đã sang "Chờ duyệt sửa" rồi mới chết ở bước
+		quản lý bấm Đồng ý là NGÕ CỤT — `CHUYEN_HOP_LE["Chờ duyệt sửa"]` chỉ
+		có đúng một cạnh ra (`Đã duyệt`), không có cạnh sang "Đã huỷ", nên
+		đường ra duy nhất là `tu_choi_sua()`: bắt buộc lý do, ghi lý do đó
+		vào `ghi_chu_quan_ly` mọi dòng như thể quản lý đã cân nhắc, và yêu
+		cầu của khoa mất trắng.
 		"""
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET_SUA)
+		self._kiem_don_dung_duoc_xin_sua()
 		theo_ma = {d.item_code: d for d in self.items}
+		thay_doi = self._loc_thay_doi_that(dong, theo_ma)
+		for ma, qty in thay_doi.items():
+			theo_ma[ma].so_luong_xin_sua = qty
+		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
+		self.save(ignore_permissions=True)
+
+	def _kiem_don_dung_duoc_xin_sua(self):
+		"""C1 (review tổng 19/08) — đơn đứng sau có SỬA ĐƯỢC không.
+
+		Lõi `portal.portal_order_sua_so_luong` (nơi `de_xuat_duyet_sua` bắt
+		buộc phải đi qua để sửa Sales Order thật) có HAI chốt cứng:
+		`workflow_state == "Chờ khách đồng ý"` và `custom_loai_don == "Mua
+		lẻ"`. Trước bản vá, `xin_sua()` không hỏi chốt nào — nên:
+
+		  * đơn HĐNT (`dat_hang.py` ghi `custom_loai_don = "Theo HĐNT"` cho
+		    MỌI đơn HĐNT) và
+		  * đơn Mua lẻ CHƯA tới "Chờ khách đồng ý" — tức MỌI đơn ngay sau
+		    khi duyệt, vì đơn sinh ra ở "Chờ xác nhận"
+
+		đều cho phiếu rời "Đã duyệt" vào ngõ cụt, rồi quản lý bấm Đồng ý mới
+		nhận một lỗi 500 khó hiểu ("Chỉ áp dụng cho đơn Mua lẻ.") — đúng thứ
+		spec §5.5 cấm.
+
+		Chốt ở TẦNG DOCTYPE, không ở endpoint: `de_xuat.de_xuat_xin_sua` chỉ
+		là một trong các đường vào, và bất biến "phiếu không được rời Đã
+		duyệt khi đơn không sửa được" thuộc về chính chứng từ này.
+
+		KHÔNG mở rộng thành xây tính năng sửa-đơn-HĐNT: phạm vi ở đây là TỪ
+		CHỐI SỚM kèm thông điệp nói đúng vì sao và khoa nên làm gì.
+		"""
+		from miyano_portal.portal_mua_le import TRANG_THAI_CHO_KHACH
+
+		if not self.sales_order:
+			frappe.throw(
+				"Phiếu này chưa có đơn hàng nào đứng sau nên không có số "
+				"lượng nào để xin sửa. Liên hệ quản lý của quý đơn vị.",
+				frappe.ValidationError,
+			)
+		don = frappe.db.get_value(
+			"Sales Order", self.sales_order,
+			["custom_loai_don", "workflow_state"], as_dict=True,
+		)
+		if not don:
+			frappe.throw(
+				f'Không tìm thấy đơn hàng "{self.sales_order}" đứng sau '
+				"phiếu này. Liên hệ Miyano để được hỗ trợ.",
+				frappe.ValidationError,
+			)
+		if don.custom_loai_don != "Mua lẻ":
+			frappe.throw(
+				f'Đơn "{self.sales_order}" đặt theo hợp đồng nguyên tắc '
+				"(HĐNT). Cổng không sửa được số lượng đơn HĐNT — số lượng "
+				"đã chốt theo hợp đồng. Liên hệ quản lý của quý đơn vị "
+				"hoặc Miyano nếu cần điều chỉnh.",
+				frappe.ValidationError,
+			)
+		if don.workflow_state != TRANG_THAI_CHO_KHACH:
+			frappe.throw(
+				f'Đơn "{self.sales_order}" đang ở bước '
+				f'"{don.workflow_state}". Chỉ xin sửa được số lượng khi đơn '
+				f'ở bước "{TRANG_THAI_CHO_KHACH}" (Miyano đã báo giá xong). '
+				"Liên hệ quản lý của quý đơn vị hoặc Miyano nếu cần đổi số "
+				"lượng ở giai đoạn này.",
+				frappe.ValidationError,
+			)
+
+	def _loc_thay_doi_that(self, dong: list[dict], theo_ma: dict) -> dict:
+		"""I2 (review tổng 19/08) — trả `{item_code: qty}` của những dòng
+		THẬT SỰ đổi số, sau khi đã chặn số âm.
+
+		Hai lỗ được bịt ở đây, cả hai đều dẫn tới CÙNG một ngõ cụt "Chờ
+		duyệt sửa" không lối ra:
+
+		  1. `qty < 0`. `qty = -1` ghi ĐÚNG sentinel `SO_LUONG_XIN_SUA_TRONG`
+		     → yêu cầu biến mất không dấu vết trong khi phiếu vẫn báo đang
+		     chờ duyệt sửa. `qty = -5` lọt mọi bộ lọc `>= 0` của các tầng
+		     trên → lõi ném "Không có thay đổi số lượng nào để gửi".
+		  2. KHÔNG có thay đổi thật nào — kể cả khi khoa xin ĐÚNG số đang
+		     có (10 → 10), một cửa vào hoàn toàn vô hại về ý định. Lõi cũng
+		     ném "Không có thay đổi số lượng nào để gửi", và lúc đó phiếu đã
+		     rời "Đã duyệt" rồi.
+
+		So với `so_luong_duyet` (số đang nằm trên đơn — `_dong_bo_so_luong_
+		duyet_ve_phieu` giữ hai chứng từ khớp nhau), KHÔNG so với
+		`so_luong_de_xuat`. Dòng không đổi bị bỏ qua lặng lẽ: ghi nó xuống
+		`so_luong_xin_sua` chỉ tạo một "yêu cầu" rỗng để tầng dưới lọc lại.
+		"""
+		thay_doi: dict[str, float] = {}
 		for row in dong:
 			ma = row.get("item_code")
 			if ma not in theo_ma:
@@ -232,9 +395,29 @@ class PortalDeXuatMua(Document):
 			qty = row.get("qty")
 			if qty is None:
 				continue
-			theo_ma[ma].so_luong_xin_sua = float(qty)
-		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
-		self.save(ignore_permissions=True)
+			try:
+				qty = float(qty)
+			except (TypeError, ValueError):
+				frappe.throw(
+					f'Số lượng xin sửa của "{ma}" không hợp lệ.',
+					frappe.ValidationError,
+				)
+			if qty < 0:
+				frappe.throw(
+					f'Số lượng xin sửa của "{ma}" không hợp lệ: số lượng '
+					"không được âm. Nhập 0 nếu muốn bỏ hẳn mặt hàng này.",
+					frappe.ValidationError,
+				)
+			if qty != float(theo_ma[ma].so_luong_duyet or 0):
+				thay_doi[ma] = qty
+		if not thay_doi:
+			frappe.throw(
+				"Không có thay đổi số lượng nào để gửi — số quý vị nhập "
+				"đúng bằng số đang có trên đơn. Nhập số MỚI cho mặt hàng "
+				"cần đổi (0 nếu muốn bỏ hẳn mặt hàng đó).",
+				frappe.ValidationError,
+			)
+		return thay_doi
 
 	def duyet_sua(self):
 		"""Quản lý ĐỒNG Ý với yêu cầu xin sửa — chép `so_luong_xin_sua`

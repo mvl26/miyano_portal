@@ -22,6 +22,10 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
 	SO_LUONG_XIN_SUA_TRONG,
 	TRANG_THAI_NHAP,
 )
+from miyano_portal.portal_thong_bao_khach import (
+	TIEN_TO_DE_XUAT_GUI_DUYET,
+	TIEN_TO_DE_XUAT_XIN_SUA,
+)
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
@@ -398,3 +402,161 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		ma_con_lai = {i.item_code for i in so.items}
 		self.assertNotIn(self.item, ma_con_lai)   # dòng xin bỏ THẬT SỰ mất
 		self.assertIn(self.item2, ma_con_lai)     # dòng KHÔNG xin sửa còn nguyên
+
+	# ---- C1 (review tổng) — đơn đứng sau KHÔNG sửa được thì CHẶN SỚM ------
+	#
+	# Lõi `portal_order_sua_so_luong` có HAI chốt cứng: `workflow_state ==
+	# "Chờ khách đồng ý"` và `custom_loai_don == "Mua lẻ"`. `xin_sua()`
+	# trước bản vá KHÔNG hỏi chốt nào — phiếu rời "Đã duyệt" sang "Chờ duyệt
+	# sửa" rồi mới chết ở bước quản lý bấm Đồng ý, và "Chờ duyệt sửa" KHÔNG
+	# có cạnh nào sang "Đã huỷ" (`CHUYEN_HOP_LE`) nên đường ra duy nhất là
+	# `de_xuat_tu_choi_sua` — bắt buộc lý do, ghi lý do đó vào mọi dòng như
+	# thể đã cân nhắc, và yêu cầu của khoa mất trắng.
+	#
+	# `frappe.db.set_value` ở đây dùng để TÁI HIỆN điều kiện hỏng, KHÔNG
+	# phải để vá quanh nó như fixture cũ đã làm.
+
+	def _phieu_da_duyet_don_chua_bao_gia(self):
+		"""Phiếu Mua lẻ ĐÃ duyệt mà đơn đứng sau còn ở ĐÚNG trạng thái nó
+		sinh ra ("Chờ xác nhận") — KHÔNG ép `workflow_state` như `setUp`
+		làm cho `self.don_da_duyet`. Đây là trạng thái của MỌI đơn ngay sau
+		khi quản lý bấm duyệt, trước khi Miyano báo giá."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"loai_don": "Mua lẻ",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 7}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		doc.items[0].so_luong_duyet = 7
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		return kq["de_xuat"], kq["sales_order"]
+
+	def test_xin_sua_don_HDNT_bi_chan_ngay_va_phieu_giu_nguyen_da_duyet(self):
+		"""C1 — `dat_hang.py` ghi `custom_loai_don = "Theo HĐNT"` cho MỌI
+		đơn HĐNT, và lõi từ chối thẳng loại đó. Phải chặn NGAY ở bước xin
+		sửa, kèm thông điệp tiếng Việt nói đúng vì sao và khoa nên làm gì."""
+		frappe.db.set_value(
+			"Sales Order", self.don_da_duyet, "custom_loai_don",
+			"Theo HĐNT", update_modified=False,
+		)
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		self.assertIn("hợp đồng nguyên tắc", str(ctx.exception))
+		self.assertIn("Miyano", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		# Chốt của C1 — phiếu KHÔNG được rời "Đã duyệt" vào ngõ cụt.
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
+
+	def test_xin_sua_don_mua_le_chua_toi_buoc_cho_khach_dong_y_bi_chan(self):
+		"""C1, ca thứ hai — đơn Mua lẻ NGAY SAU khi duyệt nằm ở "Chờ xác
+		nhận", chưa phải "Chờ khách đồng ý". Tức mọi đơn vừa duyệt xong đều
+		rơi vào ngõ cụt này, không riêng đơn HĐNT."""
+		phieu, don = self._phieu_da_duyet_don_chua_bao_gia()
+		self.assertNotEqual(
+			frappe.db.get_value("Sales Order", don, "workflow_state"),
+			"Chờ khách đồng ý",
+		)
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(phieu, {
+				"items": [{"item_code": self.item, "qty": 3}],
+			})
+		self.assertIn("Chờ khách đồng ý", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", phieu)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+
+	# ---- I2 (review tổng) — ba cửa vào cùng một ngõ cụt -------------------
+
+	def test_xin_sua_qty_am_bang_sentinel_bi_chan(self):
+		"""`qty = -1` ghi ĐÚNG sentinel `SO_LUONG_XIN_SUA_TRONG` → yêu cầu
+		biến mất không dấu vết, phiếu vẫn báo "Chờ duyệt sửa"."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+				"items": [{"item_code": self.item, "qty": -1}],
+			})
+		self.assertIn("không hợp lệ", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
+
+	def test_xin_sua_qty_am_khac_bi_chan(self):
+		"""`qty = -5` lọt mọi bộ lọc `>= 0` → lõi ném "Không có thay đổi số
+		lượng nào để gửi" và phiếu KẸT ở "Chờ duyệt sửa"."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+				"items": [{"item_code": self.item, "qty": -5}],
+			})
+		self.assertIn("không hợp lệ", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+
+	def test_xin_sua_dung_so_dang_co_thi_bi_chan(self):
+		"""Cửa vào thứ BA, hoàn toàn vô hại về ý định: khoa xin ĐÚNG số đang
+		có (10 → 10). Không sinh thay đổi nào, lõi ném "Không có thay đổi số
+		lượng nào để gửi", phiếu KẸT ở "Chờ duyệt sửa"."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+				"items": [{"item_code": self.item, "qty": 10}],
+			})
+		self.assertIn("không có thay đổi", str(ctx.exception).lower())
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+
+	def test_xin_sua_van_di_qua_duoc_khi_co_thay_doi_that(self):
+		"""VẾ DƯƠNG cho cả ba chốt trên — ba chốt trả `False` vô điều kiện
+		cũng qua được ba vế âm một mình."""
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+			"items": [
+				{"item_code": self.item, "qty": 8},
+				{"item_code": self.item2, "qty": 5},   # KHÔNG đổi — bỏ qua
+			],
+		})
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Chờ duyệt sửa")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, 8)
+
+	# ---- M4 (review tổng) — thông báo xin sửa phải nói đúng việc ----------
+
+	def _chu_de_da_gui(self, user):
+		return frappe.get_all(
+			"Notification Log",
+			filters={"for_user": user, "document_name": self.phieu_da_duyet},
+			pluck="subject",
+		)
+
+	def test_xin_sua_bao_quan_ly_bang_thong_bao_RIENG_khong_muon_gui_duyet(self):
+		"""M4 — trước bản vá, `de_xuat_xin_sua` gọi lại `bao_de_xuat_gui_
+		duyet`, nên quản lý nhận "Khoa vừa gửi đề xuất mua X chờ bạn duyệt"
+		cho một phiếu ĐÃ DUYỆT TỪ TRƯỚC."""
+		# `setUp` đã gọi `gui_duyet()` một lần THẬT (và bước đó ĐÚNG là gửi
+		# thông báo "gửi duyệt" cho quản lý) — nên đếm theo MỐC TRƯỚC/SAU,
+		# không khẳng định "không có thông báo gửi duyệt nào".
+		truoc = self._chu_de_da_gui(self.user_quan_ly)
+		moc_gui_duyet = sum(
+			1 for s in truoc if s.startswith(TIEN_TO_DE_XUAT_GUI_DUYET)
+		)
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		frappe.set_user("Administrator")
+		sau = self._chu_de_da_gui(self.user_quan_ly)
+		self.assertTrue(
+			any(s.startswith(TIEN_TO_DE_XUAT_XIN_SUA) for s in sau),
+			f"Không có thông báo xin sửa nào: {sau}",
+		)
+		self.assertEqual(
+			sum(1 for s in sau if s.startswith(TIEN_TO_DE_XUAT_GUI_DUYET)),
+			moc_gui_duyet,
+			f"Việc xin sửa vẫn gửi nhầm thông báo 'gửi duyệt': {sau}",
+		)

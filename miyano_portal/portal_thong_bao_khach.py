@@ -29,6 +29,7 @@ Brief 2026-08-15 (trang thông báo) — hai việc:
 
 import frappe
 
+from miyano_portal import portal_context
 from miyano_portal.portal_context import QUAN_LY
 
 TIEN_TO_DA_NHAP_HANG = "Portal - Đã nhập hàng"
@@ -37,6 +38,12 @@ TIEN_TO_HEN_GIAO = "Portal - Hẹn lịch giao"
 TIEN_TO_DE_XUAT_GUI_DUYET = "Portal - Đề xuất gửi duyệt"
 TIEN_TO_DE_XUAT_DA_DUYET = "Portal - Đề xuất đã duyệt"
 TIEN_TO_DE_XUAT_TU_CHOI = "Portal - Đề xuất bị từ chối"
+# M4 (review tổng 19/08) — tiền tố RIÊNG cho vòng "xin sửa sau duyệt" (§12
+# Q4). Dùng lại `TIEN_TO_DE_XUAT_GUI_DUYET` cho việc này (bản trước) làm
+# quản lý nhận "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" cho một phiếu ĐÃ
+# DUYỆT TỪ TRƯỚC — sai việc, và trộn lẫn hai bước trong cùng một tiền tố nên
+# không lọc/không đếm tách được nữa.
+TIEN_TO_DE_XUAT_XIN_SUA = "Portal - Đề xuất xin sửa số lượng"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
@@ -173,6 +180,50 @@ def bao_de_xuat_gui_duyet(doc) -> int:
         try:
             frappe.log_error(
                 title="Đề xuất mua: lỗi khi báo quản lý phiếu chờ duyệt",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal De Xuat Mua",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0
+
+
+def bao_de_xuat_xin_sua(doc) -> int:
+    """M4 (review tổng 19/08) — §12 Q4: khoa XIN SỬA số lượng một phiếu ĐÃ
+    DUYỆT → CHỈ Quản lý cần biết (cùng bảng người nhận với `bao_de_xuat_gui_
+    duyet`: đây cũng là một việc chờ quản lý xử lý, và không báo lại cho
+    chính khoa vừa gửi).
+
+    Vì sao KHÔNG dùng lại `bao_de_xuat_gui_duyet` (bản trước làm vậy): nội
+    dung của hàm đó là "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" — sai
+    việc cho một phiếu đã duyệt từ trước, và quản lý không có cách nào biết
+    họ đang được gọi vì một đề xuất MỚI hay một yêu cầu SỬA trên đơn đã
+    chốt (hai việc cần hai phản ứng khác hẳn nhau). Tiền tố riêng còn cho
+    phép lọc/đếm tách hai bước, thứ mà dùng chung tiền tố làm mất vĩnh viễn.
+
+    KHÔNG chống trùng — cùng lý do `bao_de_xuat_gui_duyet`: `xin_sua()` là
+    một chuyển trạng thái được `_kiem_chuyen()` bảo vệ (không có cạnh "Chờ
+    duyệt sửa" → "Chờ duyệt sửa"), nên không có đường gọi hai lần cho cùng
+    một lần xin sửa thật. Một vòng xin sửa MỚI sau khi quản lý đã xử lý
+    vòng trước là một sự kiện THẬT khác, quản lý CẦN được báo lại.
+
+    Không bao giờ ném lỗi — gọi ngay sau khi phiếu đã lưu thành công."""
+    try:
+        nguoi_nhan = _portal_users_theo_khoa(doc.customer, None)
+        if not nguoi_nhan:
+            return 0
+        chu_de = f"{TIEN_TO_DE_XUAT_XIN_SUA}: {doc.ma_de_xuat or doc.name}"
+        noi_dung = (
+            f"Khoa xin sửa số lượng trên đề xuất <b>{doc.ma_de_xuat or doc.name}</b> "
+            f"(đơn hàng <b>{doc.sales_order or '—'}</b>) đã duyệt trước đó. "
+            "Đơn hàng CHƯA đổi — chờ bạn đồng ý hoặc từ chối yêu cầu này."
+        )
+        return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Đề xuất mua: lỗi khi báo quản lý yêu cầu xin sửa",
                 message=frappe.get_traceback(with_context=True),
                 reference_doctype="Portal De Xuat Mua",
                 reference_name=doc.name,
@@ -476,9 +527,27 @@ def bao_hen_giao_lai(so, loai: str, ngay_moi, ly_do: str) -> int:
     khoa Dược không còn nhận thông báo hẹn giao của khoa Huyết học. `so`
     rỗng `custom_khoa_phong` (đơn "Toàn viện") → `_portal_users_theo_khoa`
     tự rơi về nhánh "chỉ Quản lý".
+
+    M2 (review tổng 19/08) — LƯỚI AN TOÀN cột `custom_khoa_phong`. Bản
+    trước đọc `so.get("custom_khoa_phong")` TRẦN, trong khi `kho/delivery_
+    hook._khoa_phong_dau_tien` (cùng cột, cùng mục đích thu hẹp người nhận)
+    đã đi qua `portal_context._cot_khoa_phong_ton_tai()`. Hệ quả: patch
+    `v1_23` chưa chạy thì chỗ đã vá rơi về "báo TẤT CẢ" còn chỗ này rơi về
+    "chỉ Quản lý" — hai nhánh an toàn NGƯỢC NHAU cho CÙNG một điều kiện.
+    Thống nhất về chiều đã chốt cho module này: "gửi thừa còn hơn gửi
+    thiếu". Dùng CHUNG nguồn kiểm tra, không dò cột lần thứ hai.
+
+    Chỉ nhánh THIẾU CỘT đổi. Cột CÓ mà rỗng (đơn "Toàn viện") vẫn là "chỉ
+    Quản lý" — đó là một sự thật ĐÃ BIẾT về đơn, không phải "không xác định
+    được" (chốt canh: `test_don_toan_vien_chi_quan_ly_nhan`).
     """
     try:
-        nguoi_nhan = _portal_users_theo_khoa(so.customer, so.get("custom_khoa_phong"))
+        if not portal_context._cot_khoa_phong_ton_tai():
+            nguoi_nhan = _portal_users_cua_khach(so.customer)
+        else:
+            nguoi_nhan = _portal_users_theo_khoa(
+                so.customer, so.get("custom_khoa_phong")
+            )
         if not nguoi_nhan:
             _log_khong_co_tai_khoan_cong(so.customer, so.name)
             return 0

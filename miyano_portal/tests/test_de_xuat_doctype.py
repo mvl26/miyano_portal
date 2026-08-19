@@ -160,10 +160,53 @@ class TestDeXuatVongDoi(FrappeTestCase):
 	def test_gui_duyet_roi_them_dong_so_luong_khong_thi_duoc(self):
 		"""VẾ DƯƠNG của test trên — quản lý VẪN thêm được dòng mới, miễn Số
 		lượng đề xuất bằng 0 (dòng khoa xin phải sinh từ lúc Gửi duyệt,
-		dòng quản lý thêm không được mạo danh dòng khoa xin)."""
+		dòng quản lý thêm không được mạo danh dòng khoa xin).
+
+		I3 (review tổng 19/08) — dòng thêm vào dùng MÃ HÀNG KHÁC
+		(`_item_khac()`), không lặp lại `self.item`: từ bản vá I3, hai dòng
+		cùng `item_code` bị `validate()` chặn thẳng. Dùng mã trùng ở đây
+		vốn chỉ là tiện tay — kịch bản THẬT của §5.3 ("quản lý thêm mặt hàng
+		khoa chưa xin") luôn là một mã KHÁC; `_ap_dieu_chinh` cũng chỉ
+		`append` khi mã CHƯA có trên phiếu."""
 		doc = self._cho_duyet()
-		doc.append("items", {"item_code": self.item, "so_luong_de_xuat": 0})
+		doc.append("items", {"item_code": self._item_khac(), "so_luong_de_xuat": 0})
 		doc.save(ignore_permissions=True)
+		self.assertEqual(len(doc.items), 2)
+
+	# ---- I3 (review tổng) — hai dòng cùng mã hàng ------------------------
+	#
+	# Không chỗ nào chặn hai dòng cùng `item_code`, và hậu quả đi vòng qua
+	# BA tầng: `api/de_xuat._ap_dieu_chinh` dựng `{d.item_code: d}` nên chỉ
+	# dòng CUỐI nhận điều chỉnh; `dat_hang.tao_sales_order` GỘP hai dòng
+	# thành một dòng SO; `api/portal._dong_bo_so_luong_duyet_ve_phieu` ghi
+	# số ĐÃ GỘP ngược lên CẢ HAI dòng. Phiếu X:6 + X:4 → SO X:10 → quản lý
+	# sửa còn 7 → phiếu nói 14, đơn nói 7. Chặn ở tầng THẤP NHẤT
+	# (`validate()` của doctype), không ở endpoint.
+
+	def test_hai_dong_cung_ma_hang_bi_chan(self):
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			frappe.get_doc({
+				"doctype": "Portal De Xuat Mua",
+				"customer": self.kh_a, "khoa_phong": self.khoa_a,
+				"loai_don": "HĐNT",
+				"items": [
+					{"item_code": self.item, "so_luong_de_xuat": 6},
+					{"item_code": self.item, "so_luong_de_xuat": 4},
+				],
+			}).insert(ignore_permissions=True)
+		self.assertIn("nhiều hơn một dòng", str(ctx.exception))
+
+	def test_hai_dong_khac_ma_hang_van_luu_duoc(self):
+		"""VẾ DƯƠNG — chốt chống trùng không được cấm phiếu nhiều mặt hàng."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"loai_don": "HĐNT",
+			"items": [
+				{"item_code": self.item, "so_luong_de_xuat": 6},
+				{"item_code": self._item_khac(), "so_luong_de_xuat": 4},
+			],
+		}).insert(ignore_permissions=True)
 		self.assertEqual(len(doc.items), 2)
 
 	def test_gui_duyet_roi_xoa_dong_da_khoa_thi_chan(self):

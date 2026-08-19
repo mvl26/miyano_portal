@@ -183,17 +183,20 @@ class TestDeXuatDuyet(FrappeTestCase):
 		return doc
 
 	def _cho_duyet(self, items=None):
-		"""Đưa phiếu tới "Chờ duyệt" VÀ điền `so_luong_duyet` = `so_luong_de_xuat`
-		cho mọi dòng — không hàm nào trong app tự làm việc này (đã xác nhận:
-		`gui_duyet()` không đụng `so_luong_duyet`), quản lý phải tự gõ hoặc
-		qua `_ap_dieu_chinh`. Test dựng sẵn để không phải lặp lại ở mỗi ca."""
+		"""Đưa phiếu tới "Chờ duyệt" — CHỈ vậy, không đụng gì thêm.
+
+		C2 (review tổng 19/08) — bản trước của helper này TỰ ĐIỀN
+		`so_luong_duyet = so_luong_de_xuat` cho mọi dòng, và chính việc đó
+		che mất lỗi Critical thứ hai: `gui_duyet()` không đụng cột duyệt,
+		`so_luong_duyet` giữ default "0", nên quản lý bấm "duyệt nguyên
+		trạng" (`de_xuat_duyet_phieu(ten)` không truyền `dieu_chinh`) ăn
+		thẳng `frappe.throw("Không còn dòng nào...")` trên MỌI phiếu. Bỏ hai
+		dòng tự điền là điều kiện để bộ test nhìn thấy được lỗi đó —
+		`gui_duyet()` giờ tự đóng dấu `so_luong_duyet` (§5.3: "bỏ một mặt
+		hàng = HẠ VỀ 0" chỉ có nghĩa nếu nó khởi đầu khác 0)."""
 		doc = self._nhap(items)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
-		doc.reload()
-		for row in doc.items:
-			row.so_luong_duyet = row.so_luong_de_xuat
-		doc.save(ignore_permissions=True)
 		doc.reload()
 		return doc
 
@@ -248,15 +251,49 @@ class TestDeXuatDuyet(FrappeTestCase):
 		self.assertEqual(kq["canh_bao_gia"], [])
 
 	def test_bam_duyet_hai_lan_khong_tao_hai_don(self):
-		"""§5.2 — `request_id` chuyển xuống tầng phiếu: bấm Duyệt hai lần trả
-		về CÙNG một Sales Order, không tạo đơn trùng (BR-O12)."""
+		"""§5.2 — `request_id` chuyển xuống tầng phiếu: bấm Duyệt hai lần
+		KHÔNG tạo đơn trùng (BR-O12).
+
+		I1 (review tổng 19/08) — khẳng định đổi từ "trả về CÙNG một đơn"
+		sang "BÁO LỖI RÕ RÀNG". Lý do: `dat_hang.tao_sales_order` trả đơn
+		CŨ kèm cờ `da_ton_tai=True` khi `custom_request_id` trùng, và
+		`duyet_va_tao_don` trước bản vá BỎ QUA cờ đó — nó vui vẻ gắn đơn cũ
+		cho phiếu MỚI rồi `doc.duyet()`. Với hai phiếu khác nhau tình cờ
+		cùng `request_id` (bẫy `revert_series_if_last` mà chính file này đã
+		ghi ở `_don_phieu_cu`), hệ quả là HAI phiếu cùng nhận MỘT đơn: dòng
+		vừa duyệt không có đơn nào đứng sau, hạn mức không bị trừ, và khoa
+		tưởng đã đặt hàng. Trả về im lặng là cách hỏng tệ nhất ở đây."""
 		doc = self.phieu_huyethoc
 		a = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		doc.reload()
 		doc.trang_thai = "Chờ duyệt"      # giả lập bấm lại khi UI chưa kịp cập nhật
 		doc.db_update()
-		b = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		self.assertEqual(a["sales_order"], b["sales_order"])
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertIn(a["sales_order"], str(ctx.exception))
+		self.assertIn("đã được tạo", str(ctx.exception))
+		# Không có đơn thứ hai nào sinh ra cho phiếu này.
+		self.assertEqual(
+			frappe.db.count("Sales Order", {"custom_de_xuat": doc.name}), 1
+		)
+
+	def test_duyet_nguyen_trang_khong_truyen_dieu_chinh_van_sinh_don(self):
+		"""C2 (review tổng 19/08) — CHỮ KÝ `de_xuat_duyet_phieu(ten,
+		dieu_chinh=None)` HỨA rằng "duyệt y nguyên" chạy được. Trước bản vá
+		nó ném `frappe.throw("Không còn dòng nào có số lượng duyệt lớn hơn
+		0.")` trên MỌI phiếu, vì `so_luong_duyet` giữ default "0" từ lúc lưu
+		nháp và `gui_duyet()` không đụng tới nó. Không đơn nào sinh ra."""
+		doc = self._cho_duyet()
+		# Chốt của C2 — `gui_duyet()` PHẢI đóng dấu cột duyệt bằng cột đề
+		# xuất, nếu không thì "hạ về 0" (§5.3) không có nghĩa gì.
+		self.assertEqual(doc.items[0].so_luong_duyet, doc.items[0].so_luong_de_xuat)
+
+		frappe.set_user(self.user_quan_ly)
+		kq = de_xuat.de_xuat_duyet_phieu(doc.name)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(len(so.items), 1)
+		self.assertEqual(so.items[0].item_code, self.item)
+		self.assertEqual(so.items[0].qty, 5)   # đúng số khoa đã đề xuất
 
 	def test_khong_con_dong_nao_thi_duyet_bi_chan(self):
 		"""VẾ ÂM cần cho §5.3 — hạ hết mọi dòng về 0 thì không có gì để đặt."""
@@ -319,6 +356,28 @@ class TestDeXuatDuyet(FrappeTestCase):
 		dong_moi = next(r for r in pdoc.items if r.item_code == self.item2)
 		self.assertEqual(dong_moi.nguon_dong, "Quản lý thêm")
 		self.assertEqual(dong_moi.so_luong_de_xuat, 0)
+
+	def test_ghi_chu_quan_ly_theo_ca_dong_cu_lan_dong_moi_them(self):
+		"""M3 (review tổng) — bất đối xứng không ghi chú: nhánh KHỚP dòng cũ
+		chép `ghi_chu_quan_ly`, nhánh THÊM dòng mới thì không. Quản lý gõ
+		lý do cho mặt hàng họ vừa thêm vào thì lý do đó biến mất."""
+		doc = self.phieu_huyethoc
+		frappe.set_user(self.user_quan_ly)
+		dc = {"items": [
+			{"item_code": self.item, "so_luong_duyet": 5,
+			 "ghi_chu_quan_ly": "giữ nguyên số khoa xin"},
+			{"item_code": self.item2, "so_luong_duyet": 3,
+			 "ghi_chu_quan_ly": "thay thế mặt hàng khoa xin"},
+		]}
+		de_xuat.de_xuat_duyet_phieu(doc.name, dieu_chinh=json.dumps(dc))
+		pdoc = frappe.get_doc("Portal De Xuat Mua", doc.name)
+		theo_ma = {r.item_code: r for r in pdoc.items}
+		self.assertEqual(
+			theo_ma[self.item].ghi_chu_quan_ly, "giữ nguyên số khoa xin"
+		)
+		self.assertEqual(
+			theo_ma[self.item2].ghi_chu_quan_ly, "thay thế mặt hàng khoa xin"
+		)
 
 	# ---- de_xuat_tu_choi -----------------------------------------------
 
