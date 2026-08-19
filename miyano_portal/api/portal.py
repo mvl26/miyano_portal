@@ -76,6 +76,14 @@ def portal_me() -> dict:
     cust = frappe.db.get_value(
         "Customer", customer, ["customer_name", "tax_id", "custom_cho_phep_mua_le"], as_dict=True
     ) or {}
+    # Man luong duyet (Task 1) — Frontend cần biết vai trò để gating menu
+    # (màn Duyệt chỉ cho người có quyền duyệt). `la_quan_ly` là khoá RIÊNG,
+    # không để client tự suy từ `vai_tro`: kế hoạch C thêm uỷ quyền tạm
+    # thời, khi đó một Nhân viên khoa ĐANG ĐƯỢC UỶ QUYỀN phải thấy menu
+    # Duyệt — client tự suy `vai_tro === "Quản lý"` sẽ bỏ sót đúng ca đó.
+    # `la_quan_ly()` (portal_context) là NGUỒN DUY NHẤT được hỏi, KHÔNG tự
+    # so `tv.vai_tro == "Quản lý"` ở đây.
+    tv = get_portal_member()
     return {
         "customer": customer,
         "customer_name": cust.get("customer_name"),
@@ -87,6 +95,9 @@ def portal_me() -> dict:
         # chuyển "Theo HĐNT | Mua lẻ" hay không (BR-R1) — một vòng round-trip
         # thừa, và một khách chưa bật cờ tự nhiên nhận 403 ngay từ lúc mở app.
         "cho_phep_mua_le": bool(cust.get("custom_cho_phep_mua_le")),
+        "vai_tro": tv.vai_tro,
+        "khoa_phong": tv.khoa_phong or None,
+        "la_quan_ly": la_quan_ly(),
     }
 
 
