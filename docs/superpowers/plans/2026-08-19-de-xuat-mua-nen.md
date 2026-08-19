@@ -504,8 +504,9 @@ class TestDeXuatVongDoi(FrappeTestCase):
 
 	def test_tu_choi_bat_buoc_ly_do(self):
 		doc = self._cho_duyet()
-		with self.assertRaises(frappe.ValidationError):
+		with self.assertRaises(frappe.ValidationError) as ctx:
 			doc.tu_choi("")
+		self.assertIn("Lý do từ chối", str(ctx.exception))
 
 	def test_tu_choi_roi_sua_roi_gui_lai(self):
 		"""Cạnh quay lui của §5.4 — mã KHÔNG sinh lại lần hai."""
@@ -518,9 +519,14 @@ class TestDeXuatVongDoi(FrappeTestCase):
 		self.assertEqual(doc.ma_de_xuat, ma_cu)
 
 	def test_khong_di_tat_tu_nhap_sang_da_duyet(self):
+		"""Bare assertRaises KHÔNG đủ ở đây: một phiếu Nháp thiếu field
+		bắt buộc ném MandatoryError — con của ValidationError — nên test
+		sẽ xanh vì lý do hoàn toàn khác cái nó định canh.
+		"""
 		doc = self._nhap()
-		with self.assertRaises(frappe.ValidationError):
+		with self.assertRaises(frappe.ValidationError) as ctx:
 			doc.duyet("Administrator")
+		self.assertIn("Không chuyển được phiếu", str(ctx.exception))
 ```
 
 - [ ] **Step 2: Chạy, xác nhận đỏ vì `AttributeError: gui_duyet`**
