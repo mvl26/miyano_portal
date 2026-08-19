@@ -43,6 +43,9 @@ const chuaDocThongBao = computed(() => store.chuaDocThongBao)
 function isActive(key) {
   const name = route.name || ''
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
+  // Man luong duyet (Task 4) — route con 'de-xuat-detail' vừa được tạo;
+  // cùng khuôn nhánh 'orders' ở trên, không phát minh cách khác.
+  if (key === 'de-xuat') return name === 'de-xuat' || name === 'de-xuat-detail'
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',

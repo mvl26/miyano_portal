@@ -6,6 +6,7 @@ import Cart from './views/Cart.vue'
 import Orders from './views/Orders.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import DeXuatList from './views/DeXuatList.vue'
+import DeXuatDetail from './views/DeXuatDetail.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
 import ImportTonDau from './views/ImportTonDau.vue'
@@ -30,9 +31,10 @@ const routes = [
   { path: '/cart', name: 'cart', component: Cart, meta: { title: 'Giỏ hàng' } },
   { path: '/orders', name: 'orders', component: Orders, meta: { title: 'Đơn hàng của tôi' } },
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
-  // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua. Ruling P1: route
-  // 'de-xuat-detail' (chi tiết một phiếu) do Task 4 tạo, KHÔNG nối ở đây.
+  // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua.
   { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
+  // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
+  { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   // Kiểm hàng (E9) — CỐ Ý không nằm dưới /kho: màn này chạy cho MỌI khách,
   // kể cả khách chưa mở kho. Khoá theo tên PHIẾU GIAO (không phải tên biên

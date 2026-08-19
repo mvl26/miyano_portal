@@ -50,10 +50,6 @@ async function load() {
   }
 }
 
-// Ruling P1 (Task 3) — route 'de-xuat-detail' do Task 4 tạo. Danh sách này
-// CỐ Ý không có hàm điều hướng/click-để-mở sang chi tiết: nối trước route
-// đó tồn tại là link chết.
-
 watch(filter, load)
 
 onMounted(async () => {
@@ -105,7 +101,12 @@ onMounted(async () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.name">
+          <tr
+            v-for="r in rows"
+            :key="r.name"
+            style="cursor: pointer"
+            @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+          >
             <td>
               <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>
               <span v-else class="tag">(chưa gửi duyệt)</span>
@@ -120,7 +121,13 @@ onMounted(async () => {
 
     <!-- MOBILE: thẻ -->
     <template v-else>
-      <div v-for="r in rows" :key="r.name" class="card mb10">
+      <div
+        v-for="r in rows"
+        :key="r.name"
+        class="card mb10"
+        style="cursor: pointer"
+        @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+      >
         <div class="sb">
           <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>
           <span v-else class="tag">(chưa gửi duyệt)</span>

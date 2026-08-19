@@ -50,6 +50,16 @@ export const ACTIONS_DE_XUAT = [
   { method: 'de_xuat_tu_choi_sua', label: 'Không đồng ý sửa', variant: 'secondary',
     when: (d, me) => d.trang_thai === 'Chờ duyệt sửa' && me.la_quan_ly,
     args: [{ key: 'ly_do', label: 'Lý do', type: 'textarea', required: true }] },
+
+  // Task 4, ruling coordinator (2) — trước bản này registry KHÔNG có mục
+  // nào cho "Đã duyệt" phía nhân viên khoa: toolbar rỗng, và luồng "xin sửa
+  // số lượng" backend đã xây đủ (Task 9 — ba endpoint, trạng thái "Chờ duyệt
+  // sửa", năm chốt ở `PortalDeXuatMua.xin_sua`) không có đường vào từ giao
+  // diện. `!d.sales_order` bị loại vì `de_xuat_xin_sua`/`_kiem_don_dung_
+  // duoc_xin_sua` throw ngay nếu chưa có đơn đứng sau. `!me.la_quan_ly` vì
+  // quản lý sửa THẲNG trên đơn (không qua vòng xin-rồi-chờ-duyệt-lại này).
+  { method: 'de_xuat_xin_sua', label: 'Xin sửa số lượng', variant: 'secondary',
+    when: (d, me) => d.trang_thai === 'Đã duyệt' && !!d.sales_order && !me.la_quan_ly },
 ]
 
 // Lọc ACTIONS_DE_XUAT theo doc + người dùng hiện tại. Bọc when() trong
