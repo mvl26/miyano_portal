@@ -8,6 +8,9 @@ không tự biết ai đang gọi nó, nên không giả vờ kiểm điều đ�
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+	TRANG_THAI_NHAP,
+)
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 
@@ -48,3 +51,163 @@ class TestDeXuatGuard(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 		self.assertEqual(doc.trang_thai, "Nháp")
 		self.assertFalse(doc.ma_de_xuat)
+
+
+class TestDeXuatVongDoi(FrappeTestCase):
+	"""Máy trạng thái §5.4, khoá số lượng gốc §5.3, xoá vs huỷ §5.4b."""
+
+	def setUp(self):
+		# `on_trash` chặn xoá phiếu đã gửi (§5.4b) — kể cả `force=True`, vì
+		# `force` chỉ bỏ kiểm tra liên kết, KHÔNG bỏ `on_trash` (xem
+		# `frappe/model/delete_doc.py`). `FrappeTestCase` rollback MỘT LẦN
+		# cho cả class, nên phiếu Chờ duyệt/Đã duyệt/Từ chối của test TRƯỚC
+		# trong lớp này còn nằm đó khi test SAU chạy. Hạ chúng về Nháp bằng
+		# SQL thô — dọn của CHÍNH lớp này — rồi mới gọi `dung_fixture` (dùng
+		# `delete_doc(force=True)`, giờ sẽ thành công vì mọi phiếu đều Nháp).
+		# KHÔNG sửa `fixtures_de_xuat.py`: nó dùng chung với Task 2 và các
+		# task sau, nới guard ở đó ảnh hưởng cả app, không chỉ lớp test này.
+		frappe.db.sql(
+			"""UPDATE `tabPortal De Xuat Mua` SET trang_thai = %s
+			   WHERE customer LIKE '\\_TEST DX%%'""",
+			TRANG_THAI_NHAP,
+		)
+		f = dung_fixture(self)
+		self.kh_a = f.kh_a
+		self.khoa_a = f.khoa_huyethoc
+		self.item = f.item
+
+	def _nhap(self):
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"loai_don": "HĐNT",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 5}],
+		})
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def _cho_duyet(self):
+		doc = self._nhap()
+		doc.ly_do_yeu_cau = "x"
+		doc.gui_duyet()
+		return doc
+
+	def test_gui_duyet_sinh_ma_va_dong_bang_so_luong(self):
+		doc = self._nhap()
+		self.assertFalse(doc.ma_de_xuat)
+		doc.ly_do_yeu_cau = "Hết găng tay cỡ M"
+		doc.gui_duyet()
+		self.assertEqual(doc.trang_thai, "Chờ duyệt")
+		self.assertTrue(doc.ma_de_xuat)
+		self.assertTrue(doc.thoi_diem_gui)
+
+	def test_gui_duyet_thieu_ly_do_thi_chan(self):
+		"""§5.2 — `ly_do_yeu_cau` bắt buộc Ở BƯỚC GỬI, không phải lúc lưu nháp."""
+		doc = self._nhap()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.gui_duyet()
+		self.assertIn("Lý do", str(ctx.exception))
+
+	def test_nhap_luu_duoc_khi_chua_co_ly_do(self):
+		"""VẾ DƯƠNG của test trên — bắt điền ngay từ dòng đầu sẽ khiến
+		người ta gõ 'abc' cho xong (§5.2)."""
+		doc = self._nhap()
+		self.assertEqual(doc.trang_thai, "Nháp")
+
+	def test_so_luong_de_xuat_khoa_vinh_vien_sau_khi_gui(self):
+		"""§5.3 — không ai sửa được nữa, kể cả quản lý, kể cả Miyano."""
+		doc = self._nhap()
+		doc.ly_do_yeu_cau = "x"
+		doc.gui_duyet()
+		doc.items[0].so_luong_de_xuat = 999
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.save(ignore_permissions=True)
+		self.assertIn("đã khoá", str(ctx.exception))
+
+	def test_so_luong_duyet_van_sua_duoc_sau_khi_gui(self):
+		"""VẾ DƯƠNG — khoá cột đề xuất KHÔNG được khoá luôn cột duyệt."""
+		doc = self._nhap()
+		doc.ly_do_yeu_cau = "x"
+		doc.gui_duyet()
+		doc.items[0].so_luong_duyet = 3
+		doc.save(ignore_permissions=True)
+		self.assertEqual(doc.items[0].so_luong_duyet, 3)
+
+	def test_xoa_phieu_nhap_duoc(self):
+		doc = self._nhap()
+		ten = doc.name
+		frappe.delete_doc("Portal De Xuat Mua", ten, force=True)
+		self.assertFalse(frappe.db.exists("Portal De Xuat Mua", ten))
+
+	def test_khong_xoa_duoc_phieu_da_gui(self):
+		"""§5.4b — đã có mã, quản lý đã nhìn thấy → huỷ chứ không xoá."""
+		doc = self._nhap()
+		doc.ly_do_yeu_cau = "x"
+		doc.gui_duyet()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			frappe.delete_doc("Portal De Xuat Mua", doc.name)
+		self.assertIn("Huỷ phiếu", str(ctx.exception))
+
+	def test_tu_choi_bat_buoc_ly_do(self):
+		doc = self._cho_duyet()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.tu_choi("")
+		self.assertIn("Lý do từ chối", str(ctx.exception))
+
+	def test_tu_choi_roi_sua_roi_gui_lai(self):
+		"""Cạnh quay lui của §5.4 — mã KHÔNG sinh lại lần hai."""
+		doc = self._cho_duyet()
+		ma_cu = doc.ma_de_xuat
+		doc.tu_choi("Vượt dự toán")
+		self.assertEqual(doc.trang_thai, "Từ chối")
+		doc.gui_duyet()
+		self.assertEqual(doc.trang_thai, "Chờ duyệt")
+		self.assertEqual(doc.ma_de_xuat, ma_cu)
+
+	def test_khong_di_tat_tu_nhap_sang_da_duyet(self):
+		"""Bare assertRaises KHÔNG đủ ở đây: một phiếu Nháp thiếu field
+		bắt buộc ném MandatoryError — con của ValidationError — nên test
+		sẽ xanh vì lý do hoàn toàn khác cái nó định canh.
+		"""
+		doc = self._nhap()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.duyet("Administrator")
+		self.assertIn("Không chuyển được phiếu", str(ctx.exception))
+
+	def test_duyet_ghi_du_khoi_truy_vet_va_suy_tu_duyet(self):
+		"""`.duyet()` là nơi DUY NHẤT viết `Đã duyệt` — kèm cả khối truy vết
+		và `tu_duyet` suy từ `nguoi_duyet == owner`, không nhận từ ngoài."""
+		doc = self._cho_duyet()
+		doc.duyet("quanly@benhvien.test", tu_cach="Được uỷ quyền", uy_quyen="UQ-001")
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.nguoi_duyet, "quanly@benhvien.test")
+		self.assertTrue(doc.thoi_diem_duyet)
+		self.assertEqual(doc.duyet_voi_tu_cach, "Được uỷ quyền")
+		self.assertEqual(doc.uy_quyen, "UQ-001")
+		self.assertFalse(doc.tu_duyet)
+
+	def test_duyet_tu_duyet_khi_nguoi_duyet_la_owner(self):
+		"""`tu_duyet` là CỜ SUY RA, không nhận từ tham số ngoài — nếu nhận từ
+		ngoài, một cờ tự khai đúng lúc cần nhất sẽ không được khai."""
+		doc = self._cho_duyet()
+		doc.duyet(doc.owner)
+		self.assertTrue(doc.tu_duyet)
+
+	def test_huy_tu_cho_duyet(self):
+		doc = self._cho_duyet()
+		doc.huy()
+		self.assertEqual(doc.trang_thai, "Đã huỷ")
+
+	def test_huy_tu_tu_choi(self):
+		doc = self._cho_duyet()
+		doc.tu_choi("Vượt dự toán")
+		doc.huy()
+		self.assertEqual(doc.trang_thai, "Đã huỷ")
+
+	def test_khong_huy_duoc_tu_nhap(self):
+		"""Nháp chỉ có một lối ra hợp lệ: gửi duyệt hoặc xoá thật — không
+		có cạnh `huy()` nào xuất phát từ Nháp trong máy trạng thái §5.4."""
+		doc = self._nhap()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.huy()
+		self.assertIn("Không chuyển được phiếu", str(ctx.exception))
