@@ -320,7 +320,7 @@ import DeXuatList from './views/DeXuatList.vue'
 { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
 ```
 
-- [ ] **Step 2: Thêm mục menu trong `App.vue`** — hiện cho **mọi** vai trò (nhân viên xem phiếu khoa mình, quản lý xem toàn viện). Bám đúng khuôn `router-link` đang dùng cho `/orders`.
+- [ ] **Step 2 (Ruling P1 — KHÔNG nối link sang màn chi tiết ở task này; route đó do Task 4 tạo, nối trước là link chết): Thêm mục menu trong `App.vue`** — hiện cho **mọi** vai trò (nhân viên xem phiếu khoa mình, quản lý xem toàn viện). Bám đúng khuôn `router-link` đang dùng cho `/orders`.
 
 - [ ] **Step 3: `cd frontend && yarn build`** — phải thành công
 
