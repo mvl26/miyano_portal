@@ -26,8 +26,13 @@ export const store = reactive({
   // duyệt" + "Chờ duyệt sửa") trên mục menu. Nạp ở App.vue (mọi trang, chỉ
   // khi `la_quan_ly`) — cùng khuôn `chuaDocThongBao` ở trên.
   choDuyetCount: 0,
-  setChoDuyetCount(n) {
+  // Việc (e) — `de_xuat_danh_sach` cắt ở `limit` và KHÔNG trả tổng số. Khi
+  // số dòng chạm trần, con số badge là SÀN chứ không phải sự thật; cờ này
+  // cho badge hiện "200+" thay vì "200" và cho màn /duyet nói ra một dòng.
+  choDuyetBiCat: false,
+  setChoDuyetCount(n, biCat = false) {
     this.choDuyetCount = n
+    this.choDuyetBiCat = !!biCat
   },
   cart: {}, // ngăn Theo HĐNT
   cartLe: {}, // ngăn Mua lẻ [MỚI]

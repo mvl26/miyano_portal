@@ -5,6 +5,7 @@ import { store } from './store'
 import { logout } from './api'
 import api from './api'
 import ToastHost from './ToastHost.vue'
+import { capNhatChoDuyetCount } from './cho-duyet'
 
 const route = useRoute()
 
@@ -46,6 +47,10 @@ const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
 const cartCount = computed(() => store.cartCount)
 const chuaDocThongBao = computed(() => store.chuaDocThongBao)
 const choDuyetCount = computed(() => store.choDuyetCount)
+// Việc (e) — badge hiện "200+" khi hàng chờ chạm trần một lời gọi. Con số
+// trần trụi "200" là con số SAI đọc như con số đúng: quản lý duyệt hết 200
+// phiếu rồi tưởng xong việc.
+const choDuyetNhan = computed(() => `${store.choDuyetCount}${store.choDuyetBiCat ? '+' : ''}`)
 
 // Man luong duyet (Task 5) — mục "Duyệt" chỉ hiện cho `me.la_quan_ly`. Lọc
 // TẠI ĐÂY (computed, phản ứng theo `store.me`) thay vì v-if rải trong
@@ -57,7 +62,13 @@ function isActive(key) {
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
   // Man luong duyet (Task 4) — route con 'de-xuat-detail' vừa được tạo;
   // cùng khuôn nhánh 'orders' ở trên, không phát minh cách khác.
-  if (key === 'de-xuat') return name === 'de-xuat' || name === 'de-xuat-detail'
+  // Việc (c) + C3 — màn chi tiết phiếu là ĐÍCH CHUNG của HAI mục nav. Nó
+  // sáng ở mục nào là do NƠI ĐÃ TỚI quyết định, đọc từ `?tu=` mà danh sách
+  // nguồn ghi vào lúc điều hướng (xem `quayLaiTo` ở DeXuatDetail.vue). Thiếu
+  // vế này thì quản lý mở phiếu từ /duyet lại thấy "Đề xuất mua" sáng —
+  // đúng lỗi đã sửa cho 'de-xuat' ở Task 4, tái diễn qua cửa 'duyet'.
+  if (key === 'de-xuat') return name === 'de-xuat' || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
+  if (key === 'duyet') return name === 'duyet' || (name === 'de-xuat-detail' && route.query.tu === 'duyet')
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',
@@ -88,21 +99,18 @@ onMounted(async () => {
 
   // Man luong duyet (Task 5) — nạp `me` ở SHELL (không đợi view con): mục
   // nav "Duyệt" và badge số phiếu chờ hiện trên MỌI trang, không riêng gì
-  // `/duyet`. `de_xuat_danh_sach` chỉ nhận MỘT `trang_thai` mỗi lần gọi nên
-  // gộp hai trạng thái ("Chờ duyệt" + "Chờ duyệt sửa") bằng hai lời gọi
-  // song song, cùng cách DuyetList.vue tự tải danh sách của nó.
+  // `/duyet`. Hai lời gọi ("Chờ duyệt" + "Chờ duyệt sửa") và luật phát hiện
+  // bị cắt nằm ở `cho-duyet.js` — dùng chung với /duyet và màn chi tiết, để
+  // ba nơi không trôi khỏi nhau (việc (e)).
   try {
     if (!store.me) store.setMe(await api.call('portal_me'))
-    if (store.me?.la_quan_ly) {
-      const [choDuyet, choDuyetSua] = await Promise.all([
-        api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt', limit: 200 }),
-        api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt sửa', limit: 200 }),
-      ])
-      store.setChoDuyetCount(choDuyet.length + choDuyetSua.length)
-    }
-  } catch {
-    // Badge/mục nav chỉ là gợi ý phụ ở tầng shell — im lặng bỏ qua, view
-    // `/duyet` tự tải lại dữ liệu thật khi khách vào đó.
+    await capNhatChoDuyetCount(store)
+  } catch (e) {
+    // Badge/mục nav chỉ là gợi ý phụ ở tầng shell — KHÔNG chặn cả trang,
+    // view `/duyet` tự tải lại dữ liệu thật khi khách vào đó. Nhưng cũng
+    // KHÔNG rơi im lặng: `catch {}` trần ở đây từng là lý do một tên endpoint
+    // gõ sai làm badge biến mất trên mọi trang mà không để lại dấu vết nào.
+    console.warn('Không nạp được số phiếu chờ duyệt cho badge nav:', e)
   }
 })
 </script>
@@ -122,7 +130,7 @@ onMounted(async () => {
           <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
           <span v-if="n.cart && cartCount" class="cartn">{{ cartCount }}</span>
           <span v-if="n.thongBao && chuaDocThongBao" class="cartn">{{ chuaDocThongBao }}</span>
-          <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetCount }}</span>
+          <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetNhan }}</span>
         </router-link>
       </nav>
       <div class="who">

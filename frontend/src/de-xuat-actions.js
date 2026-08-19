@@ -68,6 +68,16 @@ export const ACTIONS_DE_XUAT = [
 export function hanhDongChoPhep(doc, me) {
   if (!doc || !me) return []
   return ACTIONS_DE_XUAT.filter((a) => {
-    try { return a.when(doc, me) } catch (e) { return false }
+    try {
+      return a.when(doc, me)
+    } catch (e) {
+      // Việc (a) — `return false` trần nuốt lỗi KHÔNG TIẾNG ĐỘNG: một when()
+      // ném lỗi (doc thiếu field, me sai hình dạng) làm nút BIẾN MẤT y hệt
+      // như khi nó hợp lệ trả false. Người dùng báo "không thấy nút Duyệt",
+      // và không có gì ở đâu để đối chiếu. Vẫn nuốt (một nút hỏng không được
+      // làm sập cả thanh công cụ) nhưng để lại dấu vết ở console.
+      console.warn(`[de-xuat-actions] when() của "${a.method}" ném lỗi — ẩn nút này:`, e)
+      return false
+    }
   })
 }

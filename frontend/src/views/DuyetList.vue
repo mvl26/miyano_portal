@@ -1,15 +1,23 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtDateTime, deXuatBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
+import { napHangChoDuyet, GIOI_HAN_CHO_DUYET } from '../cho-duyet'
 
 const isMobile = useIsMobile()
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(true)
 const error = ref('')
 const rows = ref([])
+// Việc (e) — danh sách chạm trần `limit`. Phải NÓI RA: một quản lý lọc khoa
+// "Huyết học" trên một danh sách đã bị cắt ngầm sẽ thấy 3 phiếu và tin rằng
+// khoa đó chỉ có 3.
+const biCat = ref(false)
 
 // Task 5 — "quản lý sẽ filter theo khoa … cốt lõi là để quản lý biết được
 // khoa nào đang mua cái gì mà để duyệt" (yêu cầu gốc chủ đầu tư). Dropdown
@@ -50,22 +58,37 @@ const filteredRows = computed(() => {
   return rows.value.filter((r) => r.khoa_phong === khoaFilter.value)
 })
 
-// `de_xuat_danh_sach` chỉ nhận MỘT `trang_thai` (chuỗi) mỗi lần gọi — gộp
-// "Chờ duyệt" và "Chờ duyệt sửa" ở ĐÂY (client), không đổi chữ ký endpoint:
-// truyền thẳng một mảng vào tham số đó sẽ vướng đúng cái bẫy filter Frappe
-// coi list 2 phần tử là (operator, value) thay vì "in" — endpoint hiện tại
-// không tự bọc `["in", [...]]`.
+// C3 — giữ bộ lọc trong URL. `replace` (không `push`) để mỗi lần đổi khoa
+// KHÔNG sinh một bước lịch sử: nếu không, quản lý bấm Quay lại từ phiếu sẽ
+// lùi qua từng lần đổi dropdown trước đó.
+watch(khoaFilter, (ma) => {
+  router.replace({ name: 'duyet', query: ma ? { khoa: ma } : {} })
+})
+
+// C3 — mang NƠI ĐÃ TỚI (`tu=duyet`) và bộ lọc đang mở sang màn chi tiết.
+// Màn đó dùng đúng hai thứ này để dựng lại nút "Quay lại" (và App.vue dùng
+// `tu` để sáng đúng mục nav — việc (c)).
+function moPhieu(r) {
+  router.push({
+    name: 'de-xuat-detail',
+    params: { ten: r.name },
+    query: { tu: 'duyet', ...(khoaFilter.value ? { khoa: khoaFilter.value } : {}) },
+  })
+}
+
+// Hai lời gọi ("Chờ duyệt" + "Chờ duyệt sửa") và luật phát hiện bị cắt nằm
+// ở `cho-duyet.js` — dùng chung với badge nav ở App.vue và màn chi tiết, để
+// bảng và badge không nói hai con số khác nhau.
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [choDuyet, choDuyetSua] = await Promise.all([
-      api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt', limit: 200 }),
-      api.callDeXuat('de_xuat_danh_sach', { trang_thai: 'Chờ duyệt sửa', limit: 200 }),
-    ])
-    rows.value = [...choDuyet, ...choDuyetSua].sort((a, b) =>
-      (b.thoi_diem_gui || '').localeCompare(a.thoi_diem_gui || '')
-    )
+    const kq = await napHangChoDuyet()
+    rows.value = kq.rows
+    biCat.value = kq.biCat
+    // Bảng và badge nav là CÙNG một tập dữ liệu — đồng bộ luôn, thay vì để
+    // badge giữ con số từ lúc mount shell.
+    store.setChoDuyetCount(kq.rows.length, kq.biCat)
   } catch (e) {
     error.value = e.message || 'Không tải được hàng chờ duyệt.'
   } finally {
@@ -75,6 +98,10 @@ async function load() {
 
 onMounted(async () => {
   loadKhoaPhongList()
+  // C3 — quản lý quay lại từ màn chi tiết phải rơi đúng vào bộ lọc khoa đã
+  // chọn. Bộ lọc sống trong URL (`?khoa=`), không trong bộ nhớ component:
+  // component bị huỷ khi rời trang, URL thì không.
+  if (route.query.khoa) khoaFilter.value = String(route.query.khoa)
   if (!store.me) {
     try {
       store.setMe(await api.call('portal_me'))
@@ -105,6 +132,16 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- Việc (e) — danh sách chạm trần thì NÓI RA, không cắt im lặng. Đứng
+         NGOÀI chuỗi v-if/v-else-if bên dưới: nó là lời cảnh báo ĐI KÈM bảng,
+         không phải một nhánh thay thế bảng. -->
+    <div v-if="!loading && !error && biCat" class="card mb10" style="border-color: var(--red)">
+      <p class="tag" style="color: var(--red)">
+        Danh sách đang bị giới hạn ở {{ GIOI_HAN_CHO_DUYET }} phiếu mỗi loại — có thể còn phiếu
+        chưa hiện ở đây. Hãy duyệt bớt hàng chờ, hoặc báo Miyano nếu con số này không giảm.
+      </p>
+    </div>
+
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!filteredRows.length" class="empty">Không có phiếu nào chờ duyệt.</div>
@@ -122,7 +159,7 @@ onMounted(async () => {
             v-for="r in filteredRows"
             :key="r.name"
             style="cursor: pointer"
-            @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+            @click="moPhieu(r)"
           >
             <td>
               <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>
@@ -143,7 +180,7 @@ onMounted(async () => {
         :key="r.name"
         class="card mb10"
         style="cursor: pointer"
-        @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+        @click="moPhieu(r)"
       >
         <div class="sb">
           <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>

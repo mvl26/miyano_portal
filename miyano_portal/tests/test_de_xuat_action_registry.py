@@ -28,7 +28,20 @@ from miyano_portal.api import de_xuat as de_xuat_api
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 REGISTRY = FRONTEND_SRC / "de-xuat-actions.js"
-VIEWS_DIR = FRONTEND_SRC / "views"
+
+# C4 (review tổng 19/08) — quét TOÀN BỘ `frontend/src`, không riêng `views/`.
+#
+# Bản trước chỉ `views/*.vue`. Task 5 thêm hai `callDeXuat('de_xuat_danh_sach',
+# ...)` vào `App.vue` — nằm ở `frontend/src/`, NGOÀI vùng quét. Một tên gõ sai
+# ở đó: build xanh, cả suite xanh, và mutation test kiểu cũ vẫn đỏ ở
+# `DuyetList.vue` nên lưới TRÔNG như đã canh — trong khi badge "Duyệt" im lặng
+# biến mất trên MỌI trang (lời gọi nằm trong một `catch` ở tầng shell). Quản lý
+# thấy 0 phiếu chờ, không vào /duyet, phiếu của khoa nằm đó không ai duyệt.
+#
+# `.js` cũng phải quét: `cho-duyet.js` giữ đúng những lời gọi đó sau bản này.
+# Quét theo THƯ MỤC GỐC + đuôi file, không theo danh sách file/thư mục — mọi
+# danh sách phải nhớ cập nhật là một danh sách sẽ quên.
+DUOI_QUET = ("*.vue", "*.js")
 
 # (a) review Task 5 — `[a-z_]+` bỏ sót method có chữ số (vd. một tên tương
 # lai kiểu `de_xuat_buoc_2`): nó không khớp regex ở CẢ HAI vế (registry lẫn
@@ -48,13 +61,21 @@ class TestActionRegistry(FrappeTestCase):
 		noi_dung = REGISTRY.read_text(encoding="utf-8")
 		return set(_METHOD_RE.findall(noi_dung))
 
-	def _methods_goi_tu_vue(self) -> set[str]:
-		"""(c) review Task 5 — mọi `callDeXuat('...')` viết thẳng trong
-		component (không qua registry) là CÙNG LỚP RỦI RO "404 lúc bấm"
-		như registry: một tên gõ sai ở đây build vẫn xanh, chỉ lộ ra khi
-		người dùng thật sự bấm."""
+	def _file_frontend(self) -> list[Path]:
+		"""Mọi file nguồn frontend, ĐỆ QUY từ `frontend/src`."""
+		ra: list[Path] = []
+		for duoi in DUOI_QUET:
+			ra += FRONTEND_SRC.rglob(duoi)
+		return sorted(set(ra))
+
+	def _methods_goi_tu_frontend(self) -> set[str]:
+		"""(c) review Task 5, mở rộng ở C4 — mọi `callDeXuat('...')` viết
+		thẳng trong mã nguồn (không qua registry) là CÙNG LỚP RỦI RO "404
+		lúc bấm" như registry: một tên gõ sai ở đây build vẫn xanh, chỉ lộ
+		ra khi người dùng thật sự bấm — hoặc KHÔNG lộ ra chút nào, nếu lời
+		gọi nằm trong một `catch` best-effort như ở `App.vue`."""
 		ten = set()
-		for f in sorted(VIEWS_DIR.glob("*.vue")):
+		for f in self._file_frontend():
 			ten |= set(_CALL_DE_XUAT_RE.findall(f.read_text(encoding="utf-8")))
 		return ten
 
@@ -73,14 +94,33 @@ class TestActionRegistry(FrappeTestCase):
 		)
 
 	def test_moi_call_de_xuat_trong_vue_la_endpoint_that(self):
-		"""(c) review Task 5 — mở rộng lưới ra khỏi de-xuat-actions.js."""
-		thua = self._methods_goi_tu_vue() - self._endpoint_that()
+		"""(c) review Task 5, C4 — mở rộng lưới ra khỏi de-xuat-actions.js
+		VÀ ra khỏi `views/`."""
+		thua = self._methods_goi_tu_frontend() - self._endpoint_that()
 		self.assertEqual(
 			thua, set(),
-			f"Một view .vue gọi callDeXuat() với method KHÔNG tồn tại ở "
+			f"Một file frontend gọi callDeXuat() với method KHÔNG tồn tại ở "
 			f"api/de_xuat.py: {thua}. Đây là nút/lời gọi sẽ 404 lúc người "
 			"dùng bấm.",
 		)
+
+	def test_vung_quet_phu_ngoai_thu_muc_views(self):
+		"""C4 — vế DƯƠNG cho chính vùng quét.
+
+		`test_moi_call_de_xuat_...` xanh khi KHÔNG có tên sai — kể cả khi
+		vùng quét thu về đúng một file. Nó không phân biệt được "không có
+		lỗi" với "không nhìn". Bài này khẳng định lưới THẬT SỰ đọc những
+		file ngoài `views/` (`App.vue`, `cho-duyet.js`) — thu hẹp vùng quét
+		về như cũ sẽ làm bài này đỏ ngay, thay vì đỏ sáu tháng sau trên
+		máy khách."""
+		duong_dan = {f.relative_to(FRONTEND_SRC).as_posix() for f in self._file_frontend()}
+		self.assertIn("App.vue", duong_dan)
+		self.assertIn("cho-duyet.js", duong_dan)
+		self.assertIn("de-xuat-actions.js", duong_dan)
+		self.assertIn("views/DeXuatDetail.vue", duong_dan)
+		# Và lưới phải thật sự BẮT ĐƯỢC tên từ những file đó — không chỉ mở
+		# file rồi bỏ qua nội dung.
+		self.assertIn("de_xuat_danh_sach", self._methods_goi_tu_frontend())
 
 	def test_ham_private_khong_lot_vao_endpoint_that(self):
 		"""(b) review Task 5 — nửa `frappe.whitelisted` của bộ lọc trước đây

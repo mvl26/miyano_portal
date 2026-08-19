@@ -1,9 +1,11 @@
 # Hướng dẫn thao tác — Phân quyền theo khoa phòng trên cổng khách hàng
 
-App `miyano_portal` · Cập nhật **18/08/2026** · Áp dụng từ bản nền (bước 1–4)
+App `miyano_portal` · Cập nhật **19/08/2026** · Áp dụng từ bản nền (bước 1–4)
 
 **Tài liệu này dành cho nhân viên Miyano** làm việc trên Desk (`/app`). Khách hàng
-chưa có màn hình mới nào — các màn của bệnh viện thuộc bước 5–9, chưa làm.
+nay đã có **ba màn của luồng duyệt** trên cổng (`/de-xuat`, `/duyet`, màn chi tiết
+phiếu) — xem §4, mục "Thao tác trên màn hình". Chúng **chỉ đọc và duyệt**: màn lập
+phiếu và màn quản lý thành viên vẫn chưa làm (§7 mục 2).
 
 ---
 
@@ -254,6 +256,56 @@ Giỏ hàng của quản lý có ô chọn khoa phòng, mặc định **Toàn vi
 cho tới khi Miyano đặt Mã ngắn. Mã tra cứu là tiện ích đối chiếu, không phải điều kiện
 để mua hàng.
 
+### Thao tác trên màn hình
+
+Phần trên nói *luật*. Phần này nói *bấm ở đâu* — và **những gì màn hình chưa làm
+được**, để người triển khai không hứa nhầm với bệnh viện.
+
+**Ba màn đang có trên cổng khách:**
+
+| Màn | Đường dẫn | Ai thấy | Làm được gì |
+|---|---|---|---|
+| **Đề xuất mua** | `/de-xuat` | mọi vai trò | Danh sách phiếu — nhân viên khoa thấy phiếu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip trạng thái (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ duyệt sửa / Từ chối / Đã huỷ`) |
+| **Duyệt** | `/duyet` | **chỉ quản lý** | Hàng chờ: gộp `Chờ duyệt` + `Chờ duyệt sửa`, lọc theo khoa phòng. Con số trên mục menu là số phiếu đang chờ |
+| **Chi tiết phiếu** | `/de-xuat/<mã>` | ai mở được phiếu đó | Đầu phiếu (truy vết), bảng dòng hàng, và thanh nút hành động theo trạng thái + vai trò |
+
+**Quản lý sửa số lượng rồi duyệt — thao tác chính, làm ở màn chi tiết:**
+
+1. Vào **Duyệt** → chọn khoa nếu muốn → bấm vào phiếu.
+2. Phiếu ở trạng thái **Chờ duyệt** thì cột **SL duyệt** là **ô nhập được**, và mỗi
+   dòng có thêm một ô **ghi chú của quản lý**. Cột **SL đề xuất** không sửa được —
+   khoá vĩnh viễn từ lúc khoa bấm Gửi duyệt.
+3. Ba quy ước phải nhớ, màn hình cũng nhắc ngay trên thanh nút:
+   - **Ô để trống = giữ nguyên dòng đó.** Không phải "duyệt 0".
+   - **Gõ số 0 = bỏ mặt hàng khỏi đơn.** Dòng vẫn nằm lại trên phiếu (gạch ngang,
+     gắn nhãn "Không duyệt") để sau này còn truy vết được là khoa đã xin gì.
+   - **Không sửa gì thì cứ bấm Duyệt** — phiếu được duyệt nguyên số khoa đã xin.
+     Không bắt buộc phải nhập gì.
+4. Bấm **Duyệt** → hộp xác nhận liệt kê từng điều chỉnh (`hạ 100 → 40`, `BỎ khỏi
+   đơn`…) → đồng ý → đơn hàng gửi Miyano sinh ra **theo số đã duyệt**.
+
+Ví dụ đúng tình huống hay gặp: khoa xin 100 hộp, quản lý chỉ đồng ý 40 → gõ `40` vào
+ô SL duyệt của dòng đó, bấm Duyệt. Đơn sang Miyano mang số **40**.
+
+**Nút "Quay lại"** đưa về đúng danh sách đã tới, giữ nguyên bộ lọc khoa (hoặc chip
+trạng thái) đang mở — duyệt liên tiếp nhiều phiếu của một khoa không phải chọn lại
+bộ lọc sau mỗi phiếu.
+
+**Nhân viên khoa xin sửa số lượng** (sau khi Miyano đã báo giá): mở phiếu **Đã
+duyệt** → nút **Xin sửa số lượng** → nhập số mong muốn từng dòng → gửi. Cũng đúng
+quy ước trên: ô để trống nghĩa là không đổi dòng đó, gõ 0 nghĩa là xin bỏ mặt hàng.
+Phiếu chuyển sang **Chờ duyệt sửa** và quay lại hàng chờ của quản lý.
+
+> **Ba màn này hôm nay CHỈ ĐỌC VÀ DUYỆT.** Không có màn lập phiếu trên cổng — xem
+> §7 mục 2. Nghĩa là chuỗi đầy đủ "nhân viên khoa tự lập phiếu → gửi duyệt → quản lý
+> duyệt" **chưa chạy được từ đầu đến cuối trên cổng**: phần "quản lý duyệt" đã có
+> màn, phần "nhân viên lập" thì chưa. Nếu bệnh viện hỏi "chúng tôi bắt đầu dùng được
+> chưa", câu trả lời đúng là *chưa trọn vẹn*.
+
+Ngoài ra màn chi tiết **chưa có ô thêm mặt hàng mới** cho quản lý (§4 nói quản lý
+được thêm dòng — phần lõi làm được, nhưng phải làm trên Desk). Trên cổng, quản lý
+hiện chỉ **hạ số lượng, bỏ mặt hàng và ghi chú**.
+
 ### Thông báo giờ gửi đúng người
 
 | Việc | Ai nhận |
@@ -343,9 +395,20 @@ Nói rõ để không ai chờ nhầm:
    và tổng tiền của đợt giao đó. Họ không mở được chính đơn hàng, nhưng cách ly theo
    khoa **chưa trọn vẹn** chừng nào bước 8 chưa chạy. Nếu bệnh viện hỏi, đừng nói
    là đã cách ly xong.
-2. **Chưa có màn hình riêng cho luồng duyệt.** Phần lõi đã chạy (§4) nhưng ba màn
-   `/de-xuat`, `/duyet`, `/thanh-vien` và ô tìm theo tên vật tư chưa dựng — thuộc
-   kế hoạch B. Tới lúc đó quản lý duyệt qua màn quản trị, chưa có màn gọn cho họ.
+2. **Màn hình luồng duyệt mới dựng được một nửa: đọc và duyệt, CHƯA lập phiếu.**
+   Hai màn `/de-xuat` (danh sách phiếu) và `/duyet` (hàng chờ của quản lý) cùng màn
+   chi tiết phiếu đã có trên cổng — xem §4, mục "Thao tác trên màn hình". Còn thiếu:
+
+   - **Màn LẬP phiếu đề xuất chưa có.** Đây là chỗ dễ đọc nhầm nhất, nên nói thẳng:
+     **hôm nay không ai lập được phiếu đề xuất từ cổng khách.** Nhân viên khoa bấm
+     đặt trên giỏ hàng thì bị chặn (đúng thiết kế), mà cũng chưa có nút "Lập phiếu"
+     nào thay thế. Phiếu chỉ vào hệ thống bằng hai đường: quản lý đặt hàng qua giỏ
+     (hệ thống tự lập một phiếu **đã duyệt** đứng sau, §4), hoặc nhân viên Miyano
+     tạo trên Desk. **Đừng hứa với bệnh viện rằng luồng đã chạy trọn vẹn** — chừng
+     nào màn lập phiếu chưa có, vòng "khoa đề xuất → quản lý duyệt" chưa khép kín
+     trên cổng.
+   - **Màn `/thanh-vien`** (quản lý tự gán khoa cho nhân viên) và **ô tìm theo tên
+     vật tư** chưa dựng.
 3. **Chưa có uỷ quyền tạm thời.** Quản lý đi vắng thì chưa có ai duyệt thay —
    thuộc kế hoạch C.
 3b. **Vòng "duyệt sửa" chưa ghi mốc riêng.** Khi quản lý duyệt một yêu cầu sửa số

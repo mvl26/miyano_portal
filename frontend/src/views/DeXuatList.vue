@@ -1,21 +1,30 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtDateTime, deXuatBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 
 const isMobile = useIsMobile()
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(true)
 const error = ref('')
 const rows = ref([])
 const filter = ref('') // '' = Tất cả
 
-// Brief task-3: chip theo ĐÚNG các giá trị `trang_thai` của doctype
-// (`Nháp / Chờ duyệt / Đã duyệt / Chờ duyệt sửa / Từ chối / Đã huỷ`), trừ
-// "Chờ duyệt sửa" — brief liệt kê đúng sáu chip này, không thêm.
-const FILTERS = ['', 'Nháp', 'Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Đã huỷ']
+// Chip theo ĐÚNG các giá trị `trang_thai` của doctype (`Nháp / Chờ duyệt /
+// Đã duyệt / Chờ duyệt sửa / Từ chối / Đã huỷ`) — TẤT CẢ, không thiếu cái
+// nào.
+//
+// Việc (d) — bản đầu bỏ "Chờ duyệt sửa" vì brief task-3 chỉ liệt kê sáu
+// chip. Nhưng đó là một trạng thái THẬT mà người dùng tự đưa phiếu vào: vừa
+// bấm "Xin sửa số lượng" xong, phiếu rời "Đã duyệt" sang "Chờ duyệt sửa" —
+// bấm "Đã duyệt" không thấy, bấm "Chờ duyệt" cũng không thấy, chỉ "Tất cả"
+// mới ra. Người vừa gửi yêu cầu là người đi tìm nó ngay sau đó.
+const FILTERS = ['', 'Nháp', 'Chờ duyệt', 'Đã duyệt', 'Chờ duyệt sửa', 'Từ chối', 'Đã huỷ']
 
 // Khoa phòng chỉ có MÃ (`KP-00001`) trong payload danh sách — cùng khuôn
 // PhieuXuat.vue/NhatKy.vue: nạp danh mục khoa phòng của kho rồi tự map
@@ -50,10 +59,33 @@ async function load() {
   }
 }
 
-watch(filter, load)
+watch(filter, (f) => {
+  // C3 — chip đang chọn sống trong URL để nút "Quay lại" của màn chi tiết
+  // dựng lại được đúng nó. `replace`: đổi chip không phải một bước lịch sử.
+  router.replace({ name: 'de-xuat', query: f ? { chip: f } : {} })
+  load()
+})
+
+// C3 — ghi NƠI ĐÃ TỚI vào query khi mở phiếu, để màn chi tiết quay về đúng
+// danh sách này kèm đúng chip (và App.vue sáng đúng mục nav — việc (c)).
+function moPhieu(r) {
+  router.push({
+    name: 'de-xuat-detail',
+    params: { ten: r.name },
+    query: { tu: 'de-xuat', ...(filter.value ? { chip: filter.value } : {}) },
+  })
+}
 
 onMounted(async () => {
   loadKhoaPhongList()
+  // C3 — khôi phục chip từ URL. Đặt TRƯỚC `load()` cuối hàm; gán vào
+  // `filter` kích hoạt watch ở trên nên `load()` chạy đúng một lần với chip
+  // đã khôi phục... trừ khi query trống, nên vẫn gọi `load()` như cũ ở dưới
+  // và chấp nhận một lời gọi thừa duy nhất khi có `?chip=` (rẻ hơn nhiều so
+  // với một nhánh điều kiện quanh `load()`).
+  if (route.query.chip && FILTERS.includes(String(route.query.chip))) {
+    filter.value = String(route.query.chip)
+  }
   if (!store.me) {
     try {
       store.setMe(await api.call('portal_me'))
@@ -90,7 +122,13 @@ onMounted(async () => {
 
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
-    <div v-else-if="!rows.length" class="empty">Khoa chưa có phiếu đề xuất nào.</div>
+    <!-- Việc (b) — câu rỗng phải nói ĐÚNG VAI người đang đọc. Quản lý xem
+         phạm vi toàn đơn vị (subtitle ở trên đã nói vậy) mà câu rỗng lại
+         bảo "Khoa chưa có phiếu" — hai câu trên cùng một màn nói hai phạm vi
+         khác nhau, và câu sai là câu duy nhất hiện khi màn trống. -->
+    <div v-else-if="!rows.length" class="empty">
+      {{ store.me?.la_quan_ly ? 'Đơn vị chưa có phiếu đề xuất nào.' : 'Khoa chưa có phiếu đề xuất nào.' }}
+    </div>
 
     <!-- DESKTOP: bảng -->
     <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
@@ -105,7 +143,7 @@ onMounted(async () => {
             v-for="r in rows"
             :key="r.name"
             style="cursor: pointer"
-            @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+            @click="moPhieu(r)"
           >
             <td>
               <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>
@@ -126,7 +164,7 @@ onMounted(async () => {
         :key="r.name"
         class="card mb10"
         style="cursor: pointer"
-        @click="$router.push({ name: 'de-xuat-detail', params: { ten: r.name } })"
+        @click="moPhieu(r)"
       >
         <div class="sb">
           <b v-if="r.ma_de_xuat">{{ r.ma_de_xuat }}</b>

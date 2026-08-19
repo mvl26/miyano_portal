@@ -7,6 +7,7 @@ import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import { showToast } from '../toast'
 import { hanhDongChoPhep } from '../de-xuat-actions'
+import { capNhatChoDuyetCount } from '../cho-duyet'
 import ReasonModal from '../components/ReasonModal.vue'
 
 const route = useRoute()
@@ -38,11 +39,28 @@ const tenKhoa = computed(() => {
 // de-xuat-actions.js). hanhDongChoPhep() đã tự bọc when() trong try/catch.
 const actions = computed(() => hanhDongChoPhep(doc.value, store.me))
 
+// C3 — nút "Quay lại" phải quay về ĐÚNG NƠI ĐÃ TỚI. Trước bản này nó cứng
+// `/de-xuat`: quản lý mở /duyet, lọc khoa "Huyết học", duyệt phiếu, bấm Quay
+// lại → rơi vào một danh sách KHÁC, mất bộ lọc, phải đi vòng qua menu cho
+// từng phiếu trong tám phiếu.
+//
+// Dùng query (`?tu=`, `?khoa=`, `?chip=`) chứ KHÔNG `router.back()`: người
+// dùng vào thẳng bằng URL (link trong thông báo, tab được ghim) không có
+// bước lịch sử nào để lùi — `back()` sẽ ném họ ra khỏi cổng. Query luôn
+// dựng lại được một đích ĐÚNG, kể cả khi lịch sử rỗng.
+const quayLaiTo = computed(() => {
+  const q = route.query
+  if (q.tu === 'duyet') return { name: 'duyet', query: q.khoa ? { khoa: String(q.khoa) } : {} }
+  return { name: 'de-xuat', query: q.chip ? { chip: String(q.chip) } : {} }
+})
+const quayLaiNhan = computed(() => (route.query.tu === 'duyet' ? '← Về hàng chờ duyệt' : '← Quay lại'))
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
     doc.value = await api.callDeXuat('de_xuat_chi_tiet', { ten: ten.value })
+    dungLaiDieuChinh()
   } catch (e) {
     error.value = e.message || 'Không tải được chi tiết phiếu đề xuất.'
   } finally {
@@ -60,6 +78,112 @@ async function load() {
 const daDieuChinh = computed(() => ['Đã duyệt', 'Chờ duyệt sửa'].includes(doc.value?.trang_thai))
 function khongDuyet(row) {
   return daDieuChinh.value && Number(row.so_luong_duyet) === 0
+}
+
+// --- C1: quản lý SỬA rồi mới duyệt --------------------------------------
+//
+// Chủ đầu tư: "nhân viên gửi yêu cầu mua hàng cho quản lý, quản lý có thể
+// SỬA VÀ DUYỆT". Backend đã đủ từ Task 9 (`de_xuat_duyet_phieu(ten,
+// dieu_chinh)` → `_ap_dieu_chinh`); trước bản này KHÔNG có ô nhập nào gửi
+// `dieu_chinh`, nên trên cổng chỉ còn hai đường: Duyệt NGUYÊN SỐ, hoặc Từ
+// chối CẢ PHIẾU. Khoa xin 100 mà quản lý chỉ đồng ý 40 thì không có đường
+// nào đúng — và họ là Website User, không vào được màn quản trị để làm thay.
+//
+// Hình dạng payload đọc TRỰC TIẾP từ `_ap_dieu_chinh` (api/de_xuat.py:179):
+//   { "items": [ { "item_code": str,
+//                  "so_luong_duyet": float,
+//                  "ghi_chu_quan_ly": str (tuỳ chọn) } ] }
+// Ba luật của hàm đó quyết định cách dựng payload ở đây:
+//   1. Khớp dòng theo `item_code`. Mã KHÔNG có sẵn trên phiếu → dòng MỚI
+//      (`so_luong_de_xuat = 0`, `nguon_dong = "Quản lý thêm"`).
+//   2. `so_luong_duyet = float(row.get("so_luong_duyet") or 0)` — GHI ĐÈ vô
+//      điều kiện cho MỌI dòng có mặt trong payload. Hệ quả bắt buộc: dòng
+//      chỉ đổi ghi chú VẪN phải mang theo số HIỆN TẠI, bỏ trống khoá đó là
+//      lặng lẽ hạ mặt hàng về 0.
+//   3. `ghi_chu_quan_ly` chỉ ghi khi khoá đó `is not None` → không đổi thì
+//      KHÔNG đưa khoá vào, đừng gửi chuỗi rỗng.
+// Dòng KHÔNG có trong payload thì không bị chạm — đó là cách "ô để trống =
+// không đổi dòng này" thành hiện thực ở tầng dữ liệu.
+const quanLyDangDuyet = computed(
+  () => doc.value?.trang_thai === 'Chờ duyệt' && !!store.me?.la_quan_ly
+)
+
+// CỐ Ý giữ CHUỖI THÔ, không `v-model.number` — cùng lý do (và cùng cái bẫy
+// đã dính một lần) với modal "Xin sửa số lượng" bên dưới: `Number('')` = 0,
+// nên để Vue tự ép kiểu sẽ biến một ô KHÔNG ĐỘNG TỚI (hoặc bị xoá trắng)
+// thành SỐ 0 — mà 0 ở đây mang nghĩa THẬT và KHÔNG ĐẢO NGƯỢC ĐƯỢC: "bỏ mặt
+// hàng này khỏi đơn" (§5.3). Ô trống = "giữ nguyên dòng này"; CHỈ số 0 gõ
+// tường minh mới là bỏ mặt hàng.
+const slDuyetSua = ref({})
+const ghiChuSua = ref({})
+function dungLaiDieuChinh() {
+  // SL duyệt để TRỐNG (placeholder hiện số đang có) — không prefill: một ô
+  // đã điền sẵn số cũ rồi so sánh "có khác không" vẫn chạy đúng, nhưng nó
+  // mời người dùng sửa đè lên một con số trông như đã được xác nhận.
+  slDuyetSua.value = {}
+  // Ghi chú thì prefill từ giá trị đang có — nó là VĂN BẢN, ô trống ở đây
+  // không mang nghĩa gì nguy hiểm, và quản lý phải thấy ghi chú cũ để sửa
+  // tiếp thay vì gõ lại từ đầu.
+  ghiChuSua.value = Object.fromEntries(
+    (doc.value?.items || []).map((it) => [it.item_code, it.ghi_chu_quan_ly || ''])
+  )
+}
+
+// Số MỚI của một dòng, hoặc `null` nghĩa "không đổi". Trả `null` cho cả ô
+// trống, ô chỉ có khoảng trắng (`Number(' ')` = 0 — đúng cái bẫy đang tránh),
+// giá trị không hợp lệ, và giá trị TRÙNG số hiện tại.
+function soDuyetMoi(it) {
+  const raw = slDuyetSua.value[it.item_code]
+  if (raw === undefined || raw === null) return null
+  const chuoi = String(raw).trim()
+  if (!chuoi) return null
+  const n = Number(chuoi)
+  if (!Number.isFinite(n) || n < 0) return null
+  return n === (Number(it.so_luong_duyet) || 0) ? null : n
+}
+function laBoMatHang(it) {
+  return soDuyetMoi(it) === 0
+}
+function ghiChuDoi(it) {
+  return (ghiChuSua.value[it.item_code] || '').trim() !== (it.ghi_chu_quan_ly || '').trim()
+}
+
+const dieuChinhItems = computed(() => {
+  if (!quanLyDangDuyet.value) return []
+  const ra = []
+  for (const it of doc.value?.items || []) {
+    const so = soDuyetMoi(it)
+    const doiGhiChu = ghiChuDoi(it)
+    if (so === null && !doiGhiChu) continue // dòng không đổi → KHÔNG gửi
+    // Luật 2 ở trên: dòng có mặt trong payload luôn bị ghi đè số lượng.
+    const dong = { item_code: it.item_code, so_luong_duyet: so === null ? Number(it.so_luong_duyet) || 0 : so }
+    // Luật 3: chỉ đưa khoá khi thật sự đổi.
+    if (doiGhiChu) dong.ghi_chu_quan_ly = ghiChuSua.value[it.item_code] || ''
+    ra.push(dong)
+  }
+  return ra
+})
+
+// Bấm "Duyệt": không đổi gì thì chạy Y NHƯ CŨ (duyệt nguyên trạng, KHÔNG
+// gửi `dieu_chinh`) — không bắt buộc nhập gì cả. Có đổi thì xác nhận trước,
+// vì hạ một dòng về 0 là bỏ hẳn mặt hàng khỏi đơn gửi Miyano.
+function nhanDuyet(action) {
+  const items = dieuChinhItems.value
+  if (!items.length) return chayHanhDong(action)
+  const theoMa = Object.fromEntries((doc.value.items || []).map((it) => [it.item_code, it]))
+  const dong = items.map((r) => {
+    const it = theoMa[r.item_code]
+    const cu = Number(it?.so_luong_duyet) || 0
+    if (Number(r.so_luong_duyet) === 0 && cu !== 0) return `• ${r.item_code}: BỎ khỏi đơn (đang ${cu})`
+    if (Number(r.so_luong_duyet) !== cu) return `• ${r.item_code}: ${cu} → ${r.so_luong_duyet}`
+    return `• ${r.item_code}: giữ ${cu}, thêm ghi chú`
+  })
+  const xacNhan = window.confirm(
+    `Duyệt phiếu với ${items.length} điều chỉnh:\n\n${dong.join('\n')}\n\n` +
+      'Đơn hàng gửi Miyano sẽ theo SỐ ĐÃ DUYỆT ở trên. Tiếp tục?'
+  )
+  if (!xacNhan) return
+  chayHanhDong(action, { dieu_chinh: JSON.stringify({ items }) })
 }
 
 // Cột "SL xin sửa" chỉ hiện khi phiếu ở "Chờ duyệt sửa" (backend đã đổi mốc
@@ -87,10 +211,19 @@ async function chayHanhDong(action, extraArgs) {
     // Xoá nháp thì phiếu không còn tồn tại nữa — quay lại danh sách thay vì
     // tải lại một chi tiết đã bị xoá.
     if (action.method === 'de_xuat_xoa_nhap') {
-      router.push('/de-xuat')
+      router.push(quayLaiTo.value)
     } else {
       argModalAction.value = null
       await load()
+    }
+    // C3 — badge "Duyệt" trên nav phải nói đúng NGAY SAU thao tác. Trước bản
+    // này nó giữ con số nạp lúc mount shell: quản lý duyệt phiếu thứ tám vẫn
+    // thấy badge "8". Best-effort, không được làm hỏng một thao tác ĐÃ THÀNH
+    // CÔNG nếu riêng lời gọi đếm này lỗi.
+    try {
+      await capNhatChoDuyetCount(store)
+    } catch (e) {
+      console.warn('Không cập nhật lại được số phiếu chờ duyệt:', e)
     }
   } catch (e) {
     showToast(e.message || 'Không thực hiện được thao tác này.', 'error')
@@ -196,6 +329,8 @@ async function guiXinSua() {
 
 function onClickAction(action) {
   if (action.method === 'de_xuat_gui_duyet') return nhanGuiDuyet(action)
+  // C1 — "Duyệt" đi qua nhanDuyet() để gom `dieu_chinh` từ các ô đang nhập.
+  if (action.method === 'de_xuat_duyet_phieu') return nhanDuyet(action)
   if (action.method === 'de_xuat_xin_sua') return moXinSua()
   // Việc 3 (Task 5) — "Xoá" là hành động KHÔNG ĐẢO NGƯỢC ĐƯỢC DUY NHẤT của
   // toolbar này: xoá thật khỏi CSDL (khác "Huỷ phiếu" — bản ghi còn nguyên).
@@ -240,7 +375,9 @@ onMounted(async () => {
   <div>
     <div class="topbar">
       <div>
-        <router-link to="/de-xuat"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
+        <router-link :to="quayLaiTo">
+          <button class="btn-o" style="margin-bottom: 8px">{{ quayLaiNhan }}</button>
+        </router-link>
       </div>
     </div>
 
@@ -293,6 +430,13 @@ onMounted(async () => {
       <!-- Panel hành động — render từ hanhDongChoPhep(doc, me). Hide, don't
            disable: khi rỗng thì không hiện khối này luôn. -->
       <div v-if="actions.length" class="card mb10" style="margin-bottom: 14px">
+        <!-- C1 — nói rõ quyền "sửa rồi duyệt" NGAY CẠNH nút Duyệt. Không có
+             câu này thì cột SL duyệt nhập được vẫn trông như một ô chỉ đọc. -->
+        <p v-if="quanLyDangDuyet" class="tag" style="margin-bottom: 10px">
+          Bạn có thể <b>sửa số lượng duyệt</b> ở bảng bên dưới trước khi bấm Duyệt. Để trống một ô
+          nghĩa là <b>giữ nguyên</b> dòng đó; gõ <b>0</b> nghĩa là <b>bỏ mặt hàng</b> khỏi đơn.
+          Cột SL đề xuất khoá vĩnh viễn, không sửa được.
+        </p>
         <div class="flex" style="flex-wrap: wrap">
           <button
             v-for="a in actions"
@@ -326,12 +470,46 @@ onMounted(async () => {
                 <br />
                 <span v-if="khongDuyet(it)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
                 <span v-if="it.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
-                <template v-if="it.ghi_chu_quan_ly">
+                <template v-if="it.ghi_chu_quan_ly && !quanLyDangDuyet">
                   <br /><span class="tag">Ghi chú quản lý: {{ it.ghi_chu_quan_ly }}</span>
+                </template>
+                <!-- C1 — ô ghi chú của quản lý cho TỪNG dòng. Khi đang duyệt,
+                     ô này thay cho dòng hiển thị ở trên (nó đã mang sẵn giá
+                     trị cũ) để không hiện hai lần cùng một nội dung. -->
+                <template v-if="quanLyDangDuyet">
+                  <br />
+                  <input
+                    type="text"
+                    v-model="ghiChuSua[it.item_code]"
+                    placeholder="Ghi chú của quản lý (tuỳ chọn)"
+                    :aria-label="`Ghi chú quản lý cho ${it.item_code}`"
+                    style="width: 100%; max-width: 340px; margin-top: 6px"
+                  />
                 </template>
               </td>
               <td class="right" title="Khoá vĩnh viễn từ lúc gửi duyệt">{{ it.so_luong_de_xuat }}</td>
-              <td class="right">{{ it.so_luong_duyet }}</td>
+              <!-- C1 — nửa NHẬP LIỆU của thao tác mà nửa HIỂN THỊ (gạch ngang,
+                   badge "Không duyệt", "Ghi chú quản lý") đã render sẵn từ
+                   Task 4. KHÔNG `.number` trên v-model: xem `slDuyetSua`. -->
+              <td class="right">
+                <template v-if="quanLyDangDuyet">
+                  <input
+                    type="number" min="0" step="any"
+                    v-model="slDuyetSua[it.item_code]"
+                    :placeholder="String(it.so_luong_duyet)"
+                    :aria-label="`SL duyệt cho ${it.item_code}`"
+                    style="width: 90px; text-align: right"
+                  />
+                  <br v-if="soDuyetMoi(it) !== null" />
+                  <span v-if="laBoMatHang(it)" class="tag" style="color: var(--red)">
+                    Sẽ bỏ mặt hàng này khỏi đơn
+                  </span>
+                  <span v-else-if="soDuyetMoi(it) !== null" class="tag">
+                    Sẽ duyệt {{ soDuyetMoi(it) }} / xin {{ it.so_luong_de_xuat }}
+                  </span>
+                </template>
+                <template v-else>{{ it.so_luong_duyet }}</template>
+              </td>
               <td v-if="hienCotXinSua" class="right">
                 <span v-if="it.so_luong_xin_sua !== null && it.so_luong_xin_sua !== undefined">{{ it.so_luong_xin_sua }}</span>
                 <span v-else class="tag">—</span>
