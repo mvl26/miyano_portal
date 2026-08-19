@@ -92,6 +92,20 @@ class TestDeXuatVongDoi(FrappeTestCase):
 		doc.gui_duyet()
 		return doc
 
+	def _item_khac(self):
+		"""Vật tư THỨ HAI — riêng của lớp test này, không đụng
+		`fixtures_de_xuat.py` (dùng chung Task 2/4/5/6) — chỉ cần tồn tại
+		để đổi `item_code` trên một dòng, không cần đúng nghiệp vụ gì khác.
+		"""
+		ten = "_TEST DX ITEM 2"
+		if not frappe.db.exists("Item", ten):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ten, "item_name": ten,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Nos", "is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		return ten
+
 	def test_gui_duyet_sinh_ma_va_dong_bang_so_luong(self):
 		doc = self._nhap()
 		self.assertFalse(doc.ma_de_xuat)
@@ -132,6 +146,44 @@ class TestDeXuatVongDoi(FrappeTestCase):
 		doc.items[0].so_luong_duyet = 3
 		doc.save(ignore_permissions=True)
 		self.assertEqual(doc.items[0].so_luong_duyet, 3)
+
+	def test_gui_duyet_roi_them_dong_so_luong_khac_khong_thi_chan(self):
+		"""Review vòng 1 — đường lọt #1: `truoc` chỉ chứa dòng CŨ, dòng MỚI
+		luôn `d.name not in truoc` nên guard cũ bỏ qua hoàn toàn, cho thêm
+		dòng với số lượng đề xuất tuỳ ý sau khi đã gửi duyệt."""
+		doc = self._cho_duyet()
+		doc.append("items", {"item_code": self.item, "so_luong_de_xuat": 7})
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.save(ignore_permissions=True)
+		self.assertIn("Số lượng đề xuất", str(ctx.exception))
+
+	def test_gui_duyet_roi_them_dong_so_luong_khong_thi_duoc(self):
+		"""VẾ DƯƠNG của test trên — quản lý VẪN thêm được dòng mới, miễn Số
+		lượng đề xuất bằng 0 (dòng khoa xin phải sinh từ lúc Gửi duyệt,
+		dòng quản lý thêm không được mạo danh dòng khoa xin)."""
+		doc = self._cho_duyet()
+		doc.append("items", {"item_code": self.item, "so_luong_de_xuat": 0})
+		doc.save(ignore_permissions=True)
+		self.assertEqual(len(doc.items), 2)
+
+	def test_gui_duyet_roi_xoa_dong_da_khoa_thi_chan(self):
+		"""Review vòng 1 — đường lọt #2: vòng lặp cũ chỉ chạy trên
+		`self.items` HIỆN TẠI nên không bao giờ thấy dòng đã biến mất —
+		xoá một dòng đã khoá làm mất số lượng đã khoá KHÔNG DẤU VẾT."""
+		doc = self._cho_duyet()
+		doc.items = []
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.save(ignore_permissions=True)
+		self.assertIn("Không xoá được", str(ctx.exception))
+
+	def test_gui_duyet_roi_doi_item_code_dong_cu_thi_chan(self):
+		"""Review vòng 1 — đường lọt #3: guard cũ chỉ so `so_luong_de_xuat`,
+		không so `item_code` — đổi mã hàng, giữ nguyên số lượng thì lọt."""
+		doc = self._cho_duyet()
+		doc.items[0].item_code = self._item_khac()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			doc.save(ignore_permissions=True)
+		self.assertIn("Mã hàng", str(ctx.exception))
 
 	def test_xoa_phieu_nhap_duoc(self):
 		doc = self._nhap()

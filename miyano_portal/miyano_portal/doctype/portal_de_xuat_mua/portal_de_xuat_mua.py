@@ -117,6 +117,16 @@ class PortalDeXuatMua(Document):
 	def _chan_sua_so_luong_de_xuat(self):
 		"""§5.3 — cột đề xuất khoá vĩnh viễn từ lúc Gửi duyệt.
 
+		Review vòng 1 (19/08): bản đầu chỉ so khớp `d.name in truoc`, để lọt
+		BA đường — sửa cả ba ở đây:
+		  1. Thêm dòng mới sau khi gửi duyệt: dòng mới không có trong
+		     `truoc` nên phải tự chặn riêng, không dựa vào vòng so khớp.
+		  2. Xoá một dòng đã khoá: vòng lặp chỉ chạy trên `self.items` HIỆN
+		     TẠI nên không bao giờ thấy dòng đã biến mất — phải soát chiều
+		     ngược lại, từ `truoc` xem còn đủ trong `self.items` không.
+		  3. Đổi `item_code` giữ nguyên số lượng: guard cũ chỉ so
+		     `so_luong_de_xuat`, không so `item_code`.
+
 		GIỚI HẠN ĐÃ BIẾT (QĐ-A2): `frappe.db.set_value`/`doc.db_set()` đi
 		vòng được guard này — cùng loại giới hạn với `_chan_hai_quan_ly`
 		trong `portal_member.py`. Chấp nhận: Miyano không có DocPerm nào
@@ -125,9 +135,43 @@ class PortalDeXuatMua(Document):
 		"""
 		if self.is_new() or self.trang_thai == TRANG_THAI_NHAP:
 			return
-		truoc = {d.name: d.so_luong_de_xuat for d in self.get_doc_before_save().items}
+		truoc = {d.name: d for d in self.get_doc_before_save().items}
+		hien_co = {d.name for d in self.items}
+
+		# Đường lọt #2 — xoá dòng đã khoá: soát từ phía `truoc`, không phải
+		# từ `self.items`, vì dòng bị xoá không còn mặt ở đó để mà soát.
+		for ten, d_truoc in truoc.items():
+			if ten not in hien_co:
+				frappe.throw(
+					f'Không xoá được dòng "{d_truoc.item_code}" đã khoá số '
+					"lượng đề xuất. Bỏ mặt hàng thì hạ Số lượng duyệt về 0, "
+					"không xoá dòng.",
+					frappe.ValidationError,
+				)
+
 		for d in self.items:
-			if d.name in truoc and float(d.so_luong_de_xuat or 0) != float(truoc[d.name] or 0):
+			if d.name not in truoc:
+				# Đường lọt #1 — dòng mới do quản lý thêm: dòng khoa xin chỉ
+				# sinh được lúc Gửi duyệt, nên dòng mới sau đó bắt buộc Số
+				# lượng đề xuất bằng 0 — không được mạo danh dòng khoa xin.
+				if float(d.so_luong_de_xuat or 0) != 0:
+					frappe.throw(
+						f'Dòng "{d.item_code}" là dòng mới thêm sau khi gửi '
+						"duyệt nên Số lượng đề xuất phải bằng 0 — chỉ dòng "
+						"khoa xin lúc Gửi duyệt mới mang số lượng đề xuất.",
+						frappe.ValidationError,
+					)
+				continue
+
+			d_truoc = truoc[d.name]
+			# Đường lọt #3 — đổi item_code giữ nguyên số lượng.
+			if d.item_code != d_truoc.item_code:
+				frappe.throw(
+					f'Không đổi được Mã hàng của dòng đã khoá (từ '
+					f'"{d_truoc.item_code}" sang "{d.item_code}").',
+					frappe.ValidationError,
+				)
+			if float(d.so_luong_de_xuat or 0) != float(d_truoc.so_luong_de_xuat or 0):
 				frappe.throw(
 					f'Số lượng đề xuất của "{d.item_code}" đã khoá từ lúc gửi '
 					"duyệt. Quản lý điều chỉnh ở cột Số lượng duyệt.",
