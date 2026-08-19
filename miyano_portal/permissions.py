@@ -205,6 +205,47 @@ def kiem_hang_item_query(user=None) -> str:
     )
 
 
+def de_xuat_query_condition(user=None) -> str:
+    """`Portal De Xuat Mua` mang `customer` trực tiếp — cùng hình dạng
+    `Portal Item Request`/`Portal Delivery Inspection` ngay trên, KHÔNG phải
+    hình dạng kho (`kho/permissions.py`, lọc qua field `kho`).
+
+    Vế TRỤC KHÁCH HÀNG này vốn thuộc Task 4 của kế hoạch nền phân quyền
+    khoa phòng, nhưng bị kéo lên Task 1 (ruling coordinator 19/08/2026):
+    lưới an toàn `test_kho_isolation.py::_nap_doctype_kho()` bắt MỌI
+    doctype mang `customer` trong module này phải nằm trong
+    `KHO_DOCTYPES_KHAC` kèm wiring thật — một doctype thiếu dây cách ly
+    không được phép tồn tại trong repo, dù chỉ tạm thời giữa hai task.
+
+    Vế KHOA PHÒNG do Task 4 thêm vào CHÍNH hàm này — chiều khoa đi VÀO tầng
+    phân quyền đã có ở đây, không dựng tầng thứ hai."""
+    return _customer_condition("Portal De Xuat Mua", user)
+
+
+def de_xuat_co_quyen(doc, ptype=None, user=None):
+    """Vỏ `has_permission` cho `Portal De Xuat Mua` — cùng khuôn
+    `generic_has_permission`, chỉ lọc theo `customer`. Xem docstring
+    `de_xuat_query_condition` cho lý do hàm này nằm trong Task 1 thay vì
+    Task 4. Vế khoa phòng do Task 4 thêm vào CHÍNH hàm này."""
+    return _has_customer_permission(doc, user)
+
+
+def de_xuat_item_query(user=None) -> str:
+    """Bảng con `Portal De Xuat Mua Item` — không mang `customer` riêng, lọc
+    qua parent. Cùng khuôn `kiem_hang_item_query` ngay trên."""
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    customers = get_allowed_customers(user)
+    if not customers:
+        return "1=0"
+    joined = ", ".join(frappe.db.escape(c) for c in customers)
+    return (
+        "`tabPortal De Xuat Mua Item`.`parent` in "
+        f"(select name from `tabPortal De Xuat Mua` where `customer` in ({joined}))"
+    )
+
+
 def einvoice_query(user=None):
     """E7 — `Fast EInvoice Document` là doctype của MODULE KHÁC (team Dev,
     `apps/erpnext/erpnext/einvoice/`), mảng `permissions` của nó chỉ còn

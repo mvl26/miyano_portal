@@ -180,6 +180,12 @@ permission_query_conditions = {
 	# entry này là lớp phòng thủ thứ hai.
 	"Portal Delivery Inspection": "miyano_portal.permissions.kiem_hang_query",
 	"Portal Delivery Inspection Item": "miyano_portal.permissions.kiem_hang_item_query",
+	# Đề xuất mua — `customer` trực tiếp, cùng khuôn Portal Item Request.
+	# Vế trục khách hàng kéo lên từ Task 4 (ruling coordinator 19/08/2026,
+	# xem docstring `permissions.de_xuat_query_condition`); Task 4 thêm vế
+	# khoa phòng vào CHÍNH các hàm này, không đăng ký thêm entry mới.
+	"Portal De Xuat Mua": "miyano_portal.permissions.de_xuat_query_condition",
+	"Portal De Xuat Mua Item": "miyano_portal.permissions.de_xuat_item_query",
 	# E7 — Fast EInvoice Document là doctype của module HĐĐT (team Dev, app
 	# erpnext), CỐ Ý không có DocPerm nào cho `Customer` (xem JSON gốc). Entry
 	# này là lớp phòng thủ thứ hai "chết có điều kiện", cùng khuôn tám
@@ -232,6 +238,14 @@ has_permission = {
 	"Portal Item Request": "miyano_portal.permissions.generic_has_permission",
 	# Kiểm hàng — cùng khuôn (customer trực tiếp).
 	"Portal Delivery Inspection": "miyano_portal.permissions.generic_has_permission",
+	# Đề xuất mua — cùng khuôn (customer trực tiếp). "Portal De Xuat Mua
+	# Item" CỐ Ý không có entry ở đây: istable=1, has_child_permission()
+	# route thẳng về PARENT trước khi has_permission của bảng con có cơ hội
+	# chạy (cùng lý do đã ghi cho Portal Delivery Inspection Item/Customer
+	# Stock *Item ở khối comment "CÁI GÌ ĐANG THẬT SỰ BẢO VỆ..." bên dưới) —
+	# override has_permission trên controller (portal_de_xuat_mua_item.py)
+	# là lớp phòng thủ cho đường gọi qua INSTANCE, không phải entry ở đây.
+	"Portal De Xuat Mua": "miyano_portal.permissions.de_xuat_co_quyen",
 	# E7 — cùng lớp phòng thủ thứ hai như entry query_conditions ở trên.
 	"Fast EInvoice Document": "miyano_portal.permissions.generic_has_permission",
 	"Customer Warehouse": "miyano_portal.kho.permissions.kho_has_permission",

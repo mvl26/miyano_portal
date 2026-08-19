@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "creation": "2026-08-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code", "item_name", "dvt", "so_luong_de_xuat", "so_luong_duyet",
+  "don_gia", "thanh_tien", "nguon_dong", "ghi_chu_quan_ly"
+ ],
+ "fields": [
+  {"fieldname": "item_code", "fieldtype": "Link", "label": "Mã hàng", "options": "Item", "reqd": 1, "in_list_view": 1, "columns": 3},
+  {"fieldname": "item_name", "fieldtype": "Data", "label": "Tên hàng", "in_list_view": 1, "columns": 3},
+  {"fieldname": "dvt", "fieldtype": "Data", "label": "ĐVT", "in_list_view": 1, "columns": 1},
+  {"fieldname": "so_luong_de_xuat", "fieldtype": "Float", "label": "SL đề xuất", "precision": "3", "reqd": 1, "in_list_view": 1, "columns": 1,
+   "description": "Khoá vĩnh viễn ngay khi khoa bấm Gửi duyệt (spec §5.3) — không ai sửa được nữa, kể cả quản lý."},
+  {"fieldname": "so_luong_duyet", "fieldtype": "Float", "label": "SL duyệt", "precision": "3", "default": "0", "in_list_view": 1, "columns": 1,
+   "description": "Quản lý chỉnh ở đây. Bỏ một mặt hàng = hạ về 0, không xoá dòng (spec §5.3)."},
+  {"fieldname": "don_gia", "fieldtype": "Currency", "label": "Đơn giá", "precision": "0", "in_list_view": 1, "columns": 1},
+  {"fieldname": "thanh_tien", "fieldtype": "Currency", "label": "Thành tiền", "precision": "0", "read_only": 1, "in_list_view": 1, "columns": 1},
+  {"fieldname": "nguon_dong", "fieldtype": "Select", "label": "Nguồn dòng", "options": "Khoa đề xuất\nQuản lý thêm", "default": "Khoa đề xuất", "in_list_view": 1, "columns": 2},
+  {"fieldname": "ghi_chu_quan_ly", "fieldtype": "Small Text", "label": "Ghi chú của quản lý"}
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Portal De Xuat Mua Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
