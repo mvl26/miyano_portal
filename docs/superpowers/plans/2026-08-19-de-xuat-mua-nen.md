@@ -80,7 +80,7 @@ Spec §5.2 viết "Đề xuất mua" (có dấu). Mọi doctype hiện có của
 
 **Interfaces:**
 - Produces: doctype `Portal De Xuat Mua` với field `customer`, `khoa_phong`, `loai_don`, `hdnt`, `ngay_can`, `dia_chi_giao`, `ghi_chu`, `trang_thai`, `request_id`, `nguoi_yeu_cau`, `thoi_diem_gui`, `ly_do_yeu_cau`, `nguoi_duyet`, `thoi_diem_duyet`, `duyet_voi_tu_cach`, `uy_quyen`, `tu_duyet`, `ly_do_tu_choi`, `sales_order`, `ma_de_xuat`, child `items`, `dat_ngoai`.
-- Produces: hằng `TRANG_THAI_NHAP = "Nháp"`, `TRANG_THAI_CHO_DUYET = "Chờ duyệt"`, `TRANG_THAI_DA_DUYET = "Đã duyệt"`, `TRANG_THAI_TU_CHOI = "Từ chối"`, `TRANG_THAI_DA_HUY = "Đã huỷ"` trong `portal_de_xuat_mua.py`.
+- Produces: hằng `TRANG_THAI_NHAP = "Nháp"`, `TRANG_THAI_CHO_DUYET = "Chờ duyệt"`, `TRANG_THAI_DA_DUYET = "Đã duyệt"`, `TRANG_THAI_TU_CHOI = "Từ chối"`, `TRANG_THAI_DA_HUY = "Đã huỷ"`, `TRANG_THAI_CHO_DUYET_SUA = "Chờ duyệt sửa"` (Task 9) trong `portal_de_xuat_mua.py`.
 
 **Ghi chú thiết kế cho người thi công:**
 - `autoname` = `field:ma_de_xuat`. Mã sinh ở Task 2, nhưng **phiếu Nháp chưa có mã** → dùng `autoname = "hash"` cho tới lúc gửi duyệt là sai (đổi tên chứng từ giữa vòng đời làm hỏng mọi link). Chốt: `autoname = "naming_series"` với series `DXM-.YYYY.-.#####` làm **tên nội bộ**, còn `ma_de_xuat` là **mã tra cứu** hiển thị cho người dùng, unique, để trống lúc Nháp. Hai thứ khác nhau, đúng như §11 mục 4 đã tách "tên đơn `SAL-ORD-*`" khỏi "mã dễ đọc".
@@ -1283,6 +1283,142 @@ Rồi `portal_order_place` nhận thêm tham số `khoa_phong=None` và **đi qu
 - [ ] **Step 3: Thêm `_portal_users_theo_khoa(customer, khoa_phong)` cạnh `_portal_users_cua_khach` đã có**
 - [ ] **Step 4–5: Test module xanh, suite xanh, kỳ vọng 1181 OK**
 - [ ] **Step 6: Commit** — `feat(de-xuat): thong bao chon nguoi nhan theo khoa`
+
+---
+
+## Task 9: Bịt lỗ "sửa số lượng sau khi đã duyệt"
+
+**Files:**
+- Modify: `miyano_portal/miyano_portal/doctype/portal_de_xuat_mua/portal_de_xuat_mua.py`
+- Modify: `miyano_portal/miyano_portal/doctype/portal_de_xuat_mua_item/portal_de_xuat_mua_item.json`
+- Modify: `miyano_portal/api/de_xuat.py`
+- Modify: `miyano_portal/api/portal.py` *(`portal_order_sua_so_luong`)*
+- Modify: `miyano_portal/tests/test_pham_vi_endpoint.py`
+- Test: `miyano_portal/tests/test_de_xuat_sua_sau_duyet.py` *(mới)*
+
+**Lỗ hổng đang có (đã đo trên code, 19/08):** `portal_order_sua_so_luong` chỉ chặn theo `workflow_state == "Chờ khách đồng ý"` — không chặn theo vai trò. Sau khi quản lý duyệt 10 hộp và Miyano báo giá, **nhân viên khoa** đổi được thành 100 hộp và đơn quay về "Chờ xác nhận" mà **không ai duyệt lại**. Cổng duyệt sẽ có lỗ ngay từ ngày bật.
+
+**Chủ đầu tư chốt 19/08 (§12 Q4):** nhân viên **vẫn sửa được**, nhưng sửa xong đơn **quay lại quản lý duyệt lần nữa**.
+
+**Thiết kế:**
+
+Nhân viên **không** chạm thẳng vào Sales Order nữa. Họ ghi số lượng muốn sửa lên **phiếu đề xuất**, phiếu chuyển sang trạng thái mới `Chờ duyệt sửa`; quản lý duyệt thì lúc đó mới gọi lõi `portal_order_sua_so_luong` đang có.
+
+Thêm một cạnh đi ra khỏi `Đã duyệt` — trạng thái này thôi là trạng thái kết thúc:
+
+```python
+	CHUYEN_HOP_LE = {
+		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET},
+		TRANG_THAI_CHO_DUYET: {TRANG_THAI_DA_DUYET, TRANG_THAI_TU_CHOI, TRANG_THAI_DA_HUY},
+		TRANG_THAI_TU_CHOI: {TRANG_THAI_CHO_DUYET, TRANG_THAI_DA_HUY},
+		# Task 9 — `Đã duyệt` THÔI là trạng thái kết thúc. Cạnh này là chỗ
+		# duy nhất đi ra, và nó quay về đúng `Đã duyệt` sau khi quản lý xử lý.
+		TRANG_THAI_DA_DUYET: {TRANG_THAI_CHO_DUYET_SUA},
+		TRANG_THAI_CHO_DUYET_SUA: {TRANG_THAI_DA_DUYET},
+	}
+```
+
+Thêm field child `so_luong_xin_sua` (Float) — **cột thứ ba**, không đè lên `so_luong_duyet`: quản lý phải nhìn thấy *đã duyệt bao nhiêu* cạnh *khoa xin đổi thành bao nhiêu*, đúng tinh thần §5.3 (không xoá dữ liệu gốc để ghi dữ liệu mới).
+
+- [ ] **Step 1: Viết test đỏ**
+
+```python
+	def test_nhan_vien_khoa_khong_goi_thang_portal_order_sua_so_luong(self):
+		"""Lỗ hổng chính. Chặn theo VAI TRÒ, không chỉ theo workflow_state."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.PermissionError) as ctx:
+			portal.portal_order_sua_so_luong(self.don_da_duyet, self.dong_moi)
+		self.assertIn("xin sửa", str(ctx.exception))
+
+	def test_quan_ly_van_goi_thang_duoc(self):
+		"""VẾ DƯƠNG — không lấy mất thao tác của quản lý."""
+		frappe.set_user(self.user_quan_ly)
+		portal.portal_order_sua_so_luong(self.don_da_duyet, self.dong_moi)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", self.don_da_duyet, "workflow_state"),
+			"Chờ xác nhận",
+		)
+
+	def test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu(self):
+		"""Sáu tài khoản đang chạy: đơn cũ không có `custom_de_xuat` →
+		không được đổi hành vi. Đây là chốt tương thích ngược."""
+		frappe.set_user(self.user_quan_ly)
+		portal.portal_order_sua_so_luong(self.don_cu_khong_co_de_xuat, self.dong_moi)
+		self.assertEqual(
+			frappe.db.get_value(
+				"Sales Order", self.don_cu_khong_co_de_xuat, "workflow_state"
+			),
+			"Chờ xác nhận",
+		)
+
+	def test_nhan_vien_xin_sua_thi_phieu_ve_cho_duyet_sua(self):
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Chờ duyệt sửa")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, 100)
+		self.assertEqual(doc.items[0].so_luong_duyet, 10)   # cột cũ CÒN NGUYÊN
+
+	def test_don_chua_doi_gi_truoc_khi_quan_ly_duyet_sua(self):
+		"""Chốt của cả task: xin sửa KHÔNG tự nó chạm vào đơn."""
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		so = frappe.get_doc("Sales Order", self.don_da_duyet)
+		self.assertEqual(so.items[0].qty, 10)
+
+	def test_quan_ly_duyet_sua_thi_don_moi_doi(self):
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		frappe.set_user(self.user_quan_ly)
+		de_xuat.de_xuat_duyet_sua(self.phieu_da_duyet)
+		so = frappe.get_doc("Sales Order", self.don_da_duyet)
+		self.assertEqual(so.items[0].qty, 100)
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.items[0].so_luong_duyet, 100)
+
+	def test_quan_ly_tu_choi_sua_thi_don_giu_nguyen(self):
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		frappe.set_user(self.user_quan_ly)
+		de_xuat.de_xuat_tu_choi_sua(self.phieu_da_duyet, "Vượt dự toán quý")
+		so = frappe.get_doc("Sales Order", self.don_da_duyet)
+		self.assertEqual(so.items[0].qty, 10)
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertFalse(doc.items[0].so_luong_xin_sua)   # dọn sạch yêu cầu cũ
+```
+
+- [ ] **Step 2: Chạy, xác nhận đỏ**
+
+Chú ý: `test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu` và `test_quan_ly_van_goi_thang_duoc` **phải xanh sẵn** trước khi viết code — chúng là chốt tương thích ngược, nhiệm vụ của chúng là **vẫn xanh sau khi sửa**. Năm test còn lại phải đỏ.
+
+- [ ] **Step 3: Chặn theo vai trò trong `portal_order_sua_so_luong`**
+
+```python
+    # Task 9 (§12 Q4, chủ đầu tư chốt 19/08) — nhân viên khoa KHÔNG sửa
+    # thẳng số lượng trên đơn đã duyệt: quản lý duyệt 10 hộp mà hàng về 100
+    # hộp là lỗ hổng của chính cổng duyệt. Họ đi qua `de_xuat_xin_sua`.
+    #
+    # CHỈ áp cho đơn ĐI QUA đường đề xuất (`custom_de_xuat` có giá trị).
+    # Đơn cũ không có phiếu đứng sau thì KHÔNG có gì để quay về duyệt lại —
+    # chặn chúng chỉ là lấy mất một thao tác mà không đổi lại được gì.
+    if so.get("custom_de_xuat") and not la_quan_ly():
+        raise frappe.PermissionError(
+            "Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng "
+            "để gửi lại cho quản lý xem."
+        )
+```
+
+- [ ] **Step 4: Thêm `de_xuat_xin_sua`, `de_xuat_duyet_sua`, `de_xuat_tu_choi_sua`**
+
+`de_xuat_xin_sua` — chỉ `owner` hoặc thành viên cùng khoa; ghi `so_luong_xin_sua`, chuyển `Chờ duyệt sửa`, thông báo quản lý (dùng hàm Task 8).
+`de_xuat_duyet_sua` — chỉ quản lý; gọi lõi `portal_order_sua_so_luong` **với tư cách quản lý**, chép `so_luong_xin_sua` → `so_luong_duyet`, xoá `so_luong_xin_sua`, về `Đã duyệt`.
+`de_xuat_tu_choi_sua` — chỉ quản lý; xoá `so_luong_xin_sua`, về `Đã duyệt`, ghi lý do vào `ghi_chu_quan_ly` của dòng.
+
+- [ ] **Step 5: Ba tên mới vào `DA_AP_PHAM_VI`**
+- [ ] **Step 6: Chạy toàn bộ suite, kỳ vọng 1188 OK**
+- [ ] **Step 7: Commit** — `feat(de-xuat): sua so luong sau duyet phai quay lai quan ly (Q4)`
 
 ---
 

@@ -688,5 +688,5 @@ Kế thừa từ trục khách hàng, không phải do đề án này tạo ra.
 | 1 | QĐ-KP-8 (quản lý không tự tạo tài khoản) — chủ đầu tư xác nhận? | 9 |
 | 2 | Mã bệnh viện (`BM`, `HM`…) do ai đặt và đặt theo quy tắc gì? | 2 |
 | 3 | Nhân viên khoa có được xem **hoá đơn và công nợ** của khoa mình không, hay công nợ là việc của quản lý? | 4 |
-| 4 | Đơn đã duyệt mà khoa muốn đổi số lượng (đã có `portal_order_sua_so_luong`) — khoa tự sửa được hay phải qua quản lý lần nữa? | 4 |
+| ~~4~~ | ~~Đơn đã duyệt mà khoa muốn đổi số lượng — khoa tự sửa được hay phải qua quản lý lần nữa?~~ **ĐÃ TRẢ LỜI 19/08:** khoa **vẫn sửa được**, nhưng sửa xong đơn **quay lại quản lý duyệt lần nữa**. Thi công ở Task 9 của `plans/2026-08-19-de-xuat-mua-nen.md`. Lỗ hổng đo được trước khi hỏi: `portal_order_sua_so_luong` chỉ chặn theo `workflow_state`, không chặn theo vai trò → nhân viên khoa đổi 10 hộp thành 100 hộp sau khi quản lý đã duyệt. | 4 |
 | 5 | Người của khoa nghỉ việc: đề xuất và đơn của họ chuyển cho ai đứng tên? | 3 |
