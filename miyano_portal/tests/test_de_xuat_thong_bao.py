@@ -304,9 +304,7 @@ class TestThongBaoDuyet(FrappeTestCase):
 		doc.reload()
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
-		doc.reload()
-		doc.items[0].so_luong_duyet = doc.items[0].so_luong_de_xuat
-		doc.save(ignore_permissions=True)
+		# `gui_duyet()` tự đóng dấu `so_luong_duyet` (C2) — không gán tay.
 		doc.reload()
 		return doc
 
@@ -357,9 +355,7 @@ class TestThongBaoDuyet(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
-		doc.reload()
-		doc.items[0].so_luong_duyet = doc.items[0].so_luong_de_xuat
-		doc.save(ignore_permissions=True)
+		# `gui_duyet()` tự đóng dấu `so_luong_duyet` (C2) — không gán tay.
 		doc.reload()
 
 		de_xuat_duyet.duyet_va_tao_don(doc.name, self.ql)

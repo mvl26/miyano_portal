@@ -339,6 +339,30 @@ class TestDeXuatDuyet(FrappeTestCase):
 		self.assertEqual(len(so.items), 1)
 		self.assertEqual(so.items[0].qty, 2)
 
+	def test_dong_KHONG_neu_trong_dieu_chinh_van_vao_don_nguyen_so(self):
+		"""C2 lật NGẦM ngữ nghĩa "dòng bị bỏ sót trong `dieu_chinh`", và
+		trước test này không ca nào chạm tới nhánh đó (`self.phieu_huyethoc`
+		chỉ có MỘT dòng, mà `dieu_chinh` luôn nêu nó).
+
+		TRƯỚC C2: dòng không có mặt trong payload giữ `so_luong_duyet = 0`
+		(default) → RƠI KHỎI ĐƠN.
+		SAU C2: nó mang `so_luong_de_xuat` do `gui_duyet()` đóng dấu → VÀO
+		ĐƠN nguyên số khoa xin.
+
+		Chiều MỚI đúng hơn và là chiều hợp đồng ghi: §5.3 nói "bỏ một mặt
+		hàng = HẠ VỀ 0", tức một hành động CỐ Ý của quản lý — không phải
+		việc bỏ sót một dòng khỏi payload. Ghim lại bằng test để lần sau ai
+		đó lật ngược thì có cái đỏ."""
+		doc = self._cho_duyet_hai_dong()
+		frappe.set_user(self.user_quan_ly)
+		# `dieu_chinh` CHỈ nêu dòng đầu; dòng thứ hai bị bỏ sót hoàn toàn.
+		dc = {"items": [{"item_code": self.item, "so_luong_duyet": 2}]}
+		kq = de_xuat.de_xuat_duyet_phieu(doc.name, dieu_chinh=json.dumps(dc))
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		theo_ma = {r.item_code: r.qty for r in so.items}
+		self.assertEqual(theo_ma.get(self.item), 2)      # dòng được nêu
+		self.assertEqual(theo_ma.get(self.item2), 5)     # dòng BỎ SÓT
+
 	def test_quan_ly_them_mat_hang_qua_dieu_chinh(self):
 		"""§5.3 — dòng "Quản lý thêm" bắt buộc `so_luong_de_xuat = 0`, và đi
 		vào đơn với đúng `so_luong_duyet` quản lý gõ."""

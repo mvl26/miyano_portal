@@ -141,10 +141,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
-		doc.reload()
-		doc.items[0].so_luong_duyet = 10
-		doc.items[1].so_luong_duyet = 5
-		doc.save(ignore_permissions=True)
+		# `gui_duyet()` tự đóng dấu `so_luong_duyet` = số khoa đề xuất (C2).
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
 		self.don_da_duyet = kq["sales_order"]
@@ -430,9 +427,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
-		doc.reload()
-		doc.items[0].so_luong_duyet = 7
-		doc.save(ignore_permissions=True)
+		# `gui_duyet()` tự đóng dấu `so_luong_duyet` (C2) — không gán tay.
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
 		return kq["de_xuat"], kq["sales_order"]
@@ -560,3 +555,95 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 			moc_gui_duyet,
 			f"Việc xin sửa vẫn gửi nhầm thông báo 'gửi duyệt': {sau}",
 		)
+
+	# ---- C1, ba cửa còn lại (re-review) ----------------------------------
+	#
+	# `portal_order_sua_so_luong` có NĂM chốt ném lỗi. Vòng trước mới soi
+	# gương hai (loại đơn, workflow_state). Ba cửa dưới đây dẫn tới ĐÚNG cái
+	# ngõ cụt mà C1 sinh ra để bịt: phiếu rời "Đã duyệt" sang "Chờ duyệt
+	# sửa", quản lý bấm Đồng ý mới ăn lỗi, và "Chờ duyệt sửa" không có cạnh
+	# nào sang "Đã huỷ" nên ra được chỉ bằng `tu_choi_sua` — bắt buộc lý do,
+	# ghi lý do đó vào mọi dòng như thể đã cân nhắc.
+
+	def test_xin_sua_khi_bao_gia_het_hieu_luc_bi_chan(self):
+		"""CỬA 1 — sắc nhất, chỉ cần THỜI GIAN TRÔI. Báo giá mặc định hết
+		hiệu lực sau 7 ngày (BR-R5), nên ca này KHÔNG hiếm: nó SẼ xảy ra.
+		Đơn vẫn "Chờ khách đồng ý", vẫn "Mua lẻ" → qua cả hai chốt của vòng
+		trước → ngõ cụt."""
+		frappe.db.set_value(
+			"Sales Order", self.don_da_duyet, "custom_ngay_gui_khach_duyet",
+			frappe.utils.add_days(frappe.utils.today(), -30),
+			update_modified=False,
+		)
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
+		self.assertIn("hết hiệu lực", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
+
+	def test_xin_sua_dong_quan_ly_da_ha_ve_0_bi_chan(self):
+		"""CỬA 2 — quản lý hạ một dòng về 0 lúc duyệt (§5.3: dòng VẪN CÒN
+		trên phiếu, chỉ không vào đơn). Khoa xin lại 5 cho đúng dòng đó →
+		`_loc_thay_doi_that` thấy `5 != 0` nên CHO QUA → lõi ném "Không tìm
+		thấy mặt hàng ... trong đơn"."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"loai_don": "Mua lẻ",
+			"items": [
+				{"item_code": self.item, "so_luong_de_xuat": 10},
+				{"item_code": self.item2, "so_luong_de_xuat": 5},
+			],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		doc.items[1].so_luong_duyet = 0     # quản lý BỎ mặt hàng thứ hai
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		frappe.db.set_value(
+			"Sales Order", kq["sales_order"], "workflow_state",
+			"Chờ khách đồng ý", update_modified=False,
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertNotIn(self.item2, {i.item_code for i in so.items})
+
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(kq["de_xuat"], {
+				"items": [{"item_code": self.item2, "qty": 5}],
+			})
+		self.assertIn("không còn trên đơn", str(ctx.exception))
+		phieu = frappe.get_doc("Portal De Xuat Mua", kq["de_xuat"])
+		self.assertEqual(phieu.trang_thai, "Đã duyệt")
+
+	def test_xin_sua_bo_het_moi_dong_bi_chan(self):
+		"""CỬA 3 — khoa xin 0 cho MỌI dòng. Lõi ném "Đơn sẽ không còn dòng
+		hàng nào sau khi sửa" (ERPNext không lưu được `items` rỗng)."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+				"items": [
+					{"item_code": self.item, "qty": 0},
+					{"item_code": self.item2, "qty": 0},
+				],
+			})
+		self.assertIn("không còn dòng hàng nào", str(ctx.exception))
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
+
+	def test_xin_sua_bo_MOT_dong_van_di_qua_duoc(self):
+		"""VẾ DƯƠNG của cửa 3 — bỏ MỘT dòng mà đơn còn dòng khác thì vẫn
+		hợp lệ. Chốt "không còn dòng nào" không được nuốt luôn ca này."""
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, {
+			"items": [{"item_code": self.item, "qty": 0}],
+		})
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.trang_thai, "Chờ duyệt sửa")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, 0)

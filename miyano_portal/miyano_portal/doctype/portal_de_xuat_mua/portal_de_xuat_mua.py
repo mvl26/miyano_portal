@@ -288,19 +288,33 @@ class PortalDeXuatMua(Document):
 		THẬT ("xin bỏ dòng này"), không phải giá trị rỗng. Trước bản vá,
 		`float(row.get("qty") or 0)` gộp cả hai trường hợp làm một.
 
-		C1 + I2 (review TỔNG 19/08) — MỌI chốt nằm TRƯỚC khi phiếu rời "Đã
-		duyệt". Xem `_kiem_don_dung_duoc_xin_sua()` và `_loc_thay_doi_that()`
-		ngay dưới: một phiếu đã sang "Chờ duyệt sửa" rồi mới chết ở bước
-		quản lý bấm Đồng ý là NGÕ CỤT — `CHUYEN_HOP_LE["Chờ duyệt sửa"]` chỉ
-		có đúng một cạnh ra (`Đã duyệt`), không có cạnh sang "Đã huỷ", nên
-		đường ra duy nhất là `tu_choi_sua()`: bắt buộc lý do, ghi lý do đó
-		vào `ghi_chu_quan_ly` mọi dòng như thể quản lý đã cân nhắc, và yêu
-		cầu của khoa mất trắng.
+		C1 + I2 (review TỔNG 19/08, hoàn tất ở vòng re-review) — phiếu chỉ
+		rời "Đã duyệt" sau khi ĐỦ NĂM chốt của lõi `portal_order_sua_so_
+		luong` đã được hỏi lại ở đây, cộng chốt riêng của I2. Kể tên thay vì
+		nói "mọi chốt", để người sau đối chiếu được với lõi:
+
+		  1. loại đơn phải "Mua lẻ"          → `_kiem_don_dung_duoc_xin_sua`
+		  2. `workflow_state` = Chờ khách đồng ý → nt
+		  3. báo giá còn hiệu lực (BR-R5)    → nt
+		  4. mã hàng phải CÒN trên đơn       → `_kiem_thay_doi_ap_duoc_len_don`
+		  5. đơn còn ít nhất một dòng sau sửa→ nt
+		  (+) phải có thay đổi THẬT, không âm → `_loc_thay_doi_that` (I2)
+
+		Vì sao thứ tự này quan trọng: một phiếu đã sang "Chờ duyệt sửa" rồi
+		mới chết ở bước quản lý bấm Đồng ý là NGÕ CỤT — `CHUYEN_HOP_LE["Chờ
+		duyệt sửa"]` chỉ có đúng một cạnh ra (`Đã duyệt`), không có cạnh
+		sang "Đã huỷ", nên đường ra duy nhất là `tu_choi_sua()`: bắt buộc lý
+		do, ghi lý do đó vào `ghi_chu_quan_ly` mọi dòng như thể quản lý đã
+		cân nhắc, và yêu cầu của khoa mất trắng.
+
+		Ba chốt đầu hỏi được ngay ở MỨC ĐƠN; hai chốt sau chỉ trả lời được
+		sau khi đã biết khoa xin gì, nên chạy sau `_loc_thay_doi_that()`.
 		"""
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET_SUA)
-		self._kiem_don_dung_duoc_xin_sua()
+		don = self._kiem_don_dung_duoc_xin_sua()
 		theo_ma = {d.item_code: d for d in self.items}
 		thay_doi = self._loc_thay_doi_that(dong, theo_ma)
+		self._kiem_thay_doi_ap_duoc_len_don(don, thay_doi)
 		for ma, qty in thay_doi.items():
 			theo_ma[ma].so_luong_xin_sua = qty
 		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
@@ -329,8 +343,23 @@ class PortalDeXuatMua(Document):
 
 		KHÔNG mở rộng thành xây tính năng sửa-đơn-HĐNT: phạm vi ở đây là TỪ
 		CHỐI SỚM kèm thông điệp nói đúng vì sao và khoa nên làm gì.
+
+		VÒNG SỬA (re-review 19/08) — soi gương ĐỦ CẢ NĂM chốt của lõi, chia
+		hai bước theo đúng thứ tự lõi hỏi. Hàm NÀY lo ba chốt ở MỨC ĐƠN (hỏi
+		được ngay, chưa cần biết khoa xin gì); `_kiem_thay_doi_ap_duoc_len_
+		don()` lo hai chốt ở MỨC DÒNG (chỉ trả lời được sau khi biết yêu cầu
+		cụ thể). Trả về `so` để bước sau dùng lại, không tải đơn hai lần.
+
+		KHÔNG chép điều kiện: chốt hiệu lực gọi THẲNG `portal_mua_le.qua_han_
+		hieu_luc()` — cùng hàm lõi gọi, cùng hàm banner `portal_order_track`
+		và job `quet_bao_gia_het_han` gọi. Ba nơi tính ra một con số khác
+		nhau là đúng thứ `han_hieu_luc_bao_gia` tự dặn phải tránh.
 		"""
-		from miyano_portal.portal_mua_le import TRANG_THAI_CHO_KHACH
+		from miyano_portal.portal_mua_le import (
+			TRANG_THAI_CHO_KHACH,
+			han_hieu_luc_bao_gia,
+			qua_han_hieu_luc,
+		)
 
 		if not self.sales_order:
 			frappe.throw(
@@ -338,17 +367,16 @@ class PortalDeXuatMua(Document):
 				"lượng nào để xin sửa. Liên hệ quản lý của quý đơn vị.",
 				frappe.ValidationError,
 			)
-		don = frappe.db.get_value(
-			"Sales Order", self.sales_order,
-			["custom_loai_don", "workflow_state"], as_dict=True,
-		)
-		if not don:
+		if not frappe.db.exists("Sales Order", self.sales_order):
 			frappe.throw(
 				f'Không tìm thấy đơn hàng "{self.sales_order}" đứng sau '
 				"phiếu này. Liên hệ Miyano để được hỗ trợ.",
 				frappe.ValidationError,
 			)
-		if don.custom_loai_don != "Mua lẻ":
+		# Tải CẢ đơn (không `db.get_value` vài cột): chốt hiệu lực nhận
+		# nguyên `so`, và hai chốt mức dòng ở bước sau cần `so.items`.
+		don = frappe.get_doc("Sales Order", self.sales_order)
+		if don.get("custom_loai_don") != "Mua lẻ":
 			frappe.throw(
 				f'Đơn "{self.sales_order}" đặt theo hợp đồng nguyên tắc '
 				"(HĐNT). Cổng không sửa được số lượng đơn HĐNT — số lượng "
@@ -356,13 +384,73 @@ class PortalDeXuatMua(Document):
 				"hoặc Miyano nếu cần điều chỉnh.",
 				frappe.ValidationError,
 			)
-		if don.workflow_state != TRANG_THAI_CHO_KHACH:
+		if don.get("workflow_state") != TRANG_THAI_CHO_KHACH:
 			frappe.throw(
 				f'Đơn "{self.sales_order}" đang ở bước '
-				f'"{don.workflow_state}". Chỉ xin sửa được số lượng khi đơn '
-				f'ở bước "{TRANG_THAI_CHO_KHACH}" (Miyano đã báo giá xong). '
-				"Liên hệ quản lý của quý đơn vị hoặc Miyano nếu cần đổi số "
-				"lượng ở giai đoạn này.",
+				f'"{don.get("workflow_state")}". Chỉ xin sửa được số lượng '
+				f'khi đơn ở bước "{TRANG_THAI_CHO_KHACH}" (Miyano đã báo giá '
+				"xong). Liên hệ quản lý của quý đơn vị hoặc Miyano nếu cần "
+				"đổi số lượng ở giai đoạn này.",
+				frappe.ValidationError,
+			)
+		# CỬA 1 (re-review) — chốt SẮC NHẤT vì nó tự đóng theo THỜI GIAN:
+		# báo giá mặc định hết hiệu lực sau 7 ngày (BR-R5), nên một phiếu
+		# nằm chờ qua cuối tuần là đủ. Không có chốt này, khoa xin sửa lọt
+		# qua cả hai chốt trên rồi chết ở tay quản lý.
+		if qua_han_hieu_luc(don):
+			han = han_hieu_luc_bao_gia(don)
+			frappe.throw(
+				f'Báo giá cho đơn "{self.sales_order}" đã hết hiệu lực ngày '
+				f"{frappe.utils.formatdate(han, 'dd/mm/yyyy')} nên không sửa "
+				"được số lượng nữa. Gửi yêu cầu báo giá mới nếu vẫn cần "
+				"hàng, hoặc liên hệ Miyano.",
+				frappe.ValidationError,
+			)
+		return don
+
+	def _kiem_thay_doi_ap_duoc_len_don(self, don, thay_doi: dict):
+		"""Hai chốt MỨC DÒNG còn lại của lõi (re-review 19/08) — chỉ trả lời
+		được sau khi đã biết khoa xin ĐÚNG những gì.
+
+		CỬA 2 — `"Không tìm thấy mặt hàng {ma} trong đơn"`. Đường tới đây
+		hoàn toàn tự nhiên: quản lý hạ một dòng về 0 lúc duyệt thì dòng đó
+		KHÔNG vào đơn nhưng VẪN CÒN trên phiếu (§5.3, cố ý — đó là cách giữ
+		"khoa xin gì / duyệt gì"). Khoa nhìn phiếu, thấy dòng đó, xin lại 5.
+		`_loc_thay_doi_that` thấy `5 != 0` nên cho qua, và lõi mới là nơi
+		phát hiện dòng ấy chưa từng có trên đơn.
+
+		CỬA 3 — `"Đơn sẽ không còn dòng hàng nào sau khi sửa"` (ERPNext
+		không lưu được `items` rỗng). Khoa xin 0 cho MỌI dòng.
+
+		Soi gương phép tính của lõi, KHÔNG chép điều kiện: dùng chính
+		`la_dong_giu_cho()` mà lõi dùng để loại dòng kỹ thuật, và cùng đọc
+		`custom_dat_ngoai` — một đơn còn dòng đặt ngoài thì vẫn sống được
+		(lõi tự chèn lại dòng giữ chỗ), nên chốt này không được bắt nhầm.
+		"""
+		from miyano_portal.portal_mua_le import la_dong_giu_cho
+
+		ma_tren_don = {i.item_code for i in don.items}
+		for ma in thay_doi:
+			if ma not in ma_tren_don:
+				frappe.throw(
+					f'Mặt hàng "{ma}" không còn trên đơn "{don.name}" — quản '
+					"lý đã bỏ mặt hàng này khi duyệt, nên không xin sửa số "
+					"lượng của nó được. Nếu khoa vẫn cần, hãy lập một đề "
+					"xuất mua mới cho mặt hàng đó.",
+					frappe.ValidationError,
+				)
+
+		con_lai = [
+			i for i in don.items
+			if not la_dong_giu_cho(i.item_code)
+			and thay_doi.get(i.item_code, float(i.qty or 0)) != 0
+		]
+		if not con_lai and not (don.get("custom_dat_ngoai") or []):
+			frappe.throw(
+				f'Yêu cầu này bỏ hết mọi mặt hàng của đơn "{don.name}" — đơn '
+				"sẽ không còn dòng hàng nào. Nếu khoa muốn bỏ cả đơn, hãy "
+				"liên hệ quản lý của quý đơn vị hoặc Miyano để huỷ đơn, "
+				"thay vì hạ mọi dòng về 0.",
 				frappe.ValidationError,
 			)
 
