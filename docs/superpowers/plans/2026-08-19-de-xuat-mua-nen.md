@@ -635,7 +635,13 @@ Khoá `so_luong_de_xuat` trong `validate()` (QĐ-A2). **Nhớ nối vào `valida
 - Modify: `miyano_portal/hooks.py`
 - Test: `miyano_portal/tests/test_de_xuat_cach_ly.py` *(mới)*
 
-**Vì sao task này đứng TRƯỚC endpoint, không phải sau:**
+**ĐÃ ĐỔI SAU TASK 1 — đọc trước khi làm.** Lưới an toàn `test_kho_isolation.py` buộc Task 1 phải phân loại doctype mới vào `KHO_DOCTYPES_KHAC`, và phân loại đó đòi wiring phân quyền thật. Nên **trục KHÁCH HÀNG đã được làm xong ở Task 1**: `de_xuat_query_condition` / `de_xuat_co_quyen` đã tồn tại trong `permissions.py`, đã khai trong `hooks.py`, đã fail-closed khi `get_allowed_customers()` rỗng, và child `Portal De Xuat Mua Item` đã có override riêng.
+
+**Task này giờ chỉ còn MỘT việc: thêm vế KHOA PHÒNG vào chính hai hàm đó.** Không tạo hàm mới, không khai thêm hook, không dựng tầng thứ hai — đúng nguyên tắc "chiều khoa đi VÀO tầng phân quyền đã có". Cụ thể: đọc `pham_vi_don(user)`; nếu nó trả `{"custom_khoa_phong": X}` thì AND thêm `khoa_phong = X` vào điều kiện.
+
+Bộ test của task này **giữ nguyên toàn bộ** — nó vốn kiểm cả hai trục. Hai test trục khách hàng (`test_khong_thay_phieu_benh_vien_khac`) sẽ **xanh sẵn** nhờ Task 1; đó là chốt canh Task 1 không bị phá, không phải test rỗng. Ba test trục khoa phải ĐỎ trước khi bạn viết code.
+
+**Vì sao trục khoa vẫn phải ở tầng hook, không phải tầng endpoint:**
 
 Ở bước 4 của kế hoạch trước, phạm vi theo khoa được xây **chỉ ở tầng endpoint**. Kết quả: `GET /api/resource/Sales Order` trả đơn của mọi khoa. §5.1 nói Miyano không có DocPerm trên doctype này — đó là **trục Miyano**. Trục **khoa phòng** vẫn cần hook riêng. Test phải đi qua `frappe.get_list`, **không** qua endpoint — endpoint là thứ task sau mới có.
 
