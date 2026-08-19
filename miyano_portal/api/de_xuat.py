@@ -160,3 +160,62 @@ def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
 def de_xuat_chi_tiet(ten) -> dict:
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
 	return doc.as_dict()
+
+
+def _ap_dieu_chinh(doc, dieu_chinh):
+	"""Quản lý chỉ chạm `so_luong_duyet` và `ghi_chu_quan_ly`. Bỏ một mặt
+	hàng = HẠ VỀ 0, không xoá dòng (§5.3). Thêm mặt hàng → dòng mới có
+	`so_luong_de_xuat = 0`, `nguon_dong = "Quản lý thêm"`.
+
+	CHỈ đọc `item_code` (để KHỚP dòng ĐÃ CÓ) và `so_luong_duyet` — mọi field
+	khác trong payload bị bỏ qua, cùng khuôn `portal_order_sua_so_luong`.
+	"""
+	dc = frappe.parse_json(dieu_chinh) if isinstance(dieu_chinh, str) else dieu_chinh
+	theo_ma = {d.item_code: d for d in doc.items}
+	for row in dc.get("items", []):
+		ma = row.get("item_code")
+		if ma in theo_ma:
+			theo_ma[ma].so_luong_duyet = float(row.get("so_luong_duyet") or 0)
+			if row.get("ghi_chu_quan_ly") is not None:
+				theo_ma[ma].ghi_chu_quan_ly = row["ghi_chu_quan_ly"]
+		else:
+			doc.append("items", {
+				"item_code": ma, "so_luong_de_xuat": 0,
+				"so_luong_duyet": float(row.get("so_luong_duyet") or 0),
+				"nguon_dong": "Quản lý thêm",
+			})
+	doc.save(ignore_permissions=True)
+
+
+@frappe.whitelist()
+def de_xuat_duyet_phieu(ten, dieu_chinh=None) -> dict:
+	"""Chốt quyền DUY NHẤT của đường duyệt. Kế hoạch C (uỷ quyền) sửa ĐÚNG
+	dòng `la_quan_ly()` này, không đụng `de_xuat_duyet.duyet_va_tao_don`."""
+	if not la_quan_ly():
+		raise frappe.PermissionError("Chỉ quản lý mới duyệt được đề xuất.")
+	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
+	if dieu_chinh:
+		_ap_dieu_chinh(doc, dieu_chinh)
+	from miyano_portal import de_xuat_duyet
+	return de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
+
+
+@frappe.whitelist()
+def de_xuat_tu_choi(ten, ly_do) -> dict:
+	if not la_quan_ly():
+		raise frappe.PermissionError("Chỉ quản lý mới từ chối được đề xuất.")
+	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
+	doc.tu_choi(ly_do)
+	return {"name": doc.name}
+
+
+@frappe.whitelist()
+def de_xuat_huy(ten) -> dict:
+	"""§5.4b — từ Chờ duyệt trở đi CHỈ quản lý huỷ được. Nhân viên không
+	huỷ phiếu đã gửi: một phiếu đang nằm trong danh sách chờ của quản lý mà
+	biến mất giữa chừng là thứ khó chịu nhất cho người duyệt."""
+	if not la_quan_ly():
+		raise frappe.PermissionError("Chỉ quản lý mới huỷ được phiếu đã gửi.")
+	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
+	doc.huy()
+	return {"name": doc.name}

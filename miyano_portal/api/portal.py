@@ -525,7 +525,8 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
         # đang "Chờ khách đồng ý" để hiện banner ngay trên danh sách thay vì
         # bắt khách mở từng đơn.
         fields=["name", "transaction_date", "grand_total", "status", "per_delivered",
-                "custom_loai_don", "workflow_state", "custom_yeu_cau_goc"],
+                "custom_loai_don", "workflow_state", "custom_yeu_cau_goc",
+                "custom_ma_tra_cuu"],
         # tiebreak `name` — `transaction_date`/`creation` không đủ duy
         # nhất giữa hai trang (brief 2026-08-15).
         order_by="transaction_date desc, creation desc, name desc",
@@ -540,6 +541,11 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
         # ra (client đọc đúng ở màn này, sai ở màn kia).
         r["loai_don"] = r.pop("custom_loai_don") or "Theo HĐNT"
         r["yeu_cau_goc"] = r.pop("custom_yeu_cau_goc") or ""
+        # Task 6, QĐ-A4 — mã của khách (`DXA-HUYETHOC-260819-01`), CẠNH
+        # `name` (SAL-ORD-*, mã hệ thống), không THAY nó: khách đọc mã của
+        # họ, Miyano đối chiếu bằng SAL-ORD-*. Đơn CŨ chưa từng đi qua một
+        # phiếu đề xuất để trống — hợp lệ, không phải lỗi.
+        r["ma_tra_cuu"] = r.pop("custom_ma_tra_cuu") or ""
     return {"rows": rows, "tong": tong}
 
 
@@ -844,6 +850,9 @@ def portal_order_track(order) -> dict:
         # US-E2.2 — khách phải đọc được lý do ngay trên chi tiết đơn, không
         # phải đi tìm lại email.
         "ly_do_tu_choi": so.get("custom_ly_do_tu_choi") or "",
+        # Task 6, QĐ-A4 — cùng khoá `ma_tra_cuu` với `portal_order_history`,
+        # xem chú thích ở đó. Đơn cũ không có phiếu đề xuất đứng sau: rỗng.
+        "ma_tra_cuu": so.get("custom_ma_tra_cuu") or "",
         # review (Phần C báo thiếu)
         "loai_don": so.get("custom_loai_don") or "Theo HĐNT",
         "workflow_state": so.get("workflow_state") or "",

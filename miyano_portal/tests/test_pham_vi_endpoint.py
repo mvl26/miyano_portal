@@ -45,6 +45,10 @@ DA_AP_PHAM_VI: set[str] = {
 	"portal_thong_bao_list", "portal_thong_bao_doc",
 	"de_xuat_tao_nhap", "de_xuat_luu_nhap", "de_xuat_xoa_nhap",
 	"de_xuat_gui_duyet", "de_xuat_danh_sach", "de_xuat_chi_tiet",
+	# Task 6 (19/08/2026) — cả ba đều mở đầu bằng `_phieu_cua_toi(...,
+	# cho_quan_ly=True)` (trục khách hàng + khoa) CỘNG một chốt `la_quan_ly()`
+	# riêng (chỉ quản lý được gọi) — đúng khuôn đã lọc, không miễn.
+	"de_xuat_duyet_phieu", "de_xuat_tu_choi", "de_xuat_huy",
 }
 
 # Endpoint CỐ Ý không lọc theo khoa — mỗi cái kèm lý do bằng chữ. Sửa tập
