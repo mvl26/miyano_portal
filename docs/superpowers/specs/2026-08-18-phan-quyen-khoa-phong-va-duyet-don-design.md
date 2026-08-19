@@ -184,8 +184,27 @@ Bệnh viện nào chưa muốn dùng khoa phòng thì không phải làm gì c�
 Đã cân nhắc ba hướng; chọn doctype riêng vì:
 
 - **"Miyano không thấy đơn chưa duyệt" thành tính chất của schema**, không phải
-  một bộ lọc phải nhớ áp đúng ở nhiều chỗ. Miyano không được cấp quyền nào trên
-  doctype này. Đây chính là bài học của hai lỗi tuần 17–18/08.
+  một bộ lọc phải nhớ áp đúng ở nhiều chỗ. Đây chính là bài học của hai lỗi
+  tuần 17–18/08.
+
+  **SỬA 19/08 (thi công Task 1 bắt được).** Bản trước của gạch đầu dòng này
+  viết thêm *"Miyano không được cấp quyền nào trên doctype này"* — **câu đó
+  sai**, và mạnh hơn thứ chính §5.1 cần. Test `test_staff_roles_keep_desk_
+  permissions` trong `test_kho_isolation.py` bắt được: nó đòi mọi doctype
+  chứng từ giữ DocPerm desk cho System Manager/Sales Manager/Sales User, một
+  guard chống "xoá sạch mảng permissions". Đọc lại DocPerm ba doctype cổng đã
+  chạy thật: `Portal Item Request`, `Portal Delivery Inspection`,
+  `Portal Member` — cả ba đều cấp quyền cho các role NỘI BỘ, và **không cái
+  nào** có role `Customer`. Bất biến thật của app là **zero DocPerm cho
+  `Customer`**, không phải zero tuyệt đối.
+
+  Hai gạch đầu dòng dưới đây **đúng dù DocPerm thế nào** — chúng được bảo đảm
+  bởi việc đây là một DOCTYPE RIÊNG không bao giờ đi vào luồng Sales Order.
+  Nên `Portal De Xuat Mua` lấy DocPerm y hệt `Portal Delivery Inspection`
+  (System Manager / Sales Manager / Sales User, read+write), zero cho
+  `Customer`. Nhân sự Miyano cần quyền desk để hỗ trợ được khi bệnh viện gọi;
+  bảo đảm "không thấy đơn chưa duyệt" không mất gì vì không có `SAL-ORD` nào
+  tồn tại trước khi bệnh viện chốt.
 - **Số `SAL-ORD` chỉ sinh khi bệnh viện đã thật sự chốt** — không có đơn "ma"
   nằm trong danh sách, báo cáo, dashboard của Miyano.
 - Đối chiếu "đề xuất gốc / đã duyệt" thành **hai chứng từ**, không phải một cái diff.
