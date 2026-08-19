@@ -12,8 +12,11 @@ from miyano_portal.portal_context import (
     get_portal_customer,
     get_portal_member,
     han_muc_con,
+    khoa_phong_cho_don,
+    la_quan_ly,
     pham_vi_don,
 )
+from miyano_portal.ma_de_xuat import sinh_ma
 from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
     TRANG_THAI_CHO_KHACH,
@@ -29,6 +32,9 @@ from miyano_portal.portal_mua_le import (
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
 from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_delivery_inspection import (
     TT_TU_CHOI,
+)
+from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+    TRANG_THAI_DA_DUYET,
 )
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
@@ -279,7 +285,7 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
 @frappe.whitelist()
 def portal_order_place(
     contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
-    request_id=None, mode="hdnt", dat_ngoai=None,
+    request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None,
 ) -> dict:
     """API Spec §1.1 — `mode`: `"hdnt"` (mặc định, [Hiện có]) | `"ban_le"`
     (E6 phần B, [MỚI]). Tham số vẫn tên `contract` (không phải `hdnt` như
@@ -289,29 +295,151 @@ def portal_order_place(
     trước E6, không phải lỗi tạo mới ở đây.
 
     Vỏ mỏng (bước 1, tách lõi đặt hàng — xem `dat_hang.py`): xác định khách
-    hàng từ PHIÊN ĐĂNG NHẬP rồi giao toàn bộ việc còn lại cho
-    `dat_hang.tao_sales_order`. Chữ ký endpoint này giữ NGUYÊN — đổi tên
-    tham số ở đây là đổi API mà `Cart.vue` không có gì buộc phải đổi theo.
+    hàng từ PHIÊN ĐĂNG NHẬP rồi giao toàn bộ việc tạo Sales Order cho
+    `dat_hang.tao_sales_order`, KHÔNG ĐỔI. Task 7 (§5.5) thêm ĐÚNG hai việc
+    quanh lõi đó, không đụng vào chính nó:
 
-    C1 (review vòng sửa 1, CRITICAL) — `khoa_phong` đóng dấu lên đơn PHẢI
-    suy từ `Portal Member.khoa_phong` của CHÍNH PHIÊN đang gọi, qua
-    `get_portal_member()`, TUYỆT ĐỐI không nhận từ client dưới bất kỳ hình
-    thức nào: hàm này KHÔNG có tham số `khoa_phong` trong chữ ký, và không
-    được thêm — một tham số như vậy sẽ cho nhân viên khoa A tự đóng dấu đơn
-    thành khoa B (`dat_hang.tao_sales_order` chỉ kiểm khoa ↔ KHÁCH HÀNG,
-    chưa từng kiểm khoa ↔ NGƯỜI GỌI). Quản lý có `khoa_phong` rỗng nên đơn
-    họ đặt để trống — đúng ý nghĩa "đơn cấp bệnh viện".
+    C1 (review vòng sửa 1, CRITICAL — SỬA LẠI ở Task 7, bình luận cũ ở đây
+    nói SAI thực tế mới, xem QĐ điều phối viên 19/08/2026 trong
+    `task-7-report.md`): bản TRƯỚC Task 7 chặn bằng cách "không có tham số
+    `khoa_phong` trong chữ ký". Nhưng §5.5 đòi giỏ hàng của QUẢN LÝ có ô
+    chọn khoa (mặc định "Toàn viện") — nên tham số `khoa_phong` giờ CÓ mặt,
+    và phép chặn A-đóng-dấu-thành-B chuyển sang `portal_context.
+    khoa_phong_cho_don()`, hàm role-aware DUY NHẤT được phép đọc/ghi
+    `khoa_phong` cho đường ghi này:
+      * Nhân viên khoa KHÔNG được gọi endpoint này chút nào nữa (chặn ở
+        dòng đầu, xem dưới) — họ đi qua `de_xuat_gui_duyet` để quản lý
+        duyệt. Gọi thẳng vẫn bị từ chối rõ ràng, không phải lỗi khó hiểu.
+      * Quản lý ĐƯỢC chọn khoa qua `khoa_phong`, nhưng `khoa_phong_cho_don()`
+        tự kiểm khoa đó thuộc ĐÚNG bệnh viện của họ và đang `active` —
+        không nhận thẳng giá trị client gửi mà không kiểm.
 
-    Trước bản vá này, MỌI đơn đặt qua cổng có `custom_khoa_phong = NULL`
-    (tham số bị bỏ sót hoàn toàn ở đường ghi thật) — nhân viên khoa đặt xong
-    đơn thì CHÍNH HỌ không mở lại được đơn vừa đặt.
+    §5.5 (thân bài, "mọi đơn trên hệ thống đều có đúng MỘT chứng từ đề nghị
+    đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong Sales Order,
+    hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau, `nguoi_duyet`
+    là chính quản lý. CỐ Ý KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`
+    (QĐ điều phối viên 19/08) — hàm đó ném lỗi CỨNG khi vượt hạn mức
+    (`_kiem_han_muc`), trong khi `dat_hang.tao_sales_order` trả lỗi MỀM có
+    cấu trúc (`bi_loai`/`ly_do`) mà nhiều test (`test_e1_loi_co_cau_truc.py`
+    và các test E1 khác) đọc trực tiếp từ kết quả hàm NÀY. Route qua
+    `duyet_va_tao_don` sẽ đổi hợp đồng lỗi của `portal_order_place` cho MỌI
+    người gọi, không riêng nhân viên khoa — trong khi sáu tài khoản đang
+    chạy thật đều là quản lý và đi qua đúng đường này mỗi ngày.
     """
-    return dat_hang.tao_sales_order(
-        get_portal_customer(),
+    if not la_quan_ly():
+        # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL/hạn mức khó
+        # hiểu lộ ra từ tầng dưới. Chặn TRƯỚC khi chạm bất kỳ thứ gì khác
+        # (customer, khoa_phong_cho_don, dat_hang) — không để lỡ tạo ra bất
+        # kỳ chứng từ nào rồi mới từ chối.
+        frappe.throw(
+            "Nhân viên khoa không đặt hàng trực tiếp qua giỏ hàng được. "
+            "Vui lòng tạo phiếu đề xuất và gửi duyệt để quản lý phê duyệt.",
+            frappe.ValidationError,
+        )
+    customer = get_portal_customer()
+    khoa = khoa_phong_cho_don(khoa_phong)
+    kq = dat_hang.tao_sales_order(
+        customer,
         mode=mode, contract=contract, items=items, dat_ngoai=dat_ngoai,
         po=po, delivery_date=delivery_date, note=note, address=address,
-        request_id=request_id, khoa_phong=get_portal_member().khoa_phong,
+        request_id=request_id, khoa_phong=khoa,
     )
+    kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
+        customer=customer, khoa_phong=khoa, mode=mode, contract=contract,
+        dat_ngoai=dat_ngoai, delivery_date=delivery_date, address=address,
+        note=note, request_id=request_id,
+        sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
+    )
+    return kq
+
+
+def _dam_bao_phieu_tu_duyet(
+    customer, khoa_phong, mode, contract, dat_ngoai, delivery_date, address,
+    note, request_id, sales_order, da_ton_tai,
+) -> str | None:
+    """§5.5 — một `Portal De Xuat Mua` "Đã duyệt" đứng sau MỌI đơn quản lý
+    đặt trực tiếp, `nguoi_duyet` là chính họ, `tu_duyet = 1`.
+
+    KHÔNG dùng `PortalDeXuatMua.gui_duyet()`/`.duyet()` (Task 3): hai
+    phương thức đó gắn CỨNG vào máy trạng thái Nháp → Chờ duyệt → Đã duyệt
+    (phiếu này SINH RA đã "Đã duyệt", không có ai chờ duyệt) và `gui_duyet()`
+    bắt buộc `sinh_ma()` không được lỗi — điều đó ĐÚNG cho nhân viên GỬI
+    DUYỆT (guard cấp tài khoản đã bắt buộc Mã ngắn từ trước), nhưng SAI cho
+    đường đặt trực tiếp của quản lý (QĐ điều phối viên 19/08): xem carve-out
+    thiếu Mã ngắn ngay dưới.
+
+    `da_ton_tai=True` (BR-O12, bấm lại) — KHÔNG tạo phiếu thứ hai, tìm phiếu
+    đã đứng sau `sales_order` đó mà trả về. Một `sales_order` cũ TRƯỚC
+    Task 7 (đặt thẳng, không qua đường này) có thể không có phiếu nào đứng
+    sau — trả `None`, đúng tinh thần "102 đơn cũ không có phiếu đề xuất"
+    (`TestDeXuatMaTraCuuTrenDonHang`), không tự bịa một phiếu cho quá khứ.
+    """
+    if da_ton_tai:
+        # Lọc CẢ `request_id` — `sales_order` một mình không phải khoá định
+        # danh của lần bấm này, chỉ là hệ quả của nó. `request_id` mới thật
+        # sự là thứ BR-O12 dùng để nhận ra "đây là cú bấm lại", nên đây mới
+        # là điều kiện CHÍNH XÁC, không phải suy đoán qua kết quả phụ.
+        return frappe.db.get_value(
+            "Portal De Xuat Mua",
+            {"sales_order": sales_order, "request_id": request_id},
+            "name",
+        )
+
+    # Đọc lại dòng hàng THẬT từ chính Sales Order vừa tạo — canonical hoá
+    # item_code + gộp dòng trùng đã được `dat_hang.tao_sales_order` làm rồi
+    # (BR-R… chuẩn hoá case/khoảng trắng), không viết lại lần hai ở đây.
+    # Bỏ dòng giữ chỗ kỹ thuật `ITEM_GIU_CHO` — nó không phải một mặt hàng
+    # khoa "đề xuất", chỉ để ERPNext lưu được đơn toàn dòng đặt ngoài.
+    dong = [
+        {
+            "item_code": r.item_code,
+            "so_luong_de_xuat": r.qty,
+            "so_luong_duyet": r.qty,
+        }
+        for r in frappe.get_all(
+            "Sales Order Item", filters={"parent": sales_order},
+            fields=["item_code", "qty"],
+        )
+        if r.item_code != ITEM_GIU_CHO
+    ]
+
+    nguoi = frappe.session.user
+    gio = frappe.utils.now_datetime()
+    doc = frappe.get_doc({
+        "doctype": "Portal De Xuat Mua",
+        "customer": customer, "khoa_phong": khoa_phong,
+        "loai_don": "HĐNT" if mode == "hdnt" else "Mua lẻ",
+        "hdnt": contract if mode == "hdnt" else None,
+        "ngay_can": delivery_date, "dia_chi_giao": address,
+        "request_id": request_id, "sales_order": sales_order,
+        "items": dong, "dat_ngoai": frappe.parse_json(dat_ngoai) if isinstance(
+            dat_ngoai, str
+        ) else (dat_ngoai or []),
+        "ghi_chu": note,
+        "ly_do_yeu_cau": "Đặt hàng trực tiếp qua giỏ hàng quản lý (tự động duyệt).",
+        "trang_thai": TRANG_THAI_DA_DUYET,
+        "thoi_diem_gui": gio, "thoi_diem_duyet": gio,
+        "nguoi_duyet": nguoi, "duyet_voi_tu_cach": "Quản lý chính",
+        "tu_duyet": 1,
+    })
+    try:
+        doc.ma_de_xuat = sinh_ma(customer, khoa_phong)
+    except frappe.ValidationError:
+        # QĐ điều phối viên 19/08 ("Blocker 2") — thiếu `Customer.
+        # custom_ma_ngan` KHÔNG được chặn đơn trực tiếp của quản lý (khác
+        # nhân viên GỬI DUYỆT, nơi guard cấp tài khoản đã bắt buộc Mã ngắn
+        # từ trước khi có tài khoản `Nhân viên khoa`). Mã tra cứu là tiện
+        # ích đối chiếu, không phải điều kiện đúng đắn của một đơn hàng —
+        # không bao giờ để nó chặn một bệnh viện mua hàng. Để rỗng, không
+        # throw.
+        doc.ma_de_xuat = None
+    doc.insert(ignore_permissions=True)
+
+    frappe.db.set_value("Sales Order", sales_order, {
+        "custom_de_xuat": doc.name,
+        "custom_ma_tra_cuu": doc.ma_de_xuat,
+    })
+    return doc.name
 
 
 def _so_status_vi(so_status, per_delivered=None):

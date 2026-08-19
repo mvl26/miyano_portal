@@ -28,7 +28,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import de_xuat_duyet
+from miyano_portal import de_xuat_duyet, portal_context
 from miyano_portal.api import de_xuat
 from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
@@ -575,3 +575,178 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 		rows = portal.portal_order_history()["rows"]
 		r = next(x for x in rows if x["name"] == self.don_cu_khong_co_de_xuat)
 		self.assertFalse(r.get("ma_tra_cuu"))
+
+
+class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
+	"""Task 7, §5.5 — quản lý đặt hàng trực tiếp qua giỏ hàng vẫn sinh một
+	`Portal De Xuat Mua` TỰ ĐÁNH "Đã duyệt" (`nguoi_duyet` = chính họ) đứng
+	sau mỗi Sales Order: KHÔNG có hai loại đơn với hai lịch sử khác nhau
+	trên hệ thống.
+
+	QĐ điều phối viên (19/08/2026, vòng sửa sau report đầu của Task 7— xem
+	`task-7-report.md`): `portal_order_place` KHÔNG route qua
+	`de_xuat_duyet.duyet_va_tao_don`. Nó vẫn gọi THẲNG `dat_hang.
+	tao_sales_order` như trước Task 7 — giữ NGUYÊN hợp đồng lỗi MỀM
+	(`bi_loai`/`ly_do`) mà `_kiem_han_muc` (bên trong `duyet_va_tao_don`)
+	sẽ đổi thành lỗi CỨNG cho MỌI người gọi, không riêng nhân viên khoa; sáu
+	tài khoản đang chạy thật đều là quản lý và đi đúng đường này mỗi ngày.
+	Chỉ SAU KHI Sales Order tạo xong mới ghi một phiếu "Đã duyệt" đứng sau.
+
+	Cũng theo QĐ đó: thiếu `Customer.custom_ma_ngan` KHÔNG được chặn đơn
+	trực tiếp của quản lý (khác nhân viên GỬI DUYỆT, nơi guard cấp tài
+	khoản đã bắt buộc mã ngắn từ trước) — phiếu vẫn tạo, `ma_de_xuat` để
+	rỗng.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		_don_phieu_cu()
+		f = dung_fixture(self)
+		self.kh_a = f.kh_a
+		self.item = f.item
+		self.khoa_huyethoc = f.khoa_huyethoc
+
+		# Khoa THỨ HAI trong CÙNG bệnh viện kh_a — để quản lý có gì đó khác
+		# `khoa_huyethoc` mà CHỌN qua giỏ hàng (§5.5).
+		self.khoa_duoc_a = _dam_bao_khoa(self.kh_a, "Dược (test task7)", "DXT7DUOC")
+		# Khoa của MỘT bệnh viện KHÁC (kh_b, có sẵn trong fixture dùng
+		# chung) — để kiểm quản lý kh_a không đặt hộ được khoa của kh_b.
+		self.khoa_benh_vien_b = f.khoa_duoc
+
+		self.user_quan_ly = _dam_bao_thanh_vien(
+			"dxt7.ql@demo.miyano", self.kh_a, "Quản lý", None
+		)
+		self.user_huyethoc = _dam_bao_thanh_vien(
+			"dxt7.huyethoc@demo.miyano", self.kh_a, "Nhân viên khoa",
+			self.khoa_huyethoc,
+		)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def _dat(self, khoa_phong=None, request_id=None):
+		return portal.portal_order_place(
+			mode="ban_le",
+			items=json.dumps([{"item_code": self.item, "qty": 1}]),
+			request_id=request_id or frappe.generate_hash(length=20),
+			khoa_phong=khoa_phong,
+		)
+
+	# ---- khoa_phong_cho_don() trực tiếp --------------------------------
+	#
+	# Test 1 gốc của brief ("nhân viên khoa gửi khoa khác vẫn bị ép về khoa
+	# mình") gọi qua `portal_order_place`. Nhưng §5.5 câu cuối chốt CHẶN HẲN
+	# nhân viên khoa ở chính endpoint đó (xem
+	# `test_nhan_vien_khoa_goi_thang_portal_order_place_bi_tu_choi_ro_rang`
+	# dưới) — nên vế "client gửi khoa khác vẫn bị ép về khoa mình" chỉ còn
+	# đo được ở tầng `khoa_phong_cho_don()` trực tiếp, không qua endpoint.
+	# Điều phối viên đã chốt cách sửa này trong brief.
+
+	def test_nhan_vien_khoa_gui_khoa_khac_van_bi_ep_ve_khoa_minh(self):
+		"""C1 vẫn đứng: client không tự chọn khoa được — với NHÂN VIÊN."""
+		frappe.set_user(self.user_huyethoc)
+		self.assertEqual(
+			portal_context.khoa_phong_cho_don(self.khoa_duoc_a),
+			self.khoa_huyethoc,
+		)
+
+	def test_quan_ly_duoc_chon_khoa_qua_khoa_phong_cho_don(self):
+		"""§5.5 — VẾ DƯƠNG của test trên: quản lý ĐƯỢC chọn."""
+		frappe.set_user(self.user_quan_ly)
+		self.assertEqual(
+			portal_context.khoa_phong_cho_don(self.khoa_duoc_a),
+			self.khoa_duoc_a,
+		)
+
+	def test_quan_ly_khong_chon_duoc_khoa_benh_vien_khac_qua_khoa_phong_cho_don(self):
+		frappe.set_user(self.user_quan_ly)
+		with self.assertRaises(frappe.PermissionError) as ctx:
+			portal_context.khoa_phong_cho_don(self.khoa_benh_vien_b)
+		self.assertIn("không thuộc", str(ctx.exception))
+
+	def test_quan_ly_chon_toan_vien_qua_khoa_phong_cho_don(self):
+		"""VẾ DƯƠNG — `None` (Toàn viện) là hợp lệ, không phải lỗi."""
+		frappe.set_user(self.user_quan_ly)
+		self.assertIsNone(portal_context.khoa_phong_cho_don(None))
+
+	# ---- portal_order_place — quản lý ----------------------------------
+
+	def test_quan_ly_dat_ho_mot_khoa(self):
+		"""§5.5 — quản lý chọn khoa qua giỏ hàng, đơn mang đúng khoa đó."""
+		frappe.set_user(self.user_quan_ly)
+		kq = self._dat(khoa_phong=self.khoa_duoc_a)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_khoa_phong"),
+			self.khoa_duoc_a,
+		)
+
+	def test_quan_ly_khong_dat_duoc_cho_khoa_benh_vien_khac(self):
+		frappe.set_user(self.user_quan_ly)
+		with self.assertRaises(frappe.PermissionError) as ctx:
+			self._dat(khoa_phong=self.khoa_benh_vien_b)
+		self.assertIn("không thuộc", str(ctx.exception))
+
+	def test_quan_ly_dat_toan_vien_thi_ma_la_CHUNG(self):
+		frappe.set_user(self.user_quan_ly)
+		kq = self._dat(khoa_phong=None)
+		phieu = frappe.get_doc("Portal De Xuat Mua", kq["de_xuat"])
+		self.assertIn("-CHUNG-", phieu.ma_de_xuat)
+		self.assertEqual(phieu.trang_thai, "Đã duyệt")
+
+	def test_moi_don_deu_co_dung_mot_phieu_dung_sau(self):
+		"""§5.5 — không có hai loại đơn với hai lịch sử khác nhau."""
+		frappe.set_user(self.user_quan_ly)
+		kq = self._dat()
+		self.assertTrue(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_de_xuat")
+		)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_de_xuat"),
+			kq["de_xuat"],
+		)
+
+	def test_phieu_tu_duyet_ghi_dung_nguoi_duyet_la_chinh_quan_ly(self):
+		"""§5.2 — khối truy vết: `nguoi_duyet` = chính người đặt, tự duyệt."""
+		frappe.set_user(self.user_quan_ly)
+		kq = self._dat()
+		phieu = frappe.get_doc("Portal De Xuat Mua", kq["de_xuat"])
+		self.assertEqual(phieu.nguoi_duyet, self.user_quan_ly)
+		self.assertEqual(phieu.duyet_voi_tu_cach, "Quản lý chính")
+		self.assertTrue(phieu.tu_duyet)
+
+	def test_bam_lai_cung_request_id_khong_tao_phieu_thu_hai(self):
+		"""BR-O12 — bấm lại (chống trùng đơn) không được tạo phiếu thứ hai."""
+		frappe.set_user(self.user_quan_ly)
+		rid = frappe.generate_hash(length=20)
+		a = self._dat(request_id=rid)
+		b = self._dat(request_id=rid)
+		self.assertEqual(a["sales_order"], b["sales_order"])
+		self.assertEqual(a["de_xuat"], b["de_xuat"])
+		self.assertEqual(
+			frappe.db.count("Portal De Xuat Mua", {"sales_order": a["sales_order"]}),
+			1,
+		)
+
+	def test_thieu_ma_ngan_khong_chan_don_quan_ly(self):
+		"""QĐ điều phối viên 19/08 — thiếu `custom_ma_ngan` KHÔNG được chặn
+		đơn trực tiếp của quản lý (khác nhân viên GỬI DUYỆT, nơi guard cấp
+		tài khoản đã bắt buộc mã ngắn từ trước). Phiếu vẫn tạo, `ma_de_xuat`
+		để rỗng — mã tra cứu là tiện ích đối chiếu, không phải điều kiện
+		đúng đắn của một đơn hàng, không bao giờ được chặn một bệnh viện
+		mua hàng."""
+		frappe.db.set_value("Customer", self.kh_a, "custom_ma_ngan", "")
+		frappe.set_user(self.user_quan_ly)
+		kq = self._dat()
+		self.assertTrue(kq["sales_order"])
+		phieu = frappe.get_doc("Portal De Xuat Mua", kq["de_xuat"])
+		self.assertFalse(phieu.ma_de_xuat)
+		self.assertEqual(phieu.trang_thai, "Đã duyệt")
+
+	# ---- portal_order_place — nhân viên khoa bị chặn hẳn (§5.5) --------
+
+	def test_nhan_vien_khoa_goi_thang_portal_order_place_bi_tu_choi_ro_rang(self):
+		"""§5.5 câu cuối — không phải lỗi 500 khó hiểu."""
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._dat()
+		self.assertIn("gửi duyệt", str(ctx.exception))

@@ -22,9 +22,15 @@ ITEMS = [
     },
 ]
 
+# `ma_ngan` — Task 7 (vòng sửa 19/08/2026): `ma_de_xuat.sinh_ma()` cần
+# `Customer.custom_ma_ngan` để sinh mã đề xuất; thiếu nó không còn CHẶN đơn
+# trực tiếp của quản lý (QĐ điều phối viên, xem `api/portal.py::
+# portal_order_place`), nhưng khách demo vẫn nên MANG mã ngắn cho giống thật
+# — nếu không, mọi phiếu tự duyệt sinh ra từ suite demo sẽ luôn có
+# `ma_de_xuat` rỗng, che mất đúng nhánh "có mã" mà phần lớn khách thật sẽ đi.
 CUSTOMERS = [
-    {"name": "Bệnh viện Bạch Mai", "email": "bvbm@demo.miyano"},
-    {"name": "PXN ABC", "email": "pxnabc@demo.miyano"},
+    {"name": "Bệnh viện Bạch Mai", "email": "bvbm@demo.miyano", "ma_ngan": "BVBM"},
+    {"name": "PXN ABC", "email": "pxnabc@demo.miyano", "ma_ngan": "PXNABC"},
 ]
 
 # Blanket Order (Selling) is seeded for the first customer only.
@@ -139,7 +145,7 @@ def _ensure_items():
     return item_codes
 
 
-def _ensure_customer(cust):
+def _ensure_customer(cust, ma_ngan=None):
     if not frappe.db.exists("Customer", cust):
         frappe.get_doc(
             {
@@ -151,6 +157,8 @@ def _ensure_customer(cust):
                 "default_price_list": PRICE_LIST,
             }
         ).insert(ignore_permissions=True)
+    if ma_ngan:
+        frappe.db.set_value("Customer", cust, "custom_ma_ngan", ma_ngan)
     return cust
 
 
@@ -309,7 +317,7 @@ def seed_demo() -> dict:
     customers = []
     users = []
     for c in CUSTOMERS:
-        cust = _ensure_customer(c["name"])
+        cust = _ensure_customer(c["name"], c.get("ma_ngan"))
         customers.append(cust)
         _ensure_address(cust)
         users.append(_ensure_portal_user(cust, c["email"]))

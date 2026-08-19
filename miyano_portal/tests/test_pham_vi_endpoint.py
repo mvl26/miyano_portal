@@ -70,10 +70,15 @@ MIEN_PHAM_VI: dict[str, str] = {
 	"portal_catalog": "danh mục hàng theo hợp đồng — cấp bệnh viện",
 	"portal_catalog_ban_le": "danh mục hàng bán lẻ — cấp bệnh viện",
 	"portal_order_place": (
-		"đường GHI; phạm vi do dat_hang.tao_sales_order chốt, suy khoa TỪ "
-		"PHIÊN qua get_portal_member() ngay tại portal_order_place — Vòng "
-		"sửa 1 (C1): trước đây hàm này KHÔNG hề truyền khoa_phong xuống, "
-		"nên MỌI đơn đặt qua cổng có custom_khoa_phong = NULL."
+		"đường GHI; phạm vi ĐỌC (pham_vi_don/dam_bao_xem_duoc) không áp lên "
+		"đường ghi này — Task 7 (§5.5): khoa đóng dấu lên đơn đi qua "
+		"portal_context.khoa_phong_cho_don(), phép kiểm khoa ↔ NGƯỜI GỌI "
+		"(khác dat_hang.tao_sales_order, chỉ kiểm khoa ↔ KHÁCH HÀNG). Nhân "
+		"viên khoa gọi thẳng endpoint này bị TỪ CHỐI hẳn (phải đi "
+		"de_xuat_gui_duyet → quản lý duyệt); quản lý ĐƯỢC chọn khoa qua "
+		"tham số khoa_phong nhưng khoa_phong_cho_don() đã tự kiểm khoa đó "
+		"thuộc đúng bệnh viện của họ và đang active — không phải một lỗ hở "
+		"phạm vi bị bỏ sót."
 	),
 	"portal_provision": "chỉ nhân viên Miyano gọi, không phải endpoint của khách",
 }

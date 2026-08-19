@@ -112,6 +112,46 @@ def pham_vi_don(user: str | None = None) -> dict:
     return {"custom_khoa_phong": khoa_phong}
 
 
+def khoa_phong_cho_don(khoa_phong_client: str | None = None, user: str | None = None) -> str | None:
+    """Khoa phòng được phép đóng dấu lên đơn/phiếu của phiên hiện tại (bước 7,
+    §5.5).
+
+    Đây là phép kiểm khoa ↔ NGƯỜI GỌI — thứ mà `dat_hang.tao_sales_order`
+    (kiểm khoa ↔ KHÁCH HÀNG, qua tham số `customer` khi tra `Blanket
+    Order`/`Customer Department`) và `portal_order_place` bản trước Task 7
+    (suy khoa THẲNG từ `Portal Member.khoa_phong` của phiên, không kiểm gì
+    thêm) đều KHÔNG làm: không đâu trong hai chỗ đó hỏi "người đang gọi có
+    được phép đóng dấu ĐÚNG khoa này không".
+
+    - Nhân viên khoa: BỎ QUA HOÀN TOÀN `khoa_phong_client` — luôn trả khoa
+      của chính họ (`Portal Member.khoa_phong`). Nhận giá trị từ client ở
+      đây sẽ cho nhân viên khoa A tự đóng dấu đơn thành khoa B, đúng lỗ mà
+      C1 (bình luận cũ ở `portal_order_place`) từng chặn — chặn tiếp tục ở
+      ĐÂY, chỉ đổi chỗ đứng.
+    - Quản lý: được CHỌN, vì họ nhìn xuyên mọi khoa (`la_quan_ly()`). Nhưng
+      khoa chọn vẫn phải THUỘC bệnh viện của họ (`Customer Department.
+      customer == Portal Member.customer`) và đang `active` — một khoa đã
+      giải thể/sáp nhập hoặc của bệnh viện khác không được phép nhận đơn
+      mới, cùng lý do `pham_vi_don()`/`dat_hang.tao_sales_order` đã kiểm
+      `active` ở các đường khác. `khoa_phong_client` rỗng/`None` = "Toàn
+      viện" (§5.5), hợp lệ — không phải lỗi.
+    """
+    tv = get_portal_member(user)
+    if tv.vai_tro != QUAN_LY:
+        return tv.khoa_phong
+    if not khoa_phong_client:
+        return None
+    kp = frappe.db.get_value(
+        "Customer Department", khoa_phong_client, ["customer", "active"], as_dict=True
+    )
+    if not kp or kp.customer != tv.customer or not kp.active:
+        raise frappe.PermissionError(
+            f'Khoa phòng "{khoa_phong_client}" không thuộc đơn vị của bạn '
+            "hoặc đã ngừng hoạt động."
+        )
+    return khoa_phong_client
+
+
 # VÒNG SỬA 2 (C3 — CRITICAL), CHUYỂN VÀO ĐÂY Ở VÒNG SỬA 3 (V2, Important).
 # Cache CẤP TIẾN TRÌNH — không phải `None` nghĩa là "chưa biết", `True`/
 # `False` là kết quả đã kiểm. Nhớ Ở ĐÂY (không hỏi lại `information_schema`/

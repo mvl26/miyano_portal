@@ -387,45 +387,72 @@ class TestNhanhSalesInvoiceCachLy(_NenCachLy):
 
 
 class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
-	"""C1 (review vòng sửa 1, CRITICAL) — `portal_order_place` (đường ĐẶT HÀNG
-	THẬT của khách trên cổng) phải tự suy `khoa_phong` từ `Portal Member` của
-	PHIÊN đăng nhập, KHÔNG nhận từ client. Trước bản vá này, mọi đơn đặt qua
-	cổng có `custom_khoa_phong = NULL` — nhân viên khoa đặt xong đơn thì
-	CHÍNH HỌ không mở lại được đơn vừa đặt (class `TestDonCuKhongGanKhoa` ở
-	trên hoá ra đang mô tả đúng trạng thái production thật, không phải một
-	ca biên)."""
+	"""C1 (review vòng sửa 1, CRITICAL), VIẾT LẠI cho Task 7 (§5.5, phê chuẩn
+	điều phối viên 19/08/2026 — "Blocker 1" trong `task-7-report.md`).
 
-	def _dat_qua_cong(self, request_id=None):
+	Bản GỐC của lớp này (bước 1-4, TRƯỚC khi có luồng duyệt đề xuất) mã hoá
+	đúng MỘT bất biến: "`portal_order_place` tự suy `khoa_phong` từ `Portal
+	Member` của phiên, KHÔNG nhận từ client" — và cho NHÂN VIÊN KHOA đặt
+	hàng TRỰC TIẾP qua endpoint này. §5.5 đổi có chủ đích: từ Task 7, nhân
+	viên khoa KHÔNG còn đặt hàng trực tiếp qua `portal_order_place` nữa (họ
+	đi qua `de_xuat_gui_duyet` → quản lý duyệt) — gọi thẳng bị TỪ CHỐI kèm
+	thông báo rõ, không phải lỗi khó hiểu. Nếu không chặn, nhân viên gọi
+	thẳng API sẽ vượt mặt toàn bộ cổng duyệt vừa dựng, biến tính năng đó
+	thành trang trí.
+
+	Ý ĐỊNH GỐC ("khoa suy từ server, không nhận từ client") KHÔNG mất đi —
+	nó chuyển sang kiểm THẲNG `portal_context.khoa_phong_cho_don()` (xem
+	`test_de_xuat_duyet.py::TestQuanLyDatTrucTiepTuDuyet.
+	test_nhan_vien_khoa_gui_khoa_khac_van_bi_ep_ve_khoa_minh`), vì hàm ĐÓ —
+	không còn `portal_order_place` cho nhân viên khoa nữa — mới là chỗ bất
+	biến đó còn đo được.
+
+	Quản lý (`self.ql`) KHÔNG bị chặn — họ vẫn đặt trực tiếp mỗi ngày (sáu
+	tài khoản thật đang chạy đều là quản lý); `test_quan_ly_dat_don_thi_
+	khoa_phong_de_trong` giữ NGUYÊN không đổi."""
+
+	def _dat_qua_cong(self, request_id=None, khoa_phong=None):
 		return portal_api.portal_order_place(
 			mode="ban_le",
 			items=[{"item_code": ITEM, "qty": 1}],
 			request_id=request_id or frappe.generate_hash(length=20),
+			khoa_phong=khoa_phong,
 		)
 
-	def test_nhan_vien_khoa_dat_don_thi_don_mang_dung_khoa_cua_ho(self):
+	def test_nhan_vien_khoa_goi_thang_bi_tu_choi_ro_rang(self):
+		"""Task 7, §5.5 câu cuối — thay cho
+		`test_nhan_vien_khoa_dat_don_thi_don_mang_dung_khoa_cua_ho` (bản gốc
+		kỳ vọng THÀNH CÔNG, nay ĐỐI LẬP với hành vi mới)."""
 		frappe.set_user(self.nv_a.user)
-		kq = self._dat_qua_cong()
-		self.assertEqual(
-			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_khoa_phong"),
-			self.kp_a.name,
-		)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._dat_qua_cong()
+		self.assertIn("gửi duyệt", str(ctx.exception))
 
-	def test_nhan_vien_khoa_dat_don_thi_chinh_ho_mo_lai_duoc(self):
-		"""Ca mà cả bộ test trước vòng sửa này đang THIẾU."""
+	def test_nhan_vien_khoa_bi_chan_khong_tao_don_rac(self):
+		"""Task 7 — thay cho `test_nhan_vien_khoa_dat_don_thi_chinh_ho_mo_
+		lai_duoc` (bản gốc không còn nghĩa: không có đơn nào được tạo để mà
+		"mở lại"). Phép chặn phải xảy ra TRƯỚC khi chạm `dat_hang.
+		tao_sales_order`, không phải chặn sau khi đơn đã lỡ tạo."""
 		frappe.set_user(self.nv_a.user)
-		kq = self._dat_qua_cong()
-		self.assertEqual(
-			portal_api.portal_order_track(kq["sales_order"])["order"], kq["sales_order"]
-		)
+		truoc = frappe.db.count("Sales Order", {"customer": KHACH})
+		with self.assertRaises(frappe.ValidationError):
+			self._dat_qua_cong()
+		sau = frappe.db.count("Sales Order", {"customer": KHACH})
+		self.assertEqual(sau, truoc)
 
 	def test_khoa_khac_van_khong_thay_don_vua_dat(self):
-		frappe.set_user(self.nv_a.user)
-		kq = self._dat_qua_cong()
+		"""Task 7 — ý định cách ly GIỮ NGUYÊN, nhưng đơn của khoa A giờ do
+		QUẢN LÝ đặt hộ qua `khoa_phong` mới ở giỏ hàng (§5.5), vì nhân viên
+		khoa A không còn tự đặt trực tiếp được (xem test phía trên)."""
+		frappe.set_user(self.ql.user)
+		kq = self._dat_qua_cong(khoa_phong=self.kp_a.name)
 		frappe.set_user(self.nv_b.user)
 		with self.assertRaises(frappe.PermissionError):
 			portal_api.portal_order_track(kq["sales_order"])
 
 	def test_quan_ly_dat_don_thi_khoa_phong_de_trong(self):
+		"""Không đổi — quản lý không truyền `khoa_phong` vẫn ra đơn Toàn
+		viện, y hệt trước Task 7."""
 		frappe.set_user(self.ql.user)
 		kq = self._dat_qua_cong()
 		self.assertFalse(
@@ -433,12 +460,23 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 		)
 
 	def test_khoa_da_tat_khong_dong_dau_duoc(self):
-		"""Minor kèm C1 (review vòng sửa 1) — `dat_hang.tao_sales_order`
-		phải kiểm CẢ `Customer Department.active`, không chỉ `customer`."""
+		"""Task 7 — thay cho bản gốc (nhân viên khoa gọi `portal_order_place`
+		với khoa đã tắt): giờ nhân viên khoa bị chặn TRƯỚC khi bất kỳ kiểm
+		tra active nào chạy tới, kể cả khi khoa của họ đã tắt — thông báo
+		VẪN phải là lời mời gửi duyệt, không lộ chi tiết "khoa đã tắt" mà
+		chính nhân viên khoa không có quyền tự sửa.
+
+		Phép kiểm active gốc (`dat_hang.tao_sales_order` kiểm CẢ
+		`Customer Department.active`, không chỉ `customer`) không mất đi —
+		nó vẫn đứng cho quản lý (qua `khoa_phong_cho_don()`) và cho đường
+		duyệt đề xuất (`duyet_va_tao_don`); xem
+		`test_quan_ly_khong_chon_duoc_khoa_benh_vien_khac_qua_khoa_phong_
+		cho_don` ở `test_de_xuat_duyet.py` cho vế quản lý."""
 		frappe.db.set_value("Customer Department", self.kp_a.name, "active", 0)
 		frappe.set_user(self.nv_a.user)
-		with self.assertRaises(frappe.PermissionError):
+		with self.assertRaises(frappe.ValidationError) as ctx:
 			self._dat_qua_cong()
+		self.assertIn("gửi duyệt", str(ctx.exception))
 
 
 class TestCacEndpointDonKhacApDungPhamVi(_NenCachLy):
