@@ -769,6 +769,12 @@ has_permission = {
 1. Thêm `from miyano_portal.api import de_xuat as de_xuat_api` vào `test_pham_vi_endpoint.py` và đưa module mới vào phép liệt kê. **Module mới không tự động bị đếm** — quên bước này thì test đếm ngược vẫn xanh trong khi 6 endpoint không ai canh.
 2. Cả 6 tên vào `DA_AP_PHAM_VI`. Không cái nào vào `MIEN_PHAM_VI`.
 
+**BỐI CẢNH ĐỔI SAU TASK 4 — đọc trước.** Role `Customer` có **zero DocPerm** trên doctype này (đã kiểm `tabDocPerm` 19/08; bốn doctype cổng đang chạy thật đều vậy — quy ước của app). Hệ quả:
+- `frappe.get_list` / `doc.check_permission()` **ném PermissionError cho mọi Website User** trước khi hook kịp chạy — không dùng được trong endpoint.
+- `GET /api/resource/Portal De Xuat Mua` trả **403** cho khách, tức **kín hơn** chứ không hở. Đây KHÁC hẳn sự cố `Sales Order` đợt trước: doctype đó CÓ DocPerm cho `Customer` nên endpoint-only mới rò.
+- Hook Task 4 là **lớp phòng thủ thứ hai**, sống lại nếu DocPerm bị cấp. Vẫn có giá trị, chỉ không phải đường sống hôm nay.
+- **Đường sống là tầng endpoint này**, nên test task này phải chứng minh phạm vi **qua chính endpoint**, đủ cả vế âm lẫn vế dương.
+
 **Chốt phân quyền của mỗi endpoint:**
 - `customer` và `khoa_phong` **suy từ `get_portal_member()` của phiên**, không nhận từ client — cùng luật C1 của `portal_order_place`.
 - `de_xuat_xoa_nhap`: chỉ `owner` của phiếu hoặc quản lý (§5.4b).
@@ -830,14 +836,27 @@ DOCTYPE = "Portal De Xuat Mua"
 
 
 def _phieu_cua_toi(ten: str, *, cho_quan_ly=False):
-	"""Lấy phiếu sau khi đã kiểm quyền. Trả `Document`.
+	"""Lay phieu sau khi da kiem quyen. Tra `Document`.
 
-	`check_permission` đi qua hook `has_permission` của Task 4 — đó là chỗ
-	DUY NHẤT quyết định phạm vi, không kiểm lại bằng tay ở đây (hai phép
-	kiểm song song sớm muộn cũng lệch nhau).
+	SUA SAU TASK 4 — `doc.check_permission("read")` KHONG dung duoc o day.
+	Role `Customer` co ZERO DocPerm tren doctype nay (da kiem `tabDocPerm`
+	19/08: ca `Portal Item Request`, `Portal Delivery Inspection`,
+	`Customer Department`, `Portal De Xuat Mua` deu vay — quy uoc cua app,
+	khong phai thieu sot). `check_permission` nem PermissionError cho MOI
+	Website User truoc khi hook `has_permission` co co hoi chay.
+
+	Nen duong song cua cong la DAY, va no phai hoi DUNG chot pham vi ma
+	tang hook hoi — `pham_vi_don()` — chu khong tu che bo loc rieng.
 	"""
 	doc = frappe.get_doc(DOCTYPE, ten)
-	doc.check_permission("read")
+	tv = get_portal_member()
+	if doc.customer != tv.customer:
+		# Khong xac nhan ca su ton tai cua phieu thuoc khach khac.
+		raise frappe.PermissionError("Phieu nay khong thuoc don vi cua ban.")
+	pv = pham_vi_don()
+	khoa_gioi_han = pv.get("custom_khoa_phong")
+	if khoa_gioi_han and doc.khoa_phong != khoa_gioi_han:
+		raise frappe.PermissionError("Phieu nay khong thuoc khoa phong cua ban.")
 	if not cho_quan_ly and doc.owner != frappe.session.user and not la_quan_ly():
 		raise frappe.PermissionError("Phiếu này không phải của bạn.")
 	return doc
@@ -897,12 +916,26 @@ def de_xuat_gui_duyet(ten) -> dict:
 
 @frappe.whitelist()
 def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
-	"""Phạm vi do hook Task 4 lo — `frappe.get_list` đã đi qua
-	`permission_query_conditions`. KHÔNG tự thêm bộ lọc khoa ở đây."""
-	loc = {}
+	"""SUA SAU TASK 4 — KHONG dung `frappe.get_list` tran duoc.
+
+	Role `Customer` co ZERO DocPerm tren doctype nay, nen `get_list` nem
+	PermissionError TRUOC khi `permission_query_conditions` kip chay. Hook
+	cua Task 4 la LOP PHONG THU THU HAI — no se co hieu luc neu DocPerm bi
+	cap lai, va no chan `GET /api/resource/...`; nhung hom nay duong do da
+	tra 403 cho moi Website User, tuc KIN HON chu khong ho.
+
+	Duong song la day. Phai ap CA HAI bo loc, va lay chung tu dung chot ma
+	tang hook dung — `get_portal_member()` cho khach, `pham_vi_don()` cho
+	khoa. Tu che bo loc rieng o day la dung nguon su that thu hai.
+	"""
+	tv = get_portal_member()
+	loc = {"customer": tv.customer}
+	pv = pham_vi_don()
+	if pv.get("custom_khoa_phong"):
+		loc["khoa_phong"] = pv["custom_khoa_phong"]
 	if trang_thai:
 		loc["trang_thai"] = trang_thai
-	return frappe.get_list(
+	return frappe.get_all(
 		DOCTYPE, filters=loc,
 		fields=["name", "ma_de_xuat", "khoa_phong", "trang_thai",
 		        "thoi_diem_gui", "owner"],
