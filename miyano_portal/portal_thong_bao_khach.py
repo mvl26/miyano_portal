@@ -29,9 +29,14 @@ Brief 2026-08-15 (trang thông báo) — hai việc:
 
 import frappe
 
+from miyano_portal.portal_context import QUAN_LY
+
 TIEN_TO_DA_NHAP_HANG = "Portal - Đã nhập hàng"
 TIEN_TO_KIEM_HANG = "Portal - Kiểm hàng"
 TIEN_TO_HEN_GIAO = "Portal - Hẹn lịch giao"
+TIEN_TO_DE_XUAT_GUI_DUYET = "Portal - Đề xuất gửi duyệt"
+TIEN_TO_DE_XUAT_DA_DUYET = "Portal - Đề xuất đã duyệt"
+TIEN_TO_DE_XUAT_TU_CHOI = "Portal - Đề xuất bị từ chối"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
@@ -71,6 +76,182 @@ def _portal_users_cua_khach(customer: str) -> list[str]:
     )
 
 
+def _portal_users_theo_khoa(customer: str, khoa_phong: str | None) -> list[str]:
+    """Task 8 (§5.8) — biến thể CÓ LỌC KHOA của `_portal_users_cua_khach`
+    ngay trên: thay vì trả TOÀN BỘ thành viên active của khách hàng, hàm
+    này trả đúng người CẦN biết một sự kiện gắn với một khoa cụ thể — Quản
+    lý (LUÔN nhận, mọi khoa — bảng §5.8 cấp cho Quản lý ở CẢ BA việc) CỘNG
+    thành viên active của ĐÚNG `khoa_phong` được truyền vào.
+
+    `khoa_phong` rỗng/`None` → CHỈ Quản lý. Hai ngữ cảnh gọi khác nhau đều
+    rơi vào nhánh này và CỐ Ý dùng chung, không phải hai trường hợp trùng
+    hợp:
+      1. Đơn/phiếu "Toàn viện" không đứng tên khoa nào — không có "thành
+         viên khoa" nào để thêm.
+      2. Sự kiện "khoa gửi đề xuất" (`bao_de_xuat_gui_duyet`) CHỦ ĐỘNG
+         truyền `None` dù phiếu CÓ khoa — bảng §5.8 hàng 1 chỉ muốn báo
+         Quản lý ở bước đó, không báo lại cho chính khoa/đồng nghiệp vừa
+         gửi.
+
+    Lọc `vai_tro`/`khoa_phong` trên `Portal Member` TRỰC TIẾP bằng
+    `frappe.get_all`, KHÔNG qua `la_quan_ly()`/`get_portal_member()` — hai
+    hàm đó đọc PHIÊN ĐĂNG NHẬP hiện tại (`frappe.session.user`), còn ở đây
+    cần liệt kê NHIỀU thành viên của một khách hàng, không phải hỏi "người
+    đang gọi là ai".
+
+    Chỉ trả User còn `enabled` — cùng lý do `_portal_users_cua_khach`.
+    """
+    quan_ly = frappe.get_all(
+        "Portal Member",
+        filters={"customer": customer, "vai_tro": QUAN_LY, "active": 1},
+        pluck="user",
+    )
+    thanh_vien_khoa = []
+    if khoa_phong:
+        thanh_vien_khoa = frappe.get_all(
+            "Portal Member",
+            filters={"customer": customer, "khoa_phong": khoa_phong, "active": 1},
+            pluck="user",
+        )
+    gop = set(quan_ly) | set(thanh_vien_khoa)
+    if not gop:
+        return []
+    return frappe.get_all(
+        "User", filters={"name": ["in", gop], "enabled": 1}, pluck="name"
+    )
+
+
+def _ghi_thong_bao_de_xuat(doc, nguoi_nhan: list[str], chu_de: str, noi_dung: str) -> int:
+    """Phần THÂN dùng chung của ba hàm `bao_de_xuat_*` dưới — chỉ khác nhau
+    ở người nhận/chủ đề/nội dung, không phải ở cách ghi `Notification Log`."""
+    dem = 0
+    for u in nguoi_nhan:
+        frappe.get_doc({
+            "doctype": "Notification Log",
+            "subject": chu_de,
+            "for_user": u,
+            "type": "Alert",
+            "document_type": "Portal De Xuat Mua",
+            "document_name": doc.name,
+            "email_content": noi_dung,
+        }).insert(ignore_permissions=True)
+        dem += 1
+    return dem
+
+
+def bao_de_xuat_gui_duyet(doc) -> int:
+    """§5.8 hàng 1 — khoa gửi phiếu đề xuất lên → CHỈ Quản lý cần biết để
+    duyệt (không báo lại cho chính khoa vừa gửi, kể cả đồng nghiệp cùng
+    khoa với người lập). `khoa_phong=None` truyền cho `_portal_users_theo_
+    khoa` đúng nghĩa "chỉ Quản lý" đã định nghĩa Ở ĐÓ.
+
+    KHÔNG chống trùng bằng `frappe.db.exists` như `bao_da_nhap_hang`/
+    `bao_kiem_hang_ket_qua`/`bao_hen_giao_lai` ngay dưới — những hàm đó
+    đứng sau các HOOK có thể CHẠY LẠI (on_submit lặp lại do amend/retry).
+    Hàm này được gọi từ BÊN TRONG `PortalDeXuatMua.gui_duyet()`, một
+    CHUYỂN TRẠNG THÁI được `_kiem_chuyen()` bảo vệ: gọi `gui_duyet()` lần
+    thứ hai NGAY TỪ trạng thái "Chờ duyệt" ném lỗi TRƯỚC KHI notify chạy
+    (`CHUYEN_HOP_LE` không có cạnh Chờ duyệt → Chờ duyệt) — không có đường
+    nào gọi hàm này hai lần cho CÙNG một lần gửi thật. (Phiếu bị Từ chối
+    rồi gửi lại HỢP LỆ đi qua `gui_duyet()` lần thứ hai — đó là một sự kiện
+    THẬT khác, Quản lý CẦN được báo lại, không phải trùng lặp cần chặn.)
+
+    Không bao giờ ném lỗi — gọi ngay sau `self.save()` trong `gui_duyet()`;
+    một lỗi ở đây không được cuốn theo cả transaction, mất luôn trạng thái
+    "Chờ duyệt" vừa ghi thành công."""
+    try:
+        nguoi_nhan = _portal_users_theo_khoa(doc.customer, None)
+        if not nguoi_nhan:
+            return 0
+        chu_de = f"{TIEN_TO_DE_XUAT_GUI_DUYET}: {doc.ma_de_xuat or doc.name}"
+        noi_dung = (
+            f"Khoa vừa gửi đề xuất mua <b>{doc.ma_de_xuat or doc.name}</b> "
+            "chờ bạn duyệt."
+        )
+        return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Đề xuất mua: lỗi khi báo quản lý phiếu chờ duyệt",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal De Xuat Mua",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0
+
+
+def bao_de_xuat_duyet(doc) -> int:
+    """§5.8 hàng 2 — Quản lý duyệt phiếu → Quản lý (LUÔN, kể cả khi CHÍNH
+    họ vừa bấm duyệt — bảng §5.8 không loại trừ) + thành viên khác của khoa
+    đứng tên phiếu (`doc.khoa_phong`, rỗng với phiếu "Toàn viện" → cùng
+    nhánh "chỉ Quản lý" của `_portal_users_theo_khoa`).
+
+    KHÔNG chống trùng — cùng lý do `bao_de_xuat_gui_duyet`: `.duyet()` là
+    một chuyển trạng thái được `_kiem_chuyen()` bảo vệ, không tự gọi lại
+    hai lần cho một lần bấm thật. (Giới hạn ĐÃ BIẾT: `test_de_xuat_duyet.
+    py::test_bam_duyet_hai_lan_khong_tao_hai_don` cố tình bỏ qua bảo vệ đó
+    bằng `db_update()` thô để mô phỏng bấm-lại-khi-UI-chưa-refresh — hàm
+    này SẼ gửi hai thông báo trong đúng kịch bản nhân tạo đó. Không xây cơ
+    chế chống trùng chỉ để đỡ một kịch bản test tự dựng, không phải luồng
+    người dùng thật.)
+
+    Không bao giờ ném lỗi — gọi ngay sau `self.save()` trong `duyet()`."""
+    try:
+        nguoi_nhan = _portal_users_theo_khoa(doc.customer, doc.khoa_phong)
+        if not nguoi_nhan:
+            return 0
+        chu_de = f"{TIEN_TO_DE_XUAT_DA_DUYET}: {doc.ma_de_xuat or doc.name}"
+        noi_dung = f"Đề xuất mua <b>{doc.ma_de_xuat or doc.name}</b> đã được duyệt."
+        return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Đề xuất mua: lỗi khi báo kết quả duyệt",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal De Xuat Mua",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0
+
+
+def bao_de_xuat_tu_choi(doc) -> int:
+    """§5.8 hàng 2 — cùng bảng người nhận với `bao_de_xuat_duyet` (Quản lý
+    luôn + thành viên khác của khoa đứng tên phiếu), khác ở chủ đề/nội dung
+    (kèm lý do từ chối).
+
+    KHÔNG chống trùng — cùng lý do hai hàm trên: `.tu_choi()` cũng được
+    `_kiem_chuyen()` bảo vệ (gọi lại NGAY từ trạng thái "Từ chối" ném lỗi
+    trước khi tới đây); một phiếu bị từ chối, gửi lại, rồi từ chối LẦN NỮA
+    là một sự kiện thật khác, không phải trùng lặp.
+
+    Không bao giờ ném lỗi — gọi ngay sau `self.save()` trong `tu_choi()`."""
+    try:
+        nguoi_nhan = _portal_users_theo_khoa(doc.customer, doc.khoa_phong)
+        if not nguoi_nhan:
+            return 0
+        chu_de = f"{TIEN_TO_DE_XUAT_TU_CHOI}: {doc.ma_de_xuat or doc.name}"
+        noi_dung = (
+            f"Đề xuất mua <b>{doc.ma_de_xuat or doc.name}</b> đã bị từ chối.<br>"
+            f"Lý do: {frappe.utils.escape_html(doc.ly_do_tu_choi or '')}"
+        )
+        return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
+    except Exception:
+        try:
+            frappe.log_error(
+                title="Đề xuất mua: lỗi khi báo kết quả từ chối",
+                message=frappe.get_traceback(with_context=True),
+                reference_doctype="Portal De Xuat Mua",
+                reference_name=doc.name,
+            )
+        except Exception:
+            pass
+        return 0
+
+
 def _log_khong_co_tai_khoan_cong(customer: str, phieu: str) -> None:
     """Khách có `Customer Warehouse` (tức là khách ĐÃ dùng tính năng kho
     cổng) nhưng KHÔNG có tài khoản cổng nào tra được — không phải lỗi
@@ -101,7 +282,9 @@ def _log_khong_co_tai_khoan_cong(customer: str, phieu: str) -> None:
         pass
 
 
-def bao_da_nhap_hang(customer: str, phieu: str, delivery_note: str) -> int:
+def bao_da_nhap_hang(
+    customer: str, phieu: str, delivery_note: str, khoa_phong: str | None = None
+) -> int:
     """§4.6/brief 2026-08-15 — Miyano giao hàng, `kho/delivery_hook.py` sinh
     phiếu nhập nháp; khách cần biết để vào đối chiếu. Trả số Notification Log
     vừa tạo.
@@ -114,9 +297,26 @@ def bao_da_nhap_hang(customer: str, phieu: str, delivery_note: str) -> int:
     Không bao giờ ném lỗi: người gọi (`delivery_hook._chay_an_toan`, lệnh gọi
     RIÊNG với savepoint riêng — xem QĐ nền 4) đã tự bọc, nhưng hàm này tự
     chịu trách nhiệm không ném lỗi cho đúng thiết kế của cả cụm thông báo.
+
+    THAM SỐ MỚI (Task 8, §5.8) — `khoa_phong`: người gọi
+    (`delivery_hook._bao_da_nhap_hang`, qua `_khoa_phong_dau_tien(dn)`) tự
+    tra khoa của Sales Order ĐẦU TIÊN đứng sau Delivery Note rồi truyền
+    vào — hàm NÀY KHÔNG tự suy khoa (tránh dựng cơ chế suy khoa THỨ HAI
+    trong module thông báo, spec §11 mục 5; `delivery_hook.py` đã có sẵn
+    `_sales_order_dau_tien()` cho `so_dot`, tái dùng đúng hàm đó).
+
+    Mặc định `None` — TƯƠNG THÍCH NGƯỢC với mọi lời gọi/test cũ không biết
+    tới tham số này — giữ NGUYÊN hành vi CŨ, báo cho TOÀN BỘ tài khoản cổng
+    của khách (`_portal_users_cua_khach`). Đây cũng là hành vi khi
+    `delivery_hook` KHÔNG xác định được khoa (DN bán lẻ không qua Sales
+    Order, hoặc SO "Toàn viện" không mang khoa) — CỐ Ý báo THỪA người còn
+    hơn thu hẹp nhầm về 0 người khi không chắc.
     """
     try:
-        nguoi_nhan = _portal_users_cua_khach(customer)
+        if khoa_phong:
+            nguoi_nhan = _portal_users_theo_khoa(customer, khoa_phong)
+        else:
+            nguoi_nhan = _portal_users_cua_khach(customer)
         if not nguoi_nhan:
             _log_khong_co_tai_khoan_cong(customer, phieu)
             return 0
@@ -269,9 +469,16 @@ def bao_hen_giao_lai(so, loai: str, ngay_moi, ly_do: str) -> int:
     thể bị hẹn lại nhiều lần (hàng vẫn chưa về), và mỗi lần hẹn là một tin
     khách CẦN biết. Chặn theo mình tên đơn sẽ nuốt mọi lần hẹn từ lần thứ hai
     — đúng loại im lặng tệ nhất ở đây, vì khách đang chờ chính con số đó.
+
+    Task 8 (§5.8) — người nhận thu hẹp về Quản lý + thành viên của khoa
+    ĐỨNG TÊN ĐƠN (`so.custom_khoa_phong`, đã có sẵn trên chính `so` — không
+    cần tra thêm), thay vì TOÀN BỘ tài khoản của khách như trước 19/08:
+    khoa Dược không còn nhận thông báo hẹn giao của khoa Huyết học. `so`
+    rỗng `custom_khoa_phong` (đơn "Toàn viện") → `_portal_users_theo_khoa`
+    tự rơi về nhánh "chỉ Quản lý".
     """
     try:
-        nguoi_nhan = _portal_users_cua_khach(so.customer)
+        nguoi_nhan = _portal_users_theo_khoa(so.customer, so.get("custom_khoa_phong"))
         if not nguoi_nhan:
             _log_khong_co_tai_khoan_cong(so.customer, so.name)
             return 0

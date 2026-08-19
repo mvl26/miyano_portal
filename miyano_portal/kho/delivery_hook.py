@@ -231,6 +231,10 @@ def _bao_da_nhap_hang(dn) -> None:
 
 	KHÔNG gửi khi không có phiếu (hàng trả về Miyano, khách chưa mở kho, đã
 	có phiếu từ trước) — cùng các nhánh im lặng của `_tu_delivery_note`.
+
+	Task 8 (§5.8) — truyền thêm khoa phòng của SO ĐẦU TIÊN đứng sau DN
+	(`_khoa_phong_dau_tien`) để `bao_da_nhap_hang` thu hẹp người nhận về
+	đúng khoa, thay vì báo cho TOÀN BỘ tài khoản của khách hàng.
 	"""
 	if dn.get("is_return"):
 		return
@@ -240,7 +244,7 @@ def _bao_da_nhap_hang(dn) -> None:
 	phieu = _phieu_dang_song(dn.name)
 	if not phieu:
 		return
-	bao_da_nhap_hang(dn.customer, phieu, dn.name)
+	bao_da_nhap_hang(dn.customer, phieu, dn.name, khoa_phong=_khoa_phong_dau_tien(dn))
 
 
 # --------------------------------------------------------------------- on_cancel
@@ -313,6 +317,32 @@ def _sales_order_cua(dn) -> str | None:
 		return None
 	gop = ", ".join(ds)
 	return gop if len(gop) <= _MAX_DATA else ds[0][:_MAX_DATA]
+
+
+def _khoa_phong_dau_tien(dn) -> str | None:
+	"""Khoa phòng của SO ĐẦU TIÊN mà DN này giao cho (Task 8, §5.8) — tái
+	dùng ĐÚNG `_sales_order_dau_tien()` đã có cho `so_dot` ngay dưới, không
+	dựng một cơ chế suy Sales Order thứ hai chỉ để phục vụ thông báo (spec
+	§11 mục 5).
+
+	Dùng để thu hẹp người nhận thông báo "đã nhập hàng" về đúng khoa, thay
+	vì báo cho MỌI tài khoản của khách hàng (Task 8 fix — hôm nay, với một
+	khách nhiều tài khoản, khoa Dược nhận thông báo về hàng của khoa Huyết
+	học mỗi ngày).
+
+	Trả `None` khi DN không qua Sales Order nào (bán lẻ) — nơi gọi
+	(`bao_da_nhap_hang`) hiểu `None` là "không xác định được khoa" và tự rơi
+	về hành vi CŨ (báo TOÀN BỘ tài khoản của khách), AN TOÀN HƠN so với thu
+	hẹp nhầm về 0 người. Cùng lý do, một SO "Toàn viện" (không mang khoa)
+	đứng sau DN cũng cho ra `None` ở đây — hai nguyên nhân khác nhau gộp
+	chung MỘT giá trị `None`, chấp nhận được vì cả hai đều nên rơi về nhánh
+	an toàn "báo thừa còn hơn báo thiếu", không phải nhánh "chỉ Quản lý"
+	của `_portal_users_theo_khoa` (đó là ĐÚNG nghĩa CHO SỰ KIỆN "gửi đề
+	xuất", KHÔNG phải nghĩa "không xác định được" của hàm này)."""
+	so = _sales_order_dau_tien(dn)
+	if not so:
+		return None
+	return frappe.db.get_value("Sales Order", so, "custom_khoa_phong")
 
 
 def _sales_order_dau_tien(dn) -> str | None:

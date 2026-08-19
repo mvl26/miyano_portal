@@ -90,6 +90,12 @@ class PortalDeXuatMua(Document):
 		self._dong_dau_gia()
 		self.trang_thai = TRANG_THAI_CHO_DUYET
 		self.save(ignore_permissions=True)
+		# Task 8 (§5.8) — CHỈ quản lý cần biết có phiếu chờ duyệt. Hàm này
+		# không bao giờ ném lỗi (xem docstring nó) nên an toàn gọi ngay sau
+		# save(): một trục trặc ở khâu thông báo không được cuốn theo trạng
+		# thái "Chờ duyệt" vừa ghi thành công.
+		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
+		bao_de_xuat_gui_duyet(self)
 
 	def _dong_dau_gia(self):
 		"""§5.6 bẫy #2 (vòng sửa Task 6) — đóng dấu `don_gia` = giá hiện hành
@@ -138,6 +144,10 @@ class PortalDeXuatMua(Document):
 		self.uy_quyen = uy_quyen
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
+		# Task 8 (§5.8) — quản lý (luôn) + thành viên khác của khoa đứng
+		# tên phiếu. Không bao giờ ném lỗi — cùng lý do gọi trong gui_duyet().
+		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_duyet
+		bao_de_xuat_duyet(self)
 
 	def tu_choi(self, ly_do):
 		self._kiem_chuyen(TRANG_THAI_TU_CHOI)
@@ -148,6 +158,9 @@ class PortalDeXuatMua(Document):
 		self.ly_do_tu_choi = ly_do
 		self.trang_thai = TRANG_THAI_TU_CHOI
 		self.save(ignore_permissions=True)
+		# Task 8 (§5.8) — cùng bảng người nhận với duyệt().
+		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_tu_choi
+		bao_de_xuat_tu_choi(self)
 
 	def huy(self):
 		"""§5.4b — phiếu còn nguyên, chỉ đổi trạng thái. Khác XOÁ THẬT ở chỗ
