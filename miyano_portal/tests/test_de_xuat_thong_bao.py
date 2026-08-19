@@ -39,6 +39,8 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.portal_thong_bao_khach import (
+	TIEN_TO_DE_XUAT_DA_DUYET,
+	TIEN_TO_DE_XUAT_TU_CHOI,
 	_portal_users_theo_khoa,
 	bao_da_nhap_hang,
 	bao_hen_giao_lai,
@@ -120,6 +122,25 @@ def _co_nhan(for_user, document_name, document_type=None):
 	if document_type:
 		loc["document_type"] = document_type
 	return bool(frappe.db.exists("Notification Log", loc))
+
+
+def _co_nhan_dung_buoc(for_user, document_name, tien_to):
+	"""VẾ DƯƠNG canh ĐÚNG bước — review vòng 2 (Task 8): `gui_duyet()` tự
+	gửi `bao_de_xuat_gui_duyet` cho Quản lý TRƯỚC khi test gọi
+	`duyet()`/`tu_choi()` (đường dựng phiếu "Chờ duyệt" luôn đi qua
+	`gui_duyet()`). `_co_nhan()` chỉ kiểm TỒN TẠI theo `for_user` +
+	`document_name`, không phân biệt thông báo đến từ bước nào — với Quản
+	lý (nhận ở CẢ BA bước) một `assertTrue(_co_nhan(...))` sau bước
+	duyệt/từ chối vẫn xanh dù CHÍNH bước đó không gửi gì (bao_de_xuat_
+	duyet/tu_choi nuốt lỗi, `except Exception: ... return 0`), chỉ vì
+	thông báo gửi-duyệt còn sót lại. Hàm này khoá đúng `subject` bắt đầu
+	bằng tiền tố của TỪNG bước — dùng cho MỌI khẳng định "Quản lý nhận"
+	sau duyệt/từ chối, không dùng `_co_nhan()` trơn ở đó nữa."""
+	return bool(frappe.db.exists("Notification Log", {
+		"for_user": for_user, "document_name": document_name,
+		"document_type": "Portal De Xuat Mua",
+		"subject": ["like", f"{tien_to}:%"],
+	}))
 
 
 # ======================================================================
@@ -289,9 +310,18 @@ class TestThongBaoDuyet(FrappeTestCase):
 
 	def test_quan_ly_nhan_thong_bao_khi_tu_duyet(self):
 		"""VẾ DƯƠNG bắt buộc — quản lý luôn nhận, kể cả khi CHÍNH họ bấm
-		duyệt."""
+		duyệt.
+
+		Review vòng 2 (Task 8) — dùng `_co_nhan_dung_buoc()` (khoá theo
+		`TIEN_TO_DE_XUAT_DA_DUYET`), KHÔNG dùng `_co_nhan()` trơn: `setUp`
+		đã gọi `gui_duyet()` để dựng phiếu "Chờ duyệt", và bước đó CŨNG gửi
+		thông báo cho Quản lý (`bao_de_xuat_gui_duyet`) — `_co_nhan()`
+		trơn sẽ xanh giả ngay cả khi CHÍNH `bao_de_xuat_duyet` hỏng/bị
+		nuốt lỗi."""
 		de_xuat_duyet.duyet_va_tao_don(self.phieu.name, self.ql)
-		self.assertTrue(_co_nhan(self.ql, self.phieu.name, "Portal De Xuat Mua"))
+		self.assertTrue(
+			_co_nhan_dung_buoc(self.ql, self.phieu.name, TIEN_TO_DE_XUAT_DA_DUYET)
+		)
 
 	def test_nguoi_lap_de_xuat_nhan_thong_bao_duyet(self):
 		"""VẾ DƯƠNG — người lập (owner) nhận."""
@@ -331,7 +361,12 @@ class TestThongBaoDuyet(FrappeTestCase):
 		doc.reload()
 
 		de_xuat_duyet.duyet_va_tao_don(doc.name, self.ql)
-		self.assertTrue(_co_nhan(self.ql, doc.name, "Portal De Xuat Mua"))         # VẾ DƯƠNG
+		# Review vòng 2 — cùng lý do `test_quan_ly_nhan_thong_bao_khi_tu_
+		# duyet`: `gui_duyet()` ngay TRÊN cũng đã gửi cho Quản lý, khoá
+		# theo tiền tố đúng bước để không xanh giả.
+		self.assertTrue(_co_nhan_dung_buoc(
+			self.ql, doc.name, TIEN_TO_DE_XUAT_DA_DUYET
+		))                                                                          # VẾ DƯƠNG
 		self.assertFalse(_co_nhan(self.huyethoc, doc.name, "Portal De Xuat Mua"))  # VẾ ÂM
 		self.assertFalse(_co_nhan(self.huyethoc2, doc.name, "Portal De Xuat Mua"))
 		self.assertFalse(_co_nhan(self.duoc, doc.name, "Portal De Xuat Mua"))
@@ -382,9 +417,16 @@ class TestThongBaoTuChoi(FrappeTestCase):
 		return doc
 
 	def test_quan_ly_nhan_thong_bao_tu_choi(self):
-		"""VẾ DƯƠNG."""
+		"""VẾ DƯƠNG.
+
+		Review vòng 2 (Task 8) — cùng lý do `TestThongBaoDuyet.test_quan_
+		ly_nhan_thong_bao_khi_tu_duyet`: `setUp` đã `gui_duyet()`, cũng
+		gửi cho Quản lý. Khoá theo `TIEN_TO_DE_XUAT_TU_CHOI` để chỉ tính
+		đúng thông báo của bước từ chối."""
 		self.phieu.tu_choi("thiếu chứng từ")
-		self.assertTrue(_co_nhan(self.ql, self.phieu.name, "Portal De Xuat Mua"))
+		self.assertTrue(_co_nhan_dung_buoc(
+			self.ql, self.phieu.name, TIEN_TO_DE_XUAT_TU_CHOI
+		))
 
 	def test_nguoi_lap_nhan_thong_bao_tu_choi(self):
 		"""VẾ DƯƠNG."""
@@ -418,7 +460,10 @@ class TestThongBaoTuChoi(FrappeTestCase):
 		doc.reload()
 
 		doc.tu_choi("thiếu chứng từ")
-		self.assertTrue(_co_nhan(self.ql, doc.name, "Portal De Xuat Mua"))         # VẾ DƯƠNG
+		# Review vòng 2 — cùng lý do bản song sinh ở TestThongBaoDuyet.
+		self.assertTrue(_co_nhan_dung_buoc(
+			self.ql, doc.name, TIEN_TO_DE_XUAT_TU_CHOI
+		))                                                                          # VẾ DƯƠNG
 		self.assertFalse(_co_nhan(self.huyethoc, doc.name, "Portal De Xuat Mua"))  # VẾ ÂM
 		self.assertFalse(_co_nhan(self.huyethoc2, doc.name, "Portal De Xuat Mua"))
 		self.assertFalse(_co_nhan(self.duoc, doc.name, "Portal De Xuat Mua"))
