@@ -218,16 +218,54 @@ def de_xuat_query_condition(user=None) -> str:
     không được phép tồn tại trong repo, dù chỉ tạm thời giữa hai task.
 
     Vế KHOA PHÒNG do Task 4 thêm vào CHÍNH hàm này — chiều khoa đi VÀO tầng
-    phân quyền đã có ở đây, không dựng tầng thứ hai."""
-    return _customer_condition("Portal De Xuat Mua", user)
+    phân quyền đã có ở đây, không dựng tầng thứ hai. Trường trên doctype này
+    tên là `khoa_phong` (KHÔNG phải `custom_khoa_phong` như Sales Order) —
+    `pham_vi_don()` luôn trả khoá `custom_khoa_phong` bất kể doctype gọi nó,
+    nên đọc GIÁ TRỊ từ khoá đó rồi áp lên ĐÚNG tên cột của doctype này.
+
+    Fail-closed cùng nguyên tắc `_khoa_query_condition`: nếu `dk` đã là ""
+    (không bị giới hạn — không phải Website User) hoặc "1=0" (đã fail-closed
+    ở trục khách hàng, ca không có `Portal Member` active nào), thêm vế khoa
+    vào đây vô nghĩa — VÀ `pham_vi_don()` có thể tự ném `PermissionError` vì
+    cùng lý do không có `Portal Member` active (`get_portal_member` bên
+    trong nó), nên phải chặn sớm trước khi gọi. Nếu `pham_vi_don()` ném
+    `PermissionError` vì lý do khác (Nhân viên khoa `active=1` mà
+    `khoa_phong` rỗng — xem docstring hàm đó) thì cũng fail-closed, không để
+    lộ ra ngoài."""
+    dk = _customer_condition("Portal De Xuat Mua", user)
+    if dk in ("", "1=0"):
+        return dk
+    user = user or frappe.session.user
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return "1=0"
+    khoa = pv.get("custom_khoa_phong")
+    if khoa:
+        dk += f" and `tabPortal De Xuat Mua`.khoa_phong = {frappe.db.escape(khoa)}"
+    return dk
 
 
 def de_xuat_co_quyen(doc, ptype=None, user=None):
     """Vỏ `has_permission` cho `Portal De Xuat Mua` — cùng khuôn
     `generic_has_permission`, chỉ lọc theo `customer`. Xem docstring
     `de_xuat_query_condition` cho lý do hàm này nằm trong Task 1 thay vì
-    Task 4. Vế khoa phòng do Task 4 thêm vào CHÍNH hàm này."""
-    return _has_customer_permission(doc, user)
+    Task 4. Vế khoa phòng do Task 4 thêm vào CHÍNH hàm này — cùng logic với
+    `de_xuat_query_condition` ngay trên, dạng kiểm MỘT bản ghi thay vì lọc
+    danh sách; đọc field `khoa_phong` của `doc` (KHÔNG phải
+    `custom_khoa_phong` — tên đó chỉ là khoá `pham_vi_don()` trả về, không
+    phải tên cột trên doctype này)."""
+    if not _has_customer_permission(doc, user):
+        return False
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return True
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return False
+    khoa = pv.get("custom_khoa_phong")
+    return not khoa or doc.get("khoa_phong") == khoa
 
 
 def de_xuat_item_query(user=None) -> str:
