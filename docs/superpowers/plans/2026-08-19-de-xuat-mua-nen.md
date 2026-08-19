@@ -448,6 +448,12 @@ Nháp ──gui_duyet()──► Chờ duyệt ──duyet()──► Đã duy�
 
 **Xoá và huỷ là hai việc khác nhau (§5.4b):** Nháp → xoá thật khỏi CSDL (chưa ai thấy, chưa có mã, không có gì để truy vết). Từ Chờ duyệt trở đi → chuyển `Đã huỷ`, phiếu còn nguyên.
 
+- [ ] **Step 0: Nới `read timeout` trong `test_rest_guard.py` từ 5s lên 30s** *(Ruling 19/08)*
+
+Sáu chỗ `timeout=5` trong `miyano_portal/tests/test_rest_guard.py` gây tín hiệu đỏ giả liên tục. Đã đo: cùng một module chạy hết 9.8s / 28s / 51s / 86s tuỳ lúc, và đỏ ở CẢ commit trước lẫn sau Task 2 — chập chờn theo tải máy, không phải hồi quy. File này gọi HTTP thật tới gunicorn `127.0.0.1:8002`, trong khi máy chạy 3 bench Frappe (99 worker), RAM 12/15Gi đã dùng, swap đang chạy.
+
+Đây là **sửa test cũ**, được phép vì nó **không đổi một khẳng định nào**: các test đó khẳng định mã trạng thái HTTP và hành vi phân quyền, không khẳng định độ trễ. Một timeout 5s trên máy đang swap là đang đo cái máy. Chỉ đổi con số, không chạm assertion. Commit riêng trước khi làm phần còn lại của task.
+
 - [ ] **Step 1: Viết test đỏ**
 
 ```python
