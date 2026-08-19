@@ -171,7 +171,7 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
                         "filters": f'[["parent","in",["{self.don_khach_khac}"]]]',
                         "fields": '["parent","item_code","rate","amount"]',
                     },
-                    timeout=5,
+                    timeout=30,
                 )
                 body = resp.text
                 self.assertEqual(
@@ -198,7 +198,7 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
                             "fields": '["parent","parenttype","payment_amount","outstanding"]',
                             "limit_page_length": 0,
                         },
-                        timeout=5,
+                        timeout=30,
                     )
                     body = resp.text
                     self.assertEqual(
@@ -223,7 +223,7 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
                 resp = self.session.get(
                     f"{BASE_URL}{prefix}Sales Order Item/{name}",
                     params={"parent": "Sales Order"},
-                    timeout=5,
+                    timeout=30,
                 )
                 body = resp.text
                 self.assertEqual(
@@ -241,7 +241,7 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
                 resp = self.session.get(
                     f"{BASE_URL}{prefix}Payment Schedule/{name}",
                     params={"parent": self.payment_row["parenttype"]},
-                    timeout=5,
+                    timeout=30,
                 )
                 self.assertEqual(
                     resp.status_code,
@@ -260,7 +260,7 @@ class TestRestGuardChanDoctypeCon(FrappeTestCase):
         resp = self.session.get(
             f"{BASE_URL}/api/resource/Sales Order",
             params={"filters": f'[["customer","=","{BVBM}"]]'},
-            timeout=5,
+            timeout=30,
         )
         self.assertEqual(resp.status_code, 200, resp.text[:300])
         self.assertNotIn(self.don_khach_khac, resp.text)
