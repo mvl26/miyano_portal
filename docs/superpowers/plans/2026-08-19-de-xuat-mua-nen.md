@@ -19,6 +19,7 @@
 - **Mỗi endpoint mới phải khai tập trong `test_pham_vi_endpoint.py` NGAY TRONG TASK sinh ra nó.** Không được để task sau dọn. Khai vào `MIEN_PHAM_VI` là một **quyết định phân quyền** — phải kèm lý do bằng chữ, không phải một thao tác làm cho test hết đỏ.
 - Sau mọi task: `cd /home/hoangvietyeuem/frappe-bench-yhct && bench --site erptest.local run-tests --app miyano_portal` phải **xanh**. Suite nền là **1135 test**.
 - **Đúng MỘT tiến trình test chạy trên bench này tại một thời điểm.** Chạy chồng sẽ sinh hàng chục `Deadlock found when trying to get lock` — lỗi giả, không phải hồi quy.
+- **Mọi `assertRaises(ValidationError)` phải khẳng định cả THÔNG ĐIỆP.** `frappe.MandatoryError` là **con** của `ValidationError`, nên một phiếu thiếu field bắt buộc làm test xanh vì lý do hoàn toàn khác thứ test định canh. Dùng `with self.assertRaises(...) as ctx:` rồi `self.assertIn("<chữ đặc trưng>", str(ctx.exception))`. Không có ngoại lệ.
 - **Không sửa test cũ.** Nếu buộc phải sửa: dừng lại, báo cáo, và chỉ được sửa khi có **cả ba**: (a) nêu rõ hành vi cũ nào đổi, (b) chứng minh test sửa xong vẫn **ĐỎ** trước khi có code mới, (c) người review chấp thuận.
 - `FrappeTestCase` rollback **một lần cho cả CLASS**, không phải từng test → fixture tự dọn trong `setUp`.
 - `frappe.db.delete(...)` là SQL thô, **không** cascade sang child table. Dọn fixture có child phải dùng `frappe.delete_doc(..., force=True)`.
@@ -283,7 +284,7 @@ Không dùng `SELECT MAX(...)` trên `tabPortal De Xuat Mua` rồi +1: hai phiê
 
 Dùng bảng đếm sẵn có của Frappe: `frappe.model.naming.getseries(prefix, digits)` đã làm đúng việc này (`tabSeries`, `INSERT ... ON DUPLICATE KEY UPDATE current = current + 1`, nguyên tử ở tầng MariaDB). Tiền tố truyền vào chính là `f"{ma_ngan}-{ma_khoa}-{yymmdd}-"`.
 
-Tràn 3 chữ số: `getseries` trả chuỗi đã pad theo `digits`; qua 99 nó trả `100` (4 ký tự thay vì 2) — **tự nhiên tràn, không quay vòng**, đúng yêu cầu §6.1. Test phải chứng minh điều này chứ không tin.
+Tràn 3 chữ số: **đã đọc mã nguồn v15.113.4** — dòng cuối `getseries` là `("%0" + str(digits) + "d") % current`, và `"%02d" % 100` cho ra `"100"`. **Tràn tự nhiên, không quay vòng**, đúng yêu cầu §6.1. Test vẫn phải chứng minh (hành vi framework đổi được giữa các bản), nhưng nếu nó đỏ thì lỗi ở code mình, không phải ở giả định của plan.
 
 - [ ] **Step 1: Viết test đỏ**
 
@@ -301,10 +302,12 @@ from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 class TestMaDeXuat(FrappeTestCase):
 	def setUp(self):
-		# Bộ đếm sống trong `tabSeries` — KHÔNG bị FrappeTestCase rollback
-		# theo cách bình thường vì `getseries` commit ngoài transaction. Dọn
-		# tay, nếu không `test_tran_sang_ba_chu_so` sẽ ăn số dư của lần chạy
-		# trước và xanh/đỏ tuỳ thứ tự chạy.
+		# Bộ đếm sống trong `tabSeries`. `getseries` chạy SQL thường trong
+		# CHÍNH transaction hiện tại (đã đọc `frappe/model/naming.py`: SELECT
+		# ... FOR UPDATE rồi UPDATE, không commit riêng) — nên rollback CÓ
+		# dọn nó. Nhưng `FrappeTestCase` rollback MỘT LẦN cho cả CLASS, nên
+		# các test TRONG CÙNG class vẫn cộng dồn số của nhau: không dọn thì
+		# `test_tran_sang_ba_chu_so` xanh/đỏ tuỳ thứ tự chạy.
 		frappe.db.delete("Series", {"name": ["like", "DXA-%"]})
 		frappe.db.delete("Series", {"name": ["like", "DXB-%"]})
 		# Fixture dùng chung với test_de_xuat_doctype.py — tách ra module
@@ -1330,14 +1333,24 @@ Thêm field child `so_luong_xin_sua` (Float) — **cột thứ ba**, không đè
 			portal.portal_order_sua_so_luong(self.don_da_duyet, self.dong_moi)
 		self.assertIn("xin sửa", str(ctx.exception))
 
-	def test_quan_ly_van_goi_thang_duoc(self):
-		"""VẾ DƯƠNG — không lấy mất thao tác của quản lý."""
+	def test_quan_ly_sua_thang_thi_phieu_de_xuat_CUNG_cap_nhat(self):
+		"""VẾ DƯƠNG — và phải PHÂN BIỆT ĐƯỢC, không phải một test xanh sẵn.
+
+		Khẳng định đầu (đơn về "Chờ xác nhận") xanh từ trước khi có task này
+		nên tự nó không canh gì. Khẳng định thứ hai mới là thứ mới: quản lý
+		sửa thẳng thì phiếu đề xuất đứng sau PHẢI đi theo — nếu không, hai
+		chứng từ nói hai số khác nhau và khối truy vết §5.2 thành vô nghĩa.
+		Hôm nay chưa có phiếu nào nên khẳng định này ĐỎ.
+		"""
 		frappe.set_user(self.user_quan_ly)
 		portal.portal_order_sua_so_luong(self.don_da_duyet, self.dong_moi)
 		self.assertEqual(
 			frappe.db.get_value("Sales Order", self.don_da_duyet, "workflow_state"),
 			"Chờ xác nhận",
 		)
+		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
+		self.assertEqual(doc.items[0].so_luong_duyet, 100)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
 
 	def test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu(self):
 		"""Sáu tài khoản đang chạy: đơn cũ không có `custom_de_xuat` →
@@ -1391,23 +1404,54 @@ Thêm field child `so_luong_xin_sua` (Float) — **cột thứ ba**, không đè
 
 - [ ] **Step 2: Chạy, xác nhận đỏ**
 
-Chú ý: `test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu` và `test_quan_ly_van_goi_thang_duoc` **phải xanh sẵn** trước khi viết code — chúng là chốt tương thích ngược, nhiệm vụ của chúng là **vẫn xanh sau khi sửa**. Năm test còn lại phải đỏ.
+Chú ý: `test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu` **phải xanh sẵn** — nó là chốt tương thích ngược cho 6 tài khoản đang chạy, nhiệm vụ của nó là **vẫn xanh sau khi sửa**. Đây là test **duy nhất** trong task được phép xanh từ đầu. Bảy test còn lại phải đỏ; cái nào xanh sẵn thì nó không canh gì cả — sửa cho nó phân biệt được rồi mới đi tiếp.
 
-- [ ] **Step 3: Chặn theo vai trò trong `portal_order_sua_so_luong`**
+- [ ] **Step 3: Chặn theo vai trò — qua MỘT helper có tên, không viết inline**
+
+Guard này **không** viết thẳng trong `portal_order_sua_so_luong`. Task 7 đã dựng `khoa_phong_cho_don()` ở `portal_context.py` đúng vì các phép kiểm "khoa ↔ người gọi" trước đó nằm rải rác; viết thêm một cổng role-aware inline ở module khác là quay lại đúng vấn đề đó. Đặt cạnh nó:
 
 ```python
-    # Task 9 (§12 Q4, chủ đầu tư chốt 19/08) — nhân viên khoa KHÔNG sửa
-    # thẳng số lượng trên đơn đã duyệt: quản lý duyệt 10 hộp mà hàng về 100
-    # hộp là lỗ hổng của chính cổng duyệt. Họ đi qua `de_xuat_xin_sua`.
-    #
-    # CHỈ áp cho đơn ĐI QUA đường đề xuất (`custom_de_xuat` có giá trị).
-    # Đơn cũ không có phiếu đứng sau thì KHÔNG có gì để quay về duyệt lại —
-    # chặn chúng chỉ là lấy mất một thao tác mà không đổi lại được gì.
-    if so.get("custom_de_xuat") and not la_quan_ly():
-        raise frappe.PermissionError(
-            "Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng "
-            "để gửi lại cho quản lý xem."
-        )
+def dam_bao_duoc_sua_don_da_duyet(so, user=None):
+	"""Chốt §12 Q4 — nhân viên khoa KHÔNG sửa thẳng số lượng trên đơn đã
+	được quản lý duyệt. Quản lý duyệt 10 hộp mà hàng về 100 hộp là lỗ hổng
+	của chính cổng duyệt.
+
+	CHỈ áp cho đơn ĐI QUA đường đề xuất. Đơn cũ không có phiếu đứng sau thì
+	không có gì để quay về duyệt lại — chặn chúng chỉ lấy mất một thao tác
+	mà không đổi lại được gì.
+
+	FAIL-CLOSED KHI THIẾU CỘT (bài học sự cố `custom_khoa_phong`): nếu patch
+	v1_24 chưa chạy thì `custom_de_xuat` KHÔNG tồn tại, `so.get()` trả
+	falsy, và cổng này **mở toang trong im lặng** — tệ hơn sự cố cũ, vốn ít
+	ra còn nổ thành lỗi 1054 nhìn thấy được. Nên kiểm cột tồn tại TRƯỚC, và
+	thiếu cột thì CHẶN nhân viên khoa chứ không thả.
+	"""
+	if la_quan_ly(user):
+		return
+	if not _cot_de_xuat_ton_tai():
+		raise frappe.PermissionError(
+			"Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
+		)
+	if not so.get("custom_de_xuat"):
+		return
+	raise frappe.PermissionError(
+		"Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng để "
+		"gửi lại cho quản lý xem."
+	)
+```
+
+`_cot_de_xuat_ton_tai()` viết theo đúng khuôn `_cot_khoa_phong_ton_tai()` đã có ở `portal_context.py:132` (cache cấp tiến trình). Rồi `portal_order_sua_so_luong` chỉ thêm **một dòng**: `dam_bao_duoc_sua_don_da_duyet(so)`.
+
+Thêm test cho chính nhánh fail-closed này — nếu không có nó thì nhánh nguy hiểm nhất là nhánh duy nhất không ai chạy qua:
+
+```python
+	def test_thieu_cot_custom_de_xuat_thi_CHAN_chu_khong_tha(self):
+		"""Patch v1_24 chưa chạy → cổng phải ĐÓNG, không mở im lặng."""
+		frappe.set_user(self.user_huyethoc)
+		with patch.object(portal_context, "_cot_de_xuat_ton_tai", return_value=False):
+			with self.assertRaises(frappe.PermissionError) as ctx:
+				portal.portal_order_sua_so_luong(self.don_da_duyet, self.dong_moi)
+		self.assertIn("chưa hoàn tất", str(ctx.exception))
 ```
 
 - [ ] **Step 4: Thêm `de_xuat_xin_sua`, `de_xuat_duyet_sua`, `de_xuat_tu_choi_sua`**
@@ -1417,6 +1461,15 @@ Chú ý: `test_don_KHONG_qua_duong_de_xuat_thi_giu_nguyen_hanh_vi_cu` và `test_
 `de_xuat_tu_choi_sua` — chỉ quản lý; xoá `so_luong_xin_sua`, về `Đã duyệt`, ghi lý do vào `ghi_chu_quan_ly` của dòng.
 
 - [ ] **Step 5: Ba tên mới vào `DA_AP_PHAM_VI`**
+- [ ] **Step 5b: Xác nhận patch v1_24 ĐÃ CHẠY trên site đang test**
+
+Guard ở Step 3 phụ thuộc cột `Sales Order.custom_de_xuat` do patch v1_24 (Task 6) tạo. Kiểm lại **ở chính task này**, không tin kết quả của Task 6:
+
+```bash
+bench --site erptest.local mariadb -e "select name, creation from \`tabPatch Log\` where patch like '%them_de_xuat%'"
+```
+
+Không có dòng nào = patch chưa chạy trên site này (bẫy `install_app` fake-complete đã ghi trong bộ nhớ dự án). Dừng, chạy `bench --site erptest.local migrate`, kiểm lại.
 - [ ] **Step 6: Chạy toàn bộ suite, kỳ vọng 1188 OK**
 - [ ] **Step 7: Commit** — `feat(de-xuat): sua so luong sau duyet phai quay lai quan ly (Q4)`
 
