@@ -11,6 +11,7 @@ function csrfToken() {
 
 const API_PREFIX = '/api/method/miyano_portal.api.portal.'
 const KHO_PREFIX = '/api/method/miyano_portal.api.kho.'
+const DE_XUAT_PREFIX = '/api/method/miyano_portal.api.de_xuat.'
 
 // Gọi thẳng một method whitelist theo đường dẫn đầy đủ (đã có prefix).
 async function callUrl(url, args) {
@@ -57,6 +58,11 @@ export async function call(method, args) {
 // Gọi một whitelist method của module kho (miyano_portal.api.kho).
 export async function callKho(method, args) {
   return callUrl(KHO_PREFIX + method, args)
+}
+
+// Gọi một whitelist method của module đề xuất mua (miyano_portal.api.de_xuat).
+export async function callDeXuat(method, args) {
+  return callUrl(DE_XUAT_PREFIX + method, args)
 }
 
 // URL tải file (GET, mở tab mới hoặc gán vào href) của một method kho trả về
@@ -171,5 +177,5 @@ export async function fetchBlobUrl(url) {
 }
 
 export default {
-  call, callKho, khoDownloadUrl, uploadFile, downloadFile, fetchBlobUrl, login, logout,
+  call, callKho, callDeXuat, khoDownloadUrl, uploadFile, downloadFile, fetchBlobUrl, login, logout,
 }
