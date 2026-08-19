@@ -755,9 +755,26 @@ Việc chính **không phải xây mới** mà là **gỡ vách ngăn và chuy�
 5. **Trạng thái đơn trộn** — cả đơn chờ một vòng báo giá, theo §13.2(a).
 6. **`loai_don` xuống cấp dòng**, theo §13.2(b).
 
-### 13.5 Câu hỏi còn mở
+### 13.5 Cờ `custom_cho_phep_mua_le` — CHỦ ĐẦU TƯ CHỐT 19/08: **BỎ HẲN**
 
-**Cờ `custom_cho_phep_mua_le` xử thế nào?** Nếu không còn "chế độ mua lẻ" thì cờ này gác cái gì. Nó đang là chốt nghiệp vụ thật (NL-10.1), có khách bị tắt cố ý. Hai hướng: **bỏ hẳn**, hoặc **đổi nghĩa** thành *"được phép xin hàng ngoài hợp đồng"* (tức chặn tầng 2 và 3, vẫn cho tầng 1).
+Lý do chủ đầu tư nêu: *"nghiệp vụ đó áp dụng cho toàn bộ khách hàng"* — mọi khách đều được xin hàng ngoài hợp đồng, nên không còn gì để gác.
+
+**Đây là XOÁ MỘT CHỐT NGHIỆP VỤ ĐANG CHẠY, không phải dọn mã chết.** Hôm nay cờ này chặn thật: `portal_mua_le.dam_bao_duoc_mua_le` ném 403 `khong_duoc_mua_le` (NL-10.1), và `portal_catalog_ban_le` từ chối trước khi trả danh mục. Sau khi bỏ, **mọi khách hàng đều xin được hàng ngoài hợp đồng** — đó chính là điều mong muốn, nhưng phải nói rõ ra vì nó **mở rộng quyền cho toàn bộ khách hiện có**, không phải giữ nguyên hành vi.
+
+**Đã đo phạm vi ảnh hưởng (19/08):**
+
+| Nơi | Việc |
+|---|---|
+| `portal_mua_le.py` (3 chỗ) | `dam_bao_duoc_mua_le` — chốt chính, bỏ |
+| `api/portal.py` (5 chỗ) | chốt ở `portal_catalog_ban_le`; `portal_me` trả `cho_phep_mua_le` cho frontend |
+| `dat_hang.py` (2 chỗ) | gọi `dam_bao_duoc_mua_le` ở đường ghi |
+| `frontend/src/views/Catalog.vue` | ẩn/hiện nút chuyển chế độ — **sẽ biến mất cùng với chính khái niệm "chế độ"** |
+| `patches/v1_8`, `patches/v1_15` | tạo field và bật mặc định — patch cũ, **không sửa** (patch đã chạy không bao giờ tới lại site đã migrate) |
+| **4 file test** (`test_e6_mua_le.py`, `test_dat_hang_core.py`, `test_mua_le_mac_dinh_bat.py`, + 3 file chạm nhẹ) | **mã hoá đúng luật đang bị xoá** |
+
+**Bốn file test kia là phần đắt nhất, và phải xử đúng cách.** Chúng khẳng định một hành vi mà chủ đầu tư vừa quyết bỏ — nên xoá/sửa chúng là **đổi hành vi có chủ đích**, đủ ba điều kiện: (a) nêu rõ luật nào bị bỏ, (b) chứng minh test viết lại ĐỎ trước khi có mã mới, (c) người review chấp thuận. **Không được xoá lặng lẽ cho suite xanh** — đó đúng là cách một chốt biến mất mà không ai biết.
+
+**Field trên `Customer`:** bỏ chốt trước, **xoá field bằng patch trong cùng kế hoạch**. Giữ lại một field trông như chốt kiểm soát mà không còn gác gì là phiên bản schema của "bình luận nói sai về code" — người sau đọc `custom_cho_phep_mua_le = 0` trên một khách sẽ tưởng khách đó đang bị chặn.
 
 ### 13.6 Hệ quả có lợi
 
