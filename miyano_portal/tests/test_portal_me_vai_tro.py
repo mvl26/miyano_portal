@@ -70,3 +70,13 @@ class TestPortalMeVaiTro(FrappeTestCase):
 		import inspect
 		sig = inspect.signature(portal.portal_me)
 		self.assertEqual(len(sig.parameters), 0)
+
+	def test_tra_dung_user_dang_dang_nhap(self):
+		"""Task 3 (màn /de-xuat) — `de-xuat-actions.js` so `d.owner === me.user`
+		để quyết định hiện nút "Gửi duyệt"/"Xoá" cho đúng chủ phiếu. Trước bản
+		vá này `portal_me()` không có khoá `user`, nên vế so sánh đó luôn
+		false — hai nút không bao giờ hiện, kể cả cho chủ phiếu."""
+		frappe.set_user(self.user_huyethoc)
+		me = portal.portal_me()
+		self.assertEqual(me["user"], self.user_huyethoc)
+		self.assertEqual(me["user"], frappe.session.user)

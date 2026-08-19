@@ -63,6 +63,22 @@ export function invoiceBadge(statusVi) {
   return map[statusVi] || 'b-gray'
 }
 
+// Map trạng thái `Portal De Xuat Mua` (nguyên văn tiếng Việt của doctype,
+// options: Nháp/Chờ duyệt/Đã duyệt/Chờ duyệt sửa/Từ chối/Đã huỷ) → class
+// badge. Dùng chung cho màn danh sách (Task 3) và chi tiết (Task 4) — một
+// nguồn duy nhất, không lặp lại bảng màu ở từng view.
+export function deXuatBadge(trangThai) {
+  const map = {
+    'Nháp': 'b-gray',
+    'Chờ duyệt': 'b-blue',
+    'Chờ duyệt sửa': 'b-orange',
+    'Đã duyệt': 'b-green',
+    'Từ chối': 'b-red',
+    'Đã huỷ': 'b-red',
+  }
+  return map[trangThai] || 'b-gray'
+}
+
 // YYYY-MM-DD hôm nay (local) để so sánh hạn thanh toán.
 export function todayISO() {
   const d = new Date()

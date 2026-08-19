@@ -13,6 +13,10 @@ const NAV = [
   { to: '/catalog', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'catalog' },
   { to: '/cart', icon: '📦', label: 'Giỏ hàng', short: 'Giỏ', key: 'cart', cart: true },
   { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
+  // Man luong duyet (Task 3) — hiện cho MỌI vai trò: nhân viên khoa thấy
+  // phiếu khoa mình, quản lý thấy toàn viện. Server (`de_xuat_danh_sach`
+  // + `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
+  { to: '/de-xuat', icon: '📝', label: 'Đề xuất mua', short: 'Đề xuất', key: 'de-xuat' },
   { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
   { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
   // Brief 2026-08-15 (trang thông báo) — mục nav MỚI, badge = số chưa đọc.

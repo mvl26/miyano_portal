@@ -24,13 +24,10 @@
 // qua regex) mà không cần hạ tầng component.
 
 export const ACTIONS_DE_XUAT = [
-  // CHÚ Ý Task 3 — `me.user` CHƯA TỒN TẠI: `portal_me()` (api/portal.py) trả
-  // customer/vai_tro/khoa_phong/la_quan_ly nhưng KHÔNG có email người dùng, và
-  // frontend không có nguồn nào khác (đã kiểm: không có frappe.session/
-  // window.frappe/boot.user nào trong frontend/src). Cho tới khi Task 3 bơm
-  // nó vào (portal_me() thêm "user": frappe.session.user, HOẶC đổi vế này
-  // sang đọc một cờ do server tính sẵn), vế `d.owner === me.user` luôn false
-  // → hai nút "Gửi duyệt"/"Xoá" KHÔNG BAO GIỜ HIỆN, kể cả cho chủ phiếu.
+  // Task 3 — `me.user` = `frappe.session.user`, bơm vào `portal_me()`
+  // (api/portal.py) đúng bản vá này. Trước đó `portal_me()` không có khoá
+  // này và vế `d.owner === me.user` luôn false — hai nút "Gửi duyệt"/"Xoá"
+  // không bao giờ hiện, kể cả cho chủ phiếu.
   { method: 'de_xuat_gui_duyet', label: 'Gửi duyệt', variant: 'primary',
     when: (d, me) => d.trang_thai === 'Nháp' && d.owner === me.user },
 

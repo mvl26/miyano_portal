@@ -86,6 +86,14 @@ def portal_me() -> dict:
     tv = get_portal_member()
     return {
         "customer": customer,
+        # Task 3 (màn /de-xuat) — `frontend/src/de-xuat-actions.js` cần
+        # phân biệt CHỦ PHIẾU để hiện "Gửi duyệt"/"Xoá", nhưng không có
+        # nguồn nào khác lộ session user ra frontend (đã kiểm: không
+        # frappe.session/window.frappe/boot.user nào trong frontend/src).
+        # Không phải rò rỉ: `frappe.session.user` chính là email người
+        # ĐANG GỌI endpoint này, tức người đã đăng nhập bằng chính email
+        # đó — trả lại cho họ không lộ gì họ chưa biết.
+        "user": frappe.session.user,
         "customer_name": cust.get("customer_name"),
         "tax_id": cust.get("tax_id"),
         "outstanding": _get_outstanding(customer),
