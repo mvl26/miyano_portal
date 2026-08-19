@@ -433,7 +433,8 @@ git commit -m "feat(de-xuat): sinh ma de xuat theo (benh vien, khoa, ngay)"
 
 **Interfaces:**
 - Consumes: `ma_de_xuat.sinh_ma` (Task 2), các hằng trạng thái (Task 1).
-- Produces: `PortalDeXuatMua.gui_duyet()`, `.duyet(nguoi_duyet)`, `.tu_choi(ly_do)`, `.huy()`; `on_trash` chặn xoá phiếu đã gửi.
+- Produces: `PortalDeXuatMua.gui_duyet()`, `.duyet(nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None)`, `.tu_choi(ly_do)`, `.huy()`; `on_trash` chặn xoá phiếu đã gửi.
+- **Ruling preflight C3:** plan chỉ đưa khối mã cho `gui_duyet()`. Ba phương thức còn lại **vẫn phải cài đủ trong task này** theo đúng máy trạng thái ở trên — Task 6 và Task 9 đều gọi chúng. `.duyet()` là nơi DUY NHẤT viết `trang_thai = "Đã duyệt"` cùng cả khối truy vết (`nguoi_duyet`, `thoi_diem_duyet`, `duyet_voi_tu_cach`, `uy_quyen`, `tu_duyet` suy từ `nguoi_duyet == owner`). `.tu_choi(ly_do)` bắt buộc lý do (thông điệp chứa "Lý do từ chối"). `.huy()` chuyển `Đã huỷ`.
 
 **Máy trạng thái (§5.4):**
 
@@ -925,7 +926,8 @@ bench --site erptest.local run-tests --module miyano_portal.tests.test_pham_vi_e
 
 **Interfaces:**
 - Consumes: `dat_hang.tao_sales_order(customer, *, mode, contract, items, dat_ngoai, po, delivery_date, note, address, request_id, khoa_phong)` — **chữ ký đã có, không đổi**.
-- Produces: `de_xuat_duyet.duyet(ten_phieu, dieu_chinh=None) -> dict`; endpoint `de_xuat_duyet_phieu`, `de_xuat_tu_choi`, `de_xuat_huy`.
+- Produces: `de_xuat_duyet.duyet_va_tao_don(ten_phieu, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None) -> dict`; endpoint `de_xuat_duyet_phieu`, `de_xuat_tu_choi`, `de_xuat_huy`.
+- **Ruling preflight C1+C2:** hàm module đổi tên thành `duyet_va_tao_don` (hai hàm cùng tên `duyet` ở hai tầng là mồi cho lỗi gọi nhầm), và nó **KHÔNG tự viết trạng thái**: nó lo hạn mức + giá + tạo Sales Order rồi **gọi `doc.duyet(nguoi_duyet, tu_cach, uy_quyen)`** của Task 3. Doctype là nơi DUY NHẤT viết trạng thái đã duyệt và khối truy vết. `dieu_chinh` do endpoint xử lý qua `_ap_dieu_chinh` TRƯỚC khi gọi hàm này.
 - Produces: `Sales Order.custom_de_xuat` (Link) + `custom_ma_tra_cuu` (Data) — patch v1_24.
 
 **`_ap_dieu_chinh(doc, dieu_chinh)`** — quản lý sửa số lượng trước khi bấm duyệt (QĐ-KP-3). Viết cùng task này, trong `api/de_xuat.py`:
@@ -961,11 +963,11 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 ```python
 	def test_bam_duyet_hai_lan_khong_tao_hai_don(self):
 		doc = self._cho_duyet()
-		a = de_xuat_duyet.duyet(doc.name, "Administrator")
+		a = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		doc.reload()
 		doc.trang_thai = "Chờ duyệt"      # giả lập bấm lại khi UI chưa kịp cập nhật
 		doc.db_update()
-		b = de_xuat_duyet.duyet(doc.name, "Administrator")
+		b = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(a["sales_order"], b["sales_order"])
 ```
 
@@ -983,7 +985,7 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 		doc = self._cho_duyet_hai_dong()
 		doc.items[1].so_luong_duyet = 0
 		doc.save(ignore_permissions=True)
-		kq = de_xuat_duyet.duyet(doc.name)
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(len(so.items), 1)
 		doc.reload()
@@ -994,7 +996,7 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 		"""Chốt của cả đề án: đơn sinh ra PHẢI mang khoa, nếu không thì
 		chính nhân viên khoa đó không mở lại được đơn mình vừa đặt."""
 		doc = self._cho_duyet()
-		kq = de_xuat_duyet.duyet(doc.name)
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(
 			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_khoa_phong"),
 			doc.khoa_phong,
@@ -1002,7 +1004,7 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 
 	def test_don_tro_nguoc_ve_phieu_goc(self):
 		doc = self._cho_duyet()
-		kq = de_xuat_duyet.duyet(doc.name)
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(
 			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_de_xuat"),
 			doc.name,
@@ -1059,8 +1061,8 @@ from miyano_portal import dat_hang
 from miyano_portal.portal_context import han_muc_con
 
 
-def duyet(ten_phieu: str, nguoi_duyet: str, tu_cach="Quản lý chính",
-          uy_quyen=None) -> dict:
+def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
+                     tu_cach="Quản lý chính", uy_quyen=None) -> dict:
 	doc = frappe.get_doc("Portal De Xuat Mua", ten_phieu)
 	doc._kiem_chuyen("Đã duyệt")
 
@@ -1090,14 +1092,11 @@ def duyet(ten_phieu: str, nguoi_duyet: str, tu_cach="Quản lý chính",
 		khoa_phong=doc.khoa_phong,
 	)
 
-	doc.trang_thai = "Đã duyệt"
-	doc.nguoi_duyet = nguoi_duyet
-	doc.thoi_diem_duyet = now_datetime()
-	doc.duyet_voi_tu_cach = tu_cach
-	doc.uy_quyen = uy_quyen
-	doc.tu_duyet = 1 if nguoi_duyet == doc.owner else 0
+	# Ruling preflight C2 — KHÔNG tự viết trạng thái ở đây. `doc.duyet()`
+	# (Task 3) là nơi duy nhất viết trạng thái đã duyệt + khối truy vết;
+	# hai chỗ cùng viết một sự thật thì sớm muộn cũng lệch.
 	doc.sales_order = kq["sales_order"]
-	doc.save(ignore_permissions=True)
+	doc.duyet(nguoi_duyet, tu_cach=tu_cach, uy_quyen=uy_quyen)
 
 	frappe.db.set_value("Sales Order", kq["sales_order"], {
 		"custom_de_xuat": doc.name,
@@ -1170,7 +1169,7 @@ def de_xuat_duyet_phieu(ten, dieu_chinh=None) -> dict:
 	if dieu_chinh:
 		_ap_dieu_chinh(doc, dieu_chinh)
 	from miyano_portal import de_xuat_duyet
-	return de_xuat_duyet.duyet(doc.name, frappe.session.user)
+	return de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
 
 
 @frappe.whitelist()
@@ -1510,6 +1509,10 @@ Thêm test cho chính nhánh fail-closed này — nếu không có nó thì nhá
 `de_xuat_xin_sua` — chỉ `owner` hoặc thành viên cùng khoa; ghi `so_luong_xin_sua`, chuyển `Chờ duyệt sửa`, thông báo quản lý (dùng hàm Task 8).
 `de_xuat_duyet_sua` — chỉ quản lý; gọi lõi `portal_order_sua_so_luong` **với tư cách quản lý**, chép `so_luong_xin_sua` → `so_luong_duyet`, xoá `so_luong_xin_sua`, về `Đã duyệt`.
 `de_xuat_tu_choi_sua` — chỉ quản lý; xoá `so_luong_xin_sua`, về `Đã duyệt`, ghi lý do vào `ghi_chu_quan_ly` của dòng.
+
+- [ ] **Step 4b: Ghi ngược về phiếu khi QUẢN LÝ sửa thẳng (Ruling preflight C4)**
+
+`test_quan_ly_sua_thang_thi_phieu_de_xuat_CUNG_cap_nhat` đòi việc này nhưng plan gốc không có Step nào cài. Sau khi `portal_order_sua_so_luong` sửa đơn thành công, nếu đơn có `custom_de_xuat` thì đồng bộ `so_luong_duyet` trên phiếu theo số mới. Không có nó thì hai chứng từ nói hai số khác nhau và khối truy vết §5.2 thành vô nghĩa.
 
 - [ ] **Step 5: Ba tên mới vào `DA_AP_PHAM_VI`**
 - [ ] **Step 5b: Xác nhận patch v1_24 ĐÃ CHẠY trên site đang test**
