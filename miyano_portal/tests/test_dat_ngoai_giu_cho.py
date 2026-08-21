@@ -95,7 +95,18 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         có TẤT CẢ dòng đặt ngoài đã khớp mã (chốt cũ hài lòng) nhưng sales
         quên GỠ dòng giữ chỗ `ITEM_GIU_CHO` khỏi `items` vẫn lọt qua chốt cũ
         — khách sẽ nhận PDF "Xác nhận đơn hàng" với một dòng kỹ thuật nội bộ.
-        Chốt mới phải chặn đúng tình huống này."""
+        Chốt mới phải chặn đúng tình huống này.
+
+        VIẾT LẠI ở Task 13 (QĐ-G13) — KHÔNG xoá, vì chốt
+        `kiem_khong_con_dong_giu_cho` vẫn tồn tại và vẫn cần được canh.
+        Nhưng TIỀN ĐỀ cũ của bài đã hết đường tới: từ Task 13, khớp mã cho
+        mọi dòng đặt ngoài sẽ TỰ GỠ dòng giữ chỗ (bẫy 3), nên trạng thái
+        "đã khớp hết mà giữ chỗ còn nguyên" không sinh ra được bằng cách
+        khớp mã nữa. Bài dựng lại trạng thái đó bằng đúng tình huống chốt
+        sinh ra để chặn — SALES TỰ TAY để sót dòng giữ chỗ trong `items`
+        (thêm lại nó ở một lần lưu KHÔNG chuyển dòng nào, nên phép gỡ tự
+        động không chạm tới).
+        """
         res = portal.portal_order_place(
             items=json.dumps([]),
             dat_ngoai=json.dumps(DAT_NGOAI_MAU),
@@ -115,10 +126,25 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
             all(d.da_xu_ly for d in so.custom_dat_ngoai),
             "chốt cũ phải hài lòng — mọi dòng đặt ngoài đã khớp mã",
         )
-        # Sales quên gỡ dòng giữ chỗ khỏi items.
+        self.assertNotIn(
+            ITEM_GIU_CHO, [i.item_code for i in so.items],
+            "Task 13 (bẫy 3) — khớp hết thì phép chuyển đã tự gỡ dòng giữ chỗ",
+        )
+        # Sales TỰ TAY thêm lại dòng giữ chỗ và quên gỡ. Lần lưu này không
+        # chuyển dòng nào (mọi dòng gõ tay đã `da_chuyen`), nên phép gỡ tự
+        # động không chạy — đúng trạng thái chốt `kiem_khong_con_dong_giu_cho`
+        # sinh ra để chặn.
+        so.append("items", {
+            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0,
+            "warehouse": so.items[0].warehouse,
+            "delivery_date": so.delivery_date,
+        })
+        so.save(ignore_permissions=True)
+        so.reload()
         self.assertIn(ITEM_GIU_CHO, [i.item_code for i in so.items])
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaises(frappe.ValidationError) as ctx:
             so.submit()
+        self.assertIn("còn dòng giữ chỗ kỹ thuật", str(ctx.exception))
         so.reload()
         self.assertEqual(so.docstatus, 0, "chốt mới phải chặn TRƯỚC khi ghi nhận submit")
 

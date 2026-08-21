@@ -409,6 +409,25 @@ doc_events = {
 	# không ở condition của workflow transition — xem docstring
 	# `kiem_nguong_duyet` trong portal_duyet_don.py.
 	"Sales Order": {
+		# Task 13 (QĐ-G13, chủ đầu tư chốt 21/08/2026) — khớp mã cho một
+		# dòng "đặt ngoài" thì CHUYỂN nó thành dòng hàng thật trong `items`,
+		# lấy giá hợp đồng bằng hàm dùng chung (QĐ-G14).
+		#
+		# Ở `before_validate` chứ KHÔNG `validate`, và đây là lý do: hook
+		# của app chạy SAU method cùng tên của chính doctype
+		# (`Document.hook` → `compose(fn, *hooks)`), nên một hook `validate`
+		# chạy SAU `SalesOrder.validate()` — sau `set_missing_values`, sau
+		# `calculate_taxes_and_totals`. Dòng hàng thêm vào lúc đó sẽ thiếu
+		# `item_name`/`uom`, có `amount = 0` và KHÔNG được cộng vào
+		# `grand_total`, tức tái hiện đúng nửa sau của triệu chứng
+		# ("không vào tổng tiền") mà task này sinh ra để dẹp.
+		#
+		# Phần CẤM của kế hoạch (bẫy 4) vẫn giữ tuyệt đối: chốt KHÔNG nằm
+		# trong `validate()` của doctype con — Frappe không bao giờ gọi hàm
+		# đó khi document CHA lưu.
+		"before_validate": [
+			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+		],
 		"validate": [
 			"miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
 			# E6 phần B, review I-2(a) round 2 — ghi `custom_ngay_gui_khach_
