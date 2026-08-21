@@ -308,7 +308,9 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
     code thẳng vào nó) — KHÔNG tự đổi khoá/kiểu dữ liệu ở đây:
 
         {"rows": [{item_code, item_name, dvt, tang, don_gia,
-                   blanket_order, boi_so}], "tong": int}
+                   blanket_order, boi_so,
+                   trang_thai_hang, total, used, remaining,
+                   khong_gioi_han}], "tong": int}
 
     `tang` chỉ nhận `"hop_dong"` hoặc `"cho_bao_gia"`. `don_gia`/
     `blanket_order`/`boi_so` là `None` (KHÔNG phải `0`) khi không áp dụng —
@@ -338,6 +340,31 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
     `limit_page_length`, cùng khuôn `portal_order_history`/`portal_catalog_
     ban_le`) — KHÔNG dựng toàn bộ danh mục trong Python rồi cắt lát:
     `tabItem` là TOÀN BỘ danh mục Miyano.
+
+    Task 10 (gộp "Đặt hàng" và "Lập phiếu", 21/08/2026) — BỔ SUNG, không
+    đổi khoá cũ:
+
+    * `trang_thai_hang` — ĐÚNG cơ chế màn mua lẻ đang dùng (`portal_mua_le.
+      trang_thai_hang`, đọc tồn Miyano thật ở `tabBin`), KHÔNG dựng cơ chế
+      thứ hai: hai cách trả lời "còn hàng không" sớm muộn cũng trả lời khác
+      nhau cho cùng một mã.
+    * `total`/`used`/`remaining`/`khong_gioi_han` — hạn mức còn lại cho
+      dòng TẦNG 1, dùng LẠI `portal_context.han_muc_con()` (nguồn duy nhất
+      của luật hạn mức) và ĐÚNG bộ khoá `portal_catalog` đã trả cho màn cũ,
+      để giao diện không phải học hai phương ngữ cho cùng một thứ.
+      `remaining is None` + `khong_gioi_han is True` = khai `qty = 0`, quy
+      ước KHÔNG GIỚI HẠN (QĐ-8/BR-O15); `remaining == 0.0` = HẾT hạn mức —
+      gộp hai trạng thái này là cách chắc chắn hiện sai một trong hai.
+      Dòng tầng 2 không thuộc hợp đồng nào nên cả bốn khoá đều rỗng
+      (`None`/`False`), không phải "không giới hạn".
+    * THỨ TỰ — QĐ-G10: hàng trong hợp đồng của CHÍNH khách đứng TRƯỚC, hết
+      rồi mới tới danh mục chung. Làm bằng HAI truy vấn phân đôi (`name in`
+      / `name not in` tập mã hợp đồng), mỗi truy vấn vẫn cắt trang trong
+      SQL — KHÔNG nhét `CASE WHEN` vào `order_by` (`DatabaseQuery.validate_
+      order_by_and_group_by` của Frappe soi từng vế theo tên cột, một biểu
+      thức sẽ bị từ chối) và KHÔNG kéo cả danh mục về Python để sắp xếp.
+      `tong` là tổng hai nửa — hai nửa là một PHÂN HOẠCH của đúng bộ lọc cũ
+      nên con số không đổi so với bản một truy vấn.
     """
     customer = get_portal_customer()
     start = max(0, int(start or 0))
@@ -369,28 +396,56 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
         # phải là RỖNG, không phải "bỏ qua điều kiện".
         filters.append(["name", "in", ma_thuoc_hop_dong or [""]])
 
-    # `frappe.db.count` KHÔNG nhận `or_filters` — đếm qua `get_all` với
-    # ĐÚNG bộ filters/or_filters của truy vấn trang dưới (cùng lý do
-    # `portal_catalog_ban_le` đã ghi), nếu không `tong` sẽ lặng lẽ bỏ qua
-    # điều kiện tìm kiếm khi `tu_khoa` có giá trị.
-    tong = frappe.get_all(
-        "Item", filters=filters, or_filters=or_filters,
-        fields=["count(name) as tong"],
-    )[0].tong
-
-    rows = frappe.get_all(
-        "Item", filters=filters, or_filters=or_filters,
-        fields=["item_code", "item_name", "stock_uom", "custom_boi_so_dat"],
-        # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
-        # TẤT ĐỊNH giữa hai trang, cùng lý do `portal_catalog_ban_le`.
-        order_by="item_name asc, name asc",
-        limit_start=start, limit_page_length=limit,
-    )
-
     # MỘT truy vấn cho CẢ TRANG (không lặp theo từng dòng) — hợp đồng
     # thắng cuộc của khách là customer-wide, không phụ thuộc từ khoá tìm.
+    # Phải tính TRƯỚC phần truy vấn danh mục: chính tập mã này chia danh
+    # mục làm hai nửa (QĐ-G10).
     thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+    ma_hop_dong = sorted(thang_cuoc)
+
+    COT = ["item_code", "item_name", "stock_uom", "custom_boi_so_dat"]
+    # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
+    # TẤT ĐỊNH giữa hai trang, cùng lý do `portal_catalog_ban_le`.
+    THU_TU = "item_name asc, name asc"
+
+    def _dem(dk):
+        # `frappe.db.count` KHÔNG nhận `or_filters` — đếm qua `get_all` với
+        # ĐÚNG bộ filters/or_filters của truy vấn trang dưới (cùng lý do
+        # `portal_catalog_ban_le` đã ghi), nếu không `tong` sẽ lặng lẽ bỏ
+        # qua điều kiện tìm kiếm khi `tu_khoa` có giá trị.
+        return frappe.get_all(
+            "Item", filters=dk, or_filters=or_filters, fields=["count(name) as tong"],
+        )[0].tong
+
+    def _trang(dk, bat_dau, so_dong):
+        if so_dong <= 0:
+            return []
+        return frappe.get_all(
+            "Item", filters=dk, or_filters=or_filters, fields=COT, order_by=THU_TU,
+            limit_start=bat_dau, limit_page_length=so_dong,
+        )
+
+    if ma_hop_dong:
+        dk_hop_dong = filters + [["name", "in", ma_hop_dong]]
+        dk_chung = filters + [["name", "not in", ma_hop_dong]]
+        tong_hop_dong = _dem(dk_hop_dong)
+        tong = tong_hop_dong + _dem(dk_chung)
+        if start < tong_hop_dong:
+            rows = _trang(dk_hop_dong, start, limit)
+            # Nửa hợp đồng đã hết giữa chừng trang này → phần còn lại của
+            # trang lấy từ ĐẦU nửa danh mục chung (offset 0, không phải
+            # `start`): đó đúng là dòng kế tiếp trong thứ tự gộp.
+            rows += _trang(dk_chung, 0, limit - len(rows))
+        else:
+            rows = _trang(dk_chung, start - tong_hop_dong, limit)
+    else:
+        # Khách chưa có hợp đồng nào còn hiệu lực — không có nửa nào để tách.
+        # CỐ Ý không đi qua `["name", "not in", []]`: mảng rỗng trong toán tử
+        # tập hợp không tất định trên mọi bản Frappe (cùng bẫy `or [""]` ở
+        # nhánh `contract` phía trên).
+        tong = _dem(filters)
+        rows = _trang(filters, start, limit)
 
     out = []
     for r in rows:
@@ -399,23 +454,36 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
         # trả `None` (KHÔNG phải `0`) để khớp quy ước "0 là giá trị hợp lệ"
         # của cả hợp đồng đóng băng lẫn `kiem_boi_so()` (`portal_dat_hang.py`).
         boi_so = int(r.custom_boi_so_dat or 0) or None
+        dong = {
+            "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
+            "boi_so": boi_so,
+            "trang_thai_hang": trang_thai_hang(r.item_code),
+        }
         if bo:
             # ĐÚNG nguồn giá `_dong_dau_gia()` dùng (`_gia_hien_hanh`) — hai
             # đường tra giá khác nhau sớm muộn cũng lệch, cùng lý do module
             # `dat_hang` không tự viết một hàm tra giá thứ hai.
             don_gia = dat_hang._gia_hien_hanh(r.item_code, price_list) if price_list else None
-            out.append({
-                "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
+            con_lai, da_dat = han_muc_con(bo, r.item_code)
+            dong.update({
                 "tang": "hop_dong",
                 "don_gia": float(don_gia) if don_gia is not None else None,
-                "blanket_order": bo, "boi_so": boi_so,
+                "blanket_order": bo,
+                # Cùng bộ khoá `portal_catalog` — xem docstring. `remaining`
+                # `None` CHỈ khi không giới hạn, và `khong_gioi_han` là khoá
+                # phân định, không phải suy từ `remaining` ở tầng hiển thị.
+                "total": float(con_lai + da_dat) if con_lai is not None else 0.0,
+                "used": da_dat,
+                "remaining": None if con_lai is None else max(con_lai, 0.0),
+                "khong_gioi_han": con_lai is None,
             })
         else:
-            out.append({
-                "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
-                "tang": "cho_bao_gia", "don_gia": None,
-                "blanket_order": None, "boi_so": boi_so,
+            dong.update({
+                "tang": "cho_bao_gia", "don_gia": None, "blanket_order": None,
+                "total": None, "used": None, "remaining": None,
+                "khong_gioi_han": False,
             })
+        out.append(dong)
     return {"rows": out, "tong": tong}
 
 

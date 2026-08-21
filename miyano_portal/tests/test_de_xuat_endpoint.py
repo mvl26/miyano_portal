@@ -77,6 +77,16 @@ class TestDeXuatEndpoint(FrappeTestCase):
 			self.kh_b, f.khoa_duoc, owner=self.user_benh_vien_b
 		)
 
+		# Task 10 — mặt hàng RIÊNG của file này có khai bội số. CỐ Ý không
+		# gắn `custom_boi_so_dat` lên `_TEST DX ITEM` (fixture DÙNG CHUNG cho
+		# nhiều file test): đặt bội số lên nó sẽ làm mọi bài đang đặt 1 đơn
+		# vị của mã đó vướng `kiem_boi_so()` ở một file khác hẳn.
+		self.item_boi_so = self._dam_bao_item_boi_so("_TEST DX ITEM LOC 10", 10)
+		self.phieu_boi_so = self._tao_phieu(
+			self.kh_a, self.khoa_huyethoc, owner=self.user_huyethoc,
+			item_code=self.item_boi_so,
+		)
+
 		# Tên riêng khớp Step 1 của brief (đọc dễ hơn `self.phieu_huyethoc`
 		# khi nói về "phiếu của tôi"/"phiếu của người khác").
 		self.phieu_nhap_cua_toi = self.phieu_huyethoc
@@ -120,11 +130,23 @@ class TestDeXuatEndpoint(FrappeTestCase):
 			}).insert(ignore_permissions=True)
 		return email
 
-	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1):
+	def _dam_bao_item_boi_so(self, ten, boi_so):
+		if not frappe.db.exists("Item", ten):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ten, "item_name": ten,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Nos", "is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		frappe.db.set_value("Item", ten, "custom_boi_so_dat", boi_so)
+		return ten
+
+	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1, item_code=None):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": customer, "khoa_phong": khoa_phong,
-			"items": [{"item_code": self.item, "so_luong_de_xuat": so_luong}],
+			"items": [{
+				"item_code": item_code or self.item, "so_luong_de_xuat": so_luong,
+			}],
 		})
 		doc.insert(ignore_permissions=True)
 		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", owner)
@@ -358,6 +380,32 @@ class TestDeXuatEndpoint(FrappeTestCase):
 		ket_qua = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		for row in ket_qua["items"]:
 			self.assertEqual(row.get("so_luong_xin_sua"), 0)
+
+	# ---- Task 10 — `boi_so` phải đi CÙNG dòng phiếu, không chỉ đi cùng
+	# kết quả tìm kiếm.
+	#
+	# Màn Đặt hàng chặn bội số ngay tại ô số lượng (`portal_catalog_gop` trả
+	# `boi_so` cho dòng vừa tìm). Nhưng một phiếu Nháp MỞ LẠI để sửa tiếp
+	# không đi qua ô tìm kiếm nữa — nó nạp dòng từ đây. Thiếu `boi_so` ở
+	# đường này, đúng cái lỗi "7 hộp của lốc 10" lại nổ vào mặt QUẢN LÝ lúc
+	# duyệt, cho một con số quản lý không hề chọn.
+
+	def test_chi_tiet_tra_boi_so_cua_tung_dong(self):
+		"""VẾ DƯƠNG — mặt hàng khai `custom_boi_so_dat = 10` phải ra `10`."""
+		frappe.set_user(self.user_huyethoc)
+		ket_qua = de_xuat.de_xuat_chi_tiet(self.phieu_boi_so)
+		dong = [r for r in ket_qua["items"] if r["item_code"] == self.item_boi_so]
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0]["boi_so"], 10)
+
+	def test_chi_tiet_tra_boi_so_none_khi_khong_khai(self):
+		"""`None`, KHÔNG phải `0` hay `1` — cùng quy ước `portal_catalog_gop`
+		("không ràng buộc bội số"). `0` sẽ đọc thành "bội số bằng 0" và `1`
+		là một ràng buộc THẬT mà mặt hàng này không có."""
+		frappe.set_user(self.user_huyethoc)
+		ket_qua = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		for row in ket_qua["items"]:
+			self.assertIsNone(row["boi_so"])
 
 	def test_field_so_luong_xin_sua_an_tren_desk(self):
 		"""Chốt cấu hình — đọc THẲNG file JSON của doctype (nguồn sự thật),

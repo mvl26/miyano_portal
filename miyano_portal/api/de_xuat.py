@@ -175,9 +175,28 @@ def de_xuat_chi_tiet(ten) -> dict:
 	của `portal_order_sua_so_luong`) và phải sống sót nguyên vẹn."""
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
 	kq = doc.as_dict()
-	for row in kq.get("items") or []:
+	dong = kq.get("items") or []
+	# Task 10 — `boi_so` (quy cách đóng gói) đi CÙNG dòng phiếu, không chỉ
+	# cùng kết quả tìm kiếm của `portal_catalog_gop`. Màn Đặt hàng chặn bội
+	# số ngay tại ô số lượng; một phiếu Nháp MỞ LẠI để sửa tiếp không đi qua
+	# ô tìm kiếm nữa, nên nếu không mang bội số theo đường này thì đúng lỗi
+	# "7 hộp của lốc 10" lại nổ vào mặt QUẢN LÝ lúc duyệt — cho một con số
+	# quản lý không hề chọn. `None` (KHÔNG phải `0`/`1`) = không ràng buộc,
+	# cùng quy ước `portal_catalog_gop`/`kiem_boi_so()`.
+	#
+	# MỘT truy vấn cho cả phiếu, không hỏi từng dòng.
+	boi_so_theo_ma = {
+		r.name: int(r.custom_boi_so_dat or 0) or None
+		for r in frappe.get_all(
+			"Item",
+			filters={"name": ["in", [d.get("item_code") for d in dong if d.get("item_code")] or [""]]},
+			fields=["name", "custom_boi_so_dat"],
+		)
+	}
+	for row in dong:
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
+		row["boi_so"] = boi_so_theo_ma.get(row.get("item_code"))
 	return kq
 
 
