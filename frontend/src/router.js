@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import Dashboard from './views/Dashboard.vue'
-import Catalog from './views/Catalog.vue'
-import Cart from './views/Cart.vue'
 import Orders from './views/Orders.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import DeXuatList from './views/DeXuatList.vue'
@@ -29,24 +27,27 @@ import KiemHang from './views/KiemHang.vue'
 const routes = [
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', name: 'dashboard', component: Dashboard, meta: { title: 'Tổng quan' } },
-  { path: '/catalog', name: 'catalog', component: Catalog, meta: { title: 'Đặt hàng' } },
-  { path: '/cart', name: 'cart', component: Cart, meta: { title: 'Giỏ hàng' } },
+  // Task 10 (gộp "Đặt hàng" và "Lập phiếu", 21/08/2026) — MỘT cửa đi mua đồ.
+  // `:ten` tuỳ chọn: mở lại một phiếu Nháp để sửa tiếp (xem `LapPhieu.vue`).
+  { path: '/dat-hang/:ten?', name: 'dat-hang', component: LapPhieu, meta: { title: 'Đặt hàng' } },
+  // QĐ-G7 — ba đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
+  // của khách và trong tài liệu đã gửi bệnh viện; trả 404 cho một đường
+  // đang chạy là hồi quy, không phải dọn dẹp. `/cart` từng là ĐÍCH của
+  // "Đặt lại đơn cũ" (OrderDetail.vue) — đường đó nay đi thẳng tới một
+  // phiếu Nháp, xem `datLai()` ở màn đó.
+  { path: '/catalog', redirect: { name: 'dat-hang' } },
+  { path: '/cart', redirect: { name: 'dat-hang' } },
   { path: '/orders', name: 'orders', component: Orders, meta: { title: 'Đơn hàng của tôi' } },
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
   // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua.
   { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
-  // Man luong duyet (Task 8) — LẬP/SỬA một phiếu đề xuất mua ở trạng thái
-  // Nháp. Đường dẫn `/de-xuat/lap/:ten?` (`ten` TUỲ CHỌN) — ba đoạn "lap" +
-  // tham số nên KHÔNG đụng `/de-xuat/:ten` ngay dưới (khác số đoạn đường
-  // dẫn, không thể trùng dù xếp hạng route tĩnh/động thế nào).
-  //
-  // Vòng sửa 1 (review) — trước bản này route KHÔNG có `:ten`, nghĩa là một
-  // phiếu Nháp đã Lưu rồi RỜI MÀN thì KHÔNG CÒN ĐƯỜNG NÀO SỬA LẠI được nữa
-  // (DeXuatDetail.vue chỉ đọc `so_luong_de_xuat`, không có ô nhập). Có
-  // `:ten` thì `/de-xuat/lap/:ten` mở lại ĐÚNG phiếu đó để sửa tiếp — xem
-  // `LapPhieu.vue` (nạp qua `de_xuat_chi_tiet`, từ chối nếu phiếu không còn
-  // ở trạng thái Nháp). Không tham số vẫn là LẬP MỚI (tạo lười).
-  { path: '/de-xuat/lap/:ten?', name: 'de-xuat-lap', component: LapPhieu, meta: { title: 'Lập phiếu đề xuất' } },
+  // `/de-xuat/lap/:ten?` là màn Lập phiếu cũ — nay CHÍNH LÀ `/dat-hang`
+  // (Task 10). Giữ nguyên tham số `:ten` khi chuyển hướng: đường này nằm
+  // trong nút "Sửa nháp" của mọi phiếu đã gửi đi trước bản này.
+  {
+    path: '/de-xuat/lap/:ten?',
+    redirect: (to) => ({ name: 'dat-hang', params: { ten: to.params.ten } }),
+  },
   // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
   { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
   // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +

@@ -11,13 +11,14 @@ const route = useRoute()
 
 const NAV = [
   { to: '/dashboard', icon: '🏠', label: 'Tổng quan', short: 'Tổng quan', key: 'dashboard' },
-  { to: '/catalog', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'catalog' },
-  { to: '/cart', icon: '📦', label: 'Giỏ hàng', short: 'Giỏ', key: 'cart', cart: true },
+  // Task 10 (gộp "Đặt hàng" và "Lập phiếu", 21/08/2026) — MỘT mục duy nhất
+  // cho việc "đi mua đồ" (QĐ-G5). Ba mục cũ ("Đặt hàng" `/catalog`, "Giỏ
+  // hàng" `/cart`, "Lập phiếu đề xuất" `/de-xuat/lap`) đã gộp vào đây: hai
+  // mục cùng nghĩa là để lộ lịch sử thi công ra mặt người dùng, còn giỏ
+  // hàng là một BƯỚC của việc đặt hàng chứ không phải một đích đến ai đó mở
+  // cổng lên để vào xem. Tên giữ nguyên "Đặt hàng" theo chủ đầu tư.
+  { to: '/dat-hang', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'dat-hang' },
   { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
-  // Task 8 (màn lập phiếu) — hiện cho MỌI vai trò, KHÔNG gate theo
-  // `la_quan_ly` như mục "Duyệt" bên dưới: lập phiếu là việc của nhân viên
-  // khoa, không phải của quản lý (quản lý duyệt, không tự đề xuất hộ khoa).
-  { to: '/de-xuat/lap', icon: '🧾', label: 'Lập phiếu đề xuất', short: 'Lập phiếu', key: 'de-xuat-lap' },
   // Man luong duyet (Task 3) — hiện cho MỌI vai trò: nhân viên khoa thấy
   // phiếu khoa mình, quản lý thấy toàn viện. Server (`de_xuat_danh_sach`
   // + `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
@@ -38,17 +39,21 @@ const NAV = [
 // Bottom nav (mobile): Thông báo truy cập qua "Thêm" (Hồ sơ) như Hoá đơn,
 // để giữ đúng 6 mục cố định của mockup — badge vẫn hiện trên chính mục
 // "Thêm" (xem isActive/`thongBaoQuaThem` bên dưới) để không mất tín hiệu.
+//
+// Task 10 — "Giỏ hàng" rời thanh dưới cùng lúc rời sidebar (nó là một BƯỚC
+// của màn Đặt hàng, không phải một cửa). Chỗ trống nhường cho "Đề xuất" —
+// mục mà nhân viên khoa vào để xem yêu cầu mình đã gửi đi tới đâu, trước
+// bản này chỉ tới được qua "Thêm".
 const BNAV = [
   { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
-  { to: '/catalog', icon: '🛒', short: 'Đặt hàng', key: 'catalog' },
-  { to: '/cart', icon: '🧺', short: 'Giỏ hàng', key: 'cart', cart: true },
+  { to: '/dat-hang', icon: '🛒', short: 'Đặt hàng', key: 'dat-hang' },
   { to: '/orders', icon: '📋', short: 'Đơn hàng', key: 'orders' },
+  { to: '/de-xuat', icon: '📝', short: 'Đề xuất', key: 'de-xuat' },
   { to: '/kho', icon: '🏭', short: 'Kho', key: 'kho' },
   { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile', thongBao: true },
 ]
 
 const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
-const cartCount = computed(() => store.cartCount)
 const chuaDocThongBao = computed(() => store.chuaDocThongBao)
 const choDuyetCount = computed(() => store.choDuyetCount)
 // Việc (e) — badge hiện "200+" khi hàng chờ chạm trần một lời gọi. Con số
@@ -64,6 +69,9 @@ const navItems = computed(() => NAV.filter((n) => !n.requireQuanLy || store.me?.
 function isActive(key) {
   const name = route.name || ''
   if (key === 'orders') return name === 'orders' || name === 'order-detail'
+  // Task 10 — `/dat-hang/:ten` (mở lại một phiếu Nháp để sửa tiếp) là CÙNG
+  // một màn, cùng một mục nav: cùng khuôn nhánh 'orders' ở trên.
+  if (key === 'dat-hang') return name === 'dat-hang'
   // Man luong duyet (Task 4) — route con 'de-xuat-detail' vừa được tạo;
   // cùng khuôn nhánh 'orders' ở trên, không phát minh cách khác.
   // Việc (c) + C3 — màn chi tiết phiếu là ĐÍCH CHUNG của HAI mục nav. Nó
@@ -71,7 +79,6 @@ function isActive(key) {
   // nguồn ghi vào lúc điều hướng (xem `quayLaiTo` ở DeXuatDetail.vue). Thiếu
   // vế này thì quản lý mở phiếu từ /duyet lại thấy "Đề xuất mua" sáng —
   // đúng lỗi đã sửa cho 'de-xuat' ở Task 4, tái diễn qua cửa 'duyet'.
-  if (key === 'de-xuat-lap') return name === 'de-xuat-lap'
   if (key === 'de-xuat') return name === 'de-xuat' || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
   if (key === 'duyet') return name === 'duyet' || (name === 'de-xuat-detail' && route.query.tu === 'duyet')
   if (key === 'kho') {
@@ -133,7 +140,6 @@ onMounted(async () => {
           :class="{ on: isActive(n.key) }"
         >
           <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
-          <span v-if="n.cart && cartCount" class="cartn">{{ cartCount }}</span>
           <span v-if="n.thongBao && chuaDocThongBao" class="cartn">{{ chuaDocThongBao }}</span>
           <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetNhan }}</span>
         </router-link>
@@ -145,12 +151,11 @@ onMounted(async () => {
       </div>
     </aside>
 
-    <!-- Mobile header (<900px) -->
+    <!-- Mobile header (<900px). Task 10 — nút giỏ hàng đã bỏ: không còn
+         một giỏ toàn cục nào để đếm; giỏ sống TRONG màn Đặt hàng (bước 2)
+         và biến mất cùng phiếu khi khách rời màn. -->
     <header class="hdr">
       <span class="ttl">{{ pageTitle }}</span>
-      <router-link to="/cart" class="cartbtn">
-        🧺<span v-if="cartCount" class="cartn">{{ cartCount }}</span>
-      </router-link>
     </header>
 
     <!-- Content -->
@@ -168,7 +173,6 @@ onMounted(async () => {
       >
         <span class="ic">{{ n.icon }}</span>
         <span>{{ n.short }}</span>
-        <span v-if="n.cart && cartCount" class="cartn2">{{ cartCount }}</span>
         <span v-if="n.thongBao && chuaDocThongBao" class="cartn2">{{ chuaDocThongBao }}</span>
       </router-link>
     </nav>

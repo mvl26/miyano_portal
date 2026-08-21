@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate, statusBadge } from '../format'
 import { useIsMobile } from '../useMobile'
-import { store } from '../store'
 import { showToast } from '../toast'
 import ReasonModal from '../components/ReasonModal.vue'
 import HoaDonNhap from '../components/HoaDonNhap.vue'
@@ -78,7 +77,20 @@ function stepClass(m, idx) {
   return ''
 }
 
-// UC-14 — điền lại giỏ theo đơn cũ, theo giá hiện hành.
+// UC-14 — đặt lại theo đơn cũ, theo giá hiện hành.
+//
+// Task 10 — đích đến ĐỔI: trước bản này hàm nạp `store.cart` rồi đẩy sang
+// `/cart`. Giỏ toàn cục đó không còn (màn Đặt hàng gộp giữ giỏ TRONG chính
+// nó, dưới dạng một phiếu Nháp), và để `/cart` chuyển hướng suông sẽ là một
+// hỏng LẶNG LẼ tệ nhất hạng: toast báo thành công, màn mở ra, giỏ trống.
+//
+// Thay bằng: tạo thẳng một phiếu Nháp mang đúng các dòng đặt lại được, rồi
+// mở `/dat-hang/<ten>`. Lợi thêm hai điều, không chỉ là cách vá:
+//   * TẦNG của mỗi dòng do `PortalDeXuatMua._suy_nguon_gia()` quyết ở
+//     `validate()` — CÙNG một luật với mọi đường khác, không phải một bản
+//     suy tầng thứ hai viết riêng cho nút "Đặt lại";
+//   * đơn đặt lại giờ cũng có một chứng từ đề nghị đứng sau, đúng mô hình
+//     "mọi đơn đều đi qua một phiếu" mà cổng đang hội tụ về.
 async function datLai() {
   if (dangDatLai.value) return
   dangDatLai.value = true
@@ -88,8 +100,18 @@ async function datLai() {
       showToast('Không mặt hàng nào của đơn này còn đặt lại được.', 'error')
       return
     }
-    store.napGio(res.gio_hang)
-    if (data.value?.hdnt) store.setContract(data.value.hdnt)
+    const ten = (await api.callDeXuat('de_xuat_tao_nhap')).name
+    await api.callDeXuat('de_xuat_luu_nhap', {
+      ten,
+      items: JSON.stringify(
+        res.gio_hang.map((d) => ({
+          item_code: d.item_code,
+          item_name: d.item_name || d.item_code,
+          dvt: d.uom || '',
+          so_luong_de_xuat: Number(d.qty) || 0,
+        }))
+      ),
+    })
     if (res.bi_loai.length) {
       // Nêu ĐỦ dòng bị loại kèm lý do. Im lặng bỏ bớt là cách chắc chắn
       // khiến khách đặt thiếu hàng mà không biết.
@@ -101,7 +123,7 @@ async function datLai() {
         'error'
       )
     }
-    router.push('/cart')
+    router.push({ name: 'dat-hang', params: { ten } })
   } catch (e) {
     showToast(e.message || 'Không đặt lại được đơn này.', 'error')
   } finally {

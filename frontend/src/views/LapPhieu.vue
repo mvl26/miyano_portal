@@ -632,7 +632,7 @@ async function datHang() {
     // BR-O12 — sinh mã chống trùng MỘT LẦN và giữ nguyên cho tới khi đơn tạo
     // xong: bấm lại phải gửi CÙNG một mã thì server mới nhận ra và trả về
     // đơn cũ thay vì tạo đơn thứ hai.
-    store.moModalXacNhan()
+    store.batDauDatHang()
     const res = await api.call('portal_order_place', {
       items: JSON.stringify(
         items.value.map((r) => ({

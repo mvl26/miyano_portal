@@ -54,9 +54,12 @@ function openOrder(name) {
   router.push({ name: 'order-detail', params: { name } })
 }
 
-function orderByContract(contractName) {
-  store.setContract(contractName)
-  router.push('/catalog')
+// Task 10 — một cửa đi mua đồ (`/dat-hang`). Không còn `store.setContract`:
+// từ Task 4 mỗi DÒNG tự tìm hợp đồng của nó trong các hợp đồng còn hiệu lực
+// của khách, nên "đặt hàng theo hợp đồng X" không còn là một chế độ để chọn
+// trước — nó là kết quả suy ra cho từng mặt hàng.
+function orderByContract() {
+  router.push('/dat-hang')
 }
 </script>
 
@@ -69,7 +72,7 @@ function orderByContract(contractName) {
         <h2>Xin chào, {{ me?.customer_name || 'Quý khách' }} 👋</h2>
         <div class="sub">{{ me?.customer_name }} – cập nhật {{ updatedAt }}</div>
       </div>
-      <router-link to="/catalog"><button class="btn">+ Đặt hàng mới</button></router-link>
+      <router-link to="/dat-hang"><button class="btn">+ Đặt hàng mới</button></router-link>
     </div>
 
     <div class="kpis">
@@ -118,8 +121,8 @@ function orderByContract(contractName) {
           <div class="note" style="margin-top: 14px">
             💡 Đặt hàng theo đúng đơn giá và hạn mức của hợp đồng khung đã ký.
           </div>
-          <button class="btn-o btn-sm" style="margin-top: 12px" @click="orderByContract(contract.name)">
-            Đặt hàng theo hợp đồng này →
+          <button class="btn-o btn-sm" style="margin-top: 12px" @click="orderByContract()">
+            Đặt hàng →
           </button>
         </template>
         <p v-else class="tag">Chưa có hợp đồng khung còn hiệu lực.</p>
