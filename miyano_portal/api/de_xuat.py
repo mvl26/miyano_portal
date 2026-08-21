@@ -22,7 +22,12 @@ lọc riêng.
 
 import frappe
 
-from miyano_portal.portal_context import get_portal_member, la_quan_ly, pham_vi_don
+from miyano_portal.portal_context import (
+	get_portal_member,
+	la_quan_ly,
+	pham_vi_don,
+	ten_nguoi_dung,
+)
 
 DOCTYPE = "Portal De Xuat Mua"
 
@@ -175,6 +180,15 @@ def de_xuat_chi_tiet(ten) -> dict:
 	của `portal_order_sua_so_luong`) và phải sống sót nguyên vẹn."""
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
 	kq = doc.as_dict()
+	# Chủ đầu tư chốt 21/08 — khối "Truy vết yêu cầu" phải ghi TÊN NGƯỜI.
+	# Suy từ `nguoi_yeu_cau` nếu có, nếu không thì `owner`: phiếu lập qua
+	# giao diện thật KHÔNG điền `nguoi_yeu_cau` (không đường mã nào ghi
+	# field đó cho doctype này), nên `owner` mới là người đề nghị thật —
+	# đúng thứ tự mà `DeXuatDetail.vue` vẫn đang hiển thị. Giải một lần ở
+	# BIÊN GIỚI API, cùng chỗ và cùng lý do với việc dọn sentinel dưới đây.
+	kq["nguoi_yeu_cau_ten"] = ten_nguoi_dung(
+		kq.get("nguoi_yeu_cau") or kq.get("owner")
+	)
 	dong = kq.get("items") or []
 	# Task 10 — `boi_so` (quy cách đóng gói) đi CÙNG dòng phiếu, không chỉ
 	# cùng kết quả tìm kiếm của `portal_catalog_gop`. Màn Đặt hàng chặn bội

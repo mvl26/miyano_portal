@@ -677,20 +677,28 @@ class TestKiemHangDuLieuThat(_KiemHangBase):
 		for r in so.items:
 			if r.item_code != ITEM_GIU_CHO:
 				r.rate = 95000
-		so.items = [r for r in so.items if r.item_code != ITEM_GIU_CHO]
+		# Task 13 (QĐ-G13) — KHÔNG còn dựng TAY dòng hàng cho dòng đặt ngoài,
+		# và KHÔNG còn tự tay tick `da_xu_ly`: khớp mã là hệ thống tự CHUYỂN
+		# dòng gõ tay thành dòng hàng thật, tự gỡ dòng giữ chỗ (bẫy 3) và tự
+		# bật `da_xu_ly` (QĐ-G16). Giữ nguyên đoạn dựng tay của bản cũ sẽ
+		# ĐẾM ĐÔI số lượng (2 dòng tay + 2 dòng chuyển = 4), và biên bản kiểm
+		# hàng bên dưới báo "giao 4, nhận tốt 2" — đúng cái đỏ đã bắt được.
 		for d in (so.get("custom_dat_ngoai") or []):
-			d.da_xu_ly = 1
 			d.item_khop = ITEM_2
-		so.append("items", {
-			"item_code": ITEM_2, "qty": 2, "rate": 12000,
-			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
-			# `getdate` chứ không phải chuỗi: các dòng do `_xay_don_ban_le`
-			# tạo mang `datetime.date`, và `validate_delivery_date` của ERPNext
-			# gọi max() trên hỗn hợp str/date sẽ nổ.
-			"delivery_date": frappe.utils.getdate(so.delivery_date),
-		})
 		so.flags.ignore_permissions = True
 		so.save()
+		so.reload()
+		self.assertNotIn(
+			ITEM_GIU_CHO, [r.item_code for r in so.items],
+			"khớp mã xong thì dòng giữ chỗ phải tự biến mất (Task 13, bẫy 3)",
+		)
+		for r in so.items:
+			if r.item_code == ITEM_2:
+				# Miyano chốt giá cho dòng vừa chuyển (mã này ngoài hợp đồng
+				# của khách thử nghiệm nên tới đây `rate = 0`, đúng tầng 2).
+				r.rate = 12000
+				r.cost_center = COST_CENTER
+		so.save(ignore_permissions=True)
 		so.submit()
 
 		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note

@@ -67,14 +67,23 @@ class TestBaoGiaPdf(FrappeTestCase):
     def test_pdf_dung_dau_cham_phan_nhom_khong_dau_phay(self):
         """review Minor — quy ước dự án là `1.234.567 ₫` (dấu CHẤM phân
         nhóm), không phải `1,234,567 ₫` (dấu phẩy, mặc định của
-        "{:,.0f}".format() chưa xử lý). `RETAIL_CO_GIA` giá 25000, số lượng
-        3 → thành tiền 75.000 ₫."""
+        "{:,.0f}".format() chưa xử lý).
+
+        CON SỐ ĐỔI ở Task 13 (QĐ-G13, bẫy 2), hành vi được kiểm thì KHÔNG:
+        fixture đặt 3 `RETAIL_CO_GIA` trong `items` và một dòng gõ tay 5
+        đơn vị mà sales khớp về CHÍNH mã đó. Trước Task 13, dòng gõ tay
+        không bao giờ thành hàng thật nên báo giá chỉ tính 3 × 25.000 =
+        75.000 ₫ — tức khách nhận báo giá THIẾU đúng món họ gõ tay, đúng
+        lỗi Task 13 sinh ra để sửa. Giờ 5 đơn vị đó được GỘP vào dòng sẵn
+        có (không thêm dòng thứ hai cùng mã): 8 × 25.000 = 200.000 ₫, và
+        câu "đã khớp mã và tính vào bảng báo giá phía trên" in ở cuối mẫu
+        lần đầu tiên nói đúng sự thật."""
         ten = self._don_cho_khach_dong_y()
         html = frappe.get_print(
             "Sales Order", ten, print_format=PRINT_FORMAT, no_letterhead=1
         )
-        self.assertIn("75.000 ₫", html)
-        self.assertNotIn("75,000", html)
+        self.assertIn("200.000 ₫", html)
+        self.assertNotIn("200,000", html)
 
     def test_pdf_khong_chua_dong_giu_cho(self):
         res = portal.portal_order_place(

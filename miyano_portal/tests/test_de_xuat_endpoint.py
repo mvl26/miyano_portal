@@ -355,6 +355,46 @@ class TestDeXuatEndpoint(FrappeTestCase):
 			de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		self.assertIn("không thuộc", str(ctx.exception))
 
+	# ---- Chủ đầu tư chốt 21/08 — khối "Truy vết yêu cầu" phải ghi TÊN
+	# NGƯỜI, không phải email ("Người yêu cầu: buiviet9802@gmail.com").
+	#
+	# Giải ở BIÊN GIỚI API, cùng chỗ và cùng lý do với việc dọn sentinel
+	# ngay dưới: tầng hiển thị không phải tự đi tra `User` cho mỗi màn, và
+	# không có hai nơi cùng quyết định "hiện tên thế nào" rồi lệch nhau.
+
+	def test_chi_tiet_tra_TEN_nguoi_yeu_cau_chu_khong_phai_email(self):
+		"""VẾ DƯƠNG — khẳng định ĐÚNG CHUỖI tên, không chỉ "khác email"."""
+		frappe.db.set_value("User", self.user_huyethoc, {
+			"first_name": "Bùi", "last_name": "Việt",
+		})
+		frappe.set_user(self.user_huyethoc)
+		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		self.assertEqual(kq["nguoi_yeu_cau_ten"], "Bùi Việt")
+		self.assertNotIn("@", kq["nguoi_yeu_cau_ten"])
+
+	def test_chi_tiet_VAN_giu_nguyen_email_trong_truong_goc(self):
+		"""Trường GỐC không được đổi: `nguoi_yeu_cau` là `recipient_field`
+		của ba Notification (`setup/install_notifications.py`) — biến nó
+		thành tên người là gửi thư vào hư không. Tên chỉ là khoá THÊM cho
+		tầng hiển thị."""
+		frappe.db.set_value("User", self.user_huyethoc, {
+			"first_name": "Bùi", "last_name": "Việt",
+		})
+		frappe.set_user(self.user_huyethoc)
+		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		self.assertEqual(kq["owner"], self.user_huyethoc)
+		self.assertIn("@", kq["owner"])
+
+	def test_chi_tiet_khong_tra_cuu_duoc_ten_thi_LUI_VE_email(self):
+		"""Tài khoản đã bị xoá → vẫn phải hiện MỘT thứ gì đó nhận dạng
+		được. Ô trống ở khối truy vết là mất dấu vết, tệ hơn một email."""
+		mo_coi = "dxendpoint.damxoa@demo.miyano"
+		frappe.db.set_value("Portal De Xuat Mua", self.phieu_huyethoc, "owner", mo_coi)
+		self.assertFalse(frappe.db.exists("User", mo_coi), "tiền đề: không có tài khoản này")
+		frappe.set_user("Administrator")
+		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
+		self.assertEqual(kq["nguoi_yeu_cau_ten"], mo_coi)
+
 	# ---- M1 (review tổng) — sentinel -1 KHÔNG được lọt ra ngoài ---------
 	#
 	# `so_luong_xin_sua` mặc định `-1` là quy ước NỘI BỘ ("chưa có yêu cầu

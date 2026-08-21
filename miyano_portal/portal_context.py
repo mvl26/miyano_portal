@@ -395,6 +395,39 @@ def dam_bao_xem_duoc(
         raise frappe.PermissionError(LOI_KHONG_THAY)
 
 
+def ten_nguoi_dung(email: str | None) -> str:
+    """Tên đầy đủ để HIỂN THỊ cho một tài khoản; lui về chính email khi
+    không tra được.
+
+    Chủ đầu tư chốt 21/08/2026: khối "Truy vết yêu cầu" đang in
+    "Người yêu cầu: buiviet9802@gmail.com". Email là ĐỊNH DANH kỹ thuật —
+    đúng để gửi thư và để so quyền, sai để đưa cho một điều dưỡng trưởng
+    đọc. Người ký duyệt cần biết ai đề nghị, không cần biết hộp thư của họ.
+
+    KHÔNG đổi giá trị LƯU. `Portal De Xuat Mua.nguoi_yeu_cau` là
+    `recipient_field` của ba Notification (`setup/install_notifications.py`)
+    và `owner` là khoá so quyền ở khắp nơi (`DeXuatDetail.vue` so
+    `doc.owner === store.me.user` để quyết cho sửa nháp hay không). Ghi tên
+    người vào đó là gửi thư vào hư không và làm hỏng phép so quyền. Tên chỉ
+    là một khoá THÊM cho tầng hiển thị.
+
+    Lui về email chứ KHÔNG trả rỗng: tài khoản có thể đã bị xoá, và một ô
+    trống ở khối truy vết là MẤT DẤU VẾT — tệ hơn hẳn một email. Cũng lui
+    về email khi `full_name` tình cờ chính là email (Frappe đặt vậy cho tài
+    khoản chỉ khai mỗi `first_name` bằng email) — trả về cùng một thứ,
+    không cần phân biệt.
+
+    Đặt ở đây (`portal_context`) chứ không ở một endpoint: đây là quy ước
+    HIỂN THỊ dùng chung, và nơi thứ hai tự tra `User.full_name` là nơi thứ
+    hai quyết định "hiện tên thế nào" rồi lệch — đúng bài học `nguon_gia`/
+    `blanket_order` (Ruling P28) đã trả giá.
+    """
+    if not email:
+        return ""
+    ten = frappe.db.get_value("User", email, "full_name")
+    return (ten or "").strip() or email
+
+
 def get_portal_customer(user: str | None = None) -> str:
     customers = get_allowed_customers(user)
     if not customers:
