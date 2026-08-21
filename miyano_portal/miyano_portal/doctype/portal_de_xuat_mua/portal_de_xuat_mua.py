@@ -786,7 +786,24 @@ class PortalDeXuatMua(Document):
 		này, quay lại qua một cửa khác.
 		"""
 		dong_bang = not self.is_new() and self.trang_thai != TRANG_THAI_NHAP
-		da_khoa = {d.name for d in self.get_doc_before_save().items} if dong_bang else set()
+		# SỬA (advisor, ngay sau bản sửa I3 đầu) — KHÔNG dùng `self.get_doc_
+		# before_save()` làm nguồn `da_khoa`: property đó chỉ được Frappe
+		# điền trong một chu trình `save()` ĐÃ XẢY RA trên CHÍNH object
+		# Python này (`base_document.py`, gán trong `_get_doc_before_save`
+		# gọi từ `run_before_save_hooks`), mà lời gọi DUY NHẤT của hàm này
+		# ở `_dong_dau_gia()` chạy TRỰC TIẾP từ `gui_duyet()`, TRƯỚC `self.
+		# save()`. Đường Nháp→Chờ duyệt vô hại (`dong_bang` False lúc đó).
+		# Đường RESUBMIT-SAU-TỪ-CHỐI (`gui_duyet()` hợp lệ từ "Từ chối")
+		# THÌ VỠ: endpoint thật nạp `Document` MỚI qua `frappe.get_doc()`
+		# mỗi request rồi gọi `.gui_duyet()` ngay — không có `save()` nào
+		# trước đó trên object đó để điền `_doc_before_save`, `get_doc_
+		# before_save()` trả `None`, `.items` ném `AttributeError` → HTTP
+		# 500 thật cho người dùng bấm "Gửi duyệt lại" sau khi bị từ chối.
+		# Đọc THẲNG DB thay thế — đúng bất kể chu trình save() đã bắt đầu
+		# hay chưa, vì nó không phụ thuộc trạng thái nội bộ của object.
+		da_khoa = set(frappe.get_all(
+			"Portal De Xuat Mua Item", filters={"parent": self.name}, pluck="name"
+		)) if dong_bang else set()
 		thang_cuoc = self._nguon_gia_theo_ma()
 		for row in self.items:
 			if dong_bang and row.name in da_khoa:

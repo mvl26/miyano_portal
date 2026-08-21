@@ -490,6 +490,35 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[1].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
 		self.assertFalse(doc.items[1].blanket_order)
 
+	def test_gui_duyet_lai_sau_tu_choi_tren_doc_tai_moi_khong_vo(self):
+		"""I3 (advisor, ngay sau vòng sửa 1) — `_suy_nguon_gia()` đọc
+		`self.get_doc_before_save()` khi đóng băng, nhưng lời gọi DUY NHẤT
+		của nó ở `_dong_dau_gia()` chạy TRỰC TIẾP từ `gui_duyet()`, TRƯỚC
+		`self.save()` — `_doc_before_save` chỉ được Frappe điền trong một
+		chu trình `save()` ĐÃ XẢY RA trên CHÍNH object Python đó. Đường
+		Nháp→Chờ duyệt an toàn (`trang_thai` vẫn "Nháp" lúc đó, `dong_bang`
+		False, không đụng `get_doc_before_save()`); đường RESUBMIT-SAU-TỪ-
+		CHỐI (`gui_duyet()` gọi được từ "Từ chối") thì KHÔNG — endpoint
+		thật nạp một `Document` MỚI qua `frappe.get_doc()` mỗi request rồi
+		gọi `.gui_duyet()` ngay, KHÔNG có `save()` nào trước đó trên CHÍNH
+		object này để Frappe điền `_doc_before_save`. Mô phỏng đúng đường
+		đó — nạp lại `Document` MỚI thay vì tái dùng object đã tự `save()`
+		trong test (khác `test_de_xuat_doctype.py::test_tu_choi_roi_sua_
+		roi_gui_lai`, vốn tái dùng MỘT object nên `tu_choi()`'s `save()`
+		đã âm thầm điền sẵn `_doc_before_save` cho `gui_duyet()` sau đó)."""
+		doc = self._phieu(items=[{"item_code": self.item_hd, "so_luong_de_xuat": 1}])
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.tu_choi("Vượt dự toán")
+		ten = doc.name
+
+		moi = frappe.get_doc("Portal De Xuat Mua", ten)
+		moi.ly_do_yeu_cau = "cần gấp, gửi lại"
+		moi.gui_duyet()
+		self.assertEqual(moi.trang_thai, "Chờ duyệt")
+		self.assertEqual(moi.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(moi.items[0].blanket_order, self.bo)
+
 	# ---- Vế hồi quy — phiếu thuần hợp đồng ----------------------------
 
 	def test_phieu_thuan_hop_dong_van_bi_kiem_han_muc(self):
