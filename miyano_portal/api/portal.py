@@ -1852,11 +1852,26 @@ def portal_reorder(order: str) -> dict:
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
 
-    contract = so.custom_hdnt
+    # I-1 / Ruling P31 (review vòng 1) — SUY LẠI hợp đồng thắng cuộc THEO
+    # TỪNG DÒNG, không tin `so.custom_hdnt` của đơn cũ. Hai lý do, cả hai đều
+    # là lỗi thật:
+    #   * `custom_hdnt` không kiểm hiệu lực. Hợp đồng hết hạn 31/12, ngày
+    #     02/01 khách bấm "Đặt lại đơn cũ" → giỏ hiện giá VÀ hạn mức của một
+    #     hợp đồng đã chết, rồi lúc xác nhận `_xay_don` (vốn luôn suy lại)
+    #     tính theo hợp đồng kế nhiệm. Số hiện lúc xác nhận không phải số
+    #     trên đơn — đường SỐNG, frontend đang gọi mỗi ngày;
+    #   * `custom_hdnt` có thể là tham số CLIENT gửi lên khi đơn trải nhiều
+    #     hợp đồng (xem `tao_sales_order`), nên nó không phải bằng chứng về
+    #     hợp đồng của một DÒNG cụ thể.
+    # Dùng ĐÚNG hàm mà `_xay_don`/`portal_catalog_gop` dùng — Ruling P28:
+    # một sự thật, một nguồn. Giá và hạn mức của cùng một dòng phải hỏi
+    # CÙNG một hợp đồng, nếu không giỏ lại tự mâu thuẫn với chính nó.
+    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
     price_list = frappe.db.get_value("Customer", customer, "default_price_list")
     gio_hang, bi_loai = [], []
 
     for dong in so.items:
+        contract = thang_cuoc.get(dong.item_code)
         if not contract:
             bi_loai.append({"item_code": dong.item_code, "ly_do": "ngoai_hdnt"})
             continue

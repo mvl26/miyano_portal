@@ -381,12 +381,20 @@ doc_events = {
 	},
 	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
 	#
-	# Cổng chỉ chấp nhận đơn giá đến từ `Item Price` (ba đường đặt hàng trong
-	# api/portal.py), nên một HĐNT có `rate` mà bảng giá rỗng nghĩa là khách
-	# KHÔNG đặt được hàng — trong khi `portal_catalog` vẫn hiện giá lấy từ
-	# `rate` nên không ai nhìn ra vì sao. Xem `gia_hdnt.py` để biết vì sao
-	# giữ nguyên phép tra qua Item Price mới là đúng, thay vì cho đường đặt
-	# hàng đọc thẳng `rate`.
+	# CẬP NHẬT Task 12 (QĐ-G12, 21/08/2026) — chú thích cũ ở đây nói rằng
+	# cổng CHỈ chấp nhận đơn giá đến từ `Item Price` và rằng giữ nguyên phép
+	# tra đó mới là đúng. CẢ HAI vế nay đã SAI: với một dòng hợp đồng, cổng
+	# đọc `Blanket Order Item.rate` TRƯỚC (`gia_hdnt.gia_dong_hop_dong`),
+	# bảng giá chỉ còn là bước lui. Lý do đổi: hook này chạy ĐÚNG MỘT LẦN
+	# lúc trình ký, nên mọi hợp đồng ký trước khi nó ra đời và mọi hợp đồng
+	# nạp bằng import không bao giờ được đồng bộ — và chỗ hổng đó im lặng,
+	# biểu hiện ra thành "chưa có giá trong hợp đồng" cho một hợp đồng có
+	# rate rành rành.
+	#
+	# Hook VẪN CẦN, chỉ đổi vai: nó không còn là điều kiện để khách đặt được
+	# hàng, mà là thứ giữ `Item Price` khớp với hợp đồng cho phía ERPNext —
+	# báo cáo, hoá đơn, và giá Desk tự điền khi nhân viên Miyano dựng chứng
+	# từ bằng tay. Ruling P30: nó ghi theo ĐÚNG luật phân định của cổng.
 	#
 	# `on_submit` là đủ: `Blanket Order Item.rate` KHÔNG `allow_on_submit`
 	# (đã kiểm JSON doctype), nên giá chỉ đổi được bằng cách sửa đổi hợp đồng

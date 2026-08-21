@@ -1,8 +1,17 @@
-"""Đồng bộ đơn giá đã ký trên HĐNT (`Blanket Order`) sang `Item Price`.
+"""Giá hợp đồng: hàm tra dùng chung của cổng, và đồng bộ sang `Item Price`.
 
-**Vì sao cần file này.** Cổng không bao giờ đọc `Blanket Order Item.rate` khi
-đặt hàng: ba đường đặt hàng (`portal_order_place` HĐNT/bán lẻ, `portal_reorder`)
-đều tra `Item Price` trong `Customer.default_price_list`.
+> **ĐỌC TRƯỚC.** Phần "Vì sao cần file này" bên dưới là lập luận của bản
+> 14/08/2026 và **đã bị Task 12 (QĐ-G12, 21/08) đảo ở vế trung tâm**: cổng
+> GIỜ ĐỌC `Blanket Order Item.rate` khi đặt hàng, qua
+> `gia_dong_hop_dong()` ngay dưới đây. Giữ nguyên văn bản cũ (thay vì xoá)
+> vì phần chẩn đoán của nó vẫn đúng và vẫn là lời giải thích tốt nhất cho
+> việc `dong_bo()` tồn tại; chỉ có kết luận "nên tra qua Item Price" là hết
+> hạn. Xem khối "Task 12" ở cuối docstring này để biết cái gì thay cái gì.
+
+**Vì sao cần file này** *(bản 14/08 — vế "cổng không bao giờ đọc rate" đã
+hết đúng, xem khối Task 12 ở cuối)*. Cổng không bao giờ đọc `Blanket Order
+Item.rate` khi đặt hàng: ba đường đặt hàng (`portal_order_place` HĐNT/bán
+lẻ, `portal_reorder`) đều tra `Item Price` trong `Customer.default_price_list`.
 
 Đó là ĐÚNG, và lý do là: **cổng cần giá TRƯỚC khi có bất kỳ chứng từ nào.**
 `portal_catalog` phải hiện giá, giỏ hàng phải cộng tổng, kiểm hạn mức phải
@@ -66,6 +75,37 @@ from frappe import _
 from frappe.utils import flt, format_date, getdate
 
 
+THU_TU_PHAN_DINH = "to_date asc, name asc"
+
+
+def con_hieu_luc(blanket_order: str) -> bool:
+    """HĐNT đã trình ký VÀ hôm nay nằm trong khoảng hiệu lực.
+
+    Ruling P31 (review vòng 1) — chốt này nằm ở ĐÂY, trong hàm dùng chung,
+    KHÔNG ở từng nơi gọi: sáu nơi gọi là sáu chỗ có thể quên, và hai nơi đã
+    quên thật (`portal_catalog` chỉ kiểm quyền sở hữu; `portal_reorder` tin
+    thẳng `Sales Order.custom_hdnt` của đơn cũ). Hậu quả không phải lỗi kỹ
+    thuật mà là một con số SAI hiện ra cho khách: giỏ "đặt lại đơn cũ" báo
+    giá của một hợp đồng đã chết, rồi lúc xác nhận đơn lại mang giá khác.
+
+    Cùng định nghĩa "còn hiệu lực" với `nguon_gia_theo_ma_cho_khach()`
+    (BR-R7, Ruling P18): `docstatus == 1` — bản NHÁP là sales còn đang soạn,
+    không được định giá cho ai. `from_date`/`to_date` để trống coi như không
+    ràng buộc phía đó."""
+    hd = frappe.db.get_value(
+        "Blanket Order", blanket_order,
+        ["docstatus", "from_date", "to_date"], as_dict=True,
+    )
+    if not hd or hd.docstatus != 1:
+        return False
+    hom_nay = getdate()
+    if hd.from_date and getdate(hd.from_date) > hom_nay:
+        return False
+    if hd.to_date and getdate(hd.to_date) < hom_nay:
+        return False
+    return True
+
+
 def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
     """QĐ-G12 — đơn giá của MỘT DÒNG, tra theo đúng thứ tự đã chốt.
 
@@ -100,14 +140,26 @@ def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
     "chưa có giá trong hợp đồng" dù hợp đồng khai giá đầy đủ — tức QĐ-G12
     chết ngay ở ca dễ gặp nhất.
 
+    Ruling P31 (review vòng 1) — bước 1 chỉ chạy khi hợp đồng CÒN HIỆU LỰC
+    (`con_hieu_luc()`). Hết hạn/chưa tới ngày/còn nháp thì bỏ qua bước 1 và
+    rơi xuống bảng giá, không phải ném lỗi: người gọi vẫn có quyền hỏi giá
+    của một dòng gắn với hợp đồng cũ, chỉ là hợp đồng đó không còn quyền trả
+    lời.
+
     Nợ cũ, cố ý giữ nguyên: bước 2 chưa lọc `valid_from`/`valid_upto`, nhiều
     bản ghi thì lấy tuỳ ý.
     """
-    if blanket_order:
+    if blanket_order and con_hieu_luc(blanket_order):
         rate = flt(frappe.db.get_value(
             "Blanket Order Item",
             {"parent": blanket_order, "item_code": item_code},
             "rate",
+            # M-2 (review vòng 1) — TẤT ĐỊNH. Một hợp đồng liệt kê trùng
+            # `item_code` hai dòng thì `get_value` với filter dict lấy TUỲ Ý
+            # một dòng; trước Task 12 điều đó chỉ ảnh hưởng phép chọn hạn
+            # mức, giờ nó chọn GIÁ. Dòng đứng TRƯỚC trên chứng từ thắng —
+            # quy tắc đọc được bằng mắt trên chính tờ hợp đồng.
+            order_by="idx asc, name asc",
         ))
         if rate > 0:
             return rate
@@ -120,13 +172,19 @@ def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
     )
 
 
-def dong_bo(bo) -> dict:
+def dong_bo(bo, thang_cuoc=None) -> dict:
     """Dựng/cập nhật `Item Price` từ một HĐNT. `bo` là tên hoặc document.
 
     Trả `{"tao": int, "cap_nhat": int, "bo_qua": [{item_code, ly_do}],
     "ly_do": str | None}` — `ly_do` chỉ có giá trị khi KHÔNG đồng bộ được gì
     cho cả chứng từ (sai loại, khách chưa có bảng giá...). Hàm này ném lỗi
-    bình thường; người gọi từ hook chịu trách nhiệm bọc (xem `tu_hdnt`)."""
+    bình thường; người gọi từ hook chịu trách nhiệm bọc (xem `tu_hdnt`).
+
+    `thang_cuoc` — `{item_code: hợp đồng thắng cuộc}` do người gọi tính sẵn
+    bằng ĐÚNG luật của cổng (Ruling P30, xem `dong_bo_khach`). Mã nào có
+    người thắng KHÁC hợp đồng này thì hợp đồng này KHÔNG được ghi giá cho
+    nó. `None` = không phân định (đường gọi một hợp đồng lẻ: test, patch cũ
+    v1_13) — giữ nguyên hành vi cũ."""
     doc = bo if hasattr(bo, "doctype") else frappe.get_doc("Blanket Order", bo)
     ket_qua = {"tao": 0, "cap_nhat": 0, "bo_qua": [], "ly_do": None}
 
@@ -152,6 +210,33 @@ def dong_bo(bo) -> dict:
         return ket_qua
 
     bang_gia = frappe.db.get_value("Customer", doc.customer, "default_price_list")
+    if bang_gia:
+        # Ruling P32 (review vòng 1) — bảng giá đích suy từ KHÁCH
+        # (`default_price_list`), KHÔNG từ hợp đồng. Khi hai bệnh viện cùng
+        # trỏ về một bảng giá (đúng hình dạng dữ liệu demo/site này:
+        # `HĐNT-BVBM-2026` là mặc định của CẢ `Bệnh viện Bạch Mai` LẪN
+        # `PXN ABC`), hợp đồng của bên này ghi giá cho bên kia. Hậu quả
+        # không dừng ở một dòng thừa: một mã `rate = 0` (chưa khai giá) của
+        # khách B rơi xuống bước 2 của `gia_dong_hop_dong()` và đọc trúng
+        # giá ĐÃ ĐÀM PHÁN của khách A — bệnh viện này bị tính giá của bệnh
+        # viện khác thay vì được chặn đúng bằng "chưa có giá trong hợp
+        # đồng". Thà KHÔNG ghi và báo ồn ào, còn hơn ghi rồi không ai biết.
+        dung_chung = frappe.get_all(
+            "Customer", filters={"default_price_list": bang_gia},
+            pluck="name", order_by="name asc",
+        )
+        if len(dung_chung) > 1:
+            ket_qua["ly_do"] = _(
+                "Bảng giá {0} đang là Bảng giá mặc định của {1} khách hàng ({2}) "
+                "nên KHÔNG ghi đơn giá hợp đồng vào đó — làm vậy là trộn giá đàm "
+                "phán của các bệnh viện khác nhau. Tách bảng giá riêng cho từng "
+                "khách rồi ký lại (hoặc chạy lại đồng bộ)."
+            ).format(bang_gia, len(dung_chung), ", ".join(dung_chung))
+            frappe.log_error(
+                title=f"Bảng giá dùng chung: {bang_gia}",
+                message=ket_qua["ly_do"],
+            )
+            return ket_qua
     if not bang_gia:
         ket_qua["ly_do"] = _(
             "Khách hàng {0} chưa được gán Bảng giá mặc định (default_price_list) "
@@ -163,6 +248,10 @@ def dong_bo(bo) -> dict:
     tien_te = frappe.db.get_value("Price List", bang_gia, "currency") or "VND"
 
     for dong in doc.items:
+        # Ruling P30 — mã này thuộc về hợp đồng khác theo LUẬT CỦA CỔNG.
+        nguoi_thang = (thang_cuoc or {}).get(dong.item_code)
+        if nguoi_thang and nguoi_thang != doc.name:
+            continue
         rate = flt(dong.rate)
         if rate <= 0:
             ket_qua["bo_qua"].append({
@@ -221,14 +310,45 @@ def dong_bo_khach(customer, doc=None) -> dict:
     không còn ai đọc, và lỗi "chưa có giá" quay lại đúng cho hợp đồng đó.
     Đã dựng lại được bằng test trước khi sửa.
 
-    Thứ tự `creation asc`: khi hai hợp đồng còn hiệu lực khai CÙNG một mã
-    hàng hai giá khác nhau, hợp đồng KÝ SAU ghi sau cùng nên thắng — quy tắc
-    xác định, không phụ thuộc thứ tự trả về của DB.
+    **Ruling P30 (review vòng 1) — ĐỔI LUẬT PHÂN ĐỊNH.** Bản trước duyệt
+    `creation asc` rồi để mỗi lần ghi đè lên cùng một dòng `Item Price`, tức
+    luật ẩn "hợp đồng KÝ SAU thắng". Cổng thì phân định NGƯỢC LẠI — "hết hạn
+    sớm nhất thắng, trùng `to_date` thì `name` nhỏ hơn"
+    (`nguon_gia_theo_ma_cho_khach`, Ruling P14). Trước Task 12 điều đó vô
+    hại vì CẢ HAI bên đều đọc `Item Price`, nên chúng khớp nhau theo cấu
+    trúc dù luật khác nhau. Sau Task 12 cổng đọc thẳng hợp đồng, và hai luật
+    ngược nhau trên cùng một dữ liệu thành một sai lệch CÓ HỆ THỐNG: khách
+    có hợp đồng A (88.000, hết 31/12) và bản gia hạn C ký sau (95.000, hết
+    30/06 năm sau) thì cổng báo giá 88.000, `Item Price` giữ 95.000, và nhân
+    viên Miyano chỉ cần sửa số lượng trên đơn trong Desk là `transaction.js`
+    nạp `price_list_rate` đè `rate` — bệnh viện được báo một giá, bị xuất
+    hoá đơn một giá khác, không sự kiện nào ghi lại.
+
+    Từ đây `Item Price` theo ĐÚNG luật của cổng: người thắng tính MỘT LẦN ở
+    đây bằng chính `nguon_gia_theo_ma_cho_khach()`, rồi truyền xuống
+    `dong_bo(..., thang_cuoc=...)` để hợp đồng THUA không ghi giá cho mã đó.
+    Dựa vào thứ tự ghi đè là một luật ẩn, và luật ẩn thì không ai sửa được
+    khi nó sai. Muốn "bản gia hạn ký sau đè giá cũ" thì đổi luật ở MỘT chỗ
+    (`THU_TU_PHAN_DINH`) và cả hai bên cùng đổi — đó chính là điểm.
+
+    `creation asc` vẫn giữ, nhưng giờ chỉ còn là thứ tự TẤT ĐỊNH cho các mã
+    KHÔNG có người thắng (mã không nằm trong hợp đồng còn hiệu lực nào —
+    hợp đồng chưa tới ngày hiệu lực vẫn được dựng sẵn giá, xem `dong_bo`).
+    Những mã đó không bao giờ đi qua bước 2 của cổng: dòng ngoài mọi hợp
+    đồng còn hiệu lực là dòng "chờ báo giá", `rate = 0`, không tra bảng giá.
 
     Hợp đồng hết hiệu lực bị `dong_bo` tự loại; CỐ Ý không lọc lần thứ hai ở
     truy vấn này (hai nơi cùng định nghĩa "còn hiệu lực" là hai nơi lệch nhau
     được). `ly_do` trả về là của CHÍNH hợp đồng vừa ký — đó là thứ người bấm
     submit cần đọc, không phải lý do của một hợp đồng cũ nào khác."""
+    # Ruling P30 (review vòng 1) — LUẬT PHÂN ĐỊNH của CỔNG, không phải luật
+    # ẩn "ai ghi sau thì thắng" của vòng lặp bên dưới. Import tại chỗ để
+    # `gia_hdnt` không phụ thuộc module doctype ở tầng import.
+    from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+        nguon_gia_theo_ma_cho_khach,
+    )
+
+    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
     tong = {"tao": 0, "cap_nhat": 0, "bo_qua": [], "ly_do": None}
     ten_hien_tai = doc.name if doc is not None else None
 
@@ -245,7 +365,7 @@ def dong_bo_khach(customer, doc=None) -> dict:
         # Hợp đồng vừa ký dùng THẲNG document đang có trong bộ nhớ: ở
         # `on_submit` bản ghi đã xuống DB, nhưng đọc lại là một round-trip
         # thừa và là một chỗ có thể đọc trúng dữ liệu chưa kịp ghi.
-        kq = dong_bo(doc if ten == ten_hien_tai else ten)
+        kq = dong_bo(doc if ten == ten_hien_tai else ten, thang_cuoc=thang_cuoc)
         tong["tao"] += kq["tao"]
         tong["cap_nhat"] += kq["cap_nhat"]
         if ten == ten_hien_tai:

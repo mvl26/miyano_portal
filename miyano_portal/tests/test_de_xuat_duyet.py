@@ -491,7 +491,15 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 			"customer": self.kh_a, "company": COMPANY,
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
-			"items": [{"item_code": self.item, "qty": 5, "ordered_qty": 3, "rate": 100}],
+			# F-1 (review vòng 1) — `rate = 0` trên hợp đồng là CHƯA KHAI GIÁ,
+			# một trạng thái BÌNH THƯỜNG và có thật (quy ước chốt ở
+			# `gia_hdnt.py`; `bao_thieu_gia` sinh ra để phục vụ đúng nó).
+			# Dòng vẫn là dòng HỢP ĐỒNG (`nguon_gia_theo_ma_cho_khach` xét
+			# THÀNH VIÊN, không xét giá) nhưng giá rơi xuống bảng giá — và
+			# đó là trạng thái DUY NHẤT còn tới được nhánh `gia_doi` sau
+			# QĐ-G12. Xem docstring `test_gia_doi_giua_gui_va_duyet_thi_co_
+			# canh_bao` để biết vì sao.
+			"items": [{"item_code": self.item, "qty": 5, "ordered_qty": 3, "rate": 0}],
 		}).insert(ignore_permissions=True)
 		self.bo.submit()
 		self.bo = self.bo.name
@@ -530,22 +538,6 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 				ignore_permissions=True
 			)
 
-	def _sua_gia_hop_dong(self, item_code, rate):
-		"""Sửa đổi hợp đồng SAU khi đã trình ký — ghi thẳng DB vì `rate` của
-		một `Blanket Order` đã nộp không sửa qua `save()` được.
-
-		Task 12 (QĐ-G12) — đây mới là cách mô phỏng "giá đổi" đúng NGHIỆP VỤ.
-		Trước Task 12 các ca dưới đổi `Item Price`; từ QĐ-G12 giá của dòng
-		hợp đồng lấy từ CHÍNH hợp đồng, nên đổi bảng giá không còn đổi được
-		giá mà đơn sẽ mang — cảnh báo "giá đổi" khi đó phải IM, và im là
-		đúng. Việc cần khẳng định vẫn y nguyên: giá thay đổi giữa lúc khoa
-		gửi và lúc quản lý bấm duyệt thì quản lý phải được báo TRƯỚC.
-		"""
-		ten = frappe.db.get_value(
-			"Blanket Order Item", {"parent": self.bo, "item_code": item_code}, "name"
-		)
-		self.assertTrue(ten, f"Không thấy dòng {item_code} trong hợp đồng {self.bo}.")
-		frappe.db.set_value("Blanket Order Item", ten, "rate", rate)
 
 	def _cho_duyet_vuot_han_muc(self):
 		doc = frappe.get_doc({
@@ -613,15 +605,38 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		self.assertEqual(doc.items[0].don_gia, 100)
 
 	def test_gia_doi_giua_gui_va_duyet_thi_co_canh_bao(self):
+		"""F-1 (review vòng 1) — VIẾT LẠI cho đúng trạng thái CÓ THẬT.
+
+		Bản trước bài này bẻ `Blanket Order Item.rate` bằng `frappe.db.
+		set_value` trên một hợp đồng ĐÃ TRÌNH KÝ. `rate` không có
+		`allow_on_submit`, nên KHÔNG đường mã nào trong ứng dụng tạo ra được
+		trạng thái đó: sửa giá thật là huỷ → tu chỉnh → trình ký lại, ra một
+		TÊN TÀI LIỆU MỚI, nên `bo_moi != bo_cu` và `_kiem_gia_doi` rẽ sang
+		nhánh `hop_dong_doi`, KHÔNG BAO GIỜ vào `gia_doi`. Nhánh `gia_doi`
+		khi đó có thể hỏng thành luôn-`False` mà ba bài test tự nhận là phủ
+		nó vẫn xanh.
+
+		Nhánh `gia_doi` SAU QĐ-G12 vẫn còn tới được, nhưng chỉ qua ĐÚNG một
+		trạng thái: dòng HỢP ĐỒNG mà hợp đồng CHƯA KHAI GIÁ (`rate = 0`, xem
+		`setUp`), nên giá rơi xuống bảng giá — rồi sales bổ sung/sửa
+		`Item Price` trong lúc phiếu nằm chờ duyệt. Đó là thao tác Miyano
+		làm THẬT mỗi khi nhận thông báo thiếu giá, không phải một trạng thái
+		dựng bằng tay. Với dòng hợp đồng ĐÃ khai giá thì sửa bảng giá không
+		còn đổi được gì — và im lặng là ĐÚNG."""
 		doc = self._cho_duyet_hdnt_thuong()
 		self.assertEqual(doc.items[0].don_gia, 100)
-		self._sua_gia_hop_dong(self.item, 150)    # hợp đồng sửa đổi SAU khi gửi
+		self._tao_gia(self.item, self.price_list, 150)   # sales bổ sung giá SAU khi gửi
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(len(kq["canh_bao_gia"]), 1)
 		cb = kq["canh_bao_gia"][0]
 		self.assertEqual(cb["item_code"], self.item)
 		self.assertEqual(cb["gia_cu"], 100)
 		self.assertEqual(cb["gia_moi"], 150)
+		# Khẳng định ĐÚNG NHÁNH, không chỉ "có cảnh báo": thiếu dòng này bài
+		# vẫn xanh nếu cảnh báo đến từ `hop_dong_doi` — đúng cách bản trước
+		# tự lừa mình.
+		self.assertEqual(cb["ly_do"], "gia_doi")
+		self.assertEqual(cb["hop_dong_cu"], cb["hop_dong_moi"])
 
 	def test_gia_khong_doi_thi_khong_canh_bao(self):
 		"""VẾ DƯƠNG — không báo động giả khi giá không hề đổi."""
@@ -633,7 +648,7 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		"""Chốt bắt buộc — cảnh báo giá CHỈ mang thông tin, không được chặn
 		việc duyệt; Sales Order vẫn phải sinh ra."""
 		doc = self._cho_duyet_hdnt_thuong()
-		self._sua_gia_hop_dong(self.item, 150)
+		self._tao_gia(self.item, self.price_list, 150)
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertTrue(kq["canh_bao_gia"])
 		self.assertTrue(kq["sales_order"])

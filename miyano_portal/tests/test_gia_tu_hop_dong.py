@@ -30,7 +30,7 @@ người dùng đi.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import dat_hang
+from miyano_portal import dat_hang, gia_hdnt
 from miyano_portal.api import portal as portal_api
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
@@ -39,6 +39,7 @@ from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
 PRICE_LIST = "_TEST G12 PRICE"
+PRICE_LIST_B = "_TEST G12 PRICE B"
 
 # Giá THẬT của hiện trường chủ đầu tư (MFG-BLR-2026-00020 / MYN-SYR-10).
 GIA_HOP_DONG = 88000
@@ -96,9 +97,15 @@ class TestGiaTuHopDong(FrappeTestCase):
 		self.item_trong_rong = self._item("_TEST G12 TRONG RONG")
 		self.item_chi_b = self._item("_TEST G12 CHI KHACH B")
 
-		self.price_list = self._price_list()
+		# MỖI khách một bảng giá RIÊNG (Ruling P32, vòng sửa 1): một bảng giá
+		# là `default_price_list` của nhiều khách nghĩa là giá đàm phán của
+		# bệnh viện này ghi đè lên bệnh viện kia. `dong_bo` giờ TỪ CHỐI ghi
+		# vào bảng giá dùng chung, nên fixture cũ (hai khách một bảng giá)
+		# sẽ làm mọi bài ở đây im lặng không có giá.
+		self.price_list = self._price_list(PRICE_LIST)
+		self.price_list_b = self._price_list(PRICE_LIST_B)
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
-		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list_b)
 
 		# `qty` DƯƠNG cho mọi dòng, KHÔNG phải 0: theo BR-O15 hạn mức 0 =
 		# KHÔNG GIỚI HẠN, và dòng không giới hạn CỐ Ý không được gắn
@@ -142,13 +149,13 @@ class TestGiaTuHopDong(FrappeTestCase):
 			}).insert(ignore_permissions=True)
 		return ten
 
-	def _price_list(self):
-		if not frappe.db.exists("Price List", PRICE_LIST):
+	def _price_list(self, ten):
+		if not frappe.db.exists("Price List", ten):
 			frappe.get_doc({
-				"doctype": "Price List", "price_list_name": PRICE_LIST,
+				"doctype": "Price List", "price_list_name": ten,
 				"currency": "VND", "selling": 1, "enabled": 1,
 			}).insert(ignore_permissions=True)
-		return PRICE_LIST
+		return ten
 
 	def _tao_gia(self, item_code, rate):
 		loc = {"item_code": item_code, "price_list": self.price_list, "selling": 1}
@@ -342,6 +349,154 @@ class TestGiaTuHopDong(FrappeTestCase):
 		gio = [d for d in out["gio_hang"] if d["item_code"] == self.item_chi_hd]
 		self.assertEqual(len(gio), 1, f"Không thấy {self.item_chi_hd} trong {out}")
 		self.assertEqual(float(gio[0]["gia_hien_hanh"]), float(GIA_HOP_DONG))
+
+	# -- MỘT LUẬT PHÂN ĐỊNH (Ruling P30, vòng sửa 1) -------------------------
+
+	def test_hai_hop_dong_con_hieu_luc_thi_bang_gia_theo_DUNG_luat_cong(self):
+		"""Ruling P30 — cổng và `Item Price` phải phân định hợp đồng thắng
+		cuộc bằng CÙNG MỘT luật.
+
+		Cổng: "hết hạn sớm nhất thắng" (`nguon_gia_theo_ma_cho_khach`).
+		`dong_bo_khach` trước vòng sửa này duyệt `creation asc` rồi để mỗi
+		lần ghi đè lên cùng một dòng `Item Price`, tức luật ẨN "ký sau cùng
+		thắng" — NGƯỢC lại. Trước Task 12 hai bên đều đọc `Item Price` nên
+		khớp theo cấu trúc; sau Task 12 chúng là hai luật khác nhau trên cùng
+		một dữ liệu, và hậu quả là nhân viên Miyano mở đơn trong Desk, sửa số
+		lượng một cái là `transaction.js` nạp `price_list_rate` đè `rate`:
+		bệnh viện được báo một giá, bị xuất hoá đơn một giá khác.
+
+		Hai vế đều DƯƠNG và phải nói CÙNG một con số."""
+		ma = self._item("_TEST G12 HAI HOP DONG")
+		bo_som = self._bo(
+			self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}], to_date_offset=30
+		)
+		bo_muon = self._bo(
+			self.kh_a, [{"item_code": ma, "qty": 100, "rate": 95000}], to_date_offset=400
+		)
+		self.assertNotEqual(bo_som, bo_muon)
+
+		# Vế 1 — CỔNG: hết hạn sớm nhất thắng.
+		kq = self._dat([{"item_code": ma, "qty": 1}])
+		dong = self._dong(kq["sales_order"], ma)
+		self.assertEqual(float(dong.rate), 88000.0)
+		self.assertEqual(dong.blanket_order, bo_som)
+
+		# Vế 2 — BẢNG GIÁ phải nói y hệt. `dong_bo_khach` đã chạy hai lần qua
+		# hook `on_submit` của hai hợp đồng trên.
+		self.assertEqual(
+			float(frappe.db.get_value(
+				"Item Price",
+				{"item_code": ma, "price_list": self.price_list, "selling": 1},
+				"price_list_rate",
+			)),
+			88000.0,
+			"bảng giá đang theo luật NGƯỢC với cổng (ký sau cùng thắng)",
+		)
+
+	# -- HỢP ĐỒNG PHẢI CÒN HIỆU LỰC (Ruling P31, vòng sửa 1) ----------------
+
+	def test_dat_lai_don_cu_lay_gia_hop_dong_CON_SONG(self):
+		"""Ruling P31 + I-1 — `portal_reorder` tin `Sales Order.custom_hdnt`
+		của ĐƠN CŨ và không kiểm hợp đồng đó còn hiệu lực hay không.
+
+		Kịch bản thật: hợp đồng cũ hết hạn 31/12, ngày 02/01 khách bấm "Đặt
+		lại đơn cũ" → giỏ hiện giá của một hợp đồng ĐÃ CHẾT, rồi lúc xác
+		nhận `_xay_don` lại tính theo hợp đồng kế nhiệm. Số hiện lúc xác nhận
+		không phải số trên đơn. Đây là đường SỐNG, frontend đang gọi.
+
+		Vế dương kép: giỏ đặt lại phải mang giá HỢP ĐỒNG KẾ NHIỆM, và mã hàng
+		KHÔNG được rơi vào `bi_loai`."""
+		ma = self._item("_TEST G12 KE NHIEM")
+		bo_cu = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
+		kq = self._dat([{"item_code": ma, "qty": 2}])
+		self.assertEqual(float(self._dong(kq["sales_order"], ma).rate), 88000.0)
+
+		# Thời gian trôi qua: hợp đồng cũ hết hạn. Ghi thẳng DB — `to_date`
+		# của một Blanket Order đã nộp không sửa qua `save()` được, và đây
+		# mô phỏng đúng việc ngày tháng đi tới (cùng khuôn
+		# `test_han_muc_don_tron.py`).
+		frappe.db.set_value(
+			"Blanket Order", bo_cu, "to_date", frappe.utils.add_days(frappe.utils.today(), -1)
+		)
+		bo_moi = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 95000}])
+
+		user_ql = self._thanh_vien(
+			"g12.ql@demo.miyano", self.kh_a, None, vai_tro="Quản lý"
+		)
+		frappe.set_user(user_ql)
+		out = portal_api.portal_reorder(kq["sales_order"])
+		self.assertNotIn(ma, [d["item_code"] for d in out["bi_loai"]])
+		gio = [d for d in out["gio_hang"] if d["item_code"] == ma]
+		self.assertEqual(len(gio), 1, f"Không thấy {ma} trong {out}")
+		self.assertEqual(
+			float(gio[0]["gia_hien_hanh"]), 95000.0,
+			"giỏ đặt lại đang đọc giá của hợp đồng ĐÃ HẾT HIỆU LỰC",
+		)
+		self.assertTrue(bo_moi)
+
+	def test_hop_dong_het_han_khong_dinh_gia_duoc_cho_hom_nay(self):
+		"""Ruling P31 ở tầng hàm dùng chung — chốt nằm TRONG
+		`gia_dong_hop_dong()`, không ở sáu nơi gọi (sáu nơi là sáu chỗ quên
+		được). Hợp đồng hết hạn → bỏ qua bước 1, rơi xuống bảng giá.
+
+		Vế dương đi kèm: cũng chính hợp đồng đó, khi CÒN hiệu lực, thì định
+		giá được — nếu không, bài này xanh cả khi hàm luôn trả `None`."""
+		ma = self._item("_TEST G12 HET HAN")
+		bo = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
+		self._xoa_gia(ma)
+		self.assertEqual(
+			gia_hdnt.gia_dong_hop_dong(ma, bo, self.price_list), 88000.0,
+			"vế dương: hợp đồng CÒN hiệu lực phải định giá được",
+		)
+		frappe.db.set_value(
+			"Blanket Order", bo, "to_date", frappe.utils.add_days(frappe.utils.today(), -1)
+		)
+		self.assertIsNone(
+			gia_hdnt.gia_dong_hop_dong(ma, bo, self.price_list),
+			"hợp đồng ĐÃ HẾT HẠN không có quyền định giá cho hôm nay",
+		)
+
+	# -- BẢNG GIÁ DÙNG CHUNG (Ruling P32, vòng sửa 1) ------------------------
+
+	def test_khong_ghi_gia_vao_bang_gia_nhieu_khach_dung_chung(self):
+		"""Ruling P32 — `dong_bo` lấy bảng giá đích từ
+		`Customer.default_price_list`, KHÔNG từ hợp đồng. Khi hai bệnh viện
+		trỏ chung một bảng giá, hợp đồng của bên này ghi giá cho bên kia:
+		một mã `rate = 0` (chưa khai giá) của khách B sẽ rơi xuống bước 2 và
+		đọc trúng giá ĐÃ ĐÀM PHÁN của khách A, thay vì bị chặn đúng bằng
+		"chưa có giá trong hợp đồng".
+
+		Thà không ghi và báo ồn ào, còn hơn ghi rồi không ai biết."""
+		ma = self._item("_TEST G12 BANG GIA CHUNG")
+		# Vế DƯƠNG trước: bảng giá RIÊNG thì ghi được.
+		bo_a = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
+		kq = gia_hdnt.dong_bo(bo_a)
+		self.assertIsNone(kq["ly_do"])
+		self.assertEqual(
+			float(frappe.db.get_value(
+				"Item Price",
+				{"item_code": ma, "price_list": self.price_list, "selling": 1},
+				"price_list_rate",
+			)),
+			88000.0,
+		)
+
+		# Giờ khách B trỏ CHUNG bảng giá của khách A — phải từ chối ghi.
+		self._xoa_gia(ma)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
+		kq = gia_hdnt.dong_bo(bo_a)
+		self.assertEqual(kq["tao"], 0)
+		self.assertEqual(kq["cap_nhat"], 0)
+		self.assertTrue(kq["ly_do"], "phải nêu rõ vì sao không đồng bộ được")
+		self.assertIn(self.price_list, kq["ly_do"])
+		self.assertIn(self.kh_b, kq["ly_do"], "phải nêu TÊN các khách dùng chung")
+		self.assertEqual(
+			frappe.db.count("Item Price", {
+				"item_code": ma, "price_list": self.price_list,
+			}),
+			0,
+			"không được ghi giá đàm phán của khách này vào bảng giá khách kia",
+		)
 
 	# -- PATCH BACKFILL ------------------------------------------------------
 

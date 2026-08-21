@@ -23,6 +23,8 @@ permissions`.)
 """
 
 import frappe
+
+from miyano_portal import gia_hdnt
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
@@ -97,7 +99,12 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 			"from_date": ["<=", frappe.utils.today()],
 			"to_date": [">=", frappe.utils.today()],
 		},
-		fields=["name"], order_by="to_date asc, name asc",
+		# Ruling P30 (review vòng 1) — chuỗi thứ tự này là LUẬT PHÂN ĐỊNH,
+		# và giờ có nơi thứ hai phải tuân theo đúng nó (`gia_hdnt.
+		# dong_bo_khach` ghi `Item Price`). Một hằng số, không phải hai
+		# chuỗi giống nhau ở hai file — hai chuỗi thì sớm muộn cũng lệch,
+		# và lần lệch trước đã suýt làm bệnh viện bị xuất hoá đơn sai giá.
+		fields=["name"], order_by=gia_hdnt.THU_TU_PHAN_DINH,
 	)
 	if not bo_hieu_luc:
 		return {}

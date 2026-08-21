@@ -118,7 +118,11 @@ class TestNguonGiaDong(FrappeTestCase):
 			"customer": self.kh_a, "company": COMPANY,
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
-			"items": [{"item_code": self.item_hd, "qty": 5, "ordered_qty": 3, "rate": 100}],
+			# F-1 (review vòng 1) — `rate = 0` = CHƯA KHAI GIÁ, trạng thái
+			# BÌNH THƯỜNG và có thật; dòng vẫn là dòng HỢP ĐỒNG nhưng giá
+			# rơi xuống bảng giá. Đây là trạng thái DUY NHẤT còn tới được
+			# nhánh `gia_doi` sau QĐ-G12 — xem bài cảnh báo giá cuối lớp.
+			"items": [{"item_code": self.item_hd, "qty": 5, "ordered_qty": 3, "rate": 0}],
 		}).insert(ignore_permissions=True)
 		self.bo.submit()
 		self.bo = self.bo.name
@@ -603,15 +607,14 @@ class TestNguonGiaDong(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.items[0].don_gia, 100)   # đóng dấu đúng dòng HĐ
 		self.assertFalse(doc.items[1].don_gia)        # dòng chờ báo giá KHÔNG đóng dấu
-		# Task 12 (QĐ-G12) — mô phỏng "giá đổi" bằng SỬA ĐỔI HỢP ĐỒNG, không
-		# bằng sửa bảng giá: giá của dòng hợp đồng giờ lấy từ CHÍNH hợp đồng,
-		# nên đổi bảng giá không đổi được giá đơn sẽ mang và cảnh báo phải IM
-		# (đúng). Ghi thẳng DB vì hợp đồng đã trình ký không sửa qua `save()`.
-		ten_dong_hd = frappe.db.get_value(
-			"Blanket Order Item", {"parent": self.bo, "item_code": self.item_hd}, "name"
-		)
-		self.assertTrue(ten_dong_hd, f"Không thấy dòng {self.item_hd} trong {self.bo}.")
-		frappe.db.set_value("Blanket Order Item", ten_dong_hd, "rate", 150)
+		# F-1 (review vòng 1) — "giá đổi" mô phỏng bằng SALES SỬA BẢNG GIÁ,
+		# thao tác Miyano làm thật. KHÔNG bẻ `Blanket Order Item.rate` trên
+		# hợp đồng đã trình ký: field đó không `allow_on_submit` nên không
+		# đường mã nào tạo được trạng thái ấy, và nhánh được kiểm khi đó là
+		# `hop_dong_doi` chứ không phải `gia_doi`. Dòng này đi qua được vì
+		# hợp đồng khai `rate = 0` (chưa khai giá, xem `setUp`) nên giá của
+		# nó vốn đến TỪ bảng giá.
+		self._tao_gia(self.item_hd, self.price_list, 150)
 
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		canh_bao_gia = kq["canh_bao_gia"]
@@ -619,6 +622,8 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(canh_bao_gia[0]["item_code"], self.item_hd)
 		self.assertEqual(canh_bao_gia[0]["gia_cu"], 100)
 		self.assertEqual(canh_bao_gia[0]["gia_moi"], 150)
+		# ĐÚNG NHÁNH, không chỉ "có cảnh báo".
+		self.assertEqual(canh_bao_gia[0]["ly_do"], "gia_doi")
 
 		# VẾ DƯƠNG của việc khôi phục: đơn THẬT phải ra, ba tầng đúng chỗ.
 		so = frappe.get_doc("Sales Order", kq["sales_order"])

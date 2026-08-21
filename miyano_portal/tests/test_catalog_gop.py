@@ -100,7 +100,12 @@ class TestPortalCatalogGop(FrappeTestCase):
 
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
-		self._tao_gia(self.item_hd, self.price_list, 125000)
+		# M-4 (review vòng 1) — bảng giá khai giá KHÁC hợp đồng (125.000).
+		# Trước đó hai bên cùng 125.000 nên bài `test_ma_trong_hop_dong_la_
+		# tang_hop_dong_co_gia` không phân biệt được gì: đảo ngược thứ tự tra
+		# của QĐ-G12 vẫn xanh. Con số này phải KHÔNG BAO GIỜ xuất hiện trong
+		# `don_gia` của một dòng hợp đồng.
+		self._tao_gia(self.item_hd, self.price_list, 111000)
 
 		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
 		# `nguon_gia_theo_ma_cho_khach()` (dùng chung với `_suy_nguon_gia()`
@@ -244,7 +249,10 @@ class TestPortalCatalogGop(FrappeTestCase):
 		out = portal_api.portal_catalog_gop(tu_khoa=self.item_hd)
 		row = self._row(out["rows"], self.item_hd)
 		self.assertEqual(row["tang"], "hop_dong")
-		self.assertEqual(row["don_gia"], 125000.0)
+		self.assertEqual(
+			row["don_gia"], 125000.0,
+			"phải là giá HỢP ĐỒNG (125.000), không phải giá bảng giá (111.000)",
+		)
 		self.assertEqual(row["blanket_order"], self.bo_a)
 
 	def test_ma_ngoai_hop_dong_la_tang_cho_bao_gia_gia_none(self):
