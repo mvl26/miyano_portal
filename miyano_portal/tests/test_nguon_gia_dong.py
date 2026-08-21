@@ -462,6 +462,34 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
 		self.assertEqual(doc.items[0].blanket_order, bo)
 
+	def test_dong_moi_them_sau_gui_duyet_van_duoc_suy_dung_khong_an_theo_mac_dinh(self):
+		"""I3 — VẾ THỨ HAI cần thiết: chốt đóng băng ở `_suy_nguon_gia()`
+		KHÔNG được `return` sớm mù quáng cho CẢ PHIẾU — `_chan_sua_so_luong_
+		de_xuat` (nơi I3 mô phỏng theo) tự nó vẫn CHO PHÉP thêm dòng MỚI sau
+		khi gửi duyệt (Đường lọt #1 — quản lý điều chỉnh qua `_ap_dieu_
+		chinh`, dòng mới bắt buộc `so_luong_de_xuat = 0`). Nếu `_suy_nguon_
+		gia()` return sớm cho TOÀN BỘ `self.items` một khi phiếu đã qua khỏi
+		Nháp, dòng MỚI đó không bao giờ được tính — nó giữ nguyên default
+		Select "Hợp đồng" (lựa chọn ĐẦU trong `options`, xem
+		`get_static_default_value`, CHÍNH cái bẫy false-green đã ghi ở đầu
+		task này) dù mã hàng của nó không hề nằm trong hợp đồng nào. Đây là
+		bẫy đó quay lại qua một cửa khác — chỉ đóng băng DÒNG ĐÃ CÓ lúc gửi
+		duyệt, không đóng băng cả TẬP DÒNG."""
+		doc = self._phieu(items=[{"item_code": self.item_hd, "so_luong_de_xuat": 1}])
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+
+		doc.append("items", {
+			"item_code": self.item_ngoai, "so_luong_de_xuat": 0,
+			"nguon_gia": NGUON_GIA_HOP_DONG,   # gán SAI để không ăn may
+		})
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		self.assertEqual(doc.items[1].item_code, self.item_ngoai)
+		self.assertEqual(doc.items[1].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
+		self.assertFalse(doc.items[1].blanket_order)
+
 	# ---- Vế hồi quy — phiếu thuần hợp đồng ----------------------------
 
 	def test_phieu_thuan_hop_dong_van_bi_kiem_han_muc(self):

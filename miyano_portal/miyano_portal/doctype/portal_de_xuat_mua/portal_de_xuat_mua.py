@@ -278,6 +278,14 @@ class PortalDeXuatMua(Document):
 		nữa — xem `_nguon_gia_theo_ma()`). Vòng lặp bên dưới tự lọc theo
 		`row.nguon_gia` sau khi `_suy_nguon_gia()` tính lại (customer-wide),
 		nên không cần gate ngoài dựa trên `self.hdnt` nữa.
+
+		I3 (review vòng 1) — trên đường resubmit-sau-từ-chối (`gui_duyet()`
+		gọi được từ trạng thái "Từ chối", không chỉ "Nháp"), tự gọi `_suy_
+		nguon_gia()` ở đây gần như KHÔNG LÀM GÌ cho các dòng ĐÃ CÓ từ lần
+		gửi duyệt đầu tiên (đã đóng băng — xem guard `dong_bang` ở đó); nó
+		vẫn còn tác dụng THẬT cho dòng MỚI thêm trong lúc "Từ chối" (chưa
+		đóng băng), nên lời gọi này không phải no-op tuyệt đối, chỉ không
+		còn tính lại phần đã khoá.
 		"""
 		price_list = frappe.db.get_value("Customer", self.customer, "default_price_list")
 		if not price_list:
@@ -765,11 +773,25 @@ class PortalDeXuatMua(Document):
 		duyệt. Cùng điều kiện `is_new() or trang_thai == Nháp` — một phiếu
 		đã gửi duyệt thì khoá vĩnh viễn, không phải hai luật khoá lệch
 		nhau vì viết hai điều kiện khác nhau ở hai nơi.
+
+		SỬA (advisor, ngay sau review vòng 1) — đóng băng theo TỪNG DÒNG đã
+		có lúc gửi duyệt, KHÔNG `return` sớm cho CẢ `self.items`:
+		`_chan_sua_so_luong_de_xuat` (nơi I3 mô phỏng theo) vẫn CHO PHÉP
+		thêm dòng MỚI sau khi gửi duyệt (Đường lọt #1 của gate đó — quản lý
+		điều chỉnh qua `_ap_dieu_chinh`, dòng mới bắt buộc `so_luong_de_
+		xuat = 0`). `return` sớm cho cả tập dòng sẽ khiến dòng MỚI đó không
+		bao giờ được `_suy_nguon_gia()` chạm tới — nó giữ nguyên default
+		Select "Hợp đồng" (lựa chọn ĐẦU trong `options`) dù mã hàng của nó
+		không hề thuộc hợp đồng nào: đúng bẫy false-green đã ghi ở đầu task
+		này, quay lại qua một cửa khác.
 		"""
-		if not self.is_new() and self.trang_thai != TRANG_THAI_NHAP:
-			return
+		dong_bang = not self.is_new() and self.trang_thai != TRANG_THAI_NHAP
+		da_khoa = {d.name for d in self.get_doc_before_save().items} if dong_bang else set()
 		thang_cuoc = self._nguon_gia_theo_ma()
 		for row in self.items:
+			if dong_bang and row.name in da_khoa:
+				# Dòng đã có lúc gửi duyệt — đóng băng, không tính lại.
+				continue
 			bo = thang_cuoc.get(row.item_code)
 			if bo:
 				row.nguon_gia = NGUON_GIA_HOP_DONG
