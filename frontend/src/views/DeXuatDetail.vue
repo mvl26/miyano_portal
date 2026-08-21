@@ -428,12 +428,18 @@ onMounted(async () => {
 
         <!-- Đơn hàng sinh ra từ phiếu — mã tra cứu của khách (`ma_de_xuat`,
              chép sang `custom_ma_tra_cuu` của Sales Order lúc duyệt) hiện
-             TRƯỚC, mã hệ thống sau (QĐ-A4). -->
+             TRƯỚC, mã hệ thống sau (QĐ-A4).
+
+             Task 9 (21/08/2026) — đơn sinh từ cổng MANG THẲNG mã phiếu làm
+             `name`, nên hai mã TRÙNG NHAU và ô ngoặc đơn sẽ in đúng một
+             chuỗi hai lần. Chỉ hiện mã hệ thống khi nó THẬT SỰ khác — tức
+             với 140 đơn CŨ (`SAL-ORD-...`, chủ đầu tư chốt không đổi tên).
+             -->
         <p v-if="doc.sales_order" style="font-size: 13px; margin-top: 8px">
           <b>Đơn hàng:</b>
           <router-link :to="`/orders/${doc.sales_order}`" style="text-decoration: underline; margin-left: 4px">
             {{ doc.ma_de_xuat || doc.sales_order }}
-            <span v-if="doc.ma_de_xuat" class="tag">({{ doc.sales_order }})</span>
+            <span v-if="doc.ma_de_xuat && doc.ma_de_xuat !== doc.sales_order" class="tag">({{ doc.sales_order }})</span>
           </router-link>
         </p>
       </div>

@@ -100,6 +100,12 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		delivery_date=doc.ngay_can, address=doc.dia_chi_giao,
 		note=doc.ghi_chu, request_id=doc.request_id or doc.name,
 		khoa_phong=doc.khoa_phong,
+		# Task 9 — đơn MANG THẲNG mã phiếu. DÙNG LẠI `doc.ma_de_xuat` đã
+		# cấp lúc `gui_duyet()`, KHÔNG gọi `sinh_ma()` lần nữa (nó cấp số
+		# mới qua `getseries`, đơn sẽ mang mã không khớp phiếu nào).
+		# `None` (phiếu chưa có mã, VD khách chưa có Mã ngắn) → đơn rơi về
+		# `SAL-ORD-...` như cũ.
+		ma=doc.ma_de_xuat,
 	)
 
 	# I1 (review tổng 19/08) — `tao_sales_order` trả ĐƠN CŨ kèm cờ

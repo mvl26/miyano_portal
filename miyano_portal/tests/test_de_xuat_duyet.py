@@ -658,6 +658,7 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.don_da_duyet = kq["sales_order"]
+		self.ma_de_xuat = doc.ma_de_xuat
 
 		# 102 đơn cũ không có phiếu đề xuất đứng sau — đặt trực tiếp, KHÔNG
 		# qua đường đề xuất, đúng tình huống tương thích ngược.
@@ -672,12 +673,29 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def test_api_don_hang_tra_ca_hai_ma(self):
+	def test_api_don_hang_tra_ma_de_xuat_lam_ten_don(self):
+		"""SỬA 21/08/2026 (Task 9 — chủ đầu tư chốt "đơn mang thẳng mã đề
+		xuất"). Tên cũ `test_api_don_hang_tra_ca_hai_ma`, khẳng định cũ:
+		`name` bắt đầu bằng `SAL-ORD-` (mã hệ thống) còn `ma_tra_cuu` mang
+		mã của khách — HAI mã khác nhau cho cùng một đơn.
+
+		Chủ đầu tư bỏ đúng sự chia đôi đó: khách và Miyano phải nhìn CÙNG
+		một mã, hoá đơn ghi mã đó. Nên `name` GIỜ CHÍNH LÀ mã của khách.
+		`ma_tra_cuu` vẫn được ghi (đơn cũ còn đọc nó) và bằng chính `name`
+		với mọi đơn sinh sau Task 9.
+
+		Bằng chứng ĐỎ của lần sửa: `AssertionError: False is not true` tại
+		`assertTrue(r["name"].startswith("SAL-ORD-"))`."""
 		frappe.set_user(self.user_quan_ly)
 		rows = portal.portal_order_history()["rows"]
 		r = next(x for x in rows if x["name"] == self.don_da_duyet)
-		self.assertTrue(r["name"].startswith("SAL-ORD-"))   # mã hệ thống
-		self.assertIn("-HUYETHOC-", r["ma_tra_cuu"])         # mã của khách
+		self.assertEqual(r["name"], self.ma_de_xuat)
+		self.assertIn("-HUYETHOC-", r["name"])
+		self.assertEqual(
+			r["ma_tra_cuu"], r["name"],
+			"`ma_tra_cuu` vẫn phải được ghi — đơn cũ còn đọc nó; với đơn mới "
+			"nó trùng `name`, và ĐÓ là căn cứ để giao diện ẩn bớt một mã",
+		)
 
 	def test_don_cu_khong_co_ma_tra_cuu_thi_khong_vo(self):
 		"""Chốt tương thích ngược — phải xanh cả trước lẫn sau."""

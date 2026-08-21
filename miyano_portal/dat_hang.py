@@ -139,9 +139,11 @@ def _resolve_item_warehouse(item_code: str, company: str):
 
 
 def _insert_so_idempotent(so, request_id) -> dict:
-    """Ghi `so` (chưa insert) rồi trả phong bì chuẩn — dùng CHUNG bởi cả hai
-    nhánh HĐNT và Mua lẻ của `tao_sales_order`, đúng một khuôn xử lý đua
-    `UniqueValidationError` (xem giải thích gốc ở khối này trước khi tách).
+    """Ghi `so` (chưa insert) rồi trả phong bì chuẩn, đúng một khuôn xử lý
+    đua `UniqueValidationError` (xem giải thích gốc ở khối này trước khi
+    tách). Trước Task 4 câu này viết "dùng CHUNG bởi cả hai nhánh HĐNT và
+    Mua lẻ" — hai nhánh đó đã gộp làm một (`_xay_don`), chỉ còn một đường
+    gọi tới đây.
     """
     so.flags.ignore_permissions = True
     try:
@@ -603,7 +605,7 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
 def tao_sales_order(
     customer: str, *, mode: str = "hdnt", contract=None, items=None,
     dat_ngoai=None, po=None, delivery_date=None, note=None, address=None,
-    request_id=None, khoa_phong=None,
+    request_id=None, khoa_phong=None, ma=None,
 ) -> dict:
     """Trả {"sales_order": str, "da_ton_tai": bool, "total": float}
 
@@ -612,6 +614,16 @@ def tao_sales_order(
     `frappe.session.user`: việc xác định khách hàng thuộc TRÁCH NHIỆM của
     người gọi (endpoint cổng suy từ phiên đăng nhập qua `get_portal_customer`;
     đường duyệt đề nghị mua sau này sẽ suy từ chính `Đề nghị mua` được duyệt).
+
+    `ma` — [Task 9, chủ đầu tư chốt 21/08/2026] TÊN của Sales Order sắp
+    tạo, chính là `ma_de_xuat` của phiếu đứng sau nó
+    (`DXA-HUYETHOC-260821-01`). KHÔNG BẮT BUỘC: thiếu thì rơi về đặt tên
+    gốc `SAL-ORD-...` — đơn Miyano tự lập trong Desk không có mã ngắn
+    khách + mã khoa nên không suy ra được mã, và đó là điều kiện TƯƠNG
+    THÍCH NGƯỢC chứ không phải một trường hợp biên. Người gọi phải truyền
+    LẠI mã ĐÃ CÓ của phiếu, tuyệt đối không gọi `sinh_ma()` lần nữa: hàm
+    đó cấp số qua `getseries`, gọi lại sẽ ra số khác và đơn mang một mã
+    không khớp phiếu nào.
 
     `khoa_phong` — ghi lên `Sales Order.custom_khoa_phong` (Task 8), nguồn
     DUY NHẤT cho mọi phép lọc theo khoa về sau (xem docstring patch
@@ -772,5 +784,27 @@ def tao_sales_order(
         if not kp or kp.customer != customer or not kp.active:
             raise frappe.PermissionError("Khoa phòng không thuộc đơn vị của bạn.")
         so.custom_khoa_phong = khoa_phong
+
+    if ma:
+        # Task 9 — CHỈ CÓ MỘT ĐƯỜNG ĐÚNG để ép tên trong Frappe v15:
+        # `name` + `flags.name_set`. `Document.set_new_name()`
+        # (`frappe/model/document.py:530`) thoát sớm khi thấy cờ đó; gán
+        # `name` mà QUÊN cờ thì `set_new_name()` chạy tiếp, `naming_series`
+        # của Sales Order ghi đè và mã bị vứt IM LẶNG — hỏng kiểu tệ nhất
+        # vì đơn vẫn tạo được, chỉ mang tên khác, và một bài test nhìn
+        # thoáng vẫn xanh.
+        #
+        # Cờ này cũng làm Frappe bỏ luôn bước đặt tên cho các DÒNG CON —
+        # vô hại: `BaseDocument.db_insert()` tự đặt tên hash cho dòng nào
+        # chưa có (`base_document.py:556`), đúng cách `frappe/api/v2.py`
+        # dùng chính cặp `name` + `name_set` này.
+        #
+        # Trùng tên thì NỔ (`DuplicateEntryError`, KHÔNG phải
+        # `UniqueValidationError` nên khối `except` chống-trùng-request_id
+        # trong `_insert_so_idempotent` cố ý không nuốt nó): hệ thống có
+        # hai đơn mà chỉ một cái mang mã khách đang cầm là tình huống phải
+        # ồn ào, không được âm thầm cấp một tên khác rồi báo thành công.
+        so.name = ma
+        so.flags.name_set = True
 
     return _insert_so_idempotent(so, request_id)
