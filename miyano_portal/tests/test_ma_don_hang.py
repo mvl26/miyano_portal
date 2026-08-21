@@ -49,9 +49,19 @@ def _don_phieu_cu():
 	NẶNG HƠN hẳn từ Task 9: trước đây hai phiếu trùng tên chỉ đụng nhau qua
 	`custom_request_id`; giờ TÊN ĐƠN cũng là mã phiếu, nên một đơn cũ chưa
 	dọn sẽ làm phiếu mới ném `DuplicateEntryError` ngay lúc insert."""
+	# Vòng sửa 1 (review độc lập) — KHÔNG lọc `docstatus: 0`. Một đơn
+	# `_TEST DX%` ĐÃ SUBMIT do class khác để lại sẽ sống sót qua bước dọn
+	# này và ăn mất `ordered_qty` của hợp đồng (`StockController.update_
+	# blanket_order` chạy ở `on_submit`), khiến mọi bài test biên hạn mức
+	# trong file này PHỤ THUỘC THỨ TỰ CHẠY — đúng loại chập chờn tốn nhiều
+	# giờ nhất để truy. Huỷ trước rồi xoá (cùng khuôn `test_catalog_gop.py`
+	# làm với Blanket Order); `cancel()` cũng trả lại `ordered_qty`.
 	for r in frappe.get_all(
-		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
+		"Sales Order", filters={"customer": ["like", "_TEST DX%"]},
+		fields=["name", "docstatus"],
 	):
+		if r.docstatus == 1:
+			frappe.get_doc("Sales Order", r.name).cancel()
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
 	for r in frappe.get_all(
 		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]},
@@ -191,3 +201,35 @@ class TestMaDonHang(FrappeTestCase):
 			frappe.db.exists("Sales Order", {"custom_request_id": rid}),
 			"thất bại phải là thất bại, không phải một đơn mang tên khác",
 		)
+
+	def test_ma_co_ky_tu_cam_thi_bi_tu_choi(self):
+		"""Vòng sửa 1 (review độc lập). `so.name = ma` + `flags.name_set`
+		ĐI VÒNG QUA `frappe.model.naming.validate_name` — hàm mà đường đặt
+		tên bình thường luôn chạy qua (nó cấm `<`/`>` và `.strip()` khoảng
+		trắng). `ma_de_xuat` dựng từ `Customer.custom_ma_ngan` +
+		`Customer Department.ma_khoa`, CẢ HAI là text nhân viên Miyano tự
+		gõ ở Desk — nên một ký tự lạc có thể chui thẳng vào KHOÁ CHÍNH của
+		Sales Order, nơi nó đi vào URL, tên file PDF và mọi liên kết."""
+		with self.assertRaises(frappe.NameError) as ctx:
+			dat_hang.tao_sales_order(
+				self.kh_a, ma="DXA-<script>-260821-01",
+				items=[{"item_code": self.item, "qty": 1}],
+				request_id=_rid(),
+			)
+		self.assertIn("special characters", str(ctx.exception))
+
+	def test_ma_thua_khoang_trang_duoc_lam_sach(self):
+		"""Cùng gốc: `validate_name` `.strip()` tên. Một `ma_khoa` gõ thừa
+		khoảng trắng ở Desk không được biến thành một khoá chính có khoảng
+		trắng ở đầu/cuối — thứ trông giống hệt mã đúng nhưng không bao giờ
+		tra ra."""
+		doc = self._phieu_cho_duyet()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertEqual(kq["sales_order"], kq["sales_order"].strip())
+
+		kq2 = dat_hang.tao_sales_order(
+			self.kh_a, ma="  DXA-HUYETHOC-260821-99  ",
+			items=[{"item_code": self.item, "qty": 1}],
+			request_id=_rid(),
+		)
+		self.assertEqual(kq2["sales_order"], "DXA-HUYETHOC-260821-99")

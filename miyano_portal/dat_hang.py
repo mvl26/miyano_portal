@@ -11,11 +11,12 @@ Hai đường tính giá và kiểm hạn mức là hai đường sẽ lệch nh
 """
 
 import frappe
+from frappe.model.naming import validate_name
 
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
     nguon_gia_theo_ma_cho_khach,
 )
-from miyano_portal.portal_context import han_muc_con
+from miyano_portal.portal_context import han_muc_con, ten_khoa_da_tieu
 from miyano_portal.portal_dat_hang import (
     kiem_boi_so,
     kiem_ngay_giao,
@@ -385,10 +386,19 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
                 # khách đòi là `vuot_han_muc` — giao diện xử lý khác nhau.
                 "ly_do": "het_han_muc" if con_lai <= 0 else "vuot_han_muc",
                 "con_lai": con_lai,
-                # Nguyên văn ma trận FormSpec §5, dòng NL-1.3.
+                # Nguyên văn ma trận FormSpec §5, dòng NL-1.3, CỘNG vế
+                # "Đã dùng bởi" (vòng sửa 1, review độc lập): §5.6 đòi mọi
+                # thất bại hạn mức phải nêu TÊN KHOA đã tiêu mất, không có
+                # ngoại lệ cho nhánh nào. Trước đó chỉ `de_xuat_duyet.
+                # _kiem_han_muc` nêu, nên đơn đặt qua giỏ hàng quản lý —
+                # và mọi dòng mà nhánh kia bỏ qua — nhận một thông điệp
+                # không cho người dùng đường nào để gỡ. Câu gốc giữ NGUYÊN
+                # VĂN ở đầu (test cũ khẳng định đúng chuỗi đó), vế mới nối
+                # vào sau.
                 "thong_diep": (
                     f"Không đặt được: {item_code} chỉ còn {con_lai:g} "
-                    f"theo hạn mức hợp đồng khung."
+                    f"theo hạn mức hợp đồng khung. "
+                    f"Đã dùng bởi: {ten_khoa_da_tieu(bo_dong)}."
                 ),
             })
             continue
@@ -804,7 +814,18 @@ def tao_sales_order(
         # trong `_insert_so_idempotent` cố ý không nuốt nó): hệ thống có
         # hai đơn mà chỉ một cái mang mã khách đang cầm là tình huống phải
         # ồn ào, không được âm thầm cấp một tên khác rồi báo thành công.
-        so.name = ma
+        #
+        # Vòng sửa 1 (review độc lập) — `flags.name_set` làm `Document.
+        # set_new_name()` thoát sớm, tức ĐI VÒNG QUA `validate_name` mà
+        # đường đặt tên bình thường luôn chạy qua. `ma_de_xuat` dựng từ
+        # `Customer.custom_ma_ngan` + `Customer Department.ma_khoa`, CẢ HAI
+        # là text nhân viên Miyano tự gõ ở Desk — nên một ký tự lạc (`<`,
+        # `>`, khoảng trắng thừa) chui thẳng vào KHOÁ CHÍNH của Sales
+        # Order, nơi nó đi vào URL, tên file PDF và mọi liên kết. Gọi lại
+        # đúng hàm đó thay vì tự viết một phép làm sạch thứ hai: nó vừa
+        # `.strip()` vừa từ chối ký tự cấm, và nếu Frappe siết thêm luật
+        # thì đường này siết theo.
+        so.name = validate_name("Sales Order", ma)
         so.flags.name_set = True
 
     return _insert_so_idempotent(so, request_id)

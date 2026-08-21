@@ -47,9 +47,19 @@ TEN_KHOA_DA_TIEU = "Dược nội trú"
 def _don_phieu_cu():
 	"""Sales Order → Blanket Order → phiếu. ĐÚNG THỨ TỰ đó — xem docstring
 	cùng tên ở `test_dat_hang_gop.py`/`test_de_xuat_duyet.py`."""
+	# Vòng sửa 1 (review độc lập) — KHÔNG lọc `docstatus: 0`. Một đơn
+	# `_TEST DX%` ĐÃ SUBMIT do class khác để lại sẽ sống sót qua bước dọn
+	# này và ăn mất `ordered_qty` của hợp đồng (`StockController.update_
+	# blanket_order` chạy ở `on_submit`), khiến mọi bài test biên hạn mức
+	# trong file này PHỤ THUỘC THỨ TỰ CHẠY — đúng loại chập chờn tốn nhiều
+	# giờ nhất để truy. Huỷ trước rồi xoá (cùng khuôn `test_catalog_gop.py`
+	# làm với Blanket Order); `cancel()` cũng trả lại `ordered_qty`.
 	for r in frappe.get_all(
-		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
+		"Sales Order", filters={"customer": ["like", "_TEST DX%"]},
+		fields=["name", "docstatus"],
 	):
+		if r.docstatus == 1:
+			frappe.get_doc("Sales Order", r.name).cancel()
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
 	for r in frappe.get_all(
 		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]},
@@ -145,6 +155,19 @@ class TestHanMucDonTron(FrappeTestCase):
 			frappe.get_doc({"doctype": "Item Price", "price_list_rate": rate, **loc}).insert(
 				ignore_permissions=True
 			)
+
+	def _bo(self, items, to_date_offset=365):
+		"""Blanket Order SUBMIT thật (Ruling P18 — "còn hiệu lực" đòi
+		`docstatus == 1`)."""
+		doc = frappe.get_doc({
+			"doctype": "Blanket Order", "blanket_order_type": "Selling",
+			"customer": self.kh_a, "company": COMPANY,
+			"from_date": frappe.utils.today(),
+			"to_date": frappe.utils.add_days(frappe.utils.today(), to_date_offset),
+			"items": items,
+		}).insert(ignore_permissions=True)
+		doc.submit()
+		return doc.name
 
 	def _phieu_cho_duyet(self, items, dat_ngoai=None):
 		"""Phiếu đi qua ĐÚNG đường công khai `gui_duyet()`, `hdnt` để RỖNG
@@ -273,3 +296,93 @@ class TestHanMucDonTron(FrappeTestCase):
 		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
 		self.assertEqual(theo_ma[item_hd2].blanket_order, bo2)
 		self.assertEqual(float(theo_ma[item_hd2].qty), 40.0)
+
+	# ---- Ruling P28 — MỘT nguồn duy nhất: bản SUY LẠI lúc duyệt --------
+
+	def test_hop_dong_dong_bang_het_han_thi_dung_hop_dong_con_song(self):
+		"""RULING P28, VẾ DƯƠNG, ca CHÍNH của vòng sửa 1.
+
+		Mặt hàng X nằm trong HAI hợp đồng: `bo_som` (hết hạn sớm → THẮNG
+		lúc gửi duyệt theo Ruling P14, nhưng chỉ còn 1) và `bo_dai` (còn
+		1000). Phiếu đóng băng `bo_som`. Rồi `bo_som` HẾT HẠN trong lúc chờ
+		duyệt — chuyện có thật, không phải giả định.
+
+		Trước vòng sửa này: `_kiem_han_muc` đọc `row.blanket_order` ĐÓNG
+		BĂNG và KHÔNG hề kiểm nó còn hiệu lực không, nên nó viện dẫn hạn
+		mức của một hợp đồng ĐÃ CHẾT để chặn thẳng việc duyệt — trong khi
+		`dat_hang._xay_don` (suy lại) lẽ ra định giá dòng đó theo `bo_dai`
+		với 1000 còn lại. Quản lý bị từ chối oan, và thông điệp lỗi không
+		cho họ đường nào để gỡ.
+
+		Sau: hợp đồng dùng để QUYẾT ĐỊNH là bản suy lại tại thời điểm
+		duyệt, ở CẢ HAI tầng. Bản đóng băng giữ nguyên vai trò BẰNG CHỨNG
+		(khoa đã nhìn thấy hợp đồng nào lúc gửi) — test khẳng định nó
+		KHÔNG bị xoá — và việc hai bản lệch nhau phải ĐI VÀO cảnh báo, không
+		bị nuốt."""
+		item_x = self._tao_item("_TEST DX HM ITEM HAI HD")
+		self._tao_gia(item_x, self.price_list, 300)
+		bo_som = self._bo([{"item_code": item_x, "qty": 1, "rate": 300}],
+		                  to_date_offset=5)
+		bo_dai = self._bo([{"item_code": item_x, "qty": 1000, "rate": 300}],
+		                  to_date_offset=200)
+
+		doc = self._phieu_cho_duyet(items=[
+			{"item_code": item_x, "so_luong_de_xuat": 5},
+		])
+		self.assertEqual(
+			doc.items[0].blanket_order, bo_som,
+			"Ruling P14 — hết hạn sớm nhất thắng lúc gửi duyệt",
+		)
+
+		# `bo_som` hết hạn TRONG lúc phiếu nằm chờ duyệt. Ghi thẳng DB:
+		# `to_date` của một Blanket Order đã nộp không sửa qua `save()`
+		# được, và đây mô phỏng đúng việc thời gian trôi qua.
+		frappe.db.set_value(
+			"Blanket Order", bo_som, "to_date",
+			frappe.utils.add_days(frappe.utils.today(), -1),
+		)
+
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(float(so.items[0].qty), 5.0)
+		self.assertEqual(
+			so.items[0].blanket_order, bo_dai,
+			"dòng phải được định giá và trừ hạn mức theo hợp đồng CÒN SỐNG",
+		)
+		self.assertEqual(float(so.items[0].rate), 300.0)
+
+		# Bằng chứng đóng băng KHÔNG bị xoá, không bị đổi ý nghĩa.
+		doc.reload()
+		self.assertEqual(doc.items[0].blanket_order, bo_som)
+
+		# Và việc đổi hợp đồng KHÔNG được nuốt lặng lẽ.
+		cb = [c for c in kq["canh_bao_gia"] if c["item_code"] == item_x]
+		self.assertEqual(len(cb), 1, "đổi hợp đồng phải được báo lên")
+		self.assertEqual(cb[0]["hop_dong_cu"], bo_som)
+		self.assertEqual(cb[0]["hop_dong_moi"], bo_dai)
+
+	def test_dong_backfill_thieu_blanket_order_van_bi_kiem_han_muc(self):
+		"""Hệ quả THỨ HAI cùng gốc. Phiếu CŨ đang "Chờ duyệt" được patch
+		`them_nguon_gia_dong_phieu.py` backfill mang `nguon_gia = "Hợp
+		đồng"` nhưng `blanket_order = NULL` (patch chép từ `hdnt`, vốn NULL
+		với mọi phiếu lập từ giao diện thật). `_suy_nguon_gia` đóng băng
+		dòng sau Nháp nên chúng KHÔNG tự lành.
+
+		Trước vòng sửa: nhánh `or not bo: continue` bỏ qua hẳn những dòng
+		đó → hạn mức vẫn được canh (ở tầng `dat_hang`) nhưng thông điệp
+		KHÔNG có tên khoa — hỏng đúng vế đặc tả §5.6 mà Task 5 phải giữ."""
+		doc = self._phieu_cho_duyet(items=[
+			{"item_code": self.item_hd, "so_luong_de_xuat": 5},
+		])
+		# Mô phỏng ĐÚNG dữ liệu patch để lại: có `nguon_gia`, không có
+		# `blanket_order`. Ghi thẳng DB vì `_suy_nguon_gia` đã đóng băng.
+		frappe.db.set_value(
+			"Portal De Xuat Mua Item", doc.items[0].name, "blanket_order", None
+		)
+		doc.reload()
+		self.assertFalse(doc.items[0].blanket_order)
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertIn(TEN_KHOA_DA_TIEU, str(ctx.exception))

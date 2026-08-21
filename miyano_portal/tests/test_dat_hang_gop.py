@@ -67,9 +67,19 @@ def _don_phieu_cu():
 	WIDE): hợp đồng SUBMIT của method trước vẫn "còn hiệu lực" ở method
 	sau, và tie-break `name asc` sẽ chọn hợp đồng CŨ NHẤT thay vì hợp đồng
 	của chính method đang chạy."""
+	# Vòng sửa 1 (review độc lập) — KHÔNG lọc `docstatus: 0`. Một đơn
+	# `_TEST DX%` ĐÃ SUBMIT do class khác để lại sẽ sống sót qua bước dọn
+	# này và ăn mất `ordered_qty` của hợp đồng (`StockController.update_
+	# blanket_order` chạy ở `on_submit`), khiến mọi bài test biên hạn mức
+	# trong file này PHỤ THUỘC THỨ TỰ CHẠY — đúng loại chập chờn tốn nhiều
+	# giờ nhất để truy. Huỷ trước rồi xoá (cùng khuôn `test_catalog_gop.py`
+	# làm với Blanket Order); `cancel()` cũng trả lại `ordered_qty`.
 	for r in frappe.get_all(
-		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
+		"Sales Order", filters={"customer": ["like", "_TEST DX%"]},
+		fields=["name", "docstatus"],
 	):
+		if r.docstatus == 1:
+			frappe.get_doc("Sales Order", r.name).cancel()
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
 	for r in frappe.get_all(
 		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]},
@@ -412,3 +422,69 @@ class TestDatHangGop(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.trang_thai, "Đã duyệt")
 		self.assertEqual(doc.sales_order, kq["sales_order"])
+
+	# ---- vòng sửa 1 — mọi nhánh hạn mức phải nêu TÊN KHOA -------------
+
+	def test_vuot_han_muc_o_nhanh_dat_hang_van_neu_ten_khoa(self):
+		"""Vòng sửa 1 (review độc lập). §5.6 đòi "thất bại kèm TÊN KHOA đã
+		tiêu mất" — KHÔNG có ngoại lệ nào cho nhánh nào. Trước vòng sửa,
+		chỉ `de_xuat_duyet._kiem_han_muc` nêu tên khoa; nhánh hạn mức
+		trong `dat_hang._xay_don` chỉ nói "chỉ còn N theo hạn mức hợp đồng
+		khung", nên MỌI đơn đặt qua giỏ hàng — và mọi phiếu mà `_kiem_han_
+		muc` bỏ qua — đều nhận một thông điệp không cho người dùng đường
+		nào để gỡ (họ không biết hạn mức đi đâu mất)."""
+		ten_khoa = "Hồi sức tích cực"
+		khoa = frappe.db.get_value(
+			"Customer Department", {"customer": self.kh_a, "ma_khoa": "HSTC"}, "name"
+		) or frappe.get_doc({
+			"doctype": "Customer Department", "customer": self.kh_a,
+			"ten_khoa_phong": ten_khoa, "ma_khoa": "HSTC", "active": 1,
+		}).insert(ignore_permissions=True).name
+
+		# Đơn của khoa KIA đã tiêu hạn mức trên CÙNG hợp đồng.
+		frappe.get_doc({
+			"doctype": "Sales Order", "customer": self.kh_a, "company": COMPANY,
+			"transaction_date": frappe.utils.today(),
+			"delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
+			"selling_price_list": self.price_list,
+			"custom_hdnt": self.bo, "custom_khoa_phong": khoa,
+			"items": [{"item_code": self.item_hd, "qty": 48, "rate": 100}],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value(
+			"Blanket Order Item", {"parent": self.bo, "item_code": self.item_hd},
+			"ordered_qty", 48,      # còn đúng 2
+		)
+
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			dat_hang.tao_sales_order(
+				self.kh_a,
+				items=[{"item_code": self.item_hd, "qty": 5}],
+				request_id=_rid(),
+			)
+		self.assertIn(ten_khoa, str(ctx.exception))
+		loi = frappe.local.response.get("loi")
+		self.assertIn(ten_khoa, loi[0]["thong_diep"])
+		# Phong bì máy đọc được KHÔNG đổi hình dạng — nhiều test phụ thuộc.
+		self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
+		self.assertEqual(float(loi[0]["con_lai"]), 2.0)
+
+	def test_mat_hang_hop_dong_bi_ngung_kinh_doanh_van_bi_chan(self):
+		"""GHIM hành vi ĐỔI ở Task 4 mà chưa test nào phủ: hàm dựng gộp áp
+		`Item.disabled` cho CẢ dòng hợp đồng, việc `_xay_don_hdnt` cũ
+		KHÔNG làm (nó chỉ kiểm giá + hạn mức). Chặt hơn và đúng — một mặt
+		hàng đã ngừng kinh doanh thì không giao được, có hợp đồng hay
+		không — nhưng là đổi hành vi trên đường đang chạy thật, nên phải
+		có một bài ghim để lần sau ai nới ra thì thấy ngay."""
+		frappe.db.set_value("Item", self.item_hd, "disabled", 1)
+		try:
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				dat_hang.tao_sales_order(
+					self.kh_a, mode="hdnt", contract=self.bo,
+					items=[{"item_code": self.item_hd, "qty": 1}],
+					request_id=_rid(),
+				)
+			self.assertIn("ngừng kinh doanh", str(ctx.exception))
+			loi = frappe.local.response.get("loi")
+			self.assertEqual(loi[0]["ly_do"], "mat_hang_ngung_kinh_doanh")
+		finally:
+			frappe.db.set_value("Item", self.item_hd, "disabled", 0)

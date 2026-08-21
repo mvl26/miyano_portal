@@ -29,9 +29,9 @@ import frappe
 
 from miyano_portal import dat_hang
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
-	NGUON_GIA_HOP_DONG,
+	nguon_gia_theo_ma_cho_khach,
 )
-from miyano_portal.portal_context import han_muc_con
+from miyano_portal.portal_context import han_muc_con, ten_khoa_da_tieu
 
 
 def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
@@ -43,17 +43,14 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	# CÒN trên phiếu: đó là cách giữ "khoa xin gì / duyệt gì" mà không cần
 	# một bản snapshot song song sớm muộn cũng lệch.
 	#
-	# Task 5 — mang theo `nguon_gia`/`blanket_order` ĐÃ ĐÓNG BĂNG trên
-	# từng dòng lúc gửi duyệt (Task 2, I3). `_kiem_han_muc` cần chúng;
-	# `dat_hang.tao_sales_order` KHÔNG đọc hai khoá này (nó tự suy lại
-	# theo đúng một luật dùng chung, xem `_xay_don`) nên chỉ truyền xuống
-	# đó phần `item_code`/`qty` — không tạo ấn tượng sai rằng đường tạo
-	# đơn tin vào giá trị người gọi gửi.
+	# Ruling P28 (vòng sửa 1) — `dong` CHỈ mang `item_code`/`qty`. Bản đầu
+	# của Task 5 kèm theo `nguon_gia`/`blanket_order` đã đóng băng để
+	# `_kiem_han_muc` dùng; nhưng hợp đồng dùng để QUYẾT ĐỊNH phải là bản
+	# suy lại tại thời điểm duyệt, và cả hai tầng giờ tự hỏi cùng một hàm
+	# (`nguon_gia_theo_ma_cho_khach`). Không truyền hợp đồng xuống nữa =
+	# không có đường nào để hai tầng lệch nhau.
 	dong = [
-		{
-			"item_code": d.item_code, "qty": float(d.so_luong_duyet or 0),
-			"nguon_gia": d.nguon_gia, "blanket_order": d.blanket_order,
-		}
+		{"item_code": d.item_code, "qty": float(d.so_luong_duyet or 0)}
 		for d in doc.items if float(d.so_luong_duyet or 0) > 0
 	]
 	if not dong and not doc.dat_ngoai:
@@ -71,8 +68,8 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	#     (`de_xuat_tao_nhap()` tạo phiếu Nháp TRƯỚC khi người dùng chọn
 	#     mặt hàng, `de_xuat_luu_nhap()` không có tham số `hdnt`), nên
 	#     ngay cả phiếu THUẦN hợp đồng cũng chưa từng được kiểm ở đây.
-	# Chỗ đúng để lọc là bên trong vòng lặp, theo `nguon_gia` của từng
-	# dòng — không phải một cái cổng ở ngoài đóng/mở cho cả phiếu.
+	# Chỗ đúng để lọc là bên trong vòng lặp, theo hợp đồng của từng dòng
+	# — không phải một cái cổng ở ngoài đóng/mở cho cả phiếu.
 	_kiem_han_muc(doc, dong)
 
 	# §5.6 bẫy #2 — thu thập TRƯỚC khi tạo đơn: nếu `tao_sales_order` bên
@@ -94,8 +91,7 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		# vẫn ghi nó). `tao_sales_order` chỉ dùng nó làm đường lui cho
 		# `custom_hdnt` khi không suy được từ dòng, và vẫn kiểm nó thuộc
 		# đúng khách hàng.
-		contract=doc.hdnt,
-		items=[{"item_code": d["item_code"], "qty": d["qty"]} for d in dong],
+		contract=doc.hdnt, items=dong,
 		dat_ngoai=[d.as_dict() for d in doc.dat_ngoai],
 		delivery_date=doc.ngay_can, address=doc.dia_chi_giao,
 		note=doc.ghi_chu, request_id=doc.request_id or doc.name,
@@ -180,21 +176,56 @@ def _kiem_gia_doi(doc) -> list[dict]:
 	vẫn có `don_gia` đã đóng dấu đàng hoàng. Gate `price_list` một mình đã
 	đủ — không có bảng giá thì không tính được `gia_moi` cho bất kỳ dòng
 	nào, dù dòng đó có `don_gia` hay không.
+
+	RULING P28 (vòng sửa 1, review độc lập) — hàm này giờ báo CẢ việc ĐỔI
+	HỢP ĐỒNG, không chỉ đổi giá. Hợp đồng dùng để quyết định là bản SUY
+	LẠI lúc duyệt (xem `_kiem_han_muc`), còn `row.blanket_order` đóng băng
+	là BẰNG CHỨNG khoa đã nhìn thấy hợp đồng nào lúc gửi. Hai bản lệch
+	nhau là một sự thật quản lý cần biết TRƯỚC khi bấm duyệt — hợp đồng
+	đóng băng vừa hết hạn, hoặc một hợp đồng mới ký đã chen lên trước theo
+	luật "hết hạn sớm nhất thắng". Nuốt lặng lẽ tín hiệu đó thì việc đơn
+	được tính theo một hợp đồng khác hợp đồng khoa đã xem chỉ lộ ra khi ai
+	đó đối chiếu sổ.
+
+	Vì lý do đó gate `if not price_list: return []` cũng bỏ: không có bảng
+	giá thì không so được GIÁ, nhưng vẫn so được HỢP ĐỒNG.
+
+	Mỗi mục trả về mang thêm `hop_dong_cu`/`hop_dong_moi` (có thể `None`)
+	và `ly_do` để tầng hiển thị phân biệt được ba tình huống. Ba khoá cũ
+	(`item_code`/`gia_cu`/`gia_moi`) GIỮ NGUYÊN tên và kiểu — chúng là
+	hợp đồng dữ liệu với người gọi.
 	"""
 	price_list = frappe.db.get_value("Customer", doc.customer, "default_price_list")
-	if not price_list:
-		return []
+	thang_cuoc = nguon_gia_theo_ma_cho_khach(doc.customer)
 	canh_bao = []
 	for row in doc.items:
-		if not row.don_gia:
+		bo_moi = thang_cuoc.get(row.item_code)
+		bo_cu = row.blanket_order or None
+		hop_dong_doi = bo_moi != bo_cu
+		# Chỉ dòng thuộc hợp đồng mới có giá để so — dòng "Chờ báo giá"
+		# không bao giờ có `don_gia` (xem `_dong_dau_gia()`).
+		gia_moi = (
+			dat_hang._gia_hien_hanh(row.item_code, price_list)
+			if price_list and bo_moi else None
+		)
+		gia_cu = float(row.don_gia) if row.don_gia else None
+		gia_doi = (
+			gia_cu is not None and gia_moi is not None
+			and float(gia_moi) != gia_cu
+		)
+		if not hop_dong_doi and not gia_doi:
 			continue
-		gia_moi = dat_hang._gia_hien_hanh(row.item_code, price_list)
-		if gia_moi and float(gia_moi) != float(row.don_gia):
-			canh_bao.append({
-				"item_code": row.item_code,
-				"gia_cu": float(row.don_gia),
-				"gia_moi": float(gia_moi),
-			})
+		canh_bao.append({
+			"item_code": row.item_code,
+			"gia_cu": gia_cu,
+			"gia_moi": float(gia_moi) if gia_moi is not None else None,
+			"hop_dong_cu": bo_cu,
+			"hop_dong_moi": bo_moi,
+			"ly_do": (
+				"gia_va_hop_dong_doi" if (gia_doi and hop_dong_doi)
+				else "hop_dong_doi" if hop_dong_doi else "gia_doi"
+			),
+		})
 	return canh_bao
 
 
@@ -207,42 +238,56 @@ def _kiem_han_muc(doc, dong):
 
 	Task 5 (gộp luồng đặt hàng, 21/08/2026) — kiểm THEO TỪNG DÒNG, trên
 	ĐÚNG hợp đồng của riêng dòng đó, thay vì giả định cả phiếu nằm trên
-	một `doc.hdnt` duy nhất:
+	một `doc.hdnt` duy nhất. Dòng KHÔNG thuộc hợp đồng nào thì bỏ qua:
+	`han_muc_con()` trả `(0.0, 0.0)` — "hạn mức 0" — cho MỌI mã hàng không
+	có dòng trong hợp đồng được hỏi, nên đưa nó vào phép kiểm là chặn một
+	dòng chưa từng bị hạn mức ràng buộc, kèm một thông điệp vô nghĩa với
+	khoa phòng.
 
-	  * CHỈ dòng `nguon_gia == "Hợp đồng"` bị kiểm. Dòng "Chờ báo giá"
-	    không thuộc hợp đồng nào, mà `han_muc_con()` trả `(0.0, 0.0)` —
-	    "hạn mức 0" — cho MỌI mã hàng không có dòng trong hợp đồng được
-	    hỏi; đưa nó vào phép kiểm là chặn một dòng chưa từng bị hạn mức
-	    ràng buộc, với một thông điệp vô nghĩa đối với khoa phòng.
-	  * Hợp đồng để hỏi là `row.blanket_order` ĐÃ ĐÓNG BĂNG trên chính
-	    dòng đó lúc gửi duyệt (Task 2, I3), KHÔNG phải `doc.hdnt`. Đó là
-	    hợp đồng đã định giá dòng ấy cho khoa xem, nên cũng phải là hợp
-	    đồng bị trừ. Hai dòng của cùng một phiếu được phép nằm trên hai
-	    hợp đồng khác nhau (Ruling P14 — suy customer-wide).
+	RULING P28 (vòng sửa 1, review độc lập) — MỘT NGUỒN DUY NHẤT, và đó là
+	bản SUY LẠI tại thời điểm duyệt: hàm này gọi ĐÚNG
+	`nguon_gia_theo_ma_cho_khach()` mà `dat_hang._xay_don` gọi. Bản đầu
+	của Task 5 đọc `row.blanket_order` ĐÃ ĐÓNG BĂNG lúc gửi duyệt, còn
+	`_xay_don` suy lại — hai nguồn cho một sự thật, đúng loại lỗi cả kế
+	hoạch này sinh ra để dẹp. Hai trạng thái hỏng, cả hai đều tới được:
 
-	Tên khoa đã tiêu cũng tra theo hợp đồng CỦA DÒNG ĐÓ (`custom_hdnt`
-	của các đơn đã phát sinh), không phải theo hợp đồng đầu phiếu.
+	  * hợp đồng đóng băng HẾT HẠN trong lúc chờ duyệt, trong khi một hợp
+	    đồng khác còn hiệu lực phủ đúng mặt hàng đó → hàm này viện dẫn hạn
+	    mức của một hợp đồng ĐÃ CHẾT để chặn thẳng việc duyệt, còn
+	    `_xay_don` thì lẽ ra định giá dòng ấy theo hợp đồng còn sống. Quản
+	    lý bị từ chối oan, thông điệp không cho họ đường nào để gỡ;
+	  * ngược lại, hàm này thấy đủ nên cho qua rồi `_xay_don` mới chặn —
+	    và trước vòng sửa nhánh đó KHÔNG nêu tên khoa, hỏng đúng vế §5.6
+	    trong chính ca nhiều hợp đồng mà Task 5 được viết ra để phục vụ.
+
+	Còn một ca thứ ba cùng gốc: phiếu CŨ được patch `them_nguon_gia_dong_
+	phieu.py` backfill mang `nguon_gia = "Hợp đồng"` nhưng `blanket_order
+	= NULL` (patch chép từ `hdnt`, vốn NULL với mọi phiếu lập từ giao diện
+	thật), và `_suy_nguon_gia` đóng băng dòng sau Nháp nên chúng KHÔNG tự
+	lành. Đọc bản suy lại thì chúng được canh đúng, không cần dữ liệu quá
+	khứ phải sạch trước.
+
+	`row.blanket_order` đóng băng GIỮ NGUYÊN vai trò BẰNG CHỨNG — nó ghi
+	lại khoa đã nhìn thấy hợp đồng nào lúc gửi; không xoá, không đổi ý
+	nghĩa. Khi bản suy lại KHÁC bản đóng băng, tín hiệu đó đi vào
+	`_kiem_gia_doi()` (cảnh báo trước khi quản lý bấm duyệt), không bị nuốt.
+
+	Tên khoa đã tiêu tra theo hợp đồng CỦA DÒNG ĐÓ, qua `portal_context.
+	ten_khoa_da_tieu()` — dùng CHUNG với nhánh của `dat_hang`.
 	"""
+	thang_cuoc = nguon_gia_theo_ma_cho_khach(doc.customer)
 	for d in dong:
-		bo = d.get("blanket_order")
-		if d.get("nguon_gia") != NGUON_GIA_HOP_DONG or not bo:
+		bo = thang_cuoc.get(d["item_code"])
+		if not bo:
 			continue
 		han, _da_dung = han_muc_con(bo, d["item_code"])
 		if han is None:
 			# BR-O15 — hạn mức khai 0 = KHÔNG GIỚI HẠN.
 			continue
 		if d["qty"] > han:
-			khoa_da_tieu = frappe.get_all(
-				"Sales Order",
-				filters={"custom_hdnt": bo, "docstatus": ["<", 2]},
-				fields=["distinct custom_khoa_phong as khoa"],
-			)
-			ten_khoa = ", ".join(
-				frappe.db.get_value("Customer Department", r.khoa, "ten_khoa_phong")
-				or "Toàn viện" for r in khoa_da_tieu if r.khoa
-			) or "khoa khác"
 			frappe.throw(
 				f'Hạn mức hợp đồng cho "{d["item_code"]}" chỉ còn {han}, '
-				f"phiếu này duyệt {d['qty']}. Đã dùng bởi: {ten_khoa}.",
+				f"phiếu này duyệt {d['qty']}. "
+				f"Đã dùng bởi: {ten_khoa_da_tieu(bo)}.",
 				frappe.ValidationError,
 			)

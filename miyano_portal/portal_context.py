@@ -490,6 +490,37 @@ def han_muc_con(blanket_order: str, item_code: str) -> tuple[float | None, float
     return tong - da_dat, da_dat
 
 
+def ten_khoa_da_tieu(blanket_order: str) -> str:
+    """Tên các khoa đã tiêu hạn mức của một hợp đồng khung, để ghép vào
+    thông điệp "hết hạn mức".
+
+    §5.6 đòi hết hạn mức thì THẤT BẠI KÈM TÊN KHOA đã tiêu mất — không có
+    ngoại lệ cho nhánh nào. Tách ra module-level (vòng sửa 1 Task 4/5/9,
+    review độc lập) vì có ĐÚNG HAI nhánh ném lỗi hạn mức trong app —
+    `de_xuat_duyet._kiem_han_muc` (đường duyệt phiếu) và
+    `dat_hang._xay_don` (đường tạo đơn, chạy cho CẢ giỏ hàng quản lý) —
+    và trước vòng sửa chỉ nhánh thứ nhất nêu tên khoa. Hai bản chép tay là
+    hai bản sẽ lệch nhau.
+
+    `docstatus < 2` (còn NHÁP + ĐÃ NỘP, loại ĐÃ HUỶ): đơn nháp vẫn đang
+    giữ chỗ hạn mức trên thực tế vận hành, và đây là đúng bộ lọc nhánh
+    duyệt phiếu đã dùng từ trước — giữ nguyên, không đổi ngầm.
+
+    Trả `"khoa khác"` khi không tra được khoa nào (đơn cũ chưa gắn khoa,
+    hoặc hạn mức bị tiêu bởi đơn cấp bệnh viện) — thà nói mờ còn hơn để
+    câu thông báo cụt mất vế ai đã tiêu.
+    """
+    khoa_da_tieu = frappe.get_all(
+        "Sales Order",
+        filters={"custom_hdnt": blanket_order, "docstatus": ["<", 2]},
+        fields=["distinct custom_khoa_phong as khoa"],
+    )
+    return ", ".join(
+        frappe.db.get_value("Customer Department", r.khoa, "ten_khoa_phong")
+        or "Toàn viện" for r in khoa_da_tieu if r.khoa
+    ) or "khoa khác"
+
+
 def remaining_qty(blanket_order: str, item_code: str) -> float:
     """Chữ ký cũ, giữ cho mã và test đã có.
 
