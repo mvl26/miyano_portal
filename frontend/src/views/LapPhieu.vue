@@ -37,7 +37,7 @@
 // TRÊN CÙNG. Cùng khuôn `PhieuNhapDetail.vue` (isNew → không gọi API tạo
 // cho tới khi `save()`), chỉ khác: kho có MỘT endpoint save gộp cả tạo lẫn
 // sửa (`kho_phieu_nhap_save`), còn de_xuat TÁCH `de_xuat_tao_nhap` (không
-// tham số — `loai_don` đang bị xoá khỏi doctype, xem hợp đồng đóng băng)
+// tham số — `loai_don` đã bị xoá khỏi doctype, xem hợp đồng đóng băng)
 // và `de_xuat_luu_nhap` (lưu items/dat_ngoai/...), nên `damBaoCoTen()` gọi
 // cái trước CHỈ MỘT LẦN rồi tái dùng `tenPhieu` cho mọi lần lưu sau.
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'

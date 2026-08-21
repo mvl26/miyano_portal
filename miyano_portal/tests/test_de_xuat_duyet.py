@@ -65,6 +65,24 @@ def _don_phieu_cu():
 		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
 	):
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
+	# I2 / Ruling P18 (review vòng 1) — dọn Blanket Order `_TEST DX%` TRƯỚC
+	# mỗi method, cùng lý do `_don_phieu_cu()` của `test_nguon_gia_dong.py`
+	# (xem docstring ở đó): `TestDeXuatDuyetHanMuc.setUp()` dựng một
+	# `self.bo` SUBMIT thật MỚI ở mỗi method (`docstatus == 1` từ khi sửa
+	# I2), và `FrappeTestCase` chỉ rollback một lần mỗi CLASS — không dọn
+	# thì hợp đồng của các method TRƯỚC vẫn "còn hiệu lực" (cùng `item`,
+	# cùng `to_date` +365 ngày) ở method SAU, và tie-break "name nhỏ hơn
+	# thắng" sẽ luôn chọn hợp đồng CŨ NHẤT thay vì `self.bo` của CHÍNH
+	# method đó — vỡ đúng những test đọc `row.blanket_order`/`Sales Order
+	# Item.blanket_order`. Trước bản vá I2, hợp đồng NHÁP (`docstatus=0`)
+	# của method trước VẪN "hiệu lực" theo gate `< 2` cũ nên rò rỉ này đã
+	# tồn tại từ trước, chỉ VÔ HẠI vì lớp này chưa từng đọc `blanket_order`.
+	for r in frappe.get_all(
+		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]}, fields=["name", "docstatus"]
+	):
+		if r.docstatus == 1:
+			frappe.get_doc("Blanket Order", r.name).cancel()
+		frappe.delete_doc("Blanket Order", r.name, force=True, ignore_permissions=True)
 	frappe.db.sql(
 		"""UPDATE `tabPortal De Xuat Mua` SET trang_thai = %s
 		   WHERE customer LIKE '\\_TEST DX%%'""",
@@ -459,13 +477,24 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		# cập nhật lúc SUBMIT Sales Order (`update_blanket_order`,
 		# `on_submit`/`on_cancel`); cổng chỉ tạo đơn NHÁP nên set thẳng qua
 		# `frappe.db.set_value`, cùng pattern `test_e1_loi_co_cau_truc.py`.
+		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
+		# `_nguon_gia_theo_ma()`/`nguon_gia_theo_ma_cho_khach()` giờ đòi
+		# `docstatus == 1` để tính "còn hiệu lực" (thống nhất với BR-R7,
+		# `items_thuoc_hdnt_hieu_luc()`), khác gate `_kiem_han_muc` bên dưới
+		# (vẫn `docstatus < 2`, KHÔNG đụng — thuộc phạm vi khác). Bản đầu
+		# `.insert()` không `.submit()` từng "hiệu lực" được chỉ vì gate cũ
+		# (`docstatus < 2`) đủ lỏng — đúng dạng fixture-patching quanh gate
+		# mà review vòng 1 đã chỉ ra. `ordered_qty: 3` không bị `.submit()`
+		# đụng tới (xem chú thích cùng nội dung ở `test_nguon_gia_dong.py`).
 		self.bo = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": self.kh_a, "company": COMPANY,
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
 			"items": [{"item_code": self.item, "qty": 5, "ordered_qty": 3, "rate": 100}],
-		}).insert(ignore_permissions=True).name
+		}).insert(ignore_permissions=True)
+		self.bo.submit()
+		self.bo = self.bo.name
 
 		# Đơn "đã tiêu" của khoa Dược trên CÙNG hợp đồng — `_kiem_han_muc`
 		# chỉ hỏi `custom_hdnt` + `docstatus < 2`, không cần đơn này SUBMIT.

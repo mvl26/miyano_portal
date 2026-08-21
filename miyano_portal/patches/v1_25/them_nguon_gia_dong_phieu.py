@@ -11,6 +11,13 @@ thể rỗng nếu phiếu HĐNT đó chưa từng được đóng dấu giá); 
 `nguon_gia="Chờ báo giá"`, `blanket_order` để rỗng (Ruling P14 — dòng "Chờ
 báo giá" không gắn hợp đồng nào).
 
+M3 (review vòng 1) — phiếu chưa từng khai `loai_don` (rỗng/NULL, dữ liệu
+rác/thử nghiệm cũ) CŨNG mặc định `nguon_gia="Chờ báo giá"`, KHÔNG bỏ qua
+như bản đầu: để `nguon_gia` NULL khiến `co_dong_cho_bao_gia()` (so sánh
+chuỗi `== "Chờ báo giá"`) đọc nhầm phiếu đó thành "không có dòng chờ báo
+giá" — sai theo hướng nguy hiểm hơn (trông như phiếu thuần hợp đồng) so
+với việc mặc định an toàn về "chưa biết giá, cần báo giá".
+
 KHÔNG chạy lại thuật toán "hợp đồng thắng cuộc" (`PortalDeXuatMua._nguon_
 gia_theo_ma()`, Ruling P14) cho dữ liệu cũ — thuật toán đó xét MỌI hợp đồng
 CÒN HIỆU LỰC của khách TẠI THỜI ĐIỂM CHẠY PATCH, một khái niệm phụ thuộc
@@ -46,8 +53,21 @@ def execute():
 	)
 	for r in rows:
 		if not r.loai_don:
-			# Phiếu chưa từng khai loai_don (dữ liệu rác/thử nghiệm cũ) —
-			# không có gì đáng tin để suy, bỏ qua thay vì đoán bừa.
+			# M3 (review vòng 1) — SỬA: trước bản vá, phiếu chưa từng khai
+			# `loai_don` (dữ liệu rác/thử nghiệm cũ) bị BỎ QUA, để lại
+			# `nguon_gia = NULL` trên các dòng của nó. `co_dong_cho_bao_gia()`
+			# đọc `nguon_gia == "Chờ báo giá"` bằng so sánh CHUỖI — `NULL`
+			# không khớp so sánh đó, nên một phiếu rỗng dữ liệu bị đọc NHẦM
+			# thành "không có dòng chờ báo giá" (an toàn giả — sai theo
+			# hướng NGUY HIỂM hơn, vì nó khiến phiếu trông như thuần hợp
+			# đồng trong khi thực ra không biết gì về nó). Mặc định về
+			# "Chờ báo giá" AN TOÀN hơn: không đoán bừa phiếu này có hợp
+			# đồng nào, và giữ nguyên hành vi cũ của những phiếu THẬT sự
+			# "Mua lẻ" (đường `else` bên dưới).
+			frappe.db.sql(
+				"update `tabPortal De Xuat Mua Item` set nguon_gia=%s where parent=%s",
+				("Chờ báo giá", r.name),
+			)
 			continue
 		if r.loai_don == "HĐNT":
 			frappe.db.sql(

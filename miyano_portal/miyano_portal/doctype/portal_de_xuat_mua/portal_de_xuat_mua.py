@@ -76,16 +76,24 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 	`portal_catalog_gop` (một endpoint TÌM KIẾM, không gắn với phiếu nào).
 
 	Xem đầy đủ lý do PHÂN ĐỊNH ("hết hạn sớm nhất thắng, trùng `to_date`
-	thì `name` nhỏ hơn thắng", `docstatus < 2`, ngày hiệu lực) ở
-	`PortalDeXuatMua._nguon_gia_theo_ma()` — docstring gốc giữ nguyên ở đó,
-	không chép lại đây để tránh hai lời giải thích lệch nhau theo thời
-	gian.
-	"""
+	thì `name` nhỏ hơn thắng", ngày hiệu lực) ở `PortalDeXuatMua._nguon_
+	gia_theo_ma()` — docstring gốc giữ nguyên ở đó, không chép lại đây để
+	tránh hai lời giải thích lệch nhau theo thời gian.
+
+	Ruling P18 (review vòng 1) — "còn hiệu lực" đòi `docstatus == 1` (ĐÃ
+	NỘP/ký), KHÔNG phải `docstatus < 2` (bản đầu — chỉ loại "Đã huỷ", vẫn
+	cho Nháp lọt qua). Một hợp đồng NHÁP là sales còn đang soạn, CHƯA
+	trình ký — để nó định giá một dòng trên phiếu đề xuất là để một bản
+	nháp nội bộ, có thể đổi/xoá bất cứ lúc nào, làm bằng chứng giá cho
+	khoa. Đây cũng là định nghĩa "còn hiệu lực" đã có sẵn ở nơi khác
+	trong app (BR-R7, `items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.
+	py`) — MỘT luật, không phải mỗi nơi tự định nghĩa một kiểu rồi sớm
+	muộn lệch nhau."""
 	bo_hieu_luc = frappe.get_all(
 		"Blanket Order",
 		filters={
 			"customer": customer, "blanket_order_type": "Selling",
-			"docstatus": ["<", 2],
+			"docstatus": 1,
 			"from_date": ["<=", frappe.utils.today()],
 			"to_date": [">=", frappe.utils.today()],
 		},
@@ -745,7 +753,21 @@ class PortalDeXuatMua(Document):
 		(`blanket_order` để rỗng). Luôn GHI ĐÈ, kể cả khi `self.items` rỗng
 		— không có nhánh nào bỏ qua để giá trị cũ/giá trị client gửi sống
 		sót.
+
+		I3 (review vòng 1) — TRỪ khi phiếu đã qua khỏi Nháp: ĐÓNG BĂNG
+		`nguon_gia`/`blanket_order` ĐÚNG nơi `_chan_sua_so_luong_de_xuat`
+		đã khoá `so_luong_de_xuat`/`don_gia` (từ lúc Gửi duyệt trở đi,
+		"khoá vĩnh viễn" — §5.3). Không có chốt này, một lần lưu BẤT KỲ sau
+		khi đã duyệt (VD: `duyet_sua()`, luồng xin sửa/duyệt sửa số lượng)
+		sẽ tính lại theo trạng thái hợp đồng HIỆN TẠI — nếu hợp đồng đã hết
+		hạn từ lúc đó, phiếu ĐÃ được duyệt dựa trên giá hợp đồng nào sẽ bị
+		âm thầm ghi đè thành "Chờ báo giá", xoá mất bằng chứng đã dùng lúc
+		duyệt. Cùng điều kiện `is_new() or trang_thai == Nháp` — một phiếu
+		đã gửi duyệt thì khoá vĩnh viễn, không phải hai luật khoá lệch
+		nhau vì viết hai điều kiện khác nhau ở hai nơi.
 		"""
+		if not self.is_new() and self.trang_thai != TRANG_THAI_NHAP:
+			return
 		thang_cuoc = self._nguon_gia_theo_ma()
 		for row in self.items:
 			bo = thang_cuoc.get(row.item_code)
@@ -790,22 +812,20 @@ class PortalDeXuatMua(Document):
 		`name asc` phá vỡ hoà khi trùng `to_date`, để `order_by` không bao
 		giờ mơ hồ.
 
-		`docstatus < 2` (khác `docstatus == 1` của `items_thuoc_hdnt_hieu_
-		luc`) — CỐ Ý nới hơn: `dat_hang.tao_sales_order` (nhánh `mode=
-		"hdnt"`) không hề đòi Blanket Order phải SUBMIT mới đặt được hàng
-		theo nó (chỉ kiểm `bo.customer == customer`). Ít nhất hai chỗ dựng
-		fixture Blanket Order KHÔNG submit (`docstatus=0`) mà vẫn cần được
-		coi là hiệu lực — `TestDeXuatDuyetHanMuc` (`test_de_xuat_duyet.py`)
-		và tests của chính task này (`test_nguon_gia_dong.py`); đòi
-		`docstatus == 1` sẽ khiến các phiếu hợp đồng của HAI bộ test đó bị
-		suy nhầm thành "Chờ báo giá" — sai với nghiệp vụ thật (nhánh HĐNT
-		vẫn tạo đơn theo hợp đồng NHÁP đó bình thường) lẫn với hai bộ test
-		đang chạy (KHÔNG phải khẳng định MỌI fixture Blanket Order trong
-		app đều NHÁP — `test_e6_mua_le.py` có case `.submit()` hẳn một
-		Blanket Order, và `docstatus < 2` vẫn đúng với case đó, chỉ không
-		phải lý do bắt buộc chọn `< 2`). Chỉ loại hợp đồng đã HUỶ
-		(`docstatus=2`) — "hiệu lực" chắc chắn không bao gồm một hợp đồng
-		đã huỷ.
+		`docstatus == 1` (Ruling P18, review vòng 1 — SỬA, thay quyết định
+		`docstatus < 2` bản đầu) — bản đầu chọn `< 2` (chỉ loại hợp đồng đã
+		HUỶ, vẫn cho Nháp lọt qua) và biện minh bằng chính fixture của HAI
+		bộ test đang tồn tại (`TestDeXuatDuyetHanMuc` và bộ test của chính
+		task này), cả hai khi đó đều dựng Blanket Order chỉ `.insert()`
+		không `.submit()`. Review chỉ đúng ra đó là một dạng fixture-
+		patching trá hình quanh chính cái gate đang được kiểm: fixture tiện
+		tay không phải là lý do nghiệp vụ. Định nghĩa "còn hiệu lực" đúng
+		phải THỐNG NHẤT với nơi đã có sẵn trong app (BR-R7,
+		`items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.py`, đòi
+		`docstatus == 1`) — một hợp đồng NHÁP (sales còn soạn, chưa trình
+		ký) không được định giá bất cứ dòng nào. Cả hai bộ test đã SỬA để
+		`.submit()` Blanket Order của mình, không nới định nghĩa để né việc
+		sửa fixture.
 
 		Task 3 (21/08/2026) — phép tính THẬT SỰ chuyển sang hàm module-level
 		`nguon_gia_theo_ma_cho_khach()` (đầu file), dùng CHUNG với

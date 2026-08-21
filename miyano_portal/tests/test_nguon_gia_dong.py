@@ -67,7 +67,14 @@ def _don_phieu_cu():
 		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
 	):
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
-	for r in frappe.get_all("Blanket Order", filters={"customer": ["like", "_TEST DX%"]}):
+	for r in frappe.get_all(
+		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]}, fields=["name", "docstatus"]
+	):
+		# I2 / Ruling P18 (review vòng 1) — `_bo()` giờ SUBMIT thật
+		# (`docstatus == 1`) mặc định; `delete_doc` từ chối xoá thẳng bản
+		# ghi đã nộp, phải HUỶ trước.
+		if r.docstatus == 1:
+			frappe.get_doc("Blanket Order", r.name).cancel()
 		frappe.delete_doc("Blanket Order", r.name, force=True, ignore_permissions=True)
 	frappe.db.sql(
 		"""UPDATE `tabPortal De Xuat Mua` SET trang_thai = %s
@@ -99,13 +106,22 @@ class TestNguonGiaDong(FrappeTestCase):
 		# KHÔNG được đụng thêm hợp đồng nào chứa `item_hd` — sẽ phá giả
 		# định "còn đúng 2" của vế hồi quy (dùng mã hàng RIÊNG cho các ca
 		# đa-hợp-đồng, xem `_tao_item`/từng test).
+		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
+		# "còn hiệu lực" không còn chấp nhận Nháp. `ordered_qty: 3` không bị
+		# `.submit()` đụng tới — `BlanketOrder.update_ordered_qty()` (core
+		# ERPNext) chỉ chạy khi có nơi NGOÀI gọi tới (theo dõi từ Sales
+		# Order submit), không phải một `on_submit` hook tự chạy của chính
+		# doctype này; xác nhận lại bằng test hạn mức bên dưới vẫn đọc đúng
+		# "còn 2" sau khi đổi fixture này.
 		self.bo = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": self.kh_a, "company": COMPANY,
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
 			"items": [{"item_code": self.item_hd, "qty": 5, "ordered_qty": 3, "rate": 100}],
-		}).insert(ignore_permissions=True).name
+		}).insert(ignore_permissions=True)
+		self.bo.submit()
+		self.bo = self.bo.name
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -139,14 +155,23 @@ class TestNguonGiaDong(FrappeTestCase):
 				ignore_permissions=True
 			)
 
-	def _bo(self, customer, items, to_date_offset=365, from_date_offset=0):
-		return frappe.get_doc({
+	def _bo(self, customer, items, to_date_offset=365, from_date_offset=0, submit=True):
+		"""`submit=True` mặc định (I2 / Ruling P18, review vòng 1) — "còn
+		hiệu lực" giờ đòi `docstatus == 1`, nên phần lớn hợp đồng dựng
+		trong lớp test này phải SUBMIT thật mới được app coi là hiệu lực.
+		`submit=False` CHỈ dùng cho ca cố ý kiểm hợp đồng NHÁP (chưa ký)
+		KHÔNG được tính là hiệu lực — xem `test_hop_dong_nhap_chua_ky_
+		khong_tinh_la_hieu_luc`."""
+		doc = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": customer, "company": COMPANY,
 			"from_date": frappe.utils.add_days(frappe.utils.today(), from_date_offset),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), to_date_offset),
 			"items": items,
-		}).insert(ignore_permissions=True).name
+		}).insert(ignore_permissions=True)
+		if submit:
+			doc.submit()
+		return doc.name
 
 	def _phieu(self, items=None, dat_ngoai=None, hdnt=None):
 		doc = frappe.get_doc({
@@ -207,6 +232,44 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
 		self.assertFalse(doc.items[0].blanket_order)
 
+	def test_hop_dong_het_han_dung_hom_nay_van_con_hieu_luc(self):
+		"""M2 (review vòng 1) — biên `to_date >= hôm nay`, chưa test nào chạm
+		riêng biên NÀY (đổi `>=` thành `>` không làm bài nào đỏ trước khi
+		thêm test này). Hợp đồng hết hạn ĐÚNG HÔM NAY vẫn phải tính là còn
+		hiệu lực — đó chính là ngày khoa gấp rút tiêu nốt hạn mức trước khi
+		hợp đồng biến mất."""
+		item_bien = self._tao_item("_TEST DX ITEM HET HAN HOM NAY")
+		bo_bien = self._bo(self.kh_a, [{"item_code": item_bien, "qty": 5, "rate": 100}],
+		                    to_date_offset=0, from_date_offset=-30)
+		doc = self._phieu(items=[{
+			"item_code": item_bien, "so_luong_de_xuat": 1,
+			"nguon_gia": NGUON_GIA_CHO_BAO_GIA,   # gán SAI, cùng lý do các test trên
+		}])
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[0].blanket_order, bo_bien)
+
+	def test_hop_dong_nhap_chua_ky_khong_tinh_la_hieu_luc(self):
+		"""I2 / Ruling P18 (review vòng 1) — "còn hiệu lực" phải là
+		`docstatus == 1` (đã ký/nộp), KHÔNG phải `< 2` (bản đầu, chỉ loại
+		"Đã huỷ", vẫn cho Nháp lọt qua). Hợp đồng NHÁP — sales còn đang
+		soạn, CHƯA trình ký — không được để mã hàng "nhảy" sang tầng "Hợp
+		đồng" kèm giá: thống nhất với định nghĩa "còn hiệu lực" đã có sẵn ở
+		chỗ khác trong app (BR-R7, `items_thuoc_hdnt_hieu_luc()` tại
+		`portal_mua_le.py`, đòi `docstatus == 1`). Bản đầu của task này chọn
+		`< 2` và biện minh bằng chính fixture `self.bo`/`_bo()` của FILE NÀY
+		(toàn bộ đều `.insert()` không `.submit()`) — review gọi đó là một
+		dạng fixture-patching trá hình quanh chính cái gate đang được test;
+		test này buộc gate phải đòi SUBMIT thật, không được lấy fixture tiện
+		tay của chính nó làm bằng chứng."""
+		item_nhap = self._tao_item("_TEST DX ITEM HDNT NHAP CHUA KY")
+		self._bo(self.kh_a, [{"item_code": item_nhap, "qty": 5, "rate": 100}], submit=False)
+		doc = self._phieu(items=[{
+			"item_code": item_nhap, "so_luong_de_xuat": 1,
+			"nguon_gia": NGUON_GIA_HOP_DONG,   # gán SAI để không ăn may
+		}])
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
+		self.assertFalse(doc.items[0].blanket_order)
+
 	def test_hdnt_rong_van_ra_duoc_tang_1(self):
 		"""Đây CHÍNH LÀ ca thật sinh ra Ruling P14 — `de_xuat_tao_nhap()` tạo
 		phiếu Nháp TRƯỚC KHI người dùng chọn mặt hàng, `hdnt` khi đó luôn
@@ -261,16 +324,56 @@ class TestNguonGiaDong(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.items[0].blanket_order, bo_gan)
 
+	def test_phan_dinh_khi_trung_to_date_thi_name_nho_hon_thang(self):
+		"""I1 (review vòng 1) — vế THỨ HAI của luật phân định P14 ("trùng
+		`to_date` thì `name` nhỏ hơn thắng") CHƯA có test nào chạm tới: hai
+		hợp đồng ở test trên có `to_date_offset` KHÁC NHAU (100 vs 10), nên
+		riêng `to_date asc` đã quyết xong, `name asc` không bao giờ được
+		gọi tới. Dựng hai hợp đồng CÙNG `to_date` — MariaDB tự do trả kết
+		quả theo thứ tự nào cũng đúng nếu không có `name asc` phá hoà,
+		khiến CÙNG một phiếu lưu hai lần có thể ra hai `blanket_order`
+		khác nhau, đúng thứ Ruling P14 cấm ("tất định" quan trọng hơn "chọn
+		đúng hợp đồng nào")."""
+		item_y = self._tao_item("_TEST DX ITEM PHANDINH TRUNG NGAY")
+		bo_1 = self._bo(self.kh_a, [{"item_code": item_y, "qty": 5, "rate": 400}],
+		                 to_date_offset=50)
+		bo_2 = self._bo(self.kh_a, [{"item_code": item_y, "qty": 5, "rate": 450}],
+		                 to_date_offset=50)
+		thang = min(bo_1, bo_2)
+		doc = self._phieu(items=[{
+			"item_code": item_y, "so_luong_de_xuat": 1,
+			"nguon_gia": NGUON_GIA_CHO_BAO_GIA,
+		}])
+		self.assertEqual(doc.items[0].blanket_order, thang)
+		# Lưu lại lần nữa — chốt TẤT ĐỊNH, không được nhảy qua lại.
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		self.assertEqual(doc.items[0].blanket_order, thang)
+
 	def test_hop_dong_cua_khach_khac_khong_lam_dong_thanh_hop_dong(self):
 		"""Cách ly — hợp đồng của khách B (cùng mã hàng) không làm dòng của
-		khách A thành "Hợp đồng"."""
+		khách A thành "Hợp đồng".
+
+		M1 (review vòng 1) — VẾ DƯƠNG thêm vào CÙNG phiếu: dòng `item_hd`
+		(hợp đồng CỦA CHÍNH khách A, `self.bo`) phải VẪN ra "Hợp đồng" đúng
+		hợp đồng. Thiếu vế này, một `_nguon_gia_theo_ma()` LUÔN trả `{}`
+		(hỏng nặng, hỏng toàn phần) vẫn qua được bài — vế âm một mình không
+		phân biệt được "cách ly đúng" với "suy hỏng toàn phần"."""
 		self._bo(self.kh_b, [{"item_code": self.item_ngoai, "qty": 5, "rate": 100}])
-		doc = self._phieu(items=[{
-			"item_code": self.item_ngoai, "so_luong_de_xuat": 1,
-			"nguon_gia": NGUON_GIA_HOP_DONG,   # gán SAI để không ăn may
-		}])
+		doc = self._phieu(items=[
+			{
+				"item_code": self.item_ngoai, "so_luong_de_xuat": 1,
+				"nguon_gia": NGUON_GIA_HOP_DONG,   # gán SAI để không ăn may
+			},
+			{
+				"item_code": self.item_hd, "so_luong_de_xuat": 1,
+				"nguon_gia": NGUON_GIA_CHO_BAO_GIA,   # gán SAI, cùng lý do
+			},
+		])
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
 		self.assertFalse(doc.items[0].blanket_order)
+		self.assertEqual(doc.items[1].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[1].blanket_order, self.bo)
 
 	# ---- co_dong_cho_bao_gia() ---------------------------------------
 
@@ -313,6 +416,51 @@ class TestNguonGiaDong(FrappeTestCase):
 		}])
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
 		self.assertFalse(doc.items[0].blanket_order)
+
+	def test_dong_bang_nguon_gia_luc_gui_duyet_khong_bi_tinh_lai_sau_do(self):
+		"""I3 (review vòng 1) — `nguon_gia`/`blanket_order` phải ĐÓNG BĂNG
+		cùng lúc `so_luong_de_xuat`/`don_gia` bị khoá (`_chan_sua_so_luong_
+		de_xuat`, từ lúc Gửi duyệt trở đi — §5.3 "khoá vĩnh viễn"). Trước
+		bản vá, `_suy_nguon_gia()` chạy lại VÔ ĐIỀU KIỆN ở MỌI `validate()`/
+		`save()` — một phiếu đã duyệt dựa trên hợp đồng còn hiệu lực lúc
+		gửi, nếu hợp đồng đó hết hạn SAU KHI duyệt (bình thường — hợp đồng
+		có ngày hết hạn cố định, phiếu có thể còn được lưu lại rất lâu sau
+		qua luồng xin sửa/duyệt sửa), một lần lưu bất kỳ sau đó sẽ ÂM THẦM
+		ghi đè bằng chứng giá đã dùng lúc duyệt thành "Chờ báo giá" — xoá
+		mất bằng chứng phiếu ĐÃ được duyệt dựa trên giá hợp đồng nào.
+
+		Chốt ĐÚNG nơi `_chan_sua_so_luong_de_xuat` đã khoá (`is_new() or
+		trang_thai == Nháp`), không phải một điều kiện riêng — cùng một
+		"phiếu đã gửi duyệt thì khoá vĩnh viễn", không phải hai luật khoá
+		lệch nhau."""
+		item = self._tao_item("_TEST DX ITEM DONG BANG NGUON GIA")
+		bo = self._bo(self.kh_a, [{"item_code": item, "qty": 5, "rate": 100}], to_date_offset=10)
+		doc = self._phieu(items=[{
+			"item_code": item, "so_luong_de_xuat": 1,
+			"nguon_gia": NGUON_GIA_CHO_BAO_GIA,   # gán SAI, cùng lý do các test trên
+		}])
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[0].blanket_order, bo)
+
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[0].blanket_order, bo)
+
+		doc.items[0].so_luong_duyet = 1
+		doc.duyet("Administrator")
+
+		# Hợp đồng hết hạn SAU KHI đã duyệt — mô phỏng thời gian trôi qua.
+		frappe.db.set_value(
+			"Blanket Order", bo, "to_date", frappe.utils.add_days(frappe.utils.today(), -1)
+		)
+
+		doc.reload()
+		doc.save(ignore_permissions=True)   # một lần lưu bất kỳ sau khi đã duyệt
+		doc.reload()
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[0].blanket_order, bo)
 
 	# ---- Vế hồi quy — phiếu thuần hợp đồng ----------------------------
 
@@ -371,7 +519,26 @@ class TestNguonGiaDong(FrappeTestCase):
 		ở đầu phiếu (Ruling P14 — đúng dạng phiếu tạo qua UI thật), vẫn
 		phải cảnh báo giá đổi cho DÒNG HỢP ĐỒNG của nó, đúng như một phiếu
 		thuần hợp đồng. Dòng Chờ báo giá không có `don_gia` nên không tham
-		gia so sánh."""
+		gia so sánh.
+
+		SỬA (I2, review vòng 1) — gọi THẲNG `de_xuat_duyet._kiem_gia_doi(doc)`
+		thay vì đi hết `duyet_va_tao_don()`: từ khi `self.bo` SUBMIT thật
+		(Ruling P18), `item_hd` genuinely nằm trong `items_thuoc_hdnt_hieu_
+		luc()` (BR-R7, `portal_mua_le.py`, đã đòi `docstatus == 1` từ trước
+		task này) — và `mode=` của `duyet_va_tao_don()` (C1, dòng 81-82
+		`de_xuat_duyet.py`, NGOÀI PHẠM VI vòng sửa này — đợi Task 4) LUÔN
+		chọn "ban_le" cho phiếu TRỘN bất kể dòng nào của nó thật sự thuộc
+		hợp đồng, nên `_xay_don_ban_le` (đúng theo BR-R7) từ chối thẳng
+		`item_hd` với lỗi "đang thuộc hợp đồng khung". Đây là HỆ QUẢ THẬT
+		của việc sửa I2 đúng (thống nhất "còn hiệu lực" toàn app, không còn
+		fixture né được BR-R7 bằng cách "quên" submit): một phiếu TRỘN có
+		ít nhất một dòng thật sự thuộc hợp đồng còn hiệu lực KHÔNG THỂ hoàn
+		tất `duyet_va_tao_don()` ở trạng thái code hiện tại — phát hiện
+		này được ghi vào report để bàn giao cho Task 4 (cùng C1), KHÔNG sửa
+		ở đây. Test này giữ đúng phạm vi kiểm được trong vòng sửa này: cơ
+		chế cảnh báo giá (`_kiem_gia_doi`) tự nó vẫn đúng cho một dòng Hợp
+		đồng bên trong phiếu trộn, tách khỏi phần orchestration đang vướng
+		C1."""
 		doc = self._phieu(items=[
 			{
 				"item_code": self.item_hd, "so_luong_de_xuat": 1,
@@ -385,15 +552,11 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].don_gia, 100)   # đóng dấu đúng dòng HĐ
 		self.assertFalse(doc.items[1].don_gia)        # dòng chờ báo giá KHÔNG đóng dấu
 		self._tao_gia(self.item_hd, self.price_list, 150)   # giá đổi SAU khi gửi
-		doc.items[0].so_luong_duyet = 1
-		doc.items[1].so_luong_duyet = 1
-		doc.save(ignore_permissions=True)
-		doc.reload()
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		self.assertEqual(len(kq["canh_bao_gia"]), 1)
-		self.assertEqual(kq["canh_bao_gia"][0]["item_code"], self.item_hd)
-		self.assertEqual(kq["canh_bao_gia"][0]["gia_cu"], 100)
-		self.assertEqual(kq["canh_bao_gia"][0]["gia_moi"], 150)
+		canh_bao_gia = de_xuat_duyet._kiem_gia_doi(doc)
+		self.assertEqual(len(canh_bao_gia), 1)
+		self.assertEqual(canh_bao_gia[0]["item_code"], self.item_hd)
+		self.assertEqual(canh_bao_gia[0]["gia_cu"], 100)
+		self.assertEqual(canh_bao_gia[0]["gia_moi"], 150)
 
 
 class TestBackfillNguonGia(FrappeTestCase):
@@ -463,6 +626,21 @@ class TestBackfillNguonGia(FrappeTestCase):
 
 	def test_backfill_mua_le_thanh_cho_bao_gia(self):
 		ten = self._phieu_cu("Mua lẻ")
+		from miyano_portal.patches.v1_25 import them_nguon_gia_dong_phieu as patch
+		patch.execute()
+		dong = self._dong_db(ten)
+		self.assertEqual(dong.nguon_gia, NGUON_GIA_CHO_BAO_GIA)
+		self.assertFalse(dong.blanket_order)
+
+	def test_backfill_loai_don_rong_thanh_cho_bao_gia(self):
+		"""M3 (review vòng 1) — phiếu cũ CHƯA TỪNG khai `loai_don` (rỗng/
+		NULL, dữ liệu rác/thử nghiệm cũ) phải mặc định về "Chờ báo giá",
+		KHÔNG bị BỎ QUA để `nguon_gia` trơ NULL. `co_dong_cho_bao_gia()` so
+		`nguon_gia == "Chờ báo giá"` bằng chuỗi — `NULL` không khớp so sánh
+		đó, nên bỏ qua sẽ khiến phiếu rác này bị đọc NHẦM thành "không có
+		dòng chờ báo giá" (trông như thuần hợp đồng), sai theo hướng nguy
+		hiểm hơn so với mặc định an toàn."""
+		ten = self._phieu_cu(None)
 		from miyano_portal.patches.v1_25 import them_nguon_gia_dong_phieu as patch
 		patch.execute()
 		dong = self._dong_db(ten)

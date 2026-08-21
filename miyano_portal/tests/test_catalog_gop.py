@@ -47,8 +47,16 @@ COMPANY = "Miyano Việt Nam"
 
 def _don_bo_cu():
 	"""Dọn Blanket Order `_TEST DX%` trước khi mỗi test method tự dựng hợp
-	đồng riêng — xem lý do rò rỉ ở docstring module."""
-	for r in frappe.get_all("Blanket Order", filters={"customer": ["like", "_TEST DX%"]}):
+	đồng riêng — xem lý do rò rỉ ở docstring module.
+
+	I2 / Ruling P18 (review vòng 1, `nguon_gia_theo_ma_cho_khach()` đòi
+	`docstatus == 1`) — `bo_a`/`bo_b` bên dưới giờ SUBMIT thật; bản ghi đã
+	nộp không xoá thẳng được, phải HUỶ trước."""
+	for r in frappe.get_all(
+		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]}, fields=["name", "docstatus"]
+	):
+		if r.docstatus == 1:
+			frappe.get_doc("Blanket Order", r.name).cancel()
 		frappe.delete_doc("Blanket Order", r.name, force=True, ignore_permissions=True)
 
 
@@ -75,13 +83,19 @@ class TestPortalCatalogGop(FrappeTestCase):
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
 		self._tao_gia(self.item_hd, self.price_list, 125000)
 
+		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
+		# `nguon_gia_theo_ma_cho_khach()` (dùng chung với `_suy_nguon_gia()`
+		# của `Portal De Xuat Mua`) giờ đòi hợp đồng đã NỘP mới tính "còn
+		# hiệu lực" — bản NHÁP không còn đủ, thống nhất với BR-R7.
 		self.bo_a = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": self.kh_a, "company": COMPANY,
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
 			"items": [{"item_code": self.item_hd, "qty": 0, "ordered_qty": 0, "rate": 125000}],
-		}).insert(ignore_permissions=True).name
+		}).insert(ignore_permissions=True)
+		self.bo_a.submit()
+		self.bo_a = self.bo_a.name
 
 		self.bo_b = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
@@ -89,7 +103,9 @@ class TestPortalCatalogGop(FrappeTestCase):
 			"from_date": frappe.utils.today(),
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
 			"items": [{"item_code": self.item_chi_b, "qty": 0, "ordered_qty": 0, "rate": 50000}],
-		}).insert(ignore_permissions=True).name
+		}).insert(ignore_permissions=True)
+		self.bo_b.submit()
+		self.bo_b = self.bo_b.name
 
 		self.user_a = self._dam_bao_thanh_vien(
 			"dxgop.a@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_huyethoc
