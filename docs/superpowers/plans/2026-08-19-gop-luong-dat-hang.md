@@ -35,8 +35,12 @@
 **QĐ-G1 — `nguon_gia` là field SUY RA, không nhập tay.** Đặt trên `Portal De Xuat Mua Item`, Select: `Hợp đồng` / `Chờ báo giá`. Hệ thống ghi lúc thêm dòng, dựa trên việc mã hàng có dòng hợp đồng còn hiệu lực hay không. Không cho client gửi lên — một giá trị tự khai thì đúng lúc cần đối chiếu nhất sẽ sai.
 *Sai thì mất gì:* nếu nghiệp vụ cần quản lý ép một dòng sang "chờ báo giá" thủ công thì phải mở ra sau; rẻ.
 
-**QĐ-G2 — `loai_don` ở đầu phiếu GIỮ LẠI làm field suy ra, không xoá.** Chủ đầu tư nói nó "sai chỗ" — đúng, nó không được **quyết định** gì nữa. Nhưng xoá hẳn sẽ làm vỡ mọi báo cáo và mọi chỗ đọc nó. Chuyển thành **suy ra từ các dòng**: có ít nhất một dòng `Chờ báo giá` → `Hỗn hợp`; toàn bộ `Hợp đồng` → `HĐNT`. Chỉ đọc, hệ thống ghi.
-*Sai thì mất gì:* một field thừa nếu không ai đọc; rẻ hơn nhiều so với rà mọi nơi đọc nó.
+**QĐ-G2 (THAY THẾ 21/08/2026 — chủ đầu tư chốt lại) — `loai_don` trên PHIẾU ĐỀ XUẤT bị XOÁ HẲN, không giữ làm field suy ra.**
+Bản trước của QĐ-G2 chọn giữ nó lại làm field suy ra vì sợ vỡ chỗ đọc. Đã **đo thật** (21/08): trên phiếu đề xuất chỉ có **4 chỗ đọc** (`de_xuat_duyet.py:52,62,120` và `portal_de_xuat_mua.py:208`) cộng 3 chỗ ghi (`api/de_xuat.py:66,74`, `api/portal.py:439`). Nỗi sợ đó không có cơ sở. Chủ đầu tư: *"bỏ loại đơn đi và làm phiếu gộp"*.
+Thay bằng một hàm suy từ DÒNG: `PortalDeXuatMua.co_dong_cho_bao_gia() -> bool`. Không field, không giá trị `Hỗn hợp`, không Select nào phải mở rộng.
+*Sai thì mất gì:* nếu sau này cần lọc/báo cáo theo loại đơn ở cấp phiếu thì phải suy lại từ dòng mỗi lần hỏi — chấp nhận được, vì dòng mới là nơi sự thật nằm.
+
+**QĐ-G2b — `Sales Order.custom_loai_don` GIỮ NGUYÊN trong kế hoạch này.** Nó là trường phía Miyano, có **~15 chỗ đọc** gồm thông báo tự động (`install_notifications.py`), vòng báo giá (`portal_bao_gia.py`), `portal_order_sua_so_luong` và `OrderDetail.vue`. Việc cần làm với nó không phải xoá, mà là đổi các CHỐT từ *"là đơn Mua lẻ"* sang *"có dòng chưa có giá"* — đó chính là Task 6 và Task 7. Trộn việc đó vào Task 2 sẽ biến một task nhỏ thành task rủi ro nhất kế hoạch.
 
 **QĐ-G3 — Đơn trộn đi MỘT vòng báo giá, cả đơn cùng chờ.** Chủ đầu tư xác nhận rõ và **chấp nhận cái giá**: hàng trong hợp đồng vốn giao được ngay, giờ phải chờ. Ghi vào tài liệu vận hành — đây là thứ bệnh viện sẽ hỏi.
 *Sai thì mất gì:* nếu sau này cần tách, phải dựng cơ chế tách đơn — việc lớn. Nhưng làm sẵn cơ chế tách khi chưa cần là YAGNI.
@@ -96,28 +100,38 @@ Dòng đầu phải có, `skipped = 0`; dòng sau phải trả `0`.
 
 ---
 
-## Task 2: `nguon_gia` xuống cấp dòng
+## Task 2: `nguon_gia` xuống cấp dòng, xoá `loai_don` khỏi phiếu
 
 **Files:**
 - Modify: `.../portal_de_xuat_mua_item/portal_de_xuat_mua_item.json` — thêm `nguon_gia` (Select: `Hợp đồng` / `Chờ báo giá`, read-only)
-- Modify: `.../portal_de_xuat_mua/portal_de_xuat_mua.py`
+- Modify: `.../portal_de_xuat_mua/portal_de_xuat_mua.json` — **xoá field `loai_don`**
+- Modify: `.../portal_de_xuat_mua/portal_de_xuat_mua.py` — thêm `_suy_nguon_gia()`, `co_dong_cho_bao_gia()`; bỏ chỗ đọc `loai_don` ở dòng 208
+- Modify: `miyano_portal/de_xuat_duyet.py` — 3 chỗ đọc `loai_don` (dòng 52, 62, 120) chuyển sang `co_dong_cho_bao_gia()`
+- Modify: `miyano_portal/api/de_xuat.py` — bỏ tham số `loai_don` khỏi `de_xuat_tao_nhap`
+- Modify: `miyano_portal/api/portal.py:439` — bỏ chỗ ghi `loai_don`
 - Create: `miyano_portal/patches/v1_25/them_nguon_gia_dong_phieu.py`
 - Test: `miyano_portal/tests/test_nguon_gia_dong.py` *(mới)*
 
 **Interfaces:**
 - Produces: `PortalDeXuatMua._suy_nguon_gia()` — chạy trong `validate()`, ghi `nguon_gia` cho mọi dòng.
-- Produces: `loai_don` ở đầu phiếu thành **suy ra** (QĐ-G2): có dòng `Chờ báo giá` → `Hỗn hợp`; toàn `Hợp đồng` → `HĐNT`.
+- Produces: `PortalDeXuatMua.co_dong_cho_bao_gia() -> bool` — **thay thế** mọi chỗ trước đây hỏi `loai_don`. `True` khi có ít nhất một dòng `Chờ báo giá` hoặc có dòng đặt ngoài.
 
 **Cách suy `nguon_gia` cho một dòng:** mã hàng có dòng trong hợp đồng khung của phiếu **và** hợp đồng còn hiệu lực → `Hợp đồng`; ngược lại → `Chờ báo giá`. Dòng đặt ngoài (chưa có mã) luôn `Chờ báo giá`.
+
+**Chú ý `mode=` ở `de_xuat_duyet.py:62`:** Task 2 **chưa** bỏ được tham số `mode` của `dat_hang.tao_sales_order` — đó là Task 4. Ở Task 2, đổi biểu thức thành `"ban_le" if doc.co_dong_cho_bao_gia() else "hdnt"` và **ghi chú rõ đây là cầu tạm, Task 4 xoá**.
 
 **Test tối thiểu:**
 - Dòng có trong hợp đồng → `nguon_gia == "Hợp đồng"` **(vế dương)**
 - Dòng có mã nhưng ngoài hợp đồng → `"Chờ báo giá"`
-- Phiếu toàn dòng hợp đồng → `loai_don == "HĐNT"`
-- Phiếu trộn → `loai_don == "Hỗn hợp"` **(đây là ca chính của cả kế hoạch)**
+- Phiếu toàn dòng hợp đồng → `co_dong_cho_bao_gia() is False` **(vế dương)**
+- Phiếu trộn → `co_dong_cho_bao_gia() is True` **(đây là ca chính của cả kế hoạch)**
+- Phiếu chỉ có dòng đặt ngoài → `True`
 - Client gửi `nguon_gia` sai → **bị ghi đè**, không tin client (QĐ-G1)
+- **Vế hồi quy:** phiếu thuần hợp đồng vẫn duyệt được và vẫn bị kiểm hạn mức y như trước task này
 
-**Patch:** backfill `nguon_gia` cho phiếu đã có — phiếu cũ đều thuần một loại, suy từ `loai_don` đầu phiếu.
+**Patch:** backfill `nguon_gia` cho phiếu đã có — phiếu cũ đều thuần một loại, suy từ `loai_don` cũ **đọc thẳng từ cột DB** (`frappe.db.sql`), vì field đã bị xoá khỏi doctype nên `get_doc` không còn thấy nó. Patch phải chạy được cả khi cột đã biến mất (site mới) — bọc trong kiểm tra cột tồn tại.
+
+**Sửa test cũ — CÓ PHÊ CHUẨN, giới hạn ở đúng một việc:** 11 file test đặt khoá `"loai_don"` trong fixture. Được phép **xoá khoá đó** khỏi fixture. **Không** được sửa bất kỳ khẳng định nào. Test nào khẳng định về `loai_don` thì viết lại thành khẳng định về `co_dong_cho_bao_gia()` và **phải thấy đỏ trước**.
 
 ---
 

@@ -753,7 +753,9 @@ Việc chính **không phải xây mới** mà là **gỡ vách ngăn và chuy�
 3. **Cờ `custom_cho_phep_mua_le`** — **CÂU HỎI CÒN MỞ**, xem §13.5.
 4. **Tìm kiếm gộp ba nguồn** — hiện là hai endpoint, hai hình dạng dữ liệu. Cần một endpoint trả danh sách đã gắn nhãn *tầng nào* + *giá nếu có*.
 5. **Trạng thái đơn trộn** — cả đơn chờ một vòng báo giá, theo §13.2(a).
-6. **`loai_don` xuống cấp dòng**, theo §13.2(b).
+6. **`loai_don` XOÁ HẲN khỏi phiếu**, theo §13.2(b) — chốt lại 21/08/2026.
+   Chủ đầu tư: *"bỏ loại đơn đi và làm phiếu gộp"*. Không dời xuống dòng dưới cái tên cũ, cũng không giữ ở đầu phiếu làm field suy ra: xoá field, thay bằng `PortalDeXuatMua.co_dong_cho_bao_gia()` suy từ `nguon_gia` của các dòng. Đã đo trước khi chốt — chỉ **4 chỗ đọc** trên toàn app (`de_xuat_duyet.py:52,62,120`, `portal_de_xuat_mua.py:208`).
+   **Ranh giới:** `Sales Order.custom_loai_don` (phía Miyano, ~15 chỗ đọc gồm thông báo tự động và vòng báo giá) **không** nằm trong quyết định này. Với nó, việc đúng là đổi các chốt từ *"là đơn Mua lẻ"* sang *"có dòng chưa có giá"*.
 
 ### 13.5 Cờ `custom_cho_phep_mua_le` — CHỦ ĐẦU TƯ CHỐT 19/08: **BỎ HẲN**
 
