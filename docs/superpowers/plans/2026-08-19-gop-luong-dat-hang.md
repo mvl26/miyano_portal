@@ -391,6 +391,52 @@ Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
 
 ---
 
+## Task 13: Khớp mã thì CHUYỂN dòng gõ tay thành hàng thật (chủ đầu tư chốt 21/08)
+
+**Files:**
+- Modify: `miyano_portal/portal_mua_le.py` (`dong_bo_da_xu_ly_dat_ngoai` và hàm chuyển mới)
+- Modify: `.../sales_order_dat_ngoai_item/sales_order_dat_ngoai_item.json` (thêm cờ đã chuyển)
+- Create: `miyano_portal/patches/v1_26/` hoặc `v1_27/` — custom field cho bảng con
+- Test: `miyano_portal/tests/test_khop_ma_dat_ngoai.py` *(mới)*
+
+**Triệu chứng chủ đầu tư gặp 21/08:**
+> *"khi bên miyano đã khớp mã với yêu cầu đặt ngoài nhưng anh không thấy chỗ điền giá cho dòng hàng đó, chỉ báo giá được những hàng trong phần item"*
+
+**Đo được:** `custom_dat_ngoai` (`Sales Order Dat Ngoai Item`) chỉ có `ten_hang`, `dvt`, `so_luong`, `ghi_chu`, `item_khop`, `da_xu_ly` — **không có cột giá và không nối vào tiền của đơn**. Grep toàn app: **không đường mã nào** chuyển một dòng đã khớp thành dòng trong `items`. `item_khop` chỉ dùng để bật `da_xu_ly` (`portal_mua_le.py:130`) và để `before_submit` cho qua (`:139-165`).
+
+**Hệ quả thật, nặng hơn "thiếu ô giá":** đơn **qua được chốt xác nhận** vì mọi dòng "đã xử lý", nhưng mặt hàng khách gõ tay **không có dòng nào trong đơn, không giá, không vào tổng tiền, không lên hoá đơn**. Hệ thống báo "đã xử lý" trong khi việc duy nhất xảy ra là **gắn một cái mã vào một dòng ghi chú**.
+
+**QĐ-G13 — khớp mã thì CHUYỂN, không chỉ dán nhãn.** Khi `item_khop` được điền, hệ thống tự thêm một dòng vào `items`: `item_code = item_khop`, `qty = so_luong` của dòng gõ tay.
+*Sai thì mất gì:* nếu Miyano muốn khớp mã chỉ để tra cứu mà chưa muốn đưa vào đơn, sẽ phải thêm một bước xác nhận. Nhưng chốt `before_submit` hiện đã coi "khớp mã" là "đã lo xong", nên hai nghĩa đó đang bị trộn sẵn rồi.
+
+**QĐ-G14 — hàng có trong hợp đồng khung của khách thì LẤY GIÁ HỢP ĐỒNG TỰ ĐỘNG** (chủ đầu tư chốt tường minh). Dùng **đúng hàm dùng chung** của QĐ-G12/P30/P31 — không viết phép tra thứ bảy. Không thuộc hợp đồng nào còn hiệu lực → `rate = 0`, chờ Miyano báo giá như mọi dòng tầng 2.
+
+**QĐ-G15 — GIỮ NGUYÊN dòng gõ tay làm bằng chứng.** Không xoá, không sửa `ten_hang` khách đã gõ. Đó là truy vết chủ đầu tư yêu cầu từ đầu: *"ghi tên ngày giờ lý do yêu cầu của nhân viên để sau này truy vết"*. Thêm cờ **đã chuyển** + lưu tên dòng `items` đã tạo, để biết dòng nào sinh ra từ dòng nào.
+
+**QĐ-G16 — `da_xu_ly` đổi nghĩa cho ĐÚNG.** Hiện nó nghĩa "đã gắn mã"; chốt `before_submit` lại đọc nó như "đã lo xong" — **nó đang nói dối**. Sau task này: `da_xu_ly = 1` khi và chỉ khi dòng đã **chuyển thành hàng thật**.
+
+### Bẫy — ghi sẵn, đừng để phát hiện lại
+
+1. **Phải bất biến khi lưu lại.** `validate` chạy mỗi lần save. Khớp mã rồi lưu ba lần **không được** đẻ ba dòng hàng. Kiểm bằng cờ đã chuyển, không kiểm bằng "có dòng nào cùng `item_code` không".
+2. **Mã khớp trùng với hàng đã có trong `items`** → **cộng dồn số lượng vào dòng sẵn có**, không thêm dòng thứ hai. Hai dòng cùng mã trên một Sales Order là mồi cho lệch hạn mức và lệch hoá đơn.
+3. **Gỡ dòng giữ chỗ.** `ITEM_GIU_CHO` (`HANG-DAT-NGOAI`) được chèn khi giỏ toàn hàng chưa có mã. Khi đã có hàng thật, phải gỡ nó — chốt `kiem_khong_con_dong_giu_cho` (`portal_mua_le.py:168+`) sẽ chặn submit nếu còn, và mẫu in "Xác nhận đơn hàng" **không lọc nó**.
+4. **Chạy ở hook `validate` của Sales Order**, cạnh `dong_bo_da_xu_ly_dat_ngoai` — **không** đặt trong `validate()` của doctype con: Frappe **không gọi** `validate()` của controller bảng con khi cha lưu (đã ghi rõ ở `sales_order_dat_ngoai_item.py`).
+5. **Chỉ chạy khi đơn còn nháp.** `custom_dat_ngoai` không `allow_on_submit`, nhưng đừng dựa vào đó — kiểm `docstatus == 0` tường minh.
+6. **Đổi số lượng dòng gõ tay sau khi đã chuyển** → phải đồng bộ sang dòng hàng đã tạo, hoặc chặn. Chọn một, ghi rõ lý do.
+
+### Test tối thiểu
+
+- Khớp mã cho hàng **có** trong hợp đồng còn hiệu lực → dòng `items` mới, `qty` đúng, **`rate` = giá hợp đồng**, `blanket_order` gắn đúng **(vế dương, ca chính)**
+- Khớp mã cho hàng **ngoài** hợp đồng → dòng `items` mới, `rate = 0`
+- **Lưu ba lần** → vẫn đúng một dòng **(chốt bất biến)**
+- Mã khớp **trùng** hàng đã có → **cộng dồn**, tổng số dòng không tăng
+- Sau khi chuyển, **dòng gõ tay còn nguyên** với `ten_hang` gốc **(chốt bằng chứng, QĐ-G15)**
+- Đơn toàn hàng gõ tay: sau khi khớp hết → **dòng giữ chỗ biến mất**, submit được
+- `da_xu_ly` **chỉ** bật sau khi đã chuyển, không bật khi mới gắn mã **(QĐ-G16)**
+- **Cách ly:** hàng thuộc hợp đồng của khách B không lấy được giá vào đơn của khách A
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.
