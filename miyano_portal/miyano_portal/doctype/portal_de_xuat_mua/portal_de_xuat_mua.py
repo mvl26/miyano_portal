@@ -60,6 +60,48 @@ NGUON_GIA_HOP_DONG = "Hợp đồng"
 NGUON_GIA_CHO_BAO_GIA = "Chờ báo giá"
 
 
+def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
+	"""`{item_code: blanket_order}` — hợp đồng khung THẮNG CUỘC cho mỗi mã
+	hàng, trong số các Blanket Order CÒN HIỆU LỰC của `customer`.
+
+	Tách ra module-level (Task 3, gộp luồng đặt hàng, 21/08/2026) khỏi
+	`PortalDeXuatMua._nguon_gia_theo_ma()` — CÙNG một luật quyết định giá
+	giờ có HAI nơi gọi: `PortalDeXuatMua.validate()` (qua `_suy_nguon_gia`)
+	và `api/portal.portal_catalog_gop` (Task 3, endpoint tìm kiếm cho màn
+	Lập phiếu). Hai đường tính "hợp đồng nào thắng" khác nhau sớm muộn
+	cũng lệch — y hệt lý do `_gia_hien_hanh`/`kiem_boi_so` đã được tách
+	thành hàm dùng chung thay vì để mỗi nơi tự viết một bản. Không nhận
+	`Document` làm tham số (chỉ nhận `customer: str`) để gọi được từ một
+	ngữ cảnh KHÔNG có `Portal De Xuat Mua` nào đang mở, đúng nhu cầu của
+	`portal_catalog_gop` (một endpoint TÌM KIẾM, không gắn với phiếu nào).
+
+	Xem đầy đủ lý do PHÂN ĐỊNH ("hết hạn sớm nhất thắng, trùng `to_date`
+	thì `name` nhỏ hơn thắng", `docstatus < 2`, ngày hiệu lực) ở
+	`PortalDeXuatMua._nguon_gia_theo_ma()` — docstring gốc giữ nguyên ở đó,
+	không chép lại đây để tránh hai lời giải thích lệch nhau theo thời
+	gian.
+	"""
+	bo_hieu_luc = frappe.get_all(
+		"Blanket Order",
+		filters={
+			"customer": customer, "blanket_order_type": "Selling",
+			"docstatus": ["<", 2],
+			"from_date": ["<=", frappe.utils.today()],
+			"to_date": [">=", frappe.utils.today()],
+		},
+		fields=["name"], order_by="to_date asc, name asc",
+	)
+	if not bo_hieu_luc:
+		return {}
+	thang_cuoc: dict[str, str] = {}
+	for bo in bo_hieu_luc:
+		for item_code in frappe.get_all(
+			"Blanket Order Item", filters={"parent": bo.name}, pluck="item_code"
+		):
+			thang_cuoc.setdefault(item_code, bo.name)
+	return thang_cuoc
+
+
 class PortalDeXuatMua(Document):
 	CHUYEN_HOP_LE = {
 		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET},
@@ -764,29 +806,14 @@ class PortalDeXuatMua(Document):
 		phải lý do bắt buộc chọn `< 2`). Chỉ loại hợp đồng đã HUỶ
 		(`docstatus=2`) — "hiệu lực" chắc chắn không bao gồm một hợp đồng
 		đã huỷ.
+
+		Task 3 (21/08/2026) — phép tính THẬT SỰ chuyển sang hàm module-level
+		`nguon_gia_theo_ma_cho_khach()` (đầu file), dùng CHUNG với
+		`api/portal.portal_catalog_gop`. Docstring này giữ nguyên tại đây
+		(không chuyển) vì nó gắn với lịch sử review/Ruling P14 của CHÍNH
+		method này; hàm module-level chỉ trỏ ngược lại đây thay vì chép lại.
 		"""
-		bo_hieu_luc = frappe.get_all(
-			"Blanket Order",
-			filters={
-				"customer": self.customer, "blanket_order_type": "Selling",
-				"docstatus": ["<", 2],
-				"from_date": ["<=", frappe.utils.today()],
-				"to_date": [">=", frappe.utils.today()],
-			},
-			fields=["name"], order_by="to_date asc, name asc",
-		)
-		if not bo_hieu_luc:
-			return {}
-		thang_cuoc: dict[str, str] = {}
-		# Duyệt ĐÚNG thứ tự ưu tiên (hết hạn sớm nhất trước) — mã hàng đã
-		# có chủ (từ một hợp đồng ưu tiên CAO hơn, xét TRƯỚC) thì hợp đồng
-		# xét SAU không được ghi đè (`setdefault`, không phải `[...] = ...`).
-		for bo in bo_hieu_luc:
-			for item_code in frappe.get_all(
-				"Blanket Order Item", filters={"parent": bo.name}, pluck="item_code"
-			):
-				thang_cuoc.setdefault(item_code, bo.name)
-		return thang_cuoc
+		return nguon_gia_theo_ma_cho_khach(self.customer)
 
 	def co_dong_cho_bao_gia(self) -> bool:
 		"""Task 2, Ruling P7 — THAY THẾ mọi chỗ trước đây hỏi `loai_don`

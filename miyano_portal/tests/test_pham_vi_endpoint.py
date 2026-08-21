@@ -82,6 +82,13 @@ MIEN_PHAM_VI: dict[str, str] = {
 	"portal_contracts": "hợp đồng khung ký ở cấp bệnh viện, không thuộc khoa nào",
 	"portal_catalog": "danh mục hàng theo hợp đồng — cấp bệnh viện",
 	"portal_catalog_ban_le": "danh mục hàng bán lẻ — cấp bệnh viện",
+	"portal_catalog_gop": (
+		"Task 3 (21/08/2026) — cùng khuôn portal_catalog/portal_catalog_"
+		"ban_le: danh mục hàng tìm kiếm gộp là dữ liệu CẤP BỆNH VIỆN (Item/"
+		"Blanket Order không có trục khoa phòng), không phải dữ liệu của "
+		"một PHIẾU/ĐƠN cụ thể. `get_portal_customer()` đã tự scope theo "
+		"khách hàng (trục bệnh viện) — không có khoa nào để lọc thêm."
+	),
 	"portal_order_place": (
 		"đường GHI; phạm vi ĐỌC (pham_vi_don/dam_bao_xem_duoc) không áp lên "
 		"đường ghi này — Task 7 (§5.5): khoa đóng dấu lên đơn đi qua "

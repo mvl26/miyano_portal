@@ -25,6 +25,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import de_xuat as de_xuat_api
+from miyano_portal.api import portal as portal_api
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 REGISTRY = FRONTEND_SRC / "de-xuat-actions.js"
@@ -54,6 +55,11 @@ _METHOD_RE = re.compile(r"method:\s*['\"](\w+)['\"]")
 # (chuỗi literal); `callDeXuat(action.method, ...)` — tên động lấy từ chính
 # registry — không khớp, và không cần khớp: registry đã tự canh nó rồi.
 _CALL_DE_XUAT_RE = re.compile(r"callDeXuat\(\s*['\"](\w+)['\"]")
+# Task 3, bổ sung Ruling P13 (21/08/2026) — cùng khuôn `_CALL_DE_XUAT_RE`
+# nhưng cho đường gọi `api.call('...')` (module `api/portal.py`, KHÔNG phải
+# `api/de_xuat.py`). `api\.call\(` không khớp `api.callDeXuat(`/`api.callKho(`
+# — ký tự ngay sau "call" trong hai lời gọi đó là "D"/"K", không phải "(".
+_API_CALL_RE = re.compile(r"api\.call\(\s*['\"](\w+)['\"]")
 
 
 class TestActionRegistry(FrappeTestCase):
@@ -140,3 +146,58 @@ class TestActionRegistry(FrappeTestCase):
 
 	def test_file_registry_ton_tai(self):
 		self.assertTrue(REGISTRY.exists(), f"Không thấy {REGISTRY}")
+
+	# -- Task 3, bổ sung Ruling P13 (21/08/2026) -----------------------------
+	#
+	# Lưới trên chỉ soi `callDeXuat('...')` (đường tới `api/de_xuat.py`).
+	# `portal_catalog_gop` (Task 3) và mọi endpoint khác của `api/portal.py`
+	# đi qua `api.call('...')` — MỘT ĐƯỜNG GỌI KHÁC, không được lưới đó nhìn
+	# thấy (xem ghi chú tại chỗ gọi ở `LapPhieu.vue::timKiem()`). Mở rộng
+	# đúng CÙNG khuôn: quét `api.call('...')`, đối chiếu với hàm whitelist
+	# của `api/portal.py` (không phải `api/de_xuat.py`).
+
+	def _methods_api_call_tu_frontend(self) -> set[str]:
+		"""Mọi `api.call('...')` viết thẳng trong `frontend/src/**` (đệ quy,
+		cùng `DUOI_QUET`/`_file_frontend()` ở trên). Regex `api\\.call\\(`
+		KHÔNG khớp `api.callDeXuat(`/`api.callKho(` — ký tự ngay sau
+		`call` phải là `(`, còn hai hàm kia có `DeXuat`/`Kho` chen giữa."""
+		ten = set()
+		for f in self._file_frontend():
+			ten |= set(_API_CALL_RE.findall(f.read_text(encoding="utf-8")))
+		return ten
+
+	def _endpoint_that_portal(self) -> set[str]:
+		return {
+			ten for ten, fn in inspect.getmembers(portal_api, inspect.isfunction)
+			if fn in frappe.whitelisted and fn.__module__ == portal_api.__name__
+		}
+
+	def test_moi_api_call_trong_frontend_la_endpoint_that_cua_portal(self):
+		thua = self._methods_api_call_tu_frontend() - self._endpoint_that_portal()
+		self.assertEqual(
+			thua, set(),
+			f"Một file frontend gọi api.call() với method KHÔNG tồn tại (whitelist) "
+			f"ở api/portal.py: {thua}. Đây là nút/lời gọi sẽ 404 lúc người dùng bấm.",
+		)
+
+	def test_api_call_portal_catalog_gop_duoc_quet_dung(self):
+		"""Vế DƯƠNG cho chính vùng quét mới — `LapPhieu.vue::timKiem()` gọi
+		`api.call('portal_catalog_gop', ...)` thật (không phải qua
+		`callDeXuat`); nếu lưới không thực sự đọc được nó, test trên xanh
+		vì KHÔNG NHÌN THẤY GÌ, không phải vì không có lỗi."""
+		self.assertIn("portal_catalog_gop", self._methods_api_call_tu_frontend())
+
+	def test_luoi_api_call_bat_duoc_ten_bia(self):
+		"""Bắt buộc có vế dương (yêu cầu điều phối, Ruling P13) — chứng
+		minh lưới THẬT SỰ bắt được: một tên BỊA (giả lập lỗi gõ sai
+		`api.call('...')`) phải (a) bị chính regex trích ra được, và (b)
+		KHÔNG có mặt trong tập endpoint whitelist thật của `api/portal.py`
+		— tức nếu tên đó từng lọt vào frontend, `test_moi_api_call_trong_
+		frontend_la_endpoint_that_cua_portal` ở trên sẽ đỏ đúng cách. Thiếu
+		vế này, một hàm quét luôn trả tập RỖNG cũng qua được bài trên —
+		đúng lỗ hổng dự án này đã dính BA LẦN (task-3-bo-sung.md, mục 4)."""
+		ten_bia = "ten_bia_khong_ton_tai_xyz"
+		mau = f"await api.call('portal_me'); await api.call('{ten_bia}')"
+		tim_thay = set(_API_CALL_RE.findall(mau))
+		self.assertEqual(tim_thay, {"portal_me", ten_bia})
+		self.assertNotIn(ten_bia, self._endpoint_that_portal())

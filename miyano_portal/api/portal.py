@@ -35,6 +35,7 @@ from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_deliv
 )
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
     TRANG_THAI_DA_DUYET,
+    nguon_gia_theo_ma_cho_khach,
 )
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
@@ -297,6 +298,125 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
             "san_sang_ban": r.item_code in san_sang,
         })
     return {"items": out, "tong": tong, "start": start, "limit": limit}
+
+
+@frappe.whitelist()
+def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
+    """Task 3 (gộp luồng đặt hàng, 21/08/2026) — MỘT endpoint tìm kiếm gộp
+    BA TẦNG cho màn Lập phiếu (`LapPhieu.vue`, Task 8, chạy song song).
+    Hình dạng trả về ĐÃ ĐÓNG BĂNG (`hop-dong-endpoint-tim-kiem.md`, Task 8
+    code thẳng vào nó) — KHÔNG tự đổi khoá/kiểu dữ liệu ở đây:
+
+        {"rows": [{item_code, item_name, dvt, tang, don_gia,
+                   blanket_order, boi_so}], "tong": int}
+
+    `tang` chỉ nhận `"hop_dong"` hoặc `"cho_bao_gia"`. `don_gia`/
+    `blanket_order`/`boi_so` là `None` (KHÔNG phải `0`) khi không áp dụng —
+    `0` là một giá/bội số HỢP LỆ, dùng nó làm "rỗng" sẽ không phân biệt
+    được đúng lúc cần phân biệt nhất. Tầng 3 (hàng chưa có mã) KHÔNG đến từ
+    đây — đó là dòng khách gõ tay, đi qua bảng "đặt ngoài" của phiếu.
+
+    Ruling P14 — tầng suy THEO DÒNG, đối chiếu MỌI Blanket Order còn hiệu
+    lực của khách đang đăng nhập (`nguon_gia_theo_ma_cho_khach()`, module
+    `portal_de_xuat_mua`, CÙNG hàm `PortalDeXuatMua._suy_nguon_gia()` gọi —
+    KHÔNG viết một bản suy giá thứ hai ở đây: luật này quyết định giá, hai
+    bản lệch nhau sớm muộn cũng ra hai giá khác nhau cho cùng một mặt
+    hàng). Tham số `contract`, nếu truyền, CHỈ thu hẹp DANH SÁCH mã hàng
+    hiện ra (mã phải thuộc đúng hợp đồng đó) — nó KHÔNG tắt việc tra hợp
+    đồng: không truyền `contract` không có nghĩa "đừng suy tầng", tầng vẫn
+    luôn suy customer-wide.
+
+    Cách ly (BR — vai trò khách): `get_portal_customer()` suy khách từ
+    CHÍNH phiên đăng nhập, không nhận `customer` từ client — cùng khuôn
+    `portal_catalog`/`portal_catalog_ban_le` ở trên. `role Customer` có
+    ZERO DocPerm trên `Item`/`Blanket Order` nên dùng `frappe.get_all`/
+    `frappe.db.*` (không `frappe.get_list`/`doc.check_permission()` — hai
+    đường đó ném `PermissionError` cho một Website User trước khi chạy tới
+    đây).
+
+    Phân trang PHÍA SERVER, NGAY TRONG TRUY VẤN SQL (`limit_start`/
+    `limit_page_length`, cùng khuôn `portal_order_history`/`portal_catalog_
+    ban_le`) — KHÔNG dựng toàn bộ danh mục trong Python rồi cắt lát:
+    `tabItem` là TOÀN BỘ danh mục Miyano.
+    """
+    customer = get_portal_customer()
+    start = max(0, int(start or 0))
+    limit = max(1, int(limit or 50))
+
+    # Cùng khuôn `portal_catalog_ban_le` — loại item KỸ THUẬT NỘI BỘ
+    # (`HANG-DAT-NGOAI`) khỏi danh mục khách nhìn thấy. Dùng danh sách
+    # điều kiện (không phải dict) vì `contract` bên dưới có thể thêm một
+    # điều kiện THỨ HAI trên cùng field `name` — dict filters của
+    # `frappe.get_all` không biểu diễn được hai điều kiện trên một field.
+    filters = [["disabled", "=", 0], ["name", "!=", ITEM_GIU_CHO]]
+    or_filters = None
+    if tu_khoa:
+        or_filters = [
+            ["item_code", "like", f"%{tu_khoa}%"],
+            ["item_name", "like", f"%{tu_khoa}%"],
+        ]
+
+    if contract:
+        # Isolation — cùng chốt `portal_catalog`: hợp đồng truyền vào phải
+        # thuộc chính khách đang đăng nhập.
+        if frappe.db.get_value("Blanket Order", contract, "customer") != customer:
+            raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
+        ma_thuoc_hop_dong = frappe.get_all(
+            "Blanket Order Item", filters={"parent": contract}, pluck="item_code",
+        )
+        # `or [""]` — mảng rỗng cho `["name", "in", []]` không tất định
+        # trên mọi bản Frappe; một hợp đồng không mặt hàng nào thì kết quả
+        # phải là RỖNG, không phải "bỏ qua điều kiện".
+        filters.append(["name", "in", ma_thuoc_hop_dong or [""]])
+
+    # `frappe.db.count` KHÔNG nhận `or_filters` — đếm qua `get_all` với
+    # ĐÚNG bộ filters/or_filters của truy vấn trang dưới (cùng lý do
+    # `portal_catalog_ban_le` đã ghi), nếu không `tong` sẽ lặng lẽ bỏ qua
+    # điều kiện tìm kiếm khi `tu_khoa` có giá trị.
+    tong = frappe.get_all(
+        "Item", filters=filters, or_filters=or_filters,
+        fields=["count(name) as tong"],
+    )[0].tong
+
+    rows = frappe.get_all(
+        "Item", filters=filters, or_filters=or_filters,
+        fields=["item_code", "item_name", "stock_uom", "custom_boi_so_dat"],
+        # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
+        # TẤT ĐỊNH giữa hai trang, cùng lý do `portal_catalog_ban_le`.
+        order_by="item_name asc, name asc",
+        limit_start=start, limit_page_length=limit,
+    )
+
+    # MỘT truy vấn cho CẢ TRANG (không lặp theo từng dòng) — hợp đồng
+    # thắng cuộc của khách là customer-wide, không phụ thuộc từ khoá tìm.
+    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
+    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+
+    out = []
+    for r in rows:
+        bo = thang_cuoc.get(r.item_code)
+        # Ruling P16 — `0`/chưa khai đều nghĩa là "không ràng buộc bội số",
+        # trả `None` (KHÔNG phải `0`) để khớp quy ước "0 là giá trị hợp lệ"
+        # của cả hợp đồng đóng băng lẫn `kiem_boi_so()` (`portal_dat_hang.py`).
+        boi_so = int(r.custom_boi_so_dat or 0) or None
+        if bo:
+            # ĐÚNG nguồn giá `_dong_dau_gia()` dùng (`_gia_hien_hanh`) — hai
+            # đường tra giá khác nhau sớm muộn cũng lệch, cùng lý do module
+            # `dat_hang` không tự viết một hàm tra giá thứ hai.
+            don_gia = dat_hang._gia_hien_hanh(r.item_code, price_list) if price_list else None
+            out.append({
+                "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
+                "tang": "hop_dong",
+                "don_gia": float(don_gia) if don_gia is not None else None,
+                "blanket_order": bo, "boi_so": boi_so,
+            })
+        else:
+            out.append({
+                "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
+                "tang": "cho_bao_gia", "don_gia": None,
+                "blanket_order": None, "boi_so": boi_so,
+            })
+    return {"rows": out, "tong": tong}
 
 
 @frappe.whitelist()
