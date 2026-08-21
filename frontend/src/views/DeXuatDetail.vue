@@ -39,6 +39,17 @@ const tenKhoa = computed(() => {
 // de-xuat-actions.js). hanhDongChoPhep() đã tự bọc when() trong try/catch.
 const actions = computed(() => hanhDongChoPhep(doc.value, store.me))
 
+// Vòng sửa 1 (review, Task 8) — lối vào SỬA cho phiếu Nháp, ngay tại màn
+// chỉ đọc này. Đây KHÔNG phải một hành động server (không có `method:`
+// whitelist để gọi) nên KHÔNG đi qua `de-xuat-actions.js`/`hanhDongChoPhep`
+// — đó là registry của HÀNH ĐỘNG, cái này là ĐIỀU HƯỚNG sang màn khác
+// (`LapPhieu.vue`, route `de-xuat-lap`). Cùng điều kiện chủ sở hữu như nút
+// "Xoá" của registry (owner hoặc quản lý) để hai nút không lệch quyền nhìn
+// thấy nhau trên cùng một phiếu.
+const coTheSuaNhap = computed(
+  () => doc.value?.trang_thai === 'Nháp' && (doc.value?.owner === store.me?.user || store.me?.la_quan_ly)
+)
+
 // C3 — nút "Quay lại" phải quay về ĐÚNG NƠI ĐÃ TỚI. Trước bản này nó cứng
 // `/de-xuat`: quản lý mở /duyet, lọc khoa "Huyết học", duyệt phiếu, bấm Quay
 // lại → rơi vào một danh sách KHÁC, mất bộ lọc, phải đi vòng qua menu cho
@@ -427,9 +438,10 @@ onMounted(async () => {
         </p>
       </div>
 
-      <!-- Panel hành động — render từ hanhDongChoPhep(doc, me). Hide, don't
-           disable: khi rỗng thì không hiện khối này luôn. -->
-      <div v-if="actions.length" class="card mb10" style="margin-bottom: 14px">
+      <!-- Panel hành động — render từ hanhDongChoPhep(doc, me), cộng nút
+           điều hướng "Sửa nháp" (KHÔNG qua registry — xem `coTheSuaNhap`).
+           Hide, don't disable: khi cả hai đều rỗng thì không hiện khối này. -->
+      <div v-if="actions.length || coTheSuaNhap" class="card mb10" style="margin-bottom: 14px">
         <!-- C1 — nói rõ quyền "sửa rồi duyệt" NGAY CẠNH nút Duyệt. Không có
              câu này thì cột SL duyệt nhập được vẫn trông như một ô chỉ đọc. -->
         <p v-if="quanLyDangDuyet" class="tag" style="margin-bottom: 10px">
@@ -437,7 +449,17 @@ onMounted(async () => {
           nghĩa là <b>giữ nguyên</b> dòng đó; gõ <b>0</b> nghĩa là <b>bỏ mặt hàng</b> khỏi đơn.
           Cột SL đề xuất khoá vĩnh viễn, không sửa được.
         </p>
+        <!-- Vòng sửa 1 — phiếu Nháp: bảng dòng hàng bên dưới CHỈ ĐỌC (cột SL
+             đề xuất "Khoá vĩnh viễn từ lúc gửi duyệt" — sai văn cảnh cho một
+             phiếu CHƯA TỪNG gửi duyệt, nhưng vẫn là component đọc). Sửa số
+             lượng/thêm-xoá dòng phải qua `LapPhieu.vue`. -->
+        <p v-if="coTheSuaNhap" class="tag" style="margin-bottom: 10px">
+          Phiếu đang ở trạng thái Nháp — bảng dưới đây chỉ để xem. Sửa số lượng, thêm/xoá dòng ở màn Lập phiếu.
+        </p>
         <div class="flex" style="flex-wrap: wrap">
+          <router-link v-if="coTheSuaNhap" :to="{ name: 'de-xuat-lap', params: { ten: doc.name } }">
+            <button class="btn">Sửa nháp</button>
+          </router-link>
           <button
             v-for="a in actions"
             :key="a.method"

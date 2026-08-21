@@ -35,15 +35,18 @@ const routes = [
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
   // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua.
   { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
-  // Man luong duyet (Task 8) — LẬP một phiếu đề xuất mua mới. Đường dẫn
-  // TĨNH `/de-xuat/lap` (hai đoạn, không phải một tham số động) nên KHÔNG
-  // đụng `/de-xuat/:ten` ngay dưới — vue-router 4 xếp hạng route tĩnh trên
-  // route động cho cùng một đoạn, nhưng ở đây còn chắc hơn nữa: hai route
-  // khác SỐ ĐOẠN đường dẫn, không thể trùng dù có xếp hạng thế nào.
-  // KHÔNG có `:ten` — màn này chỉ LẬP MỚI (tạo lười, xem LapPhieu.vue), một
-  // phiếu Nháp đã lưu được sửa dòng/gửi/xoá lại từ đây trong CÙNG một lượt;
-  // sau khi rời màn, phiếu đó vẫn xem/gửi/xoá được ở `/de-xuat/:ten` như cũ.
-  { path: '/de-xuat/lap', name: 'de-xuat-lap', component: LapPhieu, meta: { title: 'Lập phiếu đề xuất' } },
+  // Man luong duyet (Task 8) — LẬP/SỬA một phiếu đề xuất mua ở trạng thái
+  // Nháp. Đường dẫn `/de-xuat/lap/:ten?` (`ten` TUỲ CHỌN) — ba đoạn "lap" +
+  // tham số nên KHÔNG đụng `/de-xuat/:ten` ngay dưới (khác số đoạn đường
+  // dẫn, không thể trùng dù xếp hạng route tĩnh/động thế nào).
+  //
+  // Vòng sửa 1 (review) — trước bản này route KHÔNG có `:ten`, nghĩa là một
+  // phiếu Nháp đã Lưu rồi RỜI MÀN thì KHÔNG CÒN ĐƯỜNG NÀO SỬA LẠI được nữa
+  // (DeXuatDetail.vue chỉ đọc `so_luong_de_xuat`, không có ô nhập). Có
+  // `:ten` thì `/de-xuat/lap/:ten` mở lại ĐÚNG phiếu đó để sửa tiếp — xem
+  // `LapPhieu.vue` (nạp qua `de_xuat_chi_tiet`, từ chối nếu phiếu không còn
+  // ở trạng thái Nháp). Không tham số vẫn là LẬP MỚI (tạo lười).
+  { path: '/de-xuat/lap/:ten?', name: 'de-xuat-lap', component: LapPhieu, meta: { title: 'Lập phiếu đề xuất' } },
   // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
   { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
   // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +

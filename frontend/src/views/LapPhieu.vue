@@ -14,17 +14,21 @@
 // Tầng 3 (hàng chưa có mã) KHÔNG đến từ endpoint này — khách gõ tay, vào
 // bảng "đặt ngoài" riêng (`dat_ngoai`), không bao giờ lẫn vào `items`.
 //
-// KHÔNG resume-sửa một phiếu Nháp đã lưu từ trước qua URL: `portal_catalog_
-// gop` chỉ gắn `tang` cho KẾT QUẢ TÌM KIẾM, phiếu Nháp đã lưu (`de_xuat_chi_
-// tiet`) không mang field này — suy `tang` ngược từ `don_gia` đã lưu (vd.
-// "đơn giá > 0 thì coi là tầng hợp đồng") sẽ PHẠM ĐÚNG luật mà hợp đồng
-// đóng băng cấm: "`0` là một giá hợp lệ; dùng nó làm mốc 'chưa có giá' thì
-// đúng lúc cần phân biệt nhất sẽ không phân biệt được". Phiếu Nháp đã lưu
-// vẫn xem/gửi/xoá được bình thường qua DeXuatList → DeXuatDetail (không mất
-// đường, chỉ mất khả năng SỬA DÒNG sau khi rời màn này) — chấp nhận được vì
-// mọi thao tác của hard requirement 6 (lưu nháp, sửa số lượng, xoá dòng,
-// xoá cả phiếu, gửi duyệt) đều làm được TRỌN VẸN trong một lượt ở lại màn
-// này, không cần rời đi rồi quay lại.
+// RESUME-SỬA một phiếu Nháp đã lưu (Vòng sửa 1, review) — route
+// `/de-xuat/lap/:ten?` với `ten` tuỳ chọn. Bản đầu của màn này KHÔNG có
+// `:ten` với lý do "`portal_catalog_gop` chỉ gắn `tang` cho kết quả tìm
+// kiếm, phiếu đã lưu không mang field này, suy ngược từ `don_gia` sẽ phạm
+// đúng luật '0 là giá hợp lệ' của hợp đồng đóng băng" — ĐÚNG về mặt kỹ
+// thuật nhưng SAI về hệ quả: không có `:ten` nghĩa là một phiếu Nháp đã Lưu
+// rồi RỜI MÀN thì không còn đường nào sửa lại (`DeXuatDetail.vue` chỉ đọc),
+// đúng ngược yêu cầu tường minh của chủ đầu tư ("phiếu trạng thái nháp có
+// thể sửa số lượng ... và họ có thể xóa phiếu nháp").
+//
+// Lý do đó hết hiệu lực vì Task 2 (chạy song song) đã thêm ĐÚNG field còn
+// thiếu: `Portal De Xuat Mua Item.nguon_gia` (Select, hệ thống tự suy ở
+// `validate()`) — `"Hợp đồng"` → tầng 1 (đọc `don_gia` CHÍNH DÒNG ĐÓ, không
+// đoán từ 0), mọi giá trị khác → tầng 2. Xem `napTuPhieu()`. KHÔNG có tầng
+// thứ tư, không cần đoán gì nữa — chỉ đọc field.
 //
 // TẠO LƯỜI (lazy): `de_xuat_tao_nhap()` chỉ được gọi ở lần LƯU/GỬI ĐẦU
 // TIÊN, không gọi ngay khi vào màn. Gọi ngay lúc mount sẽ chèn một bản ghi
@@ -37,7 +41,7 @@
 // và `de_xuat_luu_nhap` (lưu items/dat_ngoai/...), nên `damBaoCoTen()` gọi
 // cái trước CHỈ MỘT LẦN rồi tái dùng `tenPhieu` cho mọi lần lưu sau.
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
 import { fmtVND, addWorkDaysISO, todayISO } from '../format'
@@ -45,6 +49,7 @@ import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
 
+const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
 
@@ -68,6 +73,11 @@ const tenKhoa = computed(() => {
 // `tenPhieu` rỗng cho tới lần Lưu/Gửi đầu tiên — xem ghi chú "TẠO LƯỜI" ở
 // đầu file.
 const tenPhieu = ref('')
+// Trạng thái nạp phiếu Nháp có sẵn (route có `:ten`) — riêng biệt với
+// `dangLuu`/`dangGui`/`dangXoa` bên dưới (những cờ đó canh HÀNH ĐỘNG của
+// khách, cờ này canh việc TẢI phiếu lúc vào màn/đổi phiếu).
+const phieuLoading = ref(false)
+const phieuError = ref('')
 
 // KHÔNG cần tự chốt "đang tạo" ở đây: hai nơi gọi duy nhất (`luuNhap`,
 // `guiDuyet`) đã tự khoá bằng `dangLuu`/`dangGui` NGAY ĐẦU HÀM, trước khi gọi
@@ -236,6 +246,91 @@ const ngayToiThieu = todayISO()
 const diaChiGiao = ref('')
 const diaChiOptions = computed(() => store.me?.addresses || [])
 
+// --- Nạp một phiếu Nháp có sẵn (route `/de-xuat/lap/:ten`) ----------------
+// Về trạng thái LẬP MỚI trắng — dùng khi route KHÔNG có `:ten` (vào thẳng
+// `/de-xuat/lap`, hoặc rời một phiếu đang sửa để bắt đầu một phiếu khác).
+function resetState() {
+  tenPhieu.value = ''
+  items.value = []
+  datNgoai.value = []
+  dnMoRong.value = false
+  lyDoYeuCau.value = ''
+  ghiChu.value = ''
+  ngayCan.value = addWorkDaysISO(2)
+  diaChiGiao.value = (store.me?.addresses || [])[0]?.name || ''
+}
+
+// Đổ dữ liệu một phiếu Nháp đã lưu (`de_xuat_chi_tiet`) vào form.
+//
+// `nguon_gia` (Task 2, chạy song song — Select trên `Portal De Xuat Mua
+// Item`, hệ thống tự suy ở `validate()`, ĐỌC-CHỈ) thay cho việc đoán tầng
+// từ `don_gia`: `"Hợp đồng"` → tầng 1 (đọc `don_gia` CHÍNH DÒNG đó — dòng
+// nào cũng đã đóng dấu số thật, không phải kết quả tìm kiếm nữa), mọi giá
+// trị khác (kể cả rỗng/null — dòng chưa từng qua `validate()`) → tầng 2.
+// Không có tầng thứ tư ở đây.
+function napTuPhieu(d) {
+  tenPhieu.value = d.name
+  items.value = (d.items || []).map((it) => ({
+    item_code: it.item_code,
+    item_name: it.item_name,
+    dvt: it.dvt,
+    so_luong_de_xuat: it.so_luong_de_xuat,
+    tang: it.nguon_gia === 'Hợp đồng' ? 'hop_dong' : 'cho_bao_gia',
+    don_gia: it.don_gia,
+  }))
+  datNgoai.value = (d.dat_ngoai || []).map((dn) => ({
+    ten_hang: dn.ten_hang,
+    dvt: dn.dvt,
+    so_luong: dn.so_luong,
+    ghi_chu: dn.ghi_chu || '',
+  }))
+  dnMoRong.value = datNgoai.value.length > 0
+  lyDoYeuCau.value = d.ly_do_yeu_cau || ''
+  ghiChu.value = d.ghi_chu || ''
+  ngayCan.value = d.ngay_can || ''
+  diaChiGiao.value = d.dia_chi_giao || (store.me?.addresses || [])[0]?.name || ''
+}
+
+// Vòng sửa 1 (review) — điều phối theo `route.params.ten`. QUAN TRỌNG: đây
+// PHẢI là một `watch`, không phải chỉ đọc một lần ở `onMounted`. Vue Router
+// TÁI DÙNG cùng một instance component khi chỉ tham số đổi (từ
+// `/de-xuat/lap/PHIEU-1` sang `/de-xuat/lap/PHIEU-2`, `onMounted` không
+// chạy lại) — thiếu `watch` thì bấm "Sửa" từ phiếu này sang phiếu khác sẽ
+// giữ nguyên dữ liệu của phiếu TRƯỚC trên màn (đúng lỗi đang treo trong sổ
+// nợ của `DeXuatDetail.vue`, không lặp lại ở đây).
+async function taiHoacKhoiTao() {
+  const tenParam = route.params.ten
+  if (!tenParam) {
+    resetState()
+    return
+  }
+  phieuLoading.value = true
+  phieuError.value = ''
+  try {
+    const d = await api.callDeXuat('de_xuat_chi_tiet', { ten: tenParam })
+    if (d.trang_thai !== 'Nháp') {
+      // Việc cần làm 2 — TỪ CHỐI mở một phiếu không phải Nháp ở màn sửa này.
+      // `de_xuat_luu_nhap` phía server cũng ném lỗi cho ca này, nhưng người
+      // dùng không nên phải CHẠM lỗi đó mới biết — đưa thẳng về màn chi
+      // tiết chỉ đọc, kèm một câu giải thích tại sao.
+      showToast(
+        `Phiếu ${d.ma_de_xuat || tenParam} không còn ở trạng thái Nháp — không sửa được ở đây nữa.`,
+        'error'
+      )
+      router.replace({ name: 'de-xuat-detail', params: { ten: tenParam }, query: { tu: 'de-xuat' } })
+      return
+    }
+    napTuPhieu(d)
+  } catch (e) {
+    phieuError.value = e.message || 'Không tải được phiếu nháp.'
+  } finally {
+    phieuLoading.value = false
+  }
+}
+// `immediate: true` — chạy ngay ở lần vào màn đầu tiên (thay cho việc gọi
+// tay trong `onMounted`), RỒI chạy lại mỗi khi tham số đổi vì lý do ở trên.
+watch(() => route.params.ten, taiHoacKhoiTao, { immediate: true })
+
 // --- Kiểm số lượng trước khi lưu/gửi ---------------------------------------
 // Cùng bẫy đã ghi trong DeXuatDetail.vue (`Number('') === 0`), nhưng NGƯỢC
 // nghĩa ở đây: phiếu đang LẬP không có khái niệm "ô trống = giữ nguyên" —
@@ -382,6 +477,13 @@ onMounted(async () => {
       <router-link to="/de-xuat"><button class="btn-o">← Đề xuất mua</button></router-link>
     </div>
 
+    <!-- Vòng sửa 1 — trạng thái nạp một phiếu Nháp có sẵn (route có
+         `:ten`). LẬP MỚI (không `:ten`) không đi qua nhánh này —
+         `taiHoacKhoiTao()` trả về ngay sau `resetState()`. -->
+    <div v-if="phieuLoading" class="loading">Đang tải phiếu…</div>
+    <div v-else-if="phieuError" class="empty">{{ phieuError }}</div>
+
+    <template v-else>
     <!-- ============ Ô TÌM (một ô duy nhất, ba tầng) ============ -->
     <div class="card mb10">
       <div class="field" style="margin-bottom: 0">
@@ -568,5 +670,6 @@ onMounted(async () => {
         </button>
       </div>
     </div>
+    </template>
   </div>
 </template>

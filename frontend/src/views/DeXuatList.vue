@@ -68,7 +68,18 @@ watch(filter, (f) => {
 
 // C3 — ghi NƠI ĐÃ TỚI vào query khi mở phiếu, để màn chi tiết quay về đúng
 // danh sách này kèm đúng chip (và App.vue sáng đúng mục nav — việc (c)).
+//
+// Vòng sửa 1 (review, Task 8) — phiếu Nháp mở sang màn SỬA (`de-xuat-lap`),
+// không phải màn chi tiết chỉ đọc (`de-xuat-detail`): `DeXuatDetail.vue`
+// không có ô nhập số lượng cho `so_luong_de_xuat` ("Khoá vĩnh viễn từ lúc
+// gửi duyệt" — đúng cho MỌI trạng thái SAU Nháp, nhưng một phiếu Nháp thì
+// chưa từng gửi duyệt). Thiếu nhánh này, một phiếu Lưu-nháp-rồi-đóng-tab
+// không còn đường nào sửa lại — đúng phát hiện Critical của vòng review 1.
 function moPhieu(r) {
+  if (r.trang_thai === 'Nháp') {
+    router.push({ name: 'de-xuat-lap', params: { ten: r.name } })
+    return
+  }
   router.push({
     name: 'de-xuat-detail',
     params: { ten: r.name },
@@ -106,6 +117,15 @@ onMounted(async () => {
           {{ store.me?.la_quan_ly ? 'Toàn bộ phiếu đề xuất mua của đơn vị' : 'Phiếu đề xuất mua của khoa bạn' }}
         </div>
       </div>
+      <!-- Vòng sửa 1 — lối vào TẠO PHIẾU MỚI ngay tại danh sách, cùng khuôn
+           "+ Tạo phiếu ..." của PhieuNhap.vue/PhieuXuat.vue. Mục nav
+           "Lập phiếu đề xuất" (App.vue) đã có nhưng chỉ hiện ở sidebar
+           desktop — nút này là lối vào THỨ HAI, ngay tại nơi khách đang
+           nhìn danh sách của họ. -->
+      <router-link :to="{ name: 'de-xuat-lap' }"><button class="btn">+ Lập phiếu</button></router-link>
+    </div>
+    <div v-else class="mb10">
+      <router-link :to="{ name: 'de-xuat-lap' }"><button class="btn btn-sm">+ Lập phiếu</button></router-link>
     </div>
 
     <div class="chips">
@@ -135,7 +155,7 @@ onMounted(async () => {
       <table>
         <thead>
           <tr>
-            <th>Mã phiếu</th><th>Khoa phòng</th><th>Trạng thái</th><th>Thời điểm gửi</th>
+            <th>Mã phiếu</th><th>Khoa phòng</th><th>Trạng thái</th><th>Thời điểm gửi</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -152,6 +172,15 @@ onMounted(async () => {
             <td>{{ tenKhoa(r.khoa_phong) }}</td>
             <td><span class="badge" :class="deXuatBadge(r.trang_thai)">{{ r.trang_thai }}</span></td>
             <td>{{ r.thoi_diem_gui ? fmtDateTime(r.thoi_diem_gui) : '—' }}</td>
+            <!-- Vòng sửa 1 — nút SỬA tường minh cho phiếu Nháp, không chỉ
+                 dựa vào việc cả dòng bấm được (đúng góp ý review: một tính
+                 năng không có LỐI VÀO NHÌN THẤY ĐƯỢC coi như không tồn tại
+                 — dự án này đã dính lỗi đó hai lần). `.stop` vì dòng cha đã
+                 tự có `@click="moPhieu(r)"` (cùng đích cho phiếu Nháp) —
+                 chặn nổi bọt để khỏi điều hướng hai lần. -->
+            <td>
+              <button v-if="r.trang_thai === 'Nháp'" class="btn-o btn-sm" @click.stop="moPhieu(r)">Sửa</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -175,6 +204,12 @@ onMounted(async () => {
           {{ tenKhoa(r.khoa_phong) }}
           <template v-if="r.thoi_diem_gui"> · Gửi {{ fmtDateTime(r.thoi_diem_gui) }}</template>
         </p>
+        <button
+          v-if="r.trang_thai === 'Nháp'"
+          class="btn-o btn-sm"
+          style="margin-top: 8px"
+          @click.stop="moPhieu(r)"
+        >Sửa</button>
       </div>
     </template>
   </div>
