@@ -578,24 +578,19 @@ class TestNguonGiaDong(FrappeTestCase):
 		thuần hợp đồng. Dòng Chờ báo giá không có `don_gia` nên không tham
 		gia so sánh.
 
-		SỬA (I2, review vòng 1) — gọi THẲNG `de_xuat_duyet._kiem_gia_doi(doc)`
-		thay vì đi hết `duyet_va_tao_don()`: từ khi `self.bo` SUBMIT thật
-		(Ruling P18), `item_hd` genuinely nằm trong `items_thuoc_hdnt_hieu_
-		luc()` (BR-R7, `portal_mua_le.py`, đã đòi `docstatus == 1` từ trước
-		task này) — và `mode=` của `duyet_va_tao_don()` (C1, dòng 81-82
-		`de_xuat_duyet.py`, NGOÀI PHẠM VI vòng sửa này — đợi Task 4) LUÔN
-		chọn "ban_le" cho phiếu TRỘN bất kể dòng nào của nó thật sự thuộc
-		hợp đồng, nên `_xay_don_ban_le` (đúng theo BR-R7) từ chối thẳng
-		`item_hd` với lỗi "đang thuộc hợp đồng khung". Đây là HỆ QUẢ THẬT
-		của việc sửa I2 đúng (thống nhất "còn hiệu lực" toàn app, không còn
-		fixture né được BR-R7 bằng cách "quên" submit): một phiếu TRỘN có
-		ít nhất một dòng thật sự thuộc hợp đồng còn hiệu lực KHÔNG THỂ hoàn
-		tất `duyet_va_tao_don()` ở trạng thái code hiện tại — phát hiện
-		này được ghi vào report để bàn giao cho Task 4 (cùng C1), KHÔNG sửa
-		ở đây. Test này giữ đúng phạm vi kiểm được trong vòng sửa này: cơ
-		chế cảnh báo giá (`_kiem_gia_doi`) tự nó vẫn đúng cho một dòng Hợp
-		đồng bên trong phiếu trộn, tách khỏi phần orchestration đang vướng
-		C1."""
+		LỊCH SỬ (đọc trước khi định "đơn giản hoá" bài này): vòng sửa I2 của
+		Task 2 từng HẠ CẤP test này xuống gọi THẲNG hàm nội bộ
+		`de_xuat_duyet._kiem_gia_doi(doc)`, vì từ khi `self.bo` SUBMIT thật
+		(Ruling P18) `item_hd` genuinely nằm trong `items_thuoc_hdnt_hieu_
+		luc()` và `mode=` cũ LUÔN chọn "ban_le" cho phiếu TRỘN → `_xay_don_
+		ban_le` từ chối thẳng dòng hợp đồng ("đang thuộc hợp đồng khung").
+		Tức là ĐƯỜNG CÔNG KHAI đang gãy, và bài test đi vòng qua nó.
+
+		Task 4 (điều phối viên yêu cầu KHÔI PHỤC) — hàm dựng đơn đã gộp làm
+		một, quyết theo TỪNG DÒNG, nên phiếu trộn duyệt được. Bài này quay
+		lại gọi TRỌN `duyet_va_tao_don()`: nếu nó lại phải lách xuống hàm
+		gạch dưới thì đường công khai lại hỏng, và đó là thứ phải báo chứ
+		không phải né. Khẳng định cả `canh_bao_gia` LẪN đơn thật sinh ra."""
 		doc = self._phieu(items=[
 			{
 				"item_code": self.item_hd, "so_luong_de_xuat": 1,
@@ -609,11 +604,20 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].don_gia, 100)   # đóng dấu đúng dòng HĐ
 		self.assertFalse(doc.items[1].don_gia)        # dòng chờ báo giá KHÔNG đóng dấu
 		self._tao_gia(self.item_hd, self.price_list, 150)   # giá đổi SAU khi gửi
-		canh_bao_gia = de_xuat_duyet._kiem_gia_doi(doc)
+
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		canh_bao_gia = kq["canh_bao_gia"]
 		self.assertEqual(len(canh_bao_gia), 1)
 		self.assertEqual(canh_bao_gia[0]["item_code"], self.item_hd)
 		self.assertEqual(canh_bao_gia[0]["gia_cu"], 100)
 		self.assertEqual(canh_bao_gia[0]["gia_moi"], 150)
+
+		# VẾ DƯƠNG của việc khôi phục: đơn THẬT phải ra, ba tầng đúng chỗ.
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		theo_ma = {d.item_code: d for d in so.items}
+		self.assertEqual(sorted(theo_ma), sorted([self.item_hd, self.item_ngoai]))
+		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
+		self.assertEqual(float(theo_ma[self.item_ngoai].rate), 0.0)
 
 
 class TestBackfillNguonGia(FrappeTestCase):
