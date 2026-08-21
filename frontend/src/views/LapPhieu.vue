@@ -78,6 +78,13 @@ const tenPhieu = ref('')
 // khách, cờ này canh việc TẢI phiếu lúc vào màn/đổi phiếu).
 const phieuLoading = ref(false)
 const phieuError = ref('')
+// Vòng sửa 2 (I3) — chủ phiếu THẬT (`doc.owner` sau khi resume), để ẩn nút
+// "Gửi duyệt" (owner-only ở `de_xuat_gui_duyet`, xem `laChuPhieu` bên dưới)
+// khi quản lý vào SỬA phiếu của người khác qua nút "Sửa nháp" (`de_xuat_luu_
+// nhap`/`de_xuat_xoa_nhap` cho quản lý đi qua, `de_xuat_gui_duyet` thì
+// KHÔNG). Rỗng nghĩa là "chưa biết/phiếu còn mới" — `laChuPhieu` coi rỗng
+// là CỦA MÌNH (đúng: một phiếu chưa từng lưu luôn thuộc về người đang tạo).
+const phieuOwner = ref('')
 
 // KHÔNG cần tự chốt "đang tạo" ở đây: hai nơi gọi duy nhất (`luuNhap`,
 // `guiDuyet`) đã tự khoá bằng `dangLuu`/`dangGui` NGAY ĐẦU HÀM, trước khi gọi
@@ -96,6 +103,16 @@ async function damBaoCoTen() {
   // và mai kia sẽ là một tham số không còn tồn tại.
   const res = await api.callDeXuat('de_xuat_tao_nhap')
   tenPhieu.value = res.name
+  // Vòng sửa 2 (I2, Important) — đồng bộ URL NGAY khi phiếu vừa được tạo.
+  // Trước bản này, `tenPhieu` chỉ sống trong bộ nhớ: dựng phiếu 12 dòng,
+  // bấm Lưu nháp, bấm F5 → URL vẫn là `/de-xuat/lap` (không `:ten`) → về
+  // form trắng, y hệt hình dạng của Critical vòng 1, chỉ sâu hơn một bước
+  // (phiếu VẪN CÒN trên server, chỉ là màn không biết đường tìm lại nó nếu
+  // không F5). `router.replace` (không phải `push`) — đây không phải một
+  // bước điều hướng của người dùng, chỉ là URL bắt kịp trạng thái đã có.
+  // Kích hoạt `watch(route.params.ten, taiHoacKhoiTao)` bên dưới — xem chốt
+  // "tenParam === tenPhieu.value" ở đó để KHÔNG nạp đè lên dữ liệu vừa tạo.
+  router.replace({ name: 'de-xuat-lap', params: { ten: tenPhieu.value } })
   return tenPhieu.value
 }
 
@@ -142,8 +159,16 @@ function themDong(row) {
 function xoaDong(itemCode) {
   items.value = items.value.filter((r) => r.item_code !== itemCode)
 }
+// Vòng sửa 2 (C1, 2 dòng) — KHÔNG in giá khi `don_gia` là `null`/`undefined`.
+// `fmtVND(null)` trả `"0 ₫"` (`format.js` ép `Number(v || 0)`) — một dòng
+// tầng 1 CHƯA CÓ GIÁ (backend sắp thêm `blanket_order` cấp dòng, suy tầng
+// THEO DÒNG — Ruling P14) sẽ hiện "Giá hợp đồng · 0 ₫", đọc như giá THẬT là
+// 0 đồng. Đúng ngược tinh thần "`null` không phải `0`" của chính hợp đồng
+// `portal_catalog_gop`. Không có giá thì in nhãn trống, không đoán số.
 function nhanTang(row) {
-  return row.tang === 'hop_dong' ? `Giá hợp đồng · ${fmtVND(row.don_gia)}` : 'Chờ báo giá'
+  if (row.tang !== 'hop_dong') return 'Chờ báo giá'
+  if (row.don_gia === null || row.don_gia === undefined) return 'Giá hợp đồng'
+  return `Giá hợp đồng · ${fmtVND(row.don_gia)}`
 }
 function classTang(row) {
   return row.tang === 'hop_dong' ? 'b-blue' : 'b-orange'
@@ -154,9 +179,21 @@ function classTang(row) {
 // { ten_hang, dvt, so_luong, ghi_chu }.
 const datNgoai = ref([])
 const dnMoRong = ref(false)
+// Vòng sửa 2 (I5) — bấm LẦN HAI (tìm mặt hàng lạ thứ hai, dòng cuối vẫn
+// TRỐNG vì lần trước chưa gõ gì) từng KHÔNG làm gì (chốt cũ chỉ đẩy dòng khi
+// `datNgoai` rỗng — sau lần bấm đầu nó không còn rỗng nữa) và từ khoá vừa
+// tìm bị vứt. Đẩy dòng mới khi: chưa có dòng nào, HOẶC dòng cuối đã có nội
+// dung (khách gõ dở, cần một dòng mới cho mặt hàng KHÁC), HOẶC có sẵn một
+// gợi ý tên hàng từ ô tìm (`tenGoiY` — bấm từ khối "không tìm ra", luôn
+// muốn một dòng MANG ĐÚNG từ khoá đó, không phải tái dùng dòng cũ đang để
+// tên khác/trống).
 function moDatNgoai(tenGoiY) {
   dnMoRong.value = true
-  if (!datNgoai.value.length) {
+  const cuoi = datNgoai.value[datNgoai.value.length - 1]
+  const cuoiCoNoiDung =
+    !!cuoi &&
+    !!((cuoi.ten_hang || '').trim() || (cuoi.dvt || '').trim() || String(cuoi.so_luong || '').trim() || (cuoi.ghi_chu || '').trim())
+  if (!datNgoai.value.length || cuoiCoNoiDung || tenGoiY) {
     datNgoai.value.push({ ten_hang: tenGoiY || '', dvt: '', so_luong: '', ghi_chu: '' })
   }
 }
@@ -167,7 +204,12 @@ function xoaDongDatNgoai(i) {
   datNgoai.value.splice(i, 1)
 }
 // Chỉ những dòng ĐÃ ĐIỀN ĐỦ mới gửi lên server — dòng đang gõ dở (mới bấm
-// "+ Thêm dòng", chưa gõ gì) không được coi là một mặt hàng thật.
+// "+ Thêm dòng", chưa gõ gì) không được coi là một mặt hàng thật. AN TOÀN
+// dùng làm BỘ LỌC payload (không phải bộ soi lỗi): `kiemTraSoLuong()` chạy
+// TRƯỚC mọi lần lưu/gửi và CHẶN LƯU nếu có dòng "gõ dở nhưng thiếu field"
+// (Vòng sửa 2, C2) — tới lúc computed này chạy, mọi dòng ĐÃ ĐỘNG TỚI đều
+// hoặc đủ cả ba field, hoặc phiếu chưa được lưu. Bộ lọc "cả ba" ở đây không
+// còn là nơi một dòng thiếu ĐVT âm thầm biến mất nữa.
 const datNgoaiHopLe = computed(() =>
   datNgoai.value.filter(
     (d) => (d.ten_hang || '').trim() && (d.dvt || '').trim() && Number(d.so_luong) > 0
@@ -210,6 +252,14 @@ async function timKiem() {
     })
     searchResults.value = res.rows || []
     searchTong.value = res.tong || 0
+    // Vòng sửa 2 (Minor) — gieo sẵn số lượng mặc định (1), cùng khuôn
+    // `Catalog.vue` (`if (!(it.item_code in qtys)) qtys[it.item_code] = ...`).
+    // Thiếu dòng này, ô số lượng ở kết quả tìm kiếm hiện RỖNG cho tới khi
+    // khách tự bấm nút bước — "mặc định 1" trở thành một quy ước VÔ HÌNH,
+    // chỉ đúng trong code (`soHienTai()`), không đúng trên màn hình.
+    searchResults.value.forEach((r) => {
+      if (!(r.item_code in qtys)) qtys[r.item_code] = 1
+    })
   } catch (e) {
     // Backend T3 chạy song song với màn này (Ruling P11) — cho tới khi T3
     // xong, lời gọi này CHẮC CHẮN lỗi. Hiện thông báo tại chỗ, KHÔNG chặn
@@ -251,6 +301,15 @@ const diaChiOptions = computed(() => store.me?.addresses || [])
 // `/de-xuat/lap`, hoặc rời một phiếu đang sửa để bắt đầu một phiếu khác).
 function resetState() {
   tenPhieu.value = ''
+  phieuOwner.value = ''
+  // Vòng sửa 2 (I1, Important) — trước bản này `phieuError` KHÔNG được dọn
+  // ở đây. Kịch bản hỏng: mở `/de-xuat/lap/DXM-xxx` gặp lỗi (mạng chập,
+  // phiếu bị xoá) → `phieuError` được gán → bấm "Lập phiếu" ở nav (route về
+  // `/de-xuat/lap`, không `:ten`) → `resetState()` chạy nhưng để nguyên
+  // `phieuError` → template ưu tiên nhánh lỗi (`v-else-if="phieuError"`)
+  // → form KHÔNG BAO GIỜ hiện, màn chết cho tới khi tải lại trang. Đây là
+  // trạng thái LỖI CỦA MỘT PHIẾU CŨ, không mang nghĩa gì cho một phiếu MỚI.
+  phieuError.value = ''
   items.value = []
   datNgoai.value = []
   dnMoRong.value = false
@@ -270,6 +329,9 @@ function resetState() {
 // Không có tầng thứ tư ở đây.
 function napTuPhieu(d) {
   tenPhieu.value = d.name
+  // Vòng sửa 2 (I3) — chủ THẬT của phiếu, để `laChuPhieu` ẩn "Gửi duyệt"
+  // đúng lúc (xem khai báo `phieuOwner` ở đầu file).
+  phieuOwner.value = d.owner || ''
   items.value = (d.items || []).map((it) => ({
     item_code: it.item_code,
     item_name: it.item_name,
@@ -291,6 +353,19 @@ function napTuPhieu(d) {
   diaChiGiao.value = d.dia_chi_giao || (store.me?.addresses || [])[0]?.name || ''
 }
 
+// Vòng sửa 2 (I3) — `de_xuat_gui_duyet` là OWNER-ONLY tường minh (server tự
+// thêm chốt này SAU vòng owner-hoặc-quản-lý chung của `_phieu_cua_toi`,
+// xem docstring hàm đó ở `api/de_xuat.py`) — khác `de_xuat_luu_nhap`/
+// `de_xuat_xoa_nhap` (owner HOẶC quản lý). Một quản lý vào SỬA phiếu của
+// nhân viên qua nút "Sửa nháp" (DeXuatDetail.vue) lưu được nhưng KHÔNG gửi
+// duyệt được — bày nút "Gửi duyệt" ra cho họ là đúng "kiểu hỏng đã cắn dự
+// án này hai lần": show một ô/nút cho một thao tác người xem không có
+// quyền làm. Hide, don't disable, đúng quy ước `de-xuat-actions.js`.
+//
+// `!phieuOwner.value` (phiếu mới, chưa từng lưu) coi là CỦA MÌNH — đúng,
+// `de_xuat_tao_nhap()` luôn đặt owner = phiên đang gọi.
+const laChuPhieu = computed(() => !phieuOwner.value || phieuOwner.value === store.me?.user)
+
 // Vòng sửa 1 (review) — điều phối theo `route.params.ten`. QUAN TRỌNG: đây
 // PHẢI là một `watch`, không phải chỉ đọc một lần ở `onMounted`. Vue Router
 // TÁI DÙNG cùng một instance component khi chỉ tham số đổi (từ
@@ -304,6 +379,14 @@ async function taiHoacKhoiTao() {
     resetState()
     return
   }
+  // Vòng sửa 2 (I2) — `damBaoCoTen()` tự `router.replace` sang `/de-xuat/
+  // lap/<ten>` NGAY khi tạo phiếu (để F5 không mất trắng, xem chốt ở đó).
+  // Đổi route đó kích hoạt `watch` này y hệt một điều hướng thật — thiếu
+  // dòng chặn dưới đây, `taiHoacKhoiTao()` sẽ NẠP LẠI phiếu vừa tạo (rỗng,
+  // vì `de_xuat_luu_nhap` CHƯA kịp chạy) ĐÈ LÊN đúng những dòng khách vừa
+  // gõ, ngay trong lượt Lưu nháp đầu tiên. Route đã trỏ đúng phiếu đang có
+  // trong bộ nhớ (`tenPhieu.value`) thì không có gì để nạp lại.
+  if (tenParam === tenPhieu.value) return
   phieuLoading.value = true
   phieuError.value = ''
   try {
@@ -346,12 +429,32 @@ function kiemTraSoLuong() {
       return `Mặt hàng "${r.item_code}" chưa có số lượng hợp lệ (phải lớn hơn 0).`
     }
   }
+  // Vòng sửa 2 (C2, Critical) — chốt CŨ chỉ soi một dòng đặt ngoài khi CẢ
+  // `ten_hang` LẪN `dvt` đã điền — một dòng có tên+SL nhưng THIẾU ĐVT lọt
+  // qua chốt này (điều kiện `&&` không thoả), rồi bị chính `datNgoaiHopLe`
+  // (đòi CẢ BA field) LẶNG LẼ lọc khỏi payload gửi lên `de_xuat_luu_nhap`.
+  // Kết quả: phiếu "Gửi duyệt" thành công, toast báo mã phiếu, mặt hàng
+  // biến mất — không một chỗ nào nói cho khách biết dòng đó bị bỏ.
+  //
+  // Sửa: một dòng ĐÃ ĐỘNG TỚI (bất kỳ ô nào khác rỗng — kể cả chỉ mới gõ
+  // ghi chú) mà CHƯA ĐỦ CẢ BA field bắt buộc (tên/ĐVT/số lượng hợp lệ) phải
+  // CHẶN LƯU, nêu đúng những field còn thiếu. Dòng HOÀN TOÀN TRỐNG (mới bấm
+  // "+ Thêm dòng", chưa gõ gì) vẫn được bỏ qua như cũ — đó không phải một
+  // mặt hàng khách định gửi, ép gõ nó mới cho lưu được là sai chiều.
   for (const d of datNgoai.value) {
-    if ((d.ten_hang || '').trim() && (d.dvt || '').trim()) {
-      const n = Number(d.so_luong)
-      if (!Number.isFinite(n) || n <= 0) {
-        return `Dòng đặt ngoài "${d.ten_hang}" chưa có số lượng hợp lệ (phải lớn hơn 0).`
-      }
+    const tenHang = (d.ten_hang || '').trim()
+    const dvt = (d.dvt || '').trim()
+    const soLuongChuoi = (d.so_luong === null || d.so_luong === undefined) ? '' : String(d.so_luong).trim()
+    const ghiChuDong = (d.ghi_chu || '').trim()
+    const daDongTay = tenHang || dvt || soLuongChuoi || ghiChuDong
+    if (!daDongTay) continue // dòng trống hoàn toàn — bỏ qua, không chặn
+    const con = Number(soLuongChuoi)
+    const thieu = []
+    if (!tenHang) thieu.push('tên hàng')
+    if (!dvt) thieu.push('ĐVT')
+    if (!soLuongChuoi || !Number.isFinite(con) || con <= 0) thieu.push('số lượng hợp lệ')
+    if (thieu.length) {
+      return `Dòng đặt ngoài "${tenHang || '(chưa đặt tên)'}" còn thiếu ${thieu.join(', ')} — hoàn tất hoặc xoá dòng này trước khi lưu/gửi.`
     }
   }
   return ''
@@ -401,6 +504,13 @@ const dangXoa = ref(false)
 
 async function luuNhap() {
   if (dangLuu.value || dangGui.value) return
+  // Vòng sửa 2 (Minor) — trước bản này Lưu nháp chấp nhận 0 dòng, đẻ ra một
+  // phiếu Nháp HOÀN TOÀN RỖNG nổi lên đầu `/de-xuat` (sắp `modified desc`)
+  // — đúng lớp rác mà "tạo lười" ở `damBaoCoTen()` đã cố tránh, chỉ đi vòng
+  // qua cửa Lưu thay vì cửa mount. Cùng chốt với `guiDuyet()` bên dưới.
+  if (!items.value.length && !datNgoaiHopLe.value.length) {
+    return showToast('Phiếu chưa có mặt hàng nào — thêm ít nhất một dòng trước khi lưu.', 'error')
+  }
   const loi = kiemTraSoLuong()
   if (loi) return showToast(loi, 'error')
   dangLuu.value = true
@@ -569,7 +679,11 @@ onMounted(async () => {
               </div>
               <div class="field" style="flex: 1">
                 <label>Số lượng <span class="req">*</span></label>
-                <input v-model="d.so_luong" inputmode="numeric" />
+                <!-- Vòng sửa 2 (Minor) — `decimal`, không `numeric`: bàn phím
+                     ảo `numeric` KHÔNG có dấu thập phân, khách trên điện
+                     thoại không gõ nổi 2.5 mét băng gạc. Thống nhất với hai
+                     ô số lượng ở khối tìm kiếm phía trên (cùng file). -->
+                <input v-model="d.so_luong" inputmode="decimal" />
               </div>
             </div>
             <div class="field">
@@ -600,14 +714,20 @@ onMounted(async () => {
             </td>
             <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
             <td class="right">
+              <!-- Vòng sửa 2 (Minor) — bỏ `min="1"`: mâu thuẫn với chính
+                   quyết định "số lượng có thể lẻ" của vòng sửa trước (0.5,
+                   2.5 mét băng gạc...) — `min="1"` gắn cờ `:invalid` của
+                   trình duyệt cho MỌI số dưới 1, kể cả số lẻ hợp lệ. Chốt
+                   thật đã có ở `kiemTraSoLuong()` (JS, chạy trước lưu/gửi),
+                   không cần thêm một chốt HTML sai ở đây. -->
               <input
-                type="number" min="1" step="any"
+                type="number" step="any"
                 v-model="r.so_luong_de_xuat"
                 :aria-label="`Số lượng cho ${r.item_code}`"
                 style="width: 90px; text-align: right"
               />
             </td>
-            <td><button class="btn-o btn-sm" style="color: var(--red); border-color: var(--red)" @click="xoaDong(r.item_code)">Xoá</button></td>
+            <td><button class="btn-o btn-sm btn-danger" @click="xoaDong(r.item_code)">Xoá</button></td>
           </tr>
           <tr v-if="!items.length">
             <td colspan="4" class="tag">Chưa có mặt hàng nào — tìm ở ô trên để thêm.</td>
@@ -653,7 +773,11 @@ onMounted(async () => {
         <button class="btn-o" :disabled="dangLuu || dangGui" @click="luuNhap">
           {{ dangLuu ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
-        <button class="btn" :disabled="dangLuu || dangGui" @click="guiDuyet">
+        <!-- Vòng sửa 2 (I3) — Hide, don't disable: `de_xuat_gui_duyet` là
+             OWNER-ONLY tường minh phía server, kể cả quản lý sửa phiếu của
+             người khác (qua "Sửa nháp") cũng KHÔNG gửi duyệt hộ được — bấm
+             nút này chỉ ra lỗi. Ẩn hẳn thay vì hiện xám. -->
+        <button v-if="laChuPhieu" class="btn" :disabled="dangLuu || dangGui" @click="guiDuyet">
           {{ dangGui ? 'Đang gửi…' : 'Gửi duyệt' }}
         </button>
         <!-- Hide, don't disable (de-xuat-actions.js) — nút Xoá chỉ hiện SAU

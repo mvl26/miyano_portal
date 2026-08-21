@@ -66,6 +66,16 @@ watch(filter, (f) => {
   load()
 })
 
+// Vòng sửa 2 (I3) — SỬA được ⟺ đúng quyền `de_xuat_luu_nhap` phía server
+// (owner HOẶC quản lý, qua `_phieu_cua_toi(ten)` mặc định). `de_xuat_chi_
+// tiet` cố ý cho XEM rộng hơn (đồng nghiệp cùng khoa cũng đọc được — đó là
+// lý do phiếu Nháp của B vẫn hiện trong danh sách A đang xem), nhưng XEM
+// được không có nghĩa SỬA được. Cùng điều kiện `DeXuatDetail.vue` đã dùng
+// đúng cho nút "Sửa nháp" (`coTheSuaNhap`) — hai nơi phải khớp nhau.
+function coTheSuaNhap(r) {
+  return r.trang_thai === 'Nháp' && (r.owner === store.me?.user || !!store.me?.la_quan_ly)
+}
+
 // C3 — ghi NƠI ĐÃ TỚI vào query khi mở phiếu, để màn chi tiết quay về đúng
 // danh sách này kèm đúng chip (và App.vue sáng đúng mục nav — việc (c)).
 //
@@ -75,8 +85,15 @@ watch(filter, (f) => {
 // gửi duyệt" — đúng cho MỌI trạng thái SAU Nháp, nhưng một phiếu Nháp thì
 // chưa từng gửi duyệt). Thiếu nhánh này, một phiếu Lưu-nháp-rồi-đóng-tab
 // không còn đường nào sửa lại — đúng phát hiện Critical của vòng review 1.
+//
+// Vòng sửa 2 (I3, Important) — bản trước đưa MỌI phiếu Nháp sang màn sửa,
+// không kiểm chủ sở hữu. Kịch bản hỏng: A bấm phiếu Nháp của B (cùng khoa,
+// `de_xuat_chi_tiet` cho xem), sửa số lượng, bấm Lưu → `de_xuat_luu_nhap`
+// ném "Phiếu này không phải của bạn" — mất sạch công sửa. Phiếu Nháp KHÔNG
+// sửa được (không phải chủ, không phải quản lý) vẫn mở sang màn chi tiết
+// chỉ đọc như trước, đúng khuôn `DeXuatDetail.vue:49-51`.
 function moPhieu(r) {
-  if (r.trang_thai === 'Nháp') {
+  if (coTheSuaNhap(r)) {
     router.push({ name: 'de-xuat-lap', params: { ten: r.name } })
     return
   }
@@ -179,7 +196,7 @@ onMounted(async () => {
                  tự có `@click="moPhieu(r)"` (cùng đích cho phiếu Nháp) —
                  chặn nổi bọt để khỏi điều hướng hai lần. -->
             <td>
-              <button v-if="r.trang_thai === 'Nháp'" class="btn-o btn-sm" @click.stop="moPhieu(r)">Sửa</button>
+              <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moPhieu(r)">Sửa</button>
             </td>
           </tr>
         </tbody>
@@ -205,7 +222,7 @@ onMounted(async () => {
           <template v-if="r.thoi_diem_gui"> · Gửi {{ fmtDateTime(r.thoi_diem_gui) }}</template>
         </p>
         <button
-          v-if="r.trang_thai === 'Nháp'"
+          v-if="coTheSuaNhap(r)"
           class="btn-o btn-sm"
           style="margin-top: 8px"
           @click.stop="moPhieu(r)"
