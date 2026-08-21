@@ -761,11 +761,15 @@ onMounted(async () => {
                   </span>
                 </td>
                 <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
+                <!-- Kiểu hạn mức đọc từ DỮ LIỆU (`khong_gioi_han`/
+                     `remaining`), KHÔNG so chuỗi với nhãn: một lần biên tập
+                     lại câu chữ trong `nhanHanMuc()` mà so chuỗi thì badge
+                     lặng lẽ rơi về kiểu chung, không ai thấy gì hỏng. -->
                 <td>
-                  <span v-if="nhanHanMuc(r) === 'Hết hạn mức'" class="tag tag-het">Hết hạn mức</span>
-                  <span v-else-if="nhanHanMuc(r) === 'Không giới hạn'" class="tag tag-kgh">Không giới hạn</span>
-                  <span v-else-if="nhanHanMuc(r)" class="tag">{{ nhanHanMuc(r) }} {{ r.dvt }}</span>
-                  <span v-else class="tag">—</span>
+                  <span v-if="!nhanHanMuc(r)" class="tag">—</span>
+                  <span v-else-if="r.khong_gioi_han" class="tag tag-kgh">{{ nhanHanMuc(r) }}</span>
+                  <span v-else-if="r.remaining <= 0" class="tag tag-het">{{ nhanHanMuc(r) }}</span>
+                  <span v-else class="tag">{{ nhanHanMuc(r) }} {{ r.dvt }}</span>
                 </td>
                 <td>
                   <div class="step">
