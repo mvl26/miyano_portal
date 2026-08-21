@@ -79,7 +79,8 @@ function coTheSuaNhap(r) {
 // C3 — ghi NƠI ĐÃ TỚI vào query khi mở phiếu, để màn chi tiết quay về đúng
 // danh sách này kèm đúng chip (và App.vue sáng đúng mục nav — việc (c)).
 //
-// Vòng sửa 1 (review, Task 8) — phiếu Nháp mở sang màn SỬA (`de-xuat-lap`),
+// Vòng sửa 1 (review, Task 8) — phiếu Nháp mở sang màn SỬA (Task 10: route
+// `dat-hang`, chính là màn Đặt hàng gộp),
 // không phải màn chi tiết chỉ đọc (`de-xuat-detail`): `DeXuatDetail.vue`
 // không có ô nhập số lượng cho `so_luong_de_xuat` ("Khoá vĩnh viễn từ lúc
 // gửi duyệt" — đúng cho MỌI trạng thái SAU Nháp, nhưng một phiếu Nháp thì
@@ -94,7 +95,7 @@ function coTheSuaNhap(r) {
 // chỉ đọc như trước, đúng khuôn `DeXuatDetail.vue:49-51`.
 function moPhieu(r) {
   if (coTheSuaNhap(r)) {
-    router.push({ name: 'de-xuat-lap', params: { ten: r.name } })
+    router.push({ name: 'dat-hang', params: { ten: r.name } })
     return
   }
   router.push({
@@ -135,14 +136,14 @@ onMounted(async () => {
         </div>
       </div>
       <!-- Vòng sửa 1 — lối vào TẠO PHIẾU MỚI ngay tại danh sách, cùng khuôn
-           "+ Tạo phiếu ..." của PhieuNhap.vue/PhieuXuat.vue. Mục nav
-           "Lập phiếu đề xuất" (App.vue) đã có nhưng chỉ hiện ở sidebar
-           desktop — nút này là lối vào THỨ HAI, ngay tại nơi khách đang
-           nhìn danh sách của họ. -->
-      <router-link :to="{ name: 'de-xuat-lap' }"><button class="btn">+ Lập phiếu</button></router-link>
+           "+ Tạo phiếu ..." của PhieuNhap.vue/PhieuXuat.vue. Task 10 — đích
+           đến nay là màn Đặt hàng gộp (`dat-hang`), mục nav duy nhất cho
+           việc đi mua đồ; nút này là lối vào THỨ HAI, ngay tại nơi khách
+           đang nhìn danh sách yêu cầu của họ. -->
+      <router-link :to="{ name: 'dat-hang' }"><button class="btn">+ Đặt hàng</button></router-link>
     </div>
     <div v-else class="mb10">
-      <router-link :to="{ name: 'de-xuat-lap' }"><button class="btn btn-sm">+ Lập phiếu</button></router-link>
+      <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
     </div>
 
     <div class="chips">

@@ -43,7 +43,8 @@ const actions = computed(() => hanhDongChoPhep(doc.value, store.me))
 // chỉ đọc này. Đây KHÔNG phải một hành động server (không có `method:`
 // whitelist để gọi) nên KHÔNG đi qua `de-xuat-actions.js`/`hanhDongChoPhep`
 // — đó là registry của HÀNH ĐỘNG, cái này là ĐIỀU HƯỚNG sang màn khác
-// (`LapPhieu.vue`, route `de-xuat-lap`). Cùng điều kiện chủ sở hữu như nút
+// (`LapPhieu.vue`, route `dat-hang` — Task 10 gộp màn Lập phiếu vào màn Đặt
+// hàng). Cùng điều kiện chủ sở hữu như nút
 // "Xoá" của registry (owner hoặc quản lý) để hai nút không lệch quyền nhìn
 // thấy nhau trên cùng một phiếu.
 const coTheSuaNhap = computed(
@@ -460,10 +461,10 @@ onMounted(async () => {
              phiếu CHƯA TỪNG gửi duyệt, nhưng vẫn là component đọc). Sửa số
              lượng/thêm-xoá dòng phải qua `LapPhieu.vue`. -->
         <p v-if="coTheSuaNhap" class="tag" style="margin-bottom: 10px">
-          Phiếu đang ở trạng thái Nháp — bảng dưới đây chỉ để xem. Sửa số lượng, thêm/xoá dòng ở màn Lập phiếu.
+          Phiếu đang ở trạng thái Nháp — bảng dưới đây chỉ để xem. Sửa số lượng, thêm/xoá dòng ở màn Đặt hàng.
         </p>
         <div class="flex" style="flex-wrap: wrap">
-          <router-link v-if="coTheSuaNhap" :to="{ name: 'de-xuat-lap', params: { ten: doc.name } }">
+          <router-link v-if="coTheSuaNhap" :to="{ name: 'dat-hang', params: { ten: doc.name } }">
             <button class="btn">Sửa nháp</button>
           </router-link>
           <button
