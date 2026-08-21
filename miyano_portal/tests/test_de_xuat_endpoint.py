@@ -140,6 +140,19 @@ class TestDeXuatEndpoint(FrappeTestCase):
 		frappe.db.set_value("Item", ten, "custom_boi_so_dat", boi_so)
 		return ten
 
+	def _dat_ten(self, email, first_name, last_name):
+		"""Đổi tên qua `doc.save()`, KHÔNG `frappe.db.set_value`.
+
+		`User.full_name` là field TÍNH, do `User.validate()` ghép lại từ
+		`first_name`/`last_name`. Ghi thẳng hai cột kia bằng `db.set_value`
+		để nguyên `full_name` cũ — fixture sẽ dựng một trạng thái mà không
+		thao tác nào của ứng dụng tạo ra được, và bài test đọc `full_name`
+		sẽ đỏ (hoặc tệ hơn: xanh vì sai lý do). Đây đúng là thao tác thật:
+		người dùng sửa hồ sơ của mình."""
+		u = frappe.get_doc("User", email)
+		u.first_name, u.last_name = first_name, last_name
+		u.save(ignore_permissions=True)
+
 	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1, item_code=None):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
@@ -364,9 +377,7 @@ class TestDeXuatEndpoint(FrappeTestCase):
 
 	def test_chi_tiet_tra_TEN_nguoi_yeu_cau_chu_khong_phai_email(self):
 		"""VẾ DƯƠNG — khẳng định ĐÚNG CHUỖI tên, không chỉ "khác email"."""
-		frappe.db.set_value("User", self.user_huyethoc, {
-			"first_name": "Bùi", "last_name": "Việt",
-		})
+		self._dat_ten(self.user_huyethoc, "Bùi", "Việt")
 		frappe.set_user(self.user_huyethoc)
 		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		self.assertEqual(kq["nguoi_yeu_cau_ten"], "Bùi Việt")
@@ -377,9 +388,7 @@ class TestDeXuatEndpoint(FrappeTestCase):
 		của ba Notification (`setup/install_notifications.py`) — biến nó
 		thành tên người là gửi thư vào hư không. Tên chỉ là khoá THÊM cho
 		tầng hiển thị."""
-		frappe.db.set_value("User", self.user_huyethoc, {
-			"first_name": "Bùi", "last_name": "Việt",
-		})
+		self._dat_ten(self.user_huyethoc, "Bùi", "Việt")
 		frappe.set_user(self.user_huyethoc)
 		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		self.assertEqual(kq["owner"], self.user_huyethoc)
@@ -391,7 +400,9 @@ class TestDeXuatEndpoint(FrappeTestCase):
 		mo_coi = "dxendpoint.damxoa@demo.miyano"
 		frappe.db.set_value("Portal De Xuat Mua", self.phieu_huyethoc, "owner", mo_coi)
 		self.assertFalse(frappe.db.exists("User", mo_coi), "tiền đề: không có tài khoản này")
-		frappe.set_user("Administrator")
+		# Xem bằng ĐỒNG NGHIỆP CÙNG KHOA — `_phieu_cua_toi` đòi một Portal
+		# Member thật, `Administrator` không có nên không đi được đường này.
+		frappe.set_user(self.user_huyethoc2)
 		kq = de_xuat.de_xuat_chi_tiet(self.phieu_huyethoc)
 		self.assertEqual(kq["nguoi_yeu_cau_ten"], mo_coi)
 

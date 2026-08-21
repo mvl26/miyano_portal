@@ -411,7 +411,15 @@ onMounted(async () => {
             Truy vết yêu cầu
           </p>
           <p style="font-size: 13px; margin-bottom: 2px">
-            <b>Người yêu cầu:</b> {{ doc.nguoi_yeu_cau || doc.owner }}
+            <!-- Chủ đầu tư chốt 21/08 — TÊN NGƯỜI, không phải email. Tên
+                 do server suy (`de_xuat_chi_tiet` → `portal_context.
+                 ten_nguoi_dung`), KHÔNG tra ở đây: hai nơi cùng quyết định
+                 "hiện tên thế nào" sớm muộn cũng lệch, và tầng này không
+                 đọc được `tabUser`. Vẫn giữ đường lui về email cho một
+                 payload cũ còn trong bộ nhớ đệm — ô trống ở khối truy vết
+                 là mất dấu vết. -->
+            <b>Người yêu cầu:</b>
+            {{ doc.nguoi_yeu_cau_ten || doc.nguoi_yeu_cau || doc.owner }}
           </p>
           <p style="font-size: 13px; margin-bottom: 2px">
             <b>Thời điểm gửi:</b> {{ doc.thoi_diem_gui ? fmtDateTime(doc.thoi_diem_gui) : 'Chưa gửi' }}
