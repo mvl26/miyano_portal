@@ -7,6 +7,7 @@ import Orders from './views/Orders.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import DeXuatList from './views/DeXuatList.vue'
 import DeXuatDetail from './views/DeXuatDetail.vue'
+import LapPhieu from './views/LapPhieu.vue'
 import DuyetList from './views/DuyetList.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
@@ -34,6 +35,15 @@ const routes = [
   { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
   // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua.
   { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
+  // Man luong duyet (Task 8) — LẬP một phiếu đề xuất mua mới. Đường dẫn
+  // TĨNH `/de-xuat/lap` (hai đoạn, không phải một tham số động) nên KHÔNG
+  // đụng `/de-xuat/:ten` ngay dưới — vue-router 4 xếp hạng route tĩnh trên
+  // route động cho cùng một đoạn, nhưng ở đây còn chắc hơn nữa: hai route
+  // khác SỐ ĐOẠN đường dẫn, không thể trùng dù có xếp hạng thế nào.
+  // KHÔNG có `:ten` — màn này chỉ LẬP MỚI (tạo lười, xem LapPhieu.vue), một
+  // phiếu Nháp đã lưu được sửa dòng/gửi/xoá lại từ đây trong CÙNG một lượt;
+  // sau khi rời màn, phiếu đó vẫn xem/gửi/xoá được ở `/de-xuat/:ten` như cũ.
+  { path: '/de-xuat/lap', name: 'de-xuat-lap', component: LapPhieu, meta: { title: 'Lập phiếu đề xuất' } },
   // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
   { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
   // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +

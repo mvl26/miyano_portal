@@ -14,6 +14,10 @@ const NAV = [
   { to: '/catalog', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'catalog' },
   { to: '/cart', icon: '📦', label: 'Giỏ hàng', short: 'Giỏ', key: 'cart', cart: true },
   { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
+  // Task 8 (màn lập phiếu) — hiện cho MỌI vai trò, KHÔNG gate theo
+  // `la_quan_ly` như mục "Duyệt" bên dưới: lập phiếu là việc của nhân viên
+  // khoa, không phải của quản lý (quản lý duyệt, không tự đề xuất hộ khoa).
+  { to: '/de-xuat/lap', icon: '🧾', label: 'Lập phiếu đề xuất', short: 'Lập phiếu', key: 'de-xuat-lap' },
   // Man luong duyet (Task 3) — hiện cho MỌI vai trò: nhân viên khoa thấy
   // phiếu khoa mình, quản lý thấy toàn viện. Server (`de_xuat_danh_sach`
   // + `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
@@ -67,6 +71,7 @@ function isActive(key) {
   // nguồn ghi vào lúc điều hướng (xem `quayLaiTo` ở DeXuatDetail.vue). Thiếu
   // vế này thì quản lý mở phiếu từ /duyet lại thấy "Đề xuất mua" sáng —
   // đúng lỗi đã sửa cho 'de-xuat' ở Task 4, tái diễn qua cửa 'duyet'.
+  if (key === 'de-xuat-lap') return name === 'de-xuat-lap'
   if (key === 'de-xuat') return name === 'de-xuat' || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
   if (key === 'duyet') return name === 'duyet' || (name === 'de-xuat-detail' && route.query.tu === 'duyet')
   if (key === 'kho') {
