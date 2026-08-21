@@ -123,7 +123,6 @@ class TestDeXuatCachLy(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": customer, "khoa_phong": khoa_phong,
-			"loai_don": "Mua lẻ",
 			"items": [{"item_code": self.item, "so_luong_de_xuat": 1}],
 		})
 		doc.insert(ignore_permissions=True)

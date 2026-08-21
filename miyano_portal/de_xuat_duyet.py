@@ -49,7 +49,18 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 			frappe.ValidationError,
 		)
 
-	if doc.loai_don == "HĐNT" and doc.hdnt:
+	# Task 2 (gộp luồng đặt hàng) — `loai_don` đã xoá, thay bằng `co_dong_
+	# cho_bao_gia()`. CỐ Ý giữ nguyên Ý NGHĨA cũ ("chỉ kiểm hạn mức cho
+	# phiếu THUẦN hợp đồng"), KHÔNG mở rộng sang phiếu TRỘN: `_kiem_han_muc`
+	# lặp qua TOÀN BỘ `dong` (mọi dòng có `so_luong_duyet > 0`, không lọc
+	# theo `nguon_gia`) và `han_muc_con()` trả `(0.0, 0.0)` — "hạn mức 0"
+	# — cho bất kỳ mã hàng nào KHÔNG có trong `Blanket Order Item` của
+	# `doc.hdnt`. Bật gate này cho phiếu trộn sẽ khiến MỌI dòng "Chờ báo
+	# giá" (đúng nghĩa không nằm trong hợp đồng) bị chặn "hết hạn mức",
+	# dù nó chưa từng bị hạn mức HĐNT ràng buộc. Mở rộng đúng cách (kiểm
+	# hạn mức CHỈ cho các dòng Hợp đồng của một phiếu trộn) ngoài phạm vi
+	# task này.
+	if not doc.co_dong_cho_bao_gia() and doc.hdnt:
 		_kiem_han_muc(doc, dong)
 
 	# §5.6 bẫy #2 — thu thập TRƯỚC khi tạo đơn: nếu `tao_sales_order` bên
@@ -59,7 +70,15 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 
 	kq = dat_hang.tao_sales_order(
 		doc.customer,
-		mode="hdnt" if doc.loai_don == "HĐNT" else "ban_le",
+		# Ruling P2 (Task 2) — CẦU TẠM: `loai_don` đã xoá, `mode=` vẫn còn
+		# vì `dat_hang.tao_sales_order` vẫn nhận đúng hai chế độ
+		# "hdnt"/"ban_le" cho CẢ ĐƠN (Task 4 mới xoá tham số `mode` này —
+		# ngoài phạm vi task hiện tại). Phiếu THUẦN hợp đồng (không có dòng
+		# Chờ báo giá, không có dòng đặt ngoài) đi "hdnt"; phiếu TRỘN đi
+		# "ban_le" — đúng cách nhánh "ban_le" xử lý (không tra giá theo
+		# hợp đồng, sales điền giá khi báo giá), dù phiếu trộn vẫn có thể
+		# mang một vài dòng Hợp đồng đã có `don_gia` đóng dấu sẵn.
+		mode="ban_le" if doc.co_dong_cho_bao_gia() else "hdnt",
 		contract=doc.hdnt, items=dong,
 		dat_ngoai=[d.as_dict() for d in doc.dat_ngoai],
 		delivery_date=doc.ngay_can, address=doc.dia_chi_giao,
@@ -116,9 +135,30 @@ def _kiem_gia_doi(doc) -> list[dict]:
 	Đi qua TOÀN BỘ `doc.items`, không chỉ những dòng vào đơn (`dong`
 	tham số của `_kiem_han_muc`) — một dòng bị quản lý hạ về 0 lúc điều
 	chỉnh vẫn đáng để họ biết giá đã đổi, dù nó không còn vào đơn lần này.
+
+	Task 2 (gộp luồng đặt hàng) — HÀNH VI ĐỔI so với trước: gate CHỈ còn
+	`not doc.hdnt`, KHÔNG còn đòi "phiếu THUẦN hợp đồng" (`co_dong_cho_
+	bao_gia()`) như gate hạn mức bên trên. Đây là NỬA THỨ HAI của cùng
+	tính năng §5.6 bẫy #2 mà `PortalDeXuatMua._dong_dau_gia()` vừa sửa
+	thành đóng dấu THEO TỪNG DÒNG (chỉ dòng Hợp đồng, kể cả trong phiếu
+	trộn) — nếu gate ở đây vẫn chặn cả phiếu trộn, `don_gia` đã đóng dấu
+	đúng cho dòng Hợp đồng của một phiếu trộn sẽ không bao giờ được so
+	sánh lại, và cảnh báo giá đổi coi như CHẾT LẶNG LẼ cho đúng loại phiếu
+	task này sinh ra. An toàn vì vòng lặp dưới đã tự lọc `if not row.
+	don_gia: continue` — dòng "Chờ báo giá" (kể cả trong phiếu trộn) không
+	bao giờ có `don_gia` (xem `_dong_dau_gia()`), nên tự động không tham
+	gia so sánh mà không cần gate ở đây gác thêm lần nữa.
+
+	Ruling P14 — bỏ hẳn gate `not doc.hdnt` (vòng sửa sau review màn lập
+	phiếu): `self.hdnt` ở đầu phiếu giờ chỉ còn LEGACY, không còn quyết
+	định phiếu có dòng Hợp đồng hay không (suy nguồn giá giờ customer-wide,
+	xem `PortalDeXuatMua._nguon_gia_theo_ma()`) — giữ gate đó sẽ chặn NHẦM
+	cảnh báo giá cho mọi phiếu tạo qua `de_xuat_tao_nhap()` (luôn `hdnt =
+	None`, xem docstring `_nguon_gia_theo_ma()`), dù dòng của nó có thể
+	vẫn có `don_gia` đã đóng dấu đàng hoàng. Gate `price_list` một mình đã
+	đủ — không có bảng giá thì không tính được `gia_moi` cho bất kỳ dòng
+	nào, dù dòng đó có `don_gia` hay không.
 	"""
-	if doc.loai_don != "HĐNT" or not doc.hdnt:
-		return []
 	price_list = frappe.db.get_value("Customer", doc.customer, "default_price_list")
 	if not price_list:
 		return []

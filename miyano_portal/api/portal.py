@@ -433,7 +433,10 @@ def _dam_bao_phieu_tu_duyet(
     doc = frappe.get_doc({
         "doctype": "Portal De Xuat Mua",
         "customer": customer, "khoa_phong": khoa_phong,
-        "loai_don": "HĐNT" if mode == "hdnt" else "Mua lẻ",
+        # Task 2 (gộp luồng đặt hàng) — `loai_don` đã xoá khỏi doctype.
+        # `PortalDeXuatMua._suy_nguon_gia()` (validate(), chạy ngay trong
+        # `.insert()` bên dưới) tự suy `nguon_gia` từng dòng từ `hdnt`,
+        # không cần khai "loại đơn" ở đây nữa.
         "hdnt": contract if mode == "hdnt" else None,
         "ngay_can": delivery_date, "dia_chi_giao": address,
         "request_id": request_id, "sales_order": sales_order,

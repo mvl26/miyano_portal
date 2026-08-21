@@ -63,15 +63,20 @@ def _phieu_cua_toi(ten: str, *, cho_quan_ly=False):
 
 
 @frappe.whitelist()
-def de_xuat_tao_nhap(loai_don="HĐNT", hdnt=None, **_bo_qua) -> dict:
+def de_xuat_tao_nhap(hdnt=None, **_bo_qua) -> dict:
 	"""`**_bo_qua` là CỐ Ý: client cũ/độc hại gửi thêm `customer` hay
-	`khoa_phong` thì chúng rơi vào đây và bị vứt, không đi vào doc."""
+	`khoa_phong` thì chúng rơi vào đây và bị vứt, không đi vào doc.
+
+	Task 2 (gộp luồng đặt hàng) — tham số `loai_don` đã bỏ: không frontend
+	nào gọi hàm này kèm `loai_don` (chỉ test cũ có, đã sửa cùng task),
+	`Portal De Xuat Mua Item.nguon_gia` giờ tự suy TỪNG DÒNG ở `validate()`
+	(`PortalDeXuatMua._suy_nguon_gia()`), không còn cần khai loại đơn lúc
+	tạo nháp nữa."""
 	tv = get_portal_member()
 	doc = frappe.get_doc({
 		"doctype": DOCTYPE,
 		"customer": tv.customer,
 		"khoa_phong": tv.khoa_phong,
-		"loai_don": loai_don,
 		"hdnt": hdnt,
 		"trang_thai": "Nháp",
 	}).insert(ignore_permissions=True)

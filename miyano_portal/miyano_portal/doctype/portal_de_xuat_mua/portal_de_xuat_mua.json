@@ -7,7 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "customer", "khoa_phong", "loai_don", "col_1", "trang_thai", "ma_de_xuat",
+  "customer", "khoa_phong", "col_1", "trang_thai", "ma_de_xuat",
   "sec_don", "hdnt", "ngay_can", "col_2", "dia_chi_giao", "request_id",
   "sales_order", "sec_hang", "items", "sec_dat_ngoai", "dat_ngoai",
   "sec_ghi_chu", "ghi_chu",
@@ -19,7 +19,6 @@
   {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "read_only": 1, "search_index": 1, "in_standard_filter": 1},
   {"fieldname": "khoa_phong", "fieldtype": "Link", "label": "Khoa phòng", "options": "Customer Department", "read_only": 1, "search_index": 1, "in_standard_filter": 1,
    "description": "Để trống = phiếu cấp bệnh viện của quản lý (\"Toàn viện\", spec §5.5)."},
-  {"fieldname": "loai_don", "fieldtype": "Select", "label": "Loại đơn", "options": "HĐNT\nMua lẻ", "reqd": 1, "in_list_view": 1},
   {"fieldname": "col_1", "fieldtype": "Column Break"},
   {"fieldname": "trang_thai", "fieldtype": "Select", "label": "Trạng thái",
    "options": "Nháp\nChờ duyệt\nĐã duyệt\nChờ duyệt sửa\nTừ chối\nĐã huỷ",

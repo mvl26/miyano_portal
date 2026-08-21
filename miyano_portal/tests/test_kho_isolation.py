@@ -544,7 +544,6 @@ def _make_de_xuat(customer, tag):
     doc = frappe.get_doc({
         "doctype": "Portal De Xuat Mua",
         "customer": customer,
-        "loai_don": "Mua lẻ",
         "trang_thai": "Nháp",
         "items": [{
             "item_code": _item_kiem_hang(),

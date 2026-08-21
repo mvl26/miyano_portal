@@ -132,7 +132,6 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"loai_don": "Mua lẻ",
 			"items": [
 				{"item_code": self.item, "so_luong_de_xuat": 10},
 				{"item_code": self.item2, "so_luong_de_xuat": 5},
@@ -330,7 +329,6 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"loai_don": "Mua lẻ",
 			"items": [{"item_code": self.item, "so_luong_de_xuat": 3}],
 		})
 		doc.insert(ignore_permissions=True)
@@ -421,7 +419,6 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"loai_don": "Mua lẻ",
 			"items": [{"item_code": self.item, "so_luong_de_xuat": 7}],
 		})
 		doc.insert(ignore_permissions=True)
@@ -591,7 +588,6 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"loai_don": "Mua lẻ",
 			"items": [
 				{"item_code": self.item, "so_luong_de_xuat": 10},
 				{"item_code": self.item2, "so_luong_de_xuat": 5},
