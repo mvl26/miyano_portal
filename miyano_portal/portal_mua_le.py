@@ -185,6 +185,22 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
         dong.dong_hang = None
         if not dong.get("item_khop"):
             continue
+        if la_dong_giu_cho(dong.item_khop):
+            # Cùng chốt với `dat_hang._xay_don` (`mat_hang_giu_cho_khong_the_
+            # dat`), ở ĐƯỜNG GHI THỨ HAI. `item_khop` là Link `Item` không
+            # lọc gì, còn `ITEM_GIU_CHO` là một Item THẬT, không disabled —
+            # nên trên Desk nó chọn được. Không có chốt này, phép gộp (bẫy 2)
+            # sẽ dồn số lượng VÀO CHÍNH dòng giữ chỗ, rồi `_go_dong_giu_cho`
+            # xoá dòng đó đi: kết cục là `da_chuyen = 1`, `da_xu_ly = 1`,
+            # `dong_hang` trỏ tới một dòng không còn tồn tại, và đơn submit
+            # được trong khi mặt hàng khách yêu cầu KHÔNG có dòng nào — đúng
+            # con bug task này sinh ra để dẹp, đi vào bằng một cửa khác.
+            frappe.throw(
+                f"Dòng đặt ngoài '{dong.get('ten_hang') or '?'}': {ITEM_GIU_CHO} "
+                f"là mã kỹ thuật nội bộ, không phải mặt hàng khớp được. Chọn mã "
+                f"hàng thật (hoặc tạo mã mới) cho dòng này.",
+                frappe.ValidationError,
+            )
         if flt(dong.get("so_luong")) <= 0:
             # `dong_bo_da_xu_ly_dat_ngoai` ném lỗi cho đúng dòng này ngay ở
             # `validate` (chạy sau hàm này) — không dựng một dòng hàng số

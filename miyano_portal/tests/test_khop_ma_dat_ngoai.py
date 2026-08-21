@@ -408,6 +408,32 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertIn("đã chuyển thành dòng hàng", str(ctx.exception))
 		self.assertIn("xoá dòng gõ tay", str(ctx.exception))
 
+	def test_khop_ma_ve_chinh_dong_giu_cho_bi_tu_choi(self):
+		"""Cửa sau của đúng con bug task này dẹp. `item_khop` là Link `Item`
+		KHÔNG lọc gì, còn `HANG-DAT-NGOAI` là Item THẬT, không disabled — nên
+		trên Desk nó chọn được. Không có chốt, phép gộp (bẫy 2) sẽ dồn số
+		lượng vào CHÍNH dòng giữ chỗ rồi phép gỡ (bẫy 3) xoá dòng đó đi:
+		`da_chuyen = 1`, `da_xu_ly = 1`, `dong_hang` trỏ vào hư không, và đơn
+		submit được trong khi mặt hàng khách yêu cầu không có dòng nào.
+
+		`dat_hang._xay_don` đã chặn đúng mã này ở đường ghi thứ nhất
+		(`mat_hang_giu_cho_khong_the_dat`); đây là đường ghi thứ hai."""
+		so = self._dat(dat_ngoai=[self._go_tay()])
+		so.custom_dat_ngoai[0].item_khop = ITEM_GIU_CHO
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.save(ignore_permissions=True)
+		self.assertIn("mã kỹ thuật nội bộ", str(ctx.exception))
+		self.assertIn(ITEM_GIU_CHO, str(ctx.exception))
+		so.reload()
+		# Không được để lại một trạng thái NỬA VỜI: dòng gõ tay vẫn "chưa xử
+		# lý", nên chốt `before_submit` vẫn giữ được đơn lại.
+		self.assertFalse(so.custom_dat_ngoai[0].da_chuyen)
+		self.assertFalse(so.custom_dat_ngoai[0].da_xu_ly)
+		self.assertEqual([d.item_code for d in so.items], [ITEM_GIU_CHO])
+		with self.assertRaises(frappe.ValidationError) as ctx2:
+			so.submit()
+		self.assertIn("chưa xử lý", str(ctx2.exception))
+
 	# -- CÁCH LY ------------------------------------------------------------
 
 	def test_gia_hop_dong_khach_b_khong_roi_vao_don_khach_a(self):
