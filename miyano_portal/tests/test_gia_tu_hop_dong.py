@@ -498,6 +498,51 @@ class TestGiaTuHopDong(FrappeTestCase):
 			"không được ghi giá đàm phán của khách này vào bảng giá khách kia",
 		)
 
+	# -- ĐÓNG DẤU GIÁ PHẢI NÓI VỀ LẦN GỬI NÀY (advisor, vòng sửa 1) ----------
+
+	def test_gui_duyet_lai_khong_giu_gia_cu_khi_khong_con_tra_duoc_gia(self):
+		"""`don_gia` là "giá khoa đã thấy **tại thời điểm gửi duyệt**". Phiếu
+		bị TỪ CHỐI rồi GỬI LẠI đi qua `gui_duyet()` lần thứ hai, nên con dấu
+		phải nói về LẦN GỬI ẤY.
+
+		Bản trước chỉ ghi khi tra được giá (`if rate: row.don_gia = rate`),
+		nên con dấu **chỉ đi lên, không bao giờ hạ**: lần gửi đầu đóng
+		100.000, giá biến mất, lần gửi lại vẫn khoe 100.000 — một con số
+		không hợp đồng nào và không bảng giá nào còn đỡ, in ra cho bệnh viện
+		như bằng chứng. Cùng họ lỗi với `portal_reorder` tin `custom_hdnt`
+		của đơn cũ: giá trị ĐÓNG BĂNG được tin hơn phép tính LẠI.
+
+		Để RỖNG là câu trả lời đúng cho "không tra được giá" — đó đúng là
+		điều `_dong_dau_gia` làm với một dòng chưa bao giờ có giá."""
+		ma = self._item("_TEST G12 DONG DAU LAI")
+		self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 0}])
+		self._xoa_gia(ma)
+		self._tao_gia(ma, 100000)
+
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"items": [{"item_code": ma, "so_luong_de_xuat": 1}],
+		}).insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần hàng"
+		doc.gui_duyet()
+		doc.reload()
+		self.assertEqual(float(doc.items[0].don_gia), 100000.0, "vế dương: lần gửi đầu")
+
+		doc.tu_choi("chưa cần gấp")
+		doc.reload()
+		# Giá biến mất giữa hai lần gửi (bảng giá bị gỡ, hợp đồng chưa khai
+		# giá) — thao tác thật của sales, không phải trạng thái dựng tay.
+		self._xoa_gia(ma)
+		doc.ly_do_yeu_cau = "cần lại"
+		doc.gui_duyet()
+		doc.reload()
+		self.assertFalse(
+			doc.items[0].don_gia,
+			"con dấu giá phải nói về LẦN GỬI NÀY — giữ giá cũ là khoe một con "
+			"số không còn nguồn nào đỡ",
+		)
+
 	# -- PATCH BACKFILL ------------------------------------------------------
 
 	def test_patch_dung_item_price_tu_hop_dong_va_chay_hai_lan_khong_nhan_doi(self):

@@ -316,8 +316,24 @@ class PortalDeXuatMua(Document):
 			rate = gia_hdnt.gia_dong_hop_dong(
 				row.item_code, row.blanket_order, price_list
 			)
-			if rate:
-				row.don_gia = rate
+			# GHI VÔ ĐIỀU KIỆN (advisor, vòng sửa 1). Bản trước là `if rate:`,
+			# nên con dấu CHỈ ĐI LÊN, không bao giờ hạ: phiếu bị TỪ CHỐI rồi
+			# GỬI LẠI đi qua đây lần thứ hai, và nếu lúc đó không tra được
+			# giá nữa (hợp đồng đã hết hiệu lực — Ruling P31 khiến bước 1 im,
+			# hoặc bảng giá bị gỡ) thì `don_gia` vẫn khoe con số của LẦN GỬI
+			# TRƯỚC. Đó là một con số không hợp đồng nào và không bảng giá
+			# nào còn đỡ, in ra cho bệnh viện như bằng chứng "giá khoa đã
+			# thấy". Cùng họ lỗi với `portal_reorder` tin `custom_hdnt` của
+			# đơn cũ: giá trị ĐÓNG BĂNG được tin hơn phép tính LẠI.
+			#
+			# `0` là cách biểu diễn "chưa có giá" đã dùng sẵn ở đây (dòng
+			# chưa bao giờ tra được giá cũng mang 0), và `_kiem_gia_doi()`
+			# đã tự bỏ qua dòng `not row.don_gia`. Mất cảnh báo `gia_doi`
+			# cho ca này KHÔNG phải mất tín hiệu: hợp đồng hết hiệu lực thì
+			# `_kiem_gia_doi` vẫn báo `hop_dong_doi`, còn giá biến mất hẳn
+			# thì `_xay_don` chặn thẳng lúc duyệt bằng "chưa có giá trong
+			# hợp đồng". Không có đường nào đi qua im lặng.
+			row.don_gia = rate or 0
 
 	def duyet(self, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None):
 		"""Nơi DUY NHẤT ghi `Đã duyệt` LẦN ĐẦU — cùng cả khối truy vết
