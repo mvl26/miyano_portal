@@ -61,3 +61,4 @@ miyano_portal.patches.v1_23.them_ma_ngan_khach_hang
 miyano_portal.patches.v1_23.backfill_portal_member
 miyano_portal.patches.v1_23.them_khoa_phong_vao_don_hang
 miyano_portal.patches.v1_24.them_de_xuat_vao_don_hang
+miyano_portal.patches.v1_25.xoa_co_mua_le

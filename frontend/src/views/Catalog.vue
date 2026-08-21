@@ -13,20 +13,17 @@ const router = useRouter()
 const isMobile = useIsMobile()
 
 // ---------------------------------------------------------------------
-// E6/QT10 — bộ chuyển "Theo HĐNT | Mua lẻ" (F-03/F-21). Chỉ hiện khi khách
-// được bật `Customer.custom_cho_phep_mua_le`.
+// E6/QT10 — bộ chuyển "Theo HĐNT | Mua lẻ" (F-03/F-21).
 //
-// `portal_me()` giờ TRẢ THẲNG cờ này (`cho_phep_mua_le` — thêm ở review E6
-// phần B round 1, dọn dẹp ở round 2). Bản trước không có cờ này nên phải dò
-// bằng cách gọi thử `portal_catalog_ban_le` lúc vào trang và đọc mã lỗi
-// (403 `khong_duoc_mua_le` → ẩn bộ chuyển) — một round-trip THỪA chỉ để
-// biết có nên hiện một cái nút hay không, và còn sai trong lúc chờ (bộ
-// chuyển nhấp nháy ẩn→hiện nếu API chậm). `mucLeChoPhep` giờ là `computed`
-// từ `store.me`, không còn là state tự quản lý bằng try/catch nữa —
-// `portal_catalog_ban_le` chỉ còn gọi để LẤY DỮ LIỆU khi khách thật sự vào
-// ngăn Mua lẻ (`loadLe()` bên dưới), không còn kiêm luôn việc dò quyền.
+// BR-R1 (chốt `Customer.custom_cho_phep_mua_le`) đã bỏ hẳn 21/08 — chủ đầu
+// tư chốt 19/08: nghiệp vụ mua ngoài HĐNT áp dụng cho TOÀN BỘ khách hàng,
+// không còn field nào để đọc nữa (`portal_me()` không còn trả `cho_phep_
+// mua_le`). `mucLeChoPhep` vẫn giữ nguyên tên/dạng `computed` vì bản thân
+// bộ chuyển chế độ CHƯA bị bỏ ở màn này (Ruling P1 — Task 8, khi
+// `LapPhieu.vue` thay thế màn này, mới là lúc bỏ hẳn bộ chuyển) — chỉ đổi
+// sự phụ thuộc của nó thành hằng đúng vĩnh viễn.
 const mode = ref('hd') // 'hd' | 'le'
-const mucLeChoPhep = computed(() => !!store.me?.cho_phep_mua_le)
+const mucLeChoPhep = computed(() => true)
 
 // ---------------------------------------------------------------------
 // Ngăn Theo HĐNT — [Hiện có], KHÔNG đổi hành vi so với bản trước E6.
@@ -177,10 +174,9 @@ function availableLeQty(code) {
 }
 
 async function loadLe() {
-  // `mucLeChoPhep` giờ đến từ `store.me.cho_phep_mua_le` (dữ liệu THẬT,
-  // không phải suy từ kết quả gọi này) — hàm này chỉ còn việc NẠP DANH MỤC
-  // cho ngăn Mua lẻ, không kiêm việc dò quyền nữa (xem ghi chú ở khai báo
-  // `mucLeChoPhep` phía trên).
+  // `mucLeChoPhep` giờ là hằng đúng vĩnh viễn (BR-R1 bỏ hẳn — xem ghi chú
+  // ở khai báo `mucLeChoPhep` phía trên) — hàm này chỉ còn việc NẠP DANH
+  // MỤC cho ngăn Mua lẻ, không còn ai dò quyền nữa.
   leLoading.value = true
   leError.value = ''
   try {
@@ -196,11 +192,12 @@ async function loadLe() {
     })
   } catch (e) {
     if (e.name === 'PermissionError') {
-      // Vẫn có thể xảy ra (hiếm): cờ vừa bị tắt giữa lúc trang đã mở và lúc
-      // khách bấm vào ngăn Mua lẻ (server luôn kiểm lại, NL-10.1) — về lại
-      // ngăn HĐNT thay vì hiện một danh mục rỗng dưới một bộ chuyển vẫn hiện.
+      // BR-R1 bỏ hẳn 21/08 — server không còn tự ném 403 vì cờ nữa, nhưng
+      // vẫn giữ nhánh này cho các lý do PermissionError khác có thể phát
+      // sinh (phiên hết hạn, quyền đọc Item...): về lại ngăn HĐNT thay vì
+      // hiện một danh mục rỗng dưới một bộ chuyển vẫn hiện.
       if (mode.value === 'le') mode.value = 'hd'
-      leError.value = e.message || 'Đơn vị của bạn chưa được bật chế độ Mua lẻ.'
+      leError.value = e.message || 'Không tải được danh mục mua lẻ.'
     } else {
       // Lỗi khác (mạng, server 5xx...) — hiện thông điệp thật tại ngăn Mua
       // lẻ, không chôn trong một nhánh không ai vào được.
@@ -287,9 +284,9 @@ function themDongTrong() {
 onMounted(async () => {
   if (route.query.search) search.value = String(route.query.search)
   try {
-    // `portal_me` (cho cờ `cho_phep_mua_le`) và `portal_contracts` song
-    // song — không còn cần dò quyền mua lẻ bằng cách gọi thử
-    // `portal_catalog_ban_le` nữa (xem ghi chú ở khai báo `mucLeChoPhep`).
+    // `portal_me` và `portal_contracts` song song — không còn cần dò quyền
+    // mua lẻ bằng cách gọi thử `portal_catalog_ban_le` nữa (BR-R1 bỏ hẳn,
+    // xem ghi chú ở khai báo `mucLeChoPhep`).
     const [meRes, contractsRes] = await Promise.all([
       store.me ? Promise.resolve(store.me) : api.call('portal_me'),
       api.call('portal_contracts'),
@@ -308,8 +305,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-  // Nạp danh mục Mua lẻ CHỈ khi khách thật sự được bật cờ — đỡ một
-  // round-trip (và một lượt 403 vô nghĩa) cho phần lớn khách CHƯA bật.
+  // Mọi khách đều mua lẻ được (BR-R1 bỏ hẳn) — luôn nạp danh mục Mua lẻ.
   if (mucLeChoPhep.value) loadLe()
 })
 

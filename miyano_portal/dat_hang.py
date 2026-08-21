@@ -21,7 +21,6 @@ from miyano_portal.portal_dat_hang import (
 from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
     can_chen_giu_cho,
-    dam_bao_duoc_mua_le,
     items_thuoc_hdnt_hieu_luc,
     la_dong_giu_cho,
     resolve_ban_le_company,
@@ -588,12 +587,8 @@ def tao_sales_order(
     mode = (mode or "hdnt").strip()
     if mode not in ("hdnt", "ban_le"):
         frappe.throw("Chế độ đặt hàng không hợp lệ.", frappe.ValidationError)
-    if mode == "ban_le":
-        # review C-1 — CHỐT DUY NHẤT của BR-R1 trên đường GHI. Phải gọi
-        # SỚM NHẤT có thể, trước cả kiểm request_id: một khách chưa bật cờ
-        # không được phép tương tác với chế độ mua lẻ theo BẤT KỲ đường nào,
-        # kể cả thử lại một request_id cũ.
-        dam_bao_duoc_mua_le(customer)
+    # BR-R1 (chốt "khách phải được bật cờ mới mua lẻ được") đã bỏ hẳn 21/08
+    # — xem `portal_mua_le.py` đầu file. Mọi khách đều đi thẳng qua đây.
 
     # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
     # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.

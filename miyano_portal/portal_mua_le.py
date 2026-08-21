@@ -19,26 +19,11 @@ TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 ITEM_GIU_CHO = "HANG-DAT-NGOAI"
 
 
-def dam_bao_duoc_mua_le(customer: str) -> None:
-    """BR-R1 / NL-10.1 — chốt DUY NHẤT bảo vệ toàn bộ nhánh mua lẻ, cả đọc
-    lẫn ghi. Dùng CHUNG bởi `portal_catalog_ban_le` VÀ
-    `portal_order_place(mode="ban_le")`.
-
-    review C-1: bản trước chỉ gọi phép kiểm này (khi đó viết tay, không tách
-    hàm) từ `portal_catalog_ban_le` — đường ĐỌC. `portal_order_place` không
-    hề gọi tới, vì bốn chốt còn lại của đơn lẻ (sở hữu địa chỉ, request_id,
-    ngày giao, bội số) sống ở THÂN CHUNG của `portal_order_place` nên nhánh
-    `_xay_don_ban_le` thừa hưởng miễn phí — BR-R1 là chốt duy nhất chỉ sống
-    ở endpoint đọc, nên là chốt duy nhất bị bỏ sót. Hậu quả: khách chưa bật
-    cờ vẫn POST thẳng `mode="ban_le"` và nhận về một Sales Order hợp lệ,
-    phá DoD "mặc định TẮT không đổi hành vi khách hiện hữu".
-    """
-    if not frappe.db.get_value("Customer", customer, "custom_cho_phep_mua_le"):
-        frappe.local.response["ly_do"] = "khong_duoc_mua_le"
-        raise frappe.PermissionError(
-            "Đơn vị của bạn chưa được bật chế độ Mua lẻ. Vui lòng liên hệ "
-            "nhân viên kinh doanh Miyano."
-        )
+# BR-R1 / NL-10.1 (`dam_bao_duoc_mua_le`, chốt cờ `Customer.custom_cho_phep_
+# mua_le`) đã BỎ HẲN 21/08 — chủ đầu tư chốt 19/08: "nghiệp vụ đó áp dụng
+# cho toàn bộ khách hàng", không còn khách nào cần được "bật" mới mua lẻ
+# được. Field bị xoá bằng `patches/v1_25/xoa_co_mua_le.py`. Xem
+# `task-1-brief.md` mục (a).
 
 
 def hieu_luc_bao_gia_ngay() -> int:

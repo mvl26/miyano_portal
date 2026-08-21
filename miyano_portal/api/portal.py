@@ -22,7 +22,6 @@ from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
     TRANG_THAI_CHO_KHACH,
     cap_nhat_yeu_cau_goc,
-    dam_bao_duoc_mua_le,
     han_hieu_luc_bao_gia,
     items_san_sang_giao,
     items_thuoc_hdnt_hieu_luc,
@@ -74,7 +73,7 @@ def _get_outstanding(customer: str) -> float:
 def portal_me() -> dict:
     customer = get_portal_customer()
     cust = frappe.db.get_value(
-        "Customer", customer, ["customer_name", "tax_id", "custom_cho_phep_mua_le"], as_dict=True
+        "Customer", customer, ["customer_name", "tax_id"], as_dict=True
     ) or {}
     # Man luong duyet (Task 1) — Frontend cần biết vai trò để gating menu
     # (màn Duyệt chỉ cho người có quyền duyệt). `la_quan_ly` là khoá RIÊNG,
@@ -98,11 +97,9 @@ def portal_me() -> dict:
         "tax_id": cust.get("tax_id"),
         "outstanding": _get_outstanding(customer),
         "addresses": _customer_addresses(customer),
-        # review (Phần C báo thiếu) — không có field này, client phải GỌI
-        # THỬ `portal_catalog_ban_le` mỗi lần chỉ để biết có nên hiện bộ
-        # chuyển "Theo HĐNT | Mua lẻ" hay không (BR-R1) — một vòng round-trip
-        # thừa, và một khách chưa bật cờ tự nhiên nhận 403 ngay từ lúc mở app.
-        "cho_phep_mua_le": bool(cust.get("custom_cho_phep_mua_le")),
+        # BR-R1 bỏ hẳn 21/08 (task-1-brief.md mục a) — không còn cờ nào để
+        # trả, mọi khách đều mua lẻ được, `cho_phep_mua_le` xoá khỏi phong
+        # bì này.
         "vai_tro": tv.vai_tro,
         "khoa_phong": tv.khoa_phong or None,
         "la_quan_ly": la_quan_ly(),
@@ -200,8 +197,9 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
     """API Spec §2.2 / thiết kế lại mua lẻ §4.1 — danh mục mua lẻ = TOÀN BỘ
     `Item` đang hoạt động, KHÔNG còn là tập tuyển chọn.
 
-    403 `khong_duoc_mua_le` (NL-10.1) nếu `Customer.custom_cho_phep_mua_le`
-    chưa bật — kiểm phía SERVER, không tin UI đã ẩn nút chuyển chế độ.
+    BR-R1/NL-10.1 (chốt "phải bật cờ `Customer.custom_cho_phep_mua_le` mới
+    xem được danh mục") đã BỎ HẲN 21/08 — chủ đầu tư chốt 19/08: nghiệp vụ
+    này áp dụng cho toàn bộ khách hàng, không còn khách nào bị chặn ở đây.
 
     §4.1 — "Bỏ bộ lọc `custom_ban_le_portal`": nguyên tắc chủ dự án đặt ra
     "khách không cần biết Miyano có gì; họ đặt hàng, Miyano có trách nhiệm
@@ -221,7 +219,6 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
     toàn bộ `tabItem` vào bộ nhớ mỗi lần gọi.
     """
     customer = get_portal_customer()
-    dam_bao_duoc_mua_le(customer)  # BR-R1/NL-10.1
 
     # review C-1 — `ITEM_GIU_CHO` (`HANG-DAT-NGOAI`) là item KỸ THUẬT NỘI BỘ:
     # `disabled=0`, `is_sales_item=1` (patch v1_15 cần vậy để đơn "toàn hàng

@@ -119,12 +119,20 @@ class TestCatalogBanLe(FrappeTestCase):
         _seed_mua_le()
         self.addCleanup(frappe.set_user, "Administrator")
 
-    # ---------- TC-E6-01 ----------
-    def test_khach_chua_bat_co_bi_403(self):
+    # ---------- TC-E6-01 (đảo ngược 21/08 — chủ đầu tư chốt BR-R1 bỏ hẳn:
+    # "nghiệp vụ đó áp dụng cho toàn bộ khách hàng") ----------
+    def test_khach_chua_bat_co_van_mua_duoc(self):
+        """PXN vẫn giữ `custom_cho_phep_mua_le=0` tường minh trong
+        `_seed_mua_le` (field còn tồn tại vật lý cho tới khi patch
+        `xoa_co_mua_le` chạy) — để khẳng định danh mục KHÔNG còn đọc field
+        này nữa, không phải vì nó tình cờ mặc định bật."""
         frappe.set_user(USER_PXN)
-        with self.assertRaises(frappe.PermissionError):
-            portal.portal_catalog_ban_le()
-        self.assertEqual(frappe.local.response.get("ly_do"), "khong_duoc_mua_le")
+        out = portal.portal_catalog_ban_le(tim_kiem=RETAIL_CO_GIA)["items"]
+        ma = {r["item_code"] for r in out}
+        self.assertIn(
+            RETAIL_CO_GIA, ma,
+            "khách chưa từng bật cờ (cũ) vẫn phải thấy danh mục đầy đủ",
+        )
 
     # ---------- thiết kế lại mua lẻ §4.1 — bỏ lọc custom_ban_le_portal ----------
     def test_danh_muc_khong_con_loc_theo_custom_ban_le_portal(self):
@@ -289,22 +297,22 @@ class TestDatHangBanLe(FrappeTestCase):
             "mất thì khách mất quyền đặt theo hợp đồng",
         )
 
-    # ---------- review C-1 (Critical) — chốt BR-R1 PHẢI có ở đường GHI ----------
-    def test_c1_khach_chua_bat_co_khong_dat_le_duoc_qua_duong_ghi(self):
-        """Bản trước chỉ kiểm `custom_cho_phep_mua_le` ở `portal_catalog_
-        ban_le` (đường đọc) — PXN (chưa bật cờ) POST THẲNG `mode="ban_le"`,
-        bỏ qua hẳn danh mục, vẫn nhận về một Sales Order hợp lệ. Đây là ca
-        PHẢI đỏ nếu chốt này biến mất — không phải suy luận, thử phá code
-        rồi khôi phục (xem báo cáo)."""
+    # ---------- đảo ngược 21/08 (từng là review C-1) — BR-R1 bỏ hẳn, cả ở
+    # đường GHI, không chỉ đường đọc ----------
+    def test_c1_khach_chua_bat_co_van_dat_le_duoc_qua_duong_ghi(self):
+        """PXN — vẫn giữ `custom_cho_phep_mua_le=0` tường minh trong fixture
+        — phải ĐẶT ĐƯỢC đơn mua lẻ qua đường GHI (POST thẳng `mode="ban_le"`,
+        bỏ qua hẳn danh mục). Chủ đầu tư chốt 19/08: không còn khách nào bị
+        BR-R1 chặn, bất kể field cũ đang mang giá trị gì."""
         frappe.set_user(USER_PXN)
         rid = _rid()
-        with self.assertRaises(frappe.PermissionError):
-            portal.portal_order_place(
-                items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
-                mode="ban_le", request_id=rid,
-            )
-        self.assertEqual(frappe.local.response.get("ly_do"), "khong_duoc_mua_le")
-        self.assertFalse(frappe.db.exists("Sales Order", {"custom_request_id": rid}))
+        res = portal.portal_order_place(
+            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
+            mode="ban_le", request_id=rid,
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual(so.customer, PXN)
+        self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
 
     # ---------- review C-2 (Critical) — BR-R7 không được lách qua hoa/thường ----------
     def test_c2_ma_hang_viet_thuong_van_bi_br_r7_chan(self):

@@ -16,16 +16,17 @@ KHACH_BM = "Bệnh viện Bạch Mai"
 
 class TestLoiDatHangNhanCustomerLamThamSo(FrappeTestCase):
     def setUp(self):
-        # RULING R3 — `dat_hang.tao_sales_order(mode="ban_le")` đi qua
-        # `dam_bao_duoc_mua_le()` (BR-R1), đòi `Customer.custom_cho_phep_mua_le`
-        # phải bật. Không bật thì test đỏ vì PermissionError của BR-R1 — SAI
-        # LÝ DO, che mất tính chất thật sự đang kiểm ở đây (lõi nhận customer
-        # làm tham số, không đọc phiên). Trả lại giá trị cũ ở tearDown để
-        # không làm lệch trạng thái fixture cho các test khác.
+        # Đảo ngược RULING R3 (21/08 — chủ đầu tư chốt BR-R1 bỏ hẳn): bản
+        # trước phải BẬT `custom_cho_phep_mua_le` ở đây để né PermissionError
+        # của BR-R1, "SAI LÝ DO" che mất tính chất thật sự đang kiểm (lõi
+        # nhận customer làm tham số, không đọc phiên). Giờ đặt TƯỜNG MINH về
+        # 0 — field còn tồn tại vật lý cho tới khi patch `xoa_co_mua_le`
+        # chạy — để chứng minh lõi KHÔNG còn phụ thuộc field này nữa, không
+        # phải vì giá trị hiện có trên site tình cờ đã là 1.
         self._cho_phep_mua_le_cu = frappe.db.get_value(
             "Customer", KHACH_BM, "custom_cho_phep_mua_le"
         )
-        frappe.db.set_value("Customer", KHACH_BM, "custom_cho_phep_mua_le", 1)
+        frappe.db.set_value("Customer", KHACH_BM, "custom_cho_phep_mua_le", 0)
 
     def tearDown(self):
         frappe.db.set_value(
