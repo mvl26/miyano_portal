@@ -1866,11 +1866,14 @@ def portal_reorder(order: str) -> dict:
             bi_loai.append({"item_code": dong.item_code, "ly_do": "het_han_muc"})
             continue
 
-        gia = frappe.db.get_value(
-            "Item Price",
-            {"item_code": dong.item_code, "price_list": price_list, "selling": 1},
-            "price_list_rate",
-        )
+        # QĐ-G12 (Task 12) — ĐÚNG hàm mà `_xay_don` dùng. Trước Task 12 đây
+        # là phép tra `Item Price` THỨ SÁU, độc lập, nên "đặt lại đơn cũ"
+        # vẫn trả `thieu_gia` cho đúng mặt hàng mà đặt mới đã đặt được:
+        # cùng một mã, hai câu trả lời khác nhau tuỳ khách bấm nút nào.
+        # `contract` ở đây là hợp đồng của CHÍNH đơn cũ (`custom_hdnt`) —
+        # cũng là hợp đồng vòng lặp này đang dùng để tính hạn mức, nên
+        # không có nguồn thứ hai nào được sinh ra.
+        gia = gia_hdnt.gia_dong_hop_dong(dong.item_code, contract, price_list)
         if not gia:
             bi_loai.append({"item_code": dong.item_code, "ly_do": "thieu_gia"})
             continue

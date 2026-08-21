@@ -187,7 +187,7 @@ class TestGiaTuHopDong(FrappeTestCase):
 				return d
 		self.fail(f"Không thấy dòng {item_code} trên đơn {so_name}.")
 
-	def _thanh_vien(self, email, customer, khoa_phong):
+	def _thanh_vien(self, email, customer, khoa_phong, vai_tro="Nhân viên khoa"):
 		if not frappe.db.exists("User", email):
 			u = frappe.get_doc({
 				"doctype": "User", "email": email,
@@ -198,7 +198,7 @@ class TestGiaTuHopDong(FrappeTestCase):
 			u.insert(ignore_permissions=True)
 		ten_tv = frappe.db.get_value("Portal Member", {"user": email}, "name")
 		gia_tri = {
-			"customer": customer, "vai_tro": "Nhân viên khoa",
+			"customer": customer, "vai_tro": vai_tro,
 			"khoa_phong": khoa_phong, "active": 1,
 		}
 		if ten_tv:
@@ -313,6 +313,35 @@ class TestGiaTuHopDong(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.items[0].nguon_gia, "Hợp đồng")
 		self.assertEqual(float(doc.items[0].don_gia), float(GIA_HOP_DONG))
+
+	def test_dat_lai_don_cu_cung_lay_gia_hop_dong(self):
+		"""`portal_reorder` — phép tra `Item Price` THỨ SÁU, độc lập, phát
+		hiện khi rà theo TÊN DOCTYPE thay vì theo tên hàm trợ giúp cũ.
+
+		Nếu nó không đi qua `gia_dong_hop_dong()`, cùng một mã hàng cho hai
+		câu trả lời khác nhau tuỳ khách bấm "Đặt hàng" hay "Đặt lại đơn cũ":
+		đặt mới thì được, đặt lại thì `thieu_gia`. Vế dương ĐỦ MẠNH: dòng
+		phải NẰM TRONG giỏ, mang ĐÚNG giá hợp đồng, và KHÔNG có mặt trong
+		`bi_loai`."""
+		kq = self._dat([{"item_code": self.item_chi_hd, "qty": 2}])
+		# Quản lý: `pham_vi_don()` trả `{}` nên xem được đơn cấp bệnh viện
+		# (`custom_khoa_phong` rỗng) mà `tao_sales_order` vừa dựng.
+		user_ql = self._thanh_vien(
+			# Khoa phòng phải BỎ TRỐNG: `PortalMember._chan_vai_tro_va_khoa_
+			# phong` cấm gắn Quản lý vào một khoa ("Quản lý nhìn xuyên mọi
+			# khoa"). Đúng vai cần ở đây — đơn `tao_sales_order` dựng là đơn
+			# cấp bệnh viện, không thuộc khoa nào.
+			"g12.ql@demo.miyano", self.kh_a, None, vai_tro="Quản lý"
+		)
+		frappe.set_user(user_ql)
+		out = portal_api.portal_reorder(kq["sales_order"])
+		self.assertNotIn(
+			self.item_chi_hd, [d["item_code"] for d in out["bi_loai"]],
+			"mặt hàng có giá trên hợp đồng không được coi là thiếu giá",
+		)
+		gio = [d for d in out["gio_hang"] if d["item_code"] == self.item_chi_hd]
+		self.assertEqual(len(gio), 1, f"Không thấy {self.item_chi_hd} trong {out}")
+		self.assertEqual(float(gio[0]["gia_hien_hanh"]), float(GIA_HOP_DONG))
 
 	# -- PATCH BACKFILL ------------------------------------------------------
 
