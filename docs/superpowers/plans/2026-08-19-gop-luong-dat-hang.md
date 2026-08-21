@@ -354,6 +354,43 @@ Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC
 
 ---
 
+## Task 12: Giá hợp đồng lấy từ CHÍNH hợp đồng (chủ đầu tư chốt 21/08)
+
+**Files:**
+- Modify: `miyano_portal/dat_hang.py` (`_gia_hien_hanh` và chỗ gọi), `miyano_portal/api/portal.py` (`portal_catalog_gop`), `.../portal_de_xuat_mua.py` (`_dong_dau_gia`)
+- Create: `miyano_portal/patches/v1_26/dong_bo_gia_hdnt_da_ky.py`
+- Test: `miyano_portal/tests/test_gia_tu_hop_dong.py` *(mới)*
+
+**Triệu chứng chủ đầu tư gặp trên trình duyệt 21/08:**
+> *"Chưa gửi được đơn: MYN-SYR-10 chưa có giá trong hợp đồng… rõ ràng là đã định giá trong hợp đồng khung rồi mà, ở phần rate sao vẫn báo như này"*
+
+**Đo được:** `MFG-BLR-2026-00020` (Minh Đức, đã trình ký) có `rate` đủ cho cả ba mã — 88.000 / 95.000 / 1.250.000 — nhưng `tabItem Price` **không có dòng nào**. `dat_hang._gia_hien_hanh` chỉ tra `Item Price` → trả `None` → `dat_hang.py:365` chặn đơn.
+
+**Vì sao cơ chế cũ không cứu được:** `gia_hdnt.tu_hdnt` là hook `Blanket Order.on_submit`. Nó chỉ chạy **một lần, lúc trình ký**. Mọi hợp đồng đã ký **trước khi hook ra đời**, và mọi hợp đồng nhập bằng import, đều không bao giờ được đồng bộ. Cơ chế đúng nhưng **phủ không kín**, và cái không kín thì im lặng.
+
+**QĐ-G12 — với một dòng HỢP ĐỒNG, nguồn giá là CHÍNH HỢP ĐỒNG ĐÓ.**
+Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
+1. `Blanket Order Item.rate` của **đúng hợp đồng dòng đó đã suy ra** (`blanket_order`)
+2. `Item Price` trong `Customer.default_price_list`
+3. Không có → mới báo thiếu giá
+
+`rate = 0` là **CHƯA KHAI GIÁ**, không phải "bán 0 đồng" — giữ nguyên quy ước đã có trong `gia_hdnt.py`, coi như không có và đi tiếp bước 2.
+*Sai thì mất gì:* nếu Miyano cố tình để rate cũ trên hợp đồng và muốn bảng giá đè lên, thứ tự này sẽ lấy giá hợp đồng. Nhưng `gia_hdnt.py` đã chốt ngược lại rồi — *"Giá HĐNT ĐÈ giá cũ. Hợp đồng đã ký là nguồn sự thật"* — nên đây là làm cho mã khớp với nguyên tắc đã tuyên bố, không phải đổi nguyên tắc.
+
+**MỘT hàm dùng chung, không ba phép tra.** Ba nơi cần giá hợp đồng — dựng đơn, danh mục gộp, đóng dấu giá lúc gửi duyệt — phải gọi **cùng một hàm**. Ba phép tra riêng là ba chỗ có thể lệch, và dự án này đã trả giá cho đúng lỗi đó ở `nguon_gia`/`blanket_order` (Ruling P28).
+
+**Patch backfill:** chạy `gia_hdnt.dong_bo` cho **mọi** `Blanket Order` đã trình ký còn hiệu lực. Không thay QĐ-G12 — nó giữ `Item Price` khớp với hợp đồng cho phía ERPNext (báo cáo, hoá đơn, giá lúc Desk dựng chứng từ). Hai việc khác nhau: QĐ-G12 làm cổng **đúng ngay**, patch làm dữ liệu **nhất quán**.
+
+**Test tối thiểu:**
+- Hợp đồng có `rate`, **không** có `Item Price` → đặt hàng **thành công**, dòng mang đúng giá hợp đồng **(vế dương, ca chính — chính xác ca chủ đầu tư gặp)**
+- Có **cả hai** và **khác nhau** → lấy giá **hợp đồng**
+- `rate = 0` + có `Item Price` → lấy `Item Price` (0 là chưa khai giá)
+- Không có cả hai → vẫn báo thiếu giá, giữ nguyên câu hiện tại
+- **Cách ly:** rate trong hợp đồng của khách B không rơi vào đơn của khách A
+- Patch chạy hai lần không nhân đôi `Item Price`
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.
