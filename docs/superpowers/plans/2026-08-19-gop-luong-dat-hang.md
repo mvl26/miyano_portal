@@ -250,6 +250,35 @@ Không tìm thấy → nút **"Hàng chưa có trong hệ thống"** mở ô gõ
 
 ---
 
+## Task 9: Đơn hàng mang thẳng mã đề xuất (chủ đầu tư chốt 21/08)
+
+**Thi công CHUNG LƯỢT với Task 4 + Task 5** — cùng đụng `dat_hang.tao_sales_order`.
+
+**Files:**
+- Modify: `miyano_portal/dat_hang.py`
+- Modify: `frontend/src/views/Orders.vue`, `OrderDetail.vue` *(chỉ nhãn, xem dưới)*
+- Test: `miyano_portal/tests/test_ma_don_hang.py` *(mới)*
+
+Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC-260819-91`** trong ERPNext, không còn `SAL-ORD-...`. Khách và Miyano nhìn cùng một mã; hoá đơn ghi mã đó.
+
+**Cách ép tên trong Frappe v15 — chỉ có một đường đúng:** đặt `so.name = ma` **và** `so.flags.name_set = True` trước `insert()`. `frappe.model.naming.set_new_name()` thoát sớm khi thấy cờ đó; nếu chỉ gán `name` mà không bật cờ thì `naming_series` của Sales Order ghi đè và mã bị vứt **im lặng** — hỏng kiểu tệ nhất vì test nhìn thoáng vẫn xanh.
+
+**Mã dùng lại của phiếu, KHÔNG sinh mã mới.** `sinh_ma()` cấp số qua `getseries` — gọi lại sẽ ra số khác và đơn mang mã không khớp phiếu nào. `duyet_va_tao_don` truyền `doc.ma_de_xuat` xuống.
+
+**Đơn KHÔNG có mã thì giữ `SAL-ORD-...`** — đơn Miyano tự lập trong Desk không có mã ngắn khách + mã khoa nên không suy ra được. Tham số mới phải **không bắt buộc**, thiếu thì rơi về đặt tên gốc. Đây là điều kiện tương thích ngược, không phải trường hợp biên.
+
+**Đơn cũ giữ tên cũ** — chủ đầu tư chốt không đổi tên 140 đơn đã phát sinh.
+
+**Test tối thiểu:**
+- Duyệt phiếu `MD-HUYETHOC-260819-01` → `Sales Order.name == "MD-HUYETHOC-260819-01"` **(vế dương, ca chính)**
+- Tạo đơn KHÔNG truyền mã → tên vẫn khớp `^SAL-ORD-` **(chốt tương thích ngược)**
+- `custom_ma_tra_cuu` vẫn được ghi (đơn cũ còn đọc nó; đừng bỏ)
+- Ép trùng tên → **thất bại ồn ào**, không âm thầm cấp tên khác
+
+**Frontend:** `Orders.vue:99,116` và `OrderDetail.vue` đang in `o.name` — sau task này `name` CHÍNH LÀ mã cần hiện, nên **không phải đổi chỗ in**. Việc cần làm: nơi nào đang hiện `ma_tra_cuu` như một mã phụ thì **ẩn đi khi nó trùng `name`**, để đơn mới không hiện hai lần cùng một mã.
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.
