@@ -299,6 +299,19 @@ Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC
 
 **QĐ-G7 — `/catalog` và `/cart` REDIRECT, không xoá.** Chúng nằm trong bookmark của khách và có thể nằm trong tài liệu đã gửi bệnh viện. Trả 404 cho một đường đang chạy là hồi quy, không phải dọn dẹp.
 
+**QĐ-G8 — vượt hạn mức: CẢNH BÁO tại dòng, KHÔNG chặn, KHÔNG tự tách dòng** (chủ đầu tư chốt 21/08, chọn "cách nhẹ"). Khoa xin 100 khi hạn mức còn 40 → dòng đó hiện *"Vượt hạn mức HĐ — còn 40"*, vẫn gửi duyệt được. **Quản lý gõ số duyệt** — cơ chế đó đã chạy. Không dựng cơ chế tách một dòng thành hai theo hạn mức: đó là hệ thống thay quản lý ra một quyết định thương mại mà nó không đủ thông tin để ra.
+*Sai thì mất gì:* nếu nghiệp vụ muốn tách tự động thì phải dựng thêm; nhưng dựng sẵn khi chưa cần là YAGNI.
+
+**QĐ-G9 — giỏ hàng hiện ĐƠN GIÁ TỪNG DÒNG, KHÔNG có dòng tổng** (chủ đầu tư chốt 21/08). Dòng hợp đồng hiện đơn giá; dòng chờ báo giá hiện `—`. **Không có dòng tổng nào** — tránh việc khoa nhớ một con số rồi đem so với hoá đơn cuối. Miyano báo giá đầy đủ ở bước sau.
+
+**QĐ-G10 — trang đầu là HÀNG TRONG HỢP ĐỒNG CỦA CHÍNH KHÁCH**, hết rồi mới tới danh mục chung (chủ đầu tư chốt 21/08). 10 dòng/trang, cắt trang trong SQL. Danh mục Miyano vài nghìn mã; A→Z thì không ai lật tới cuối, mà bắt gõ tìm mới hiện thì khoa quên tên hàng quen là bí.
+
+**Danh sách hàng — mỗi dòng mang:** trạng thái hàng (`trang_thai_hang`, đúng cơ chế màn mua lẻ đang dùng), tầng giá (`Giá HĐ <số tiền> · <mã HĐ>` hoặc `Chờ báo giá`), và hạn mức còn lại cho dòng hợp đồng (`còn 40/100` / `Hết hạn mức`). Nút **"+ Thêm dòng"** cho hàng chưa có mã **luôn hiện**, không chỉ khi tìm không ra.
+
+**Giỏ hàng — cột đúng thứ tự chủ đầu tư nêu:** `MÃ · TÊN VẬT TƯ · ĐVT · SL · MÃ HĐ KHUNG · ĐƠN GIÁ`. Bên dưới: **ngày giao mong muốn**, **địa chỉ giao hàng**, **lý do yêu cầu**, nút gửi.
+
+**`boi_so` phải được TIÊU THỤ ở task này.** Task 3 đã trả nó về nhưng `LapPhieu.vue` chưa đọc. Chặn tại ô số lượng, nêu bội số — nếu không thì lỗi "7 hộp của lốc 10" vẫn nổ vào mặt **quản lý** lúc duyệt, cho một con số họ không chọn.
+
 **Bước giỏ hàng GIỮ LẠI** — địa chỉ giao, ngày cần, lý do yêu cầu thuộc về bước đó, không thuộc bước tìm hàng.
 
 **Nghiệm thu — KHÔNG chấp nhận "suite xanh" thay cho mục này:**
@@ -306,6 +319,38 @@ Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC
 - [ ] Đăng nhập bằng một tài khoản quản lý: cùng màn đó, nút là **"Đặt hàng"**, một lần bấm ra đơn, và **có phiếu đề xuất tự duyệt** đứng sau.
 - [ ] `/catalog` và `/cart` gõ thẳng vào thanh địa chỉ → chuyển hướng, không 404.
 - [ ] `cd frontend && yarn build` đỗ.
+
+---
+
+## Task 11: Gộp "Đơn hàng của tôi" + "Đề xuất mua" → "Yêu cầu của tôi"
+
+**Thi công SAU Task 10.** Chủ đầu tư chốt 21/08 sau khi đọc `docs/BAN-DO-CHUC-NANG.md`.
+
+**Files:**
+- Create: `frontend/src/views/YeuCauList.vue`
+- Modify: `miyano_portal/api/portal.py` *(endpoint danh sách hợp nhất)*
+- Modify: `frontend/src/router.js` *(redirect `/orders`, `/de-xuat`)*, `frontend/src/App.vue`
+- Retire: `frontend/src/views/Orders.vue`, `frontend/src/views/DeXuatList.vue`
+- Modify: `docs/BAN-DO-CHUC-NANG.md` **(bắt buộc, cùng commit)**
+
+**Vấn đề đang sửa:** một yêu cầu của khoa nằm ở "Đề xuất mua" khi còn là phiếu, rồi **nhảy sang** "Đơn hàng của tôi" sau khi duyệt. Nhân viên phải **biết trước yêu cầu của mình đang ở giai đoạn nội bộ nào** mới tìm lại được nó — tức là phải học sơ đồ kiến trúc của hệ thống.
+
+**QĐ-G11 — một danh sách, một dòng đời.** `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`. Nhân viên mở một chỗ, thấy mọi thứ mình từng xin, ở bất kỳ giai đoạn nào.
+**Rào cản kỹ thuật cuối cùng đã tự mất** nhờ Task 9: đơn hàng mang thẳng mã đề xuất (`MD-HUYETHOC-260819-91`), nên phiếu và đơn **cùng một mã** — không còn gì để nối bằng tay.
+
+**"Duyệt" (`/duyet`) KHÔNG gộp vào đây.** Nó là **hàng chờ việc** của quản lý, khác mục đích với *danh sách của tôi*. Gộp hai thứ khác mục đích chỉ vì chúng cùng kiểu dữ liệu là lặp lại đúng lỗi đang sửa.
+
+**Đường cũ REDIRECT, không xoá:** `/orders`, `/orders/:name`, `/de-xuat`, `/de-xuat/:ten`. Chúng nằm trong bookmark khách và trong link của thông báo tự động đã gửi đi — trả 404 là hồi quy.
+
+**Test tối thiểu:**
+- Một phiếu Nháp và một đơn đã giao của cùng khoa → **cùng xuất hiện** trong một lần gọi **(vế dương, ca chính)**
+- Phiếu đã duyệt và đơn sinh ra từ nó → **một dòng duy nhất**, không phải hai
+- **Cách ly:** khách A không thấy yêu cầu của khách B; nhân viên khoa X không thấy của khoa Y (trừ quản lý)
+- Đường cũ `/orders` → chuyển hướng, không 404
+
+**Nghiệm thu — đi một vòng thật, không thay bằng suite xanh:**
+- [ ] Đăng nhập `buiviet9802@gmail.com`: **đếm số mục menu = 7**
+- [ ] Một yêu cầu đi trọn Nháp → Chờ duyệt → Đã duyệt → thành đơn, **không rời khỏi danh sách đó lần nào**
 
 ---
 

@@ -64,7 +64,7 @@ Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng
 
 ---
 
-## 3. Đề xuất: 11 cửa → 7
+## 3. ĐÃ CHỐT (chủ đầu tư duyệt 21/08): 11 cửa → 7
 
 | Mục | Đường dẫn | Ghi chú |
 |---|---|---|
@@ -75,6 +75,8 @@ Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng
 | Hoá đơn & công nợ | `/invoices` | giữ nguyên |
 | Thông báo | `/thong-bao` | giữ nguyên |
 | Hồ sơ đơn vị | `/profile` | giữ nguyên |
+
+**Trạng thái:** Task 10 (gộp đặt hàng) và Task 11 (gộp danh sách) đã vào kế hoạch `docs/superpowers/plans/2026-08-19-gop-luong-dat-hang.md`.
 
 Quản lý thấy thêm: **Duyệt** (`/duyet`) — đây **không** phải danh sách trùng, nó là **hàng chờ việc**, khác về mục đích.
 
