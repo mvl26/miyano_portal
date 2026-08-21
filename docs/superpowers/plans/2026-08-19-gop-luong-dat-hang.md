@@ -279,6 +279,36 @@ Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC
 
 ---
 
+## Task 10: Gộp "Đặt hàng" và "Lập phiếu" làm một (chủ đầu tư chốt 21/08)
+
+**Thi công SAU Task 3** (cần `portal_catalog_gop` tồn tại). Đây là **thay đổi giao diện lớn nhất của kế hoạch** và nó chạm đường 6 tài khoản thật đang dùng hằng ngày.
+
+**Files:**
+- Modify: `frontend/src/views/LapPhieu.vue` *(nhận thêm bước giỏ hàng)*
+- Modify: `frontend/src/router.js` *(redirect, KHÔNG xoá route)*, `frontend/src/App.vue` *(nav còn MỘT mục)*
+- Retire: `frontend/src/views/Catalog.vue`, `frontend/src/views/Cart.vue`
+- Modify: `miyano_portal/api/portal.py` *(nếu cần, cho nhánh quản lý)*
+
+**Chủ đầu tư nói nguyên văn:** *"anh đang có 2 luồng là đặt hàng và lập phiếu, anh thấy chúng đang trùng nhau, anh nghĩ là nên bỏ lập phiếu và sửa đặt hàng thành flow của lập phiếu nhưng vẫn giữ là mục đặt hàng, sau đó thêm vào giỏ hàng gửi duyệt thì sẽ hợp lý"*.
+
+**QĐ-G5 — một mục nav duy nhất, tên giữ là "Đặt hàng".** Hai mục cùng nghĩa "đi mua đồ" là để lộ lịch sử thi công ra mặt người dùng: `Đặt hàng` có từ trước khi có luồng duyệt, `Lập phiếu` dựng sau. Người dùng không có quy tắc nào trong đầu để phân biệt.
+*Sai thì mất gì:* nếu hoá ra hai luồng thật sự khác nhau về nghiệp vụ thì phải tách lại — nhưng ba tầng hàng đã gộp rồi, nên không còn gì để tách.
+
+**QĐ-G6 — cùng MỘT màn, ĐỘNG TỪ khác theo vai trò.** Nhân viên thấy **"Gửi duyệt"**; quản lý thấy **"Đặt hàng"** và bên dưới vẫn sinh một phiếu đề xuất **tự duyệt** (`tu_duyet`), giữ nguyên vết truy. Ép quản lý đi đường "gửi duyệt rồi tự duyệt" là bắt họ bấm hai lần cho việc vốn bấm một lần.
+*Đã có sẵn ở backend* — `portal_order_place` nhánh quản lý đã sinh phiếu tự duyệt. Không dựng mới.
+
+**QĐ-G7 — `/catalog` và `/cart` REDIRECT, không xoá.** Chúng nằm trong bookmark của khách và có thể nằm trong tài liệu đã gửi bệnh viện. Trả 404 cho một đường đang chạy là hồi quy, không phải dọn dẹp.
+
+**Bước giỏ hàng GIỮ LẠI** — địa chỉ giao, ngày cần, lý do yêu cầu thuộc về bước đó, không thuộc bước tìm hàng.
+
+**Nghiệm thu — KHÔNG chấp nhận "suite xanh" thay cho mục này:**
+- [ ] Đăng nhập trình duyệt bằng `buiviet9802@gmail.com` (Nhân viên khoa, KP-00002): mục nav chỉ còn MỘT, tìm → thêm giỏ → gửi duyệt, chạy trọn.
+- [ ] Đăng nhập bằng một tài khoản quản lý: cùng màn đó, nút là **"Đặt hàng"**, một lần bấm ra đơn, và **có phiếu đề xuất tự duyệt** đứng sau.
+- [ ] `/catalog` và `/cart` gõ thẳng vào thanh địa chỉ → chuyển hướng, không 404.
+- [ ] `cd frontend && yarn build` đỗ.
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.
