@@ -63,3 +63,4 @@ miyano_portal.patches.v1_23.them_khoa_phong_vao_don_hang
 miyano_portal.patches.v1_24.them_de_xuat_vao_don_hang
 miyano_portal.patches.v1_25.xoa_co_mua_le
 miyano_portal.patches.v1_25.them_nguon_gia_dong_phieu
+miyano_portal.patches.v1_26.dong_bo_gia_hdnt_da_ky

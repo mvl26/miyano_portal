@@ -13,6 +13,7 @@ Hai đường tính giá và kiểm hạn mức là hai đường sẽ lệch nh
 import frappe
 from frappe.model.naming import validate_name
 
+from miyano_portal import gia_hdnt
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
     nguon_gia_theo_ma_cho_khach,
 )
@@ -29,22 +30,6 @@ from miyano_portal.portal_mua_le import (
     resolve_ban_le_company,
 )
 from miyano_portal.portal_thong_bao import bao_thieu_gia
-
-
-def _gia_hien_hanh(item_code: str, price_list: str):
-    """Đơn giá bán hiện hành của một mặt hàng trong bảng giá của hợp đồng.
-
-    Tách ra để vòng gom lỗi và vòng dựng đơn dùng CHUNG một phép tra: hai chỗ
-    tra riêng là hai chỗ có thể lệch nhau khi một bên được sửa.
-
-    Nợ đã biết, cố ý giữ nguyên hành vi cũ ở lần tách này: chưa lọc
-    `valid_from`/`valid_upto`, nhiều bản ghi thì lấy tuỳ ý.
-    """
-    return frappe.db.get_value(
-        "Item Price",
-        {"item_code": item_code, "price_list": price_list, "selling": 1},
-        "price_list_rate",
-    )
 
 
 def _customer_addresses(customer: str) -> list:
@@ -352,7 +337,11 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
         # US-E1.4 — kiểm giá phải nằm TRONG vòng gom này. Bản trước ném ngay
         # ở mặt hàng thiếu giá đầu tiên tại vòng dựng đơn, nên giỏ vừa vượt
         # hạn mức vừa thiếu giá bắt khách gửi hai lần — đúng thứ BR-O3 cấm.
-        rate = _gia_hien_hanh(item_code, price_list) if price_list else None
+        # QĐ-G12 (Task 12) — giá của dòng hợp đồng lấy từ CHÍNH hợp đồng
+        # `bo_dong` vừa suy ra, bảng giá chỉ là bước lui. KHÔNG còn gác
+        # `if price_list` ở đây: bước 1 không cần bảng giá nào, phép kiểm
+        # nằm trong `gia_dong_hop_dong()` (xem docstring hàm đó).
+        rate = gia_hdnt.gia_dong_hop_dong(item_code, bo_dong, price_list)
         if not rate:
             # Khách không phải tự đi đòi giá. Báo sales phụ trách ngay, tối
             # đa một lần mỗi ngày cho mỗi cặp (khách, mặt hàng).

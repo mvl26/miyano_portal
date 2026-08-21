@@ -16,7 +16,8 @@ BẪY #2 §5.6 ("giá tính lại tại thời điểm duyệt, khác giá khoa 
 báo cho quản lý TRƯỚC KHI họ bấm") — vòng sửa (19/08/2026, sau report Task
 6 đầu tiên): VẾ MỘT (tính lại tại thời điểm duyệt) có SẴN nhờ kiến trúc:
 `dat_hang.tao_sales_order` luôn tra `Item Price` MỚI NHẤT tại thời điểm gọi
-(`_gia_hien_hanh`), không cache lại giá cũ. VẾ HAI (báo TRƯỚC KHI bấm) giờ
+(`gia_hdnt.gia_dong_hop_dong`, QĐ-G12 — hợp đồng trước, bảng giá sau),
+không cache lại giá cũ. VẾ HAI (báo TRƯỚC KHI bấm) giờ
 có DỮ LIỆU: `PortalDeXuatMua.gui_duyet()` đóng dấu `don_gia` = giá hiện
 hành NGAY lúc gửi duyệt (cùng lúc `so_luong_de_xuat` bị khoá) — đó là "giá
 khoa đã thấy". `_kiem_gia_doi()` dưới đây so `don_gia` với giá tính lại
@@ -27,7 +28,7 @@ module này) tự quyết cách báo và có bắt xác nhận hay không.
 
 import frappe
 
-from miyano_portal import dat_hang
+from miyano_portal import dat_hang, gia_hdnt
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	nguon_gia_theo_ma_cho_khach,
 )
@@ -204,9 +205,15 @@ def _kiem_gia_doi(doc) -> list[dict]:
 		hop_dong_doi = bo_moi != bo_cu
 		# Chỉ dòng thuộc hợp đồng mới có giá để so — dòng "Chờ báo giá"
 		# không bao giờ có `don_gia` (xem `_dong_dau_gia()`).
+		# QĐ-G12 (Task 12) — giá tính lại phải tra ĐÚNG như lúc dựng đơn,
+		# tức từ CHÍNH hợp đồng `bo_moi` trước, bảng giá sau. Nếu nơi này
+		# vẫn chỉ tra bảng giá, cảnh báo "giá đổi" sẽ so một con số KHÔNG
+		# PHẢI con số đơn sắp mang — báo động giả (hoặc im lặng) đúng ở
+		# chỗ quản lý cần tin nhất. `price_list` có thể `None`: phép kiểm
+		# nằm trong `gia_dong_hop_dong()`, không nhân bản ra đây.
 		gia_moi = (
-			dat_hang._gia_hien_hanh(row.item_code, price_list)
-			if price_list and bo_moi else None
+			gia_hdnt.gia_dong_hop_dong(row.item_code, bo_moi, price_list)
+			if bo_moi else None
 		)
 		gia_cu = float(row.don_gia) if row.don_gia else None
 		gia_doi = (

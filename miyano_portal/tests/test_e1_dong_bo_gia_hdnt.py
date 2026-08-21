@@ -25,7 +25,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from miyano_portal import gia_hdnt
+from miyano_portal import dat_hang, gia_hdnt
 from miyano_portal.api import portal
 from miyano_portal.setup.seed_demo import COMPANY, seed_demo
 
@@ -256,35 +256,47 @@ class TestNhieuHopDongMotKhach(_GiaFixture):
         self.assertTrue(res.get("sales_order"))
 
 
-class TestDanhMucVaDatHangCoTheLECH(_GiaFixture):
-    """GHIM một điểm LỆCH ĐÃ BIẾT, không phải mô tả hành vi mong muốn.
+class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
+    """Task 12 (QĐ-G12) — điểm LỆCH mà lớp này từng GHIM đã bị xoá hẳn.
 
-    `portal_catalog:232` tra `Item Price` rồi **rơi về `Blanket Order Item.
-    rate`**, trong khi ba đường đặt hàng chỉ chấp nhận `Item Price`. Đó chính
-    là thứ khiến lỗi gốc không thể tự giải thích: danh mục hiện giá đẹp, gửi
-    đơn thì bị chặn "chưa có giá trong hợp đồng".
+    LỊCH SỬ, đọc trước khi sửa: lớp này tên cũ là `TestDanhMucVaDatHangCoThe
+    LECH` và khẳng định ĐÚNG cái sai — `portal_catalog` tra `Item Price` rồi
+    rơi về `Blanket Order Item.rate`, trong khi đường đặt hàng chỉ chấp nhận
+    `Item Price`, nên danh mục hiện giá đẹp còn gửi đơn thì bị chặn "chưa có
+    giá trong hợp đồng". Docstring cũ tự nói rõ: ai sửa hành vi đó phải cập
+    nhật lại chính test này, có ý thức. Task 12 là lần sửa đó — chủ đầu tư
+    gặp đúng điểm lệch ấy trên trình duyệt ngày 21/08.
 
-    Sau bản này, đồng bộ tự động khiến hai bên gần như luôn khớp — nên điểm
-    lệch trở nên VÔ HÌNH và sẽ trôi đi lúc nào không biết. Test này giữ nó ở
-    trạng thái CÓ CHỦ Ý: nếu ai đó sửa `portal_catalog` bỏ fallback (hoặc sửa
-    đường đặt hàng đọc thẳng `rate`), test đỏ và người sửa phải xác nhận đó là
-    thay đổi có ý thức, kèm cập nhật lại chính test này."""
+    Giờ CẢ HAI phía hỏi cùng một hàm (`gia_hdnt.gia_dong_hop_dong`), nên
+    khẳng định đúng của lớp này là hai bên KHỚP NHAU. Bài dưới còn cố ý cài
+    một `Item Price` KHÁC giá hợp đồng: nếu ai đó lật ngược thứ tự tra (bảng
+    giá trước, hợp đồng sau) thì danh mục và đơn lại nói hai con số, và bài
+    này đỏ."""
 
-    def test_thieu_item_price_thi_danh_muc_van_hien_gia_con_dat_hang_thi_chan(self):
+    def test_danh_muc_va_don_hang_noi_cung_mot_gia(self):
         bo = self._hdnt(dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        # Bảng giá khai một con số KHÁC — hợp đồng đã ký phải THẮNG, ở CẢ HAI
+        # phía. Không có dòng này, bài xanh cả khi bảng giá được ưu tiên.
         frappe.db.delete("Item Price", {"price_list": BANG_GIA})
+        frappe.get_doc({
+            "doctype": "Item Price", "item_code": VT, "price_list": BANG_GIA,
+            "selling": 1, "price_list_rate": 55000,
+        }).insert(ignore_permissions=True)
 
         frappe.set_user(KHACH_USER)
         dong = {r["item_code"]: r for r in portal.portal_catalog(bo.name)}[VT]
-        self.assertEqual(dong["rate"], 95000, "danh mục VẪN hiện giá lấy từ rate của HĐNT")
+        self.assertEqual(dong["rate"], 95000, "danh mục phải hiện GIÁ HỢP ĐỒNG")
 
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            portal.portal_order_place(
-                bo.name,
-                json.dumps([{"item_code": VT, "qty": 1}]),
-                request_id=frappe.generate_hash(length=12),
-            )
-        self.assertIn("chưa có giá", str(ctx.exception))
+        res = portal.portal_order_place(
+            bo.name,
+            json.dumps([{"item_code": VT, "qty": 1}]),
+            request_id=frappe.generate_hash(length=12),
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual(
+            float(so.items[0].rate), dong["rate"],
+            "giá khách NHÌN THẤY và giá đơn MANG phải là một",
+        )
 
 
 class TestDatHangDuocSauKhiDongBo(_GiaFixture):
@@ -302,20 +314,29 @@ class TestDatHangDuocSauKhiDongBo(_GiaFixture):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.items[0].rate, 95000)
 
-    def test_khong_dong_bo_thi_van_bao_thieu_gia(self):
-        """Ca ĐỐI CHỨNG — nếu bỏ bước đồng bộ thì lỗi cũ quay lại y nguyên.
-        Không có ca này thì test trên có thể xanh vì một lý do khác (vd. site
-        tình cờ đã có Item Price) mà ta không biết."""
-        bo = self._hdnt()
-        frappe.db.delete("Item Price", {"price_list": BANG_GIA})
-        frappe.set_user(KHACH_USER)
+    def test_chua_khai_gia_o_dau_ca_thi_van_bao_thieu_gia(self):
+        """Ca ĐỐI CHỨNG — không có ca này thì test trên có thể xanh vì một lý
+        do khác (vd. site tình cờ đã có Item Price) mà ta không biết.
+
+        Task 12 (QĐ-G12) — ĐỔI ĐỐI CHỨNG, không nới lỏng nó. Bản cũ xoá
+        `Item Price` rồi đòi cổng phải CHẶN; từ QĐ-G12 cổng đọc thẳng `rate`
+        của hợp đồng nên nó KHÔNG chặn nữa, và đó chính là bản vá, không phải
+        hồi quy (vế dương ở `TestDanhMucVaDatHangKHONGCONLECH` và ở
+        `test_gia_tu_hop_dong.py`). "Thiếu giá" giờ có nghĩa CHƯA KHAI Ở ĐÂU
+        CẢ: `rate = 0` trên hợp đồng VÀ không có dòng bảng giá — và cổng vẫn
+        phải chặn, nguyên văn.
+
+        Đứng trên KHÁCH RIÊNG (`_khach_rieng()`): đây là một khẳng định về sự
+        VẮNG MẶT, mà `FrappeTestCase` rollback MỘT LẦN mỗi CLASS nên hợp đồng
+        của method chạy trước vẫn còn hiệu lực ở đây và sẽ khai giá hộ."""
+        khach, _bang_gia = self._khach_rieng()
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 0}])
         with self.assertRaises(frappe.ValidationError) as ctx:
-            portal.portal_order_place(
-                bo.name,
-                json.dumps([{"item_code": VT, "qty": 2}]),
+            dat_hang.tao_sales_order(
+                khach, contract=bo.name, items=[{"item_code": VT, "qty": 2}],
                 request_id=frappe.generate_hash(length=12),
             )
-        self.assertIn("chưa có giá", str(ctx.exception))
+        self.assertIn("chưa có giá trong hợp đồng", str(ctx.exception))
 
 
 class TestBackfill(_GiaFixture):

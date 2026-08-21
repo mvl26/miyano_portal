@@ -49,8 +49,44 @@ def _dat_gia(item_code: str, rate) -> None:
     )
 
 
+def _dong_hop_dong(item_code: str) -> list:
+    """Mọi dòng `item_code` trên hợp đồng bán CÒN HIỆU LỰC của BVBM.
+
+    Task 12 (QĐ-G12) — giá của một dòng hợp đồng lấy từ CHÍNH hợp đồng
+    TRƯỚC, bảng giá chỉ là bước lui. Nên "chưa có giá" chỉ còn đúng khi CẢ
+    HAI đều trống; bẻ mỗi `Item Price` về 0 như bản trước Task 12 không còn
+    tái lập được tình huống nào cả (cổng sẽ định giá bằng `rate` hợp đồng và
+    ĐI, đúng như bản vá muốn). Quét MỌI hợp đồng còn hiệu lực chứ không chỉ
+    `self.bo`: chỉ cần một hợp đồng khác cũng khai mã đó là cổng lại có giá.
+    """
+    cha = frappe.get_all(
+        "Blanket Order",
+        filters={
+            "customer": BVBM, "blanket_order_type": "Selling", "docstatus": 1,
+            "from_date": ["<=", frappe.utils.today()],
+            "to_date": [">=", frappe.utils.today()],
+        },
+        pluck="name",
+    )
+    if not cha:
+        return []
+    return frappe.get_all(
+        "Blanket Order Item",
+        filters={"item_code": item_code, "parent": ["in", cha]},
+        pluck="name",
+    )
+
+
+def _dat_gia_hop_dong(item_code: str, rate) -> None:
+    for ten in _dong_hop_dong(item_code):
+        frappe.db.set_value("Blanket Order Item", ten, "rate", rate)
+
+
 def _xoa_gia(item_code: str) -> None:
+    """CHƯA KHAI GIÁ Ở ĐÂU CẢ — bảng giá 0 VÀ hợp đồng 0 (xem QĐ-G12 ở
+    `_dong_hop_dong`). Cả hai vế đều bắt buộc kể từ Task 12."""
     _dat_gia(item_code, 0)
+    _dat_gia_hop_dong(item_code, 0)
 
 
 class TestPhongBiLoiCoCauTruc(FrappeTestCase):
@@ -78,8 +114,17 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
         frappe.db.set_value("Item", HC, "custom_boi_so_dat", 0)
         # `FrappeTestCase` rollback một lần mỗi CLASS: ca nào bẻ giá về 0 thì
         # ca sau vẫn thấy 0 và báo `thieu_gia` thay vì lý do đang muốn kiểm.
+        # Task 12 — khôi phục CẢ HAI nguồn giá, cùng lý do `_xoa_gia` bẻ cả
+        # hai: `GIA_GOC` đúng bằng `rate` mà `seed_demo` khai trên hợp đồng.
         for ma, rate in GIA_GOC.items():
             _dat_gia(ma, rate)
+            _dat_gia_hop_dong(ma, rate)
+        for ma, rate in GIA_GOC.items():
+            self.assertTrue(
+                _dong_hop_dong(ma),
+                f"Tiền đề hỏng: {ma} không nằm trên hợp đồng còn hiệu lực nào "
+                "của khách — ca 'thiếu giá' sẽ xanh vì sai lý do.",
+            )
 
     def _dat(self, dong, **kw):
         """Gọi order_place, trả về (mảng `loi`, văn xuôi). Xoá khoá `loi` cũ

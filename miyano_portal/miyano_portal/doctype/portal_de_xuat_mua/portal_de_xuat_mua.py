@@ -251,9 +251,22 @@ class PortalDeXuatMua(Document):
 		`de_xuat_duyet.duyet_va_tao_don()` so với giá tính lại lúc DUYỆT để
 		cảnh báo quản lý — không cảnh báo được gì nếu không có số này.
 
-		Dùng ĐÚNG nguồn giá `dat_hang` dùng (`_gia_hien_hanh`) — hai đường
-		tra giá khác nhau sớm muộn cũng lệch, cùng lý do module đó không tự
-		viết một hàm tra giá thứ hai cho nhánh HĐNT/mua lẻ của chính nó.
+		Dùng ĐÚNG nguồn giá `dat_hang` dùng (`gia_hdnt.gia_dong_hop_dong`,
+		QĐ-G12) — hai đường tra giá khác nhau sớm muộn cũng lệch, cùng lý do
+		module đó không tự viết một hàm tra giá thứ hai cho nhánh HĐNT/mua lẻ
+		của chính nó.
+
+		Task 12 — BỎ gate `if not price_list: return` ở đầu hàm. Bước 1 của
+		QĐ-G12 đọc `Blanket Order Item.rate`, không cần bảng giá nào; giữ
+		gate đó thì khách chưa được gán `default_price_list` không bao giờ
+		được đóng dấu giá dù hợp đồng khai đủ. `price_list` (có thể `None`)
+		đi thẳng xuống `gia_dong_hop_dong()`, nơi phép kiểm nằm.
+
+		`row.blanket_order` là hợp đồng dòng đó đã suy ra — ĐÚNG hợp đồng
+		QĐ-G12 nói tới, và nó vừa được `_suy_nguon_gia()` ngay trên ghi lại.
+		Dòng cũ do patch backfill mang `nguon_gia = "Hợp đồng"` mà
+		`blanket_order` NULL (xem `de_xuat_duyet._kiem_han_muc`) rơi thẳng
+		xuống bảng giá — đúng bằng hành vi trước Task 12, không xấu đi.
 
 		Task 2 (gộp luồng đặt hàng) — HÀNH VI ĐỔI so với trước: trước đây
 		hàm này áp cho CẢ PHIẾU (chỉ chạy khi `loai_don == "HĐNT"`, vì một
@@ -288,14 +301,14 @@ class PortalDeXuatMua(Document):
 		còn tính lại phần đã khoá.
 		"""
 		price_list = frappe.db.get_value("Customer", self.customer, "default_price_list")
-		if not price_list:
-			return
 		self._suy_nguon_gia()
-		from miyano_portal import dat_hang
+		from miyano_portal import gia_hdnt
 		for row in self.items:
 			if row.nguon_gia != NGUON_GIA_HOP_DONG:
 				continue
-			rate = dat_hang._gia_hien_hanh(row.item_code, price_list)
+			rate = gia_hdnt.gia_dong_hop_dong(
+				row.item_code, row.blanket_order, price_list
+			)
 			if rate:
 				row.don_gia = rate
 

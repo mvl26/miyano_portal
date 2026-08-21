@@ -603,7 +603,15 @@ class TestNguonGiaDong(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.items[0].don_gia, 100)   # đóng dấu đúng dòng HĐ
 		self.assertFalse(doc.items[1].don_gia)        # dòng chờ báo giá KHÔNG đóng dấu
-		self._tao_gia(self.item_hd, self.price_list, 150)   # giá đổi SAU khi gửi
+		# Task 12 (QĐ-G12) — mô phỏng "giá đổi" bằng SỬA ĐỔI HỢP ĐỒNG, không
+		# bằng sửa bảng giá: giá của dòng hợp đồng giờ lấy từ CHÍNH hợp đồng,
+		# nên đổi bảng giá không đổi được giá đơn sẽ mang và cảnh báo phải IM
+		# (đúng). Ghi thẳng DB vì hợp đồng đã trình ký không sửa qua `save()`.
+		ten_dong_hd = frappe.db.get_value(
+			"Blanket Order Item", {"parent": self.bo, "item_code": self.item_hd}, "name"
+		)
+		self.assertTrue(ten_dong_hd, f"Không thấy dòng {self.item_hd} trong {self.bo}.")
+		frappe.db.set_value("Blanket Order Item", ten_dong_hd, "rate", 150)
 
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		canh_bao_gia = kq["canh_bao_gia"]

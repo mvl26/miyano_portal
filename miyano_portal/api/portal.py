@@ -1,5 +1,5 @@
 import frappe
-from miyano_portal import dat_hang, einvoice
+from miyano_portal import dat_hang, einvoice, gia_hdnt
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
@@ -165,11 +165,14 @@ def portal_catalog(contract: str) -> list:
         item = frappe.db.get_value(
             "Item", row["item_code"], ["item_name", "stock_uom", "item_group"], as_dict=True
         )
-        rate = frappe.db.get_value(
-            "Item Price",
-            {"item_code": row["item_code"], "price_list": price_list, "selling": 1},
-            "price_list_rate",
-        ) or row["rate"]
+        # QĐ-G12 (Task 12) — TRƯỚC đây chỗ này tra `Item Price` rồi mới rơi
+        # về `row["rate"]`, tức THỨ TỰ NGƯỢC với đường đặt hàng. Sau QĐ-G12
+        # đơn lấy giá HỢP ĐỒNG trước, nên để nguyên là dựng lại đúng điểm
+        # lệch cả kế hoạch này sinh ra để xoá: khách nhìn một giá trên danh
+        # mục, đơn mang một giá khác (VD hợp đồng 88.000 / bảng giá 55.000).
+        # `or 0` giữ nguyên hành vi cũ khi không tra được gì ở đâu cả —
+        # `row["rate"]` lúc đó cũng là 0.
+        rate = gia_hdnt.gia_dong_hop_dong(row["item_code"], contract, price_list) or 0
         con_lai, da_dat = han_muc_con(contract, row["item_code"])
         out.append({
             "item_code": row["item_code"],
@@ -460,10 +463,12 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
             "trang_thai_hang": trang_thai_hang(r.item_code),
         }
         if bo:
-            # ĐÚNG nguồn giá `_dong_dau_gia()` dùng (`_gia_hien_hanh`) — hai
-            # đường tra giá khác nhau sớm muộn cũng lệch, cùng lý do module
-            # `dat_hang` không tự viết một hàm tra giá thứ hai.
-            don_gia = dat_hang._gia_hien_hanh(r.item_code, price_list) if price_list else None
+            # ĐÚNG nguồn giá cả bốn nơi dùng (`gia_hdnt.gia_dong_hop_dong`,
+            # QĐ-G12) — bốn đường tra giá khác nhau sớm muộn cũng lệch. Màn
+            # Lập phiếu phải hiện ĐÚNG con số mà đơn sẽ mang: trước Task 12
+            # nó hiện `null` cho mọi mã chỉ có giá trên hợp đồng, rồi cổng
+            # chặn đơn ở bước gửi — mâu thuẫn khách không tự giải thích được.
+            don_gia = gia_hdnt.gia_dong_hop_dong(r.item_code, bo, price_list)
             con_lai, da_dat = han_muc_con(bo, r.item_code)
             dong.update({
                 "tang": "hop_dong",

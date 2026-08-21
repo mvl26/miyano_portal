@@ -36,6 +36,33 @@ class TestThieuGia(FrappeTestCase):
             "Item Price", {"item_code": HC, "price_list": "HĐNT-BVBM-2026"}, "name"
         )
         frappe.db.set_value("Item Price", self.gia_cu, "price_list_rate", 0)
+        # Task 12 (QĐ-G12) — phải hạ CẢ `Blanket Order Item.rate` về 0, nếu
+        # không "thiếu giá" không còn là thiếu giá: cổng giờ đọc hợp đồng
+        # TRƯỚC bảng giá, nên một hợp đồng còn khai 350.000 sẽ định giá được
+        # dòng này và ca TC-E1-09 mất sạch tiền đề. Quét MỌI hợp đồng bán
+        # còn hiệu lực của khách, không chỉ `HĐNT-BVBM-2026`: chỉ cần một
+        # hợp đồng khác cũng khai HC0009 là cổng lại có giá để dùng.
+        self.dong_hd = frappe.get_all(
+            "Blanket Order Item",
+            filters={"item_code": HC, "docstatus": 1, "parent": ["in", frappe.get_all(
+                "Blanket Order",
+                filters={
+                    "customer": BVBM, "blanket_order_type": "Selling", "docstatus": 1,
+                    "from_date": ["<=", frappe.utils.today()],
+                    "to_date": [">=", frappe.utils.today()],
+                },
+                pluck="name",
+            ) or [""]]},
+            pluck="name",
+        )
+        self.assertTrue(
+            self.dong_hd,
+            "Tiền đề hỏng: không thấy dòng HĐNT nào của khách khai HC0009 — "
+            "ca 'thiếu giá' sẽ xanh vì mặt hàng không thuộc hợp đồng nào, "
+            "không phải vì cổng chặn đúng.",
+        )
+        for ten in self.dong_hd:
+            frappe.db.set_value("Blanket Order Item", ten, "rate", 0)
 
         # `FrappeTestCase` rollback một lần mỗi CLASS, không phải mỗi test:
         # `Notification Log` do ca chạy trước tạo ra vẫn còn khi ca sau chạy,

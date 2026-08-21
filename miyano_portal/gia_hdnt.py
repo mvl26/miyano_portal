@@ -42,11 +42,82 @@ Ranh giới cố ý:
 - **Không tự chế bảng giá.** Khách chưa có `default_price_list` thì báo cho
   người submit chứ không đặt bừa một tên bảng giá (đặt sai thì mọi đơn sau đó
   chạy trên bảng giá không ai rà).
+
+---
+
+**Task 12 (21/08/2026) — QĐ-G12.** Lập luận ở trên VẪN ĐÚNG và không bị bỏ:
+cổng vẫn cần giá TRƯỚC khi có chứng từ, `dong_bo` vẫn là cách để phía ERPNext
+(báo cáo, hoá đơn, giá lúc Desk dựng chứng từ) thấy đúng giá hợp đồng. Cái
+SAI không nằm ở phép tra mà ở chỗ nó là phép tra DUY NHẤT: `tu_hdnt` là hook
+`on_submit`, chạy ĐÚNG MỘT LẦN lúc trình ký, nên mọi hợp đồng ký TRƯỚC khi
+hook ra đời và mọi hợp đồng nạp bằng import chưa bao giờ được đồng bộ — và
+chỗ hổng đó IM LẶNG. Chủ đầu tư gặp đúng nó ngày 21/08: `MFG-BLR-2026-00020`
+khai đủ `rate` cho ba mã, `tabItem Price` không có dòng nào, cổng chặn đơn
+bằng "MYN-SYR-10 chưa có giá trong hợp đồng".
+
+Từ Task 12, cổng KHÔNG còn phụ thuộc việc đồng bộ đã kịp chạy hay chưa: với
+một dòng HỢP ĐỒNG, nguồn giá là CHÍNH HỢP ĐỒNG ĐÓ (`gia_dong_hop_dong()`
+dưới đây), bảng giá chỉ còn là bước lui. Hai việc khác nhau, cả hai đều giữ:
+`gia_dong_hop_dong()` làm cổng ĐÚNG NGAY, `dong_bo()` làm dữ liệu NHẤT QUÁN.
 """
 
 import frappe
 from frappe import _
 from frappe.utils import flt, format_date, getdate
+
+
+def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
+    """QĐ-G12 — đơn giá của MỘT DÒNG, tra theo đúng thứ tự đã chốt.
+
+    HÀM DÙNG CHUNG DUY NHẤT cho mọi nơi cần giá của một dòng hợp đồng: dựng
+    đơn (`dat_hang._xay_don`), danh mục gộp (`api/portal.portal_catalog_gop`),
+    đóng dấu giá lúc gửi duyệt (`PortalDeXuatMua._dong_dau_gia`) và so giá
+    lúc duyệt (`de_xuat_duyet._kiem_gia_doi`). Bốn phép tra riêng là bốn chỗ
+    có thể lệch, và dự án này đã trả giá đúng cho lỗi đó ở `nguon_gia`/
+    `blanket_order` (Ruling P28: kiểm hạn mức và dựng đơn mỗi bên tự suy hợp
+    đồng, hai bên bất đồng ở hai trạng thái tới được).
+
+    Thứ tự, dừng ở giá trị DƯƠNG đầu tiên:
+
+      1. `Blanket Order Item.rate` của ĐÚNG hợp đồng dòng đó đã suy ra
+         (`blanket_order`) — hợp đồng đã ký là nguồn sự thật;
+      2. `Item Price` trong bảng giá của khách (`price_list`);
+      3. Không có → trả `None`, người gọi báo thiếu giá.
+
+    `rate <= 0` ở bước 1 là CHƯA KHAI GIÁ (không phải "bán 0 đồng") — cùng
+    quy ước `dong_bo()` đã dùng ở dưới — nên rơi xuống bước 2.
+
+    Bước 1 là chỗ DUY NHẤT lọc "phải dương". Bước 2 trả THẲNG giá trị đọc
+    được, kể cả `0`, đúng như phép tra cũ (`dat_hang._gia_hien_hanh`, đã xoá)
+    — mọi người gọi đều dùng `if not rate`, nên `0` và `None` cho cùng một
+    kết cục ở cổng đặt hàng; giữ nguyên giá trị trả về để `portal_catalog_gop`
+    (hiển thị `don_gia`) không đổi hành vi ở nhánh không liên quan tới QĐ-G12.
+
+    `price_list` được phép `None` và phép kiểm nằm TRONG hàm này, không ở
+    bốn nơi gọi: bước 1 KHÔNG cần bảng giá nào cả. Để phép kiểm ở ngoài
+    (`... if price_list else None`, đúng dạng cả bốn nơi gọi đang viết trước
+    Task 12) thì một khách chưa được gán `default_price_list` vẫn bị chặn
+    "chưa có giá trong hợp đồng" dù hợp đồng khai giá đầy đủ — tức QĐ-G12
+    chết ngay ở ca dễ gặp nhất.
+
+    Nợ cũ, cố ý giữ nguyên: bước 2 chưa lọc `valid_from`/`valid_upto`, nhiều
+    bản ghi thì lấy tuỳ ý.
+    """
+    if blanket_order:
+        rate = flt(frappe.db.get_value(
+            "Blanket Order Item",
+            {"parent": blanket_order, "item_code": item_code},
+            "rate",
+        ))
+        if rate > 0:
+            return rate
+    if not price_list:
+        return None
+    return frappe.db.get_value(
+        "Item Price",
+        {"item_code": item_code, "price_list": price_list, "selling": 1},
+        "price_list_rate",
+    )
 
 
 def dong_bo(bo) -> dict:
