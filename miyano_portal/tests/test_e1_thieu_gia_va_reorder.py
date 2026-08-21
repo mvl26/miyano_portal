@@ -23,6 +23,32 @@ def _rid() -> str:
     return frappe.generate_hash(length=12)
 
 
+def _dong_hop_dong_bvbm(item_code: str) -> list:
+    """Mọi dòng `item_code` trên hợp đồng bán CÒN HIỆU LỰC của BVBM.
+
+    Task 12 (QĐ-G12) — giá của một dòng hợp đồng lấy từ CHÍNH hợp đồng trước,
+    bảng giá chỉ là bước lui; nên mọi thao tác "đổi giá"/"xoá giá" trong file
+    này phải chạm tới hợp đồng, không chỉ `Item Price`. Quét MỌI hợp đồng còn
+    hiệu lực chứ không chỉ một: một hợp đồng khác cũng khai mã đó là đủ để
+    cổng có giá và bài test mất tiền đề."""
+    cha = frappe.get_all(
+        "Blanket Order",
+        filters={
+            "customer": BVBM, "blanket_order_type": "Selling", "docstatus": 1,
+            "from_date": ["<=", frappe.utils.today()],
+            "to_date": [">=", frappe.utils.today()],
+        },
+        pluck="name",
+    )
+    if not cha:
+        return []
+    return frappe.get_all(
+        "Blanket Order Item",
+        filters={"item_code": item_code, "parent": ["in", cha]},
+        pluck="name",
+    )
+
+
 class TestThieuGia(FrappeTestCase):
     def setUp(self):
         seed_demo()
@@ -42,19 +68,7 @@ class TestThieuGia(FrappeTestCase):
         # dòng này và ca TC-E1-09 mất sạch tiền đề. Quét MỌI hợp đồng bán
         # còn hiệu lực của khách, không chỉ `HĐNT-BVBM-2026`: chỉ cần một
         # hợp đồng khác cũng khai HC0009 là cổng lại có giá để dùng.
-        self.dong_hd = frappe.get_all(
-            "Blanket Order Item",
-            filters={"item_code": HC, "docstatus": 1, "parent": ["in", frappe.get_all(
-                "Blanket Order",
-                filters={
-                    "customer": BVBM, "blanket_order_type": "Selling", "docstatus": 1,
-                    "from_date": ["<=", frappe.utils.today()],
-                    "to_date": [">=", frappe.utils.today()],
-                },
-                pluck="name",
-            ) or [""]]},
-            pluck="name",
-        )
+        self.dong_hd = _dong_hop_dong_bvbm(HC)
         self.assertTrue(
             self.dong_hd,
             "Tiền đề hỏng: không thấy dòng HĐNT nào của khách khai HC0009 — "
@@ -175,6 +189,12 @@ class TestReorder(FrappeTestCase):
                 self.assertIn("remaining", d)
 
     def test_gia_la_gia_hien_hanh_khong_phai_gia_luu_tren_don_cu(self):
+        """Task 12 (QĐ-G12) — "giá hiện hành" giờ là giá trên HỢP ĐỒNG trước,
+        bảng giá sau, nên sửa đổi hợp đồng mới là cách mô phỏng đúng nghiệp
+        vụ. Đặt CẢ HAI về 9999 để bài này khẳng định đúng một điều duy nhất
+        (giá lấy hiện hành, không lấy giá đóng trên đơn cũ) chứ không vô tình
+        thành một bài kiểm thứ tự tra — thứ tự đã có bài riêng ở
+        `test_gia_tu_hop_dong.py`."""
         frappe.set_user("Administrator")
         frappe.db.set_value(
             "Item Price",
@@ -182,6 +202,8 @@ class TestReorder(FrappeTestCase):
             "price_list_rate",
             9999,
         )
+        for ten in _dong_hop_dong_bvbm(VT):
+            frappe.db.set_value("Blanket Order Item", ten, "rate", 9999)
         frappe.set_user(USER_BVBM)
         kq = portal.portal_reorder(self.don)
         dong_vt = next(d for d in kq["gio_hang"] if d["item_code"] == VT)
