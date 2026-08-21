@@ -68,35 +68,54 @@ const tenKhoa = computed(() => {
 // `tenPhieu` rỗng cho tới lần Lưu/Gửi đầu tiên — xem ghi chú "TẠO LƯỜI" ở
 // đầu file.
 const tenPhieu = ref('')
-const dangTao = ref(false)
 
+// KHÔNG cần tự chốt "đang tạo" ở đây: hai nơi gọi duy nhất (`luuNhap`,
+// `guiDuyet`) đã tự khoá bằng `dangLuu`/`dangGui` NGAY ĐẦU HÀM, trước khi gọi
+// tới đây — bấm kép Lưu nháp hay Gửi duyệt trong lúc phiếu đang được tạo đều
+// bị chặn từ vòng ngoài. Từng có một bản giữ thêm một cờ `dangTao` riêng và
+// `return null` khi trùng — nhưng đường đó KHÔNG BAO GIỜ chạy tới (hai cờ
+// ngoài đã chặn hết), và nếu một ngày nó chạy tới, `null` lọt xuống dưới
+// dạng "không có gì xảy ra" — không toast, không lỗi, người dùng chỉ thấy
+// nút nháy rồi thôi. Bỏ hẳn nhánh chết đó: lỗi thật (mạng, quyền...) giờ ném
+// thẳng ra ngoài, rơi vào đúng `catch` đã có sẵn ở `luuNhap`/`guiDuyet`.
 async function damBaoCoTen() {
   if (tenPhieu.value) return tenPhieu.value
-  if (dangTao.value) return null // tránh bấm kép sinh hai phiếu Nháp
-  dangTao.value = true
-  try {
-    // Brief T8 — GỌI KHÔNG THAM SỐ. `loai_don` từng là tham số của hàm này
-    // nhưng đang bị xoá khỏi doctype cùng đợt kế hoạch này (khái niệm "loại
-    // đơn" bỏ hẳn khỏi phiếu đề xuất) — truyền nó hôm nay bị lặng lẽ bỏ qua,
-    // và mai kia sẽ là một tham số không còn tồn tại.
-    const res = await api.callDeXuat('de_xuat_tao_nhap')
-    tenPhieu.value = res.name
-    return tenPhieu.value
-  } finally {
-    dangTao.value = false
-  }
+  // Brief T8 — GỌI KHÔNG THAM SỐ. `loai_don` từng là tham số của hàm này
+  // nhưng đang bị xoá khỏi doctype cùng đợt kế hoạch này (khái niệm "loại
+  // đơn" bỏ hẳn khỏi phiếu đề xuất) — truyền nó hôm nay bị lặng lẽ bỏ qua,
+  // và mai kia sẽ là một tham số không còn tồn tại.
+  const res = await api.callDeXuat('de_xuat_tao_nhap')
+  tenPhieu.value = res.name
+  return tenPhieu.value
 }
 
 // --- Dòng hàng đã chọn (tầng 1 + tầng 2, có mã) ---------------------------
 const items = ref([]) // { item_code, item_name, dvt, so_luong_de_xuat, tang, don_gia }
 const qtys = reactive({}) // item_code → số lượng đang chọn ở ô tìm kiếm
 
+// `so_luong_de_xuat` là Float trên doctype con, và chính ô sửa số lượng ở
+// bảng "Danh sách đề xuất" bên dưới dùng `step="any"` — vật tư y tế đặt lẻ
+// (vd. 2.5 mét băng gạc) là chuyện bình thường. `parseInt` sẽ CẮT phần thập
+// phân MÀ KHÔNG BÁO GÌ (2.5 → 2) — đúng lớp lỗi "im lặng làm sai số lượng"
+// mà `kiemTraSoLuong()` bên dưới đã tránh cho đường lưu; hàm này tránh nó
+// cho đường CỘNG DÒNG. Chỉ rơi về 1 khi giá trị THẬT SỰ không hợp lệ
+// (rỗng, chữ, ≤ 0) — không phải mọi số có phần thập phân.
+function soHienTai(itemCode) {
+  const n = Number(qtys[itemCode])
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
+
 function themDong(row) {
-  const soRaw = qtys[row.item_code]
-  const so = Math.max(1, parseInt(soRaw) || 1)
+  const so = soHienTai(row.item_code)
   const daCo = items.value.find((r) => r.item_code === row.item_code)
   if (daCo) {
     daCo.so_luong_de_xuat = (Number(daCo.so_luong_de_xuat) || 0) + so
+    // Cố ý GIỮ `tang`/`don_gia` của dòng đã có trên phiếu, không ghi đè
+    // bằng kết quả tìm kiếm mới — hai điều này chỉ để HIỂN THỊ badge, giá
+    // thật do server tự suy lại ở `validate()` (`_suy_nguon_gia`, Task 2)
+    // mỗi lần lưu, không đọc từ đây. Badge có thể trễ một nhịp so với một
+    // tìm kiếm khác vừa chạy sau đó; chấp nhận được vì đây chỉ là gợi ý
+    // hiển thị, không phải giá trị được gửi lên server.
   } else {
     items.value.push({
       item_code: row.item_code,
@@ -292,7 +311,6 @@ async function luuNhap() {
   dangLuu.value = true
   try {
     const ten = await damBaoCoTen()
-    if (!ten) return
     await ghiPhieu(ten)
     showToast('Đã lưu nháp.')
   } catch (e) {
@@ -315,7 +333,6 @@ async function guiDuyet() {
   dangGui.value = true
   try {
     const ten = await damBaoCoTen()
-    if (!ten) return
     await ghiPhieu(ten)
     const res = await api.callDeXuat('de_xuat_gui_duyet', { ten })
     showToast(`Đã gửi duyệt — mã phiếu ${res.ma_de_xuat}.`)
@@ -395,9 +412,9 @@ onMounted(async () => {
               <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
               <td>
                 <div class="step">
-                  <button @click="qtys[r.item_code] = Math.max(1, (parseInt(qtys[r.item_code]) || 1) - 1)">−</button>
-                  <input v-model="qtys[r.item_code]" inputmode="numeric" />
-                  <button @click="qtys[r.item_code] = (parseInt(qtys[r.item_code]) || 1) + 1">+</button>
+                  <button @click="qtys[r.item_code] = Math.max(1, soHienTai(r.item_code) - 1)">−</button>
+                  <input v-model="qtys[r.item_code]" inputmode="decimal" />
+                  <button @click="qtys[r.item_code] = soHienTai(r.item_code) + 1">+</button>
                 </div>
               </td>
               <td><button class="btn btn-sm" @click="themDong(r)">+ Thêm</button></td>
@@ -412,9 +429,9 @@ onMounted(async () => {
           <span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span>
           <div class="sb" style="margin-top: 10px">
             <div class="step">
-              <button @click="qtys[r.item_code] = Math.max(1, (parseInt(qtys[r.item_code]) || 1) - 1)">−</button>
-              <input v-model="qtys[r.item_code]" inputmode="numeric" />
-              <button @click="qtys[r.item_code] = (parseInt(qtys[r.item_code]) || 1) + 1">+</button>
+              <button @click="qtys[r.item_code] = Math.max(1, soHienTai(r.item_code) - 1)">−</button>
+              <input v-model="qtys[r.item_code]" inputmode="decimal" />
+              <button @click="qtys[r.item_code] = soHienTai(r.item_code) + 1">+</button>
             </div>
             <button class="btn btn-sm" @click="themDong(r)">+ Thêm</button>
           </div>
