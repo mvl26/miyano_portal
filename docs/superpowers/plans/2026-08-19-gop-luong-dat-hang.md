@@ -461,6 +461,61 @@ Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
 
 ---
 
+## Task 15: Form Excel tạo tài khoản, khoa phòng và phân quyền
+
+**Chủ đầu tư đặt ra 25/08:** *"em tạo cho anh form bảng excel để nhân viên bên bệnh viện điền để tạo user tương ứng và phân quyền"*, và chốt tiếp: *"cho nó hiển thị ra trên phần desk của miyano nhé, nhưng phần setup tương tự theo luồng"*.
+
+**Files:** `miyano_portal/api/nhan_su.py` *(mới)*, một Page trong Desk, `miyano_portal/tests/test_nhan_su_import.py` *(mới)*
+
+### Khoảng trống đang lấp — đo được, không phải suy đoán
+
+`portal_provision` (`api/portal.py:1920`) đã nghĩ kỹ: khách chưa có quản lý → tài khoản đầu thành **Quản lý, active=1, không cần khoa** (toàn viện); khách đã có quản lý → tài khoản mới thành **Nhân viên khoa, `active = 0`** — **chưa dùng được** — và bình luận ghi rõ *"CHỜ quản lý gán khoa + bật lại"*.
+
+**Nhưng ba chỗ đứt:**
+1. **Không màn nào để gán khoa.** Không route `/thanh-vien`, không thành phần frontend nào đụng `Portal Member`.
+2. **Không UI nào gọi `portal_provision`.** Whitelist nhưng không ai dùng.
+3. **Không chỗ nào trong app ghi `khoa_phong`** ngoài seed demo (đã grep toàn bộ).
+→ Đường duy nhất hôm nay: mở Desk, sửa tay từng bản ghi `Portal Member`. **Lần thứ chín** trong dự án: cơ chế thiết kế tử tế, bước cuối không có lối vào.
+
+### Quyết định
+
+**QĐ-G17 — trong Desk của Miyano, theo khuôn `mẫu` → `xem trước` → `ghi`** đã có ở `api/kho.py` (`kho_import_template`/`_preview`/`_commit`). Không đẻ khuôn thứ ba.
+
+**QĐ-G18 — khách hàng CHỌN TRÊN MÀN HÌNH, không nằm trong file.** Một file cho một bệnh viện. Một cột "tên bệnh viện" gõ tay là đường để nhập nhầm người của viện này sang viện khác — đúng thứ cơ chế cách ly dữ liệu sinh ra để chặn.
+
+**Cột:** `Họ tên | Email | Khoa | Mã khoa | Vai trò`.
+
+**QĐ-G19 — mật khẩu do Miyano đặt, hiện MỘT LẦN sau khi ghi** để chép ra bàn giao (chủ đầu tư chốt). **Không nằm trong file Excel, không gửi email, không ghi vào log.** Bắt **đổi ở lần đăng nhập đầu**.
+*Sai thì mất gì:* mật khẩu đi qua tin nhắn/giấy; đã cân nhắc với chủ đầu tư và họ chọn cách này vì khoa thường không có email thật.
+
+**QĐ-G20 — khoa chưa có thì TỰ TẠO**, nhưng bước xem trước **phải nói rõ** *"sẽ tạo khoa mới: Huyết học (HUYETHOC)"*. Gõ nhầm tên khoa không được lặng lẽ đẻ ra khoa rác.
+
+**QĐ-G21 — DÙNG LẠI `portal_provision` cho phần User/Contact/User Permission, nhưng ĐÈ hai thứ:**
+- **`first_name` lấy từ cột Họ tên**, không phải tên khách hàng. `portal_provision:1944` đang đặt `first_name = customer`, nên **tên hiển thị của người dùng là tên bệnh viện** — chính nguyên nhân gốc của lỗi khối truy vết phát hiện ngày 21/08 (`97fd6e2`).
+- **`vai_tro` lấy từ cột Vai trò**, không theo luật ngầm "người đầu tiên là Quản lý". Hai cơ chế cùng quyết một việc là lỗi lặp lại nhiều lần trong dự án này; ở đây **tờ khai thắng**.
+
+**QĐ-G22 — nhập lại cùng file KHÔNG được đẻ trùng.** Khớp theo email.
+
+**QĐ-G23 — email đã tồn tại ở khách hàng KHÁC: không tạo lại, không đổi mật khẩu của họ.** Chỉ báo ở bước xem trước và **để Miyano quyết** — có thể là người thật làm ở hai nơi, cũng có thể là gõ nhầm.
+
+**Chốt hợp lệ:** Quản lý **được** để trống khoa (toàn viện); **Nhân viên khoa để trống khoa là LỖI** — bắt ở bước xem trước, vì đó chính là trạng thái kẹt mà task này sinh ra để dẹp.
+
+### Rủi ro lớn nhất
+
+**Tạo tài khoản là việc khó lùi** — một tài khoản đăng nhập được đã tồn tại thì xoá vẫn để lại dấu. **Bước xem trước là chốt chính, không phải trang trí**: nó phải liệt kê từng dòng sẽ *tạo mới / bỏ qua vì đã có / từ chối vì lý do gì*, và **chưa ghi gì cả**. Một lần nhập ghi 60 trên 100 dòng rồi im lặng là kiểu hỏng dự án này đã có sẵn cơ chế phòng.
+
+### Test tối thiểu
+- File hợp lệ → đúng số User + Portal Member + Customer Department được tạo **(vế dương)**
+- **Xem trước KHÔNG ghi gì** — đếm bản ghi trước/sau, phải bằng nhau
+- Nhập lại cùng file → **không đẻ trùng**
+- Nhân viên khoa thiếu khoa → **bị từ chối ở xem trước**, kèm số dòng
+- Quản lý thiếu khoa → **hợp lệ**
+- Email của khách khác → báo, **không tạo, không đổi mật khẩu**
+- **Cách ly:** file của khách A không tạo được gì thuộc khách B
+- `first_name` là **tên người**, không phải tên bệnh viện (chốt QĐ-G21)
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.
