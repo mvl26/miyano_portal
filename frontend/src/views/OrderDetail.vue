@@ -345,7 +345,7 @@ onMounted(load)
   <div>
     <div class="topbar">
       <div>
-        <router-link to="/orders" v-if="!isMobile"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
+        <router-link :to="{ name: 'yeu-cau' }" v-if="!isMobile"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
       </div>
     </div>
 

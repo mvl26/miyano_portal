@@ -26,7 +26,7 @@ const biCat = ref(false)
 const khoaFilter = ref('') // '' = Tất cả các khoa
 
 // Khoa phòng chỉ có MÃ (`KP-00001`) trong payload danh sách — cùng khuôn
-// DeXuatList.vue/DeXuatDetail.vue: nạp danh mục khoa phòng của kho rồi tự
+// YeuCauList.vue/DeXuatDetail.vue: nạp danh mục khoa phòng của kho rồi tự
 // map mã -> tên. Best-effort: lỗi ở đây chỉ làm dropdown hiện mã thô, không
 // chặn cả hàng chờ duyệt.
 const khoaPhongList = ref([])

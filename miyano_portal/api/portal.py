@@ -34,7 +34,12 @@ from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_deliv
     TT_TU_CHOI,
 )
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+    TRANG_THAI_CHO_DUYET,
+    TRANG_THAI_CHO_DUYET_SUA,
     TRANG_THAI_DA_DUYET,
+    TRANG_THAI_DA_HUY,
+    TRANG_THAI_NHAP,
+    TRANG_THAI_TU_CHOI,
     nguon_gia_theo_ma_cho_khach,
 )
 from miyano_portal.portal_kiem_hang import (
@@ -900,6 +905,212 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
         # phiếu đề xuất để trống — hợp lệ, không phải lỗi.
         r["ma_tra_cuu"] = r.pop("custom_ma_tra_cuu") or ""
     return {"rows": rows, "tong": tong}
+
+
+# ---- Task 11 (QĐ-G11) — MỘT danh sách, MỘT dòng đời ---------------------
+#
+# Trước bản này một yêu cầu của khoa nằm ở "Đề xuất mua" khi còn là phiếu
+# rồi NHẢY sang "Đơn hàng của tôi" sau khi quản lý duyệt. Để tìm lại yêu
+# cầu của chính mình, nhân viên phải biết trước nó đang ở giai đoạn NỘI BỘ
+# nào — tức phải học sơ đồ kiến trúc của hệ thống.
+#
+# `giai_doan` là dòng đời DUY NHẤT mà người dùng nhìn thấy. Nó KHÔNG thay
+# hai từ điển trạng thái đang có (`Portal De Xuat Mua.trang_thai` và
+# `_so_status_vi_full`) — nó là một lớp THÔ HƠN phủ lên cả hai, đủ để trả
+# lời đúng câu người dùng hỏi ("yêu cầu của tôi tới đâu rồi?"). Nhãn chi
+# tiết của đơn vẫn đi kèm ở `trang_thai_don` để màn danh sách không nuốt
+# mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
+# Hai `workflow_state` do CỔNG tự ghi (không thuộc máy trạng thái gốc của
+# `install_workflow.py`) — cùng hai giá trị `_TRANG_THAI_GHI_DE_WORKFLOW`
+# và `_so_status_vi_full` đang đọc, đặt tên ở đây để câu SQL bên dưới không
+# nhúng chuỗi trần lần thứ ba.
+WF_KHACH_HUY = "Khách huỷ"
+WF_BAO_GIA_HET_HAN = "Báo giá hết hạn"
+
+GIAI_DOAN_NHAP = "Nháp"
+GIAI_DOAN_CHO_DUYET = "Chờ duyệt"
+GIAI_DOAN_DA_DUYET = "Đã duyệt"
+GIAI_DOAN_CHO_BAO_GIA = "Chờ báo giá"
+GIAI_DOAN_DA_GIAO = "Đã giao"
+GIAI_DOAN_TU_CHOI = "Từ chối"
+GIAI_DOAN_DA_HUY = "Đã huỷ"
+
+# Năm giai đoạn của QĐ-G11 + HAI ngõ cụt. Hai ngõ cụt KHÔNG phải phần thừa:
+# chúng là trạng thái THẬT mà chính người dùng đưa yêu cầu của mình vào
+# (bấm Huỷ, hoặc bị quản lý từ chối), và người vừa làm việc đó là người đi
+# tìm lại nó ngay sau đó — đúng bài học "Việc (d)" của `DeXuatList.vue`.
+GIAI_DOAN_HOP_LE = (
+    GIAI_DOAN_NHAP, GIAI_DOAN_CHO_DUYET, GIAI_DOAN_DA_DUYET,
+    GIAI_DOAN_CHO_BAO_GIA, GIAI_DOAN_DA_GIAO,
+    GIAI_DOAN_TU_CHOI, GIAI_DOAN_DA_HUY,
+)
+
+
+def _sql_giai_doan(tt: str, so: str) -> str:
+    """Biểu thức SQL suy `giai_doan`. `tt` là cột trạng thái của PHIẾU
+    (hoặc `null` cho nhánh đơn-không-qua-đề-xuất), `so` là alias bảng
+    `tabSales Order`.
+
+    ĐỊNH NGHĨA MỘT LẦN, dùng cho CẢ lọc, CẢ đếm `tong`, CẢ hiển thị — nếu
+    lọc ở SQL còn nhãn suy ở Python thì hai vế sẽ trôi khỏi nhau, đúng lỗi
+    `_so_status_vi`/`_so_status_vi_full` đã phải gộp lại một lần rồi.
+
+    Thứ tự nhánh là CÓ CHỦ Ý: trạng thái PHIẾU thắng trước. Một phiếu đang
+    "Chờ duyệt sửa" đã có đơn đứng sau, nhưng thứ nó đang CHỜ là quản lý,
+    không phải Miyano — hiện "Đã duyệt" ở đó là nói sai ai đang giữ việc.
+
+    "Chờ báo giá" = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` — báo
+    giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin lại
+    giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
+    lúc giao hàng, nên chip này TỚI ĐƯỢC chứ không phải một chip luôn rỗng.
+    `null` trên `{tt}` (nhánh đơn) làm mọi phép so sánh trạng thái phiếu ra
+    NULL — falsy trong SQL — nên nhánh đó rơi thẳng xuống các luật đơn hàng
+    mà không cần một biểu thức riêng.
+    """
+    return f"""case
+        when {tt} = '{TRANG_THAI_NHAP}' then '{GIAI_DOAN_NHAP}'
+        when {tt} in ('{TRANG_THAI_CHO_DUYET}', '{TRANG_THAI_CHO_DUYET_SUA}')
+            then '{GIAI_DOAN_CHO_DUYET}'
+        when {tt} = '{TRANG_THAI_TU_CHOI}' then '{GIAI_DOAN_TU_CHOI}'
+        when {tt} = '{TRANG_THAI_DA_HUY}' then '{GIAI_DOAN_DA_HUY}'
+        when {so}.name is null then '{GIAI_DOAN_DA_DUYET}'
+        when {so}.docstatus = 2 or {so}.status = 'Cancelled'
+             or {so}.workflow_state = '{WF_KHACH_HUY}'
+            then '{GIAI_DOAN_DA_HUY}'
+        when {so}.status in ('Completed', 'Closed') or {so}.per_delivered > 0
+            then '{GIAI_DOAN_DA_GIAO}'
+        when {so}.workflow_state in ('{TRANG_THAI_CHO_KHACH}', '{WF_BAO_GIA_HET_HAN}')
+            then '{GIAI_DOAN_CHO_BAO_GIA}'
+        else '{GIAI_DOAN_DA_DUYET}'
+    end"""
+
+
+@frappe.whitelist()
+def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
+    """QĐ-G11 — danh sách HỢP NHẤT phiếu đề xuất + đơn hàng, MỘT dòng cho
+    mỗi yêu cầu, ở bất kỳ giai đoạn nào của dòng đời.
+
+    Rào cản kỹ thuật của việc gộp đã tự mất từ Task 9: đơn hàng mang thẳng
+    mã đề xuất, và phiếu giữ `sales_order` trỏ sang đơn — trên CẢ HAI đường
+    sinh đơn (`de_xuat_duyet.duyet_va_tao_don` cho luồng duyệt, và
+    `_dam_bao_phieu_tu_duyet` cho giỏ hàng quản lý). Gộp vì thế là một phép
+    NOT EXISTS trên `sales_order`, không phải một phép khớp mã bằng tay.
+
+    KHÔNG dùng `frappe.get_list`: role `Customer` có ZERO DocPerm trên
+    `Portal De Xuat Mua`, nên `get_list` ném `PermissionError` cho MỌI
+    Website User TRƯỚC KHI hook phạm vi kịp chạy (xem docstring
+    `api/de_xuat.py`). Đường sống là hàm này, và nó phải TỰ hỏi đúng chốt
+    phạm vi mà tầng hook hỏi — `get_portal_member()` cho trục khách hàng,
+    `pham_vi_don()` cho trục khoa. Hệ quả: điều kiện `permission_query_
+    conditions` (`permissions.sales_query`) KHÔNG tự áp lên SQL thô ở đây,
+    nên nhánh đơn hàng phải mang bộ lọc khoa của chính nó — đó là lý do
+    `dk_don` tồn tại thay vì tin vào tầng hook.
+
+    Cắt trang TRONG SQL (`limit`/`offset` trên truy vấn đã gộp), và `tong`
+    đếm SAU khi gộp + SAU khi lọc: đếm trước khi gộp thì phiếu-đã-thành-đơn
+    bị tính hai lần, trang cuối rỗng, và khách thấy một con số không khớp
+    số dòng đếm được. Lọc `giai_doan` cũng ở SQL, không ở client — lọc trên
+    ĐÚNG MỘT trang đã tải chính là hồi quy đã phải vá cho `Orders.vue`
+    (brief 2026-08-16).
+
+    "Duyệt" (`/duyet`) KHÔNG gộp vào đây: đó là HÀNG CHỜ VIỆC của quản lý,
+    khác mục đích với *danh sách của tôi*.
+    """
+    if giai_doan and giai_doan not in GIAI_DOAN_HOP_LE:
+        frappe.throw(
+            f"Giai đoạn không hợp lệ: {giai_doan}", frappe.ValidationError
+        )
+
+    tv = get_portal_member()
+    tham_so = {"kh": tv.customer}
+    khoa = pham_vi_don().get("custom_khoa_phong")
+
+    dk_phieu = "p.customer = %(kh)s"
+    dk_don = "so.customer = %(kh)s"
+    if khoa:
+        tham_so["khoa"] = khoa
+        dk_phieu += " and p.khoa_phong = %(khoa)s"
+        dk_don += " and so.custom_khoa_phong = %(khoa)s"
+
+    # Lưới an toàn lúc triển khai, cùng nguồn kiểm tra với
+    # `_pham_vi_filters()`/`permissions._khoa_query_condition`: trên một
+    # site CHƯA chạy patch v1_23, cột `Sales Order.custom_khoa_phong` không
+    # tồn tại và MariaDB ném 1054 ngay lúc PARSE — không có short-circuit
+    # theo giá trị runtime. Thiếu cột thì nhánh ĐƠN HÀNG bị bỏ hẳn với nhân
+    # viên khoa (fail-closed: thà câm còn hơn rò đơn của mọi khoa kèm tổng
+    # tiền). Nhánh PHIẾU không phụ thuộc cột custom nào nên vẫn tới đúng
+    # người — câm đúng chỗ, không câm cả màn.
+    co_cot_khoa = _cot_khoa_phong_ton_tai()
+    cot_khoa_don = "so.custom_khoa_phong" if co_cot_khoa else "null"
+    co_nhanh_don = co_cot_khoa or not khoa
+
+    nhanh_phieu = f"""
+        select 'phieu' as nguon, p.name as de_xuat, p.sales_order as sales_order,
+               coalesce(nullif(p.ma_de_xuat, ''), p.name) as ma,
+               p.khoa_phong as khoa_phong, p.creation as thoi_diem,
+               p.trang_thai as trang_thai_phieu, p.owner as owner,
+               so.status as so_status, so.per_delivered as per_delivered,
+               so.workflow_state as workflow_state, so.grand_total as grand_total,
+               p.name as khoa_sap_xep,
+               {_sql_giai_doan("p.trang_thai", "so")} as giai_doan
+        from `tabPortal De Xuat Mua` p
+        left join `tabSales Order` so on so.name = p.sales_order
+        where {dk_phieu}
+    """
+    # Đơn KHÔNG đứng sau phiếu nào — đơn cũ (có trước luồng duyệt) và đơn
+    # của sáu tài khoản quản lý đang chạy thật. `not exists` trên
+    # `sales_order` là ĐÚNG mối nối mã thật ghi, và nó cũng nuốt luôn ca
+    # `custom_de_xuat` trỏ vào một phiếu đã bị xoá.
+    nhanh_don = f"""
+        select 'don', null, so.name, so.name,
+               {cot_khoa_don}, so.creation, null, null,
+               so.status, so.per_delivered, so.workflow_state, so.grand_total,
+               so.name, {_sql_giai_doan("null", "so")}
+        from `tabSales Order` so
+        where {dk_don}
+          and not exists (
+              select 1 from `tabPortal De Xuat Mua` p2
+              where p2.customer = %(kh)s and p2.sales_order = so.name
+          )
+    """
+    trong = nhanh_phieu + (f" union all {nhanh_don}" if co_nhanh_don else "")
+
+    dk_giai_doan = ""
+    if giai_doan:
+        tham_so["gd"] = giai_doan
+        dk_giai_doan = " where t.giai_doan = %(gd)s"
+
+    tong = frappe.db.sql(
+        f"select count(*) from ({trong}) t{dk_giai_doan}", tham_so
+    )[0][0]
+    rows = frappe.db.sql(
+        f"""select * from ({trong}) t{dk_giai_doan}
+            order by t.thoi_diem desc, t.khoa_sap_xep desc
+            limit %(limit)s offset %(start)s""",
+        {**tham_so, "limit": int(limit), "start": int(start)},
+        as_dict=True,
+    )
+    for r in rows:
+        so_status = r.pop("so_status")
+        workflow_state = r.pop("workflow_state")
+        r["sales_order"] = r.get("sales_order") or ""
+        r["de_xuat"] = r.get("de_xuat") or ""
+        r["khoa_phong"] = r.get("khoa_phong") or ""
+        r["trang_thai_phieu"] = r.get("trang_thai_phieu") or ""
+        # `owner` nuôi đúng một việc ở màn danh sách: có hiện nút "Sửa" cho
+        # một phiếu Nháp hay không (`de_xuat_luu_nhap` cho owner HOẶC quản
+        # lý). Cùng điều kiện `DeXuatList.vue::coTheSuaNhap` đã dùng —
+        # client đoán khác server thì khách gõ xong mới ăn "Phiếu này không
+        # phải của bạn" và mất sạch công sửa.
+        r["owner"] = r.get("owner") or ""
+        # Nhãn CHI TIẾT của đơn — dùng lại ĐÚNG hàm mà `portal_order_
+        # history`/`portal_order_track` dùng, không viết bản thứ ba.
+        r["trang_thai_don"] = _so_status_vi_full(
+            so_status, r.get("per_delivered"), workflow_state
+        ) if r["sales_order"] else ""
+        r["per_delivered"] = float(r.get("per_delivered") or 0)
+        r["grand_total"] = float(r.get("grand_total") or 0)
+    return {"rows": rows, "tong": int(tong)}
 
 
 def _dem_don_theo_trang_thai(trang_thai: str) -> int:

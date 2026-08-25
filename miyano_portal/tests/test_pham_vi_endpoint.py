@@ -35,6 +35,12 @@ from miyano_portal.api import portal as portal_api
 # (trục khoa) trong chính `api/de_xuat.py::_phieu_cua_toi()`/
 # `de_xuat_tao_nhap()`/`de_xuat_danh_sach()` — không cái nào miễn.
 DA_AP_PHAM_VI: set[str] = {
+	# Task 11 (21/08/2026, QĐ-G11) — danh sách hợp nhất phiếu + đơn. SQL
+	# THÔ (union), nên `permission_query_conditions` KHÔNG tự áp: nó tự hỏi
+	# `get_portal_member()` (trục khách) + `pham_vi_don()` (trục khoa) cho
+	# CẢ HAI nhánh, cộng lưới `_cot_khoa_phong_ton_tai()` fail-closed cho
+	# nhánh đơn — xem docstring endpoint.
+	"portal_yeu_cau_cua_toi",
 	"portal_order_history", "portal_order_track", "portal_dashboard_kpi",
 	"portal_deliveries", "portal_invoices", "portal_reorder",
 	"portal_order_accept", "portal_order_sua_so_luong", "portal_order_huy",

@@ -1,9 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import Dashboard from './views/Dashboard.vue'
-import Orders from './views/Orders.vue'
+import YeuCauList from './views/YeuCauList.vue'
 import OrderDetail from './views/OrderDetail.vue'
-import DeXuatList from './views/DeXuatList.vue'
 import DeXuatDetail from './views/DeXuatDetail.vue'
 import LapPhieu from './views/LapPhieu.vue'
 import DuyetList from './views/DuyetList.vue'
@@ -37,19 +36,38 @@ const routes = [
   // phiếu Nháp, xem `datLai()` ở màn đó.
   { path: '/catalog', redirect: { name: 'dat-hang' } },
   { path: '/cart', redirect: { name: 'dat-hang' } },
-  { path: '/orders', name: 'orders', component: Orders, meta: { title: 'Đơn hàng của tôi' } },
-  { path: '/orders/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
-  // Man luong duyet (Task 3) — danh sách phiếu đề xuất mua.
-  { path: '/de-xuat', name: 'de-xuat', component: DeXuatList, meta: { title: 'Đề xuất mua' } },
+  // Task 11 (QĐ-G11, 21/08/2026) — MỘT danh sách, MỘT dòng đời. Nuốt hai
+  // màn cũ `/orders` (Sales Order) và `/de-xuat` (phiếu đề xuất): một yêu
+  // cầu nằm ở màn này khi còn là phiếu rồi NHẢY sang màn kia sau khi
+  // duyệt, bắt nhân viên phải biết trước giai đoạn nội bộ mới tìm lại
+  // được yêu cầu của chính mình.
+  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Yêu cầu của tôi' } },
+  { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
+  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
+  // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
+  // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404
+  // cho một đường đang chạy là hồi quy, không phải dọn dẹp. Hai đường có
+  // tham số GIỮ NGUYÊN tham số — link trong email trỏ tới MỘT chứng từ cụ
+  // thể, chuyển hướng về danh sách suông là đánh mất đúng thứ người nhận
+  // đang tìm.
+  { path: '/orders', redirect: { name: 'yeu-cau' } },
+  {
+    path: '/orders/:name',
+    redirect: (to) => ({ name: 'order-detail', params: { name: to.params.name } }),
+  },
+  { path: '/de-xuat', redirect: { name: 'yeu-cau' } },
   // `/de-xuat/lap/:ten?` là màn Lập phiếu cũ — nay CHÍNH LÀ `/dat-hang`
   // (Task 10). Giữ nguyên tham số `:ten` khi chuyển hướng: đường này nằm
-  // trong nút "Sửa nháp" của mọi phiếu đã gửi đi trước bản này.
+  // trong nút "Sửa nháp" của mọi phiếu đã gửi đi trước bản này. PHẢI đứng
+  // TRƯỚC `/de-xuat/:ten` — nếu không, "lap" bị nuốt làm giá trị `:ten`.
   {
     path: '/de-xuat/lap/:ten?',
     redirect: (to) => ({ name: 'dat-hang', params: { ten: to.params.ten } }),
   },
-  // Man luong duyet (Task 4) — chi tiết một phiếu đề xuất mua.
-  { path: '/de-xuat/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
+  {
+    path: '/de-xuat/:ten',
+    redirect: (to) => ({ name: 'de-xuat-detail', params: { ten: to.params.ten } }),
+  },
   // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +
   // "Chờ duyệt sửa". Mục nav chỉ hiện cho `me.la_quan_ly` (App.vue), nhưng
   // route KHÔNG khoá cứng theo vai trò: backend (`de_xuat_danh_sach` +

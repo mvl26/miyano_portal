@@ -18,11 +18,15 @@ const NAV = [
   // hàng là một BƯỚC của việc đặt hàng chứ không phải một đích đến ai đó mở
   // cổng lên để vào xem. Tên giữ nguyên "Đặt hàng" theo chủ đầu tư.
   { to: '/dat-hang', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'dat-hang' },
-  { to: '/orders', icon: '📋', label: 'Đơn hàng của tôi', short: 'Đơn', key: 'orders' },
-  // Man luong duyet (Task 3) — hiện cho MỌI vai trò: nhân viên khoa thấy
-  // phiếu khoa mình, quản lý thấy toàn viện. Server (`de_xuat_danh_sach`
-  // + `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
-  { to: '/de-xuat', icon: '📝', label: 'Đề xuất mua', short: 'Đề xuất', key: 'de-xuat' },
+  // Task 11 (QĐ-G11, 21/08/2026) — MỘT mục cho "xem đồ mình xin đã tới
+  // đâu". Hai mục cũ ("Đơn hàng của tôi" `/orders`, "Đề xuất mua"
+  // `/de-xuat`) là HAI danh sách của CÙNG MỘT THỨ: một yêu cầu nằm ở mục
+  // sau khi còn là phiếu rồi nhảy sang mục trước sau khi duyệt — nhân
+  // viên phải biết trước giai đoạn nội bộ mới tìm lại được yêu cầu của
+  // chính mình. Hiện cho MỌI vai trò: nhân viên khoa thấy yêu cầu khoa
+  // mình, quản lý thấy toàn viện; server (`portal_yeu_cau_cua_toi` +
+  // `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
+  { to: '/yeu-cau', icon: '📋', label: 'Yêu cầu của tôi', short: 'Yêu cầu', key: 'yeu-cau' },
   // Man luong duyet (Task 5) — hàng chờ của quản lý. `requireQuanLy: true`
   // lọc ở `navItems` bên dưới, ĐÚNG khoá `me.la_quan_ly` — KHÔNG tự suy từ
   // `vai_tro === 'Quản lý'`. Lý do: kế hoạch sau thêm uỷ quyền tạm thời,
@@ -36,19 +40,21 @@ const NAV = [
   { to: '/profile', icon: '🏥', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile' },
 ]
 
-// Bottom nav (mobile): Thông báo truy cập qua "Thêm" (Hồ sơ) như Hoá đơn,
-// để giữ đúng 6 mục cố định của mockup — badge vẫn hiện trên chính mục
-// "Thêm" (xem isActive/`thongBaoQuaThem` bên dưới) để không mất tín hiệu.
+// Bottom nav (mobile): Thông báo truy cập qua "Thêm" (Hồ sơ) như Hoá đơn —
+// badge vẫn hiện trên chính mục "Thêm" (xem `isActive` bên dưới) để không
+// mất tín hiệu.
 //
 // Task 10 — "Giỏ hàng" rời thanh dưới cùng lúc rời sidebar (nó là một BƯỚC
-// của màn Đặt hàng, không phải một cửa). Chỗ trống nhường cho "Đề xuất" —
-// mục mà nhân viên khoa vào để xem yêu cầu mình đã gửi đi tới đâu, trước
-// bản này chỉ tới được qua "Thêm".
+// của màn Đặt hàng, không phải một cửa).
+//
+// Task 11 — "Đơn hàng" và "Đề xuất" gộp thành MỘT mục "Yêu cầu": thanh
+// dưới còn NĂM mục, không phải sáu như mockup gốc. CỐ Ý không lấp chỗ
+// trống bằng một mục khác — lấp cho đủ số là dựng lại đúng thứ task này
+// vừa dỡ (một cửa tồn tại vì có ô trống, không vì có người cần nó).
 const BNAV = [
   { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
   { to: '/dat-hang', icon: '🛒', short: 'Đặt hàng', key: 'dat-hang' },
-  { to: '/orders', icon: '📋', short: 'Đơn hàng', key: 'orders' },
-  { to: '/de-xuat', icon: '📝', short: 'Đề xuất', key: 'de-xuat' },
+  { to: '/yeu-cau', icon: '📋', short: 'Yêu cầu', key: 'yeu-cau' },
   { to: '/kho', icon: '🏭', short: 'Kho', key: 'kho' },
   { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile', thongBao: true },
 ]
@@ -68,18 +74,24 @@ const navItems = computed(() => NAV.filter((n) => !n.requireQuanLy || store.me?.
 
 function isActive(key) {
   const name = route.name || ''
-  if (key === 'orders') return name === 'orders' || name === 'order-detail'
   // Task 10 — `/dat-hang/:ten` (mở lại một phiếu Nháp để sửa tiếp) là CÙNG
-  // một màn, cùng một mục nav: cùng khuôn nhánh 'orders' ở trên.
+  // một màn, cùng một mục nav.
   if (key === 'dat-hang') return name === 'dat-hang'
-  // Man luong duyet (Task 4) — route con 'de-xuat-detail' vừa được tạo;
-  // cùng khuôn nhánh 'orders' ở trên, không phát minh cách khác.
-  // Việc (c) + C3 — màn chi tiết phiếu là ĐÍCH CHUNG của HAI mục nav. Nó
-  // sáng ở mục nào là do NƠI ĐÃ TỚI quyết định, đọc từ `?tu=` mà danh sách
-  // nguồn ghi vào lúc điều hướng (xem `quayLaiTo` ở DeXuatDetail.vue). Thiếu
-  // vế này thì quản lý mở phiếu từ /duyet lại thấy "Đề xuất mua" sáng —
-  // đúng lỗi đã sửa cho 'de-xuat' ở Task 4, tái diễn qua cửa 'duyet'.
-  if (key === 'de-xuat') return name === 'de-xuat' || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
+  // Task 11 — MỘT mục nav ôm CẢ BA route của một yêu cầu: danh sách gộp,
+  // chi tiết đơn, chi tiết phiếu.
+  //
+  // Việc (c) + C3 (giữ nguyên từ Task 4) — màn chi tiết phiếu là ĐÍCH
+  // CHUNG của HAI mục nav. Nó sáng ở mục nào là do NƠI ĐÃ TỚI quyết định,
+  // đọc từ `?tu=` mà danh sách nguồn ghi vào lúc điều hướng (xem
+  // `quayLaiTo` ở DeXuatDetail.vue). Thiếu vế này thì quản lý mở phiếu từ
+  // /duyet lại thấy "Yêu cầu của tôi" sáng.
+  if (key === 'yeu-cau') {
+    return (
+      name === 'yeu-cau'
+      || name === 'order-detail'
+      || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
+    )
+  }
   if (key === 'duyet') return name === 'duyet' || (name === 'de-xuat-detail' && route.query.tu === 'duyet')
   if (key === 'kho') {
     return [

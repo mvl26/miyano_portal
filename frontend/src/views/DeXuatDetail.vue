@@ -24,7 +24,7 @@ async function loadKhoaPhongList() {
   try {
     khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
   } catch (e) {
-    // Best-effort — cùng khuôn DeXuatList.vue: một khách chưa mở kho vẫn
+    // Best-effort — cùng khuôn YeuCauList.vue: một khách chưa mở kho vẫn
     // phải xem được chi tiết phiếu, chỉ mất phần dịch tên khoa.
   }
 }
@@ -85,7 +85,7 @@ const coTheSuaNhap = computed(
 const quayLaiTo = computed(() => {
   const q = route.query
   if (q.tu === 'duyet') return { name: 'duyet', query: q.khoa ? { khoa: String(q.khoa) } : {} }
-  return { name: 'de-xuat', query: q.chip ? { chip: String(q.chip) } : {} }
+  return { name: 'yeu-cau', query: q.chip ? { chip: String(q.chip) } : {} }
 })
 const quayLaiNhan = computed(() => (route.query.tu === 'duyet' ? '← Về hàng chờ duyệt' : '← Quay lại'))
 
@@ -471,7 +471,7 @@ onMounted(async () => {
              -->
         <p v-if="doc.sales_order" style="font-size: 13px; margin-top: 8px">
           <b>Đơn hàng:</b>
-          <router-link :to="`/orders/${doc.sales_order}`" style="text-decoration: underline; margin-left: 4px">
+          <router-link :to="{ name: 'order-detail', params: { name: doc.sales_order } }" style="text-decoration: underline; margin-left: 4px">
             {{ doc.ma_de_xuat || doc.sales_order }}
             <span v-if="doc.ma_de_xuat && doc.ma_de_xuat !== doc.sales_order" class="tag">({{ doc.sales_order }})</span>
           </router-link>

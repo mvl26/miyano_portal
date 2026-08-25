@@ -79,6 +79,23 @@ export function deXuatBadge(trangThai) {
   return map[trangThai] || 'b-gray'
 }
 
+// Task 11 (QĐ-G11) — MỘT dòng đời cho màn "Yêu cầu của tôi":
+// `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`, cộng hai ngõ cụt.
+// Giá trị do backend suy (`portal_yeu_cau_list.giai_doan`), không phải
+// client tự ghép từ hai từ điển trạng thái cũ.
+export function giaiDoanBadge(giaiDoan) {
+  const map = {
+    'Nháp': 'b-gray',
+    'Chờ duyệt': 'b-blue',
+    'Đã duyệt': 'b-blue',
+    'Chờ báo giá': 'b-orange',
+    'Đã giao': 'b-green',
+    'Từ chối': 'b-red',
+    'Đã huỷ': 'b-red',
+  }
+  return map[giaiDoan] || 'b-gray'
+}
+
 // YYYY-MM-DD hôm nay (local) để so sánh hạn thanh toán.
 export function todayISO() {
   const d = new Date()

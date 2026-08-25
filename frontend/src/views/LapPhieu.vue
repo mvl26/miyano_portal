@@ -93,7 +93,7 @@ async function loadKhoaPhongList() {
   try {
     khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
   } catch (e) {
-    // Best-effort — cùng khuôn DeXuatList.vue: chỉ mất phần dịch tên khoa.
+    // Best-effort — cùng khuôn YeuCauList.vue: chỉ mất phần dịch tên khoa.
   }
 }
 const tenKhoa = computed(() => {
@@ -469,7 +469,7 @@ async function taiHoacKhoiTao() {
         `Phiếu ${d.ma_de_xuat || tenParam} không còn ở trạng thái Nháp — không sửa được ở đây nữa.`,
         'error'
       )
-      router.replace({ name: 'de-xuat-detail', params: { ten: tenParam }, query: { tu: 'de-xuat' } })
+      router.replace({ name: 'de-xuat-detail', params: { ten: tenParam }, query: { tu: 'yeu-cau' } })
       return
     }
     napTuPhieu(d)
@@ -604,7 +604,7 @@ async function guiDuyet() {
     await ghiPhieu(ten)
     const res = await api.callDeXuat('de_xuat_gui_duyet', { ten })
     showToast(`Đã gửi duyệt — mã phiếu ${res.ma_de_xuat}.`)
-    router.push({ name: 'de-xuat-detail', params: { ten }, query: { tu: 'de-xuat' } })
+    router.push({ name: 'de-xuat-detail', params: { ten }, query: { tu: 'yeu-cau' } })
   } catch (e) {
     showToast(e.message || 'Không gửi được phiếu.', 'error')
   } finally {
@@ -679,7 +679,7 @@ async function xoaPhieu() {
   try {
     await api.callDeXuat('de_xuat_xoa_nhap', { ten: tenPhieu.value })
     showToast('Đã xoá phiếu.')
-    router.push({ name: 'de-xuat' })
+    router.push({ name: 'yeu-cau' })
   } catch (e) {
     showToast(e.message || 'Không xoá được phiếu.', 'error')
   } finally {
@@ -887,7 +887,7 @@ onMounted(async () => {
           <b>{{ donDaDat.de_xuat || '—' }}</b>
         </p>
         <div class="flex" style="justify-content: center; margin-top: 20px; flex-wrap: wrap">
-          <button class="btn-o" @click="router.push('/orders')">Xem đơn hàng</button>
+          <button class="btn-o" @click="router.push({ name: 'yeu-cau' })">Xem đơn hàng</button>
           <button class="btn" @click="donDaDat = null; buoc = 'chon'">Tiếp tục đặt hàng</button>
         </div>
       </div>

@@ -8,9 +8,23 @@ Kiểm kê ngày 21/08/2026, sau khi chủ đầu tư chỉ ra: *"anh thấy v�
 
 > **Cập nhật 21/08/2026 — Task 10 ĐÃ THI CÔNG.** Ba cửa `#2 Đặt hàng`,
 > `#3 Giỏ hàng`, `#5 Lập phiếu đề xuất` đã gộp thành **một** mục `Đặt hàng`
-> (`/dat-hang`). Nav còn **9 mục** (quản lý: 10). Task 11 (gộp `#4 Đơn hàng
-> của tôi` + `#6 Đề xuất mua` thành `Yêu cầu của tôi`) chưa thi công — khi
-> nó xong, con số cuối cùng ở mục 3 mới đạt.
+> (`/dat-hang`).
+>
+> **Cập nhật 25/08/2026 — Task 11 ĐÃ THI CÔNG.** Hai cửa `#4 Đơn hàng của
+> tôi` và `#6 Đề xuất mua` đã gộp thành **một** mục `Yêu cầu của tôi`
+> (`/yeu-cau`). **11 cửa → 7** cho nhân viên khoa, **8** cho quản lý (thêm
+> `Duyệt`) — con số cuối cùng ở mục 3 đã đạt.
+>
+> *Đính chính phép đếm:* bản ghi ngày 21/08 viết "nav còn **9 mục** (quản
+> lý: 10)". Đếm SAI: mảng `NAV` của `App.vue` sau Task 10 có 9 dòng **kể
+> cả** `Duyệt`, mà `Duyệt` chỉ hiện cho quản lý — tức quản lý thấy 9, nhân
+> viên khoa thấy 8. Con số đúng của giai đoạn đó là **9/8**, không phải
+> 10/9. Ghi lại ở đây thay vì sửa đè, để lần sau còn kiểm chứng được. Từ
+> bản này phép đếm được CANH BẰNG TEST
+> (`tests/test_yeu_cau_list.py::TestDuongCuVaSoCua::
+> test_so_muc_nav_dung_8_quan_ly_va_7_nhan_vien`) — nó đọc thẳng mảng `NAV`
+> trong `App.vue`, nên một mục mọc lại sẽ đỏ ngay chứ không đợi chủ đầu tư
+> đếm bằng mắt lần thứ hai.
 >
 > Kiểm kê ở mục 1 dưới đây GIỮ NGUYÊN làm bản gốc "trước khi gộp": nó là
 > bằng chứng của cái đã sai, và một tài liệu tự xoá bằng chứng của mình thì
@@ -78,9 +92,39 @@ Nghĩa là **để tìm lại yêu cầu của mình, nhân viên phải biết 
 
 **Và chính chủ đầu tư đã gỡ bỏ rào cản kỹ thuật cuối cùng của việc gộp** khi chốt ngày 21/08 rằng đơn hàng **mang thẳng mã đề xuất** (`MD-HUYETHOC-260819-91`) thay vì `SAL-ORD-…`. Phiếu và đơn giờ **cùng một mã**. Không còn lý do gì để chúng nằm hai danh sách.
 
+**✅ ĐÃ THI CÔNG (Task 11, 25/08/2026).** `/yeu-cau` là danh sách duy nhất,
+**một dòng đời**: `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`
+(cộng hai ngõ cụt `Từ chối`/`Đã huỷ` — trạng thái THẬT mà chính người dùng
+đưa yêu cầu của mình vào, nên phải tìm lại được). Một yêu cầu xuất hiện
+**đúng một lần**, ở bất kỳ giai đoạn nào; phiếu và đơn sinh ra từ nó là
+**một dòng**.
+
+Việc gộp làm ở **server** (`api/portal.py::portal_yeu_cau_cua_toi`), không
+phải client ghép hai danh sách: một truy vấn `union all` (phiếu ⊎ đơn
+không-đứng-sau-phiếu-nào), khử trùng bằng `Portal De Xuat Mua.sales_order`
+— mối nối mà **cả hai** đường sinh đơn đều ghi (`de_xuat_duyet.
+duyet_va_tao_don` cho luồng duyệt, `_dam_bao_phieu_tu_duyet` cho giỏ hàng
+quản lý). Lọc + đếm `tong` + cắt trang đều **trong SQL**: lọc trên đúng một
+trang đã tải chính là hồi quy đã phải vá cho `Orders.vue` (brief
+2026-08-16), và đếm trước khi gộp thì trang cuối rỗng.
+
+**`Duyệt` (`/duyet`) KHÔNG gộp vào đây** — nó là **hàng chờ việc** của quản
+lý, khác mục đích với *danh sách của tôi*. Gộp hai thứ khác mục đích chỉ vì
+chúng cùng kiểu dữ liệu là lặp lại đúng lỗi mục này tồn tại để sửa.
+
+*Vì sao tên endpoint là `portal_yeu_cau_cua_toi` chứ không phải
+`portal_yeu_cau_list`:* cái tên sau đã **bị chiếm** — nó là endpoint "Yêu
+cầu hàng hoá" (`Portal Item Request`) **đã gỡ khỏi cổng** theo spec
+2026-08-15 §3.2, và `tests/test_go_yeu_cau_khoi_cong.py` canh đúng việc nó
+KHÔNG được sống lại. Bản đầu của Task 11 đặt trùng tên và làm test đó đỏ —
+đúng như cái chốt được dựng ra để làm. Hai khái niệm khác nhau không được
+dùng chung một tên trong lịch sử của cùng một module.
+
 ### 2.4 "Đơn hàng gần đây" trên Tổng quan (#1) — cái nhìn thứ ba
 
 Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng ghi: cùng dữ liệu đó hiện ở **ba** nơi.
+
+*Sau Task 11:* còn **hai** — `Tổng quan` (bản tóm tắt) và `Yêu cầu của tôi` (danh sách đầy đủ). Khối "đơn hàng gần đây" của dashboard vẫn đọc `portal_order_history` và vẫn mở sang `/yeu-cau/don/:name`; **cố ý không đổi** sang endpoint gộp trong task này — nó là một màn tóm tắt, không phải một cửa thứ ba, và đổi nó là làm việc ngoài phạm vi task đã giao.
 
 ---
 
@@ -96,22 +140,27 @@ Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng
 | Thông báo | `/thong-bao` | giữ nguyên |
 | Hồ sơ đơn vị | `/profile` | giữ nguyên |
 
-**Trạng thái:** Task 10 (gộp đặt hàng) **đã thi công 21/08**. Task 11 (gộp
-danh sách) chưa — cho tới khi xong, nav thật là:
+**Trạng thái:** Task 10 (gộp đặt hàng) **đã thi công 21/08**, Task 11 (gộp
+danh sách) **đã thi công 25/08**. Nav thật hôm nay ĐÚNG BẰNG bảng trên,
+cộng `Duyệt` cho quản lý:
 
-| # | Mục | Đường dẫn | Ghi chú |
+| # | Mục | Đường dẫn | Ai thấy |
 |---|---|---|---|
-| 1 | Tổng quan | `/dashboard` | |
-| 2 | **Đặt hàng** | `/dat-hang` | **MỚI** — nuốt `/catalog`, `/cart`, `/de-xuat/lap` |
-| 3 | Đơn hàng của tôi | `/orders` | Task 11 sẽ gộp với #4 |
-| 4 | Đề xuất mua | `/de-xuat` | Task 11 sẽ gộp với #3 |
-| 5 | Duyệt | `/duyet` | *quản lý mới thấy* |
-| 6 | Kho của tôi | `/kho` | |
-| 7 | Hoá đơn & công nợ | `/invoices` | |
-| 8 | Thông báo | `/thong-bao` | |
-| 9 | Hồ sơ đơn vị | `/profile` | |
+| 1 | Tổng quan | `/dashboard` | mọi vai trò |
+| 2 | **Đặt hàng** | `/dat-hang` | mọi vai trò — nuốt `/catalog`, `/cart`, `/de-xuat/lap` (Task 10) |
+| 3 | **Yêu cầu của tôi** | `/yeu-cau` | mọi vai trò — nuốt `/orders`, `/de-xuat` (Task 11) |
+| 4 | Duyệt | `/duyet` | **quản lý mới thấy** |
+| 5 | Kho của tôi | `/kho` | mọi vai trò |
+| 6 | Hoá đơn & công nợ | `/invoices` | mọi vai trò |
+| 7 | Thông báo | `/thong-bao` | mọi vai trò |
+| 8 | Hồ sơ đơn vị | `/profile` | mọi vai trò |
 
-**11 cửa → 9** (quản lý: 12 → 10). Task 11 đưa nốt về 7 (+ Duyệt).
+**11 cửa → 7** cho nhân viên khoa; **12 → 8** cho quản lý.
+
+Thanh dưới (mobile, `BNAV`) còn **năm** mục — `Tổng quan · Đặt hàng · Yêu
+cầu · Kho · Thêm` — chứ không phải sáu như mockup gốc. **Cố ý không lấp**
+chỗ trống bằng một mục khác: lấp cho đủ số là dựng lại đúng thứ hai task
+này vừa dỡ (một cửa tồn tại vì có ô trống, không vì có người cần nó).
 
 ### Task 10 BỎ đi những gì (để không ai đi tìm chúng)
 
@@ -136,6 +185,29 @@ toàn cục rồi đẩy sang `/cart`. Nay nó tạo thẳng một phiếu Nháp
 dòng đặt lại được và mở `/dat-hang/<mã phiếu>` — nếu chỉ để `/cart` chuyển
 hướng suông thì khách nhận toast thành công và một giỏ TRỐNG, đúng loại
 hỏng lặng lẽ mà tài liệu này tồn tại để bắt.
+
+### Task 11 BỎ đi những gì (để không ai đi tìm chúng)
+
+| Thứ đã bỏ | Vì sao |
+|---|---|
+| Màn `Orders.vue` (`/orders`) và `DeXuatList.vue` (`/de-xuat`) | Hai danh sách của CÙNG MỘT THỨ (mục 2.3). Cả hai file đã **xoá**, không để lại: còn file là còn đường mọc lại một mục nav thứ hai — `tests/test_yeu_cau_list.py::test_khong_con_man_danh_sach_cu` canh đúng việc đó. |
+| Hai bộ chip lọc rời (`Chờ xác nhận/Đang xử lý/…` của đơn, `Nháp/Chờ duyệt/…` của phiếu) | Chúng là hai từ điển trạng thái của hai chứng từ, không phải hai giai đoạn của một yêu cầu. Nay là **một** bộ chip theo `giai_doan`. Nhãn chi tiết của đơn vẫn hiện ở dòng thứ hai của ô trạng thái (`trang_thai_don`) — giai đoạn gộp không được nuốt mất tín hiệu "đang chờ CHÍNH BẠN đồng ý". |
+| Mục thứ sáu của thanh nav dưới (mobile) | Không còn hai mục để nhét vào sáu ô; xem ghi chú ở mục 3. |
+
+### Đường cũ — chuyển hướng, không 404 (QĐ-G11)
+
+| Đường cũ | Đi đâu |
+|---|---|
+| `/orders` | → `/yeu-cau` |
+| `/orders/:name` | → `/yeu-cau/don/:name` (**giữ nguyên tham số**) |
+| `/de-xuat` | → `/yeu-cau` |
+| `/de-xuat/:ten` | → `/yeu-cau/phieu/:ten` (**giữ nguyên tham số**) |
+
+Hai đường có tham số nằm trong **link của các thông báo tự động đã gửi
+đi** — chúng trỏ tới MỘT chứng từ cụ thể, nên chuyển hướng về danh sách
+suông là đánh mất đúng thứ người nhận đang tìm. `tests/test_yeu_cau_list.
+py::TestDuongCuVaSoCua` canh cả bốn đường: còn khai báo, là `redirect`
+(không `component`), và hai đường có tham số vẫn truyền `params`.
 
 Quản lý thấy thêm: **Duyệt** (`/duyet`) — đây **không** phải danh sách trùng, nó là **hàng chờ việc**, khác về mục đích.
 
