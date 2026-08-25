@@ -44,6 +44,11 @@ export function statusBadge(statusVi) {
     'Hoàn thành': 'b-green',
     'Hoàn thành (đóng sớm)': 'b-green',
     'Đã huỷ': 'b-red',
+    // Review vòng 1 Task 11 — nhãn MỚI của `_so_status_vi_full` cho
+    // `workflow_state = "Từ chối"`. Thiếu dòng này thì một đơn Miyano đã
+    // từ chối đeo badge XÁM y hệt một đơn đang chờ xử lý bình thường —
+    // đúng tín hiệu sai mà bản vá backend vừa dựng ra để dẹp.
+    'Miyano đã từ chối': 'b-red',
   }
   return map[statusVi] || 'b-gray'
 }
@@ -81,7 +86,7 @@ export function deXuatBadge(trangThai) {
 
 // Task 11 (QĐ-G11) — MỘT dòng đời cho màn "Yêu cầu của tôi":
 // `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`, cộng hai ngõ cụt.
-// Giá trị do backend suy (`portal_yeu_cau_list.giai_doan`), không phải
+// Giá trị do backend suy (`portal_yeu_cau_cua_toi.giai_doan`), không phải
 // client tự ghép từ hai từ điển trạng thái cũ.
 export function giaiDoanBadge(giaiDoan) {
   const map = {

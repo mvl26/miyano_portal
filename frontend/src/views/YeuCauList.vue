@@ -137,8 +137,16 @@ function moDon(r) {
 
 onMounted(async () => {
   loadKhoaPhongList()
+  // Khôi phục chip từ URL (nút "Quay lại" của màn chi tiết dựng lại nó).
+  // Gán vào `filter` KÍCH HOẠT watcher, tức `load()` đã được xếp hàng —
+  // gọi thêm `load()` ở cuối hàm là MỘT REQUEST THỪA, và nó về sau lời gọi
+  // kia nên còn có thể ghi đè kết quả đúng bằng kết quả cũ. `DeXuatList.
+  // vue` chấp nhận lời gọi thừa đó ("rẻ hơn một nhánh điều kiện"); ở đây
+  // nhánh điều kiện là đúng một biến, nên không có gì để đánh đổi.
+  let daXepHangLoad = false
   if (route.query.chip && FILTERS.includes(String(route.query.chip))) {
     filter.value = String(route.query.chip)
+    daXepHangLoad = true
   }
   if (!store.me) {
     try {
@@ -147,7 +155,7 @@ onMounted(async () => {
       // Subtitle phạm vi + nút "Sửa" chỉ là gợi ý phụ — im lặng bỏ qua.
     }
   }
-  load()
+  if (!daXepHangLoad) load()
 })
 </script>
 

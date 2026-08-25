@@ -221,6 +221,44 @@ class TestYeuCauList(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
 		return kq["de_xuat"], kq["sales_order"]
 
+	def _miyano_tu_choi(self, ten_don):
+		"""Đưa đơn tới `workflow_state = "Từ chối"` bằng CHÍNH máy trạng
+		thái (`Chờ xác nhận --Gửi duyệt--> Chờ Miyano xác nhận --Từ chối-->
+		Từ chối`, xem `setup/install_workflow.py`), KHÔNG `db.set_value`.
+
+		Đây là đường Sales User bấm thật trên Desk. Ghim thẳng chuỗi
+		"Từ chối" vào cột sẽ chứng minh được đúng một điều — rằng chuỗi đó
+		nằm trong cột — chứ không chứng minh trạng thái ấy TỚI ĐƯỢC. Cả bộ
+		test này tồn tại vì lần trước một đơn tới được đúng trạng thái đó
+		mà màn hình đọc ra "Đã duyệt".
+
+		`apply_workflow` chỉ tra vai trò qua `frappe.get_roles()` ->
+		`frappe.session.user` (giải thích dài ở `portal_order_accept`); test
+		chạy dưới Administrator nên đi qua được chốt `Sales User`."""
+		from frappe.model.workflow import apply_workflow
+
+		so = frappe.get_doc("Sales Order", ten_don)
+		so = apply_workflow(so, "Gửi duyệt")
+		# BR-O14/NL-2.1 (`portal_duyet_don.kiem_ly_do_tu_choi`) — không có
+		# lý do thì KHÔNG chuyển sang "Từ chối" được. Phải GHI XUỐNG CSDL,
+		# không gán trên object: `apply_workflow` mở đầu bằng
+		# `doc.load_from_db()` (frappe/model/workflow.py:102) nên mọi thứ
+		# gán trên bản trong bộ nhớ bị xoá sạch — đúng như Desk, nơi form
+		# được LƯU rồi mới bấm hành động workflow. Đây là một field dữ liệu
+		# thường, KHÔNG phải cái cổng đang đo: cổng là chuyển tiếp trạng
+		# thái, và nó vẫn đi qua `apply_workflow` thật.
+		frappe.db.set_value(
+			"Sales Order", ten_don, "custom_ly_do_tu_choi",
+			"Hàng ngừng nhập, không cấp được lô này.", update_modified=False,
+		)
+		so = apply_workflow(so, "Từ chối")
+		self.assertEqual(
+			so.workflow_state, "Từ chối",
+			"fixture chưa tới được trạng thái cần đo — bài test bên dưới "
+			"sẽ nói dối nếu bỏ qua khẳng định này",
+		)
+		return so.name
+
 	def _goi(self, user, **kw):
 		frappe.set_user(user)
 		try:
@@ -365,6 +403,102 @@ class TestYeuCauList(FrappeTestCase):
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
 		self.assertEqual(dong["giai_doan"], "Đã duyệt")
+
+	# -- Important (review vòng 1) — Miyano TỪ CHỐI đơn ------------------------
+
+	def test_don_bi_MIYANO_TU_CHOI_khong_duoc_doc_ra_Da_duyet(self):
+		"""`Từ chối` là một `workflow_state` CÓ THẬT của Sales Order
+		(`setup/install_workflow.py`) — Sales User bấm được từ "Chờ Miyano
+		xác nhận". Khối CASE xử lý `Từ chối` ở cấp PHIẾU nhưng bỏ sót cấp
+		ĐƠN, nên đơn đã chết rơi vào `else` và đọc ra "Đã duyệt".
+
+		Đo được trên đúng tài khoản nghiệm thu: `MD-HUYETHOC-260821-01`
+		(khoa `KP-00002` của `buiviet9802@gmail.com`) đang hiện "Đã duyệt".
+		Y tá đọc xong thì CHỜ VÔ HẠN một lô hàng Miyano đã huỷ từ 21/08.
+
+		Thiếu sót này MÂU THUẪN với chính khối CASE: nó đã đặc biệt hoá
+		`Khách huỷ` và `Báo giá hết hạn` từ ĐÚNG bộ từ vựng workflow đó."""
+		self._miyano_tu_choi(self.don_cua_phieu)
+		kq = self._goi(self.user_huyethoc, limit=100)
+		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		self.assertEqual(dong["giai_doan"], "Từ chối")
+
+	def test_nhan_chi_tiet_cua_don_bi_tu_choi_khong_doc_ra_Cho_xac_nhan(self):
+		"""Nhãn phụ cũng không cứu được trước bản vá: `_so_status_vi_full`
+		chỉ ghi đè `Báo giá hết hạn` và `Khách huỷ`, nên một đơn bị từ chối
+		đọc ra "Chờ xác nhận" — y hệt một đơn đang sống."""
+		self._miyano_tu_choi(self.don_cua_phieu)
+		kq = self._goi(self.user_huyethoc, limit=100)
+		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		self.assertEqual(dong["trang_thai_don"], "Miyano đã từ chối")
+
+	def test_chip_Tu_choi_LOI_DUOC_don_bi_miyano_tu_choi(self):
+		"""VẾ DƯƠNG của chính ngõ cụt — QĐ-G11 thêm hai giai đoạn ngõ cụt
+		để một yêu cầu ĐÃ CHẾT vẫn TÌM LẠI ĐƯỢC. Trước bản vá, lọc chip
+		"Từ chối" không lôi nó ra."""
+		self._miyano_tu_choi(self.don_cua_phieu)
+		kq = self._goi(self.user_huyethoc, limit=100, giai_doan="Từ chối")
+		self.assertIn(self.phieu_da_duyet, self._ma_phieu(kq))
+
+	def test_nhan_don_bi_tu_choi_dung_CA_o_danh_sach_don_cu(self):
+		"""`_so_status_vi_full` là hàm DÙNG CHUNG — `portal_order_history`
+		và `portal_order_track` cũng đọc nó. Sửa ở một chỗ mà đo ở một chỗ
+		khác là cách duy nhất chứng minh nó không phải một nhánh riêng của
+		màn gộp. Đi qua ĐƯỜNG CÔNG KHAI, không gọi hàm `_` trực tiếp."""
+		self._miyano_tu_choi(self.don_cua_phieu)
+		frappe.set_user(self.user_huyethoc)
+		try:
+			rows = portal.portal_order_history(limit=200)["rows"]
+		finally:
+			frappe.set_user("Administrator")
+		don = next(r for r in rows if r["name"] == self.don_cua_phieu)
+		self.assertEqual(don["status_vi"], "Miyano đã từ chối")
+
+	def test_hai_nhan_ghi_de_da_co_KHONG_bi_dung_den(self):
+		"""VẾ ĐỐI CHỨNG — bản vá không được kéo theo `Khách huỷ`/`Báo giá
+		hết hạn` sang nhãn mới, và một đơn đang sống vẫn phải đọc ra "Chờ
+		xác nhận"."""
+		frappe.db.set_value(
+			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Khách huỷ", update_modified=False,
+		)
+		kq = self._goi(self.user_huyethoc, limit=100)
+		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		self.assertEqual(dong["giai_doan"], "Đã huỷ")
+		self.assertEqual(dong["trang_thai_don"], "Đã huỷ")
+
+	# -- Ruling P42 — giao MỘT PHẦN chưa phải "Đã giao" ------------------------
+
+	def test_giao_mot_phan_KHONG_duoc_ghi_la_Da_giao(self):
+		"""Ruling P42 — ngưỡng cũ (`per_delivered > 0`) làm một đơn mới
+		giao 25% hiện "Đã giao", trong khi nhãn phụ TRÊN CÙNG MỘT DÒNG ghi
+		"Đang giao" và thanh tiến độ vẽ 25%. Hai câu trái ngược nhau đặt
+		cạnh nhau; và khoa đang chờ nốt 75% còn lại thì đọc câu sai."""
+		frappe.db.set_value(
+			"Sales Order", self.don_cua_phieu,
+			{"status": "To Deliver and Bill", "per_delivered": 25},
+			update_modified=False,
+		)
+		kq = self._goi(self.user_huyethoc, limit=100)
+		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		self.assertNotEqual(dong["giai_doan"], "Đã giao")
+		self.assertEqual(dong["giai_doan"], "Đã duyệt")
+		# Nhãn phụ VẪN nói đúng phần còn lại — đó là lý do KHÔNG cần một
+		# giai đoạn thứ sáu (QĐ-G11 chốt năm).
+		self.assertEqual(dong["trang_thai_don"], "Đang giao")
+
+	def test_giao_du_100_moi_la_Da_giao(self):
+		"""VẾ DƯƠNG của chính ngưỡng — thiếu nó thì một ngưỡng không bao
+		giờ đạt (`> 100`) cũng qua bài trên."""
+		frappe.db.set_value(
+			"Sales Order", self.don_cua_phieu,
+			{"status": "To Bill", "per_delivered": 100},
+			update_modified=False,
+		)
+		kq = self._goi(self.user_huyethoc, limit=100)
+		self.assertEqual(
+			self._tim_theo_phieu(kq, self.phieu_da_duyet)["giai_doan"], "Đã giao"
+		)
 
 	def test_giai_doan_cho_bao_gia_khi_don_dang_o_vong_bao_gia(self):
 		"""Chốt canh cho chính giai đoạn "Chờ báo giá" của QĐ-G11 — nó phải
@@ -568,9 +702,55 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 			if "requireQuanLy" in d
 		]
 
+	def _dong_loc_vai_tro(self) -> str:
+		"""Dòng `const navItems = computed(...)` — BỘ LỌC vai trò THẬT SỰ
+		chạy lúc dựng thanh nav, khác hẳn cờ `requireQuanLy` nằm trong dòng
+		KHAI BÁO của mảng `NAV`."""
+		noi_dung = self.APP.read_text(encoding="utf-8")
+		moc = re.search(r"const navItems\s*=\s*computed\(.*?\)\n", noi_dung, re.S)
+		self.assertIsNotNone(
+			moc,
+			"App.vue không còn `const navItems = computed(...)` — thanh nav "
+			"không còn chỗ nào lọc theo vai trò.",
+		)
+		return moc.group(0)
+
+	def test_nav_thuc_su_LOC_theo_vai_tro_chu_khong_chi_khai_bao_co(self):
+		"""Minor-3 (review vòng 1) — phép ĐẾM bên dưới đọc cờ `requireQuanLy`
+		trong dòng KHAI BÁO của mảng `NAV`, rồi suy ra 7 bằng `8 − 1`. Xoá
+		`.filter(...)` ở `navItems` thì MỌI nhân viên khoa nhìn thấy hàng
+		chờ "Duyệt" của quản lý — mà phép đếm đó VẪN xanh, vì dòng khai báo
+		không đổi.
+
+		Đây là lần thứ tám dự án dính kiểu "test trông như phủ mà chẳng
+		kiểm gì", và lần này nó gác một thứ thuộc về PHÂN QUYỀN. Bài này
+		phải đỏ ngay khi bộ lọc bị gỡ."""
+		dong = self._dong_loc_vai_tro()
+		self.assertIn(
+			".filter(", dong,
+			"`navItems` không còn lọc gì — mọi mục nav hiện cho mọi vai trò.",
+		)
+		self.assertIn(
+			"requireQuanLy", dong,
+			"`navItems` lọc bằng một tiêu chí KHÁC `requireQuanLy` — cờ trên "
+			"mảng NAV không còn tác dụng gì.",
+		)
+		# ĐÚNG khoá `me.la_quan_ly`, KHÔNG tự suy từ `vai_tro === 'Quản lý'`
+		# — kế hoạch uỷ quyền tạm thời sẽ làm phép so chuỗi đó bỏ sót.
+		self.assertIn(
+			"la_quan_ly", dong,
+			"`navItems` không đọc `store.me.la_quan_ly` — xem ghi chú Task 5 "
+			"ngay trên mục 'Duyệt' trong App.vue.",
+		)
+
 	def test_so_muc_nav_dung_8_quan_ly_va_7_nhan_vien(self):
 		"""Nghiệm thu của chủ đầu tư đếm bằng MẮT trên thanh nav. 11 cửa
-		ban đầu → 9 sau Task 10 → 8 (quản lý) / 7 (nhân viên khoa) ở đây."""
+		ban đầu → 9 sau Task 10 → 8 (quản lý) / 7 (nhân viên khoa) ở đây.
+
+		Phép trừ `8 − 1` chỉ có nghĩa KHI bộ lọc vai trò còn sống — nên bài
+		này gọi thẳng khẳng định đó trước, thay vì để nó nằm riêng một chỗ
+		và hai bài cùng xanh vì hai lý do rời nhau."""
+		self.test_nav_thuc_su_LOC_theo_vai_tro_chu_khong_chi_khai_bao_co()
 		muc = self._muc_nav()
 		chi_quan_ly = self._muc_nav_chi_quan_ly()
 		self.assertEqual(len(muc), 8, f"Nav quản lý phải còn 8 mục, đang là {muc}")
