@@ -1,5 +1,7 @@
 import frappe
 
+from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
+
 DEFS = [
     {
         # Brief 2026-08-15 (trang thông báo) Phần 1 — CỐ Ý KHÔNG bật
@@ -155,9 +157,14 @@ DEFS = [
         # được. Cùng `portal_bao_gia.quet_bao_gia_het_han` (filter CSDL),
         # đây là lý do vị ngữ kia đọc DẤU ĐÓNG `custom_loai_don` chứ không
         # suy lại từ dòng — xem docstring `di_vong_bao_gia`.
+        #
+        # Task 7 — chuỗi này KHÔNG gọi được hàm, nhưng nó CHIA ĐƯỢC MỘT TÊN
+        # với vị ngữ: `LOAI_DON_BAO_GIA` nội suy vào đây. Không có nó, ngày
+        # ai đó đổi giá trị dấu ở `portal_mua_le` thì thông báo "Báo giá sẵn
+        # sàng" LẶNG LẼ thôi bắn cho đúng những đơn cần nó.
         "condition": (
             "doc.custom_nguon_don == 'Client Portal' and "
-            "doc.custom_loai_don == 'Mua lẻ' and "
+            f"doc.custom_loai_don == '{LOAI_DON_BAO_GIA}' and "
             "doc.workflow_state == 'Chờ khách đồng ý'"
         ),
         "message": (

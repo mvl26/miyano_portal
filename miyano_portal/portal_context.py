@@ -181,19 +181,54 @@ def dam_bao_duoc_sua_don_da_duyet(so, user=None) -> None:
     tệ hơn sự cố cũ, vốn ít ra còn nổ thành lỗi 1054 nhìn thấy được. Nên
     kiểm cột tồn tại TRƯỚC, và thiếu cột thì CHẶN nhân viên khoa chứ không
     thả.
+
+    Task 7 — thân hàm chuyển sang `_ly_do_khong_sua_don_da_duyet()`, để
+    `duoc_sua_don_da_duyet()` (ngay dưới) trả LỜI cùng câu hỏi mà không
+    ném. Xem docstring hàm đó.
     """
+    ly_do = _ly_do_khong_sua_don_da_duyet(so, user)
+    if ly_do:
+        raise frappe.PermissionError(ly_do)
+
+
+def _ly_do_khong_sua_don_da_duyet(so, user=None) -> str | None:
+    """`None` = được sửa. Ngược lại: câu tiếng Việt nói vì sao không."""
     if la_quan_ly(user):
-        return
+        return None
     if not _cot_de_xuat_ton_tai():
-        raise frappe.PermissionError(
-            "Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
-        )
+        return "Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
     if not so.get("custom_de_xuat"):
-        return
-    raise frappe.PermissionError(
+        return None
+    return (
         "Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng để "
         "gửi lại cho quản lý xem."
     )
+
+
+def duoc_sua_don_da_duyet(so, user=None) -> bool:
+    """Task 7 — CÙNG CÂU HỎI với `dam_bao_duoc_sua_don_da_duyet`, dạng
+    trả lời thay vì dạng ném. `portal_order_track` trả nó ra
+    (`duoc_sua_da_duyet`) để `OrderDetail.vue` ẨN khối "Số lượng chưa
+    đúng?" thay vì hiện một nút mà server LUÔN LUÔN từ chối.
+
+    Khiếm khuyết đang sửa (có trước Task 6, không phải hồi quy của nó):
+    màn chi tiết chỉ soi chốt loại đơn, trong khi lõi `portal_order_sua_so_
+    luong` hỏi guard này TRƯỚC. Nhân viên khoa mở một đơn TRỘN đi qua
+    đường đề xuất → thấy nút → bấm → "Đơn này đã được quản lý duyệt…",
+    mọi lần, không có đường nào thành công. Quy ước dự án: ẨN, không phải
+    hiện-rồi-báo-lỗi.
+
+    Vì sao trả CÂU TRẢ LỜI chứ không để client tự suy từ dữ kiện: không có
+    dữ kiện nào phía client đủ. `custom_ma_tra_cuu` không phải bản sao của
+    `custom_de_xuat` — `api/portal.py` (quản lý đặt thẳng cho khách chưa
+    khai `Customer.custom_ma_ngan`) ghi `custom_de_xuat` NHƯNG để
+    `custom_ma_tra_cuu` rỗng vì `sinh_ma()` ném; và nhánh THIẾU CỘT làm mọi
+    dữ kiện phía client nói "được sửa" trong khi server chặn. Đây là hình
+    dạng `portal_mua_le.di_vong_bao_gia` đã dựng ở Task 6: MỘT vị ngữ, mọi
+    bên cùng hỏi — bản soi gương tự dựng lại điều kiện là chỗ trôi lệch
+    tiếp theo đang chờ xảy ra.
+    """
+    return _ly_do_khong_sua_don_da_duyet(so, user) is None
 
 
 # VÒNG SỬA 2 (C3 — CRITICAL), CHUYỂN VÀO ĐÂY Ở VÒNG SỬA 3 (V2, Important).

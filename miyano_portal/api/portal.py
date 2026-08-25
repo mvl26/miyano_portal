@@ -10,6 +10,7 @@ from miyano_portal.portal_context import (
     _cot_khoa_phong_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
+    duoc_sua_don_da_duyet,
     get_portal_customer,
     get_portal_member,
     han_muc_con,
@@ -916,13 +917,21 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     rows = frappe.get_list(
         "Sales Order",
         filters=filters, or_filters=or_filters,
-        # review (Phần C báo thiếu) — custom_loai_don/workflow_state/
-        # custom_yeu_cau_goc: danh sách đơn không phân biệt được đơn "Mua
-        # lẻ" với "Theo HĐNT" (badge/icon giỏ 2 ngăn), và không biết đơn nào
-        # đang "Chờ khách đồng ý" để hiện banner ngay trên danh sách thay vì
-        # bắt khách mở từng đơn.
+        # review (Phần C báo thiếu) — workflow_state/custom_yeu_cau_goc:
+        # danh sách đơn cần biết đơn nào đang "Chờ khách đồng ý" để hiện
+        # banner ngay trên danh sách thay vì bắt khách mở từng đơn.
+        #
+        # Task 7 — `custom_loai_don` ĐÃ BỎ khỏi danh sách này. Nó từng được
+        # trả ra dưới tên `loai_don` cho một badge "Mua lẻ / Theo HĐNT" trên
+        # màn danh sách; badge đó không còn tồn tại và KHÔNG view nào đọc
+        # khoá đó từ endpoint này (`OrderDetail.vue` là nơi duy nhất đọc
+        # `loai_don`, và nó được `portal_order_track` nuôi). Giữ lại thì
+        # phải giữ đúng nghĩa MỚI của giá trị ở một chỗ thứ hai không ai
+        # dùng — thêm một bản soi gương để trôi lệch, không đổi lại được gì.
+        # Bỏ CẢ cột khỏi `fields`, không chỉ bỏ dòng đổi tên: để cột lại mà
+        # bỏ dòng đổi tên là rò thẳng tiền tố nội bộ `custom_` ra response.
         fields=["name", "transaction_date", "grand_total", "status", "per_delivered",
-                "custom_loai_don", "workflow_state", "custom_yeu_cau_goc",
+                "workflow_state", "custom_yeu_cau_goc",
                 "custom_ma_tra_cuu"],
         # tiebreak `name` — `transaction_date`/`creation` không đủ duy
         # nhất giữa hai trang (brief 2026-08-15).
@@ -931,12 +940,6 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     )
     for r in rows:
         r["status_vi"] = _so_status_vi_full(r.pop("status"), r.get("per_delivered"), r.get("workflow_state"))
-        # Đổi tên khoá `custom_loai_don` -> `loai_don`: KHÔNG rò tiền tố nội
-        # bộ `custom_` của Frappe ra response công khai, và khớp đúng tên
-        # khoá `portal_order_track` đã dùng cho CÙNG khái niệm — hai endpoint
-        # trả hai tên khác nhau cho một field là bẫy tiếp theo đang chờ xảy
-        # ra (client đọc đúng ở màn này, sai ở màn kia).
-        r["loai_don"] = r.pop("custom_loai_don") or "Theo HĐNT"
         r["yeu_cau_goc"] = r.pop("custom_yeu_cau_goc") or ""
         # Task 6, QĐ-A4 — mã của khách (`DXA-HUYETHOC-260819-01`), CẠNH
         # `name` (SAL-ORD-*, mã hệ thống), không THAY nó: khách đọc mã của
@@ -1470,6 +1473,19 @@ def portal_order_track(order) -> dict:
     return {
         "order": so.name,
         "status_vi": status_vi,
+        # Ruling P49 — `docstatus` để màn chi tiết TẮT nhãn "Có hàng chờ báo
+        # giá" khi đơn đã được xác nhận. Trên một đơn đã giao xong, nhãn đó
+        # không phải một phân loại sai — nó là một lời nói SAI VỀ HIỆN TẠI:
+        # vòng báo giá diễn ra lúc đơn còn nháp (`docstatus == 0`), nên
+        # `docstatus == 1` là đúng lằn ranh. `custom_loai_don` KHÔNG được tự
+        # tắt theo (nó là DẤU ghi lại đường đơn đã đi, xem `di_vong_bao_gia`)
+        # — cái tắt là NHÃN, không phải dấu.
+        "docstatus": so.docstatus,
+        # Task 7 — CÂU TRẢ LỜI của guard vai trò (`portal_context.
+        # duoc_sua_don_da_duyet`), để `OrderDetail.vue` ẨN khối sửa số lượng
+        # thay vì hiện một nút server luôn từ chối. Xem docstring hàm đó về
+        # lý do không để client tự suy từ `ma_tra_cuu`.
+        "duoc_sua_da_duyet": duoc_sua_don_da_duyet(so),
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
@@ -2486,7 +2502,33 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
 @frappe.whitelist()
 def portal_order_sua_so_luong(order, dong) -> dict:
     """Việc 1 / brief 2026-08-15 (bao-gia-hai-chieu) — khách SỬA SỐ LƯỢNG
-    trên một đơn Mua lẻ đang "Chờ khách đồng ý".
+    trên một đơn ĐANG TRONG VÒNG BÁO GIÁ ở bước "Chờ khách đồng ý".
+
+    Task 7 — câu mở trước đây viết "trên một đơn Mua lẻ", mô tả một phép so
+    chuỗi mà mã bên dưới KHÔNG còn thực hiện. Từ Task 4 đơn TRỘN (chín dòng
+    hợp đồng + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3), nên
+    nó cũng sửa được số lượng — đó chính là gốc của lỗi Critical C1 ngày
+    19/08 và là thứ mô hình gộp gỡ ra. Chốt hỏi `portal_mua_le.
+    di_vong_bao_gia(so)`, không hỏi "có phải đơn mua lẻ không".
+
+    NĂM CHỐT, đúng thứ tự hỏi (bản SOI GƯƠNG là `Portal De Xuat Mua.
+    _kiem_don_dung_duoc_xin_sua()` + `_kiem_thay_doi_ap_duoc_len_don()`;
+    hai bên phải kể ra CÙNG danh sách này):
+
+      1. `workflow_state == "Chờ khách đồng ý"`
+      2. `di_vong_bao_gia(so)` — đơn có đi vòng báo giá không
+      3. báo giá còn hiệu lực (BR-R5)
+      4. mọi mã trong payload phải CÒN trên đơn
+      5. đơn còn ít nhất một dòng sau khi sửa
+      (+) phải có thay đổi THẬT (chỉ ở lõi; bản soi gương có chốt tương
+          đương riêng `_loc_thay_doi_that`)
+
+    Ngoài năm chốt trên còn HAI cổng đứng TRƯỚC, KHÔNG thuộc bộ năm và
+    KHÔNG được soi gương ở phiếu đề xuất: quyền xem/sở hữu đơn, và guard
+    VAI TRÒ `dam_bao_duoc_sua_don_da_duyet` (Task 9). Guard vai trò không
+    có bản soi gương vì bản soi gương CHÍNH LÀ đường thay thế của nhân
+    viên khoa (`de_xuat.de_xuat_xin_sua`) — soi nó ở đó sẽ chặn đúng
+    người mà nó tồn tại để phục vụ.
 
     Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
     báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc

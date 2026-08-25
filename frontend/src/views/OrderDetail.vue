@@ -42,21 +42,39 @@ const name = computed(() => route.params.name)
 // là "đơn này có dòng chưa có giá nên cả đơn đi vòng báo giá" (QĐ-G3). Một
 // đơn chín dòng hợp đồng + một dòng chờ báo giá cũng mang giá trị đó — dán
 // nhãn "Mua lẻ" lên nó là nói với bệnh viện một điều sai.
-const coHangChoBaoGia = computed(() => data.value?.loai_don === 'Mua lẻ')
-// CHỐT — soi gương ĐÚNG MỘT trong ba điều kiện của
-// `portal.portal_order_sua_so_luong`: chốt loại đơn (`portal_mua_le.
-// di_vong_bao_gia`). Nói cho hết, vì một chú thích khai khống "soi gương
-// chốt server" còn tệ hơn không có chú thích:
+//
+// Task 7 (Ruling P49) — nhãn TẮT khi đơn đã được xác nhận (`docstatus === 1`).
+// Vòng báo giá diễn ra lúc đơn còn NHÁP; trên một đơn đã chốt, đã giao xong,
+// "Có hàng chờ báo giá" không phải một phân loại sai mà là một lời nói SAI VỀ
+// HIỆN TẠI (đo được: MD-HUYETHOC-260825-04, Hoàn thành, giao 100%, vẫn hiện).
+// Chỉ NHÃN tắt — `loai_don` là DẤU ghi lại đường đơn đã đi, nó không được tự
+// tắt, và mọi CHỐT vẫn đọc dấu nguyên vẹn.
+const coHangChoBaoGia = computed(
+  () => data.value?.loai_don === 'Mua lẻ' && data.value?.docstatus !== 1
+)
+// CHỐT — soi gương HAI trong các điều kiện của
+// `portal.portal_order_sua_so_luong`. Nói cho hết, vì một chú thích khai
+// khống "soi gương chốt server" còn tệ hơn không có chú thích:
+//   * chốt loại đơn (`portal_mua_le.di_vong_bao_gia`) — soi qua `loai_don`;
+//   * guard VAI TRÒ `dam_bao_duoc_sua_don_da_duyet` (Task 9) — soi qua
+//     `duoc_sua_da_duyet`, câu TRẢ LỜI server tự tính và trả ra
+//     (`portal_context.duoc_sua_don_da_duyet`). KHÔNG suy lại từ dữ kiện:
+//     `ma_tra_cuu` KHÔNG phải bản sao của `custom_de_xuat` (quản lý đặt
+//     thẳng cho khách chưa khai Mã ngắn thì `custom_de_xuat` có mà
+//     `ma_tra_cuu` rỗng), và nhánh thiếu cột thì mọi dữ kiện client đều nói
+//     "được sửa" trong khi server chặn;
 //   * `workflow_state == "Chờ khách đồng ý"` — KHÔNG soi ở đây, khối sửa số
 //     lượng nằm LỒNG trong banner `chap_nhan.can_dong_y` phía dưới, và
 //     `chap_nhan` chỉ khác `null` đúng ở state đó;
-//   * `dam_bao_duoc_sua_don_da_duyet(so)` (chốt VAI TRÒ, Task 9) — KHÔNG soi
-//     ở đây và chưa từng soi. Nhân viên khoa mở một đơn ĐÃ QUA đường đề
-//     xuất vẫn thấy khối này, bấm gửi rồi mới nhận PermissionError "…dùng
-//     chức năng xin sửa số lượng". Hành vi có từ trước Task 6, không phải
-//     hồi quy — nhưng đừng đọc biến này như một bản sao đầy đủ của server.
+//   * hiệu lực báo giá — `chap_nhan.can_dong_y` đã mang câu trả lời đó.
+// Trước Task 7 biến này chỉ soi chốt loại đơn, nên nhân viên khoa mở một đơn
+// đi qua đường đề xuất THẤY nút, bấm, và nhận "Đơn này đã được quản lý
+// duyệt…" — mọi lần, không có đường nào thành công. Quy ước dự án: ẨN,
+// không phải hiện-rồi-báo-lỗi.
 // Giữ riêng khỏi `coHangChoBaoGia` để cái NHÃN và cái CHỐT đổi độc lập được.
-const suaDuocSoLuong = computed(() => data.value?.loai_don === 'Mua lẻ')
+const suaDuocSoLuong = computed(
+  () => data.value?.loai_don === 'Mua lẻ' && data.value?.duoc_sua_da_duyet !== false
+)
 
 // review I-4 — spec §3.4: "Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi
 // chú nhỏ '(từ yêu cầu: <tên khách gõ>)' để khách đối chiếu được cái mình

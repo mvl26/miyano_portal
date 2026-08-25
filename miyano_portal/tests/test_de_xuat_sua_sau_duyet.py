@@ -312,6 +312,63 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 			"Chờ xác nhận",
 		)
 
+	# ---- Task 7 — màn chi tiết phải BIẾT TRƯỚC câu trả lời của guard -----
+	#
+	# Khiếm khuyết đo được: `OrderDetail.vue` hiện khối "Số lượng chưa đúng?"
+	# chỉ theo `loai_don`, trong khi lõi hỏi `dam_bao_duoc_sua_don_da_duyet`
+	# TRƯỚC mọi chốt khác. Nhân viên khoa mở một đơn TRỘN đi qua đường đề
+	# xuất thấy nút, bấm, và LUÔN LUÔN nhận "Đơn này đã được quản lý
+	# duyệt…". Quy ước dự án: ẨN, không phải hiện rồi báo lỗi.
+	#
+	# Vì sao trả CÂU TRẢ LỜI chứ không trả dữ kiện: client KHÔNG suy lại
+	# được điều kiện này. `custom_de_xuat` có mà `ma_tra_cuu` RỖNG là ca
+	# thật (`api/portal.py` — quản lý đặt thẳng cho khách chưa khai
+	# `custom_ma_ngan` thì `sinh_ma()` ném và `ma_de_xuat = None`), nên soi
+	# gương bằng `ma_tra_cuu` lệch ngay ở ca đó; và nhánh THIẾU CỘT
+	# (`_cot_de_xuat_ton_tai` False) thì mọi dữ kiện phía client đều nói
+	# "được sửa" trong khi server chặn. Một vị ngữ, mọi bên cùng hỏi — đúng
+	# hình dạng `di_vong_bao_gia` đã dựng ở Task 6.
+
+	def test_track_bao_nhan_vien_khoa_KHONG_sua_duoc_don_da_qua_de_xuat(self):
+		frappe.set_user(self.user_huyethoc)
+		kq = portal.portal_order_track(self.don_da_duyet)
+		self.assertFalse(
+			kq["duoc_sua_da_duyet"],
+			"màn chi tiết phải ẩn khối sửa số lượng, không hiện rồi báo lỗi",
+		)
+
+	def test_track_bao_quan_ly_VAN_sua_duoc_cung_don_do(self):
+		"""VẾ DƯƠNG — không có nó, một khoá trả `False` vô điều kiện cũng
+		xanh, và khối sửa số lượng biến mất với CẢ quản lý."""
+		frappe.set_user(self.user_quan_ly)
+		kq = portal.portal_order_track(self.don_da_duyet)
+		self.assertTrue(kq["duoc_sua_da_duyet"])
+
+	def test_track_bao_don_cu_KHONG_qua_de_xuat_van_sua_duoc(self):
+		"""VẾ DƯƠNG thứ hai (tương thích ngược) — đơn không có phiếu đứng
+		sau thì guard cho qua, kể cả với nhân viên khoa."""
+		# Đơn cũ này dựng KHÔNG có `custom_khoa_phong` (nó mô phỏng đơn
+		# trước khi có khoa phòng), nên `dam_bao_xem_duoc` chặn nhân viên
+		# khoa TRƯỚC khi tới guard đang đo. Gán khoa cho đúng khoa của
+		# người gọi: chốt đang đo là VAI TRÒ, không phải phạm vi khoa —
+		# phạm vi khoa đã có `test_cach_ly_khoa_phong.py` canh riêng.
+		frappe.db.set_value(
+			"Sales Order", self.don_cu_khong_co_de_xuat,
+			"custom_khoa_phong", self.khoa_huyethoc, update_modified=False,
+		)
+		frappe.set_user(self.user_huyethoc)
+		kq = portal.portal_order_track(self.don_cu_khong_co_de_xuat)
+		self.assertTrue(kq["duoc_sua_da_duyet"])
+
+	def test_track_thieu_cot_thi_bao_KHONG_sua_duoc(self):
+		"""Nhánh fail-closed: thiếu cột `custom_de_xuat` thì server CHẶN
+		nhân viên khoa — payload phải nói đúng điều đó, nếu không màn chi
+		tiết hiện một nút chắc chắn lỗi trong đúng cửa sổ chưa migrate."""
+		frappe.set_user(self.user_huyethoc)
+		with patch.object(portal_context, "_cot_de_xuat_ton_tai", return_value=False):
+			kq = portal.portal_order_track(self.don_da_duyet)
+		self.assertFalse(kq["duoc_sua_da_duyet"])
+
 	# ---- I3 (review Task 9) — trạng thái không phục hồi được -------------
 	#
 	# `_kiem_chuyen(TRANG_THAI_DA_DUYET)` một mình KHÔNG đủ: cạnh đó hợp lệ
@@ -432,7 +489,16 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 	def test_xin_sua_don_HDNT_bi_chan_ngay_va_phieu_giu_nguyen_da_duyet(self):
 		"""C1 — `dat_hang.py` ghi `custom_loai_don = "Theo HĐNT"` cho MỌI
 		đơn HĐNT, và lõi từ chối thẳng loại đó. Phải chặn NGAY ở bước xin
-		sửa, kèm thông điệp tiếng Việt nói đúng vì sao và khoa nên làm gì."""
+		sửa, kèm thông điệp tiếng Việt nói đúng vì sao và khoa nên làm gì.
+
+		Task 7 — LỜI TỪ CHỐI PHẢI GIỐNG LÕI. Trước task này bản soi gương
+		nói "đặt theo hợp đồng nguyên tắc (HĐNT)" trong khi lõi nói "Chỉ áp
+		dụng cho đơn có dòng chờ báo giá": cùng MỘT luật, hai lời giải
+		thích, tuỳ khoa đi vào bằng cửa nào. Dưới mô hình gộp lời cũ còn
+		SAI THẬT — đơn bị từ chối chỉ đơn giản là đơn KHÔNG có dòng nào chờ
+		báo giá, nó không nhất thiết là đơn HĐNT. Và
+		`docs/CHANGELOG-khac-phuc-BA-v2.md` cấm chữ "hợp đồng nguyên tắc"
+		trong chữ người dùng đọc."""
 		frappe.db.set_value(
 			"Sales Order", self.don_da_duyet, "custom_loai_don",
 			"Theo HĐNT", update_modified=False,
@@ -440,7 +506,8 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		frappe.set_user(self.user_huyethoc)
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			de_xuat.de_xuat_xin_sua(self.phieu_da_duyet, self.dong_moi)
-		self.assertIn("hợp đồng nguyên tắc", str(ctx.exception))
+		self.assertIn("chờ báo giá", str(ctx.exception))
+		self.assertNotIn("hợp đồng nguyên tắc", str(ctx.exception))
 		self.assertIn("Miyano", str(ctx.exception))
 		doc = frappe.get_doc("Portal De Xuat Mua", self.phieu_da_duyet)
 		# Chốt của C1 — phiếu KHÔNG được rời "Đã duyệt" vào ngõ cụt.

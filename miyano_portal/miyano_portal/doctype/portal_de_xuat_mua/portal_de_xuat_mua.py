@@ -412,12 +412,19 @@ class PortalDeXuatMua(Document):
 		luong` đã được hỏi lại ở đây, cộng chốt riêng của I2. Kể tên thay vì
 		nói "mọi chốt", để người sau đối chiếu được với lõi:
 
-		  1. loại đơn phải "Mua lẻ"          → `_kiem_don_dung_duoc_xin_sua`
+		  1. đơn phải ĐI VÒNG BÁO GIÁ        → `_kiem_don_dung_duoc_xin_sua`
+		     (`portal_mua_le.di_vong_bao_gia`)
 		  2. `workflow_state` = Chờ khách đồng ý → nt
 		  3. báo giá còn hiệu lực (BR-R5)    → nt
 		  4. mã hàng phải CÒN trên đơn       → `_kiem_thay_doi_ap_duoc_len_don`
 		  5. đơn còn ít nhất một dòng sau sửa→ nt
 		  (+) phải có thay đổi THẬT, không âm → `_loc_thay_doi_that` (I2)
+
+		Task 7 — chốt 1 trước đây kể là `loại đơn phải "Mua lẻ"`. Đó là mô
+		tả một phép so chuỗi mà mã KHÔNG còn thực hiện từ Task 6: đơn TRỘN
+		(dòng hợp đồng + dòng chờ báo giá) cũng đi vòng báo giá theo QĐ-G3
+		nên cũng sửa được, và chính chỗ hiểu "Mua lẻ" theo nghĩa cũ là gốc
+		của C1.
 
 		Vì sao thứ tự này quan trọng: một phiếu đã sang "Chờ duyệt sửa" rồi
 		mới chết ở bước quản lý bấm Đồng ý là NGÕ CỤT — `CHUYEN_HOP_LE["Chờ
@@ -443,33 +450,40 @@ class PortalDeXuatMua(Document):
 		"""C1 (review tổng 19/08) — đơn đứng sau có SỬA ĐƯỢC không.
 
 		Lõi `portal.portal_order_sua_so_luong` (nơi `de_xuat_duyet_sua` bắt
-		buộc phải đi qua để sửa Sales Order thật) có HAI chốt cứng:
-		`workflow_state == "Chờ khách đồng ý"` và `portal_mua_le.
-		di_vong_bao_gia(so)` (Task 6; trước đó là chuỗi `custom_loai_don ==
-		"Mua lẻ"` viết tại chỗ). Trước bản vá, `xin_sua()` không hỏi chốt
-		nào — nên:
+		buộc phải đi qua để sửa Sales Order thật) có HAI chốt cứng ở MỨC
+		ĐƠN mà trả lời được ngay: `workflow_state == "Chờ khách đồng ý"` và
+		`portal_mua_le.di_vong_bao_gia(so)` (Task 6; trước đó là chuỗi
+		`custom_loai_don == "Mua lẻ"` viết tại chỗ), cộng chốt hiệu lực
+		BR-R5. Trước bản vá, `xin_sua()` không hỏi chốt nào — nên:
 
-		  * đơn HĐNT (`dat_hang.py` ghi `custom_loai_don = "Theo HĐNT"` cho
-		    MỌI đơn HĐNT) và
-		  * đơn Mua lẻ CHƯA tới "Chờ khách đồng ý" — tức MỌI đơn ngay sau
-		    khi duyệt, vì đơn sinh ra ở "Chờ xác nhận"
+		  * đơn KHÔNG đi vòng báo giá (thuần hợp đồng — `dat_hang.py` đóng
+		    dấu `custom_loai_don = "Theo HĐNT"` khi mọi dòng đã có giá) và
+		  * đơn ĐANG đi vòng báo giá nhưng CHƯA tới "Chờ khách đồng ý" —
+		    tức MỌI đơn ngay sau khi duyệt, vì đơn sinh ra ở "Chờ xác nhận"
 
 		đều cho phiếu rời "Đã duyệt" vào ngõ cụt, rồi quản lý bấm Đồng ý mới
-		nhận một lỗi 500 khó hiểu ("Chỉ áp dụng cho đơn Mua lẻ.") — đúng thứ
-		spec §5.5 cấm.
+		nhận một lỗi 500 khó hiểu từ lõi — đúng thứ spec §5.5 cấm.
 
 		Chốt ở TẦNG DOCTYPE, không ở endpoint: `de_xuat.de_xuat_xin_sua` chỉ
 		là một trong các đường vào, và bất biến "phiếu không được rời Đã
 		duyệt khi đơn không sửa được" thuộc về chính chứng từ này.
 
-		KHÔNG mở rộng thành xây tính năng sửa-đơn-HĐNT: phạm vi ở đây là TỪ
-		CHỐI SỚM kèm thông điệp nói đúng vì sao và khoa nên làm gì.
+		KHÔNG mở rộng thành xây tính năng sửa-đơn-đã-chốt-giá: phạm vi ở
+		đây là TỪ CHỐI SỚM kèm thông điệp nói đúng vì sao và khoa nên làm gì.
 
 		VÒNG SỬA (re-review 19/08) — soi gương ĐỦ CẢ NĂM chốt của lõi, chia
-		hai bước theo đúng thứ tự lõi hỏi. Hàm NÀY lo ba chốt ở MỨC ĐƠN (hỏi
-		được ngay, chưa cần biết khoa xin gì); `_kiem_thay_doi_ap_duoc_len_
-		don()` lo hai chốt ở MỨC DÒNG (chỉ trả lời được sau khi biết yêu cầu
-		cụ thể). Trả về `so` để bước sau dùng lại, không tải đơn hai lần.
+		hai bước. Hàm NÀY lo ba chốt ở MỨC ĐƠN (hỏi được ngay, chưa cần biết
+		khoa xin gì); `_kiem_thay_doi_ap_duoc_len_don()` lo hai chốt ở MỨC
+		DÒNG (chỉ trả lời được sau khi biết yêu cầu cụ thể). Trả về `so` để
+		bước sau dùng lại, không tải đơn hai lần.
+
+		Task 7 — LỆCH THỨ TỰ, CÓ CHỦ Ý, ĐÃ ĐO: lõi hỏi `workflow_state`
+		TRƯỚC rồi mới `di_vong_bao_gia`; hàm này hỏi ngược lại. Bản trước
+		của docstring khai là "đúng thứ tự lõi hỏi" — sai. Khác biệt chỉ
+		nhìn thấy được khi CẢ HAI chốt cùng hỏng, và khi đó ở đây khoa được
+		nghe lý do BỀN (đơn này chưa bao giờ sửa được) thay vì lý do TẠM
+		(chưa tới bước) — lời khuyên đúng hơn. Đảo lại thứ tự an toàn về
+		hành vi nhưng không đổi lại được gì, nên GIỮ và ghi ra đây.
 
 		KHÔNG chép điều kiện: chốt hiệu lực gọi THẲNG `portal_mua_le.qua_han_
 		hieu_luc()` — cùng hàm lõi gọi, cùng hàm banner `portal_order_track`
@@ -502,12 +516,22 @@ class PortalDeXuatMua(Document):
 		# luong`. Bản soi gương tự so chuỗi `custom_loai_don` sẽ trôi lệch
 		# khỏi lõi ngay lần đầu ai đó đổi nghĩa chốt — và lệch ở đây nghĩa
 		# là phiếu rời "Đã duyệt" vào ngõ cụt (lỗi C1 ngày 19/08).
+		# Task 7 — LỜI TỪ CHỐI phải nói CÙNG MỘT LUẬT với lõi. Bản trước
+		# nói "đặt theo hợp đồng nguyên tắc (HĐNT)" trong khi lõi nói "Chỉ
+		# áp dụng cho đơn có dòng chờ báo giá": một luật, hai lời giải
+		# thích, tuỳ khoa đi vào bằng cửa nào. Dưới mô hình gộp lời cũ còn
+		# SAI THẬT — đơn bị từ chối chỉ là đơn KHÔNG còn dòng nào chờ báo
+		# giá; nó không nhất thiết gắn với hợp đồng khung nào (đơn tự Miyano
+		# lập trong Desk cũng rơi vào đây). Và `docs/CHANGELOG-khac-phuc-
+		# BA-v2.md` cấm chữ "hợp đồng nguyên tắc" trong chữ người dùng đọc.
+		# Nêu LUẬT DƯƠNG (khi nào sửa được), không nêu một khẳng định về
+		# đơn mà hệ thống không kiểm.
 		if not di_vong_bao_gia(don):
 			frappe.throw(
-				f'Đơn "{self.sales_order}" đặt theo hợp đồng nguyên tắc '
-				"(HĐNT). Cổng không sửa được số lượng đơn HĐNT — số lượng "
-				"đã chốt theo hợp đồng. Liên hệ quản lý của quý đơn vị "
-				"hoặc Miyano nếu cần điều chỉnh.",
+				f'Đơn "{self.sales_order}" không có dòng nào chờ báo giá — '
+				"cổng chỉ sửa được số lượng khi đơn đang trong vòng báo giá "
+				"của Miyano. Số lượng của đơn này đã chốt. Liên hệ quản lý "
+				"của quý đơn vị hoặc Miyano nếu cần điều chỉnh.",
 				frappe.ValidationError,
 			)
 		if don.get("workflow_state") != TRANG_THAI_CHO_KHACH:

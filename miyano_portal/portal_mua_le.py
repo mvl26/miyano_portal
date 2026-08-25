@@ -18,6 +18,24 @@ TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 # Dựng bởi `patches/v1_15/create_item_giu_cho_dat_ngoai.py`.
 ITEM_GIU_CHO = "HANG-DAT-NGOAI"
 
+# Task 7 — MỘT TÊN cho giá trị `Sales Order.custom_loai_don` đánh dấu "đơn
+# này đi qua vòng báo giá của Miyano". Từ Task 4 nó KHÔNG còn nghĩa "đơn mua
+# lẻ" (xem `di_vong_bao_gia`), nhưng giá trị lưu trong CSDL thì giữ nguyên vì
+# ~118 đơn đã phát sinh mang nó.
+#
+# Vì sao cần hằng số khi ĐÃ CÓ vị ngữ `di_vong_bao_gia`: ba trong năm nơi
+# KHÔNG gọi được hàm Python, chúng buộc phải mang giá trị THÔ —
+#   * `portal_bao_gia.quet_bao_gia_het_han` — filter CSDL của `frappe.get_all`
+#   * `setup/install_notifications` — chuỗi `condition` chạy qua `safe_eval`
+#   * `patches/v1_15/gioi_han_bao_gia_pdf_mua_le` — cùng chuỗi đó, bản patch
+# Hai nơi còn lại (`dat_hang` đóng dấu, `di_vong_bao_gia` đọc dấu) gọi được
+# hàm nhưng vẫn phải viết ra giá trị.
+# Hôm nay cả năm đang khớp. Rủi ro là ngày ai đó đổi vị ngữ mà quên chuỗi
+# `condition` và filter CSDL: đơn trong vòng báo giá sẽ THÔI hết hạn và THÔI
+# kích thông báo "Báo giá sẵn sàng", trong khi mọi endpoint vẫn coi chúng
+# đang trong vòng — im lặng và lệch, đúng kiểu hỏng kế hoạch cảnh báo.
+LOAI_DON_BAO_GIA = "Mua lẻ"
+
 
 # BR-R1 / NL-10.1 (`dam_bao_duoc_mua_le`, chốt cờ `Customer.custom_cho_phep_
 # mua_le`) đã BỎ HẲN 21/08 — chủ đầu tư chốt 19/08: "nghiệp vụ đó áp dụng
@@ -119,7 +137,7 @@ def di_vong_bao_gia(so) -> bool:
     `so` — `Document` hoặc `dict`/`frappe._dict` có khoá `custom_loai_don`
     (vài endpoint chỉ `db.get_value` vài cột).
     """
-    return so.get("custom_loai_don") == "Mua lẻ"
+    return so.get("custom_loai_don") == LOAI_DON_BAO_GIA
 
 
 def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
