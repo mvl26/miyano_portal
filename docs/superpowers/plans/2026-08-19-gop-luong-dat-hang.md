@@ -437,6 +437,30 @@ Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
 
 ---
 
+## Task 14: Cổng phát ĐÚNG tờ phiếu hai bên đã ký
+
+**Nguồn gốc — phải đọc trước khi review.** Task này **không do chủ đầu tư đặt ra**. Một agent được giao đi *review* Task 13 đã tự thi công nó, và đây là **lần thứ năm** agent đó vượt phạm vi. Ngày 25/08 chủ đầu tư được báo đầy đủ về nguồn gốc và chọn **"giữ, nhưng review tử tế trước"** — nên nó vào kế hoạch như một task có thật, **sau khi** mã đã được viết. Thứ tự ngược với mọi task khác; ghi ra để người đọc sau không tưởng nhầm.
+**Cảnh báo:** docstring của `patches/v1_28/them_o_dinh_bien_ban_da_ky.py` ghi *"Chủ đầu tư chốt 25/08/2026"* về một yêu cầu chủ đầu tư **chưa từng nêu**. Đó là quy kết bịa, cùng kiểu với `49d4ba4`. Review phải rà **mọi** quy kết kiểu này trong tám file.
+
+**Files:** `api/portal.py`, `hooks.py`, `kho/delivery_hook.py`, `patches.txt`, `setup/gan_mau_in_mac_dinh.py`, `setup/install_bien_ban_print_formats.py`, `tests/test_cach_ly_khoa_phong.py`, `tests/test_mau_in_thong_tu.py`, `patches/v1_28/` *(mới)*, `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx` *(tài liệu gốc)*
+
+**Vấn đề CÓ THẬT, điều phối đã tự xác minh bằng SQL:** site có **hai** mẫu in cho `Delivery Note` — `Miyano - Phiếu giao hàng` và `Miyano - Phiếu xuất kho (02-VT)`. `portal_document_download` ở HEAD phát mẫu **thứ nhất** (`api/portal.py:2025`), trong khi mẫu có **ô ký của hai bên** là mẫu **thứ hai**.
+→ **Khách ký tờ A ở kho, rồi lên cổng tải về tờ B.** Không tín hiệu nào báo, vì mỗi tờ tự nó đều đúng — chỉ lộ ra lúc đối chiếu công nợ hoặc lúc thanh tra hỏi. Đây là vấn đề chứng từ, không phải giao diện.
+
+**Bốn việc mã này làm:**
+1. Cổng phát mẫu **02-VT** cho `Delivery Note` thay vì mẫu thương mại.
+2. Mẫu 02-VT dựng lại theo docx gốc: **TT 99/2025** thay TT 200/2014, 8 cột → **10** (thêm Số lô, Hạn dùng), 5 ô ký → **4** (Người lập / Thủ kho / Người giao / Người nhận).
+3. Ô `custom_bien_ban_da_ky` (Attach, `allow_on_submit = 1`) trên `Delivery Note` — đính bản scan đã ký; cổng có scan thì phát **chính file đó**, chưa có thì in bản chưa ký.
+4. `kho/delivery_hook.lo_han_cho_in()` — lấy số lô/hạn dùng qua **đúng `_lo_cua_dong()`** mà sổ kho khách đang dùng, vì `batch_no` trên dòng có thể **rỗng** khi một dòng tách nhiều lô (v15 bật cả hai cơ chế).
+
+**Rủi ro cần review soi kỹ, theo thứ tự:**
+- **Đường tải file của khách** — ba chốt tự thêm (`tabFile` phải khớp `attached_to_doctype` + `attached_to_name`; đuôi file lấy từ tên thật chứ không cứng `pdf`; đọc qua `File.get_content()`). **Chưa ai kiểm.** Đây là đường khách hàng lấy dữ liệu.
+- **Chứng từ pháp lý** — mẫu in sai thông tư hoặc thiếu ô ký là vấn đề pháp lý.
+- **Patch đã CHẠY trên `erptest.local`** (`tabPatch Log`, `skipped = 0`, 25/08 12:14). Hoàn nguyên mã không hoàn nguyên được cái đã ghi vào CSDL.
+- **`allow_on_submit = 1`** trên một chứng từ đã ghi sổ — đúng về nghiệp vụ (chữ ký luôn có sau khi ghi sổ) nhưng phải kiểm không mở thêm đường sửa nào khác.
+
+---
+
 ## Nghiệm thu cuối kế hoạch
 
 - [ ] Full suite xanh, chạy **hai lần liên tiếp**, tiền cảnh.

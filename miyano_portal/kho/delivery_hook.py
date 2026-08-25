@@ -594,3 +594,33 @@ def _lo_cua_dong(row) -> list[tuple[str, str | None, float]]:
 		return [(row.batch_no, _han_su_dung(row.batch_no), qty)]
 
 	return [(LOT_KHONG_CO, None, qty)]
+
+
+def lo_han_cho_in(row) -> dict:
+	"""Số lô + hạn dùng của MỘT dòng Delivery Note, đã định dạng để IN.
+
+	Mẫu 02-VT bản TT 99/2025 ("Phiếu xuất kho kiêm biên bản bàn giao") có hai
+	cột `Số lô` / `Hạn dùng` mà mẫu cũ không có. Hai cột này KHÔNG được tự tra
+	lấy trong template: quy tắc đọc lô của build này là **bundle TRƯỚC,
+	`batch_no` sau** (xem mục 3 docstring đầu module — `make_bundle_using_old_
+	serial_batch_fields()` chạy ở `DeliveryNote.on_submit` nên một dòng chỉ
+	gắn `batch_no` cũng đã có bundle, và một dòng tách nhiều lô thì `batch_no`
+	RỖNG). Một mẫu in tự viết `{{ i.batch_no }}` sẽ in ô trống cho đúng những
+	dòng tách lô — trên một biên bản bàn giao dược phẩm có chữ ký hai bên, và
+	không lỗi ở đâu cả. Nên nó gọi `_lo_cua_dong()`, ĐÚNG hàm mà phép ghi kho
+	khách đang dùng: một quy tắc, không phải hai.
+
+	`LOT_KHONG_CO` là sentinel NỘI BỘ ("hàng không quản theo lô") — trả ô
+	TRỐNG, không in "KHONG-LO" lên chứng từ pháp lý.
+
+	Một dòng tách nhiều lô cho ra nhiều cặp; ghép bằng dấu phẩy để hai cột
+	đứng thẳng hàng nhau (lô thứ n ứng với hạn thứ n).
+	"""
+	cap = _lo_cua_dong(row)
+	lo = [x[0] for x in cap if x[0] and x[0] != LOT_KHONG_CO]
+	han = [
+		frappe.utils.formatdate(x[1], "dd/MM/yyyy")
+		for x in cap
+		if x[0] and x[0] != LOT_KHONG_CO and x[1]
+	]
+	return {"so_lo": ", ".join(lo), "han_dung": ", ".join(han)}

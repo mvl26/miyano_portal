@@ -10,6 +10,8 @@ lý nữa sẽ ăn `_chan_hai_quan_ly`, và mọi test ngầm giả định "ch�
 sẽ vỡ đúng ngày dữ liệu thật đổi).
 """
 
+import base64
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -1351,3 +1353,111 @@ class TestV3KhoaKhongGanKhoVanQuaDuocCong(_NenCachLy):
 		}).insert(ignore_permissions=True)
 		with self.assertRaises(frappe.PermissionError):
 			kho_api._khoa_cua_kho(kp_khac.name, self.kho)
+
+
+class TestBienBanBanGiaoDaKy(_NenCachLy):
+	"""Chủ đầu tư chốt 25/08/2026 — nhân viên Miyano in mẫu 02-VT, ký nhận
+	với khách tại kho, **scan rồi đính vào chính phiếu giao**; khách bấm
+	"⬇ Phiếu giao đợt" trên cổng phải nhận ĐÚNG BẢN ĐÃ KÝ đó, không phải một
+	bản in lại chưa có chữ ký nào.
+
+	Ba bài dưới đây tách theo ba thứ có thể hỏng RIÊNG, không gộp: có scan
+	thì trả scan; chưa có scan thì vẫn in như cũ (không được vỡ đường đang
+	chạy hằng ngày); và ô `Attach` trỏ tới file KHÔNG thuộc phiếu này thì
+	không được phát ra.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		self.so_a = self._don_submitted(self.kp_a.name)
+		self.dn_a = make_delivery_note(self.so_a.name)
+		self.dn_a.insert(ignore_permissions=True)
+
+	# Ảnh PNG 1x1 THẬT. Frappe chạy bản scan qua PIL khi đuôi file là ảnh
+	# (nén lại/đọc kích thước), nên vài byte giả sẽ nổ `UnidentifiedImageError`
+	# ở tầng fixture — một thất bại không liên quan gì tới thứ đang kiểm.
+	_PNG = base64.b64decode(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	)
+
+	def _dinh_scan(self, doctype, name, ten_file="bien-ban-da-ky.png", noi_dung=None):
+		noi_dung = self._PNG if noi_dung is None else noi_dung
+		f = frappe.get_doc({
+			"doctype": "File", "file_name": ten_file,
+			"attached_to_doctype": doctype, "attached_to_name": name,
+			"is_private": 1, "content": noi_dung,
+		}).insert(ignore_permissions=True)
+		return f
+
+	def test_co_ban_scan_thi_cong_tra_DUNG_ban_da_ky(self):
+		f = self._dinh_scan("Delivery Note", self.dn_a.name)
+		frappe.db.set_value(
+			"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky", f.file_url
+		)
+		frappe.set_user(self.nv_a.user)
+		portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertEqual(frappe.local.response.filecontent, self._PNG)
+		# KHÔNG được cứng đuôi `.pdf`: bản scan phần lớn là ảnh chụp, và một
+		# JPG mang tên `.pdf` mở ra rác trên máy bệnh viện.
+		self.assertTrue(
+			frappe.local.response.filename.endswith(".png"),
+			f"đuôi file sai: {frappe.local.response.filename}",
+		)
+
+	def test_chua_co_ban_scan_thi_van_in_nhu_cu(self):
+		"""Vế răng của bài trên: nếu nhánh mới nuốt luôn cả đường cũ thì bài
+		trên vẫn xanh, còn 6 tài khoản đang chạy thật mất nút tải phiếu."""
+		frappe.set_user(self.nv_a.user)
+		from unittest.mock import patch
+
+		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertEqual(frappe.local.response.filecontent, b"%PDF-fake")
+
+	def test_cong_phat_DUNG_to_phieu_hai_ben_ky(self):
+		"""Chủ đầu tư chốt 25/08 — nút "⬇ Phiếu giao đợt" phải phát ĐÚNG mẫu
+		02-VT "Phiếu xuất kho kiêm biên bản bàn giao", tờ giấy hai bên ký tại
+		kho. Trước bản này nó phát "Miyano - Phiếu giao hàng" — một tờ KHÁC:
+		bố cục khác, không có cột Số lô/Hạn dùng, không có đoạn cam kết bàn
+		giao. Khách ký tờ A, tải về tờ B, và không có tín hiệu nào báo vì mỗi
+		tờ tự nó đều "đúng".
+
+		Khẳng định trên HTML đã render (chặn ở `get_pdf`) chứ không khẳng
+		định tên mẫu trong hằng số — hằng số đổi mà đường render đi lối khác
+		thì bài kiểm tên vẫn xanh.
+		"""
+		frappe.set_user(self.nv_a.user)
+		from unittest.mock import patch
+
+		giu = {}
+		with patch("frappe.utils.pdf.get_pdf", side_effect=lambda h, *a, **k: giu.setdefault("html", h) and b"" or b"%PDF"):
+			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		html = giu["html"]
+		for phai_co in (
+			"PHIẾU XUẤT KHO KIÊM BIÊN BẢN BÀN GIAO",
+			"99/2025/TT-BTC", "Số lô", "Hạn dùng",
+			"Hai bên đã kiểm tra và xác nhận",
+			"Người giao hàng", "Người nhận hàng",
+		):
+			self.assertIn(phai_co, html, f"cổng phát nhầm mẫu — thiếu «{phai_co}»")
+
+	def test_o_attach_tro_sang_file_CUA_PHIEU_KHAC_thi_khong_phat_ra(self):
+		"""`custom_bien_ban_da_ky` chỉ là một CHUỖI đường dẫn, sửa được từ
+		Desk và trỏ được tới file của bất kỳ chứng từ nào. Không đối chiếu
+		`attached_to_doctype`/`attached_to_name` thì cổng thành một đường đọc
+		file tuỳ ý — đúng lớp rò rỉ mà `dam_bao_xem_duoc` dựng ra để chặn.
+		"""
+		la = self._dinh_scan("Sales Order", self.so_a.name, "cua-chung-tu-khac.png")
+		frappe.db.set_value(
+			"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky", la.file_url
+		)
+		frappe.set_user(self.nv_a.user)
+		from unittest.mock import patch
+
+		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertEqual(
+			frappe.local.response.filecontent, b"%PDF-fake",
+			"file không thuộc phiếu này vẫn bị phát ra cho khách",
+		)
+		self.assertNotEqual(frappe.local.response.filecontent, self._PNG)

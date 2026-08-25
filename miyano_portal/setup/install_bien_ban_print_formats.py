@@ -24,10 +24,31 @@ tra bằng `frappe.db.get_value` NGAY TRONG template.
 song song trong cùng một app. Nếu kế toán của khách yêu cầu số hiệu khác dưới
 TT107, sửa ở đây là đủ — không chỗ nào khác hardcode số hiệu.
 
-**Phiếu xuất kho 02-VT chỉ có bản TT200**: `Delivery Note` là chứng từ của
+**Phiếu xuất kho 02-VT chỉ có MỘT bản**: `Delivery Note` là chứng từ của
 CHÍNH Miyano (doanh nghiệp), không phải của khách hàng đơn vị sự nghiệp. TT107
 áp cho chứng từ trong kho của khách (`Customer Stock *`), nơi đã có sẵn hai
 biến thể.
+
+**Cập nhật 25/08/2026 — 02-VT chuyển sang TT 99/2025/TT-BTC.** Chủ đầu tư giao
+bản mẫu `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx`; mẫu đó trích
+*"Kèm theo Thông tư số 99/2025/TT-BTC ngày 27 tháng 10 năm 2025"* thay cho
+TT 200/2014, và đổi tên chứng từ thành **"PHIẾU XUẤT KHO KIÊM BIÊN BẢN BÀN
+GIAO"**. Đây là quyết định của chủ đầu tư ghi trong chính bản mẫu, không phải
+suy diễn ở đây — thông tư trích dẫn trên một chứng từ kế toán là thứ chỉ chủ
+đầu tư/kế toán được chốt.
+
+Bốn thay đổi thực chất so với bản TT200 (không chỉ đổi dòng trích dẫn):
+  * thêm hai cột **Số lô / Hạn dùng** — xem `lo_han_cho_in`, hàng dược phẩm
+    bàn giao mà không ghi lô/hạn thì biên bản ký xong không truy hồi được;
+  * thêm ô **Số đơn hàng (SO/PO)**, **Địa chỉ giao hàng**, **Ngày giờ bàn
+    giao**, **Điều kiện bảo quản/Nhiệt độ**;
+  * thêm **đoạn cam kết bàn giao** — đây là thứ biến một phiếu xuất kho thành
+    một biên bản có giá trị đối chứng;
+  * khối ký đổi từ 5 ô (có Kế toán trưởng, Giám đốc) sang đúng **4 ô** của
+    bản mẫu: Người lập phiếu / Thủ kho / Người giao hàng / Người nhận hàng.
+
+Bản mẫu docx là NGUỒN, giữ nguyên trong `docs/`. Sửa mẫu in thì mở lại nó,
+đừng sửa theo trí nhớ.
 """
 
 import frappe
@@ -153,95 +174,174 @@ def _html_bien_ban(so_thong_tu: str, ngay_thong_tu: str) -> str:
 """
 
 
+# CSS RIÊNG của 02-VT bản TT 99/2025. Không nhét vào `_STYLE` dùng chung: sáu
+# mẫu kho khác đang chia nhau bảng đó, và bốn khối dưới đây (bảng meta 2 cột,
+# hàng ký hiệu cột, đoạn cam kết, chân trang) chỉ mẫu này có.
+_XUAT_STYLE = """
+<style>
+  .phieu-kho table.meta { width: 100%; border-collapse: collapse; margin: 8px 0 10px; table-layout: fixed; }
+  .phieu-kho table.meta td { border: 0; padding: 2px 0; font-size: 13px; }
+  .phieu-kho p { margin: 3px 0; }
+  /* Hàng ký hiệu cột của Bộ Tài chính — chữ nhỏ, nhạt, không cạnh tranh với
+     tên cột thật ngay trên nó. */
+  .phieu-kho tr.ky-hieu th { font-weight: normal; font-style: italic; font-size: 11px; padding: 1px 6px; }
+  .phieu-kho .cam-ket { margin-top: 10px; text-align: justify; }
+  /* `.ky b` của `_STYLE` chừa sẵn 50px khoảng trống để ký; dòng "Họ tên"
+     phải nằm DƯỚI khoảng trống đó, nên là một khối riêng chứ không phải
+     text chảy tiếp sau `b`. */
+  .phieu-kho .ky i { display: block; font-style: normal; font-size: 12px; margin-top: 4px; }
+  .phieu-kho .chan-trang { margin-top: 26px; text-align: center; font-size: 11px; font-style: italic; }
+</style>
+"""
+
+# `so_don`: mẫu mới có ô "Số đơn hàng (SO/PO)" mà mẫu cũ không có. Lấy từ
+# CHÍNH các dòng phiếu (`against_sales_order`) chứ không từ `doc.po_no` —
+# `po_no` là số PO của KHÁCH, một ô khác trên cùng mẫu ("Số chứng từ gốc kèm
+# theo"). Gộp trùng và giữ thứ tự: một phiếu giao gộp nhiều đơn là chuyện
+# thường ở đây (giao gộp nhiều đợt).
+#
+# `dia_chi`: `shipping_address` là HTML nhiều dòng (Address Display). Ép về
+# một dòng bằng `strip_html` — chuỗi thô có `<br>` sẽ bị Jinja escape và in
+# ra nguyên văn thẻ trên chứng từ.
 _XUAT_SETUP = (
 	'{% set cty = frappe.db.get_value("Company", doc.company, '
 	'["company_name", "tax_id"], as_dict=True) or {} %}'
+	'{% set so_don = (doc.items | map(attribute="against_sales_order") '
+	'| select | unique | list | join(", ")) %}'
+	# Tách dòng → bỏ dòng RỖNG → ghép: `Address Display` của ERPNext luôn
+	# kèm vài dòng trống (address_line2/county không khai), nên phép ghép
+	# ngây thơ in ra "..., Hà Nội, Vietnam, ," trên chứng từ có chữ ký.
+	'{% set dia_chi = (frappe.utils.strip_html(doc.shipping_address or "")'
+	'.split("\n") | map("trim") | select | join(", ") | trim(", ")) %}'
 )
 
 _XUAT_ROWS = """
     {% for i in doc.items %}
+    {% set lo = lo_han_cho_in(i) %}
     <tr>
       <td>{{ loop.index }}</td>
-      <td>{{ i.item_name or i.item_code }}</td>
       <td>{{ i.item_code }}</td>
+      <td>{{ i.item_name or i.item_code }}</td>
       <td>{{ i.uom or '' }}</td>
       <td class="num">{{ "{:g}".format(i.qty or 0) }}</td>
       <td class="num">{{ "{:g}".format(i.qty or 0) }}</td>
+      <td>{{ lo.so_lo }}</td>
+      <td>{{ lo.han_dung }}</td>
       <td class="num">{{ "{:,.0f}".format(i.rate or 0) }}</td>
       <td class="num">{{ "{:,.0f}".format(i.amount or 0) }}</td>
     </tr>
     {% endfor %}
 """
 
-HTML_PHIEU_XUAT_02VT = _STYLE + _XUAT_SETUP + """
+HTML_PHIEU_XUAT_02VT = _STYLE + _XUAT_STYLE + _XUAT_SETUP + """
 <div class="phieu-kho">
   <div class="hdr">
     <div>
-      <b>Đơn vị:</b> {{ cty.company_name or doc.company }}<br/>
-      <b>Mã số thuế:</b> {{ cty.tax_id or '' }}
+      <b>{{ (cty.company_name or doc.company)|upper }}</b><br/>
+      Bộ phận: .............................................
     </div>
     <div class="mau">
-      Mẫu số 02 - VT<br/>
-      (Ban hành theo Thông tư số 200/2014/TT-BTC<br/>
-      ngày 22/12/2014 của Bộ Tài chính)
+      Mẫu số: 02 - VT<br/>
+      (Kèm theo Thông tư số 99/2025/TT-BTC<br/>
+      ngày 27 tháng 10 năm 2025 của Bộ trưởng Bộ Tài chính)
     </div>
   </div>
-  <h2>PHIẾU XUẤT KHO</h2>
-  <div class="sub">
-    Ngày {{ frappe.utils.formatdate(doc.posting_date, "dd") }}
-    tháng {{ frappe.utils.formatdate(doc.posting_date, "mm") }}
-    năm {{ frappe.utils.formatdate(doc.posting_date, "yyyy") }}
-    &nbsp;&nbsp; Số: {{ doc.name }}<br/>
-    Nợ TK ..................... &nbsp;&nbsp; Có TK .....................
-  </div>
+
+  <h2>PHIẾU XUẤT KHO KIÊM BIÊN BẢN BÀN GIAO</h2>
+
+  <table class="meta">
+    <tr>
+      <td>Mã phiếu: <b>{{ doc.name }}</b></td>
+      <td>Số đơn hàng (SO/PO): {{ so_don or '.' * 24 }}</td>
+    </tr>
+    <tr>
+      <td>Ngày lập:
+        {{ frappe.utils.formatdate(doc.posting_date, "dd") }} /
+        {{ frappe.utils.formatdate(doc.posting_date, "MM") }} /
+        {{ frappe.utils.formatdate(doc.posting_date, "yyyy") }}</td>
+      <!-- Ngày GIỜ bàn giao để trống có chủ đích: mốc pháp lý của biên bản
+           này là thời điểm hai bên ĐẶT BÚT KÝ tại kho khách, không phải
+           `posting_date` của chứng từ trong ERP (thường ghi trước đó). Điền
+           hộ bằng dữ liệu ERP là khai khống một mốc thời gian có chữ ký. -->
+      <td>Ngày, giờ bàn giao: ......giờ......, ngày......./......./..........</td>
+    </tr>
+    <tr>
+      <td>Nợ: ....................</td>
+      <td>Có: ....................</td>
+    </tr>
+  </table>
+
   <p>- Họ và tên người nhận hàng: ..................................................
-     Bộ phận: ..................................</p>
+     Bộ phận/Đơn vị: <b>{{ doc.customer_name or doc.customer }}</b></p>
+  <p>- Địa chỉ giao hàng: {{ dia_chi or '.' * 90 }}</p>
   <p>- Lý do xuất kho: Giao hàng cho <b>{{ doc.customer_name or doc.customer }}</b>
      {% if doc.is_return %}<b>(PHIẾU TRẢ HÀNG — hàng nhận lại từ khách)</b>{% endif %}</p>
-  <p>- Xuất tại kho: <b>{{ doc.set_warehouse or (doc.items[0].warehouse if doc.items else '') }}</b></p>
+  <p>- Xuất tại kho (ngăn lô): <b>{{ doc.set_warehouse or (doc.items[0].warehouse if doc.items else '') }}</b>
+     &nbsp; Địa điểm: ........................................</p>
 
   <table class="chung-tu">
     <thead>
       <tr>
-        <th rowspan="2">STT</th>
-        <th rowspan="2">Tên, nhãn hiệu, quy cách vật tư</th>
-        <th rowspan="2">Mã số</th>
-        <th rowspan="2">Đơn vị tính</th>
-        <th colspan="2">Số lượng</th>
-        <th rowspan="2">Đơn giá</th>
-        <th rowspan="2">Thành tiền</th>
+        <th>STT</th>
+        <th>Mã vật tư</th>
+        <th>Tên, nhãn hiệu, quy cách hàng hóa</th>
+        <th>ĐVT</th>
+        <th>SL yêu cầu</th>
+        <th>SL thực xuất</th>
+        <th>Số lô</th>
+        <th>Hạn dùng</th>
+        <th>Đơn giá</th>
+        <th>Thành tiền</th>
       </tr>
-      <tr><th>Yêu cầu</th><th>Thực xuất</th></tr>
+      <!-- Hàng ký hiệu cột của mẫu in Bộ Tài chính. Thứ tự A,C,B,D,1,2,E,F,3,4
+           CỐ Ý không theo alphabet — nó là ký hiệu gắn với Ý NGHĨA cột trong
+           chế độ kế toán, chép nguyên văn từ mẫu, không "sửa cho thẳng". -->
+      <tr class="ky-hieu">
+        <th>A</th><th>C</th><th>B</th><th>D</th><th>1</th>
+        <th>2</th><th>E</th><th>F</th><th>3</th><th>4</th>
+      </tr>
     </thead>
     <tbody>""" + _XUAT_ROWS + """</tbody>
     <tfoot>
       <tr>
-        <td colspan="7" style="text-align:right"><b>Cộng</b></td>
+        <td colspan="3" style="text-align:right"><b>Cộng</b></td>
+        <td>x</td><td>x</td><td>x</td><td>x</td><td>x</td><td>x</td>
         <td class="num"><b>{{ "{:,.0f}".format(doc.total or 0) }}</b></td>
       </tr>
     </tfoot>
   </table>
-  <p>Tổng số tiền (viết bằng chữ): {{ tien_bang_chu(doc.grand_total or doc.total or 0) }}</p>
-  <p>Số chứng từ gốc kèm theo: {{ doc.po_no or '' }}</p>
+
+  <p>- Tổng số tiền (viết bằng chữ): {{ tien_bang_chu(doc.grand_total or doc.total or 0) }}</p>
+  <p>- Số chứng từ gốc kèm theo: {{ doc.po_no or '.' * 60 }}</p>
+  <p>- Điều kiện bảo quản/vận chuyển: ..................................................
+     Nhiệt độ: .........................</p>
 
   <!-- Thông tin vận chuyển KHÔNG nằm trong mẫu 02-VT, nhưng giao nhận đang
        dùng nó hằng ngày. Đặt DƯỚI khối chuẩn, tách bằng nhãn riêng — thêm
        thông tin bên dưới không làm sai mẫu, còn bỏ đi thì mất dữ liệu thật. -->
   {% if doc.transporter_name or doc.lr_no %}
-  <p style="margin-top:8px; font-style:italic">
+  <p style="font-style:italic">
     Vận chuyển: {{ doc.transporter_name or '' }}{% if doc.lr_no %} — Vận đơn số {{ doc.lr_no }}{% endif %}
   </p>
   {% endif %}
 
+  <p class="cam-ket">Hai bên đã kiểm tra và xác nhận: hàng hóa được bàn giao đầy đủ
+  về số lượng, đúng chủng loại, quy cách, số lô, hạn dùng nêu trên; bao bì nguyên vẹn
+  tại thời điểm bàn giao. Kể từ thời điểm ký nhận, bên nhận chịu trách nhiệm quản lý,
+  bảo quản hàng hóa theo đúng điều kiện của nhà sản xuất.</p>
+
   <div class="ky">
-    <div><b>Người lập phiếu</b>(Ký, họ tên)</div>
-    <div><b>Người nhận hàng</b>(Ký, họ tên)</div>
-    <div><b>Thủ kho</b>(Ký, họ tên)</div>
-    <div><b>Kế toán trưởng</b>(Ký, họ tên)</div>
-    <div><b>Giám đốc</b>(Ký, họ tên)</div>
+    <div><b>Người lập phiếu</b>(Ký, họ tên)<i>Họ tên: ..................</i></div>
+    <div><b>Thủ kho</b>(Ký, họ tên)<i>Họ tên: ..................</i></div>
+    <div><b>Người giao hàng</b>(Ký, họ tên)<i>Họ tên: ..................</i></div>
+    <div><b>Người nhận hàng</b>(Ký, họ tên)<i>Họ tên: ..................</i></div>
   </div>
+
+  <p class="chan-trang">Liên hệ: 0988.806.848 &nbsp;|&nbsp; Email: info@miyano.com.vn
+  &nbsp;|&nbsp; Website: https://miyano.com.vn/</p>
 </div>
 """
+
 
 FORMATS = [
 	(NAME_BIEN_BAN_TT107, "Portal Delivery Inspection",

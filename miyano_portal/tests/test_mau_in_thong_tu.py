@@ -145,6 +145,15 @@ class TestMauBienBanKiemNghiem(FrappeTestCase):
 
 
 class TestMauPhieuXuat02VT(FrappeTestCase):
+	"""Mẫu 02-VT bản **TT 99/2025** — "Phiếu xuất kho kiêm biên bản bàn giao".
+
+	Nguồn của mẫu là `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx` do chủ đầu
+	tư giao 25/08/2026. Thông tư trích dẫn trên một chứng từ kế toán là thứ
+	CHỈ chủ đầu tư/kế toán được chốt, nên bài dưới đây ghim cả vế DƯƠNG (có
+	99/2025) lẫn vế ÂM (không còn 200/2014): thêm dòng mới mà quên gỡ dòng cũ
+	là in ra một chứng từ trích hai thông tư.
+	"""
+
 	def setUp(self):
 		install_bien_ban_print_formats()
 		self.dn = frappe.db.get_value(
@@ -159,9 +168,104 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 
 	def test_dung_cau_truc_mau_02_vt(self):
 		h = self._render()
-		for phai_co in ("Mẫu số 02 - VT", "PHIẾU XUẤT KHO", "Thực xuất",
-		                "Tổng số tiền (viết bằng chữ)", "Thủ kho"):
+		for phai_co in (
+			"Mẫu số: 02 - VT",
+			"Kèm theo Thông tư số 99/2025/TT-BTC",
+			"ngày 27 tháng 10 năm 2025",
+			"PHIẾU XUẤT KHO KIÊM BIÊN BẢN BÀN GIAO",
+			"Số đơn hàng (SO/PO)", "Ngày, giờ bàn giao",
+			"Số lô", "Hạn dùng", "SL thực xuất",
+			"Tổng số tiền (viết bằng chữ)",
+			"Hai bên đã kiểm tra và xác nhận",
+			# Khối ký của bản mẫu: ĐÚNG bốn ô.
+			"Người lập phiếu", "Thủ kho", "Người giao hàng", "Người nhận hàng",
+			"info@miyano.com.vn",
+		):
 			self.assertIn(phai_co, h, f"mẫu 02-VT thiếu «{phai_co}»")
+
+	def test_khong_con_dau_vet_ban_TT200(self):
+		"""Vế ÂM. Không có bài này, một bản vá "thêm dòng TT 99/2025" mà quên
+		gỡ dòng cũ vẫn xanh — và chứng từ in ra trích hai thông tư."""
+		h = self._render()
+		for khong_duoc_con in (
+			"200/2014", "22/12/2014",
+			# Bản mẫu bỏ hai ô ký này; giữ lại là bắt bệnh viện ký một biên
+			# bản có ô trống mà không ai được phép ký vào.
+			"Kế toán trưởng", "Giám đốc",
+		):
+			self.assertNotIn(khong_duoc_con, h, f"còn sót bản cũ: «{khong_duoc_con}»")
+
+	def test_in_ra_DU_LIEU_THAT_cua_phieu(self):
+		"""Răng cho bài cấu trúc: mọi khẳng định `assertIn` ở trên vẫn xanh
+		khi từng ô dữ liệu TRỐNG. Bài này ghim đúng số liệu của phiếu."""
+		doc = frappe.get_doc("Delivery Note", self.dn)
+		h = self._render()
+		self.assertIn(doc.name, h, "thiếu Mã phiếu")
+		self.assertIn(doc.customer_name or doc.customer, h, "thiếu tên khách")
+		for i in doc.items:
+			self.assertIn(i.item_code, h, f"thiếu mã vật tư {i.item_code}")
+
+	def test_cot_so_lo_va_han_dung_in_ra_lo_THAT(self):
+		"""Hai cột mới của bản TT 99/2025.
+
+		BẪY đã lường: quy tắc đọc lô của build này là **bundle TRƯỚC,
+		`batch_no` sau** (`kho/delivery_hook`), nên một mẫu tự viết
+		`{{ i.batch_no }}` in ô TRỐNG cho đúng những dòng tách nhiều lô — im
+		lặng, trên một biên bản dược phẩm có chữ ký hai bên. Bài này dựng một
+		`Batch` THẬT có `expiry_date` THẬT rồi khẳng định cả số lô lẫn hạn
+		dùng đã định dạng ra được trên bản in.
+
+		Dựng phiếu trong BỘ NHỚ (`as_json()` không cần bản ghi trong DB —
+		đúng đường `printview` gọi): dựng một phiếu giao đã ghi sổ có lô đòi
+		tồn kho thật, và một fixture phải nặn tồn kho ra để test một mẫu in
+		là fixture sẽ hỏng vì lý do không liên quan gì tới mẫu in.
+		"""
+		from miyano_portal.kho.delivery_hook import lo_han_cho_in
+
+		ma = "_TEST 02VT LO"
+		if not frappe.db.exists("Item", ma):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ma, "item_name": ma,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Hộp", "is_stock_item": 1, "has_batch_no": 1,
+				"create_new_batch": 1,
+			}).insert(ignore_permissions=True)
+		so_lo = "_TEST-LO-02VT-001"
+		han = frappe.utils.add_days(frappe.utils.today(), 400)
+		if not frappe.db.exists("Batch", so_lo):
+			frappe.get_doc({
+				"doctype": "Batch", "batch_id": so_lo, "item": ma,
+				"expiry_date": han,
+			}).insert(ignore_permissions=True)
+		frappe.db.set_value("Batch", so_lo, "expiry_date", han)
+
+		goc = frappe.get_doc("Delivery Note", self.dn)
+		phieu = frappe.copy_doc(goc)
+		phieu.items = []
+		phieu.append("items", {
+			"item_code": ma, "item_name": ma, "uom": "Hộp", "qty": 3,
+			"rate": 10000, "amount": 30000, "batch_no": so_lo,
+			"warehouse": goc.items[0].warehouse,
+		})
+		# Tiền đề: hàm dùng chung PHẢI đọc ra lô này — nếu nó trả rỗng thì
+		# khẳng định bên dưới xanh/đỏ vì lý do khác hẳn mẫu in.
+		doc_lo = lo_han_cho_in(phieu.items[0])
+		self.assertEqual(doc_lo["so_lo"], so_lo)
+		self.assertEqual(doc_lo["han_dung"], frappe.utils.formatdate(han, "dd/MM/yyyy"))
+
+		h = get_html_and_style(doc=phieu.as_json(), print_format=NAME_PHIEU_XUAT_02VT)["html"]
+		self.assertIn(so_lo, h, "cột Số lô in ra ô trống cho một dòng CÓ lô")
+		self.assertIn(
+			frappe.utils.formatdate(han, "dd/MM/yyyy"), h,
+			"cột Hạn dùng in ra ô trống cho một lô CÓ hạn",
+		)
+
+	def test_khong_in_sentinel_KHONG_LO_len_chung_tu(self):
+		"""`LOT_KHONG_CO` ("KHONG-LO") là quy ước NỘI BỘ của sổ kho cho hàng
+		không quản theo lô. Nó lọt lên một chứng từ pháp lý là một chuỗi vô
+		nghĩa với bệnh viện — và không ai đọc lại bản in để phát hiện."""
+		h = self._render()
+		self.assertNotIn("KHONG-LO", h)
 
 	def test_tien_bang_chu_la_TIENG_VIET(self):
 		"""frappe.utils.money_in_words đọc theo ngôn ngữ hệ thống — site để

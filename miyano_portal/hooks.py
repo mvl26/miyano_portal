@@ -121,6 +121,12 @@ jinja = {
 		# để tiếng Anh) nên in ra "Nine Hundred And Fifty Thousand" trên mẫu
 		# 02-VT — lỗi thật, không phải chuyện thẩm mỹ.
 		"miyano_portal.tien_bang_chu.tien_bang_chu",
+		# Mẫu 02-VT bản TT 99/2025 có hai cột `Số lô`/`Hạn dùng`. Quy tắc đọc
+		# lô (bundle TRƯỚC, `batch_no` sau) chỉ đúng ở MỘT nơi —
+		# `kho/delivery_hook._lo_cua_dong` — và template gọi vào đó qua hàm
+		# này. Viết `{{ i.batch_no }}` thẳng trong mẫu sẽ in ô TRỐNG cho đúng
+		# những dòng tách nhiều lô, trên một biên bản bàn giao có chữ ký.
+		"miyano_portal.kho.delivery_hook.lo_han_cho_in",
 	],
 }
 
