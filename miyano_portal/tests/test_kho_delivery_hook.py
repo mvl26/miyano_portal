@@ -30,6 +30,8 @@ ITEM_LO = "MYNTEST-DN-LO"
 
 LOT_A = "LOTTEST-DNHOOK-A"
 LOT_B = "LOTTEST-DNHOOK-B"
+# Lô CÓ THẬT nhưng chưa khai hạn dùng — không phải lô không tồn tại.
+LOT_CHUA_KHAI_HAN = "LOTTEST-DNHOOK-CHUAHAN"
 HAN_A = "2027-03-31"
 HAN_B = "2026-11-30"
 
@@ -475,6 +477,133 @@ class TestDeliveryNoteHook(FrappeTestCase):
 			self.assertEqual(
 				delivery_hook._lo_cua_dong(row), [(ledger.LOT_KHONG_CO, None, 2.0)]
 			)
+
+	def test_lo_khong_co_han_van_giu_dung_CAP_lo_thu_n_han_thu_n(self):
+		"""`lo_han_cho_in` hứa trong docstring: "lô thứ n ứng với hạn thứ n".
+
+		Bản trước dựng `so_lo` từ MỌI lô nhưng `han_dung` chỉ từ lô CÓ hạn, nên
+		một dòng trộn lô-có-hạn với lô-chưa-khai-hạn in ra hai cột LỆCH NHAU:
+		lô đầu tiên (chưa khai hạn) nhận hạn của lô thứ hai. Đó là GHI SAI HẠN
+		DÙNG cho một lô, trên biên bản bàn giao dược phẩm có chữ ký hai bên —
+		không phải chuyện trình bày.
+
+		Thứ tự cố ý đặt lô KHÔNG hạn ĐỨNG TRƯỚC: đó là ca gây hại thật. Nếu lô
+		không hạn đứng sau, người đọc vẫn ghép đúng nhờ may.
+		"""
+		self._tao_vat_tu_co_lo()
+		if not frappe.db.exists("Batch", LOT_CHUA_KHAI_HAN):
+			frappe.get_doc({
+				"doctype": "Batch", "batch_id": LOT_CHUA_KHAI_HAN,
+				"item": ITEM_LO,
+			}).insert(ignore_permissions=True)
+		row = frappe._dict(
+			item_code=ITEM_LO, qty=5, conversion_factor=1,
+			serial_and_batch_bundle="BUNDLE-GIA-DINH", batch_no=None,
+		)
+		entries = [
+			frappe._dict(batch_no=LOT_CHUA_KHAI_HAN, qty=-2),
+			frappe._dict(batch_no=LOT_A, qty=-3),
+		]
+		with unittest.mock.patch.object(
+			delivery_hook, "_entry_cua_bundle", return_value=entries
+		):
+			kq = delivery_hook.lo_han_cho_in(row)
+		self.assertEqual(kq["so_lo"], f"{LOT_CHUA_KHAI_HAN}, {LOT_A}")
+		self.assertEqual(
+			kq["han_dung"],
+			f"{delivery_hook.KHONG_KHAI_HAN}, {frappe.utils.formatdate(HAN_A, 'dd/MM/yyyy')}",
+			"cột Hạn dùng lệch cột Số lô — lô đầu nhận hạn của lô sau",
+		)
+
+	def test_ca_dong_khong_lo_nao_co_han_thi_cot_han_de_TRONG(self):
+		"""Không được in một hàng gạch ngang cho một dòng mà KHÔNG lô nào khai
+		hạn: ô trống nghĩa là "không có thông tin", còn gạch ngang chỉ có nghĩa
+		khi đứng cạnh một hạn thật để giữ cặp."""
+		self._tao_vat_tu_co_lo()
+		if not frappe.db.exists("Batch", LOT_CHUA_KHAI_HAN):
+			frappe.get_doc({
+				"doctype": "Batch", "batch_id": LOT_CHUA_KHAI_HAN,
+				"item": ITEM_LO,
+			}).insert(ignore_permissions=True)
+		row = frappe._dict(
+			item_code=ITEM_LO, qty=2, conversion_factor=1,
+			serial_and_batch_bundle="BUNDLE-GIA-DINH", batch_no=None,
+		)
+		entries = [frappe._dict(batch_no=LOT_CHUA_KHAI_HAN, qty=-2)]
+		with unittest.mock.patch.object(
+			delivery_hook, "_entry_cua_bundle", return_value=entries
+		):
+			kq = delivery_hook.lo_han_cho_in(row)
+		self.assertEqual(kq["so_lo"], LOT_CHUA_KHAI_HAN)
+		self.assertEqual(kq["han_dung"], "")
+
+	# ------------------------------------------- cam kết bàn giao (Ruling P47)
+	def _dong_don(self, qty):
+		"""Một dòng Sales Order ĐÃ GHI SỔ, trả về `name` của dòng (`so_detail`)."""
+		so = frappe.new_doc("Sales Order")
+		so.customer = KHACH
+		so.company = COMPANY
+		so.transaction_date = frappe.utils.today()
+		so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 3)
+		so.append("items", {
+			"item_code": ITEM, "qty": qty, "rate": 1000,
+			"warehouse": KHO_MYN, "delivery_date": so.delivery_date,
+			"cost_center": COST_CENTER,
+		})
+		so.insert(ignore_permissions=True)
+		so.submit()
+		self.addCleanup(self._huy_don, so.name)
+		return so.items[0].name
+
+	@staticmethod
+	def _huy_don(ten):
+		doc = frappe.get_doc("Sales Order", ten)
+		if doc.docstatus == 1:
+			doc.cancel()
+		frappe.delete_doc("Sales Order", ten, force=True, ignore_permissions=True)
+
+	def test_giao_du_va_giao_thua_deu_dung_cau_goc(self):
+		sd = self._dong_don(10)
+		du = frappe._dict(is_return=0, items=[frappe._dict(so_detail=sd, qty=10)])
+		thua = frappe._dict(is_return=0, items=[frappe._dict(so_detail=sd, qty=12)])
+		self.assertTrue(delivery_hook.giao_du_theo_don(du))
+		self.assertTrue(
+			delivery_hook.giao_du_theo_don(thua),
+			"giao THỪA không phải giao thiếu — câu cam kết gốc vẫn đúng",
+		)
+
+	def test_mot_dong_don_tach_nhieu_dong_phieu_van_la_giao_DU(self):
+		"""Một dòng đơn hàng tách thành nhiều dòng trên CÙNG một phiếu (khác
+		kho, khác lô). So từng dòng một sẽ báo "thiếu" cho một phiếu giao đủ —
+		phải gộp theo `so_detail` TRƯỚC khi so."""
+		sd = self._dong_don(10)
+		doc = frappe._dict(is_return=0, items=[
+			frappe._dict(so_detail=sd, qty=6),
+			frappe._dict(so_detail=sd, qty=4),
+		])
+		self.assertTrue(delivery_hook.giao_du_theo_don(doc))
+
+	def test_phieu_TRA_HANG_chan_ngay_khong_di_so_sanh(self):
+		"""Chốt `is_return` phải chặn TRƯỚC phép so, không phải trùng kết quả
+		với nó: dựng một phiếu trả hàng mà phép so sẽ nói "đủ" (số dương, bằng
+		đúng số đã đặt). Bỏ chốt đi thì hàm trả "đủ" và tờ trả hàng khẳng định
+		"bàn giao đầy đủ" — một câu vô nghĩa trên chứng từ hàng đi ngược."""
+		sd = self._dong_don(10)
+		doc = frappe._dict(is_return=1, items=[frappe._dict(so_detail=sd, qty=10)])
+		self.assertFalse(delivery_hook.giao_du_theo_don(doc))
+
+	def test_khong_co_so_detail_thi_khong_bi_coi_la_thieu(self):
+		doc = frappe._dict(is_return=0, items=[frappe._dict(so_detail=None, qty=7)])
+		self.assertTrue(delivery_hook.giao_du_theo_don(doc))
+
+	def test_dong_don_da_bi_xoa_thi_khong_suy_doan(self):
+		"""`so_detail` trỏ vào một dòng đơn không còn tồn tại: không so được.
+		Đoán bừa "thiếu" là đổi câu cam kết vì một lý do không ai kiểm được."""
+		doc = frappe._dict(
+			is_return=0,
+			items=[frappe._dict(so_detail="KHONG-CO-DONG-NAY", qty=1)],
+		)
+		self.assertTrue(delivery_hook.giao_du_theo_don(doc))
 
 	# ---------------------------------------------------------- danh mục vật tư
 	def test_vat_tu_chua_co_duoc_tao_moi_va_khong_tao_Item(self):

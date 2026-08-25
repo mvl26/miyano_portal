@@ -596,6 +596,74 @@ def _lo_cua_dong(row) -> list[tuple[str, str | None, float]]:
 	return [(LOT_KHONG_CO, None, qty)]
 
 
+def giao_du_theo_don(doc) -> bool:
+	"""Phiếu giao này có giao ĐỦ số lượng đã đặt cho MỌI dòng có đơn hàng không?
+
+	**Ruling P47 (chủ đầu tư chốt 25/08/2026).** Đoạn cam kết cuối mẫu 02-VT
+	nói *"hàng hóa được bàn giao ĐẦY ĐỦ về số lượng"* — câu này chép nguyên
+	văn từ bản mẫu docx. Nhưng giao thiếu/giao nhiều đợt là chuyện thường ở
+	đây, và khi đó tờ giấy in `10 | 1` NGAY TRÊN câu "đầy đủ": khách đặt bút
+	ký vào một câu sai với chính con số phía trên nó. Chủ đầu tư đã được nói
+	rõ đánh đổi (**lệch một câu so với bản mẫu docx**) và chấp nhận.
+
+	Hàm này trả lời "dùng câu nào", mẫu in giữ chữ nghĩa của cả hai câu.
+
+	Bốn quyết định, ghi ra vì mỗi cái đều có một lựa chọn khác nghe cũng hợp:
+
+	1. **So với số lượng trên CHÍNH PHIẾU NÀY, không dùng
+	   `Sales Order Item.delivered_qty`.** Đo trên dữ liệu thật: đơn
+	   `SAL-ORD-2026-00132` đặt 10, giao năm đợt (4, 5, 1, −1, 1) và
+	   `delivered_qty` = 10 trên **cả năm** phiếu. Lấy `delivered_qty` thì mọi
+	   tờ trong chuỗi đó đều khẳng định "đầy đủ", kể cả tờ chỉ giao 1 — đúng
+	   cái đang phải sửa. Câu cam kết được ký tại thời điểm bàn giao của TỜ
+	   NÀY, nên nó chỉ nói được về những gì tờ này chuyển giao.
+
+	2. **Cấp PHIẾU, không cấp dòng.** Câu cam kết nằm cuối phiếu và chỉ có
+	   MỘT, nên nó phát biểu về cả tờ giấy: chỉ cần một dòng thiếu là cả phiếu
+	   không được khẳng định "đầy đủ".
+
+	3. **Dòng không có `so_detail` (giao thẳng) KHÔNG bị coi là thiếu.** Không
+	   có gì để so. Coi là thiếu sẽ bỏ câu gốc của bản mẫu ở đúng những phiếu
+	   mà nó vẫn đúng.
+
+	4. **Phiếu trả hàng chặn ngay từ đầu.** Số lượng ÂM và hàng đi ngược về
+	   Miyano; phép so "đủ/thiếu" với số đã đặt ở đó vô nghĩa (−10 so với 10
+	   cho ra "thiếu" vì một lý do không liên quan gì tới sự thật). Dùng câu
+	   thay thế — câu đó đúng với mọi dấu, còn "bàn giao đầy đủ" thì không có
+	   nghĩa gì trên một tờ trả hàng.
+
+	Gộp theo `so_detail` TRƯỚC khi so: một dòng đơn hàng có thể tách thành
+	nhiều dòng trên cùng một phiếu (khác kho, khác lô), và so từng dòng một sẽ
+	báo "thiếu" cho một phiếu giao đủ.
+	"""
+	if doc.get("is_return"):
+		return False
+
+	tong: dict[str, float] = {}
+	for row in doc.get("items") or []:
+		so_detail = row.get("so_detail")
+		if not so_detail:
+			continue
+		tong[so_detail] = tong.get(so_detail, 0.0) + float(row.get("qty") or 0)
+
+	for so_detail, da_giao in tong.items():
+		yeu_cau = frappe.db.get_value("Sales Order Item", so_detail, "qty")
+		if yeu_cau is None:
+			# Dòng đơn hàng đã bị xoá — không so được, không suy đoán.
+			continue
+		# Ngưỡng nhỏ: `qty` là số thực, phép cộng nhiều dòng tách lô có thể
+		# lệch ở chữ số cuối. Giao THỪA (da_giao > yeu_cau) không phải thiếu.
+		if da_giao < float(yeu_cau) - 1e-9:
+			return False
+	return True
+
+
+# In vào cột "Hạn dùng" cho một lô CÓ THẬT nhưng chưa khai hạn, khi trên cùng
+# dòng còn lô khác CÓ hạn. Phải là một ký tự chiếm chỗ chứ không phải bỏ trống:
+# bỏ trống thì hai cột lệch nhau và lô này nhận hạn của lô kế tiếp.
+KHONG_KHAI_HAN = "—"
+
+
 def lo_han_cho_in(row) -> dict:
 	"""Số lô + hạn dùng của MỘT dòng Delivery Note, đã định dạng để IN.
 
@@ -615,12 +683,24 @@ def lo_han_cho_in(row) -> dict:
 
 	Một dòng tách nhiều lô cho ra nhiều cặp; ghép bằng dấu phẩy để hai cột
 	đứng thẳng hàng nhau (lô thứ n ứng với hạn thứ n).
+
+	**Giữ ĐÚNG CẶP kể cả khi một lô chưa khai hạn.** Bản trước dựng `so_lo` từ
+	MỌI lô nhưng `han_dung` chỉ từ lô CÓ hạn, nên một dòng trộn lô-có-hạn với
+	lô-chưa-khai-hạn in ra hai cột LỆCH NHAU: lô đứng trước nhận hạn của lô
+	đứng sau. Đó là ghi SAI hạn dùng cho một lô trên biên bản đã ký, không
+	phải chuyện trình bày. Lô chưa khai hạn chiếm chỗ bằng `KHONG_KHAI_HAN`.
+
+	Nếu KHÔNG lô nào trên dòng khai hạn thì cột hạn để TRỐNG hẳn — ô trống
+	nghĩa là "không có thông tin", còn một hàng gạch ngang chỉ mang nghĩa khi
+	đứng cạnh một hạn thật để giữ cặp.
 	"""
-	cap = _lo_cua_dong(row)
-	lo = [x[0] for x in cap if x[0] and x[0] != LOT_KHONG_CO]
+	cap = [x for x in _lo_cua_dong(row) if x[0] and x[0] != LOT_KHONG_CO]
+	lo = [x[0] for x in cap]
 	han = [
-		frappe.utils.formatdate(x[1], "dd/MM/yyyy")
+		frappe.utils.formatdate(x[1], "dd/MM/yyyy") if x[1] else KHONG_KHAI_HAN
 		for x in cap
-		if x[0] and x[0] != LOT_KHONG_CO and x[1]
 	]
-	return {"so_lo": ", ".join(lo), "han_dung": ", ".join(han)}
+	return {
+		"so_lo": ", ".join(lo),
+		"han_dung": ", ".join(han) if any(x[1] for x in cap) else "",
+	}

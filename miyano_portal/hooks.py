@@ -127,6 +127,11 @@ jinja = {
 		# này. Viết `{{ i.batch_no }}` thẳng trong mẫu sẽ in ô TRỐNG cho đúng
 		# những dòng tách nhiều lô, trên một biên bản bàn giao có chữ ký.
 		"miyano_portal.kho.delivery_hook.lo_han_cho_in",
+		# Ruling P47 — đoạn cam kết cuối mẫu 02-VT đổi theo THỰC TẾ giao.
+		# Quy tắc "đủ hay thiếu" ở MỘT nơi (`giao_du_theo_don`), mẫu in chỉ
+		# giữ chữ nghĩa của hai câu — viết lại phép so trong template là để
+		# hai bản trôi dần khỏi nhau trên một chứng từ có chữ ký.
+		"miyano_portal.kho.delivery_hook.giao_du_theo_don",
 	],
 }
 

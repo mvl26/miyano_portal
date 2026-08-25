@@ -340,10 +340,32 @@ HTML_PHIEU_XUAT_02VT = _STYLE + _XUAT_STYLE + _XUAT_SETUP + """
   </p>
   {% endif %}
 
+  <!-- Ruling P47 — chủ đầu tư chốt 25/08/2026, và ĐÃ CHẤP NHẬN việc câu này
+       LỆCH so với bản mẫu docx họ giao. Ghi ra đây để người sau đối chiếu
+       docx không tưởng là lỗi sao chép.
+
+       Vì sao lệch: bản mẫu chỉ có MỘT câu, khẳng định "bàn giao ĐẦY ĐỦ về số
+       lượng". Giao thiếu và giao nhiều đợt là chuyện thường ở đây — đơn
+       SAL-ORD-2026-00132 đặt 10 và giao năm đợt, tờ MAT-DN-2026-00033 in
+       `10 | 1` ngay trên câu "đầy đủ". Khách đặt bút ký vào một câu sai với
+       chính con số phía trên nó.
+
+       Giao ĐỦ → câu gốc, KHÔNG đổi một chữ. Giao thiếu → câu thay thế, chỉ
+       đổi đúng mệnh đề số lượng, phần còn lại giữ nguyên văn bản mẫu. Quy tắc
+       "đủ hay thiếu" nằm ở `kho/delivery_hook.giao_du_theo_don` (đọc docstring
+       ở đó trước khi sửa: cấp phiếu chứ không cấp dòng, so với số trên CHÍNH
+       phiếu này chứ không phải `delivered_qty`, phiếu trả hàng xử lý riêng). -->
+  {% if giao_du_theo_don(doc) %}
   <p class="cam-ket">Hai bên đã kiểm tra và xác nhận: hàng hóa được bàn giao đầy đủ
   về số lượng, đúng chủng loại, quy cách, số lô, hạn dùng nêu trên; bao bì nguyên vẹn
   tại thời điểm bàn giao. Kể từ thời điểm ký nhận, bên nhận chịu trách nhiệm quản lý,
   bảo quản hàng hóa theo đúng điều kiện của nhà sản xuất.</p>
+  {% else %}
+  <p class="cam-ket">Hai bên đã kiểm tra và xác nhận: hàng hóa được bàn giao
+  đúng số lượng ghi trên phiếu này, đúng chủng loại, quy cách, số lô, hạn dùng nêu
+  trên; bao bì nguyên vẹn tại thời điểm bàn giao. Kể từ thời điểm ký nhận, bên nhận
+  chịu trách nhiệm quản lý, bảo quản hàng hóa theo đúng điều kiện của nhà sản xuất.</p>
+  {% endif %}
 
   <div class="ky">
     <div><b>Người lập phiếu</b>(Ký, họ tên)<i>Họ tên: ..................</i></div>
