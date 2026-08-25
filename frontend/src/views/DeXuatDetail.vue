@@ -339,6 +339,11 @@ const dongXinSua = computed(() =>
 function soDangCo(it) {
   return it.so_luong_tren_don ?? it.so_luong_duyet
 }
+// Dòng mà ĐƠN và PHIẾU đang nói hai số khác nhau — chỉ khi đó hộp thoại mới
+// cần bày cả hai ra.
+function lechVoiDon(it) {
+  return it.so_luong_tren_don != null && Number(it.so_luong_tren_don) !== Number(it.so_luong_duyet)
+}
 function moXinSua() {
   xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, String(soDangCo(it))]))
   xinSuaOpen.value = true
@@ -363,7 +368,19 @@ async function guiXinSua() {
     // server. `<input type="number">` đã chặn phần lớn, đây là lớp phòng
     // thủ thứ hai.
     if (!Number.isFinite(so) || so < 0) continue
-    if (so !== Number(it.so_luong_duyet)) {
+    // Ruling P51, vế THỨ BA — phép dò "có đổi không" cũng so với SỐ TRÊN
+    // ĐƠN. Đây là chỗ thứ ba của cùng một câu hỏi (bộ lọc, giá trị điền
+    // sẵn, và phép dò này); để sót một chỗ là dời nguyên con bug P51 vào
+    // trình duyệt, nơi nó CHẶN yêu cầu hợp lệ trước khi chúng kịp rời máy
+    // khách — tệ hơn phía server, vì server ít ra còn trả lời được.
+    // Hai ca bị chặn oan nếu so với `so_luong_duyet`:
+    //   * phiếu 10 / đơn 15 (đường gộp QĐ-G13): khoa muốn hạ về 10 thì
+    //     `10 !== 10` sai → không gửi → toast "Chưa sửa số lượng dòng nào",
+    //     trong khi server coi đó LÀ thay đổi thật (đơn đang 15);
+    //   * phiếu 0 / đơn 5 (quản lý hạ về 0 rồi Miyano khớp dòng gõ tay
+    //     sang mã đó): gõ 0 — đúng thao tác DUY NHẤT dòng ấy tồn tại để
+    //     phục vụ — cho `0 !== 0` sai, dòng hiện ra nhưng bất động.
+    if (so !== Number(soDangCo(it))) {
       doiItems.push({ item_code: it.item_code, qty: so })
     }
   }
@@ -643,7 +660,10 @@ onMounted(async () => {
 
     <!-- Ruling coordinator (2) — "Xin sửa số lượng": khoa nhập số mong muốn
          cho từng dòng đang có trên đơn, chỉ những dòng ĐỔI thật mới được
-         gửi (khớp `_loc_thay_doi_that` phía server). -->
+         gửi. "Đổi thật" ở đây so với SỐ TRÊN ĐƠN (`so_luong_tren_don`),
+         đúng con số mà `_loc_thay_doi_that` phía server so từ Ruling P51 —
+         chú thích cũ nói "khớp `_loc_thay_doi_that`" trong khi mã còn so
+         với `so_luong_duyet`, tức khai một sự tương đương không có thật. -->
     <div v-if="xinSuaOpen" :class="isMobile ? 'sheet' : 'modal'" @click.self="xinSuaOpen = false">
       <div class="card" style="width: 520px; max-width: 92vw">
         <h3>Xin sửa số lượng</h3>
@@ -654,7 +674,15 @@ onMounted(async () => {
           <span>
             <b>{{ it.item_code }}</b>
             <template v-if="it.item_name"> — {{ it.item_name }}</template>
-            <br /><span class="tag">Đang duyệt: {{ it.so_luong_duyet }} {{ it.dvt }}</span>
+            <!-- Ruling P51 — hộp thoại phải NÓI RA con số cái ô được gieo
+                 từ. Ô điền sẵn số trên ĐƠN, nên chỉ ghi "Đang duyệt: 10"
+                 cạnh một ô ghi 15 là để khoa tự đoán 15 ở đâu ra. Hai con
+                 số đứng cạnh nhau, và chỉ hiện con số thứ hai khi nó KHÁC
+                 — bằng nhau (ca thường) thì nhắc lại chỉ thêm nhiễu. -->
+            <br /><span class="tag">Quản lý duyệt: {{ it.so_luong_duyet }} {{ it.dvt }}</span>
+            <span v-if="lechVoiDon(it)" class="tag">
+              · Đang có trên đơn: <b>{{ it.so_luong_tren_don }}</b> {{ it.dvt }}
+            </span>
             <!-- việc 5 — chỉ hiện khi ô mang số 0 TƯỜNG MINH (không phải ô
                  trống): người dùng phải NHÌN THẤY mình đang xin gì, không
                  đoán qua một con số. -->
