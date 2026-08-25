@@ -5,7 +5,10 @@ Cài đủ mẫu mà quên gán mặc định thì mẫu chỉ nằm đó chờ 
 dropdown — đúng hiện trạng trước bản này, và không test nào bắt được.
 """
 
+import contextlib
 import hashlib
+import importlib
+import io
 import re
 
 import frappe
@@ -18,6 +21,9 @@ from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 from miyano_portal.patches.v1_28.cap_nhat_02vt_bien_ban_ban_giao import (
 	TIEU_DE_LOG,
 	execute as cap_nhat_02vt,
+)
+from miyano_portal.patches.v1_29.tat_mau_in_02vt_khong_tien_to import (
+	execute as tat_mau_tran,
 )
 from miyano_portal.setup.gan_mau_in_mac_dinh import MAC_DINH, gan_mau_in_mac_dinh
 from miyano_portal.setup.install_bien_ban_print_formats import (
@@ -33,10 +39,41 @@ from miyano_portal.tien_bang_chu import tien_bang_chu
 # Chỉ số cột của mẫu 02-VT bản TT 99/2025 (10 cột), đặt tên để khẳng định đọc
 # được: STT, Mã vật tư, Tên hàng, ĐVT, SL yêu cầu, SL thực xuất, Số lô, Hạn
 # dùng, Đơn giá, Thành tiền.
+# Ruling P47 — hai vế của đoạn cam kết cuối phiếu.
+CAU_GIAO_DU = "được bàn giao đầy đủ"
+CAU_GIAO_THIEU = "đúng số lượng ghi trên phiếu này"
+
 O_SL_YEU_CAU = 4
 O_SL_THUC_XUAT = 5
 O_SO_LO = 6
 O_HAN_DUNG = 7
+
+
+def _doc_patches_txt() -> list[str]:
+	"""Các mục patch trong `patches.txt`, giữ nguyên thứ tự, bỏ tiêu đề mục
+	(`[pre_model_sync]`) và dòng chú thích."""
+	duong = frappe.get_app_path("miyano_portal", "patches.txt")
+	with open(duong, encoding="utf-8") as fh:
+		return [
+			d.strip() for d in fh
+			if d.strip() and not d.startswith("#") and not d.startswith("[")
+		]
+
+
+def _doan_cam_ket(html: str) -> str:
+	"""Đoạn cam kết KHÁCH ĐỌC, đã bỏ chú thích HTML.
+
+	Khẳng định trên cả trang không dùng được ở đây: chú thích trong mẫu in có
+	giải thích vì sao câu này lệch so với bản mẫu docx, và chú thích đó tất
+	nhiên có chứa chữ "đầy đủ". Chú thích không bao giờ in ra giấy — thứ khách
+	đặt bút ký là đoạn `<p class="cam-ket">`.
+	"""
+	khong_chu_thich = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+	doan = re.findall(
+		r'<p class="cam-ket">(.*?)</p>', khong_chu_thich, re.S
+	)
+	assert len(doan) == 1, f"phải có ĐÚNG một đoạn cam kết, đang có {len(doan)}"
+	return re.sub(r"\s+", " ", doan[0]).strip()
 
 
 def _o_cua_dong(html: str, idx: int = 0) -> list[str]:
@@ -201,6 +238,7 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 	KHO = "Kho Miyano - MYN"
 	COST_CENTER = "Main - MYN"
 	ITEM = "MYN-GLOVE-M"
+	ITEM_2 = "MYN-SYR-10"
 	ITEM_LO = "ZZTESTMAUIN-LO"
 	LO_A = "ZZTESTMAUIN-LO-A"
 	LO_B = "ZZTESTMAUIN-LO-B"
@@ -250,6 +288,27 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 		# NHÁP: bản in không phụ thuộc `docstatus`, còn submit thì đòi tồn kho
 		# thật và kéo theo hook kho khách — hai thứ không liên quan gì tới mẫu
 		# in, nhưng đủ sức làm bộ test này đỏ vì lý do khác.
+		dn.insert(ignore_permissions=True)
+		return so, dn
+
+	def _don_va_phieu_nhieu_dong(self, dong):
+		"""`dong`: danh sách (mã vật tư, SL đặt, SL giao trên phiếu này."""
+		so = frappe.new_doc("Sales Order")
+		so.customer = self.KHACH
+		so.company = self.COMPANY
+		so.transaction_date = frappe.utils.today()
+		so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 3)
+		for ma, yc, _giao in dong:
+			so.append("items", {
+				"item_code": ma, "qty": yc, "rate": 88000,
+				"warehouse": self.KHO, "delivery_date": so.delivery_date,
+				"cost_center": self.COST_CENTER,
+			})
+		so.insert(ignore_permissions=True)
+		so.submit()
+		dn = make_delivery_note(so.name)
+		for row, (_ma, _yc, giao) in zip(dn.items, dong):
+			row.qty = giao
 		dn.insert(ignore_permissions=True)
 		return so, dn
 
@@ -392,6 +451,73 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 			f"bịa số liệu trên chứng từ có chữ ký (các ô: {o})",
 		)
 
+	# ------------------------------------------------- đoạn cam kết (P47)
+	def test_giao_DU_thi_giu_NGUYEN_cau_cam_ket_cua_ban_mau(self):
+		"""Ruling P47, vế dương. Giao đủ thì câu gốc của docx đúng — và phải
+		giữ nguyên từng chữ, vì mọi chữ trong một đoạn cam kết có chữ ký đều
+		là chữ của bản mẫu chứ không phải của người viết mã."""
+		_so, dn = self._don_va_phieu(sl_yeu_cau=10, sl_giao=10)
+		cam_ket = _doan_cam_ket(self._render(dn))
+		self.assertIn(
+			CAU_GIAO_DU, cam_ket, "giao đủ mà không dùng câu gốc của bản mẫu"
+		)
+		self.assertNotIn(CAU_GIAO_THIEU, cam_ket)
+
+	def test_giao_THIEU_thi_KHONG_duoc_khang_dinh_day_du(self):
+		"""Ruling P47, ca gây hại thật — dựng lại đúng `MAT-DN-2026-00033`:
+		đơn `SAL-ORD-2026-00132` đặt 10, giao làm năm đợt, tờ phiếu in
+		`10 | 1` NGAY TRÊN câu "hàng hóa được bàn giao đầy đủ về số lượng".
+		Khách đặt bút ký vào một câu sai với chính con số phía trên nó.
+		"""
+		_so, dn = self._don_va_phieu(sl_yeu_cau=10, sl_giao=1)
+		o = _o_cua_dong(self._render(dn))
+		self.assertEqual([o[O_SL_YEU_CAU], o[O_SL_THUC_XUAT]], ["10", "1"])
+		cam_ket = _doan_cam_ket(self._render(dn))
+		self.assertIn(
+			CAU_GIAO_THIEU, cam_ket, "giao thiếu mà không đổi câu cam kết"
+		)
+		self.assertNotIn(
+			"đầy đủ", cam_ket,
+			"phiếu giao 1 trên đơn đặt 10 vẫn khẳng định 'đầy đủ' — khách ký "
+			"vào một câu sai với con số ngay phía trên",
+		)
+
+	def test_MOT_dong_thieu_thi_CA_PHIEU_dung_cau_thay_the(self):
+		"""Câu cam kết nằm CUỐI phiếu nên nó nói về CẢ PHIẾU, không nói về một
+		dòng. Một dòng thiếu là cả tờ giấy không được khẳng định "đầy đủ"."""
+		_so, dn = self._don_va_phieu_nhieu_dong([
+			(self.ITEM, 5, 5),        # dòng ĐỦ
+			(self.ITEM_2, 10, 2),     # dòng THIẾU
+		])
+		cam_ket = _doan_cam_ket(self._render(dn))
+		self.assertIn(CAU_GIAO_THIEU, cam_ket)
+		self.assertNotIn("đầy đủ", cam_ket)
+
+	def test_dong_KHONG_co_don_hang_khong_bi_coi_la_giao_thieu(self):
+		"""Không có `so_detail` thì KHÔNG có gì để so — im lặng coi là thiếu
+		sẽ đổi câu cam kết trên mọi phiếu giao thẳng, tức bỏ câu gốc của bản
+		mẫu ở đúng những ca mà nó vẫn đúng."""
+		cam_ket = _doan_cam_ket(self._render(self._phieu_khong_don(qty=7)))
+		self.assertIn(CAU_GIAO_DU, cam_ket)
+		self.assertNotIn(CAU_GIAO_THIEU, cam_ket)
+
+	def test_phieu_TRA_HANG_khong_khang_dinh_day_du(self):
+		"""Phiếu trả hàng: số lượng ÂM, hàng đi ngược về Miyano. Phép so
+		"đủ/thiếu" với số lượng đã đặt là vô nghĩa ở đây, nên `giao_du_theo_don`
+		chặn ngay từ đầu và cả phiếu dùng câu thay thế — câu đó đúng với mọi
+		dấu, còn "bàn giao đầy đủ" thì không có nghĩa gì trên một tờ trả hàng.
+		"""
+		_so, dn = self._don_va_phieu(sl_yeu_cau=10, sl_giao=10)
+		phieu = frappe.copy_doc(dn)
+		phieu.is_return = 1
+		for r in phieu.items:
+			r.qty = -r.qty
+		h = self._render(phieu)
+		self.assertIn("PHIẾU TRẢ HÀNG", h, "tiền đề: nhãn phiếu trả hàng")
+		cam_ket = _doan_cam_ket(h)
+		self.assertIn(CAU_GIAO_THIEU, cam_ket)
+		self.assertNotIn("đầy đủ", cam_ket)
+
 	# --------------------------------------------------------- lô và hạn dùng
 	def test_cot_so_lo_han_dung_doc_QUA_BUNDLE_khi_batch_no_RONG(self):
 		"""Hai cột mới của bản TT 99/2025, ĐÚNG cái bẫy chúng sinh ra để chặn.
@@ -513,11 +639,30 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 			frappe.db.set_value, "Print Format", NAME_PHIEU_XUAT_02VT, "html",
 			HTML_PHIEU_XUAT_02VT,
 		)
-		# `tabError Log` khai engine MyISAM — bảng PHI GIAO DỊCH, nên dòng log
-		# do bài này sinh ra KHÔNG bị rollback cuối class cuốn đi mà ở lại vĩnh
-		# viễn trên site. Tự dọn đúng những dòng của patch này.
-		self.addCleanup(frappe.db.delete, "Error Log", {"method": TIEU_DE_LOG})
-		frappe.db.delete("Error Log", {"method": TIEU_DE_LOG})
+		# `tabError Log` khai engine MyISAM — bảng PHI GIAO DỊCH, nên MỌI phép
+		# xoá ở đây KHÔNG bị rollback cuối class cuốn lại. Vì thế bài test chỉ
+		# được dọn ĐÚNG những dòng do CHÍNH NÓ sinh ra: xoá theo `method` sẽ
+		# cuốn theo cả biên nhận thật do `bench migrate` ghi — chính bản ghi
+		# kiểm toán mà patch này dựng ra. Ghi lại danh sách có sẵn TRƯỚC.
+		self._log_co_san = set(self._ten_log_hien_co())
+		self.addCleanup(self._don_log_cua_bai_nay)
+
+	def _ten_log_hien_co(self):
+		return frappe.get_all("Error Log", filters={"method": TIEU_DE_LOG}, pluck="name")
+
+	def _don_log_cua_bai_nay(self):
+		for ten in self._ten_log_hien_co():
+			if ten not in self._log_co_san:
+				frappe.db.delete("Error Log", {"name": ten})
+
+	def _log_moi(self):
+		"""Chỉ những dòng log SINH RA trong bài này."""
+		return [
+			r for r in frappe.get_all(
+				"Error Log", filters={"method": TIEU_DE_LOG}, fields=["name", "error"]
+			)
+			if r.name not in self._log_co_san
+		]
 
 	def test_ghi_de_de_lai_do_dai_va_hash_cua_ban_bi_thay(self):
 		frappe.db.set_value(
@@ -525,16 +670,22 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 			{"html": self.HTML_SUA_TAY, "modified": "2020-01-01 00:00:00"},
 			update_modified=False,
 		)
-		cap_nhat_02vt()
+		with contextlib.redirect_stdout(io.StringIO()) as ra:
+			cap_nhat_02vt()
+		in_ra = ra.getvalue()
 
 		self.assertEqual(
 			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "html"),
 			HTML_PHIEU_XUAT_02VT,
 			"patch không đưa mẫu về đúng mã nguồn",
 		)
-		log = frappe.get_all(
-			"Error Log", filters={"method": TIEU_DE_LOG}, fields=["error"]
+		# Người chạy `bench migrate` phải THẤY chuyện này ngay trên màn hình —
+		# một dòng Error Log chỉ tìm được khi đã biết mà đi tìm.
+		self.assertIn(
+			NAME_PHIEU_XUAT_02VT, in_ra,
+			"bench migrate ghi đè một mẫu in mà không in ra tín hiệu nào",
 		)
+		log = self._log_moi()
 		self.assertEqual(
 			len(log), 1,
 			"ghi đè một mẫu in đang chạy thật mà không để lại dấu vết nào",
@@ -546,7 +697,13 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 		self.assertIn(
 			hashlib.sha256(self.HTML_SUA_TAY.encode("utf-8")).hexdigest(),
 			log[0].error,
-			"dấu vết không có hash để đối chiếu với bản sao lưu",
+			"dấu vết không có hash để nhận ra bản bị thay",
+		)
+		# Thông điệp KHÔNG được hứa một bản sao lưu mà chưa ai xác lập là có.
+		self.assertIn(
+			"KHÔNG được lưu lại ở đâu", log[0].error,
+			"thông điệp bảo người vận hành đối chiếu với một bản sao lưu mà "
+			"không gì bảo họ chụp trước khi migrate",
 		)
 		self.assertNotEqual(
 			str(frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "modified")),
@@ -568,13 +725,93 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 		cap_nhat_02vt()
 
 		self.assertEqual(
-			frappe.db.count("Error Log", {"method": TIEU_DE_LOG}), 0,
+			len(self._log_moi()), 0,
 			"không ghi đè gì mà vẫn ghi một dòng 'đã ghi đè'",
 		)
 		self.assertEqual(
 			str(frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "modified")),
 			"2020-01-01 00:00:00",
 			"nội dung không đổi mà `modified` vẫn bị dời",
+		)
+
+	def test_patches_txt_GIAO_DUOC_ban_sua_mau_02vt_toi_site(self):
+		"""Blocking-1 của vòng sửa 2: sửa hằng số HTML là CHƯA giao được gì.
+
+		Frappe chạy mỗi patch ĐÚNG MỘT LẦN (`tabPatch Log`). Site nào đã chạy
+		`v1_28.cap_nhat_02vt_bien_ban_ban_giao` sẽ KHÔNG bao giờ chạy lại nó,
+		nên mọi sửa đổi sau đó trong `HTML_PHIEU_XUAT_02VT` — kể cả bản vá cột
+		"SL yêu cầu" — không tới được site đó bằng `bench migrate`. Site giữ
+		vĩnh viễn tờ phiếu bịa số, và phục hồi từ một bản sao lưu chụp trong
+		khoảng đó cũng âm thầm quay lại tờ phiếu ấy.
+
+		Bài này không kiểm tên patch (tên nào cũng được) mà kiểm HÀNH VI: đặt
+		mẫu về một bản CŨ rồi chạy lần lượt các patch khai SAU v1_28, phải có
+		một patch kéo mẫu về đúng hằng số hiện tại.
+		"""
+		cac_patch = _doc_patches_txt()
+		moc = "miyano_portal.patches.v1_28.cap_nhat_02vt_bien_ban_ban_giao"
+		self.assertIn(moc, cac_patch, "patches.txt không còn khai v1_28")
+		sau_v1_28 = cac_patch[cac_patch.index(moc) + 1:]
+
+		frappe.db.set_value(
+			"Print Format", NAME_PHIEU_XUAT_02VT, "html", self.HTML_SUA_TAY,
+			update_modified=False,
+		)
+		with contextlib.redirect_stdout(io.StringIO()):
+			for ten in sau_v1_28:
+				importlib.import_module(ten).execute()
+				if frappe.db.get_value(
+					"Print Format", NAME_PHIEU_XUAT_02VT, "html"
+				) == HTML_PHIEU_XUAT_02VT:
+					break
+		self.assertEqual(
+			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "html"),
+			HTML_PHIEU_XUAT_02VT,
+			"không patch nào SAU v1_28 đồng bộ lại mẫu 02-VT — bản vá không "
+			"tới được site nào bằng `bench migrate`",
+		)
+
+	def test_KHONG_xoa_bien_nhan_cua_lan_migrate_TRUOC(self):
+		"""Bản ghi kiểm toán không được chết dưới tay chính bộ test canh nó.
+
+		`tabError Log` khai engine MyISAM — bảng PHI GIAO DỊCH, nên
+		`frappe.db.delete` trên đó KHÔNG bị rollback cuối class cuốn lại. Bản
+		trước của lớp này dọn bằng `delete("Error Log", {"method": TIEU_DE_LOG})`,
+		tức cuốn theo CẢ dòng do một lần `bench migrate` THẬT ghi ra — đúng bản
+		ghi mà bản vá vòng trước dựng lên để người vận hành nhìn ra mẫu in đã bị
+		thay. Đã đo trên `erptest.local`: dòng biên nhận ghi lúc 14:18 biến mất
+		sau lần chạy full suite ngay sau đó.
+
+		Dựng lại đúng trình tự đó: có sẵn một biên nhận thật → bộ test chạy →
+		biên nhận phải CÒN, còn dòng do bài test sinh ra thì phải đi.
+		"""
+		that = frappe.get_doc({
+			"doctype": "Error Log", "method": TIEU_DE_LOG,
+			"error": "BIEN NHAN THAT cua mot lan bench migrate truoc do",
+		}).insert(ignore_permissions=True)
+		self.addCleanup(frappe.db.delete, "Error Log", {"name": that.name})
+
+		# Mô phỏng một lần chạy bộ test BẮT ĐẦU khi biên nhận đã nằm sẵn đó.
+		self._log_co_san = set(self._ten_log_hien_co())
+		self.assertIn(that.name, self._log_co_san, "tiền đề: biên nhận đã có sẵn")
+
+		frappe.db.set_value(
+			"Print Format", NAME_PHIEU_XUAT_02VT, "html", self.HTML_SUA_TAY,
+			update_modified=False,
+		)
+		cap_nhat_02vt()
+		cua_bai_nay = [r.name for r in self._log_moi()]
+		self.assertEqual(len(cua_bai_nay), 1, "tiền đề: bài này sinh đúng 1 dòng")
+
+		self._don_log_cua_bai_nay()
+
+		self.assertTrue(
+			frappe.db.exists("Error Log", that.name),
+			"bộ test đã xoá mất biên nhận của một lần bench migrate thật",
+		)
+		self.assertFalse(
+			frappe.db.exists("Error Log", cua_bai_nay[0]),
+			"dòng do chính bài test sinh ra thì phải được dọn",
 		)
 
 	def test_mau_chua_co_thi_chi_dung_DUNG_mot_mau(self):
@@ -598,4 +835,71 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 		self.assertFalse(
 			frappe.db.exists("Print Format", NAME_BIEN_BAN_TT200),
 			"patch hồi sinh một mẫu KHÁC mà site có thể đã cố ý gỡ bỏ",
+		)
+
+
+class TestTatMauIn02VTKhongTienTo(FrappeTestCase):
+	"""Ruling P46 — tắt mẫu in `Phiếu xuất kho (02-VT)` (KHÔNG tiền tố Miyano).
+
+	Site mang **ba** mẫu in cho `Delivery Note`, trong đó mẫu trần này (module
+	`Regional`, `creation = modified = 16/07/2026 10:00:00` — dấu vết của một
+	bản nhập tay, không do app này cài) chỉ khác mẫu của Miyano đúng tiền tố
+	"Miyano - " trong cùng một dropdown "In". Bấm nhầm là in ra tờ trích
+	TT 99/2025 nhưng KHÔNG có cột Số lô/Hạn dùng, không đoạn cam kết bàn giao,
+	không bốn ô ký của bản mẫu.
+
+	**Tắt, KHÔNG xoá.** Giữ bản ghi thì còn trả lời được "tờ phiếu tháng 7 đó
+	in bằng mẫu nào"; xoá thì mất luôn khả năng đó.
+	"""
+
+	TEN_TRAN = "Phiếu xuất kho (02-VT)"
+
+	def setUp(self):
+		install_bien_ban_print_formats()
+		if not frappe.db.exists("Print Format", self.TEN_TRAN):
+			# Bộ test tự dựng mồi: trên CSDL sạch không có mẫu trần nào, và một
+			# bài tự bỏ qua mình khi thiếu dữ liệu là một bài không canh gì.
+			frappe.get_doc({
+				"doctype": "Print Format", "name": self.TEN_TRAN,
+				"doc_type": "Delivery Note", "standard": "No",
+				"custom_format": 1, "print_format_type": "Jinja",
+				"html": "<p>mẫu trần nhập tay 16/07</p>",
+			}).insert(ignore_permissions=True)
+		frappe.db.set_value("Print Format", self.TEN_TRAN, "disabled", 0)
+		frappe.db.set_value("Print Format", NAME_PHIEU_XUAT_02VT, "disabled", 0)
+
+	def test_tat_mau_tran_nhung_GIU_LAI_ban_ghi(self):
+		tat_mau_tran()
+		self.assertEqual(
+			frappe.db.get_value("Print Format", self.TEN_TRAN, "disabled"), 1,
+			"mẫu trần vẫn hiện trong dropdown In cạnh mẫu của Miyano",
+		)
+		self.assertTrue(
+			frappe.db.exists("Print Format", self.TEN_TRAN),
+			"XOÁ mẫu là mất luôn khả năng tra 'phiếu tháng 7 in bằng mẫu nào'",
+		)
+
+	def test_KHONG_dung_toi_mau_CO_tien_to_Miyano(self):
+		"""Bẫy khớp mờ: tên mẫu của Miyano CHỨA nguyên văn tên mẫu trần
+		("Miyano - " + "Phiếu xuất kho (02-VT)"). Một phép `like` sẽ tắt luôn
+		mẫu mà cả cổng lẫn nhân viên đang dùng."""
+		tat_mau_tran()
+		self.assertEqual(
+			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "disabled"), 0,
+			"patch tắt nhầm mẫu 02-VT của Miyano — cổng mất mẫu đang phát",
+		)
+
+	def test_chay_lai_khong_doi_gi_va_KHONG_hoi_sinh_mau_da_go(self):
+		tat_mau_tran()
+		tat_mau_tran()
+		self.assertEqual(
+			frappe.db.get_value("Print Format", self.TEN_TRAN, "disabled"), 1
+		)
+		frappe.delete_doc(
+			"Print Format", self.TEN_TRAN, force=True, ignore_permissions=True
+		)
+		tat_mau_tran()  # không được ném lỗi
+		self.assertFalse(
+			frappe.db.exists("Print Format", self.TEN_TRAN),
+			"patch dựng lại một mẫu mà site đã cố ý gỡ bỏ",
 		)

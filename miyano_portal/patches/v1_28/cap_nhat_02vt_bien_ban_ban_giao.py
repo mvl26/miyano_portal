@@ -73,8 +73,17 @@ def execute():
         f"Bản MỚI: {len(HTML_PHIEU_XUAT_02VT)} ký tự, "
         f"sha256={hashlib.sha256(HTML_PHIEU_XUAT_02VT.encode('utf-8')).hexdigest()}\n"
         "Nếu mẫu trên site này từng được sửa tay (logo, số tài khoản, mẫu "
-        "tiêu đề thư), bản sửa đó vừa bị thay bằng mẫu của mã nguồn. Đối "
-        "chiếu độ dài/hash ở trên với bản sao lưu để lấy lại phần đã sửa.",
+        "tiêu đề thư), bản sửa đó vừa bị thay bằng mẫu của mã nguồn.\n"
+        "Bản cũ KHÔNG được lưu lại ở đâu cả: độ dài + hash trên đây chỉ để "
+        "PHÁT HIỆN đã có thay đổi, không phục hồi được. Muốn giữ được bản cũ "
+        "thì phải tự chụp bản sao lưu TRƯỚC khi chạy `bench migrate`.",
+    )
+    # `bench migrate` chạy trong terminal của người vận hành — in ra đây để họ
+    # THẤY ngay. Một dòng Error Log chỉ tìm được khi đã biết mà đi tìm.
+    print(
+        f"[miyano_portal] Đã ghi đè HTML mẫu in «{NAME_PHIEU_XUAT_02VT}» "
+        f"({len(cu)} → {len(HTML_PHIEU_XUAT_02VT)} ký tự). "
+        f"Chi tiết trong Error Log, method = {TIEU_DE_LOG}."
     )
     frappe.db.set_value(
         "Print Format", NAME_PHIEU_XUAT_02VT, "html", HTML_PHIEU_XUAT_02VT
