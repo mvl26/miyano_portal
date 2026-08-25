@@ -148,6 +148,13 @@ DEFS = [
         # đồng khung vào "Chờ khách đồng ý" (luồng E2 gốc) cũng gửi kèm một
         # chứng từ đề "BÁO GIÁ / QUOTATION" với "Hiệu lực đến..." mà không
         # job nào thi hành — sai sự thật nghiệp vụ khách đọc được.
+        #
+        # Task 6 (QĐ-G2b) — chốt này KHÔNG gọi được `portal_mua_le.
+        # di_vong_bao_gia()`: `Notification.condition` là một CHUỖI chạy qua
+        # `frappe.safe_eval` trên `doc`, không phải mã Python gọi hàm app
+        # được. Cùng `portal_bao_gia.quet_bao_gia_het_han` (filter CSDL),
+        # đây là lý do vị ngữ kia đọc DẤU ĐÓNG `custom_loai_don` chứ không
+        # suy lại từ dòng — xem docstring `di_vong_bao_gia`.
         "condition": (
             "doc.custom_nguon_don == 'Client Portal' and "
             "doc.custom_loai_don == 'Mua lẻ' and "

@@ -78,6 +78,50 @@ def qua_han_hieu_luc(so, hom_nay=None) -> bool:
     return hom_nay > han_hieu_luc_bao_gia(so)
 
 
+def di_vong_bao_gia(so) -> bool:
+    """Task 6 (QĐ-G2b) — VỊ NGỮ DUY NHẤT cho câu hỏi "đơn này có đi qua vòng
+    báo giá của Miyano không?".
+
+    QĐ-G2b, nguyên văn: *"Việc cần làm với nó [`Sales Order.custom_loai_don`]
+    không phải xoá, mà là đổi các CHỐT từ 'là đơn Mua lẻ' sang 'có dòng chưa
+    có giá'"*. Ruling P8 giữ nguyên field; hàm này là chỗ MỌI chốt hỏi, thay
+    cho NĂM chỗ tự so chuỗi `custom_loai_don == "Mua lẻ"`: bốn trong
+    `api/portal.py` (banner hiệu lực của `portal_order_track`,
+    `portal_bao_gia_pdf`, chốt hết hiệu lực của `portal_order_accept`,
+    `portal_order_sua_so_luong`) và bản SOI GƯƠNG trong `Portal De Xuat
+    Mua._kiem_don_dung_duoc_xin_sua()`.
+
+    **ĐỌC DẤU ĐÓNG, KHÔNG SUY LẠI TỪ DÒNG.** Hai lý do, cả hai đều là ràng
+    buộc chứ không phải sở thích:
+
+    1. *Suy lại từ dòng sẽ lật giữa vòng.* `dat_hang.py` đóng dấu MỘT LẦN
+       lúc tạo đơn. Việc CHÍNH của vòng báo giá là Miyano ĐIỀN GIÁ cho những
+       dòng chưa có giá — đúng lúc đó một vị ngữ suy lại từ dòng lật sang
+       `False` và đơn rơi khỏi vòng báo giá giữa chừng: banner hiệu lực tắt,
+       PDF báo giá không tải được, khách hết sửa được số lượng. Xem
+       `tests/test_don_tron_bao_gia.py::test_don_tron_da_dien_gia_van_o_
+       trong_vong_bao_gia`.
+    2. *Hai chốt KHÔNG gọi được hàm Python.* `portal_bao_gia.quet_bao_gia_
+       het_han` lọc bằng `frappe.get_all(filters={"custom_loai_don": "Mua
+       lẻ"})` — filter CSDL; và Notification "Portal - Báo giá sẵn sàng" lọc
+       bằng chuỗi `condition` chạy qua `frappe.safe_eval` trên `doc`
+       (`setup/install_notifications.py`). Cả hai buộc phải đọc CỘT. Vị ngữ
+       suy lại từ dòng sẽ khiến job/thông báo và các endpoint nói khác nhau
+       về CÙNG một đơn — đúng kiểu lệch mà kế hoạch cảnh báo ("hai bên lệch
+       nhau, phiếu lại vào ngõ cụt").
+
+    Nói cách khác: giá trị `"Mua lẻ"` là DẤU GHI LẠI ĐƯỜNG đơn đã đi (nó có
+    dòng chưa có giá lúc lập đơn nên phải qua Miyano báo giá), không phải
+    ảnh chụp tình trạng giá lúc này. Tên hàm nói đúng điều đó — đặt tên nó
+    `co_dong_chua_co_gia()` mà thân hàm đọc dấu thì lại là một cái tên nói
+    dối về chính mã của mình.
+
+    `so` — `Document` hoặc `dict`/`frappe._dict` có khoá `custom_loai_don`
+    (vài endpoint chỉ `db.get_value` vài cột).
+    """
+    return so.get("custom_loai_don") == "Mua lẻ"
+
+
 def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
     """US-E6.5/BR-R5 (review I-2(a), round 2) — ghi `custom_ngay_gui_khach_
     duyet` tại HOOK `validate` của Sales Order (đăng ký ở
