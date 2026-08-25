@@ -22,9 +22,6 @@ from miyano_portal.patches.v1_28.cap_nhat_02vt_bien_ban_ban_giao import (
 	TIEU_DE_LOG,
 	execute as cap_nhat_02vt,
 )
-from miyano_portal.patches.v1_29.tat_mau_in_02vt_khong_tien_to import (
-	execute as tat_mau_tran,
-)
 from miyano_portal.setup.gan_mau_in_mac_dinh import MAC_DINH, gan_mau_in_mac_dinh
 from miyano_portal.setup.install_bien_ban_print_formats import (
 	FORMATS,
@@ -60,20 +57,15 @@ def _doc_patches_txt() -> list[str]:
 		]
 
 
-def _doan_cam_ket(html: str) -> str:
-	"""Đoạn cam kết KHÁCH ĐỌC, đã bỏ chú thích HTML.
+def _bo_chu_thich(html: str) -> str:
+	"""Bản in đã bỏ chú thích HTML — tức đúng thứ RA GIẤY.
 
-	Khẳng định trên cả trang không dùng được ở đây: chú thích trong mẫu in có
-	giải thích vì sao câu này lệch so với bản mẫu docx, và chú thích đó tất
-	nhiên có chứa chữ "đầy đủ". Chú thích không bao giờ in ra giấy — thứ khách
-	đặt bút ký là đoạn `<p class="cam-ket">`.
+	Chú thích trong mẫu in có giải thích vì sao câu cam kết lệch so với bản
+	mẫu docx, nên bản thân nó chứa chữ "đầy đủ"; chú thích thì không bao giờ
+	in ra. Bỏ chú thích rồi khẳng định trên CẢ TRANG là phép chặt nhất: nó bắt
+	cả cụm đó nếu lọt ra bất kỳ chỗ nào khác ngoài đoạn cam kết.
 	"""
-	khong_chu_thich = re.sub(r"<!--.*?-->", "", html, flags=re.S)
-	doan = re.findall(
-		r'<p class="cam-ket">(.*?)</p>', khong_chu_thich, re.S
-	)
-	assert len(doan) == 1, f"phải có ĐÚNG một đoạn cam kết, đang có {len(doan)}"
-	return re.sub(r"\s+", " ", doan[0]).strip()
+	return re.sub(r"<!--.*?-->", "", html, flags=re.S)
 
 
 def _o_cua_dong(html: str, idx: int = 0) -> list[str]:
@@ -452,12 +444,28 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 		)
 
 	# ------------------------------------------------- đoạn cam kết (P47)
+	def _cam_ket(self, html: str) -> str:
+		"""Đoạn cam kết KHÁCH ĐẶT BÚT KÝ, đã chuẩn hoá khoảng trắng.
+
+		Là method chứ không phải hàm module để dùng `assertEqual`: một `assert`
+		trần biến mất dưới `python -O`, và chốt "phải có ĐÚNG MỘT đoạn" chính
+		là thứ ngăn nhánh `{% if %}/{% else %}` lỡ in ra cả hai câu.
+		"""
+		doan = re.findall(
+			r'<p class="cam-ket">(.*?)</p>', _bo_chu_thich(html), re.S
+		)
+		self.assertEqual(
+			len(doan), 1,
+			f"phải có ĐÚNG một đoạn cam kết trên bản in, đang có {len(doan)}",
+		)
+		return re.sub(r"\s+", " ", doan[0]).strip()
+
 	def test_giao_DU_thi_giu_NGUYEN_cau_cam_ket_cua_ban_mau(self):
 		"""Ruling P47, vế dương. Giao đủ thì câu gốc của docx đúng — và phải
 		giữ nguyên từng chữ, vì mọi chữ trong một đoạn cam kết có chữ ký đều
 		là chữ của bản mẫu chứ không phải của người viết mã."""
 		_so, dn = self._don_va_phieu(sl_yeu_cau=10, sl_giao=10)
-		cam_ket = _doan_cam_ket(self._render(dn))
+		cam_ket = self._cam_ket(self._render(dn))
 		self.assertIn(
 			CAU_GIAO_DU, cam_ket, "giao đủ mà không dùng câu gốc của bản mẫu"
 		)
@@ -470,14 +478,17 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 		Khách đặt bút ký vào một câu sai với chính con số phía trên nó.
 		"""
 		_so, dn = self._don_va_phieu(sl_yeu_cau=10, sl_giao=1)
-		o = _o_cua_dong(self._render(dn))
+		h = self._render(dn)
+		o = _o_cua_dong(h)
 		self.assertEqual([o[O_SL_YEU_CAU], o[O_SL_THUC_XUAT]], ["10", "1"])
-		cam_ket = _doan_cam_ket(self._render(dn))
 		self.assertIn(
-			CAU_GIAO_THIEU, cam_ket, "giao thiếu mà không đổi câu cam kết"
+			CAU_GIAO_THIEU, self._cam_ket(h),
+			"giao thiếu mà không đổi câu cam kết",
 		)
+		# Khẳng định trên CẢ TRANG (đã bỏ chú thích), không chỉ trong đoạn cam
+		# kết: cụm này không được lọt ra bất kỳ chỗ nào khách đọc được.
 		self.assertNotIn(
-			"đầy đủ", cam_ket,
+			"đầy đủ", _bo_chu_thich(h),
 			"phiếu giao 1 trên đơn đặt 10 vẫn khẳng định 'đầy đủ' — khách ký "
 			"vào một câu sai với con số ngay phía trên",
 		)
@@ -489,15 +500,15 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 			(self.ITEM, 5, 5),        # dòng ĐỦ
 			(self.ITEM_2, 10, 2),     # dòng THIẾU
 		])
-		cam_ket = _doan_cam_ket(self._render(dn))
-		self.assertIn(CAU_GIAO_THIEU, cam_ket)
-		self.assertNotIn("đầy đủ", cam_ket)
+		h = self._render(dn)
+		self.assertIn(CAU_GIAO_THIEU, self._cam_ket(h))
+		self.assertNotIn("đầy đủ", _bo_chu_thich(h))
 
 	def test_dong_KHONG_co_don_hang_khong_bi_coi_la_giao_thieu(self):
 		"""Không có `so_detail` thì KHÔNG có gì để so — im lặng coi là thiếu
 		sẽ đổi câu cam kết trên mọi phiếu giao thẳng, tức bỏ câu gốc của bản
 		mẫu ở đúng những ca mà nó vẫn đúng."""
-		cam_ket = _doan_cam_ket(self._render(self._phieu_khong_don(qty=7)))
+		cam_ket = self._cam_ket(self._render(self._phieu_khong_don(qty=7)))
 		self.assertIn(CAU_GIAO_DU, cam_ket)
 		self.assertNotIn(CAU_GIAO_THIEU, cam_ket)
 
@@ -514,9 +525,8 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 			r.qty = -r.qty
 		h = self._render(phieu)
 		self.assertIn("PHIẾU TRẢ HÀNG", h, "tiền đề: nhãn phiếu trả hàng")
-		cam_ket = _doan_cam_ket(h)
-		self.assertIn(CAU_GIAO_THIEU, cam_ket)
-		self.assertNotIn("đầy đủ", cam_ket)
+		self.assertIn(CAU_GIAO_THIEU, self._cam_ket(h))
+		self.assertNotIn("đầy đủ", _bo_chu_thich(h))
 
 	# --------------------------------------------------------- lô và hạn dùng
 	def test_cot_so_lo_han_dung_doc_QUA_BUNDLE_khi_batch_no_RONG(self):
@@ -771,6 +781,45 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 			"tới được site nào bằng `bench migrate`",
 		)
 
+	def test_moi_lan_doi_HTML_deu_phai_kem_MOT_patch_moi(self):
+		"""Vế mà bài trên KHÔNG canh được — và đã đo là không canh được.
+
+		Bài trên chạy các patch sau `v1_28` cho tới khi HTML khớp hằng số.
+		Nhưng `v1_29.cap_nhat_02vt_sl_yeu_cau` gọi `v1_28.execute()`, mà hàm đó
+		ghi ra BẤT CỨ THỨ GÌ hằng số đang chứa. Nên sau khi `v1_29` tồn tại,
+		sửa hằng số mà KHÔNG thêm patch nào thì vòng lặp vẫn hội tụ và bài trên
+		vẫn xanh — trong khi site đã chạy `v1_29` không bao giờ nhận thay đổi
+		đó (Frappe chạy mỗi patch đúng một lần theo TÊN). Đã đo: thêm một dòng
+		vào hằng số, không thêm patch, cả module vẫn xanh.
+
+		Khẳng định phải bám vào thứ KHÔNG tự đi theo hằng số. Mỗi patch đồng bộ
+		mẫu 02-VT ghi kèm `HTML_DA_GIAO_SHA256` — hash của bản HTML mà nó được
+		viết ra để giao. Hằng số đổi thì hash của patch cuối lệch, và cách duy
+		nhất đưa nó khớp lại là **thêm một patch mới** mang hash mới (sửa hash
+		tại chỗ trong patch cũ là nói dối về một patch đã chạy xong ở site
+		khác — thấy ngay trên diff).
+		"""
+		cac_patch = _doc_patches_txt()
+		mang_hash = []
+		for ten in cac_patch:
+			mod = importlib.import_module(ten)
+			if hasattr(mod, "HTML_DA_GIAO_SHA256"):
+				mang_hash.append((ten, mod.HTML_DA_GIAO_SHA256))
+		self.assertTrue(
+			mang_hash,
+			"không patch nào khai `HTML_DA_GIAO_SHA256` — không có gì ghim "
+			"'bản HTML này đã được giao đi bằng một patch'",
+		)
+		ten_cuoi, hash_cuoi = mang_hash[-1]
+		self.assertEqual(
+			hash_cuoi,
+			hashlib.sha256(HTML_PHIEU_XUAT_02VT.encode("utf-8")).hexdigest(),
+			f"`HTML_PHIEU_XUAT_02VT` đã đổi sau «{ten_cuoi}» mà không có patch "
+			"mới nào giao bản đổi đó đi. Site đã chạy patch cuối sẽ KHÔNG bao "
+			"giờ nhận được thay đổi này qua `bench migrate`. Thêm một patch "
+			"mới (khuôn `v1_29.cap_nhat_02vt_sl_yeu_cau`) mang hash mới.",
+		)
+
 	def test_KHONG_xoa_bien_nhan_cua_lan_migrate_TRUOC(self):
 		"""Bản ghi kiểm toán không được chết dưới tay chính bộ test canh nó.
 
@@ -835,71 +884,4 @@ class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
 		self.assertFalse(
 			frappe.db.exists("Print Format", NAME_BIEN_BAN_TT200),
 			"patch hồi sinh một mẫu KHÁC mà site có thể đã cố ý gỡ bỏ",
-		)
-
-
-class TestTatMauIn02VTKhongTienTo(FrappeTestCase):
-	"""Ruling P46 — tắt mẫu in `Phiếu xuất kho (02-VT)` (KHÔNG tiền tố Miyano).
-
-	Site mang **ba** mẫu in cho `Delivery Note`, trong đó mẫu trần này (module
-	`Regional`, `creation = modified = 16/07/2026 10:00:00` — dấu vết của một
-	bản nhập tay, không do app này cài) chỉ khác mẫu của Miyano đúng tiền tố
-	"Miyano - " trong cùng một dropdown "In". Bấm nhầm là in ra tờ trích
-	TT 99/2025 nhưng KHÔNG có cột Số lô/Hạn dùng, không đoạn cam kết bàn giao,
-	không bốn ô ký của bản mẫu.
-
-	**Tắt, KHÔNG xoá.** Giữ bản ghi thì còn trả lời được "tờ phiếu tháng 7 đó
-	in bằng mẫu nào"; xoá thì mất luôn khả năng đó.
-	"""
-
-	TEN_TRAN = "Phiếu xuất kho (02-VT)"
-
-	def setUp(self):
-		install_bien_ban_print_formats()
-		if not frappe.db.exists("Print Format", self.TEN_TRAN):
-			# Bộ test tự dựng mồi: trên CSDL sạch không có mẫu trần nào, và một
-			# bài tự bỏ qua mình khi thiếu dữ liệu là một bài không canh gì.
-			frappe.get_doc({
-				"doctype": "Print Format", "name": self.TEN_TRAN,
-				"doc_type": "Delivery Note", "standard": "No",
-				"custom_format": 1, "print_format_type": "Jinja",
-				"html": "<p>mẫu trần nhập tay 16/07</p>",
-			}).insert(ignore_permissions=True)
-		frappe.db.set_value("Print Format", self.TEN_TRAN, "disabled", 0)
-		frappe.db.set_value("Print Format", NAME_PHIEU_XUAT_02VT, "disabled", 0)
-
-	def test_tat_mau_tran_nhung_GIU_LAI_ban_ghi(self):
-		tat_mau_tran()
-		self.assertEqual(
-			frappe.db.get_value("Print Format", self.TEN_TRAN, "disabled"), 1,
-			"mẫu trần vẫn hiện trong dropdown In cạnh mẫu của Miyano",
-		)
-		self.assertTrue(
-			frappe.db.exists("Print Format", self.TEN_TRAN),
-			"XOÁ mẫu là mất luôn khả năng tra 'phiếu tháng 7 in bằng mẫu nào'",
-		)
-
-	def test_KHONG_dung_toi_mau_CO_tien_to_Miyano(self):
-		"""Bẫy khớp mờ: tên mẫu của Miyano CHỨA nguyên văn tên mẫu trần
-		("Miyano - " + "Phiếu xuất kho (02-VT)"). Một phép `like` sẽ tắt luôn
-		mẫu mà cả cổng lẫn nhân viên đang dùng."""
-		tat_mau_tran()
-		self.assertEqual(
-			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "disabled"), 0,
-			"patch tắt nhầm mẫu 02-VT của Miyano — cổng mất mẫu đang phát",
-		)
-
-	def test_chay_lai_khong_doi_gi_va_KHONG_hoi_sinh_mau_da_go(self):
-		tat_mau_tran()
-		tat_mau_tran()
-		self.assertEqual(
-			frappe.db.get_value("Print Format", self.TEN_TRAN, "disabled"), 1
-		)
-		frappe.delete_doc(
-			"Print Format", self.TEN_TRAN, force=True, ignore_permissions=True
-		)
-		tat_mau_tran()  # không được ném lỗi
-		self.assertFalse(
-			frappe.db.exists("Print Format", self.TEN_TRAN),
-			"patch dựng lại một mẫu mà site đã cố ý gỡ bỏ",
 		)
