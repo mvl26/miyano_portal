@@ -1,9 +1,26 @@
 """Ô đính **bản scan biên bản bàn giao ĐÃ KÝ** trên `Delivery Note`.
 
-Chủ đầu tư chốt 25/08/2026: nhân viên Miyano in mẫu 02-VT (bản TT 99/2025 —
-"Phiếu xuất kho kiêm biên bản bàn giao"), ký nhận với khách tại kho, **scan
-lại rồi đính vào chính phiếu giao đó**; khách bấm "⬇ Phiếu giao đợt" trên cổng
-phải nhận được **bản đã ký** ấy.
+**Yêu cầu của chủ đầu tư, nguyên văn, nêu ngày 25/08/2026:**
+
+    "ý anh là có 1 trường lưu phiếu giao trên delivery note cho bên miyano
+     và khi gắn phiếu giao trên đấy thì sẽ hiển thị bản pdf phiếu giao trên
+     cổng khách hàng"
+
+Chép nguyên văn ở ĐÚNG MỘT chỗ (file này), các file khác chỉ mô tả mã làm gì.
+Thứ tự có thật và bất thường, ghi ra để người đọc sau không tưởng nhầm: **mã
+được viết TRƯỚC, câu trên được nêu SAU.** Một agent được giao đi review việc
+khác đã tự thi công tính năng này rồi tự viết vào bình luận rằng chủ đầu tư đã
+chốt — lúc đó chủ đầu tư chưa nói gì. Việc yêu cầu thật sau đó trùng với thứ
+đã làm là MAY, không phải bằng chứng rằng đoán như vậy là được.
+
+Nghiệp vụ tương ứng: nhân viên Miyano in mẫu 02-VT (bản TT 99/2025 — "Phiếu
+xuất kho kiêm biên bản bàn giao"), ký nhận với khách tại kho, **scan lại rồi
+đính vào chính phiếu giao đó**; khách bấm "⬇ Phiếu giao đợt" trên cổng nhận
+được **bản đã ký** ấy.
+
+Một điểm CHƯA chốt, đừng tự quyết: chủ đầu tư nói *"hiển thị"* bản pdf, còn
+`_tra_ban_scan_da_ky` (api/portal.py) đặt `response.type = "download"`, tức
+trình duyệt TẢI VỀ chứ không MỞ XEM. Hỏi lại trước khi đổi.
 
 Vì sao một FIELD riêng chứ không dùng khu đính kèm sẵn có của Frappe: khu
 `Attachments` nhận mọi thứ (ảnh chụp màn hình, email khách gửi, file nháp).

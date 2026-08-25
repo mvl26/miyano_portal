@@ -2016,11 +2016,12 @@ def portal_document_download(doctype, name) -> None:
     # frappe.get_doc does NOT auto-enforce has_permission in this build, so the
     # isolation check must be done explicitly before any data leaves the server.
     doc.check_permission("read")
-    # Chủ đầu tư chốt 25/08/2026 — phiếu giao đã có BẢN SCAN ĐÃ KÝ thì khách
-    # phải nhận đúng bản đó, không phải bản in lại chưa chữ ký. Đó là thứ
-    # khách cần khi đối chiếu công nợ hay khi thanh tra hỏi "ai đã nhận hàng
-    # ngày đó": một bản in mới sinh chứng minh được nội dung, không chứng
-    # minh được việc bàn giao đã xảy ra.
+    # Phiếu giao đã có BẢN SCAN ĐÃ KÝ thì khách nhận đúng bản đó, không phải
+    # bản in lại chưa chữ ký. Đó là thứ khách cần khi đối chiếu công nợ hay
+    # khi thanh tra hỏi "ai đã nhận hàng ngày đó": một bản in mới sinh chứng
+    # minh được nội dung, không chứng minh được việc bàn giao đã xảy ra.
+    # (Yêu cầu nguyên văn của chủ đầu tư và ngày nêu: xem docstring
+    # `patches/v1_28/them_o_dinh_bien_ban_da_ky.py` — chép ở MỘT chỗ.)
     if doctype == "Delivery Note" and _tra_ban_scan_da_ky(doc):
         return
     from frappe.utils.pdf import get_pdf
@@ -2029,10 +2030,11 @@ def portal_document_download(doctype, name) -> None:
     # format (see setup/install_print_formats.py).
     PRINT_FORMATS = {
         "Sales Order": "Miyano - Xác nhận đơn hàng",
-        # Chủ đầu tư chốt 25/08/2026 — nút "⬇ Phiếu giao đợt" phải phát ĐÚNG
-        # tờ phiếu mà hai bên ký, tức mẫu 02-VT "Phiếu xuất kho kiêm biên bản
-        # bàn giao", KHÔNG phải "Miyano - Phiếu giao hàng" (mẫu thương mại,
-        # một tờ giấy KHÁC).
+        # Nút "⬇ Phiếu giao đợt" phát ĐÚNG tờ phiếu mà hai bên ký, tức mẫu
+        # 02-VT "Phiếu xuất kho kiêm biên bản bàn giao", KHÔNG phải
+        # "Miyano - Phiếu giao hàng" (mẫu thương mại, một tờ giấy KHÁC).
+        # Sự việc kiểm chứng được bằng SQL: site có nhiều mẫu in cho
+        # `Delivery Note`, và mẫu có ô ký của HAI BÊN là mẫu 02-VT.
         #
         # Vì sao đây là lỗi chứ không phải chuyện thẩm mỹ: khách ký vào tờ A
         # tại kho, rồi lên cổng tải về tờ B với bố cục khác, thiếu cột Số lô/
@@ -2057,6 +2059,17 @@ def portal_document_download(doctype, name) -> None:
     frappe.local.response.type = "pdf"
 
 
+# Đuôi file được phép phát ra cho khách. Đuôi lấy từ TÊN FILE, mà tên file là
+# văn bản tự do do người đính đặt — không phải một khai báo kiểu dữ liệu.
+#
+# CỐ Ý không đoán kiểu file bằng magic byte: đó là thêm một lớp suy đoán nữa
+# để phục vụ một cái tên đặt sai, trong khi đường lui (in bản chưa ký) đã có
+# sẵn, đã được kiểm, và cho khách một chứng từ đọc được ngay.
+_DUOI_SCAN_CHO_PHEP = (
+    "pdf", "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp", "heic",
+)
+
+
 def _tra_ban_scan_da_ky(doc) -> bool:
     """Phiếu giao có bản scan biên bản đã ký → ĐẨY CHÍNH FILE ĐÓ ra response.
     Trả `True` nếu đã trả file; `False` để người gọi in bản chưa ký như cũ.
@@ -2074,7 +2087,8 @@ def _tra_ban_scan_da_ky(doc) -> bool:
     2. **KHÔNG cứng `type = "pdf"`.** Bản scan thực tế phần lớn là ảnh chụp
        (JPG/PNG) chứ không phải PDF. Trả một JPG dưới đuôi `.pdf` thì máy
        khách mở ra rác — hỏng im lặng, và người báo lỗi sẽ là bệnh viện.
-       Đuôi file lấy từ chính tên file đã lưu.
+       Đuôi file lấy từ chính tên file đã lưu, NHƯNG chỉ trong danh sách cho
+       phép (`_DUOI_SCAN_CHO_PHEP`).
 
     3. **Đọc nội dung qua `File.get_content()`**, không ghép đường dẫn tay:
        file riêng tư nằm ở `sites/<site>/private/files`, file công khai ở
@@ -2095,21 +2109,36 @@ def _tra_ban_scan_da_ky(doc) -> bool:
     if not ten_file:
         return False
     f = frappe.get_doc("File", ten_file)
+    tach = (f.file_name or url).rsplit(".", 1)
+    duoi = tach[1].lower() if len(tach) == 2 else ""
+    if duoi not in _DUOI_SCAN_CHO_PHEP:
+        # Tên file là văn bản tự do: một bản scan đặt tên "bien ban 25.08.2026"
+        # cho ra file `.2026`, không máy nào mở được. Lui về bản in như ca file
+        # mất trên đĩa — khách vẫn có chứng từ đọc được, còn Miyano đổi lại tên.
+        frappe.log_error(
+            "portal_document_download",
+            f"Bản scan biên bản của {doc.name} có tên file không mang đuôi hợp "
+            f"lệ: «{f.file_name or url}». Cổng phát bản in CHƯA KÝ cho tới khi "
+            f"file được đổi tên (đuôi hợp lệ: {', '.join(_DUOI_SCAN_CHO_PHEP)}).",
+        )
+        return False
     try:
         noi_dung = f.get_content()
     except Exception:
         # File đã bị xoá khỏi đĩa nhưng bản ghi còn (dọn dẹp dở dang, restore
         # thiếu thư mục files). Lui về bản in — khách vẫn có chứng từ đọc
         # được, thay vì một lỗi 500 không nói được gì.
+        #
+        # `frappe.log_error(title, message)` — TIÊU ĐỀ trước. Gọi ngược thì
+        # `Error Log.method` (Data, 140 ký tự) nhận cả câu tiếng Việt còn
+        # phần `error` chỉ còn mỗi tên hàm: dòng log tra không ra, đọc không
+        # hiểu.
         frappe.log_error(
-            f"Không đọc được bản scan biên bản của {doc.name}: {url}",
             "portal_document_download",
+            f"Không đọc được bản scan biên bản của {doc.name}: {url}",
         )
         return False
-    duoi = (f.file_name or url).rsplit(".", 1)
-    frappe.local.response.filename = f"{doc.name}-bien-ban-da-ky." + (
-        duoi[1].lower() if len(duoi) == 2 else "pdf"
-    )
+    frappe.local.response.filename = f"{doc.name}-bien-ban-da-ky.{duoi}"
     frappe.local.response.filecontent = noi_dung
     frappe.local.response.type = "download"
     return True

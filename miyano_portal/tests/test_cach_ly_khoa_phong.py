@@ -19,6 +19,7 @@ from erpnext.selling.doctype.sales_order.sales_order import (
 	make_delivery_note,
 	make_sales_invoice,
 )
+from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 from miyano_portal import dat_hang, permissions, portal_context
 from miyano_portal.api import kho as kho_api
@@ -1356,22 +1357,77 @@ class TestV3KhoaKhongGanKhoVanQuaDuocCong(_NenCachLy):
 
 
 class TestBienBanBanGiaoDaKy(_NenCachLy):
-	"""Chủ đầu tư chốt 25/08/2026 — nhân viên Miyano in mẫu 02-VT, ký nhận
-	với khách tại kho, **scan rồi đính vào chính phiếu giao**; khách bấm
-	"⬇ Phiếu giao đợt" trên cổng phải nhận ĐÚNG BẢN ĐÃ KÝ đó, không phải một
-	bản in lại chưa có chữ ký nào.
+	"""Bản scan biên bản bàn giao ĐÃ KÝ trên cổng khách hàng.
 
-	Ba bài dưới đây tách theo ba thứ có thể hỏng RIÊNG, không gộp: có scan
+	Sự việc có thật, điều phối đã xác minh bằng SQL: site có nhiều mẫu in cho
+	`Delivery Note`, cổng phát mẫu THƯƠNG MẠI (`Miyano - Phiếu giao hàng`)
+	trong khi tờ có ô ký của **hai bên** là mẫu 02-VT. Khách ký tờ A tại kho
+	rồi lên cổng tải về tờ B — mỗi tờ tự nó đều "đúng", nên không tín hiệu nào
+	báo; chỉ lộ ra lúc đối chiếu công nợ hoặc lúc thanh tra hỏi.
+
+	Các bài dưới đây tách theo từng thứ có thể hỏng RIÊNG, không gộp: có scan
 	thì trả scan; chưa có scan thì vẫn in như cũ (không được vỡ đường đang
-	chạy hằng ngày); và ô `Attach` trỏ tới file KHÔNG thuộc phiếu này thì
-	không được phát ra.
+	chạy hằng ngày); ô `Attach` trỏ tới file KHÔNG thuộc phiếu này thì không
+	được phát ra (cả khi file đó thuộc một chứng từ khác loại, LẪN khi nó
+	thuộc một phiếu giao khác của khách khác); và đính được bản scan vào phiếu
+	ĐÃ GHI SỔ.
 	"""
+
+	# Khách hàng THỨ HAI, chỉ để dựng một phiếu giao "của người khác". Không
+	# dùng lại KHACH: mồi nhử phải khác cả tên phiếu lẫn chủ sở hữu thì mới
+	# đúng kịch bản dán nhầm `file_url` giữa hai bệnh viện.
+	KHACH_KHAC = "ZZTEST8 Benh Vien KHAC"
 
 	def setUp(self):
 		super().setUp()
 		self.so_a = self._don_submitted(self.kp_a.name)
 		self.dn_a = make_delivery_note(self.so_a.name)
 		self.dn_a.insert(ignore_permissions=True)
+		# GHI SỔ phiếu giao. Cả ô `custom_bien_ban_da_ky` tồn tại được là nhờ
+		# `allow_on_submit = 1`: chữ ký chỉ có SAU khi chứng từ đã ghi sổ, vì
+		# phải ghi sổ rồi mới đem hàng đi giao. Một fixture để phiếu ở trạng
+		# thái NHÁP không bao giờ chạm tới tiền đề đó — mọi bài vẫn xanh kể cả
+		# khi ô này bị đặt về mặc định và không đính được vào phiếu THẬT nào.
+		#
+		# Nạp tồn trước vì submit đòi tồn kho thật. Stock Entry này KHÔNG tự
+		# dọn (cùng khuôn `_nap_ton` của test_kho_delivery_hook); rollback
+		# cuối class của FrappeTestCase cuốn nó đi.
+		make_stock_entry(
+			item_code=ITEM, qty=50, to_warehouse=KHO_MYN, rate=1000,
+			company=COMPANY, purpose="Material Receipt",
+		)
+		self.dn_a.submit()
+		self.assertEqual(
+			self.dn_a.docstatus, 1, "fixture phải là phiếu giao ĐÃ GHI SỔ"
+		)
+
+	def _phieu_giao_khach_khac(self):
+		"""Phiếu giao NHÁP của MỘT KHÁCH KHÁC — đúng doctype, khác tên phiếu."""
+		if not frappe.db.exists("Customer", self.KHACH_KHAC):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": self.KHACH_KHAC,
+				"customer_type": "Company",
+				"customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
+			self.addCleanup(
+				frappe.db.delete, "Customer", {"name": self.KHACH_KHAC}
+			)
+		dn = frappe.new_doc("Delivery Note")
+		dn.company = COMPANY
+		dn.customer = self.KHACH_KHAC
+		dn.posting_date = frappe.utils.today()
+		dn.append("items", {
+			"item_code": ITEM, "qty": 1, "rate": 10000,
+			"warehouse": KHO_MYN, "cost_center": COST_CENTER,
+		})
+		dn.insert(ignore_permissions=True)
+		# LIFO: phiếu xoá trước khách hàng.
+		self.addCleanup(
+			frappe.delete_doc, "Delivery Note", dn.name,
+			force=True, ignore_permissions=True,
+		)
+		return dn
 
 	# Ảnh PNG 1x1 THẬT. Frappe chạy bản scan qua PIL khi đuôi file là ảnh
 	# (nén lại/đọc kích thước), nên vài byte giả sẽ nổ `UnidentifiedImageError`
@@ -1415,9 +1471,9 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 		self.assertEqual(frappe.local.response.filecontent, b"%PDF-fake")
 
 	def test_cong_phat_DUNG_to_phieu_hai_ben_ky(self):
-		"""Chủ đầu tư chốt 25/08 — nút "⬇ Phiếu giao đợt" phải phát ĐÚNG mẫu
-		02-VT "Phiếu xuất kho kiêm biên bản bàn giao", tờ giấy hai bên ký tại
-		kho. Trước bản này nó phát "Miyano - Phiếu giao hàng" — một tờ KHÁC:
+		"""Nút "⬇ Phiếu giao đợt" phải phát ĐÚNG mẫu 02-VT "Phiếu xuất kho
+		kiêm biên bản bàn giao", tức tờ giấy có ô ký của HAI BÊN mà khách ký
+		tại kho. Trước bản này nó phát "Miyano - Phiếu giao hàng" — một tờ KHÁC:
 		bố cục khác, không có cột Số lô/Hạn dùng, không có đoạn cam kết bàn
 		giao. Khách ký tờ A, tải về tờ B, và không có tín hiệu nào báo vì mỗi
 		tờ tự nó đều "đúng".
@@ -1441,11 +1497,16 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 		):
 			self.assertIn(phai_co, html, f"cổng phát nhầm mẫu — thiếu «{phai_co}»")
 
-	def test_o_attach_tro_sang_file_CUA_PHIEU_KHAC_thi_khong_phat_ra(self):
+	def test_o_attach_tro_sang_file_CUA_DOCTYPE_KHAC_thi_khong_phat_ra(self):
 		"""`custom_bien_ban_da_ky` chỉ là một CHUỖI đường dẫn, sửa được từ
 		Desk và trỏ được tới file của bất kỳ chứng từ nào. Không đối chiếu
 		`attached_to_doctype`/`attached_to_name` thì cổng thành một đường đọc
 		file tuỳ ý — đúng lớp rò rỉ mà `dam_bao_xem_duoc` dựng ra để chặn.
+
+		Bài này chỉ canh vế `attached_to_doctype` (mồi nhử là một `Sales
+		Order`). Vế `attached_to_name` — mồi nhử là một PHIẾU GIAO khác — nằm
+		ở bài dưới; hai vế phải tách, vì một mồi nhử khác doctype đã bị chốt
+		thứ nhất chặn nên KHÔNG nói được gì về chốt thứ hai.
 		"""
 		la = self._dinh_scan("Sales Order", self.so_a.name, "cua-chung-tu-khac.png")
 		frappe.db.set_value(
@@ -1461,3 +1522,99 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 			"file không thuộc phiếu này vẫn bị phát ra cho khách",
 		)
 		self.assertNotEqual(frappe.local.response.filecontent, self._PNG)
+
+	def test_o_attach_tro_sang_PHIEU_GIAO_KHAC_thi_khong_phat_ra(self):
+		"""ĐÚNG doctype, SAI phiếu — ca mà chốt `attached_to_doctype` một mình
+		không bắt được.
+
+		Kịch bản thật: nhân viên mở bản scan đã ký của bệnh viện B, chép
+		`file_url` rồi dán vào ô `custom_bien_ban_da_ky` trên phiếu giao của
+		bệnh viện A (hai phiếu trông giống nhau, chỉ khác mã). Cả hai file đều
+		đính vào một `Delivery Note`, nên CHỈ `attached_to_name` chặn được —
+		bỏ chốt đó ra khỏi mã nguồn thì bệnh viện A tải về biên bản đã ký của
+		bệnh viện B.
+		"""
+		dn_khac = self._phieu_giao_khach_khac()
+		la = self._dinh_scan("Delivery Note", dn_khac.name, "cua-khach-khac.png")
+		frappe.db.set_value(
+			"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky", la.file_url
+		)
+		frappe.set_user(self.nv_a.user)
+		from unittest.mock import patch
+
+		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertEqual(
+			frappe.local.response.filecontent, b"%PDF-fake",
+			"bản scan của phiếu giao KHÁC (khách khác) bị phát ra cho khách này",
+		)
+		self.assertNotEqual(frappe.local.response.filecontent, self._PNG)
+
+	def test_ten_file_khong_co_duoi_hop_le_thi_LUI_VE_BAN_IN(self):
+		"""Đuôi file lấy từ TÊN FILE, mà tên file là văn bản tự do do người
+		đính đặt. Một bản scan đặt tên `bien ban 25.08.2026` cho ra một file
+		`.2026`: không máy nào mở được, và người phát hiện sẽ là bệnh viện.
+
+		Đường lui đã có sẵn và đã được kiểm (file mất trên đĩa → in bản chưa
+		ký), nên ca này đi cùng lối: khách vẫn có chứng từ đọc được, còn Miyano
+		nhận một dòng Error Log để đổi lại tên file.
+		"""
+		self.addCleanup(
+			frappe.db.delete, "Error Log", {"method": "portal_document_download"}
+		)
+		frappe.db.delete("Error Log", {"method": "portal_document_download"})
+		f = self._dinh_scan(
+			"Delivery Note", self.dn_a.name, ten_file="bien ban 25.08.2026"
+		)
+		frappe.db.set_value(
+			"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky", f.file_url
+		)
+		frappe.set_user(self.nv_a.user)
+		from unittest.mock import patch
+
+		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertEqual(
+			frappe.local.response.filecontent, b"%PDF-fake",
+			"phát ra một file mang đuôi không mở được thay vì lui về bản in",
+		)
+		self.assertFalse(
+			frappe.local.response.filename.endswith(".2026"),
+			f"tên file phát ra vẫn mang đuôi rác: {frappe.local.response.filename}",
+		)
+		# `frappe.log_error(title, message)` — tiêu đề TRƯỚC. Gọi ngược thì
+		# `Error Log.method` nhận cả câu tiếng Việt (Data 140 ký tự) còn phần
+		# `error` chỉ còn mỗi tên hàm: dòng log tra không ra, đọc không hiểu.
+		log = frappe.get_all(
+			"Error Log",
+			filters={"method": "portal_document_download"},
+			fields=["error"],
+		)
+		self.assertEqual(len(log), 1, "không có dòng Error Log nào để Miyano lần ra")
+		self.assertIn(self.dn_a.name, log[0].error, "dòng log không nói phiếu nào")
+
+	def test_dinh_duoc_ban_scan_vao_phieu_DA_GHI_SO(self):
+		"""Tiền đề của cả tính năng: `allow_on_submit = 1` trên ô
+		`custom_bien_ban_da_ky`.
+
+		Chữ ký luôn có SAU khi chứng từ ghi sổ — phải ghi sổ rồi mới đem hàng
+		đi giao và ký nhận. Ô để mặc định thì `_validate_update_after_submit`
+		chặn, và KHÔNG đường nào đính được bản scan vào một phiếu giao thật.
+		Mọi bài khác trong lớp này ghi giá trị bằng `frappe.db.set_value`, tức
+		đi vòng qua đúng cái chốt đang nói — nên chúng vẫn xanh kể cả khi cờ
+		này bị gỡ. Bài này đi ĐÚNG đường người dùng đi: `doc.save()`.
+		"""
+		self.assertEqual(
+			self.dn_a.docstatus, 1, "tiền đề của bài: phiếu phải ĐÃ ghi sổ"
+		)
+		f = self._dinh_scan("Delivery Note", self.dn_a.name)
+		doc = frappe.get_doc("Delivery Note", self.dn_a.name)
+		doc.custom_bien_ban_da_ky = f.file_url
+		doc.save(ignore_permissions=True)
+		self.assertEqual(
+			frappe.db.get_value(
+				"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky"
+			),
+			f.file_url,
+			"đính bản scan vào phiếu đã ghi sổ không lưu được",
+		)
