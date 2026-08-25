@@ -447,6 +447,12 @@ doc_events = {
 			# Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi
 			# còn dòng "đặt ngoài" chưa xử lý (chưa khớp `item_khop`).
 			"miyano_portal.portal_mua_le.kiem_dat_ngoai_da_xu_ly",
+			# Critical-3 (review Task 13, 22/08) — chốt ngay trên tin
+			# `da_xu_ly`, mà `da_xu_ly` chỉ nói thật TẠI LÚC chuyển. Nhân
+			# viên Desk xoá dòng `items` do phép chuyển sinh ra thì cờ vẫn
+			# bật và đơn xác nhận được với mặt hàng khoa yêu cầu không có
+			# dòng nào. Chốt này đối chiếu `dong_hang` với `items` THẬT.
+			"miyano_portal.portal_mua_le.kiem_dong_chuyen_con_tren_don",
 			# Việc thêm (controller, ngoài Task 9) — CHỐT MỚI, cạnh chốt trên:
 			# chốt trên chỉ nhìn `custom_dat_ngoai`, không nhìn `items` — nên
 			# không bắt được dòng giữ chỗ `ITEM_GIU_CHO` còn sót lại trong

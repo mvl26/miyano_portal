@@ -152,8 +152,6 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     if doc.docstatus != 0:
         return
     dong_go_tay = doc.get("custom_dat_ngoai") or []
-    if not dong_go_tay:
-        return
 
     # Bẫy 1 — cờ `da_chuyen` là nguồn sự thật DUY NHẤT cho "đã chuyển chưa",
     # và giá trị đáng tin của nó là giá trị ĐÃ XUỐNG DB, không phải giá trị
@@ -166,6 +164,20 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
         for d in ((truoc.get("custom_dat_ngoai") or []) if truoc else [])
         if d.name
     }
+    # Thoát sớm CHỈ khi không có gì để làm ở CẢ HAI phía. Bản trước thoát
+    # theo mỗi `not dong_go_tay`, nên lần lưu XOÁ dòng gõ tay cuối cùng
+    # không bao giờ chạy được phép hoàn tác bên dưới — số lượng của nó nằm
+    # lại trong dòng hàng vĩnh viễn.
+    if not dong_go_tay and not cu:
+        return
+
+    # BƯỚC 0 (Critical-1, review 22/08) — HOÀN TÁC phần đóng góp của những
+    # dòng gõ tay VỪA BỊ XOÁ khỏi lưới. Phải chạy TRƯỚC vòng chuyển: "xoá
+    # dòng khớp nhầm rồi gõ lại" là đúng đường gỡ lỗi mà chính câu báo lỗi
+    # bẫy 6 chỉ cho người dùng, và nếu không trừ lại thì phần cũ còn nằm
+    # trong dòng hàng, phần mới cộng thêm — 5 thành 10, tiền nhân đôi,
+    # trong khi dòng bằng chứng vẫn ghi 5.
+    _hoan_tac_dong_bi_xoa(doc, cu, {d.get("name") for d in dong_go_tay})
 
     da_chuyen_lan_nay = False
     thang_cuoc = None
@@ -178,11 +190,15 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
             # gửi lên bỏ trống nó.
             dong.da_chuyen = 1
             dong.dong_hang = xua.get("dong_hang")
+            dong.so_luong_da_gop = flt(xua.get("so_luong_da_gop"))
+            continue
+        if truoc is None and dong.get("da_chuyen") and _neo_lai_ban_sao(doc, dong):
             continue
         # Chưa từng chuyển theo DB → xoá mọi dấu vết "đã chuyển" mà payload
         # có thể mang theo.
         dong.da_chuyen = 0
         dong.dong_hang = None
+        dong.so_luong_da_gop = 0
         if not dong.get("item_khop"):
             continue
         if la_dong_giu_cho(dong.item_khop):
@@ -220,10 +236,129 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
         )
         dong.da_chuyen = 1
         dong.dong_hang = hang.name
+        dong.so_luong_da_gop = flt(dong.so_luong)
         da_chuyen_lan_nay = True
 
     if da_chuyen_lan_nay:
         _go_dong_giu_cho(doc)
+    _dam_bao_con_dong_hang(doc)
+
+
+def _neo_lai_ban_sao(doc, dong) -> bool:
+    """BẢN SAO của một đơn đã chuyển (nút Duplicate trên Desk,
+    `frappe.copy_doc`): NEO `dong_hang` vào dòng hàng đã được chép sang, thay
+    vì chuyển lần thứ hai. Trả `True` nếu neo được.
+
+    Vì sao cần một nhánh riêng: bản sao đi qua `insert()`, ở đó KHÔNG có
+    `doc_before_save` nào để đối chiếu — nên nhánh thường coi dòng gõ tay là
+    "chưa chuyển" và cộng số lượng vào chính dòng hàng vừa được chép sang
+    (đo được: 5 thành 10). `no_copy = 1` trên `da_chuyen` KHÔNG cứu được:
+    hàng hoá vẫn được chép, chỉ là cờ về 0 rồi phép chuyển cộng thêm lần nữa.
+    `dong_hang` chép sang trỏ tới TÊN dòng của bản GỐC, không tồn tại ở đây,
+    nên phải neo lại theo `item_khop`.
+
+    Đây là chỗ DUY NHẤT trong toàn hàm tin một giá trị `da_chuyen` do payload
+    mang tới, nên phép kiểm phải chặt hơn "có dòng nào cùng mã không":
+
+      * đòi dòng hàng đó mang **đủ số lượng** dòng gõ tay yêu cầu
+        (`qty >= so_luong`). Chỉ kiểm sự tồn tại thì một payload dựng tay có
+        thể khai `da_chuyen = 1` cho một yêu cầu 100 hộp trong khi đơn chỉ
+        có 1 hộp, và `da_xu_ly = 1` lại nói dối một lần nữa — đúng lớp lỗi
+        QĐ-G16 vừa dẹp, chỉ nhỏ hơn;
+      * không neo được thì KHÔNG throw mà rơi xuống nhánh chuyển bình
+        thường — mặt hàng khách yêu cầu vẫn phải có mặt trên đơn với đủ số
+        lượng, đó mới là điều bất biến cần giữ.
+
+    Chỉ chạy ở đúng đường ghi này (`insert`), KHÔNG ở mọi lần lưu: bẫy 1 cấm
+    dùng "có dòng nào cùng `item_code` không" làm phép kiểm thường trực, vì
+    dòng đó có thể có mặt vì lý do khác.
+    """
+    if not dong.get("item_khop"):
+        return False
+    for hang in doc.get("items") or []:
+        if hang.item_code != dong.item_khop:
+            continue
+        if flt(hang.qty) < flt(dong.so_luong):
+            return False
+        dong.da_chuyen = 1
+        dong.dong_hang = hang.name
+        if not flt(dong.get("so_luong_da_gop")):
+            dong.so_luong_da_gop = flt(dong.so_luong)
+        return True
+    return False
+
+
+def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
+    """Trừ lại phần số lượng của những dòng gõ tay ĐÃ CHUYỂN vừa bị xoá khỏi
+    lưới; dòng hàng chỉ còn đúng phần của nó thì gỡ hẳn.
+
+    `so_luong_da_gop` là con số DUY NHẤT trả lời được "phần nào của dòng hàng
+    này tới từ dòng gõ tay" sau khi bẫy 2 đã gộp. Không có nó thì phép hoàn
+    tác hoặc trừ thiếu (để lại số lượng ma) hoặc trừ lẫn cả phần khách đã đặt
+    trực tiếp. Đây đúng là "cột sổ sách thứ ba" mà bản đầu của task này gọi
+    tên rồi từ chối dựng — và chính chỗ từ chối đó là cái lỗ.
+
+    Im lặng bỏ qua khi không đối chiếu được (dòng hàng đã bị người khác
+    xoá/đổi mã, hoặc bản ghi cũ chưa có cột sổ sách): KHÔNG đoán mò một con
+    số để trừ. Phần lệch còn lại do `kiem_dong_chuyen_con_tren_don` bắt ở
+    `before_submit`.
+    """
+    theo_ten = {h.name: h for h in (doc.get("items") or []) if h.name}
+    da_go = False
+    for ten, xua in cu.items():
+        if ten in con_lai or not xua.get("da_chuyen"):
+            continue
+        phan_gop = flt(xua.get("so_luong_da_gop"))
+        hang = theo_ten.get(xua.get("dong_hang"))
+        if not phan_gop or not hang or hang.item_code != xua.get("item_khop"):
+            continue
+        con = flt(hang.qty) - phan_gop
+        if con > 0:
+            hang.qty = con
+            continue
+        doc.items = [h for h in doc.get("items") or [] if h.name != hang.name]
+        theo_ten.pop(hang.name, None)
+        da_go = True
+    if da_go:
+        for idx, hang in enumerate(doc.get("items") or [], start=1):
+            hang.idx = idx
+
+
+def _dam_bao_con_dong_hang(doc) -> None:
+    """ERPNext KHÔNG lưu nổi một Sales Order với bảng `items` RỖNG
+    (`calculate_taxes_and_totals` không có gì để tính, `grand_total` là
+    `None`) — xác nhận thực nghiệm, ghi ở `dat_hang._xay_don`.
+
+    Phép hoàn tác phía trên có thể vét cạn `items`: đơn TOÀN hàng gõ tay đã
+    khớp mã thì dòng giữ chỗ đã bị gỡ (bẫy 3), nên `items` chỉ còn đúng dòng
+    vừa sinh — xoá dòng gõ tay đi là hết sạch. Trả đơn về đúng hình dạng
+    §3.4 của nó (một dòng giữ chỗ) thay vì để framework ném một câu không
+    nói cho nhân viên biết chuyện gì vừa xảy ra.
+    """
+    if doc.get("items"):
+        return
+    if not doc.get("custom_dat_ngoai"):
+        # Không còn dòng hàng NÀO và cũng không còn dòng gõ tay nào: đơn
+        # rỗng, không có nhu cầu nào để phục vụ. ERPNext sẽ ném
+        # `MandatoryError: items` — nói thẳng ra thì hơn.
+        frappe.throw(
+            "Xoá dòng gõ tay cuối cùng sẽ làm đơn không còn dòng hàng nào. "
+            "Một đơn rỗng không lưu được — huỷ hẳn đơn nháp này, hoặc thêm "
+            "một mặt hàng vào đơn trước khi xoá.",
+            frappe.ValidationError,
+        )
+    if not frappe.db.exists("Item", ITEM_GIU_CHO):
+        return
+    from miyano_portal.dat_hang import _resolve_item_warehouse
+
+    doc.append("items", {
+        "item_code": ITEM_GIU_CHO,
+        "qty": 1,
+        "rate": 0,
+        "price_list_rate": 0,
+        "warehouse": _resolve_item_warehouse(ITEM_GIU_CHO, doc.company),
+        "delivery_date": doc.get("delivery_date"),
+    })
 
 
 def _kiem_dong_da_chuyen_khong_doi(dong, xua) -> None:
@@ -253,7 +388,9 @@ def _kiem_dong_da_chuyen_khong_doi(dong, xua) -> None:
         f"{xua.get('item_khop')} trên đơn — không sửa được số lượng hay mã khớp "
         f"trên dòng gõ tay nữa (dòng gõ tay là bằng chứng yêu cầu gốc của khoa). "
         f"Sửa số lượng ngay trên dòng hàng {xua.get('item_khop')}; nếu khớp nhầm "
-        f"mã thì xoá dòng gõ tay này và dòng hàng đã tạo khỏi đơn nháp rồi nhập lại.",
+        f"mã thì XOÁ DÒNG GÕ TAY NÀY khỏi đơn nháp rồi nhập lại — hệ sẽ tự trừ "
+        f"lại đúng phần số lượng nó đã gộp vào dòng hàng, không phải xoá tay "
+        f"dòng hàng.",
         frappe.ValidationError,
     )
 
@@ -264,15 +401,23 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
     có nếu đã có, ngược lại thêm mới. Bẫy 2: không bao giờ để hai dòng cùng
     `item_code` đứng trên một Sales Order.
 
-    Dòng GỘP giữ nguyên `rate`/`blanket_order` sẵn có: dòng đó đã được định
+    Dòng GỘP giữ nguyên `rate`/`blanket_order` ĐÃ CÓ — dòng đó đã được định
     giá theo đúng luật ở đường dựng đơn, chuyện xảy ra ở đây chỉ là khách
-    cần thêm số lượng.
-    """
-    for hang in doc.get("items") or []:
-        if hang.item_code == item_code:
-            hang.qty = flt(hang.qty) + qty
-            return hang
+    cần thêm số lượng, và giá đã chốt là giá Miyano đàm phán/đã báo cho
+    khách, không ai được đè lên.
 
+    Nhưng dòng sẵn có CHƯA có giá / CHƯA gắn hợp đồng thì phép gộp phải DÁN
+    vào (Critical-2, review 22/08 — dựng lại được trên bench). Vòng lặp
+    nghiệp vụ chủ đầu tư mô tả 21/08 tới thẳng ca này mà không ai phải sửa
+    tay: khoa đặt một mặt hàng lúc nó còn NGOÀI hợp đồng (dòng tầng 2,
+    `rate = 0`), Miyano bổ sung chính mặt hàng đó vào hợp đồng khung và ký,
+    rồi khớp một dòng gõ tay về đúng mã đó. Bản trước `return` ngay và VỨT
+    con số 88.000 vừa tính cùng cả `blanket_order`, nên TOÀN BỘ số lượng
+    (cũ lẫn mới) submit được với `grand_total = 0` và không trừ hạn mức nào
+    — đúng nửa còn lại của con bug QĐ-G13 dẹp, đi vào bằng đường gộp.
+
+    Vì thế giá/hợp đồng phải tính TRƯỚC vòng gộp, không phải sau nó.
+    """
     # Import tại chỗ: `dat_hang` import ngược lại module này ở tầng module
     # (ITEM_GIU_CHO, can_chen_giu_cho, resolve_ban_le_company...), nên import
     # ở đầu file sẽ thành vòng.
@@ -296,6 +441,33 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
         flt(gia_hdnt.gia_dong_hop_dong(item_code, bo_dong, price_list))
         if bo_dong else 0.0
     )
+    # BR-O15 — hạn mức khai 0 nghĩa KHÔNG GIỚI HẠN. KHÔNG gắn
+    # `against_blanket_order` cho dòng đó: cơ chế gốc của ERPNext đối chiếu
+    # cờ này với `qty` của Blanket Order Item, thấy 0 thì hiểu là CẤM ĐẶT và
+    # chặn ngay lúc submit. Y hệt nhánh `con_lai is None` của `_xay_don` —
+    # một luật, hai nơi thi hành giống nhau.
+    gan_hop_dong = None
+    if bo_dong:
+        con_lai, _da_dat = han_muc_con(bo_dong, item_code)
+        if con_lai is not None:
+            gan_hop_dong = bo_dong
+
+    # ---- BẪY 2 — GỘP vào dòng sẵn có, không thêm dòng thứ hai cùng mã ----
+    for hang in doc.get("items") or []:
+        if hang.item_code != item_code:
+            continue
+        hang.qty = flt(hang.qty) + qty
+        if rate and not flt(hang.rate):
+            # Dòng sẵn có đang CHỜ BÁO GIÁ mà mặt hàng thì đã có giá hợp
+            # đồng — không im lặng để cả cụm số lượng đi tiếp với 0 đồng.
+            # CHỈ điền vào chỗ trống, xem docstring.
+            hang.rate = rate
+            hang.price_list_rate = 0
+        if gan_hop_dong and not hang.get("blanket_order"):
+            hang.blanket_order = gan_hop_dong
+            hang.against_blanket_order = 1
+        return hang
+
     kho = _resolve_item_warehouse(item_code, doc.company)
     if not kho:
         frappe.throw(
@@ -322,16 +494,9 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
         # `price_list_rate = 0` để `set_missing_item_details` không điền hộ
         # (nó chỉ điền khi field đang là `None`).
         moi["price_list_rate"] = 0
-    if bo_dong:
-        con_lai, _da_dat = han_muc_con(bo_dong, item_code)
-        # BR-O15 — hạn mức khai 0 nghĩa KHÔNG GIỚI HẠN. KHÔNG gắn
-        # `against_blanket_order` cho dòng đó: cơ chế gốc của ERPNext đối
-        # chiếu cờ này với `qty` của Blanket Order Item, thấy 0 thì hiểu là
-        # CẤM ĐẶT và chặn ngay lúc submit. Y hệt nhánh `con_lai is None`
-        # của `_xay_don` — một luật, hai nơi thi hành giống nhau.
-        if con_lai is not None:
-            moi["blanket_order"] = bo_dong
-            moi["against_blanket_order"] = 1
+    if gan_hop_dong:
+        moi["blanket_order"] = gan_hop_dong
+        moi["against_blanket_order"] = 1
 
     hang = doc.append("items", moi)
     # Đặt tên NGAY: `set_name_in_children()` đã chạy xong TRƯỚC
@@ -432,6 +597,50 @@ def kiem_dat_ngoai_da_xu_ly(doc, method=None) -> None:
     frappe.throw(
         f"Còn {len(chua_xu_ly)} dòng đặt ngoài chưa xử lý ({ten}). "
         "Khớp mã hàng (hoặc tạo mã mới) cho từng dòng trước khi xác nhận đơn.",
+        frappe.ValidationError,
+    )
+
+
+def kiem_dong_chuyen_con_tren_don(doc, method=None) -> None:
+    """Critical-3 (review Task 13, 22/08) — CHỐT MỚI: `da_xu_ly = 1` phải có
+    một dòng hàng THẬT đứng sau nó NGAY TẠI LÚC xác nhận đơn.
+
+    `dong_bo_da_xu_ly_dat_ngoai` suy `da_xu_ly` từ `da_chuyen`, và `da_chuyen`
+    được bật đúng lúc dòng hàng ra đời — nhưng KHÔNG có gì canh khoảng thời
+    gian giữa lúc đó và lúc submit. Nhân viên Desk xoá dòng `items` do phép
+    chuyển sinh ra (một thao tác lưới bình thường, không cảnh báo gì) thì
+    `da_chuyen`/`da_xu_ly` vẫn bằng 1, `dong_hang` trỏ tới một dòng không còn
+    tồn tại, và đơn XÁC NHẬN ĐƯỢC với mặt hàng khoa yêu cầu KHÔNG có dòng
+    nào, không giá, không lên hoá đơn — đo được trên bench. Cùng LỚP lỗi
+    QĐ-G16 dẹp, tới bằng cửa XOÁ thay vì cửa khớp mã.
+
+    Đối chiếu bằng TÊN dòng (`dong_hang`) VÀ `item_code`: đổi mã ngay trên
+    dòng hàng đã tạo cũng làm bằng chứng nói dối y hệt, chỉ khó thấy hơn.
+
+    Bỏ qua dòng chưa có `dong_hang` (đơn nháp mở từ trước bản vá này) —
+    `kiem_dat_ngoai_da_xu_ly` vẫn canh phần "đã xử lý hay chưa" cho chúng.
+
+    Đứng ở `before_submit` chứ không ở `validate`: giữa hai lần lưu, một đơn
+    nháp được phép ở trạng thái dở dang (sales xoá dòng hàng rồi dựng lại).
+    Thứ không được phép là đơn ĐI TIẾP trong trạng thái đó.
+    """
+    ten_dong = {h.name: h for h in (doc.get("items") or []) if h.name}
+    hong = []
+    for dong in doc.get("custom_dat_ngoai") or []:
+        if not dong.get("da_chuyen") or not dong.get("dong_hang"):
+            continue
+        hang = ten_dong.get(dong.get("dong_hang"))
+        if not hang or hang.item_code != dong.get("item_khop"):
+            hong.append(dong)
+    if not hong:
+        return
+    ten = ", ".join(f"{d.get('ten_hang') or '?'} → {d.get('item_khop')}" for d in hong)
+    frappe.throw(
+        f"Còn {len(hong)} dòng đặt ngoài ghi \"đã xử lý\" nhưng dòng hàng tương "
+        f"ứng đã bị xoá hoặc đổi mã ({ten}). Xác nhận đơn lúc này nghĩa là mặt "
+        f"hàng khoa yêu cầu KHÔNG có dòng nào trên đơn, không giá, không lên "
+        f"hoá đơn. Thêm lại dòng hàng, hoặc xoá dòng gõ tay tương ứng khỏi đơn "
+        f"nháp rồi khớp mã lại.",
         frappe.ValidationError,
     )
 
