@@ -1401,6 +1401,13 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 			self.dn_a.docstatus, 1, "fixture phải là phiếu giao ĐÃ GHI SỔ"
 		)
 
+	@staticmethod
+	def _don_log_moi(method, co_san):
+		"""Xoá ĐÚNG những dòng Error Log sinh ra sau mốc `co_san`."""
+		for ten in frappe.get_all("Error Log", filters={"method": method}, pluck="name"):
+			if ten not in co_san:
+				frappe.db.delete("Error Log", {"name": ten})
+
 	def _phieu_giao_khach_khac(self):
 		"""Phiếu giao NHÁP của MỘT KHÁCH KHÁC — đúng doctype, khác tên phiếu."""
 		if not frappe.db.exists("Customer", self.KHACH_KHAC):
@@ -1459,6 +1466,32 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 			frappe.local.response.filename.endswith(".png"),
 			f"đuôi file sai: {frappe.local.response.filename}",
 		)
+		# Ruling P45 — chủ đầu tư chốt: nút phiếu giao MỞ XEM trong trình
+		# duyệt, không tải về. `as_raw()` lấy Content-Disposition từ
+		# `display_content_as`, mặc định là "attachment".
+		self.assertEqual(
+			frappe.local.response.get("display_content_as"), "inline",
+			"bản scan vẫn bị tải về thay vì mở xem ngay trong tab",
+		)
+
+	def test_duoi_trinh_duyet_KHONG_dung_duoc_thi_van_tai_ve(self):
+		"""Đường thoát bắt buộc của P45: `.tif` mở inline ra một TAB TRẮNG trên
+		phần lớn trình duyệt. Những đuôi đó phải giữ nguyên đường tải về —
+		khách cầm được file, thay vì nhìn một trang trống không hiểu vì sao."""
+		f = self._dinh_scan(
+			"Delivery Note", self.dn_a.name, ten_file="bien-ban-da-ky.tif",
+			noi_dung=b"II*\x00 gia lap TIFF",
+		)
+		frappe.db.set_value(
+			"Delivery Note", self.dn_a.name, "custom_bien_ban_da_ky", f.file_url
+		)
+		frappe.set_user(self.nv_a.user)
+		portal_api.portal_document_download("Delivery Note", self.dn_a.name)
+		self.assertTrue(frappe.local.response.filename.endswith(".tif"))
+		self.assertEqual(
+			frappe.local.response.get("display_content_as"), "attachment",
+			"kiểu file trình duyệt không dựng được mà vẫn mở inline — tab trắng",
+		)
 
 	def test_chua_co_ban_scan_thi_van_in_nhu_cu(self):
 		"""Vế răng của bài trên: nếu nhánh mới nuốt luôn cả đường cũ thì bài
@@ -1466,9 +1499,17 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 		frappe.set_user(self.nv_a.user)
 		from unittest.mock import patch
 
-		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+		giu = {}
+		with patch(
+			"frappe.utils.pdf.get_pdf",
+			side_effect=lambda h, *a, **k: giu.setdefault("html", h) and b"" or b"%PDF-fake",
+		):
 			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
 		self.assertEqual(frappe.local.response.filecontent, b"%PDF-fake")
+		# Răng cho cảnh báo "CHƯA CÓ CHỮ KÝ": nó chỉ được xuất hiện khi phiếu
+		# CÓ bản scan mà không phát được. Dán vào mọi bản in thì nó thành nhiễu
+		# và không ai đọc nữa — kể cả đúng lúc cần đọc.
+		self.assertNotIn("CHƯA CÓ CHỮ KÝ", giu["html"])
 
 	def test_cong_phat_DUNG_to_phieu_hai_ben_ky(self):
 		"""Nút "⬇ Phiếu giao đợt" phải phát ĐÚNG mẫu 02-VT "Phiếu xuất kho
@@ -1559,10 +1600,14 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 		ký), nên ca này đi cùng lối: khách vẫn có chứng từ đọc được, còn Miyano
 		nhận một dòng Error Log để đổi lại tên file.
 		"""
-		self.addCleanup(
-			frappe.db.delete, "Error Log", {"method": "portal_document_download"}
-		)
-		frappe.db.delete("Error Log", {"method": "portal_document_download"})
+		# `tabError Log` là MyISAM — phép xoá KHÔNG bị rollback. Chỉ được dọn
+		# ĐÚNG dòng do bài này sinh ra: `portal_document_download` cũng là
+		# `method` của đường lui khi file mất trên đĩa, nên xoá theo `method`
+		# sẽ cuốn theo cả log thật của site.
+		co_san = set(frappe.get_all(
+			"Error Log", filters={"method": "portal_document_download"}, pluck="name"
+		))
+		self.addCleanup(self._don_log_moi, "portal_document_download", co_san)
 		f = self._dinh_scan(
 			"Delivery Note", self.dn_a.name, ten_file="bien ban 25.08.2026"
 		)
@@ -1572,7 +1617,11 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 		frappe.set_user(self.nv_a.user)
 		from unittest.mock import patch
 
-		with patch("frappe.utils.pdf.get_pdf", return_value=b"%PDF-fake"):
+		giu = {}
+		with patch(
+			"frappe.utils.pdf.get_pdf",
+			side_effect=lambda h, *a, **k: giu.setdefault("html", h) and b"" or b"%PDF-fake",
+		):
 			portal_api.portal_document_download("Delivery Note", self.dn_a.name)
 		self.assertEqual(
 			frappe.local.response.filecontent, b"%PDF-fake",
@@ -1582,14 +1631,25 @@ class TestBienBanBanGiaoDaKy(_NenCachLy):
 			frappe.local.response.filename.endswith(".2026"),
 			f"tên file phát ra vẫn mang đuôi rác: {frappe.local.response.filename}",
 		)
+		# Bản in lui về KHÔNG được im lặng: bản scan đã ký VẪN TỒN TẠI, nên
+		# đưa khách một tờ chưa ký trông rất hợp lý chính là "thay thế im
+		# lặng" mà cả task này sinh ra để dẹp. Cảnh báo phải nằm trên CHÍNH
+		# tờ giấy khách mở ra, không phải chỉ trong Error Log của Miyano.
+		self.assertIn(
+			"CHƯA CÓ CHỮ KÝ", giu["html"],
+			"khách nhận bản in chưa ký mà không có tín hiệu nào trên tờ giấy",
+		)
 		# `frappe.log_error(title, message)` — tiêu đề TRƯỚC. Gọi ngược thì
 		# `Error Log.method` nhận cả câu tiếng Việt (Data 140 ký tự) còn phần
 		# `error` chỉ còn mỗi tên hàm: dòng log tra không ra, đọc không hiểu.
-		log = frappe.get_all(
-			"Error Log",
-			filters={"method": "portal_document_download"},
-			fields=["error"],
-		)
+		log = [
+			r for r in frappe.get_all(
+				"Error Log",
+				filters={"method": "portal_document_download"},
+				fields=["name", "error"],
+			)
+			if r.name not in co_san
+		]
 		self.assertEqual(len(log), 1, "không có dòng Error Log nào để Miyano lần ra")
 		self.assertIn(self.dn_a.name, log[0].error, "dòng log không nói phiếu nào")
 

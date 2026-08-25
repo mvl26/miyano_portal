@@ -2022,8 +2022,11 @@ def portal_document_download(doctype, name) -> None:
     # minh được nội dung, không chứng minh được việc bàn giao đã xảy ra.
     # (Yêu cầu nguyên văn của chủ đầu tư và ngày nêu: xem docstring
     # `patches/v1_28/them_o_dinh_bien_ban_da_ky.py` — chép ở MỘT chỗ.)
-    if doctype == "Delivery Note" and _tra_ban_scan_da_ky(doc):
-        return
+    canh_bao = None
+    if doctype == "Delivery Note":
+        da_phat, canh_bao = _tra_ban_scan_da_ky(doc)
+        if da_phat:
+            return
     from frappe.utils.pdf import get_pdf
     from frappe.www.printview import get_html_and_style
     # Each doctype renders through its installed bilingual Miyano print
@@ -2054,6 +2057,8 @@ def portal_document_download(doctype, name) -> None:
     html = get_html_and_style(
         doc=doc.as_json(), print_format=print_format, no_letterhead=0
     )["html"]
+    if canh_bao:
+        html = _dan_canh_bao(html, canh_bao)
     frappe.local.response.filename = f"{name}.pdf"
     frappe.local.response.filecontent = get_pdf(html)
     frappe.local.response.type = "pdf"
@@ -2065,14 +2070,53 @@ def portal_document_download(doctype, name) -> None:
 # CỐ Ý không đoán kiểu file bằng magic byte: đó là thêm một lớp suy đoán nữa
 # để phục vụ một cái tên đặt sai, trong khi đường lui (in bản chưa ký) đã có
 # sẵn, đã được kiểm, và cho khách một chứng từ đọc được ngay.
-_DUOI_SCAN_CHO_PHEP = (
-    "pdf", "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp", "heic",
+# Ruling P45 (chủ đầu tư chốt) — nút phiếu giao MỞ XEM ngay trong tab, không
+# tải về. Chia làm hai nhóm vì "mở xem" chỉ đúng với thứ trình duyệt dựng
+# được; `.tif` mở inline ra một TAB TRẮNG. Nhóm thứ hai là ĐƯỜNG THOÁT bắt
+# buộc: giữ nguyên đường tải về, khách cầm được file thay vì nhìn trang trống.
+_DUOI_MO_XEM = ("pdf", "jpg", "jpeg", "png", "gif", "bmp", "webp")
+_DUOI_TAI_VE = ("tif", "tiff")
+# `heic` CỐ Ý không nằm trong danh sách: máy Windows của bệnh viện phần lớn
+# không mở được, nên phát ra một tệp HEIC là hỏng im lặng ở đầu bên kia. Ảnh
+# HEIC phải được lưu lại thành JPG/PDF trước khi đính.
+_DUOI_SCAN_CHO_PHEP = _DUOI_MO_XEM + _DUOI_TAI_VE
+
+# Dán lên ĐẦU bản in khi phiếu ĐÃ CÓ bản scan đã ký mà cổng không phát được.
+# Không có dòng này, khách nhận một tờ chưa ký trông hoàn toàn hợp lý trong
+# khi bản đã ký vẫn tồn tại — đúng lớp "thay thế im lặng" mà cả việc này sinh
+# ra để dẹp. Cảnh báo phải nằm trên CHÍNH tờ giấy khách mở ra; một dòng Error
+# Log chỉ Miyano thấy.
+_CANH_BAO_CHUA_KY = (
+    "BẢN IN LẠI — CHƯA CÓ CHỮ KÝ. Phiếu giao này ĐÃ CÓ bản scan biên bản hai "
+    "bên ký, nhưng cổng chưa phát được (lỗi tệp phía Miyano, đã có cảnh báo "
+    "tự động). Vui lòng liên hệ Miyano 0988.806.848 để nhận bản đã ký."
 )
 
 
-def _tra_ban_scan_da_ky(doc) -> bool:
+def _dan_canh_bao(html: str, canh_bao: str) -> str:
+    """Dán một khối cảnh báo lên đầu bản in.
+
+    `escape_html` chứ không nối chuỗi thẳng: nội dung cảnh báo hôm nay là hằng
+    số, nhưng hàm này là chỗ duy nhất chèn văn bản vào một trang sắp thành PDF
+    — để ngỏ là mở sẵn một đường XSS lưu trữ cho lần sửa sau.
+    """
+    return (
+        '<div style="border:2px solid #b00020; color:#b00020; padding:8px 10px;'
+        ' margin:0 0 12px; font-weight:bold; font-size:13px; text-align:center">'
+        f"⚠ {frappe.utils.escape_html(canh_bao)}</div>" + html
+    )
+
+
+def _tra_ban_scan_da_ky(doc) -> tuple[bool, str | None]:
     """Phiếu giao có bản scan biên bản đã ký → ĐẨY CHÍNH FILE ĐÓ ra response.
-    Trả `True` nếu đã trả file; `False` để người gọi in bản chưa ký như cũ.
+
+    Trả `(đã_phát, cảnh_báo)`:
+      * `(True, None)`  — đã đẩy file, người gọi dừng;
+      * `(False, None)` — phiếu không có bản scan nào, in bản chưa ký như cũ;
+      * `(False, "...")` — phiếu CÓ bản scan nhưng không phát được. Vẫn in bản
+        chưa ký (khách cầm được chứng từ đọc được ngay), NHƯNG kèm cảnh báo
+        trên chính tờ giấy đó. Lui về trong im lặng ở nhánh này là đưa khách
+        một tờ khác với tờ họ đã ký mà không nói gì.
 
     Ba chốt, mỗi chốt bịt một cách hỏng đã lường trước:
 
@@ -2096,7 +2140,7 @@ def _tra_ban_scan_da_ky(doc) -> bool:
     """
     url = (doc.get("custom_bien_ban_da_ky") or "").strip()
     if not url:
-        return False
+        return False, None
     ten_file = frappe.db.get_value(
         "File",
         {
@@ -2107,7 +2151,11 @@ def _tra_ban_scan_da_ky(doc) -> bool:
         "name",
     )
     if not ten_file:
-        return False
+        # File không thuộc phiếu này (ô `Attach` bị sửa tay, dán nhầm đường dẫn
+        # của phiếu khác). KHÔNG cảnh báo trên bản in: với phiếu NÀY thì không
+        # có bản scan hợp lệ nào cả, và một cảnh báo "đã có bản ký" ở đây là
+        # nói sai với khách.
+        return False, None
     f = frappe.get_doc("File", ten_file)
     tach = (f.file_name or url).rsplit(".", 1)
     duoi = tach[1].lower() if len(tach) == 2 else ""
@@ -2121,7 +2169,7 @@ def _tra_ban_scan_da_ky(doc) -> bool:
             f"lệ: «{f.file_name or url}». Cổng phát bản in CHƯA KÝ cho tới khi "
             f"file được đổi tên (đuôi hợp lệ: {', '.join(_DUOI_SCAN_CHO_PHEP)}).",
         )
-        return False
+        return False, _CANH_BAO_CHUA_KY
     try:
         noi_dung = f.get_content()
     except Exception:
@@ -2137,11 +2185,18 @@ def _tra_ban_scan_da_ky(doc) -> bool:
             "portal_document_download",
             f"Không đọc được bản scan biên bản của {doc.name}: {url}",
         )
-        return False
+        return False, _CANH_BAO_CHUA_KY
     frappe.local.response.filename = f"{doc.name}-bien-ban-da-ky.{duoi}"
     frappe.local.response.filecontent = noi_dung
     frappe.local.response.type = "download"
-    return True
+    # Ruling P45. `as_raw()` của Frappe lấy Content-Disposition từ
+    # `display_content_as`, mặc định "attachment". Đặt TƯỜNG MINH cả hai nhánh
+    # (không chỉ nhánh inline): `frappe.local.response` sống qua nhiều lời gọi
+    # trong cùng một tiến trình, để sót thì giá trị của lần trước chảy sang.
+    frappe.local.response.display_content_as = (
+        "inline" if duoi in _DUOI_MO_XEM else "attachment"
+    )
+    return True, None
 
 
 @frappe.whitelist()
