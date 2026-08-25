@@ -464,6 +464,73 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
 		self.assertEqual(flt(so.total), tien_truoc)
 
+	def _dong_chung_hai_chu(self):
+		"""Một dòng hàng có BA chủ: 2 đơn vị khách đặt trực tiếp, 3 của dòng
+		gõ tay A, 4 của dòng gõ tay B → 9."""
+		so = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay("Dòng A", 3), self._go_tay("Dòng B", 4)],
+		)
+		for d in so.custom_dat_ngoai:
+			d.item_khop = self.item_da_co
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 9.0)
+		return so
+
+	def test_dong_hang_dung_CHUNG_xoa_mot_chu_thi_chu_kia_con_nguyen(self):
+		"""Ca chính mà cột `so_luong_da_gop` sinh ra để phục vụ: một dòng
+		hàng nhiều chủ. Xoá dòng gõ tay B thì chỉ được trừ 4 — phần của A và
+		phần khách đặt trực tiếp phải còn nguyên.
+
+		Cũng là bài canh TÍNH TẤT ĐỊNH: phép hoàn tác gom theo DÒNG HÀNG chứ
+		không xử lý từng dòng gõ tay một, nên thứ tự lặp không quyết định
+		được kết quả."""
+		so = self._dong_chung_hai_chu()
+		so.custom_dat_ngoai = [
+			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		]
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(
+			flt(self._dong(so, self.item_da_co).qty), 5.0,
+			"2 khách đặt trực tiếp + 3 của dòng A còn lại",
+		)
+		self.assertEqual(len(so.custom_dat_ngoai), 1)
+		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong_da_gop), 3.0)
+
+	def test_giam_tay_so_luong_roi_xoa_mot_chu_KHONG_lam_boc_hoi_phan_chu_kia(self):
+		"""Sửa số lượng ngay trên dòng hàng là thao tác BÌNH THƯỜNG (chính
+		câu báo lỗi bẫy 6 bảo người dùng làm thế). Sau khi sales hạ dòng
+		hàng 9 xuống 4, phần "đã gộp" ghi trên hai dòng gõ tay (3 + 4) đã
+		LỚN HƠN số lượng thật còn lại.
+
+		Trừ mù lúc đó cho ra số âm và gỡ HẲN dòng hàng — cuốn theo cả phần
+		dòng gõ tay A vẫn đang đòi. Dòng hàng phải sống sót với đúng phần
+		A đòi, không bốc hơi."""
+		so = self._dong_chung_hai_chu()
+		so.items[0].qty = 4
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 4.0)
+
+		so.custom_dat_ngoai = [
+			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		]
+		so.save(ignore_permissions=True)
+		so.reload()
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(
+			flt(dong.qty), 3.0,
+			"dòng A vẫn đòi 3 — không được trừ xuống dưới, càng không được gỡ dòng",
+		)
+		# Và đường nối bằng chứng ↔ tiền của A phải còn nguyên, nếu không
+		# chốt `before_submit` sẽ chặn một đơn thật ra không có gì sai.
+		self.assertEqual(so.custom_dat_ngoai[0].dong_hang, dong.name)
+		so.submit()
+		so.reload()
+		self.assertEqual(so.docstatus, 1)
+
 	def test_xoa_sach_dong_go_tay_tren_don_toan_hang_go_tay_bao_cau_ro(self):
 		"""Ca biên còn lại của phép hoàn tác: đơn TOÀN hàng gõ tay, xoá SẠCH
 		dòng gõ tay thì `items` rỗng mà cũng không còn nhu cầu nào để dựng

@@ -304,7 +304,13 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
     `before_submit`.
     """
     theo_ten = {h.name: h for h in (doc.get("items") or []) if h.name}
-    da_go = False
+
+    # Gom theo DÒNG HÀNG, không xử lý từng dòng gõ tay một. Một dòng hàng có
+    # thể có NHIỀU chủ (khách đặt trực tiếp + nhiều dòng gõ tay cùng khớp về
+    # một mã, bẫy 2). Trừ lần lượt từng chủ thì THỨ TỰ LẶP quyết định kết
+    # quả: chủ nào bị xử lý lúc số dư đã cạn sẽ kéo gỡ cả dòng, cuốn theo
+    # phần của những chủ còn lại.
+    tru: dict = {}
     for ten, xua in cu.items():
         if ten in con_lai or not xua.get("da_chuyen"):
             continue
@@ -312,14 +318,41 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
         hang = theo_ten.get(xua.get("dong_hang"))
         if not phan_gop or not hang or hang.item_code != xua.get("item_khop"):
             continue
-        con = flt(hang.qty) - phan_gop
-        if con > 0:
-            hang.qty = con
+        tru[hang.name] = tru.get(hang.name, 0.0) + phan_gop
+    if not tru:
+        return
+
+    # SÀN — phần những dòng gõ tay CÒN LẠI vẫn đang đòi ở mỗi dòng hàng.
+    # Đọc từ bản ghi ĐÃ XUỐNG DB (`cu`), không từ payload, cùng nguyên tắc
+    # với `da_chuyen`. Cần cái sàn này vì `qty` của dòng hàng SỬA ĐƯỢC bằng
+    # tay trên đơn nháp (chính câu báo lỗi bẫy 6 bảo người dùng làm thế):
+    # sau khi sales hạ 9 xuống 4, tổng "đã gộp" ghi trên các dòng gõ tay đã
+    # lớn hơn số lượng thật, và một phép trừ mù sẽ ra số âm rồi gỡ hẳn dòng
+    # hàng — làm bốc hơi cả phần của chủ khác. Đã dựng lại được trên bench.
+    con_giu: dict = {}
+    for d in doc.get("custom_dat_ngoai") or []:
+        xua = cu.get(d.get("name"))
+        if not xua or not xua.get("da_chuyen") or not xua.get("dong_hang"):
             continue
-        doc.items = [h for h in doc.get("items") or [] if h.name != hang.name]
-        theo_ten.pop(hang.name, None)
-        da_go = True
-    if da_go:
+        con_giu[xua.get("dong_hang")] = (
+            con_giu.get(xua.get("dong_hang"), 0.0) + flt(xua.get("so_luong_da_gop"))
+        )
+
+    bo = set()
+    for ten_hang, tong_tru in tru.items():
+        hang = theo_ten[ten_hang]
+        san = con_giu.get(ten_hang, 0.0)
+        con = flt(hang.qty) - tong_tru
+        if con > san:
+            hang.qty = con
+        elif san > 0:
+            # Còn chủ khác đang đòi phần của họ — không gỡ dòng, và không
+            # trừ xuống dưới đúng phần họ đòi.
+            hang.qty = san
+        else:
+            bo.add(ten_hang)
+    if bo:
+        doc.items = [h for h in doc.get("items") or [] if h.name not in bo]
         for idx, hang in enumerate(doc.get("items") or [], start=1):
             hang.idx = idx
 
@@ -341,10 +374,14 @@ def _dam_bao_con_dong_hang(doc) -> None:
         # Không còn dòng hàng NÀO và cũng không còn dòng gõ tay nào: đơn
         # rỗng, không có nhu cầu nào để phục vụ. ERPNext sẽ ném
         # `MandatoryError: items` — nói thẳng ra thì hơn.
+        # Câu chữ CỐ Ý không đoán nguyên nhân: nhánh này tới được cả khi
+        # nhân viên tự tay xoá sạch `items` trên một đơn nháp, không riêng
+        # khi phép hoàn tác vét cạn. Nói "xoá dòng gõ tay cuối cùng" ở đó là
+        # mô tả một việc người dùng không hề làm.
         frappe.throw(
-            "Xoá dòng gõ tay cuối cùng sẽ làm đơn không còn dòng hàng nào. "
-            "Một đơn rỗng không lưu được — huỷ hẳn đơn nháp này, hoặc thêm "
-            "một mặt hàng vào đơn trước khi xoá.",
+            "Đơn này không còn dòng hàng nào và cũng không còn dòng gõ tay nào "
+            "— một đơn rỗng không lưu được. Thêm một mặt hàng vào đơn, hoặc "
+            "huỷ hẳn đơn nháp này.",
             frappe.ValidationError,
         )
     if not frappe.db.exists("Item", ITEM_GIU_CHO):
