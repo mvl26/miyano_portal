@@ -130,6 +130,11 @@ Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng
 
 ## 3. ĐÃ CHỐT (chủ đầu tư duyệt 21/08): 11 cửa → 7
 
+**Bảng dưới đây là BẢN CHỐT của chủ đầu tư**, không phải một kiểm kê thứ
+hai: nó ghi 7 cửa mà **nhân viên khoa** thấy. Nav THẬT của hệ thống hôm nay
+nằm ở bảng ngay sau nó (thêm `Duyệt` cho quản lý). Hai bảng nói cùng một
+thứ ở hai vai — đọc lệch một bảng là đếm ra hai con số khác nhau.
+
 | Mục | Đường dẫn | Ghi chú |
 |---|---|---|
 | Tổng quan | `/dashboard` | giữ nguyên |
@@ -159,8 +164,7 @@ cộng `Duyệt` cho quản lý:
 
 Thanh dưới (mobile, `BNAV`) còn **năm** mục — `Tổng quan · Đặt hàng · Yêu
 cầu · Kho · Thêm` — chứ không phải sáu như mockup gốc. **Cố ý không lấp**
-chỗ trống bằng một mục khác: lấp cho đủ số là dựng lại đúng thứ hai task
-này vừa dỡ (một cửa tồn tại vì có ô trống, không vì có người cần nó).
+chỗ trống bằng một mục khác: lấp cho đủ số là dựng lại đúng thứ mà hai task này vừa dỡ (một cửa tồn tại vì có ô trống, không vì có người cần nó).
 
 ### Task 10 BỎ đi những gì (để không ai đi tìm chúng)
 

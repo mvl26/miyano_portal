@@ -202,7 +202,10 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.khoa_sap_xep" class="clickable" @click="moYeuCau(r)">
-            <td><b>{{ r.ma }}</b></td>
+            <td>
+              <b v-if="r.ma">{{ r.ma }}</b>
+              <span v-else class="tag">(chưa gửi duyệt)</span>
+            </td>
             <td>{{ tenKhoa(r.khoa_phong) }}</td>
             <td>{{ fmtDate(r.thoi_diem) }}</td>
             <!-- Yêu cầu chưa thành đơn chưa có giá trị nào để nói — "—",
@@ -240,7 +243,8 @@ onMounted(async () => {
         @click="moYeuCau(r)"
       >
         <div class="sb">
-          <b>{{ r.ma }}</b>
+          <b v-if="r.ma">{{ r.ma }}</b>
+          <span v-else class="tag">(chưa gửi duyệt)</span>
           <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ r.giai_doan }}</span>
         </div>
         <p class="tag" style="margin-top: 4px">

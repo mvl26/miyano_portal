@@ -397,6 +397,36 @@ class TestYeuCauList(FrappeTestCase):
 		kq = self._goi(self.user_huyethoc, limit=100)
 		self.assertEqual(self._tim_theo_phieu(kq, ten)["giai_doan"], "Từ chối")
 
+	# -- mã hiện ra cho người dùng --------------------------------------------
+
+	def test_phieu_nhap_KHONG_lo_ten_noi_bo_lam_ma(self):
+		"""`DXM-2026-000xx` là tên nội bộ (naming_series), KHÔNG phải mã
+		khoa đọc. Phiếu Nháp chưa có mã (mã cấp lúc Gửi duyệt) → `ma` rỗng,
+		và tầng hiển thị nói thẳng "(chưa gửi duyệt)" — đúng cách
+		`DeXuatList.vue` đã làm trước khi gộp. Rơi về `p.name` là để lộ mã
+		hệ thống ra mặt người dùng ở ĐÚNG dòng đầu tiên một nhân viên có
+		phiếu nháp nhìn thấy."""
+		kq = self._goi(self.user_huyethoc, limit=100)
+		dong = self._tim_theo_phieu(kq, self.phieu_nhap)
+		self.assertEqual(dong["ma"], "")
+		self.assertNotIn("DXM-", str(dong["ma"]))
+
+	def test_phieu_da_gui_duyet_mang_dung_ma_cua_khach(self):
+		"""VẾ DƯƠNG — thiếu nó thì một endpoint luôn trả `ma = ""` cũng qua
+		bài trên."""
+		ma_that = frappe.db.get_value(
+			"Portal De Xuat Mua", self.phieu_da_duyet, "ma_de_xuat"
+		)
+		self.assertTrue(ma_that, "fixture chưa cấp mã — bài này không đo được gì")
+		kq = self._goi(self.user_huyethoc, limit=100)
+		self.assertEqual(self._tim_theo_phieu(kq, self.phieu_da_duyet)["ma"], ma_that)
+
+	def test_don_khong_qua_de_xuat_mang_chinh_ten_don_lam_ma(self):
+		"""Đơn cũ (`SAL-ORD-...`) chưa từng đi qua phiếu nào — tên đơn CHÍNH
+		LÀ mã khách vẫn đối chiếu với Miyano, không có gì để giấu."""
+		kq = self._goi(self.user_huyethoc, limit=100)
+		self.assertEqual(self._tim_theo_don(kq, self.don_da_giao)["ma"], self.don_da_giao)
+
 	# -- lọc + phân trang -----------------------------------------------------
 
 	def test_loc_giai_doan_loc_TRONG_SQL_chu_khong_phai_tren_mot_trang(self):

@@ -1046,7 +1046,12 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
 
     nhanh_phieu = f"""
         select 'phieu' as nguon, p.name as de_xuat, p.sales_order as sales_order,
-               coalesce(nullif(p.ma_de_xuat, ''), p.name) as ma,
+               -- `ma` là MÃ CỦA KHÁCH, KHÔNG rơi về `p.name`: tên nội bộ
+               -- (`DXM-2026-000xx`, naming_series) là mã hệ thống, không
+               -- phải thứ khoa đọc. Phiếu Nháp chưa có mã (mã cấp lúc Gửi
+               -- duyệt) → rỗng, và tầng hiển thị nói thẳng "(chưa gửi
+               -- duyệt)" — đúng cách `DeXuatList.vue` đã làm trước khi gộp.
+               coalesce(nullif(p.ma_de_xuat, ''), '') as ma,
                p.khoa_phong as khoa_phong, p.creation as thoi_diem,
                p.trang_thai as trang_thai_phieu, p.owner as owner,
                so.status as so_status, so.per_delivered as per_delivered,
@@ -2628,7 +2633,11 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
         if document_type == "Sales Order":
             if frappe.db.get_value("Sales Order", document_name, "customer") != customer:
                 return None
-            return f"/orders/{document_name}"
+            # Task 11 — đường CHÍNH TẮC của màn chi tiết đơn nay nằm dưới
+            # `/yeu-cau`. `/orders/<name>` vẫn chuyển hướng đúng (router.js,
+            # QĐ-G11) nên thông báo CŨ không gãy — nhưng thông báo MỚI phải
+            # mang đường mới, không phải một đường sống nhờ lớp tương thích.
+            return f"/yeu-cau/don/{document_name}"
 
         if document_type == "Sales Invoice":
             if frappe.db.get_value("Sales Invoice", document_name, "customer") != customer:
@@ -2648,7 +2657,7 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
                 {"parent": document_name, "against_sales_order": ["is", "set"]},
                 "against_sales_order",
             )
-            return f"/orders/{so}" if so else None
+            return f"/yeu-cau/don/{so}" if so else None
 
         if document_type == "Portal Delivery Inspection":
             r = frappe.db.get_value(

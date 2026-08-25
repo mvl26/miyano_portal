@@ -71,7 +71,11 @@ class TestPortalThongBaoList(FrappeTestCase):
         frappe.set_user(USER_BVBM)
         res = portal_thong_bao_list()
         row = next(i for i in res["items"] if i["subject"] == "Đơn của bạn")
-        self.assertEqual(row["link"], f"/orders/{so.name}")
+        # Task 11 (QĐ-G11) — đường chính tắc của màn chi tiết đơn chuyển
+        # sang dưới `/yeu-cau`. `/orders/<name>` vẫn CHUYỂN HƯỚNG đúng cho
+        # thông báo cũ đã gửi đi (router.js), nhưng thông báo MỚI phải mang
+        # đường mới.
+        self.assertEqual(row["link"], f"/yeu-cau/don/{so.name}")
 
     def test_link_chung_tu_cua_khach_khac_bi_chan(self):
         """Notification Log CỦA MÌNH (for_user đúng) nhưng document_name trỏ
