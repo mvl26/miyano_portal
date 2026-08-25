@@ -443,6 +443,11 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		vậy trả `docstatus` để màn chi tiết cắt nhãn ở `docstatus == 1`.
 		Không dùng `status_vi`: nó là chuỗi tiếng Việt cho người đọc, dựng
 		một chốt trên một chuỗi hiển thị là mời nó lệch ở lần đổi chữ sau.
+
+		BẪY khi đọc bài này: phong bì `portal_order_track` dùng khoá
+		`loai_don`, còn `di_vong_bao_gia()` đọc `custom_loai_don` — gọi vị
+		ngữ lên phong bì sẽ trả `False` IM LẶNG, không lỗi. Vì vậy ở đây so
+		thẳng khoá của phong bì; muốn hỏi vị ngữ thì phải hỏi trên `doc`.
 		"""
 		so = self._don_tron()
 		frappe.set_user(self.user_quan_ly)

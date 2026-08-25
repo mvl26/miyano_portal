@@ -71,6 +71,14 @@ const coHangChoBaoGia = computed(
 // đi qua đường đề xuất THẤY nút, bấm, và nhận "Đơn này đã được quản lý
 // duyệt…" — mọi lần, không có đường nào thành công. Quy ước dự án: ẨN,
 // không phải hiện-rồi-báo-lỗi.
+//
+// `!== false` chứ không `=== true`, CÓ CHỦ Ý và KHÁC với `portal_context.py`
+// (nơi thiếu cột thì CHẶN chứ không thả). Bất đối xứng đó đúng vì hai bên
+// canh hai rủi ro khác nhau: server là nơi cuối cùng, thả nhầm ở đó là lỗ
+// hổng THẬT; còn ở đây khoá vắng mặt chỉ có thể do phục vụ một bản backend
+// cũ hơn bundle này, và khi đó `=== true` sẽ giấu khối sửa số lượng khỏi CẢ
+// quản lý — lấy mất một chức năng đang chạy để phòng một lỗi mà server vẫn
+// tự chặn được. Server không bao giờ mất quyền nói không.
 // Giữ riêng khỏi `coHangChoBaoGia` để cái NHÃN và cái CHỐT đổi độc lập được.
 const suaDuocSoLuong = computed(
   () => data.value?.loai_don === 'Mua lẻ' && data.value?.duoc_sua_da_duyet !== false
