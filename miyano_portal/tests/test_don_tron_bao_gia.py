@@ -473,3 +473,16 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 			"DẤU vẫn nguyên: chốt vòng báo giá không được đổi theo docstatus, "
 			"chỉ NHÃN mới tắt",
 		)
+
+		# Vế thứ BA (review vòng 1, B2/B3) — đơn ĐÃ HUỶ mang `docstatus == 2`.
+		# Màn chi tiết cắt nhãn ở `docstatus === 0` chứ KHÔNG ở `!== 1`: với
+		# `!== 1` thì nhãn "Có hàng chờ báo giá" hiện LẠI trên một đơn đã huỷ
+		# — đúng lớp lỗi P49 vừa dẹp, một câu sai về hiện tại. Bài này chứng
+		# minh phong bì phân biệt được cả BA trạng thái mà biểu thức Vue dựa
+		# vào, không chỉ hai.
+		frappe.set_user("Administrator")
+		lai = frappe.get_doc("Sales Order", so.name)
+		lai.cancel()
+		frappe.set_user(self.user_quan_ly)
+		kq = portal.portal_order_track(so.name)
+		self.assertEqual(kq["docstatus"], 2)

@@ -303,8 +303,8 @@ async function xacNhanLyDoRoiGui(lyDo) {
 // Ruling coordinator (2) — "Xin sửa số lượng" không khớp khuôn args (đầu
 // vào là NHIỀU dòng số lượng, không phải một ô lý do), nên xử lý RIÊNG ở
 // đây thay vì đi qua `argModalAction`. Chỉ đề nghị sửa những dòng ĐANG NẰM
-// trên đơn (`so_luong_duyet > 0`) — dòng quản lý đã hạ về 0 không còn trên
-// Sales Order, xin sửa nó chỉ nhận lỗi "không còn trên đơn" từ server.
+// trên đơn — dòng quản lý đã hạ về 0 không còn trên Sales Order, xin sửa nó
+// chỉ nhận lỗi "không còn trên đơn" từ server.
 const xinSuaOpen = ref(false)
 // review Task 5 (việc 5) — CỐ Ý giữ CHUỖI THÔ (không `v-model.number` ở
 // template), khoá theo `item_code`. `Number('')` = 0: nếu để Vue tự ép kiểu
@@ -315,7 +315,19 @@ const xinSuaOpen = ref(false)
 // (yêu cầu THẬT — xin bỏ), số khác 0 (đổi số lượng).
 const xinSuaSoLuong = ref({})
 const xinSuaDangGui = ref(false)
-const dongXinSua = computed(() => (doc.value?.items || []).filter((it) => Number(it.so_luong_duyet) > 0))
+// Ruling P51, vế BỘ LỌC — "đang nằm trên đơn" phải đọc `so_luong_tren_don`,
+// không `so_luong_duyet`. Lý do của chính bộ lọc này ("dòng đó không còn
+// trên Sales Order") là một câu hỏi VỀ ĐƠN, nên nó phải hỏi con số của đơn.
+// Ca tới được: quản lý hạ mã A về 0 lúc duyệt (phiếu 0, đơn không có A), rồi
+// Miyano khớp một dòng gõ tay về A — `_gop_hoac_them_dong_hang` không thấy
+// dòng sẵn có nên THÊM MỚI, đơn giờ CÓ A trong khi phiếu vẫn ghi 0. Backend
+// nay nhận yêu cầu sửa dòng đó trọn đường (chốt "+" so với đơn, CỬA 2 thấy A
+// có trên đơn), nhưng bộ lọc cũ giấu nó khỏi hộp thoại: khoa nhìn thấy A
+// trên màn đơn rồi mở xin sửa và không thấy dòng đâu — một sự VẮNG MẶT im
+// lặng, khó hiểu hơn cả một lời từ chối.
+const dongXinSua = computed(() =>
+  (doc.value?.items || []).filter((it) => Number(soDangCo(it)) > 0)
+)
 // Ruling P51 — điền sẵn SỐ ĐANG CÓ TRÊN ĐƠN (`so_luong_tren_don`), không
 // phải `so_luong_duyet`. Hai con số đó không buộc bằng nhau: đường khớp mã
 // dòng gõ tay (QĐ-G13) cộng thẳng vào `Sales Order Item.qty` và không bao
