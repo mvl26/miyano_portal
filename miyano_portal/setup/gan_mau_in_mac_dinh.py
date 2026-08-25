@@ -25,7 +25,7 @@ MAC_DINH = [
 	("Customer Stock Receipt", "Miyano - Phiếu nhập kho (TT107)", "Mẫu 01-VT"),
 	("Customer Stock Issue", "Miyano - Phiếu xuất kho (TT107)", "Mẫu 02-VT"),
 	("Delivery Note", "Miyano - Phiếu xuất kho (02-VT)",
-	 "Mẫu 02-VT kiêm biên bản bàn giao (TT 99/2025, chủ đầu tư chốt 25/08)"),
+	 "Mẫu 02-VT kiêm biên bản bàn giao, dựng theo bản mẫu docx trong docs/"),
 	# Chứng từ thương mại — thông tư KHÔNG quy định mẫu, nhưng vẫn phải là mẫu
 	# của Miyano chứ không phải mẫu Standard của ERPNext.
 	("Sales Order", "Miyano - Xác nhận đơn hàng", "Không có mẫu thông tư"),

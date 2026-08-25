@@ -5,19 +5,54 @@ Cài đủ mẫu mà quên gán mặc định thì mẫu chỉ nằm đó chờ 
 dropdown — đúng hiện trạng trước bản này, và không test nào bắt được.
 """
 
+import hashlib
+import re
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.www.printview import get_html_and_style
 
+from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
+
+from miyano_portal.patches.v1_28.cap_nhat_02vt_bien_ban_ban_giao import (
+	TIEU_DE_LOG,
+	execute as cap_nhat_02vt,
+)
 from miyano_portal.setup.gan_mau_in_mac_dinh import MAC_DINH, gan_mau_in_mac_dinh
 from miyano_portal.setup.install_bien_ban_print_formats import (
 	FORMATS,
+	HTML_PHIEU_XUAT_02VT,
 	NAME_BIEN_BAN_TT107,
 	NAME_BIEN_BAN_TT200,
 	NAME_PHIEU_XUAT_02VT,
 	install_bien_ban_print_formats,
 )
 from miyano_portal.tien_bang_chu import tien_bang_chu
+
+# Chỉ số cột của mẫu 02-VT bản TT 99/2025 (10 cột), đặt tên để khẳng định đọc
+# được: STT, Mã vật tư, Tên hàng, ĐVT, SL yêu cầu, SL thực xuất, Số lô, Hạn
+# dùng, Đơn giá, Thành tiền.
+O_SL_YEU_CAU = 4
+O_SL_THUC_XUAT = 5
+O_SO_LO = 6
+O_HAN_DUNG = 7
+
+
+def _o_cua_dong(html: str, idx: int = 0) -> list[str]:
+	"""Các ô `<td>` của MỘT dòng hàng trên bản in, theo ĐÚNG thứ tự cột.
+
+	Vì sao không dùng `assertIn` trên cả trang: quy tắc cần ghim là "ô SL yêu
+	cầu lấy từ ĐƠN HÀNG, và để TRỐNG khi không có đơn". Một `assertNotIn` trên
+	cả trang không phát biểu được điều đó — con số ấy còn nằm ở cột khác, ở
+	tiền, ở ngày tháng. Chỉ VỊ TRÍ ô mới nói đúng thứ đang canh.
+	"""
+	tbody = re.search(r"<tbody>(.*?)</tbody>", html, re.S).group(1)
+	dong = re.findall(r"<tr>(.*?)</tr>", tbody, re.S)[idx]
+	return [
+		re.sub(r"<[^>]+>", "", o).strip()
+		for o in re.findall(r"<td[^>]*>(.*?)</td>", dong, re.S)
+	]
 
 
 class TestMauInDaCai(FrappeTestCase):
@@ -147,27 +182,140 @@ class TestMauBienBanKiemNghiem(FrappeTestCase):
 class TestMauPhieuXuat02VT(FrappeTestCase):
 	"""Mẫu 02-VT bản **TT 99/2025** — "Phiếu xuất kho kiêm biên bản bàn giao".
 
-	Nguồn của mẫu là `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx` do chủ đầu
-	tư giao 25/08/2026. Thông tư trích dẫn trên một chứng từ kế toán là thứ
-	CHỈ chủ đầu tư/kế toán được chốt, nên bài dưới đây ghim cả vế DƯƠNG (có
-	99/2025) lẫn vế ÂM (không còn 200/2014): thêm dòng mới mà quên gỡ dòng cũ
-	là in ra một chứng từ trích hai thông tư.
+	Nội dung của mẫu chép từ `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx` — tệp
+	Word có thật trong repo, siêu dữ liệu ghi: tạo 30/07/2026, sửa lần cuối
+	06/08/2026 bởi "Tạ Trường Xuân". Bài dưới đây ghim cả vế DƯƠNG (có 99/2025)
+	lẫn vế ÂM (không còn 200/2014): thêm dòng mới mà quên gỡ dòng cũ là in ra
+	một chứng từ trích hai thông tư.
+
+	**Lớp này TỰ DỰNG phiếu giao của nó.** Bản trước bốc một `Delivery Note`
+	bất kỳ đã ghi sổ trên site, và `skipTest` khi không tìm thấy — trên một CSDL
+	sạch (CI, máy mới) cả lớp lặng lẽ bỏ qua, tức không canh gì. Nó cũng render
+	mẫu ĐANG NẰM TRONG CSDL, nên trên site chưa chạy patch v1_28 mọi khẳng định
+	dưới đây kiểm HTML cũ. Cả hai chỗ sửa ở `setUp`: dựng dữ liệu riêng, và
+	đồng bộ HTML trong CSDL về đúng hằng số của mã nguồn trước khi render.
 	"""
+
+	KHACH = "ZZTESTMAUIN Benh Vien"
+	COMPANY = "Miyano Việt Nam"
+	KHO = "Kho Miyano - MYN"
+	COST_CENTER = "Main - MYN"
+	ITEM = "MYN-GLOVE-M"
+	ITEM_LO = "ZZTESTMAUIN-LO"
+	LO_A = "ZZTESTMAUIN-LO-A"
+	LO_B = "ZZTESTMAUIN-LO-B"
+	HAN_A = "2027-03-31"
+	HAN_B = "2027-09-30"
 
 	def setUp(self):
 		install_bien_ban_print_formats()
-		self.dn = frappe.db.get_value(
-			"Delivery Note", {"docstatus": 1, "is_return": 0}, "name"
+		# `install_...` idempotent kiểu "bỏ qua nếu đã có", nên trên site đã
+		# cài mẫu từ trước nó KHÔNG cập nhật HTML. Render thẳng mẫu trong CSDL
+		# thì bộ test này kiểm bản HTML của lần cài đầu tiên chứ không kiểm mã
+		# nguồn đang sửa. Đồng bộ về đúng hằng số trước mọi khẳng định.
+		frappe.db.set_value(
+			"Print Format", NAME_PHIEU_XUAT_02VT, "html", HTML_PHIEU_XUAT_02VT,
+			update_modified=False,
 		)
-		if not self.dn:
-			self.skipTest("Site chưa có phiếu giao nào đã ghi sổ")
+		if not frappe.db.exists("Customer", self.KHACH):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": self.KHACH,
+				"customer_type": "Company", "customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
 
-	def _render(self):
-		doc = frappe.get_doc("Delivery Note", self.dn)
-		return get_html_and_style(doc=doc.as_json(), print_format=NAME_PHIEU_XUAT_02VT)["html"]
+	# ------------------------------------------------------------- dựng phiếu
+	def _don_va_phieu(self, sl_yeu_cau, sl_giao):
+		"""Đơn hàng ĐÃ GHI SỔ `sl_yeu_cau` → phiếu giao NHÁP giao `sl_giao`.
 
+		Giao thiếu, hoặc giao làm nhiều đợt, là chuyện thường ở đây — và đó
+		đúng là ca mà cột "SL yêu cầu" sinh ra để nói. Một fixture giao ĐỦ sẽ
+		xanh với cả mẫu in chép số lượng thực xuất sang cột yêu cầu, tức là
+		không canh gì.
+		"""
+		so = frappe.new_doc("Sales Order")
+		so.customer = self.KHACH
+		so.company = self.COMPANY
+		so.transaction_date = frappe.utils.today()
+		so.delivery_date = frappe.utils.add_days(frappe.utils.today(), 3)
+		so.append("items", {
+			"item_code": self.ITEM, "qty": sl_yeu_cau, "rate": 88000,
+			"warehouse": self.KHO, "delivery_date": so.delivery_date,
+			"cost_center": self.COST_CENTER,
+		})
+		so.insert(ignore_permissions=True)
+		so.submit()
+		dn = make_delivery_note(so.name)
+		dn.items[0].qty = sl_giao
+		# NHÁP: bản in không phụ thuộc `docstatus`, còn submit thì đòi tồn kho
+		# thật và kéo theo hook kho khách — hai thứ không liên quan gì tới mẫu
+		# in, nhưng đủ sức làm bộ test này đỏ vì lý do khác.
+		dn.insert(ignore_permissions=True)
+		return so, dn
+
+	def _phieu_khong_don(self, qty=7):
+		"""Phiếu giao THẲNG — không có đơn hàng nào đứng sau (`so_detail` rỗng).
+
+		Có thật trong nghiệp vụ: hàng đổi/hàng bù giao thẳng, ERP không hề biết
+		một "số lượng yêu cầu" nào cho dòng đó.
+		"""
+		dn = frappe.new_doc("Delivery Note")
+		dn.company = self.COMPANY
+		dn.customer = self.KHACH
+		dn.posting_date = frappe.utils.today()
+		dn.posting_time = frappe.utils.nowtime()
+		dn.set_posting_time = 1
+		dn.append("items", {
+			"item_code": self.ITEM, "qty": qty, "rate": 88000,
+			"warehouse": self.KHO, "cost_center": self.COST_CENTER,
+		})
+		dn.insert(ignore_permissions=True)
+		return dn
+
+	def _vat_tu_co_lo(self):
+		"""Vật tư quản theo lô + hai lô hạn dùng khác nhau + tồn kho thật."""
+		if not frappe.db.exists("Item", self.ITEM_LO):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": self.ITEM_LO,
+				"item_name": "Vật tư test mẫu in theo lô",
+				"item_group": frappe.get_all(
+					"Item Group", filters={"is_group": 0}, pluck="name"
+				)[0],
+				"stock_uom": "Hộp", "is_stock_item": 1,
+				"has_batch_no": 1, "create_new_batch": 0,
+			}).insert(ignore_permissions=True)
+		for lo, han in ((self.LO_A, self.HAN_A), (self.LO_B, self.HAN_B)):
+			if not frappe.db.exists("Batch", lo):
+				frappe.get_doc({
+					"doctype": "Batch", "batch_id": lo,
+					"item": self.ITEM_LO, "expiry_date": han,
+				}).insert(ignore_permissions=True)
+			make_stock_entry(
+				item_code=self.ITEM_LO, qty=50, to_warehouse=self.KHO, rate=1000,
+				batch_no=lo, company=self.COMPANY, purpose="Material Receipt",
+			)
+
+	def _bundle(self, batches, qty):
+		from erpnext.stock.doctype.serial_and_batch_bundle.test_serial_and_batch_bundle import (
+			make_serial_batch_bundle,
+		)
+
+		return make_serial_batch_bundle({
+			"item_code": self.ITEM_LO, "warehouse": self.KHO, "qty": qty,
+			"batches": frappe._dict(batches), "voucher_type": "Delivery Note",
+			"posting_date": frappe.utils.today(), "posting_time": frappe.utils.nowtime(),
+			"type_of_transaction": "Outward", "company": self.COMPANY,
+			"do_not_submit": True,
+		}).name
+
+	def _render(self, doc):
+		return get_html_and_style(
+			doc=doc.as_json(), print_format=NAME_PHIEU_XUAT_02VT
+		)["html"]
+
+	# --------------------------------------------------------------- cấu trúc
 	def test_dung_cau_truc_mau_02_vt(self):
-		h = self._render()
+		h = self._render(self._don_va_phieu(50, 20)[1])
 		for phai_co in (
 			"Mẫu số: 02 - VT",
 			"Kèm theo Thông tư số 99/2025/TT-BTC",
@@ -186,7 +334,7 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 	def test_khong_con_dau_vet_ban_TT200(self):
 		"""Vế ÂM. Không có bài này, một bản vá "thêm dòng TT 99/2025" mà quên
 		gỡ dòng cũ vẫn xanh — và chứng từ in ra trích hai thông tư."""
-		h = self._render()
+		h = self._render(self._don_va_phieu(50, 20)[1])
 		for khong_duoc_con in (
 			"200/2014", "22/12/2014",
 			# Bản mẫu bỏ hai ô ký này; giữ lại là bắt bệnh viện ký một biên
@@ -198,80 +346,118 @@ class TestMauPhieuXuat02VT(FrappeTestCase):
 	def test_in_ra_DU_LIEU_THAT_cua_phieu(self):
 		"""Răng cho bài cấu trúc: mọi khẳng định `assertIn` ở trên vẫn xanh
 		khi từng ô dữ liệu TRỐNG. Bài này ghim đúng số liệu của phiếu."""
-		doc = frappe.get_doc("Delivery Note", self.dn)
-		h = self._render()
-		self.assertIn(doc.name, h, "thiếu Mã phiếu")
-		self.assertIn(doc.customer_name or doc.customer, h, "thiếu tên khách")
-		for i in doc.items:
+		so, dn = self._don_va_phieu(50, 20)
+		h = self._render(dn)
+		self.assertIn(dn.name, h, "thiếu Mã phiếu")
+		self.assertIn(self.KHACH, h, "thiếu tên khách")
+		self.assertIn(so.name, h, "thiếu Số đơn hàng (SO/PO)")
+		for i in dn.items:
 			self.assertIn(i.item_code, h, f"thiếu mã vật tư {i.item_code}")
 
-	def test_cot_so_lo_va_han_dung_in_ra_lo_THAT(self):
-		"""Hai cột mới của bản TT 99/2025.
+	# ----------------------------------------------------- SL yêu cầu (P43)
+	def test_cot_SL_yeu_cau_lay_tu_DON_HANG_khong_lap_lai_SL_thuc_xuat(self):
+		"""**Ruling P43.** Cột "SL yêu cầu" phải lấy từ ĐƠN HÀNG
+		(`Delivery Note Item.so_detail` → `Sales Order Item.qty`), không phải
+		chép lại chính `i.qty` của dòng phiếu.
 
-		BẪY đã lường: quy tắc đọc lô của build này là **bundle TRƯỚC,
-		`batch_no` sau** (`kho/delivery_hook`), nên một mẫu tự viết
-		`{{ i.batch_no }}` in ô TRỐNG cho đúng những dòng tách nhiều lô — im
-		lặng, trên một biên bản dược phẩm có chữ ký hai bên. Bài này dựng một
-		`Batch` THẬT có `expiry_date` THẬT rồi khẳng định cả số lô lẫn hạn
-		dùng đã định dạng ra được trên bản in.
+		Vì sao đây là lỗi pháp lý chứ không phải chuyện hiển thị: ngay dưới
+		bảng này là đoạn cam kết *"hàng hóa được bàn giao đầy đủ về số lượng"*
+		mà khách ĐẶT BÚT KÝ. Hai cột bằng nhau nghĩa là tờ giấy khai "yêu cầu
+		20, giao 20 — đầy đủ" cho một đơn đặt 50. Giao thiếu/giao nhiều đợt là
+		chuyện thường ở đây, nên đây không phải ca hiếm.
 
-		Dựng phiếu trong BỘ NHỚ (`as_json()` không cần bản ghi trong DB —
-		đúng đường `printview` gọi): dựng một phiếu giao đã ghi sổ có lô đòi
-		tồn kho thật, và một fixture phải nặn tồn kho ra để test một mẫu in
-		là fixture sẽ hỏng vì lý do không liên quan gì tới mẫu in.
+		Đã chứng minh trên dữ liệu thật: `MAT-DN-2026-00003` (đã ghi sổ) có đơn
+		50 / giao 20 và in ra hai ô cùng là 20.
 		"""
-		from miyano_portal.kho.delivery_hook import lo_han_cho_in
+		so, dn = self._don_va_phieu(sl_yeu_cau=50, sl_giao=20)
+		o = _o_cua_dong(self._render(dn))
+		self.assertEqual(o[O_SL_THUC_XUAT], "20", "cột SL thực xuất sai")
+		self.assertEqual(
+			o[O_SL_YEU_CAU], "50",
+			"cột SL yêu cầu không lấy từ đơn hàng — biên bản có chữ ký khai "
+			f"khống số lượng đã đặt (các ô: {o})",
+		)
 
-		ma = "_TEST 02VT LO"
-		if not frappe.db.exists("Item", ma):
-			frappe.get_doc({
-				"doctype": "Item", "item_code": ma, "item_name": ma,
-				"item_group": frappe.db.get_value("Item Group", {}, "name"),
-				"stock_uom": "Hộp", "is_stock_item": 1, "has_batch_no": 1,
-				"create_new_batch": 1,
-			}).insert(ignore_permissions=True)
-		so_lo = "_TEST-LO-02VT-001"
-		han = frappe.utils.add_days(frappe.utils.today(), 400)
-		if not frappe.db.exists("Batch", so_lo):
-			frappe.get_doc({
-				"doctype": "Batch", "batch_id": so_lo, "item": ma,
-				"expiry_date": han,
-			}).insert(ignore_permissions=True)
-		frappe.db.set_value("Batch", so_lo, "expiry_date", han)
+	def test_khong_co_don_hang_thi_o_SL_yeu_cau_de_TRONG(self):
+		"""Ruling P43, vế còn lại: phiếu giao THẲNG không có `so_detail` thì
+		ERP thật sự KHÔNG biết một số lượng yêu cầu nào. Ô để TRỐNG — nhân
+		viên điền tay như các ô không thể biết khác (ngày giờ bàn giao, nhiệt
+		độ, Nợ/Có). Lui về `i.qty` chính là lỗi đang sửa, chỉ đổi chỗ."""
+		dn = self._phieu_khong_don(qty=7)
+		o = _o_cua_dong(self._render(dn))
+		self.assertEqual(o[O_SL_THUC_XUAT], "7", "cột SL thực xuất sai")
+		self.assertEqual(
+			o[O_SL_YEU_CAU], "",
+			"phiếu không có đơn hàng mà cột SL yêu cầu vẫn in ra một con số — "
+			f"bịa số liệu trên chứng từ có chữ ký (các ô: {o})",
+		)
 
-		goc = frappe.get_doc("Delivery Note", self.dn)
-		phieu = frappe.copy_doc(goc)
-		phieu.items = []
-		phieu.append("items", {
-			"item_code": ma, "item_name": ma, "uom": "Hộp", "qty": 3,
-			"rate": 10000, "amount": 30000, "batch_no": so_lo,
-			"warehouse": goc.items[0].warehouse,
+	# --------------------------------------------------------- lô và hạn dùng
+	def test_cot_so_lo_han_dung_doc_QUA_BUNDLE_khi_batch_no_RONG(self):
+		"""Hai cột mới của bản TT 99/2025, ĐÚNG cái bẫy chúng sinh ra để chặn.
+
+		Quy tắc đọc lô của build này là **bundle TRƯỚC, `batch_no` sau**: v15
+		bật `Stock Settings.use_serial_batch_fields`, và
+		`make_bundle_using_old_serial_batch_fields()` chạy trong
+		`DeliveryNote.on_submit`. Một dòng TÁCH NHIỀU LÔ thì `batch_no` RỖNG và
+		chỉ bundle mới kể được — nên một mẫu tự viết `{{ i.batch_no }}` in ô
+		TRỐNG, im lặng, trên biên bản dược phẩm có chữ ký hai bên.
+
+		Bản test trước dựng dòng CÓ `batch_no` và KHÔNG có bundle, tức đi đúng
+		nhánh dự phòng: `{{ i.batch_no }}` cũng thoả khẳng định đó. Bài này
+		dựng bundle THẬT hai lô và để `batch_no` rỗng — chỉ đường bundle mới
+		qua được. Hai lô chứ không một: một lô thì một mẫu sai vẫn có thể trúng
+		nhờ may.
+
+		Phiếu để NHÁP có chủ đích: submit sẽ khiến ERPNext tự dựng lại bundle
+		từ `batch_no`, xoá mất chính điều kiện đang dựng.
+		"""
+		self._vat_tu_co_lo()
+		bundle = self._bundle({self.LO_A: -3, self.LO_B: -2}, qty=-5)
+		dn = frappe.new_doc("Delivery Note")
+		dn.company = self.COMPANY
+		dn.customer = self.KHACH
+		dn.posting_date = frappe.utils.today()
+		dn.posting_time = frappe.utils.nowtime()
+		dn.set_posting_time = 1
+		dn.append("items", {
+			"item_code": self.ITEM_LO, "qty": 5, "rate": 12000,
+			"warehouse": self.KHO, "cost_center": self.COST_CENTER,
+			"serial_and_batch_bundle": bundle,
 		})
-		# Tiền đề: hàm dùng chung PHẢI đọc ra lô này — nếu nó trả rỗng thì
-		# khẳng định bên dưới xanh/đỏ vì lý do khác hẳn mẫu in.
-		doc_lo = lo_han_cho_in(phieu.items[0])
-		self.assertEqual(doc_lo["so_lo"], so_lo)
-		self.assertEqual(doc_lo["han_dung"], frappe.utils.formatdate(han, "dd/MM/yyyy"))
+		# Tiền đề của bài: dòng này KHÔNG có `batch_no`. Nếu fixture lỡ điền
+		# nó, bài test tự biến thành bài cũ và không canh gì nữa.
+		self.assertFalse(
+			dn.items[0].get("batch_no"),
+			"fixture đã tự điền batch_no — bẫy đang kiểm biến mất",
+		)
 
-		h = get_html_and_style(doc=phieu.as_json(), print_format=NAME_PHIEU_XUAT_02VT)["html"]
-		self.assertIn(so_lo, h, "cột Số lô in ra ô trống cho một dòng CÓ lô")
-		self.assertIn(
-			frappe.utils.formatdate(han, "dd/MM/yyyy"), h,
-			"cột Hạn dùng in ra ô trống cho một lô CÓ hạn",
+		o = _o_cua_dong(self._render(dn))
+		self.assertEqual(
+			o[O_SO_LO], f"{self.LO_A}, {self.LO_B}",
+			f"cột Số lô không đọc qua bundle (các ô: {o})",
+		)
+		self.assertEqual(
+			o[O_HAN_DUNG],
+			"{}, {}".format(
+				frappe.utils.formatdate(self.HAN_A, "dd/MM/yyyy"),
+				frappe.utils.formatdate(self.HAN_B, "dd/MM/yyyy"),
+			),
+			f"cột Hạn dùng không đọc qua bundle (các ô: {o})",
 		)
 
 	def test_khong_in_sentinel_KHONG_LO_len_chung_tu(self):
 		"""`LOT_KHONG_CO` ("KHONG-LO") là quy ước NỘI BỘ của sổ kho cho hàng
 		không quản theo lô. Nó lọt lên một chứng từ pháp lý là một chuỗi vô
 		nghĩa với bệnh viện — và không ai đọc lại bản in để phát hiện."""
-		h = self._render()
+		h = self._render(self._phieu_khong_don())
 		self.assertNotIn("KHONG-LO", h)
 
 	def test_tien_bang_chu_la_TIENG_VIET(self):
 		"""frappe.utils.money_in_words đọc theo ngôn ngữ hệ thống — site để
 		tiếng Anh nên từng in ra "Nine Hundred And Fifty Thousand" trên một
 		chứng từ kế toán Việt Nam."""
-		h = self._render()
+		h = self._render(self._don_va_phieu(50, 20)[1])
 		self.assertIn("đồng.", h)
 		for tieng_anh in ("Thousand", "Hundred", "Million", "only."):
 			self.assertNotIn(tieng_anh, h, f"còn sót tiếng Anh: {tieng_anh}")
@@ -303,3 +489,113 @@ class TestTienBangChu(FrappeTestCase):
 		self.assertEqual(tien_bang_chu(1000.4), "Một nghìn đồng.")
 		self.assertEqual(tien_bang_chu(None), "Không đồng.")
 		self.assertEqual(tien_bang_chu("x"), "")
+
+
+class TestPatchCapNhat02VTDeLaiDauVet(FrappeTestCase):
+	"""Patch v1_28 ghi đè HTML của một mẫu in đang chạy thật — phải để lại dấu.
+
+	Bản trước ghi đè VÔ ĐIỀU KIỆN, không so sánh, kèm `update_modified=False`.
+	Đã đo trên `erptest.local`: `tabPatch Log` ghi patch chạy 25/08 12:14 trong
+	khi `Print Format.modified` vẫn là 16/08 — người vận hành lẫn kiểm toán
+	viên không có cách nào nhìn ra mẫu đã bị thay.
+
+	Vì sao đáng kể: site chạy thật (`miyano`) CHƯA chạy patch này. Nếu ở đó
+	mẫu in từng được sửa tay (logo, số tài khoản, mẫu tiêu đề thư), patch sẽ
+	xoá bản sửa ấy trong im lặng. Không thể giữ lại bản sửa tay đó — mẫu phải
+	hội tụ về mã nguồn — nhưng phải NÓI RA là đã thay cái gì.
+	"""
+
+	HTML_SUA_TAY = "<p>bản mẫu một site đã sửa tay</p>"
+
+	def setUp(self):
+		install_bien_ban_print_formats()
+		self.addCleanup(
+			frappe.db.set_value, "Print Format", NAME_PHIEU_XUAT_02VT, "html",
+			HTML_PHIEU_XUAT_02VT,
+		)
+		# `tabError Log` khai engine MyISAM — bảng PHI GIAO DỊCH, nên dòng log
+		# do bài này sinh ra KHÔNG bị rollback cuối class cuốn đi mà ở lại vĩnh
+		# viễn trên site. Tự dọn đúng những dòng của patch này.
+		self.addCleanup(frappe.db.delete, "Error Log", {"method": TIEU_DE_LOG})
+		frappe.db.delete("Error Log", {"method": TIEU_DE_LOG})
+
+	def test_ghi_de_de_lai_do_dai_va_hash_cua_ban_bi_thay(self):
+		frappe.db.set_value(
+			"Print Format", NAME_PHIEU_XUAT_02VT,
+			{"html": self.HTML_SUA_TAY, "modified": "2020-01-01 00:00:00"},
+			update_modified=False,
+		)
+		cap_nhat_02vt()
+
+		self.assertEqual(
+			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "html"),
+			HTML_PHIEU_XUAT_02VT,
+			"patch không đưa mẫu về đúng mã nguồn",
+		)
+		log = frappe.get_all(
+			"Error Log", filters={"method": TIEU_DE_LOG}, fields=["error"]
+		)
+		self.assertEqual(
+			len(log), 1,
+			"ghi đè một mẫu in đang chạy thật mà không để lại dấu vết nào",
+		)
+		self.assertIn(
+			str(len(self.HTML_SUA_TAY)), log[0].error,
+			"dấu vết không nói được độ dài bản bị thay",
+		)
+		self.assertIn(
+			hashlib.sha256(self.HTML_SUA_TAY.encode("utf-8")).hexdigest(),
+			log[0].error,
+			"dấu vết không có hash để đối chiếu với bản sao lưu",
+		)
+		self.assertNotEqual(
+			str(frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "modified")),
+			"2020-01-01 00:00:00",
+			"`modified` đứng yên sau khi nội dung đã bị thay — đúng cái làm "
+			"người vận hành không nhìn ra chuyện gì đã xảy ra",
+		)
+
+	def test_chay_lai_khi_da_dung_thi_KHONG_ghi_gi(self):
+		"""Vế răng: dấu vết phải THẬT. `bench migrate` chạy lại trên site đã
+		đúng nội dung thì không được sinh thêm log, cũng không được đụng vào
+		`modified` — nếu không, mỗi lần migrate lại thêm một dòng "đã ghi đè"
+		giả và dấu vết mất hết giá trị."""
+		frappe.db.set_value(
+			"Print Format", NAME_PHIEU_XUAT_02VT,
+			{"html": HTML_PHIEU_XUAT_02VT, "modified": "2020-01-01 00:00:00"},
+			update_modified=False,
+		)
+		cap_nhat_02vt()
+
+		self.assertEqual(
+			frappe.db.count("Error Log", {"method": TIEU_DE_LOG}), 0,
+			"không ghi đè gì mà vẫn ghi một dòng 'đã ghi đè'",
+		)
+		self.assertEqual(
+			str(frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "modified")),
+			"2020-01-01 00:00:00",
+			"nội dung không đổi mà `modified` vẫn bị dời",
+		)
+
+	def test_mau_chua_co_thi_chi_dung_DUNG_mot_mau(self):
+		"""Nhánh "site chưa từng cài". Bản trước gọi
+		`install_bien_ban_print_formats()` — hàm đó dựng CẢ BA mẫu, hồi sinh cả
+		mẫu mà một site có thể đã CỐ Ý gỡ. Một patch tên "cập nhật 02-VT"
+		không được tự ý dựng lại hai mẫu biên bản kiểm nghiệm."""
+		frappe.delete_doc(
+			"Print Format", NAME_BIEN_BAN_TT200, force=True, ignore_permissions=True
+		)
+		frappe.delete_doc(
+			"Print Format", NAME_PHIEU_XUAT_02VT, force=True, ignore_permissions=True
+		)
+		cap_nhat_02vt()
+
+		self.assertEqual(
+			frappe.db.get_value("Print Format", NAME_PHIEU_XUAT_02VT, "html"),
+			HTML_PHIEU_XUAT_02VT,
+			"patch không dựng lại mẫu 02-VT khi site chưa có",
+		)
+		self.assertFalse(
+			frappe.db.exists("Print Format", NAME_BIEN_BAN_TT200),
+			"patch hồi sinh một mẫu KHÁC mà site có thể đã cố ý gỡ bỏ",
+		)

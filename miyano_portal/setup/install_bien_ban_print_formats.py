@@ -29,21 +29,24 @@ CHÍNH Miyano (doanh nghiệp), không phải của khách hàng đơn vị sự
 áp cho chứng từ trong kho của khách (`Customer Stock *`), nơi đã có sẵn hai
 biến thể.
 
-**Cập nhật 25/08/2026 — 02-VT chuyển sang TT 99/2025/TT-BTC.** Chủ đầu tư giao
-bản mẫu `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx`; mẫu đó trích
-*"Kèm theo Thông tư số 99/2025/TT-BTC ngày 27 tháng 10 năm 2025"* thay cho
-TT 200/2014, và đổi tên chứng từ thành **"PHIẾU XUẤT KHO KIÊM BIÊN BẢN BÀN
-GIAO"**. Đây là quyết định của chủ đầu tư ghi trong chính bản mẫu, không phải
-suy diễn ở đây — thông tư trích dẫn trên một chứng từ kế toán là thứ chỉ chủ
-đầu tư/kế toán được chốt.
+**02-VT dựng lại theo bản mẫu docx — TT 99/2025/TT-BTC thay TT 200/2014.**
+Nguồn là `docs/04_MVL_PhieuXuatKho_GiaoHang(DN).docx` trong chính repo này
+(tệp Word, siêu dữ liệu ghi: tạo 30/07/2026, sửa lần cuối 06/08/2026,
+`lastModifiedBy` = "Tạ Trường Xuân"). Bản mẫu đó trích *"Kèm theo Thông tư số
+99/2025/TT-BTC ngày 27 tháng 10 năm 2025"* và đặt tên chứng từ là **"PHIẾU
+XUẤT KHO KIÊM BIÊN BẢN BÀN GIAO"** — hai thứ này chép TỪ TỆP, không suy diễn
+ở đây.
 
-Bốn thay đổi thực chất so với bản TT200 (không chỉ đổi dòng trích dẫn):
+Năm thay đổi thực chất so với bản TT200 (không chỉ đổi dòng trích dẫn):
   * thêm hai cột **Số lô / Hạn dùng** — xem `lo_han_cho_in`, hàng dược phẩm
     bàn giao mà không ghi lô/hạn thì biên bản ký xong không truy hồi được;
+  * cột **SL yêu cầu** lấy từ ĐƠN HÀNG (`so_detail` → `Sales Order Item.qty`),
+    để trống khi phiếu không có đơn hàng nào đứng sau — xem `_XUAT_ROWS`;
   * thêm ô **Số đơn hàng (SO/PO)**, **Địa chỉ giao hàng**, **Ngày giờ bàn
     giao**, **Điều kiện bảo quản/Nhiệt độ**;
   * thêm **đoạn cam kết bàn giao** — đây là thứ biến một phiếu xuất kho thành
-    một biên bản có giá trị đối chứng;
+    một biên bản có giá trị đối chứng, và cũng là lý do mọi con số trong bảng
+    phải đúng: khách đặt bút ký ngay dưới nó;
   * khối ký đổi từ 5 ô (có Kế toán trưởng, Giám đốc) sang đúng **4 ô** của
     bản mẫu: Người lập phiếu / Thủ kho / Người giao hàng / Người nhận hàng.
 
@@ -215,15 +218,27 @@ _XUAT_SETUP = (
 	'.split("\n") | map("trim") | select | join(", ") | trim(", ")) %}'
 )
 
+# `sl_yeu_cau` — Ruling P43. Cột "SL yêu cầu" lấy từ ĐƠN HÀNG
+# (`Delivery Note Item.so_detail` → `Sales Order Item.qty`), KHÔNG chép lại
+# `i.qty` của dòng phiếu. Bản trước in cùng một con số vào cả hai cột: một
+# phiếu giao 20 trên đơn đặt 50 in ra "yêu cầu 20 / thực xuất 20", ngay TRÊN
+# đoạn cam kết "hàng hóa được bàn giao đầy đủ về số lượng" mà khách đặt bút
+# ký. Giao thiếu và giao nhiều đợt là chuyện thường ở đây.
+#
+# Dòng KHÔNG có `so_detail` (giao thẳng, không đơn hàng nào đứng sau) để ô
+# TRỐNG: ERP thật sự không biết một số lượng yêu cầu nào cho dòng đó, và bịa
+# ra một con số trên chứng từ có chữ ký chính là lỗi đang sửa. Nhân viên điền
+# tay như các ô không thể biết khác của mẫu (ngày giờ bàn giao, nhiệt độ).
 _XUAT_ROWS = """
     {% for i in doc.items %}
     {% set lo = lo_han_cho_in(i) %}
+    {% set sl_yeu_cau = frappe.db.get_value("Sales Order Item", i.so_detail, "qty") if i.so_detail else none %}
     <tr>
       <td>{{ loop.index }}</td>
       <td>{{ i.item_code }}</td>
       <td>{{ i.item_name or i.item_code }}</td>
       <td>{{ i.uom or '' }}</td>
-      <td class="num">{{ "{:g}".format(i.qty or 0) }}</td>
+      <td class="num">{{ "{:g}".format(sl_yeu_cau) if sl_yeu_cau is not none else '' }}</td>
       <td class="num">{{ "{:g}".format(i.qty or 0) }}</td>
       <td>{{ lo.so_lo }}</td>
       <td>{{ lo.han_dung }}</td>
