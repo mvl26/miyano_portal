@@ -59,7 +59,16 @@ def execute():
         ignore_validate=True,
     )
     if not _co_cot("so_luong_da_gop"):
-        return
+        # NÉM, không thoát êm. Thoát êm ở đây là kịch bản tệ nhất có thể:
+        # patch vẫn được ghi vào `tabPatch Log` là ĐÃ CHẠY, nên câu backfill
+        # KHÔNG BAO GIỜ chạy lại kể cả khi cột xuất hiện ngay sau đó — và
+        # `so_luong_da_gop = 0` nghĩa là "không hoàn tác gì", tức mọi đơn
+        # nháp đang mở giữ nguyên lỗ Critical-1 mà không ai biết.
+        frappe.throw(
+            f"Không tạo được cột `so_luong_da_gop` trên `tab{DOCTYPE}` — "
+            f"chưa backfill được sổ sách cho các dòng đã chuyển. Kiểm tra "
+            f"Custom Field rồi chạy lại `bench migrate`."
+        )
     frappe.db.sql(
         """
         update `tabSales Order Dat Ngoai Item`

@@ -506,13 +506,32 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		LỚN HƠN số lượng thật còn lại.
 
 		Trừ mù lúc đó cho ra số âm và gỡ HẲN dòng hàng — cuốn theo cả phần
-		dòng gõ tay A vẫn đang đòi. Dòng hàng phải sống sót với đúng phần
-		A đòi, không bốc hơi."""
+		dòng gõ tay A vẫn đang đòi lẫn phần khách đặt thẳng.
+
+		CON SỐ ĐỔI ở vòng sửa 2 (Ruling P39), hành vi được canh thì KHÔNG.
+		Trước P39 bài này ra 3: cái SÀN trả cho A đủ 3 phần nó đòi, nhưng
+		làm thế là lặng lẽ đẩy phần khách đặt thẳng về 0. Giờ sổ sách bị ép
+		bám theo `qty` ngay tại lần hạ tay:
+
+		    9 = 2 (đặt thẳng) + A 3 + B 4  →  hạ xuống 4, giảm 5
+		    phần giảm ăn vào phần ĐÃ GỘP trước, dòng nhập SAU nhường trước:
+		        B 4 → 0  (nhường 4),  A 3 → 2  (nhường 1)
+		    còn lại: 4 = 2 (đặt thẳng, GIỮ NGUYÊN) + A 2
+
+		Nên xoá B giờ trừ đúng 0 — phần của B đã được hấp thụ từ lúc hạ tay
+		— và dòng hàng đứng yên ở 4. Cả hai chủ còn lại đều nguyên vẹn, đó
+		mới là điều bài này canh."""
 		so = self._dong_chung_hai_chu()
 		so.items[0].qty = 4
 		so.save(ignore_permissions=True)
 		so.reload()
 		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 4.0)
+		theo_ten = {d.ten_hang: d for d in so.custom_dat_ngoai}
+		self.assertEqual(flt(theo_ten["Dòng B"].so_luong_da_gop), 0.0)
+		self.assertEqual(flt(theo_ten["Dòng A"].so_luong_da_gop), 2.0)
+		# Bằng chứng khoa đã xin bao nhiêu thì KHÔNG đổi theo (QĐ-G15).
+		self.assertEqual(flt(theo_ten["Dòng A"].so_luong), 3.0)
+		self.assertEqual(flt(theo_ten["Dòng B"].so_luong), 4.0)
 
 		so.custom_dat_ngoai = [
 			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
@@ -521,8 +540,9 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		so.reload()
 		dong = self._dong(so, self.item_da_co)
 		self.assertEqual(
-			flt(dong.qty), 3.0,
-			"dòng A vẫn đòi 3 — không được trừ xuống dưới, càng không được gỡ dòng",
+			flt(dong.qty), 4.0,
+			"2 đặt thẳng + 2 của A — không chủ nào bị bốc hơi, và phần B "
+			"đã được hấp thụ từ lúc hạ tay nên không trừ thêm lần nữa",
 		)
 		# Và đường nối bằng chứng ↔ tiền của A phải còn nguyên, nếu không
 		# chốt `before_submit` sẽ chặn một đơn thật ra không có gì sai.
@@ -617,6 +637,136 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		)
 		self.assertEqual(ban_sao.custom_dat_ngoai[0].dong_hang, dong.name)
 		self.assertEqual(flt(ban_sao.custom_dat_ngoai[0].so_luong_da_gop), 5.0)
+
+	# -- IMPORTANT-1 (re-review 25/08): đường LƯU-VÀ-SUBMIT MỘT NHỊP --------
+	#
+	# `frappe/desk/form/save.py::savedocs` đặt `doc.docstatus = SUBMITTED`
+	# RỒI mới gọi `submit()`, và `document.py:1138` vẫn chạy `before_validate`
+	# cho `_action in ("save", "submit")`. Nên bấm Submit trên một đơn nháp
+	# ĐANG DỞ là MỘT lần lưu duy nhất, đi qua hook với `docstatus == 1`.
+	# `so.submit()` trong test đi đúng đường đó (`Document._submit` cũng gán
+	# docstatus TRƯỚC `save()`).
+	#
+	# Mọi BẤT BIẾN của task phải đứng vững ở đường này. Chỉ có phép CHUYỂN
+	# (hành động MỚI) mới được từ chối chạy — bẫy 5.
+
+	def test_submit_mot_nhip_van_HOAN_TAC_dong_go_tay_vua_xoa(self):
+		"""Xoá một dòng gõ tay rồi bấm thẳng Submit, không lưu trước.
+
+		Trước bản vá, hook thoát ngay ở dòng đầu vì `docstatus == 1`, nên
+		`_hoan_tac_dong_bi_xoa` không chạy: `kiem_dat_ngoai_da_xu_ly` cho qua
+		(dòng còn lại đã xử lý), `kiem_dong_chuyen_con_tren_don` cũng cho qua
+		(dòng còn lại vẫn trỏ đúng — chốt đó KHÔNG kiểm số lượng), và đơn
+		XÁC NHẬN với số lượng của dòng đã xoá vẫn nằm nguyên trong tiền."""
+		so = self._dong_chung_hai_chu()
+		so.custom_dat_ngoai = [
+			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		]
+		so.submit()
+		so.reload()
+		self.assertEqual(so.docstatus, 1)
+		self.assertEqual(
+			flt(self._dong(so, self.item_da_co).qty), 5.0,
+			"2 khách đặt trực tiếp + 3 của dòng A — phần của dòng B đã xoá "
+			"không được đi theo đơn vào tiền",
+		)
+
+	def test_submit_mot_nhip_van_CHAN_sua_dong_da_chuyen(self):
+		"""Bẫy 6 phải đứng vững ở đường một nhịp: sửa `so_luong` trên dòng đã
+		chuyển rồi bấm thẳng Submit. Trước bản vá, phép kiểm bất biến không
+		chạy và dòng bằng chứng bị ghi đè ngay lúc xác nhận đơn."""
+		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		so = self._khop(so, self.item_hd)
+		so.custom_dat_ngoai[0].so_luong = 9
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		self.assertIn("đã chuyển thành dòng hàng", str(ctx.exception))
+		so.reload()
+		self.assertEqual(so.docstatus, 0)
+		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong), 5.0)
+
+	def test_submit_mot_nhip_van_VE_SINH_co_da_chuyen_client_gui_len(self):
+		"""Vệ sinh payload là nơi DUY NHẤT hạ `da_chuyen`/`dong_hang` do
+		client gửi lên. Bỏ qua nó ở đường một nhịp thì một dòng mang
+		`da_chuyen = 1` mà KHÔNG có `dong_hang` sẽ được
+		`kiem_dong_chuyen_con_tren_don` BỎ QUA (chốt đó chỉ xét dòng có
+		`dong_hang`) và đơn xác nhận với mặt hàng khoa yêu cầu vắng mặt —
+		đúng con bug QĐ-G16 ban đầu, qua đúng cái cửa mà docstring của chính
+		hàm này nêu là mối đe doạ."""
+		so = self._dat(dat_ngoai=[self._go_tay()])
+		so = self._khop(so, self.item_hd)
+		so.append("custom_dat_ngoai", {
+			"ten_hang": "Dòng khai khống", "dvt": "Cái", "so_luong": 4,
+			"item_khop": self.item_ngoai,
+			# Payload tự khai "đã chuyển" mà không có dòng hàng nào đứng sau.
+			"da_chuyen": 1,
+		})
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		self.assertIn("chưa xử lý", str(ctx.exception))
+		self.assertIn("Dòng khai khống", str(ctx.exception))
+		so.reload()
+		self.assertEqual(so.docstatus, 0)
+		self.assertNotIn(self.item_ngoai, [d.item_code for d in so.items])
+
+	# -- IMPORTANT-2 / Ruling P39: sổ sách không được trôi khỏi `qty` -------
+
+	def test_ha_tay_so_luong_thi_HA_LUON_so_sach_da_gop(self):
+		"""Ruling P39 — `qty` được phép nhỏ hơn tổng khoa yêu cầu (giao một
+		phần, thương lượng giảm: nghiệp vụ thật, hệ thống không phủ quyết).
+		Nhưng SỔ SÁCH phải theo: với mỗi dòng hàng, tổng `so_luong_da_gop`
+		của các dòng gõ tay trỏ vào nó ≤ `qty` của dòng đó.
+
+		Phần giảm ăn vào phần ĐÃ GỘP trước, phần khách đặt thẳng giữ nguyên.
+
+		`so_luong` của dòng gõ tay KHÔNG đổi — đó là bằng chứng khoa đã xin
+		bao nhiêu, nó không chạy theo quyết định giao hàng."""
+		so = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=5)],
+		)
+		so = self._khop(so, self.item_da_co)
+		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 7.0)
+		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong_da_gop), 5.0)
+
+		so.items[0].qty = 4
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(
+			flt(so.custom_dat_ngoai[0].so_luong_da_gop), 2.0,
+			"giảm 3 thì phần đã gộp 5 phải xuống 2 — 2 hộp khách đặt thẳng giữ nguyên",
+		)
+		self.assertEqual(
+			flt(so.custom_dat_ngoai[0].so_luong), 5.0,
+			"bằng chứng khoa xin 5 KHÔNG được sửa theo (QĐ-G15)",
+		)
+
+	def test_ha_tay_roi_xoa_dong_go_tay_KHONG_an_mat_phan_khach_dat_thang(self):
+		"""Vế tiền của bài trên, và là hố Important-2 đo được trên Desk
+		thường: đơn còn một dòng hàng KHÁC nên `_dam_bao_con_dong_hang`
+		không ném gì cả — 2 hộp khách đặt thẳng biến mất IM LẶNG."""
+		so = self._dat(
+			items=[
+				{"item_code": self.item_da_co, "qty": 2},
+				{"item_code": self.item_hd, "qty": 1},
+			],
+			dat_ngoai=[self._go_tay(so_luong=5)],
+		)
+		so = self._khop(so, self.item_da_co)
+		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 7.0)
+
+		so.items[0].qty = 4
+		so.save(ignore_permissions=True)
+		so.reload()
+
+		so.custom_dat_ngoai = []
+		so.save(ignore_permissions=True)
+		so.reload()
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(
+			flt(dong.qty), 2.0,
+			"2 hộp khách ĐẶT THẲNG phải còn nguyên — chỉ phần đã gộp bị trừ",
+		)
 
 	# -- CRITICAL-2 (review 22/08): đường GỘP không được vứt giá hợp đồng ---
 
@@ -766,6 +916,43 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError) as ctx2:
 			so.submit()
 		self.assertIn("chưa xử lý", str(ctx2.exception))
+
+	# -- PATCH: nhánh backfill phải THẬT SỰ chạy được ----------------------
+
+	def test_patch_backfill_dien_so_sach_cho_dong_da_chuyen_cu(self):
+		"""Bằng chứng patch ở vòng trước mới chỉ chứng minh CỘT TỒN TẠI:
+		site này có 0 bản ghi `da_chuyen = 1` lúc chạy, nên câu `update`
+		chưa bao giờ đi qua. Bài này dựng đúng hiện trường một đơn nháp mở
+		TỪ TRƯỚC bản vá — dòng đã chuyển nhưng sổ sách còn 0 — rồi chạy
+		patch và đòi nó điền đúng.
+
+		Quan trọng vì `so_luong_da_gop = 0` nghĩa là "không hoàn tác gì":
+		bỏ sót backfill là giữ nguyên lỗ Critical-1 cho mọi đơn đang mở."""
+		from miyano_portal.patches.v1_27.them_cot_so_luong_da_gop import execute
+
+		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		so = self._khop(so, self.item_hd)
+		ten_dong = so.custom_dat_ngoai[0].name
+		# Hạ về đúng hình dạng bản ghi có trước khi cột này ra đời.
+		frappe.db.set_value(
+			"Sales Order Dat Ngoai Item", ten_dong, "so_luong_da_gop", 0,
+			update_modified=False,
+		)
+		self.assertEqual(
+			flt(frappe.db.get_value(
+				"Sales Order Dat Ngoai Item", ten_dong, "so_luong_da_gop"
+			)), 0.0,
+			"tiền đề: sổ sách đang rỗng, nếu không bài này không kiểm gì cả",
+		)
+
+		execute()
+
+		self.assertEqual(
+			flt(frappe.db.get_value(
+				"Sales Order Dat Ngoai Item", ten_dong, "so_luong_da_gop"
+			)), 5.0,
+			"backfill phải điền đúng `so_luong` của chính dòng đó",
+		)
 
 	# -- CÁCH LY ------------------------------------------------------------
 

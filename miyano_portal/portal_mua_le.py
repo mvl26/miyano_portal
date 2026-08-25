@@ -145,12 +145,40 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     4 vẫn được tôn trọng tuyệt đối: chốt này KHÔNG nằm trong `validate()`
     của doctype con — Frappe không bao giờ gọi hàm đó khi cha lưu.
 
-    Bẫy 5 — CHỈ chạy khi đơn còn nháp, kiểm `docstatus == 0` TƯỜNG MINH.
-    `custom_dat_ngoai` không `allow_on_submit`, nhưng dựa vào đó là dựa vào
-    một thuộc tính có thể bị đổi bằng một patch ở nơi khác.
+    Bẫy 5 — phép CHUYỂN (hành động MỚI: dựng thêm dòng hàng) CHỈ chạy khi
+    đơn còn nháp, kiểm `docstatus == 0` TƯỜNG MINH. `custom_dat_ngoai` không
+    `allow_on_submit`, nhưng dựa vào đó là dựa vào một thuộc tính có thể bị
+    đổi bằng một patch ở nơi khác.
+
+    **Important-1 (re-review 25/08) — BẤT BIẾN và CHUYỂN ĐỔI tách làm hai
+    tầng, chỉ tầng sau bị chặn theo `docstatus`.** Bản trước thoát ngay ở
+    dòng đầu khi `docstatus != 0`, và điều đó bỏ trống nguyên một cửa đi
+    thật: `frappe/desk/form/save.py::savedocs` đặt
+    `doc.docstatus = SUBMITTED` **rồi mới** gọi `submit()`, còn
+    `run_before_save_methods` (`document.py:1138`) vẫn chạy `before_validate`
+    cho `_action in ("save", "submit")`. Nên **bấm Submit trên một đơn nháp
+    đang dở là MỘT lần lưu duy nhất** đi qua hook với `docstatus == 1` —
+    `Document._submit` cũng gán docstatus trước `save()`, nên `so.submit()`
+    trong test đi đúng đường đó. Ba thứ đã lọt qua cửa này, cả ba đo được:
+
+      * `_hoan_tac_dong_bi_xoa` không chạy → xoá một dòng gõ tay rồi Submit
+        thẳng, số lượng của nó vẫn đi theo đơn vào tiền (`kiem_dat_ngoai_
+        da_xu_ly` cho qua, `kiem_dong_chuyen_con_tren_don` cũng cho qua vì
+        chốt đó không kiểm số lượng);
+      * `_kiem_dong_da_chuyen_khong_doi` không chạy → bẫy 6 bị vượt trong
+        một thao tác, dòng bằng chứng bị ghi đè;
+      * vệ sinh payload không chạy → một dòng khai `da_chuyen = 1` mà không
+        có `dong_hang` được `kiem_dong_chuyen_con_tren_don` BỎ QUA (chốt đó
+        chỉ xét dòng CÓ `dong_hang`) và đơn xác nhận với mặt hàng khoa yêu
+        cầu vắng mặt — đúng con bug QĐ-G16 ban đầu.
+
+    Từ đây: tầng BẤT BIẾN (ép sổ sách P39, hoàn tác, kiểm bất biến, vệ sinh
+    payload, chặn mã giữ chỗ) chạy ở CẢ `docstatus == 0` lẫn `1`; chỉ tầng
+    CHUYỂN ĐỔI dừng lại ở đơn nháp.
     """
-    if doc.docstatus != 0:
+    if doc.docstatus not in (0, 1):
         return
+    con_nhap = doc.docstatus == 0
     dong_go_tay = doc.get("custom_dat_ngoai") or []
 
     # Bẫy 1 — cờ `da_chuyen` là nguồn sự thật DUY NHẤT cho "đã chuyển chưa",
@@ -177,7 +205,11 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     # bẫy 6 chỉ cho người dùng, và nếu không trừ lại thì phần cũ còn nằm
     # trong dòng hàng, phần mới cộng thêm — 5 thành 10, tiền nhân đôi,
     # trong khi dòng bằng chứng vẫn ghi 5.
-    _hoan_tac_dong_bi_xoa(doc, cu, {d.get("name") for d in dong_go_tay})
+    # Ruling P39 (chủ đầu tư chốt 25/08) — ép SỔ SÁCH bám theo `qty` TRƯỚC
+    # mọi phép trừ, nếu không phép trừ sẽ dựa trên một con số đã lỗi thời.
+    gop = _ep_bat_bien_so_sach(doc, cu, truoc)
+
+    _hoan_tac_dong_bi_xoa(doc, cu, {d.get("name") for d in dong_go_tay}, gop)
 
     da_chuyen_lan_nay = False
     thang_cuoc = None
@@ -190,7 +222,9 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
             # gửi lên bỏ trống nó.
             dong.da_chuyen = 1
             dong.dong_hang = xua.get("dong_hang")
-            dong.so_luong_da_gop = flt(xua.get("so_luong_da_gop"))
+            dong.so_luong_da_gop = gop.get(
+                dong.get("name"), flt(xua.get("so_luong_da_gop"), 3)
+            )
             continue
         if truoc is None and dong.get("da_chuyen") and _neo_lai_ban_sao(doc, dong):
             continue
@@ -217,6 +251,11 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
                 f"hàng thật (hoặc tạo mã mới) cho dòng này.",
                 frappe.ValidationError,
             )
+        if not con_nhap:
+            # Bẫy 5 — CHUYỂN là hành động MỚI, không được xảy ra lặng lẽ
+            # ngay trong lần bấm Xác nhận. Dòng này ở lại "chưa xử lý" và
+            # `kiem_dat_ngoai_da_xu_ly` giữ đơn lại với câu của nó.
+            continue
         if flt(dong.get("so_luong")) <= 0:
             # `dong_bo_da_xu_ly_dat_ngoai` ném lỗi cho đúng dòng này ngay ở
             # `validate` (chạy sau hàm này) — không dựng một dòng hàng số
@@ -288,7 +327,80 @@ def _neo_lai_ban_sao(doc, dong) -> bool:
     return False
 
 
-def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
+def _ep_bat_bien_so_sach(doc, cu: dict, truoc) -> dict:
+    """**Ruling P39 (chủ đầu tư chốt 25/08)** — giữ SỔ SÁCH luôn trung thực.
+
+    Bất biến, ép ở MỌI lần lưu, cho MỖI dòng hàng:
+
+        tổng `so_luong_da_gop` của các dòng gõ tay trỏ vào nó  ≤  `qty` của nó
+
+    Trả `{tên dòng gõ tay: so_luong_da_gop đã điều chỉnh}` để mọi phép tính
+    phía sau (hoàn tác, chép sang dòng còn sống) đọc CÙNG một con số.
+
+    **KHÔNG chặn `qty` nhỏ hơn tổng khoa yêu cầu.** Dòng gõ tay ghi thứ khoa
+    YÊU CẦU; dòng hàng ghi thứ Miyano SẼ GIAO. Hai con số được phép khác
+    nhau — giao một phần, hoặc thương lượng giảm, đều là nghiệp vụ thật, và
+    chặn nó là bắt hệ thống phủ quyết một quyết định thương mại. Muốn cấm
+    giao thiếu thì phải dựng một chốt NGHIỆP VỤ có chủ đích, không phải một
+    hệ quả phụ của sổ sách.
+
+    **Phần giảm ăn vào phần ĐÃ GỘP trước, phần khách ĐẶT THẲNG giữ nguyên.**
+    `phần đặt thẳng = qty − tổng đã gộp` là một con số suy ra, không được
+    lưu ở đâu cả; nếu phép giảm hạ sổ sách xuống thẳng `qty` thì phần đặt
+    thẳng bị đẩy về 0 và biến mất khỏi sổ — rồi lần xoá dòng gõ tay kế tiếp
+    trừ nốt, làm bốc hơi IM LẶNG số hàng khách đã tự tay đặt (hố
+    Important-2, đo được trên Desk thường). Ăn vào phần đã gộp trước giữ
+    đúng phần đặt thẳng chừng nào còn chỗ.
+
+    Thứ tự nhường TẤT ĐỊNH: dòng gõ tay nhập SAU nhường trước (`idx` giảm
+    dần) — yêu cầu tới trước được phục vụ trước, và không lần chạy nào phụ
+    thuộc thứ tự lặp của `dict`.
+
+    **`so_luong` của dòng gõ tay KHÔNG BAO GIỜ đổi** — đó là bằng chứng khoa
+    đã xin bao nhiêu (QĐ-G15), nó không chạy theo quyết định giao hàng. Chỉ
+    con số SỔ SÁCH `so_luong_da_gop` mới bám theo.
+    """
+    gop = {
+        ten: flt(xua.get("so_luong_da_gop"), 3)
+        for ten, xua in cu.items()
+        if xua.get("da_chuyen") and xua.get("dong_hang")
+    }
+    if not gop or truoc is None:
+        # `insert` không có mốc `qty` trước để so; giá trị sổ sách của bản
+        # sao do `_neo_lai_ban_sao` đặt, và nó đã tự đòi `qty >= so_luong`.
+        return gop
+
+    qty_cu = {h.name: flt(h.qty, 3) for h in (truoc.get("items") or []) if h.name}
+    qty_moi = {h.name: flt(h.qty, 3) for h in (doc.get("items") or []) if h.name}
+
+    theo_hang: dict = {}
+    for ten in gop:
+        theo_hang.setdefault(cu[ten].get("dong_hang"), []).append(ten)
+
+    for ten_hang, ds in theo_hang.items():
+        if ten_hang not in qty_moi:
+            # Dòng hàng đã bị xoá khỏi đơn — `kiem_dong_chuyen_con_tren_don`
+            # lo phần đó ở `before_submit`, không đoán mò ở đây.
+            continue
+        tong = flt(sum(gop[t] for t in ds), 3)
+        giam = flt(qty_cu.get(ten_hang, tong) - qty_moi[ten_hang], 3)
+        # `min(..., qty_moi)` là lưới an toàn cho dữ liệu cũ/không nhất quán
+        # (bản ghi có từ trước bất biến này): kể cả khi `qty` không giảm lần
+        # nào, sổ sách vẫn không được phép vượt `qty`.
+        muc_tieu = flt(min(max(0.0, tong - max(0.0, giam)), qty_moi[ten_hang]), 3)
+        du = flt(tong - muc_tieu, 3)
+        if du <= 0:
+            continue
+        for ten in sorted(ds, key=lambda t: flt(cu[t].get("idx")), reverse=True):
+            if du <= 0:
+                break
+            bot = min(gop[ten], du)
+            gop[ten] = flt(gop[ten] - bot, 3)
+            du = flt(du - bot, 3)
+    return gop
+
+
+def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set, gop: dict) -> None:
     """Trừ lại phần số lượng của những dòng gõ tay ĐÃ CHUYỂN vừa bị xoá khỏi
     lưới; dòng hàng chỉ còn đúng phần của nó thì gỡ hẳn.
 
@@ -297,6 +409,14 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
     tác hoặc trừ thiếu (để lại số lượng ma) hoặc trừ lẫn cả phần khách đã đặt
     trực tiếp. Đây đúng là "cột sổ sách thứ ba" mà bản đầu của task này gọi
     tên rồi từ chối dựng — và chính chỗ từ chối đó là cái lỗ.
+
+    Từ Ruling P39, phần trừ đọc từ map `gop` do `_ep_bat_bien_so_sach` trả
+    về (sổ sách đã bám theo `qty`), KHÔNG đọc thẳng giá trị trong DB — nếu
+    không, một lần hạ tay `qty` trước đó sẽ khiến phép trừ dựa trên con số
+    đã lỗi thời. Khi bất biến P39 đứng thì `tru ≤ tổng đã gộp ≤ qty`, nên
+    `con ≥ san` luôn đúng và cái SÀN dưới đây không bao giờ ràng buộc; giữ
+    nó làm lớp phòng thủ thứ hai cho dữ liệu cũ và cho trường hợp bất biến
+    bị thủng ở đâu đó.
 
     Im lặng bỏ qua khi không đối chiếu được (dòng hàng đã bị người khác
     xoá/đổi mã, hoặc bản ghi cũ chưa có cột sổ sách): KHÔNG đoán mò một con
@@ -314,11 +434,11 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
     for ten, xua in cu.items():
         if ten in con_lai or not xua.get("da_chuyen"):
             continue
-        phan_gop = flt(xua.get("so_luong_da_gop"))
+        phan_gop = flt(gop.get(ten), 3)
         hang = theo_ten.get(xua.get("dong_hang"))
         if not phan_gop or not hang or hang.item_code != xua.get("item_khop"):
             continue
-        tru[hang.name] = tru.get(hang.name, 0.0) + phan_gop
+        tru[hang.name] = flt(tru.get(hang.name, 0.0) + phan_gop, 3)
     if not tru:
         return
 
@@ -334,15 +454,27 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set) -> None:
         xua = cu.get(d.get("name"))
         if not xua or not xua.get("da_chuyen") or not xua.get("dong_hang"):
             continue
-        con_giu[xua.get("dong_hang")] = (
-            con_giu.get(xua.get("dong_hang"), 0.0) + flt(xua.get("so_luong_da_gop"))
+        hang = theo_ten.get(xua.get("dong_hang"))
+        # ĐỐI XỨNG với `tru` ở trên: cùng phép kiểm `item_code`. Thiếu nó,
+        # một dòng còn lại mà `item_code` của dòng hàng đã bị đổi vẫn thổi
+        # phồng cái sàn và chặn mất phép trừ hợp lệ.
+        if not hang or hang.item_code != xua.get("item_khop"):
+            continue
+        con_giu[xua.get("dong_hang")] = flt(
+            con_giu.get(xua.get("dong_hang"), 0.0) + flt(gop.get(d.get("name")), 3), 3
         )
 
     bo = set()
     for ten_hang, tong_tru in tru.items():
         hang = theo_ten[ten_hang]
-        san = con_giu.get(ten_hang, 0.0)
-        con = flt(hang.qty) - tong_tru
+        san = flt(con_giu.get(ten_hang, 0.0), 3)
+        # `flt(..., 3)` chứ không phải số thực thô: `qty` và `so_luong_da_gop`
+        # đều là `decimal(21,3)`, nhưng TỔNG của chúng trong Python lệch vài
+        # ULP. Một `con` còn 2.2e-16 sẽ lớn hơn `san = 0`, được gán vào
+        # `qty`, rồi làm tròn thành `0.000` lúc lưu và rơi vào
+        # `validate_qty_is_not_zero` của ERPNext — người dùng nhận một câu
+        # của framework thay vì dòng hàng được gỡ sạch.
+        con = flt(flt(hang.qty, 3) - tong_tru, 3)
         if con > san:
             hang.qty = con
         elif san > 0:
