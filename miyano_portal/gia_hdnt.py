@@ -221,8 +221,16 @@ def dong_bo(bo, thang_cuoc=None) -> dict:
         # giá ĐÃ ĐÀM PHÁN của khách A — bệnh viện này bị tính giá của bệnh
         # viện khác thay vì được chặn đúng bằng "chưa có giá trong hợp
         # đồng". Thà KHÔNG ghi và báo ồn ào, còn hơn ghi rồi không ai biết.
+        # `disabled: 0` (sửa 25/08) — chốt này đếm khách hàng ĐANG HOẠT
+        # ĐỘNG. Thiếu bộ lọc, một bệnh viện cũ đã bị vô hiệu hoá nhưng vẫn
+        # trỏ `default_price_list` về bảng giá này sẽ khiến phép đếm mãi
+        # mãi > 1, và bệnh viện CÒN LẠI bị chặn đồng bộ giá VĨNH VIỄN bằng
+        # một câu bảo họ "tách bảng giá riêng cho từng khách" — trong khi
+        # họ đã là khách duy nhất còn hoạt động dùng nó. Khách đã vô hiệu
+        # hoá thì không đặt hàng được nữa, nên không có giá nào của họ để
+        # mà trộn: đúng nghĩa nguy cơ mà P32 dựng lên để chặn.
         dung_chung = frappe.get_all(
-            "Customer", filters={"default_price_list": bang_gia},
+            "Customer", filters={"default_price_list": bang_gia, "disabled": 0},
             pluck="name", order_by="name asc",
         )
         if len(dung_chung) > 1:

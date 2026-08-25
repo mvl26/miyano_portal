@@ -25,11 +25,19 @@ Patch này KHÔNG thay QĐ-G12 (`gia_hdnt.gia_dong_hop_dong`, cổng tự đọc
 
 Quét theo KHÁCH HÀNG rồi gọi `dong_bo_khach()`, KHÔNG lặp thẳng danh sách
 hợp đồng: làm vậy được miễn phí hai thứ đã chốt ở `gia_hdnt.py` và không
-nhân bản ra đây — thứ tự `creation asc` (hợp đồng KÝ SAU ghi sau cùng nên
-thắng khi hai hợp đồng còn hiệu lực khai cùng một mã hai giá) và ĐỊNH NGHĨA
-"còn hiệu lực" (`dong_bo()` tự loại hợp đồng đã hết hạn). Tự lọc `to_date`
-trong truy vấn của patch là dựng nơi thứ hai định nghĩa cùng một khái niệm —
-đúng thứ docstring `dong_bo_khach()` đã cảnh báo.
+nhân bản ra đây — LUẬT PHÂN ĐỊNH của cổng và ĐỊNH NGHĨA "còn hiệu lực"
+(`dong_bo()` tự loại hợp đồng đã hết hạn). Tự lọc `to_date` trong truy vấn
+của patch là dựng nơi thứ hai định nghĩa cùng một khái niệm — đúng thứ
+docstring `dong_bo_khach()` đã cảnh báo.
+
+SỬA 25/08 — câu trên trước đây ghi luật phân định là `creation asc` ("hợp
+đồng KÝ SAU ghi sau cùng nên thắng"). **Ruling P30 đã ĐẢO luật đó** và câu
+cũ nằm lại thành một mô tả sai về chính đoạn mã nó giới thiệu: người thắng
+giờ do `nguon_gia_theo_ma_cho_khach()` quyết (`THU_TU_PHAN_DINH` — hết hạn
+SỚM NHẤT thắng, trùng `to_date` thì `name` nhỏ hơn thắng), và
+`dong_bo_khach()` truyền người thắng đó xuống để hợp đồng THUA không ghi giá
+cho mã đó. `creation asc` vẫn còn trong `dong_bo_khach()` nhưng chỉ còn là
+thứ tự TẤT ĐỊNH cho những mã không có người thắng nào.
 
 IDEMPOTENT theo thiết kế, không nhờ một cờ riêng: `dong_bo()` tra `Item
 Price` theo `(item_code, price_list, selling)` — có rồi thì `set_value`

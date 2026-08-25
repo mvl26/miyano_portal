@@ -100,13 +100,6 @@ class TestPortalCatalogGop(FrappeTestCase):
 
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
-		# M-4 (review vòng 1) — bảng giá khai giá KHÁC hợp đồng (125.000).
-		# Trước đó hai bên cùng 125.000 nên bài `test_ma_trong_hop_dong_la_
-		# tang_hop_dong_co_gia` không phân biệt được gì: đảo ngược thứ tự tra
-		# của QĐ-G12 vẫn xanh. Con số này phải KHÔNG BAO GIỜ xuất hiện trong
-		# `don_gia` của một dòng hợp đồng.
-		self._tao_gia(self.item_hd, self.price_list, 111000)
-
 		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
 		# `nguon_gia_theo_ma_cho_khach()` (dùng chung với `_suy_nguon_gia()`
 		# của `Portal De Xuat Mua`) giờ đòi hợp đồng đã NỘP mới tính "còn
@@ -148,6 +141,21 @@ class TestPortalCatalogGop(FrappeTestCase):
 		}).insert(ignore_permissions=True)
 		self.bo_b.submit()
 		self.bo_b = self.bo_b.name
+
+		# M-4 (review vòng 1) — bảng giá khai giá KHÁC hợp đồng (125.000).
+		# Trước đó hai bên cùng 125.000 nên bài `test_ma_trong_hop_dong_la_
+		# tang_hop_dong_co_gia` không phân biệt được gì: đảo ngược thứ tự tra
+		# của QĐ-G12 vẫn xanh. Con số này phải KHÔNG BAO GIỜ xuất hiện trong
+		# `don_gia` của một dòng hợp đồng.
+		#
+		# SỬA 25/08 — phải đặt SAU MỌI `submit()` hợp đồng ở trên. Trước đó
+		# nó đứng trước `self.bo_a.submit()`, mà hook `Blanket Order.on_submit`
+		# (`gia_hdnt.tu_hdnt` → `dong_bo_khach`) GHI ĐÈ chính dòng Item Price
+		# đó về 125.000 — bằng đúng giá hợp đồng. Mười dòng sau, giá trị phân
+		# biệt đã bốc hơi và bài test xanh KỂ CẢ khi đảo ngược thứ tự tra giá:
+		# fixture tự tay xoá mất thứ duy nhất nó dựng lên để kiểm. Khuôn đúng
+		# đã có sẵn ở `test_gia_tu_hop_dong.py` (xoá/dựng lại giá SAU submit).
+		self._tao_gia(self.item_hd, self.price_list, 111000)
 
 		self.user_a = self._dam_bao_thanh_vien(
 			"dxgop.a@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_huyethoc

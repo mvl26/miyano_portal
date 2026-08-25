@@ -498,6 +498,50 @@ class TestGiaTuHopDong(FrappeTestCase):
 			"không được ghi giá đàm phán của khách này vào bảng giá khách kia",
 		)
 
+	def test_khach_da_VO_HIEU_HOA_khong_con_chan_dong_bo(self):
+		"""Sửa 25/08 — chốt P32 đếm khách hàng ĐANG HOẠT ĐỘNG.
+
+		Thiếu bộ lọc `disabled`, một bệnh viện cũ đã bị vô hiệu hoá nhưng
+		vẫn trỏ `default_price_list` về bảng giá này khiến phép đếm mãi mãi
+		> 1, và bệnh viện CÒN LẠI bị chặn đồng bộ giá VĨNH VIỄN bằng một câu
+		bảo họ "tách bảng giá riêng cho từng khách" — trong khi họ đã là
+		khách duy nhất còn hoạt động dùng nó. Không có đường nào gỡ ra ngoài
+		việc sửa tay dữ liệu.
+
+		Khách đã vô hiệu hoá không đặt hàng được nữa nên không có giá nào
+		của họ để mà trộn: đúng nguy cơ P32 dựng lên để chặn, và nó không
+		còn."""
+		ma = self._item("_TEST G12 BANG GIA CHUNG VO HIEU")
+		bo_a = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
+		self.addCleanup(
+			frappe.db.set_value, "Customer", self.kh_b, "disabled", 0
+		)
+
+		# Vế ÂM trước — cả hai còn hoạt động thì vẫn phải chặn (nếu vế này
+		# chết, vế dưới xanh chỉ vì chốt P32 đã hỏng hoàn toàn).
+		self._xoa_gia(ma)
+		kq = gia_hdnt.dong_bo(bo_a)
+		self.assertTrue(kq["ly_do"])
+		self.assertEqual(kq["tao"], 0)
+
+		# Vô hiệu hoá khách B — khách A giờ là khách DUY NHẤT còn hoạt động
+		# dùng bảng giá này, đồng bộ phải chạy lại được.
+		frappe.db.set_value("Customer", self.kh_b, "disabled", 1)
+		kq = gia_hdnt.dong_bo(bo_a)
+		self.assertIsNone(
+			kq["ly_do"],
+			"khách đã vô hiệu hoá không được chặn đồng bộ của khách còn lại",
+		)
+		self.assertEqual(
+			float(frappe.db.get_value(
+				"Item Price",
+				{"item_code": ma, "price_list": self.price_list, "selling": 1},
+				"price_list_rate",
+			)),
+			88000.0,
+		)
+
 	# -- ĐÓNG DẤU GIÁ PHẢI NÓI VỀ LẦN GỬI NÀY (advisor, vòng sửa 1) ----------
 
 	def test_gui_duyet_lai_khong_giu_gia_cu_khi_khong_con_tra_duoc_gia(self):

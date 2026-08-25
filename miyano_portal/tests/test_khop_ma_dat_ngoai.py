@@ -873,19 +873,42 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		)
 
 	def test_submit_khi_da_xoa_sach_dong_hang_bao_DUNG_nguyen_nhan(self):
-		"""Chặn đúng nhưng KỂ SAI CHUYỆN. Khi `items` rỗng lúc xác nhận đơn,
-		`_dam_bao_con_dong_hang` chèn một dòng giữ chỗ, rồi
-		`kiem_khong_con_dong_giu_cho` từ chối bằng một câu nói về DÒNG GIỮ
-		CHỖ — thứ người dùng chưa hề thêm; họ vừa xoá dòng hàng.
+		"""FIXTURE PHÒNG THỦ cho một nhánh KHÔNG TỚI ĐƯỢC — Ruling P41.
+		Đọc kỹ đoạn này trước khi tin bài test.
 
-		Dòng giữ chỗ là hình dạng của đơn NHÁP (§3.4), không bao giờ được
-		chèn trong lúc xác nhận đơn.
+		**Nó KHÔNG gác một lỗi từng xảy ra.** Trạng thái nó dựng —
+		`da_chuyen = 1` với `dong_hang` RỖNG trên MỌI dòng gõ tay — chưa bao
+		giờ tồn tại, và không sinh ra được bằng bất kỳ đường ứng dụng nào:
 
-		Trạng thái này phải dựng thẳng ở DB: vệ sinh payload của vòng sửa 2
-		đã bịt mọi đường thường tạo ra một dòng `da_chuyen = 1` mà
-		`dong_hang` rỗng — chính vì thế hai chốt `before_submit` (vốn nói
-		đúng nguyên nhân hơn) đều không có gì để nói ở đây, và câu sai kia
-		mới lọt ra."""
+		  * `set_new_name(hang)` (thứ bảo đảm mọi dòng đã chuyển đều có tên
+		    dòng để ghi vào `dong_hang`) có mặt từ `53e6573`, tức commit Task
+		    13 ĐẦU TIÊN — `git log -S "set_new_name(hang)"` xác nhận. Chưa
+		    bản nào từng ghi `da_chuyen` mà không có `dong_hang`;
+		  * nhánh `feat/de-xuat-mua` chưa merge, chưa triển khai
+		    (`git branch --contains 555e1f4`), nên cũng không có dữ liệu cũ
+		    mang trạng thái đó.
+
+		Vì thế trạng thái phải dựng THẲNG Ở DB bằng `frappe.db.set_value`.
+		Dự án này đã sáu lần dính kiểu "fixture khẳng định một thế giới ứng
+		dụng không tạo ra được"; bài này là lần thứ bảy và được GIỮ LẠI có
+		chủ đích, với docstring nói đúng nó là gì.
+
+		**Giữ lại để làm gì:** khoá hành vi của nhánh `not con_nhap` trong
+		`_dam_bao_con_dong_hang` — dòng giữ chỗ là hình dạng của đơn NHÁP
+		(§3.4) và không bao giờ được chèn trong lúc XÁC NHẬN đơn, vì làm vậy
+		khiến `kiem_khong_con_dong_giu_cho` từ chối bằng một câu nói về DÒNG
+		GIỮ CHỖ — thứ người dùng chưa hề thêm; họ vừa xoá dòng hàng. Nếu ai
+		đó sau này mở lại một đường ghi tạo ra được trạng thái này, nhánh đã
+		có sẵn và đã được khoá.
+
+		**Ca Desk tới được** (xoá cả dòng gõ tay lẫn dòng hàng rồi Submit)
+		CỐ Ý không dùng: nó chạm được nhánh nhưng KHÔNG phân biệt được lời
+		hay lời dở — mã cũ cũng ném ra một câu đúng trên đường đó, nên nó sẽ
+		xanh cả trước lẫn sau bản vá. Một bài chạm nhánh mà không phân biệt
+		được gì thì tệ hơn một fixture phòng thủ nói thật về chính mình.
+
+		Bài NGAY DƯỚI (`..._uu_tien_cau_cua_chot_cu_the`) mới là bài đi
+		đường Desk thật và ghim rủi ro thật."""
 		so = self._dat(dat_ngoai=[self._go_tay()])
 		so = self._khop(so, self.item_hd)
 		frappe.db.set_value(

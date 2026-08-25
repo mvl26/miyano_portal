@@ -1885,9 +1885,12 @@ def portal_reorder(order: str) -> dict:
         # là phép tra `Item Price` THỨ SÁU, độc lập, nên "đặt lại đơn cũ"
         # vẫn trả `thieu_gia` cho đúng mặt hàng mà đặt mới đã đặt được:
         # cùng một mã, hai câu trả lời khác nhau tuỳ khách bấm nút nào.
-        # `contract` ở đây là hợp đồng của CHÍNH đơn cũ (`custom_hdnt`) —
-        # cũng là hợp đồng vòng lặp này đang dùng để tính hạn mức, nên
-        # không có nguồn thứ hai nào được sinh ra.
+        # `contract` ở đây là hợp đồng THẮNG CUỘC vừa suy lại cho chính
+        # dòng này (`thang_cuoc.get(...)` ngay đầu vòng lặp), KHÔNG phải
+        # `so.custom_hdnt` của đơn cũ — xem khối Ruling P31 phía trên, nơi
+        # giải thích vì sao không được tin `custom_hdnt`. Đó cũng đúng là
+        # hợp đồng vòng lặp này vừa dùng để tính hạn mức, nên giá và hạn
+        # mức của một dòng luôn hỏi CÙNG một hợp đồng.
         gia = gia_hdnt.gia_dong_hop_dong(dong.item_code, contract, price_list)
         if not gia:
             bi_loai.append({"item_code": dong.item_code, "ly_do": "thieu_gia"})
