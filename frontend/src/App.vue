@@ -156,9 +156,18 @@ onMounted(async () => {
           <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetNhan }}</span>
         </router-link>
       </nav>
+      <!-- Chủ đầu tư chốt 25/08 — dòng dưới là TÊN TÀI KHOẢN, không phải mã
+           khách. `store.me.customer` là DOCNAME của Customer, mà trên site
+           này Customer đặt tên bằng chính `customer_name`, nên khối này in
+           ĐÚNG MỘT chuỗi hai lần ("Bệnh viện Đa khoa Minh Đức (DEMO)" ở cả
+           hai dòng) — tốn một dòng để không nói thêm gì.
+           `store.me.user` (email phiên đang đăng nhập, đã có sẵn trong
+           `portal_me`) là thứ DUY NHẤT phân biệt được hai người cùng một
+           bệnh viện, và là thứ người dùng cần thấy để biết mình đang đăng
+           nhập bằng tài khoản nào trước khi bấm Đăng xuất. -->
       <div class="who">
         <div>👤 {{ store.me?.customer_name || '…' }}</div>
-        <div class="tag" style="color: #cbd5e1">{{ store.me?.customer || '' }}</div>
+        <div class="tag" style="color: #cbd5e1">{{ store.me?.user || '' }}</div>
         <a href="#" @click.prevent="doLogout">Đăng xuất</a>
       </div>
     </aside>

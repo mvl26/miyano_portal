@@ -91,7 +91,11 @@ onMounted(async () => {
         <!-- Người dùng portal -->
         <div class="card mb10" style="margin-bottom: 14px">
           <div class="h3">Người dùng portal</div>
-          <p style="font-size: 13px">👤 {{ store.me?.customer_name }}<br /><span class="tag">Tài khoản: {{ store.me?.customer }}</span></p>
+          <!-- Nhãn "Tài khoản" trước đây gắn vào `store.me.customer` — mã
+               khách hàng, KHÔNG phải tài khoản, và trên site này nó trùng
+               nguyên văn tên bệnh viện ngay phía trên. Cùng một bản vá với
+               khối `who` ở `App.vue`: tài khoản là email đang đăng nhập. -->
+          <p style="font-size: 13px">👤 {{ store.me?.customer_name }}<br /><span class="tag">Tài khoản: {{ store.me?.user }}</span></p>
         </div>
 
         <!-- Hoá đơn & công nợ -->
