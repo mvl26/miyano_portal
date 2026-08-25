@@ -46,7 +46,12 @@ Năm thay đổi thực chất so với bản TT200 (không chỉ đổi dòng t
     giao**, **Điều kiện bảo quản/Nhiệt độ**;
   * thêm **đoạn cam kết bàn giao** — đây là thứ biến một phiếu xuất kho thành
     một biên bản có giá trị đối chứng, và cũng là lý do mọi con số trong bảng
-    phải đúng: khách đặt bút ký ngay dưới nó;
+    phải đúng: khách đặt bút ký ngay dưới nó. **Đoạn này KHÔNG chép thẳng một
+    câu duy nhất từ docx**: theo Ruling P47 (chủ đầu tư chốt 25/08/2026 và đã
+    chấp nhận việc lệch bản mẫu), phiếu giao ĐỦ mới dùng câu gốc — giao thiếu
+    thì đổi mệnh đề số lượng. Đọc khối chú thích ngay tại `class="cam-ket"`
+    trong `HTML_PHIEU_XUAT_02VT` và docstring
+    `kho/delivery_hook.giao_du_theo_don` trước khi đối chiếu với docx;
   * khối ký đổi từ 5 ô (có Kế toán trưởng, Giám đốc) sang đúng **4 ô** của
     bản mẫu: Người lập phiếu / Thủ kho / Người giao hàng / Người nhận hàng.
 
