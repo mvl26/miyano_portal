@@ -27,13 +27,26 @@ const error = ref('')
 const data = ref(null)
 const name = computed(() => route.params.name)
 
-// E6/F-07 [MỚI — QĐ-6] — "Đơn mua lẻ": `portal_order_track` giờ trả THẲNG
-// `loai_don` (thêm ở review E6 phần B round 1, dọn dẹp ở round 2). Bản
-// trước không có field này nên phải suy bằng heuristic "không gắn HĐNT nào"
-// (`!data.value.hdnt`) — đúng cho MỌI đơn đi qua `portal_order_place`
-// nhưng có thể sai với một đơn dựng tay trên Desk không gắn HĐNT vì lý do
-// khác. Đọc field thật, không còn đoán.
-const laDonMuaLe = computed(() => data.value?.loai_don === 'Mua lẻ')
+// E6/F-07 [MỚI — QĐ-6] — `portal_order_track` trả THẲNG `loai_don` (thêm ở
+// review E6 phần B round 1, dọn dẹp ở round 2). Bản trước không có field
+// này nên phải suy bằng heuristic "không gắn HĐNT nào" (`!data.value.hdnt`)
+// — đúng cho MỌI đơn đi qua `portal_order_place` nhưng có thể sai với một
+// đơn dựng tay trên Desk không gắn HĐNT vì lý do khác. Đọc field thật.
+//
+// Task 6 (QĐ-G2b) — HAI biến, không phải một. Bản trước dùng CHUNG một
+// `laDonMuaLe` cho hai việc khác hẳn nhau: cái NHÃN khách đọc, và cái CHỐT
+// bật/tắt khối sửa số lượng (soi gương chốt server). Đổi nghĩa một biến để
+// sửa cái nhãn sẽ LẲNG LẶNG dời cái chốt lệch khỏi server.
+//
+// Từ Task 4, `loai_don === 'Mua lẻ'` KHÔNG còn nghĩa "đơn mua lẻ": nó nghĩa
+// là "đơn này có dòng chưa có giá nên cả đơn đi vòng báo giá" (QĐ-G3). Một
+// đơn chín dòng hợp đồng + một dòng chờ báo giá cũng mang giá trị đó — dán
+// nhãn "Mua lẻ" lên nó là nói với bệnh viện một điều sai.
+const coHangChoBaoGia = computed(() => data.value?.loai_don === 'Mua lẻ')
+// CHỐT — soi gương ĐÚNG điều kiện `portal.portal_order_sua_so_luong` đòi
+// (`portal_mua_le.di_vong_bao_gia`). Nó TÌNH CỜ trùng biến trên vì server
+// cũng hỏi đúng một dấu đó; giữ riêng để hai thứ đổi độc lập được.
+const suaDuocSoLuong = computed(() => data.value?.loai_don === 'Mua lẻ')
 
 // review I-4 — spec §3.4: "Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi
 // chú nhỏ '(từ yêu cầu: <tên khách gõ>)' để khách đối chiếu được cái mình
@@ -358,7 +371,10 @@ onMounted(load)
         <div class="sb">
           <b style="font-size: 16px">{{ data.order }}</b>
           <span>
-            <span v-if="laDonMuaLe" class="badge b-purple">Mua lẻ</span>
+            <!-- Task 6 (QĐ-G3) — nhãn nói đúng thứ đơn này là: đơn CÓ HÀNG
+                 CHỜ BÁO GIÁ (nên cả đơn đi qua vòng báo giá của Miyano),
+                 không phải "đơn mua lẻ". -->
+            <span v-if="coHangChoBaoGia" class="badge b-purple">Có hàng chờ báo giá</span>
             <!-- `status_vi` (từ trạng thái ERPNext gốc) không phân biệt được
                  "Chờ bạn đồng ý" với "Chờ xác nhận" thường — cả hai đều là
                  SO nháp (Draft, chưa giao gì). `chap_nhan.can_dong_y` (suy từ
@@ -401,11 +417,12 @@ onMounted(load)
         </div>
 
         <!-- Việc 1/brief 2026-08-15 — sửa số lượng NGAY tại đây, chỉ cho
-             đơn Mua lẻ (đúng điều kiện server `portal_order_sua_so_luong`
-             đòi `custom_loai_don == "Mua lẻ"`). Đơn giá cho N hộp không còn
-             đúng ở M hộp — gửi lại là để sales báo giá lại, KHÔNG giữ giá
-             cũ (server tự đặt rate = 0 cho dòng đã đổi). -->
-        <div v-if="laDonMuaLe" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
+             đơn đi vòng báo giá (đúng điều kiện server
+             `portal_order_sua_so_luong` đòi, xem `portal_mua_le.
+             di_vong_bao_gia`). Đơn giá cho N hộp không còn đúng ở M hộp —
+             gửi lại là để sales báo giá lại, KHÔNG giữ giá cũ (server tự
+             đặt rate = 0 cho dòng đã đổi). -->
+        <div v-if="suaDuocSoLuong" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
           <p style="font-size: 13px; margin-bottom: 8px">
             Số lượng chưa đúng? Sửa rồi bấm <b>Gửi lại để báo giá</b> — đơn sẽ
             về Miyano báo giá lại theo số lượng mới (giá hiện tại của dòng đã

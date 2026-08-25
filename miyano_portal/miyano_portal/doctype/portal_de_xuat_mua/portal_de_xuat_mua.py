@@ -444,8 +444,10 @@ class PortalDeXuatMua(Document):
 
 		Lõi `portal.portal_order_sua_so_luong` (nơi `de_xuat_duyet_sua` bắt
 		buộc phải đi qua để sửa Sales Order thật) có HAI chốt cứng:
-		`workflow_state == "Chờ khách đồng ý"` và `custom_loai_don == "Mua
-		lẻ"`. Trước bản vá, `xin_sua()` không hỏi chốt nào — nên:
+		`workflow_state == "Chờ khách đồng ý"` và `portal_mua_le.
+		di_vong_bao_gia(so)` (Task 6; trước đó là chuỗi `custom_loai_don ==
+		"Mua lẻ"` viết tại chỗ). Trước bản vá, `xin_sua()` không hỏi chốt
+		nào — nên:
 
 		  * đơn HĐNT (`dat_hang.py` ghi `custom_loai_don = "Theo HĐNT"` cho
 		    MỌI đơn HĐNT) và
@@ -476,6 +478,7 @@ class PortalDeXuatMua(Document):
 		"""
 		from miyano_portal.portal_mua_le import (
 			TRANG_THAI_CHO_KHACH,
+			di_vong_bao_gia,
 			han_hieu_luc_bao_gia,
 			qua_han_hieu_luc,
 		)
@@ -495,7 +498,11 @@ class PortalDeXuatMua(Document):
 		# Tải CẢ đơn (không `db.get_value` vài cột): chốt hiệu lực nhận
 		# nguyên `so`, và hai chốt mức dòng ở bước sau cần `so.items`.
 		don = frappe.get_doc("Sales Order", self.sales_order)
-		if don.get("custom_loai_don") != "Mua lẻ":
+		# Task 6 (QĐ-G2b) — CÙNG HÀM với lõi `portal.portal_order_sua_so_
+		# luong`. Bản soi gương tự so chuỗi `custom_loai_don` sẽ trôi lệch
+		# khỏi lõi ngay lần đầu ai đó đổi nghĩa chốt — và lệch ở đây nghĩa
+		# là phiếu rời "Đã duyệt" vào ngõ cụt (lỗi C1 ngày 19/08).
+		if not di_vong_bao_gia(don):
 			frappe.throw(
 				f'Đơn "{self.sales_order}" đặt theo hợp đồng nguyên tắc '
 				"(HĐNT). Cổng không sửa được số lượng đơn HĐNT — số lượng "

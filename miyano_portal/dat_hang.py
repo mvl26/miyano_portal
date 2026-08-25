@@ -511,11 +511,15 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
     #
     # Ruling P8 — `Sales Order.custom_loai_don` KHÔNG bị xoá (khác
     # `Portal De Xuat Mua.loai_don`): ~15 chỗ đọc, gồm thông báo tự động và
-    # vòng báo giá. Việc đúng với nó là đổi chốt sang "có dòng chưa có giá"
-    # ở Task 6/7. Ở đây giữ đúng HAI giá trị cũ và suy chúng từ DÒNG:
+    # vòng báo giá. Ở đây giữ đúng HAI giá trị cũ và suy chúng từ DÒNG:
     # còn bất kỳ dòng nào chưa có giá (tầng 2, hoặc dòng đặt ngoài) thì đơn
     # PHẢI đi qua vòng báo giá của Miyano → "Mua lẻ"; đơn thuần hợp đồng
     # giữ nguyên "Theo HĐNT" như hôm nay.
+    #
+    # ĐÂY LÀ CHỖ DUY NHẤT ĐÓNG DẤU, và dấu đóng MỘT LẦN lúc lập đơn. Mọi
+    # CHỐT đọc dấu này đều đi qua `portal_mua_le.di_vong_bao_gia()` (Task 6,
+    # QĐ-G2b) — đừng so chuỗi `== "Mua lẻ"` ở chỗ mới: từ Task 4 giá trị đó
+    # KHÔNG còn nghĩa "đơn mua lẻ" nữa.
     bo_tren_don = sorted({d["hop_dong"] for d in hop_le if d["hop_dong"]})
     con_dong_chua_co_gia = bool(dong_dat_ngoai) or any(
         not d["hop_dong"] for d in hop_le

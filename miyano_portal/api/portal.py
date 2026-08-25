@@ -22,6 +22,7 @@ from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
     TRANG_THAI_CHO_KHACH,
     cap_nhat_yeu_cau_goc,
+    di_vong_bao_gia,
     han_hieu_luc_bao_gia,
     items_san_sang_giao,
     items_thuoc_hdnt_hieu_luc,
@@ -1444,16 +1445,21 @@ def portal_order_track(order) -> dict:
     # thể vẫn còn `workflow_state == "Chờ khách đồng ý"` (job daily CHƯA kịp
     # quét) nhưng đã quá `han_hieu_luc` — client phải biết để tắt nút Đồng ý
     # ngay, không đợi đến khi khách bấm rồi mới nhận 417.
-    # review I-2(c) — `han_hieu_luc`/hết hạn chỉ có ý nghĩa với đơn "Mua lẻ"
-    # (BR-R5 nằm trong QT10); đơn HĐNT ở "Chờ khách đồng ý" (luồng E2 gốc)
-    # không có khái niệm hiệu lực N ngày.
-    la_mua_le = so.get("custom_loai_don") == "Mua lẻ"
+    # review I-2(c) — `han_hieu_luc`/hết hạn chỉ có ý nghĩa với đơn ĐI VÒNG
+    # BÁO GIÁ (BR-R5 nằm trong QT10); đơn thuần hợp đồng ở "Chờ khách đồng ý"
+    # (luồng E2 gốc) không có khái niệm hiệu lực N ngày.
+    #
+    # Task 6 (QĐ-G2b) — hỏi `di_vong_bao_gia()`, KHÔNG so chuỗi
+    # `custom_loai_don == "Mua lẻ"` tại chỗ: từ Task 4, "Mua lẻ" nghĩa là
+    # "còn dòng chưa có giá", nên so chuỗi ở đây đọc như một câu hỏi khác
+    # với câu nó thật sự hỏi.
+    di_bao_gia = di_vong_bao_gia(so)
     chap_nhan = None
     if so.get("workflow_state") == "Chờ khách đồng ý":
-        het_han = la_mua_le and qua_han_hieu_luc(so)
+        het_han = di_bao_gia and qua_han_hieu_luc(so)
         chap_nhan = {
             "can_dong_y": not het_han,
-            "han_hieu_luc": str(han_hieu_luc_bao_gia(so)) if la_mua_le else None,
+            "han_hieu_luc": str(han_hieu_luc_bao_gia(so)) if di_bao_gia else None,
         }
 
     # `_so_status_vi_full` bọc đúng tình huống job daily chuyển
@@ -2223,16 +2229,18 @@ def portal_bao_gia_pdf(order) -> None:
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
 
-    # review I-2 — mẫu in "Miyano - Báo giá" chỉ có nghĩa cho đơn Mua lẻ
-    # (§3.6 "hạn hiệu lực báo giá" là khái niệm CHỈ của nhánh này, cùng lý do
-    # `condition` của Notification "Portal - Báo giá sẵn sàng" đã lọc theo
-    # `custom_loai_don`). `so.custom_loai_don` đã được đọc sẵn ở truy vấn
-    # phía trên — dùng nó, không để đơn hợp đồng khung tải được một chứng từ
-    # đề "Hiệu lực đến..." mà không job nào thi hành.
-    if so.custom_loai_don != "Mua lẻ":
+    # review I-2 — mẫu in "Miyano - Báo giá" chỉ có nghĩa cho đơn ĐI VÒNG
+    # BÁO GIÁ (§3.6 "hạn hiệu lực báo giá" là khái niệm CHỈ của nhánh này,
+    # cùng lý do `condition` của Notification "Portal - Báo giá sẵn sàng" đã
+    # lọc theo `custom_loai_don`). Không để đơn thuần hợp đồng tải được một
+    # chứng từ đề "Hiệu lực đến..." mà không job nào thi hành.
+    #
+    # Task 6 (QĐ-G2b) — `di_vong_bao_gia()` đọc đúng cột `custom_loai_don`
+    # đã lấy sẵn ở truy vấn phía trên, nhưng hỏi bằng TÊN của điều đang hỏi.
+    if not di_vong_bao_gia(so):
         frappe.throw(
-            "Đơn này không thuộc chế độ Mua lẻ — không có báo giá dạng PDF "
-            "để tải.",
+            "Đơn này không có dòng nào chờ báo giá — không có báo giá dạng "
+            "PDF để tải.",
             frappe.ValidationError,
         )
 
@@ -2375,14 +2383,16 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     # job daily (`portal_bao_gia.quet_bao_gia_het_han`) sẽ tự đóng nó —
     # khách phải gửi yêu cầu báo giá mới, không phải bấm nút trên đơn cũ.
     #
-    # review I-2(c) — CHỈ áp cho đơn "Mua lẻ". State "Chờ khách đồng ý"
-    # KHÔNG phải riêng của E6: E2 (US-E2.5, trước cả E6) đã dùng nó cho MỌI
-    # loại đơn cần khách duyệt giá, không có khái niệm hiệu lực N ngày nào.
-    # Thiếu điều kiện `custom_loai_don == "Mua lẻ"` ở đây thì một đơn HĐNT
-    # đang chờ khách duyệt (luồng E2 gốc, có thể mở nhiều tuần) cũng bị chặn
-    # 417 và bị `quet_bao_gia_het_han` tự đóng — một hành vi BR-R5 (nằm
-    # trong §4.10, phạm vi QT10/mua lẻ) chưa từng yêu cầu.
-    if so.get("custom_loai_don") == "Mua lẻ" and qua_han_hieu_luc(so):
+    # review I-2(c) — CHỈ áp cho đơn ĐI VÒNG BÁO GIÁ. State "Chờ khách đồng
+    # ý" KHÔNG phải riêng của E6: E2 (US-E2.5, trước cả E6) đã dùng nó cho
+    # MỌI loại đơn cần khách duyệt giá, không có khái niệm hiệu lực N ngày
+    # nào. Thiếu điều kiện này thì một đơn thuần hợp đồng đang chờ khách
+    # duyệt (luồng E2 gốc, có thể mở nhiều tuần) cũng bị chặn 417 và bị
+    # `quet_bao_gia_het_han` tự đóng — một hành vi BR-R5 (nằm trong §4.10,
+    # phạm vi QT10) chưa từng yêu cầu.
+    #
+    # Task 6 (QĐ-G2b) — hỏi qua `di_vong_bao_gia()`, xem docstring hàm đó.
+    if di_vong_bao_gia(so) and qua_han_hieu_luc(so):
         han = han_hieu_luc_bao_gia(so)
         frappe.local.response["ly_do"] = "qua_han_hieu_luc"
         frappe.throw(
@@ -2519,11 +2529,16 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
         )
     # review (song song portal_order_accept) — "hiệu lực báo giá" (BR-R5)
-    # CHỈ có nghĩa cho Mua lẻ; state "Chờ khách đồng ý" cũng được luồng E2
-    # gốc dùng cho đơn HĐNT, nơi không có khái niệm hiệu lực N ngày.
-    if so.get("custom_loai_don") != "Mua lẻ":
+    # CHỈ có nghĩa cho đơn đi vòng báo giá; state "Chờ khách đồng ý" cũng
+    # được luồng E2 gốc dùng cho đơn thuần hợp đồng, nơi không có khái niệm
+    # hiệu lực N ngày và số lượng đã chốt theo hợp đồng.
+    #
+    # Task 6 (QĐ-G2b) — `_kiem_don_dung_duoc_xin_sua()` của `Portal De Xuat
+    # Mua` SOI GƯƠNG chốt này. Hai bên PHẢI hỏi cùng một hàm, nếu không
+    # phiếu rời "Đã duyệt" rồi chết ở đây (đúng lỗi C1 ngày 19/08).
+    if not di_vong_bao_gia(so):
         frappe.throw(
-            "Chỉ áp dụng cho đơn Mua lẻ.", frappe.ValidationError
+            "Chỉ áp dụng cho đơn có dòng chờ báo giá.", frappe.ValidationError
         )
     if qua_han_hieu_luc(so):
         han = han_hieu_luc_bao_gia(so)

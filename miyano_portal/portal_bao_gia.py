@@ -123,6 +123,13 @@ def quet_bao_gia_het_han(moc=None) -> int:
         # gốc (có thể mở nhiều tuần, không ai coi là "hết hạn") cũng bị job
         # này tự đóng — một hành vi BR-R5 (phạm vi QT10/mua lẻ) chưa từng
         # yêu cầu cho nhánh HĐNT.
+        #
+        # Task 6 (QĐ-G2b) — chốt này KHÔNG gọi được `portal_mua_le.
+        # di_vong_bao_gia()`: đây là FILTER CSDL, không phải một phép hỏi
+        # trên một `doc` đã tải. Đó cũng chính là một trong hai lý do vị ngữ
+        # kia đọc DẤU ĐÓNG `custom_loai_don` chứ không suy lại từ dòng — nếu
+        # nó suy lại từ dòng thì job này và các endpoint sẽ nói khác nhau về
+        # CÙNG một đơn. Đổi vị ngữ kia mà quên đây là làm hai bên lệch nhau.
         filters={
             "workflow_state": TRANG_THAI_CHO_KHACH, "docstatus": 0,
             "custom_loai_don": "Mua lẻ",
