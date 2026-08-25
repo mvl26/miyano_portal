@@ -701,6 +701,21 @@ def _so_status_vi(so_status, per_delivered=None):
     return "Đang xử lý"
 
 
+# Ba `workflow_state` của Sales Order mà CỔNG phải đọc riêng, vì chúng
+# ĐÈ LÊN `so.status` gốc của ERPNext:
+#   * `Khách huỷ` / `Báo giá hết hạn` — cổng tự ghi (`portal_order_huy`,
+#     `portal_bao_gia.quet_bao_gia_het_han`), `docstatus` VẪN 0;
+#   * `Từ chối` — state THẬT của máy trạng thái `Sales Order - Client
+#     Portal` (`setup/install_workflow.py`), Sales User bấm từ "Chờ Miyano
+#     xác nhận", cũng `doc_status = 0`.
+# Đặt tên MỘT LẦN ở đây, ngay trên hàm đọc chúng: trước bản này ba chuỗi
+# nằm rải ở `_so_status_vi_full`, `_TRANG_THAI_GHI_DE_WORKFLOW` và khối SQL
+# của `_sql_giai_doan` — và đúng chỗ rải đó là nơi `Từ chối` bị bỏ sót.
+WF_KHACH_HUY = "Khách huỷ"
+WF_BAO_GIA_HET_HAN = "Báo giá hết hạn"
+WF_TU_CHOI = "Từ chối"
+
+
 def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
     """`_so_status_vi` chỉ đọc từ điển trạng thái GỐC của ERPNext
     (`so.status`), không biết gì về `workflow_state` của Client Portal.
@@ -712,7 +727,7 @@ def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
     viết tay điều kiện này — lệch nhau là đúng kiểu lỗi đã bắt ở
     `portal_mua_le.han_hieu_luc_bao_gia`.
     """
-    if workflow_state == "Báo giá hết hạn":
+    if workflow_state == WF_BAO_GIA_HET_HAN:
         return "Báo giá đã hết hiệu lực"
     # Việc 2/brief 2026-08-15 — cùng lý do trên: `portal_order_huy` huỷ THẬT
     # (workflow_state = "Khách huỷ") nhưng KHÔNG submit/cancel ERPNext
@@ -724,8 +739,21 @@ def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
     # đây). Dùng lại đúng nhãn "Đã huỷ" mà `_so_status_vi` đã dùng cho
     # `so_status == "Cancelled"` — cùng badge đỏ `b-red` ở frontend
     # (`format.js::statusBadge`), không cần sửa gì bên đó.
-    if workflow_state == "Khách huỷ":
+    if workflow_state == WF_KHACH_HUY:
         return "Đã huỷ"
+    # Review vòng 1 Task 11 (Important) — CÙNG lỗ hổng với hai nhánh trên,
+    # chỉ khác chỗ nó xuất phát: `Từ chối` không do cổng ghi mà là state
+    # THẬT của máy trạng thái (Sales User bấm từ "Chờ Miyano xác nhận",
+    # `doc_status = 0`). Thiếu nhánh này, một đơn Miyano ĐÃ TỪ CHỐI đọc ra
+    # "Chờ xác nhận" — y hệt một đơn đang sống — và khoa chờ vô hạn một lô
+    # hàng không bao giờ tới. Đo được trên site: `MD-HUYETHOC-260821-01`,
+    # khoa `KP-00002`, đúng khoa của tài khoản nghiệm thu.
+    #
+    # Nhãn nêu rõ AI từ chối: "Từ chối" trần trùi trùng nghĩa với trạng thái
+    # phiếu đề xuất (quản lý BỆNH VIỆN từ chối) — hai sự kiện khác hẳn nhau
+    # về người ra quyết định và về việc khoa phải làm tiếp.
+    if workflow_state == WF_TU_CHOI:
+        return "Miyano đã từ chối"
     return _so_status_vi(so_status, per_delivered)
 
 
@@ -775,7 +803,17 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
 # CHUNG cho cả `portal_order_history` (lọc + đếm `tong`) và
 # `portal_dashboard_kpi` (đếm KPI) — viết tay điều kiện này hai lần là đúng
 # kiểu lệch nhau đã từng bắt ở `_so_status_vi`/`_so_status_vi_full`.
-_TRANG_THAI_GHI_DE_WORKFLOW = ["Báo giá hết hạn", "Khách huỷ"]
+# Đúng ba state mà `_so_status_vi_full` ghi đè `so.status` — dựng TỪ chính
+# ba hằng đó, không chép lại chuỗi. Một state được thêm nhãn ở hàm kia mà
+# quên thêm vào đây thì hai tầng nói hai điều khác nhau về CÙNG một đơn:
+# danh sách hiện "Miyano đã từ chối" trong khi chip/KPI vẫn đếm nó là "Chờ
+# xác nhận". Đó chính là cách `Từ chối` lọt lưới ở bản đầu Task 11.
+#
+# (Không có chip nào của `_dieu_kien_loc_trang_thai_don` LỌC RA đơn bị từ
+# chối — cố ý: `portal_order_history` nay chỉ nuôi khối tóm tắt ở Dashboard
+# và phép đếm KPI, không còn màn danh sách có chip nào. Chỗ tìm lại một yêu
+# cầu đã chết là chip "Từ chối" của `portal_yeu_cau_cua_toi`.)
+_TRANG_THAI_GHI_DE_WORKFLOW = [WF_BAO_GIA_HET_HAN, WF_KHACH_HUY, WF_TU_CHOI]
 
 
 def _dieu_kien_loc_trang_thai_don(trang_thai: str) -> tuple:
@@ -920,13 +958,11 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
 # lời đúng câu người dùng hỏi ("yêu cầu của tôi tới đâu rồi?"). Nhãn chi
 # tiết của đơn vẫn đi kèm ở `trang_thai_don` để màn danh sách không nuốt
 # mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
-# Hai `workflow_state` do CỔNG tự ghi (không thuộc máy trạng thái gốc của
-# `install_workflow.py`) — cùng hai giá trị `_TRANG_THAI_GHI_DE_WORKFLOW`
-# và `_so_status_vi_full` đang đọc, đặt tên ở đây để câu SQL bên dưới không
-# nhúng chuỗi trần lần thứ ba.
-WF_KHACH_HUY = "Khách huỷ"
-WF_BAO_GIA_HET_HAN = "Báo giá hết hạn"
-
+#
+# Ba `WF_*` mà câu SQL bên dưới dùng khai ở TRÊN `_so_status_vi_full` — một
+# nguồn duy nhất cho cả hàm suy nhãn chi tiết, danh sách trạng thái ghi đè,
+# và khối CASE này. Ba bản sao chuỗi là đúng cách `Từ chối` lọt lưới lần
+# đầu: nó được đặc biệt hoá ở cấp phiếu mà quên ở cấp đơn.
 GIAI_DOAN_NHAP = "Nháp"
 GIAI_DOAN_CHO_DUYET = "Chờ duyệt"
 GIAI_DOAN_DA_DUYET = "Đã duyệt"
@@ -959,6 +995,20 @@ def _sql_giai_doan(tt: str, so: str) -> str:
     "Chờ duyệt sửa" đã có đơn đứng sau, nhưng thứ nó đang CHỜ là quản lý,
     không phải Miyano — hiện "Đã duyệt" ở đó là nói sai ai đang giữ việc.
 
+    HAI ngõ cụt được xét ở CẢ HAI cấp, không riêng cấp phiếu (review vòng 1,
+    Important): `Từ chối` là state THẬT của Sales Order (`setup/
+    install_workflow.py` — Sales User bấm từ "Chờ Miyano xác nhận"), và
+    trước bản vá nó rơi qua hết mọi nhánh vào `else` → một đơn Miyano đã
+    huỷ đọc ra "Đã duyệt", khoa chờ vô hạn. Một ngõ cụt không tìm lại được
+    thì hai giai đoạn ngõ cụt của QĐ-G11 trở thành trang trí.
+
+    Ruling P42 — "Đã giao" đòi `per_delivered >= 100`, KHÔNG phải `> 0`.
+    Giao 25% mà báo "Đã giao" là sai với khoa đang chờ nốt 75%, và nó cãi
+    nhau với nhãn phụ "Đang giao" đứng ngay cạnh trên CÙNG một dòng. Không
+    thêm giai đoạn thứ sáu (QĐ-G11 chốt năm) — nhãn phụ và thanh tiến độ
+    đã nói đủ phần còn lại; đổi lại, đơn giao gần đủ nằm ở "Đã duyệt" lâu
+    hơn, chấp nhận được.
+
     "Chờ báo giá" = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` — báo
     giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin lại
     giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
@@ -977,7 +1027,8 @@ def _sql_giai_doan(tt: str, so: str) -> str:
         when {so}.docstatus = 2 or {so}.status = 'Cancelled'
              or {so}.workflow_state = '{WF_KHACH_HUY}'
             then '{GIAI_DOAN_DA_HUY}'
-        when {so}.status in ('Completed', 'Closed') or {so}.per_delivered > 0
+        when {so}.workflow_state = '{WF_TU_CHOI}' then '{GIAI_DOAN_TU_CHOI}'
+        when {so}.status in ('Completed', 'Closed') or {so}.per_delivered >= 100
             then '{GIAI_DOAN_DA_GIAO}'
         when {so}.workflow_state in ('{TRANG_THAI_CHO_KHACH}', '{WF_BAO_GIA_HET_HAN}')
             then '{GIAI_DOAN_CHO_BAO_GIA}'
