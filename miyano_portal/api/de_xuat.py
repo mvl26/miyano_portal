@@ -207,10 +207,35 @@ def de_xuat_chi_tiet(ten) -> dict:
 			fields=["name", "custom_boi_so_dat"],
 		)
 	}
+	# Ruling P51 — SỐ ĐANG CÓ TRÊN ĐƠN, cạnh `so_luong_duyet`, không thay
+	# nó. Ô "xin sửa số lượng" điền sẵn từ `so_luong_duyet` sẽ cho khoa nhìn
+	# một con số CŨ: đường khớp mã dòng gõ tay (`portal_mua_le._gop_hoac_
+	# them_dong_hang`, hook `validate` của Sales Order — QĐ-G13) cộng thẳng
+	# vào `Sales Order Item.qty` mà không bao giờ đụng `so_luong_duyet`. Khoa
+	# đọc 15 trên màn đơn, thấy ô điền sẵn 10, gõ 15 — và đó đúng là cách
+	# ngõ cụt "Chờ duyệt sửa" bắt đầu (xem docstring `_loc_thay_doi_that`).
+	#
+	# Chốt "+" của phiếu nay so với CHÍNH con số này, nên trả nó ra là để
+	# màn hình hỏi cùng một câu với server, không phải để thêm một cột nữa.
+	# `None` = phiếu chưa có đơn, hoặc dòng không có mặt trên đơn (quản lý
+	# đã hạ về 0 lúc duyệt) — hai ca khác nhau với `0`, đừng gộp.
+	#
+	# MỘT truy vấn cho cả phiếu, cùng khuôn `boi_so` ngay trên.
+	qty_tren_don = {}
+	if kq.get("sales_order"):
+		qty_tren_don = {
+			r.item_code: float(r.qty or 0)
+			for r in frappe.get_all(
+				"Sales Order Item",
+				filters={"parent": kq["sales_order"]},
+				fields=["item_code", "qty"],
+			)
+		}
 	for row in dong:
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
 		row["boi_so"] = boi_so_theo_ma.get(row.get("item_code"))
+		row["so_luong_tren_don"] = qty_tren_don.get(row.get("item_code"))
 	return kq
 
 

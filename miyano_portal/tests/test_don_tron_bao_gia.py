@@ -426,7 +426,11 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 				{"item_code": self.item_hd, "qty": 0},
 				{"item_code": self.item_ngoai, "qty": 0},
 			]})
-		self.assertIn("Huỷ", str(ctx.exception))
+		# Ghim bằng MỆNH ĐỀ chỉ chốt này phát ra, không bằng từ "Huỷ": "Huỷ"
+		# là từ thông dụng, hôm nay tình cờ còn duy nhất trong hàm — chỉ cách
+		# một lần đổi lời là một throw khác thoả mãn được nó.
+		self.assertIn("không còn dòng hàng nào", str(ctx.exception))
+		self.assertIn("Huỷ", str(ctx.exception), "phải chỉ sang nút Huỷ")
 		frappe.set_user("Administrator")
 		lai = frappe.get_doc("Sales Order", so.name)
 		self.assertEqual(len(lai.items), 2, "chặn rồi thì đơn không được rụng dòng")

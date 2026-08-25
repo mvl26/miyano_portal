@@ -49,8 +49,18 @@ const name = computed(() => route.params.name)
 // HIỆN TẠI (đo được: MD-HUYETHOC-260825-04, Hoàn thành, giao 100%, vẫn hiện).
 // Chỉ NHÃN tắt — `loai_don` là DẤU ghi lại đường đơn đã đi, nó không được tự
 // tắt, và mọi CHỐT vẫn đọc dấu nguyên vẹn.
+// LOAI_DON_BAO_GIA — bản sao THỨ SÁU của giá trị `"Mua lẻ"` (năm bản kia ở
+// Python, xem `portal_mua_le.LOAI_DON_BAO_GIA`). SPA không import được hằng
+// số Python, nhưng nó chia được MỘT tên trong file này thay vì viết chuỗi
+// thô ở hai chỗ — chỗ duy nhất còn lại mà một lần đổi giá trị sẽ bỏ quên.
+const LOAI_DON_BAO_GIA = 'Mua lẻ'
+// `docstatus === 0` (nháp), KHÔNG phải `!== 1`: đơn ĐÃ HUỶ mang
+// `docstatus === 2`, và `!== 1` sẽ cho nhãn hiện LẠI trên đó. Khách mở một
+// đơn đã huỷ mà thấy "đang chờ báo giá" là đúng lớp lỗi P49 vừa dẹp — một
+// câu sai về hiện tại. P49 nói nguyên văn "vòng báo giá diễn ra lúc đơn còn
+// nháp", nên nháp mới là điều kiện, không phải "chưa chốt".
 const coHangChoBaoGia = computed(
-  () => data.value?.loai_don === 'Mua lẻ' && data.value?.docstatus !== 1
+  () => data.value?.loai_don === LOAI_DON_BAO_GIA && data.value?.docstatus === 0
 )
 // CHỐT — soi gương HAI trong các điều kiện của
 // `portal.portal_order_sua_so_luong`. Nói cho hết, vì một chú thích khai
@@ -81,7 +91,7 @@ const coHangChoBaoGia = computed(
 // tự chặn được. Server không bao giờ mất quyền nói không.
 // Giữ riêng khỏi `coHangChoBaoGia` để cái NHÃN và cái CHỐT đổi độc lập được.
 const suaDuocSoLuong = computed(
-  () => data.value?.loai_don === 'Mua lẻ' && data.value?.duoc_sua_da_duyet !== false
+  () => data.value?.loai_don === LOAI_DON_BAO_GIA && data.value?.duoc_sua_da_duyet !== false
 )
 
 // review I-4 — spec §3.4: "Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi

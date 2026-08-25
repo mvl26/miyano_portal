@@ -369,6 +369,135 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 			kq = portal.portal_order_track(self.don_da_duyet)
 		self.assertFalse(kq["duoc_sua_da_duyet"])
 
+	# ---- Ruling P51 — chốt "+" phải so với SỐ TRÊN ĐƠN, giống lõi --------
+	#
+	# Lõi so `float(i.qty)` của DÒNG SALES ORDER; bản soi gương so
+	# `so_luong_duyet` của DÒNG PHIẾU. Hai con số đó KHÔNG buộc phải bằng
+	# nhau: `portal_mua_le._gop_hoac_them_dong_hang` (hook `validate` của
+	# Sales Order, đường khớp mã dòng gõ tay — QĐ-G13) cộng thẳng vào
+	# `Sales Order Item.qty` và KHÔNG BAO GIỜ đụng `so_luong_duyet` (cả
+	# `portal_mua_le.py` không có một tham chiếu nào tới trường đó).
+	#
+	# Nhiệm vụ của bản soi gương là ĐOÁN TRƯỚC lõi sẽ làm gì. Lõi so với
+	# đơn, nên gương phải so với đơn — nếu không, phiếu rời "Đã duyệt" sang
+	# "Chờ duyệt sửa" rồi lõi mới ném "Không có thay đổi số lượng nào để
+	# gửi", và `CHUYEN_HOP_LE["Chờ duyệt sửa"]` chỉ có ĐÚNG MỘT cạnh ra
+	# (`tu_choi_sua()`, bắt buộc lý do, đóng dấu lên `ghi_chu_quan_ly` mọi
+	# dòng). Đó chính là ngõ cụt C1 mà Task 7 sinh ra để dẹp.
+	#
+	# Hướng còn lại — đồng bộ `so_luong_duyet` từ đường gộp — bị loại: nó
+	# bắt Task 13 phải biết về cơ chế xin-sửa, thêm ràng buộc giữa hai nơi
+	# vốn không cần biết nhau.
+
+	def _phieu_da_gop_dong_go_tay(self):
+		"""Duyệt 10 cho `self.item` + MỘT dòng gõ tay 5. Miyano khớp dòng gõ
+		tay về CHÍNH mã đó → hook gộp → ĐƠN thành 15 trong khi PHIẾU vẫn ghi
+		`so_luong_duyet = 10`.
+
+		Đi qua ĐÚNG đường thật: `duyet_va_tao_don` mang `dat_ngoai` của phiếu
+		xuống đơn (`de_xuat_duyet.py`), rồi điền `item_khop` và `save()` —
+		đúng thao tác nhân viên Miyano làm trên Desk. Không `db.set_value`
+		thẳng `qty` để dựng lệch: làm thế là tự tay tạo ra một trạng thái
+		mà có thể không đường mã nào sinh được, đúng lớp bẫy fixture dự án
+		đã dính nhiều lần."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 10}],
+			"dat_ngoai": [{
+				"ten_hang": "Kim luồn 24G (khoa gõ tay)", "dvt": "Cái",
+				"so_luong": 5,
+			}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		phieu, don = kq["de_xuat"], kq["sales_order"]
+
+		so = frappe.get_doc("Sales Order", don)
+		self.assertEqual(len(so.get("custom_dat_ngoai") or []), 1,
+				 "fixture phải mang được dòng gõ tay xuống đơn")
+		so.custom_dat_ngoai[0].item_khop = self.item
+		so.save(ignore_permissions=True)
+
+		# TIỀN ĐỀ — không có hai khẳng định này thì bài dưới có thể xanh
+		# trên một fixture chưa hề gộp gì.
+		so.reload()
+		dong_don = {d.item_code: d for d in so.items}
+		self.assertEqual(float(dong_don[self.item].qty), 15.0,
+				 "hook gộp phải cộng 5 vào dòng sẵn có")
+		p = frappe.get_doc("Portal De Xuat Mua", phieu)
+		self.assertEqual(float(p.items[0].so_luong_duyet), 10.0,
+				 "phiếu KHÔNG được đường gộp đụng tới — đó chính là chỗ lệch")
+
+		frappe.db.set_value(
+			"Sales Order", don, "workflow_state",
+			"Chờ khách đồng ý", update_modified=False,
+		)
+		return phieu, don
+
+	def test_xin_dung_so_DANG_CO_TREN_DON_sau_khi_gop_thi_bi_chan(self):
+		"""Khoa mở đơn, THẤY 15, gõ 15. Trước Ruling P51 gương so với 10 nên
+		`15 != 10` lọt qua, phiếu rời "Đã duyệt", rồi lõi thấy `15 == 15` và
+		ném "Không có thay đổi số lượng nào để gửi" — ngõ cụt."""
+		phieu, _don = self._phieu_da_gop_dong_go_tay()
+		frappe.set_user(self.user_huyethoc)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xin_sua(phieu, {
+				"items": [{"item_code": self.item, "qty": 15}],
+			})
+		self.assertIn("không có thay đổi", str(ctx.exception).lower())
+		doc = frappe.get_doc("Portal De Xuat Mua", phieu)
+		self.assertEqual(doc.trang_thai, "Đã duyệt",
+				 "phiếu KHÔNG được rời 'Đã duyệt' vào ngõ cụt")
+		self.assertEqual(doc.items[0].so_luong_xin_sua, SO_LUONG_XIN_SUA_TRONG)
+
+	def test_xin_dung_so_TREN_PHIEU_sau_khi_gop_van_la_thay_doi_that(self):
+		"""VẾ DƯƠNG — không có nó, một chốt "+" từ chối mọi thứ cũng xanh ở
+		bài trên. Khoa gõ 10 (đúng số CŨ trên phiếu) là một thay đổi THẬT vì
+		đơn đang mang 15: khoa đang xin hạ xuống."""
+		phieu, don = self._phieu_da_gop_dong_go_tay()
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(phieu, {
+			"items": [{"item_code": self.item, "qty": 10}],
+		})
+		doc = frappe.get_doc("Portal De Xuat Mua", phieu)
+		self.assertEqual(doc.trang_thai, "Chờ duyệt sửa")
+		self.assertEqual(float(doc.items[0].so_luong_xin_sua), 10.0)
+
+	def test_xin_so_khac_sau_khi_gop_di_TRON_toi_quan_ly_khong_ngo_cut(self):
+		"""VẾ DƯƠNG ĐẦY ĐỦ — đi hết đường: khoa xin 12, quản lý bấm Đồng ý,
+		lõi KHÔNG ném và đơn thật đổi. Đây là bài chứng minh ngõ cụt đã
+		hết, không chỉ chứng minh gương từ chối đúng chỗ."""
+		phieu, don = self._phieu_da_gop_dong_go_tay()
+		frappe.set_user(self.user_huyethoc)
+		de_xuat.de_xuat_xin_sua(phieu, {
+			"items": [{"item_code": self.item, "qty": 12}],
+		})
+		frappe.set_user(self.user_quan_ly)
+		de_xuat.de_xuat_duyet_sua(phieu)
+		so = frappe.get_doc("Sales Order", don)
+		dong_don = {d.item_code: d for d in so.items}
+		self.assertEqual(float(dong_don[self.item].qty), 12.0)
+		doc = frappe.get_doc("Portal De Xuat Mua", phieu)
+		self.assertEqual(doc.trang_thai, "Đã duyệt")
+		self.assertEqual(float(doc.items[0].so_luong_duyet), 12.0)
+
+	def test_chi_tiet_phieu_tra_SO_TREN_DON_de_o_xin_sua_dien_san_dung(self):
+		"""Ruling P51, vế giao diện — ô xin sửa điền sẵn từ `so_luong_duyet`
+		thì khoa nhìn thấy 10 trong khi đơn đang có 15, rồi gõ theo con số
+		MỚI mình đọc trên màn đơn. Đó đúng là cách kịch bản ngõ cụt bắt đầu.
+		Phiếu phải trả ra số ĐANG CÓ TRÊN ĐƠN để màn chi tiết điền sẵn nó."""
+		phieu, _don = self._phieu_da_gop_dong_go_tay()
+		frappe.set_user(self.user_huyethoc)
+		kq = de_xuat.de_xuat_chi_tiet(phieu)
+		dong = {d["item_code"]: d for d in kq["items"]}
+		self.assertEqual(float(dong[self.item]["so_luong_tren_don"]), 15.0)
+		self.assertEqual(float(dong[self.item]["so_luong_duyet"]), 10.0,
+				 "cột duyệt GIỮ NGUYÊN — hai con số cùng hiện, không đè nhau")
+
 	# ---- I3 (review Task 9) — trạng thái không phục hồi được -------------
 	#
 	# `_kiem_chuyen(TRANG_THAI_DA_DUYET)` một mình KHÔNG đủ: cạnh đó hợp lệ

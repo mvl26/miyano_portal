@@ -316,8 +316,19 @@ const xinSuaOpen = ref(false)
 const xinSuaSoLuong = ref({})
 const xinSuaDangGui = ref(false)
 const dongXinSua = computed(() => (doc.value?.items || []).filter((it) => Number(it.so_luong_duyet) > 0))
+// Ruling P51 — điền sẵn SỐ ĐANG CÓ TRÊN ĐƠN (`so_luong_tren_don`), không
+// phải `so_luong_duyet`. Hai con số đó không buộc bằng nhau: đường khớp mã
+// dòng gõ tay (QĐ-G13) cộng thẳng vào `Sales Order Item.qty` và không bao
+// giờ đụng `so_luong_duyet`. Điền số cũ nghĩa là khoa đọc 15 trên màn đơn,
+// thấy ô ghi 10, rồi gõ 15 — server (nay so với đơn) trả lời "không có thay
+// đổi nào", và khoa không hiểu vì sao. `??` chứ không `||`: dòng đang có 0
+// trên đơn là một giá trị THẬT, chỉ `null`/`undefined` (phiếu chưa có đơn,
+// hoặc dòng không có mặt trên đơn) mới rơi về cột duyệt.
+function soDangCo(it) {
+  return it.so_luong_tren_don ?? it.so_luong_duyet
+}
 function moXinSua() {
-  xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, String(it.so_luong_duyet)]))
+  xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, String(soDangCo(it))]))
   xinSuaOpen.value = true
 }
 // Dòng đang mang giá trị 0 TƯỜNG MINH (ô KHÔNG rỗng) — dùng để hiện cảnh

@@ -418,7 +418,8 @@ class PortalDeXuatMua(Document):
 		  3. báo giá còn hiệu lực (BR-R5)    → nt
 		  4. mã hàng phải CÒN trên đơn       → `_kiem_thay_doi_ap_duoc_len_don`
 		  5. đơn còn ít nhất một dòng sau sửa→ nt
-		  (+) phải có thay đổi THẬT, không âm → `_loc_thay_doi_that` (I2)
+		  (+) phải có thay đổi THẬT, không âm → `_loc_thay_doi_that` (I2);
+		      so với SỐ TRÊN ĐƠN, giống lõi (Ruling P51)
 
 		Task 7 — chốt 1 trước đây kể là `loại đơn phải "Mua lẻ"`. Đó là mô
 		tả một phép so chuỗi mà mã KHÔNG còn thực hiện từ Task 6: đơn TRỘN
@@ -439,7 +440,7 @@ class PortalDeXuatMua(Document):
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET_SUA)
 		don = self._kiem_don_dung_duoc_xin_sua()
 		theo_ma = {d.item_code: d for d in self.items}
-		thay_doi = self._loc_thay_doi_that(dong, theo_ma)
+		thay_doi = self._loc_thay_doi_that(dong, theo_ma, don)
 		self._kiem_thay_doi_ap_duoc_len_don(don, thay_doi)
 		for ma, qty in thay_doi.items():
 			theo_ma[ma].so_luong_xin_sua = qty
@@ -604,7 +605,7 @@ class PortalDeXuatMua(Document):
 				frappe.ValidationError,
 			)
 
-	def _loc_thay_doi_that(self, dong: list[dict], theo_ma: dict) -> dict:
+	def _loc_thay_doi_that(self, dong: list[dict], theo_ma: dict, don) -> dict:
 		"""I2 (review tổng 19/08) — trả `{item_code: qty}` của những dòng
 		THẬT SỰ đổi số, sau khi đã chặn số âm.
 
@@ -620,11 +621,48 @@ class PortalDeXuatMua(Document):
 		     ném "Không có thay đổi số lượng nào để gửi", và lúc đó phiếu đã
 		     rời "Đã duyệt" rồi.
 
-		So với `so_luong_duyet` (số đang nằm trên đơn — `_dong_bo_so_luong_
-		duyet_ve_phieu` giữ hai chứng từ khớp nhau), KHÔNG so với
-		`so_luong_de_xuat`. Dòng không đổi bị bỏ qua lặng lẽ: ghi nó xuống
-		`so_luong_xin_sua` chỉ tạo một "yêu cầu" rỗng để tầng dưới lọc lại.
+		Ruling P51 — SO VỚI `Sales Order Item.qty`, KHÔNG với `so_luong_
+		duyet` của phiếu. Bản trước so với phiếu vì tin rằng hai con số luôn
+		bằng nhau (`_dong_bo_so_luong_duyet_ve_phieu` giữ chúng khớp). **Sai
+		— có một đường ghi lên đơn mà KHÔNG đi qua chỗ đồng bộ đó:**
+		`portal_mua_le._gop_hoac_them_dong_hang` (hook `validate` của Sales
+		Order, đường khớp mã dòng gõ tay — QĐ-G13) cộng thẳng vào
+		`Sales Order Item.qty`; cả `portal_mua_le.py` không có một tham
+		chiếu nào tới `so_luong_duyet`.
+
+		Kịch bản dựng lại được (xem `test_de_xuat_sua_sau_duyet.py::_phieu_
+		da_gop_dong_go_tay`): khoa xin mã A số lượng 10 kèm một dòng gõ tay;
+		quản lý duyệt → phiếu ghi 10, đơn có 10; Miyano khớp dòng gõ tay về
+		CHÍNH mã A → hook gộp → **đơn 15, phiếu vẫn 10**. Khoa mở đơn, THẤY
+		15, gõ 15. Bản cũ thấy `15 != 10` nên CHO QUA, phiếu rời "Đã duyệt"
+		— rồi lõi thấy `15 == 15` và ném "Không có thay đổi số lượng nào để
+		gửi". `CHUYEN_HOP_LE["Chờ duyệt sửa"]` chỉ có ĐÚNG MỘT cạnh ra
+		(`tu_choi_sua()`), nên đó là ngõ cụt C1 mà Task 7 sinh ra để dẹp.
+		Triệu chứng soi gương của cùng lỗi: khoa gõ 10 thì bản cũ từ chối
+		bằng câu "số quý vị nhập đúng bằng số đang có trên đơn" — SAI SỰ
+		THẬT, đơn đang có 15.
+
+		Việc của bản soi gương là ĐOÁN TRƯỚC lõi sẽ làm gì. Lõi so với đơn,
+		nên ở đây cũng so với đơn — không phải vì con số nào "đúng hơn", mà
+		vì hai bên phải hỏi CÙNG MỘT câu.
+		*Sai thì mất gì:* nếu nghiệp vụ muốn khoá xin-sửa theo đúng thứ quản
+		lý đã duyệt chứ không theo thứ đơn đang có, phải đảo lại — nhưng lúc
+		đó chỗ phải sửa là HOOK GỘP, không phải chỗ này.
+
+		Mã KHÔNG có trên đơn tính là `0` — giữ nguyên hành vi cũ (`so_luong_
+		duyet` của dòng quản lý đã hạ về 0 cũng là 0): khoa xin lại 5 cho
+		dòng đó vẫn lọt qua đây rồi bị CỬA 2 của `_kiem_thay_doi_ap_duoc_
+		len_don` từ chối kèm lời giải thích đúng ngữ cảnh phiếu.
+
+		Tư cách một dòng "xin sửa được" vẫn đọc từ PHIẾU (`theo_ma`), không
+		từ đơn: phiếu là bản ghi khoa đã xin gì, và dòng đơn sinh ra ngoài
+		phiếu (dòng gõ tay khớp sang một mã MỚI) không phải thứ khoa xin
+		sửa qua đường này.
 		"""
+		# `don` BẮT BUỘC, không mặc định `None`: một mặc định sẽ khiến
+		# người gọi quên truyền vẫn CHẠY, và chạy sai theo kiểu im lặng
+		# (mọi số đều "khác 0" nên mọi thứ tính là thay đổi thật).
+		qty_tren_don = {i.item_code: float(i.qty or 0) for i in don.items}
 		thay_doi: dict[str, float] = {}
 		for row in dong:
 			ma = row.get("item_code")
@@ -646,7 +684,7 @@ class PortalDeXuatMua(Document):
 					"không được âm. Nhập 0 nếu muốn bỏ hẳn mặt hàng này.",
 					frappe.ValidationError,
 				)
-			if qty != float(theo_ma[ma].so_luong_duyet or 0):
+			if qty != qty_tren_don.get(ma, 0.0):
 				thay_doi[ma] = qty
 		if not thay_doi:
 			frappe.throw(
