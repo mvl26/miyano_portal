@@ -768,6 +768,154 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 			"2 hộp khách ĐẶT THẲNG phải còn nguyên — chỉ phần đã gộp bị trừ",
 		)
 
+	# -- BLOCKING (re-review 25/08): P39 mở lại Important-2 qua cửa NHÂN BẢN
+
+	def test_nhan_ban_don_da_HA_TAY_khong_pha_bat_bien_so_sach(self):
+		"""Lỗ do CHÍNH vòng sửa 2 tạo ra. Trước P39, `da_chuyen = 1` mà
+		`so_luong_da_gop = 0` chỉ có thể nghĩa là "dòng cũ, cột chưa tồn
+		tại". P39 khiến trạng thái đó thành BÌNH THƯỜNG VÀ ĐÚNG — dòng B
+		trong chính ví dụ của Ruling P39 kết thúc ở 0.
+
+		Phép neo bản sao lại đọc `not flt(so_luong_da_gop)` (falsy) là
+		"vắng mặt" và GHI ĐÈ thành `so_luong`. `copy_doc` mặc định
+		`ignore_no_copy=True`, `_ep_bat_bien_so_sach` thoát sớm khi
+		`truoc is None` — nên không gì kẹp lại đầu ra của phép neo, và bất
+		biến P39 VỠ NGAY LÚC INSERT.
+
+		Toàn bước Desk thường: 9 = 2 đặt thẳng + A3 + B4 → hạ tay xuống 4
+		(P39: A=2, B=0) → NHÂN BẢN → trên bản sao xoá mỗi B → sự thật phải
+		là 4 (2 đặt thẳng + A còn nợ 2), nhưng B bị neo với sổ sách 4 nên
+		phép trừ ăn mất 2 đơn vị khách ĐẶT THẲNG — và vì dòng không bị xoá
+		nên KHÔNG thông báo nào nổ."""
+		so = self._dong_chung_hai_chu()
+		so.items[0].qty = 4
+		so.save(ignore_permissions=True)
+		so.reload()
+		theo_ten = {d.ten_hang: d for d in so.custom_dat_ngoai}
+		self.assertEqual(
+			flt(theo_ten["Dòng B"].so_luong_da_gop), 0.0,
+			"tiền đề: P39 đã hạ sổ sách của B về 0 một cách HỢP LỆ",
+		)
+
+		ban_sao = frappe.copy_doc(so)
+		ban_sao.custom_request_id = _rid()
+		ban_sao.insert(ignore_permissions=True)
+
+		dong = self._dong(ban_sao, self.item_da_co)
+		tong_gop = flt(sum(flt(d.so_luong_da_gop) for d in ban_sao.custom_dat_ngoai), 3)
+		self.assertLessEqual(
+			tong_gop, flt(dong.qty),
+			"bất biến P39 (tổng đã gộp ≤ qty) phải đứng NGAY LÚC insert bản sao",
+		)
+
+		ban_sao.custom_dat_ngoai = [
+			d for d in ban_sao.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		]
+		ban_sao.save(ignore_permissions=True)
+		ban_sao.reload()
+		self.assertEqual(
+			flt(self._dong(ban_sao, self.item_da_co).qty), 4.0,
+			"2 khách đặt thẳng + 2 dòng A còn được nợ — không ai bị ăn mất",
+		)
+
+	def test_kep_so_sach_chan_payload_khai_gop_vuot_qty(self):
+		"""Lớp kẹp CUỐI của P39, canh riêng. `_ep_bat_bien_so_sach` đối chiếu
+		`truoc` với hiện tại nên nó KHÔNG có gì để so ở lần `insert` — đúng
+		đường một bản sao (hoặc một payload dựng tay) đi vào. Lớp kẹp đọc
+		thẳng trạng thái CUỐI nên không cần mốc trước.
+
+		Payload khai khống sổ sách 99 trên một dòng hàng chỉ có 9: bất biến
+		P39 vẫn phải đứng sau khi lưu."""
+		so = self._dong_chung_hai_chu()
+		ban_sao = frappe.copy_doc(so)
+		ban_sao.custom_request_id = _rid()
+		for d in ban_sao.custom_dat_ngoai:
+			d.so_luong_da_gop = 99
+		ban_sao.insert(ignore_permissions=True)
+
+		dong = self._dong(ban_sao, self.item_da_co)
+		tong = flt(sum(flt(d.so_luong_da_gop) for d in ban_sao.custom_dat_ngoai), 3)
+		self.assertLessEqual(
+			tong, flt(dong.qty),
+			"tổng sổ sách khai được không bao giờ vượt `qty` của dòng hàng",
+		)
+
+	# -- MINOR (re-review 25/08): số thực lẻ ------------------------------
+
+	def test_so_luong_LE_khong_de_lai_dong_hang_gan_bang_khong(self):
+		"""Bản vá `flt(x, 3)` của vòng trước — tôi từng khai KHÔNG dựng được
+		vế đỏ tất định cho nó. **Khai sai**: `Cái`/`Hộp` có
+		`must_be_whole_number = 0` (đã truy vấn site) nên số lượng lẻ đi
+		qua được, và `tao_sales_order` chỉ chặn `<= 0`.
+
+		0.7 + 0.1 = 0.7999999999999999 trong Python. Với phép trừ số thực
+		thô: `con = 0.8 − 0.7999999999999999 = 1.11e-16`, LỚN HƠN `san = 0`,
+		nên dòng hàng SỐNG SÓT ở ~0 — rồi làm tròn thành `0.000` lúc lưu và
+		rơi vào `validate_qty_is_not_zero` của ERPNext. Quyết định nhánh
+		xảy ra TRONG BỘ NHỚ nên phép làm tròn của cột `decimal(21,3)` không
+		che được nó, đúng như re-review chỉ ra."""
+		so = self._dat(
+			items=[{"item_code": self.item_hd, "qty": 1}],
+			dat_ngoai=[self._go_tay("Lẻ A", 0.7), self._go_tay("Lẻ B", 0.1)],
+		)
+		for d in so.custom_dat_ngoai:
+			d.item_khop = self.item_da_co
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(flt(self._dong(so, self.item_da_co).qty, 3), 0.8)
+
+		so.custom_dat_ngoai = []
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertNotIn(
+			self.item_da_co, [d.item_code for d in so.items],
+			"trừ hết thì phải GỠ dòng, không để lại một dòng số lượng ~0",
+		)
+
+	def test_submit_khi_da_xoa_sach_dong_hang_bao_DUNG_nguyen_nhan(self):
+		"""Chặn đúng nhưng KỂ SAI CHUYỆN. Khi `items` rỗng lúc xác nhận đơn,
+		`_dam_bao_con_dong_hang` chèn một dòng giữ chỗ, rồi
+		`kiem_khong_con_dong_giu_cho` từ chối bằng một câu nói về DÒNG GIỮ
+		CHỖ — thứ người dùng chưa hề thêm; họ vừa xoá dòng hàng.
+
+		Dòng giữ chỗ là hình dạng của đơn NHÁP (§3.4), không bao giờ được
+		chèn trong lúc xác nhận đơn.
+
+		Trạng thái này phải dựng thẳng ở DB: vệ sinh payload của vòng sửa 2
+		đã bịt mọi đường thường tạo ra một dòng `da_chuyen = 1` mà
+		`dong_hang` rỗng — chính vì thế hai chốt `before_submit` (vốn nói
+		đúng nguyên nhân hơn) đều không có gì để nói ở đây, và câu sai kia
+		mới lọt ra."""
+		so = self._dat(dat_ngoai=[self._go_tay()])
+		so = self._khop(so, self.item_hd)
+		frappe.db.set_value(
+			"Sales Order Dat Ngoai Item", so.custom_dat_ngoai[0].name,
+			"dong_hang", "", update_modified=False,
+		)
+		so.reload()
+		so.items = []
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		loi = str(ctx.exception)
+		self.assertIn("không còn dòng hàng nào để xác nhận", loi)
+		self.assertNotIn(
+			ITEM_GIU_CHO, loi,
+			"không được kể chuyện dòng giữ chỗ cho một người vừa xoá dòng hàng",
+		)
+		so.reload()
+		self.assertEqual(so.docstatus, 0)
+
+	def test_submit_khi_xoa_dong_hang_van_uu_tien_cau_cua_chot_cu_the(self):
+		"""Vế răng của bài trên: khi một chốt `before_submit` CÓ chuyện đúng
+		hơn để kể thì phải nhường lời cho nó, không cướp lời bằng câu chung
+		chung."""
+		so = self._dat(dat_ngoai=[self._go_tay()])
+		so = self._khop(so, self.item_hd)
+		so.items = []
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		self.assertIn("đã bị xoá hoặc đổi mã", str(ctx.exception))
+
 	# -- CRITICAL-2 (review 22/08): đường GỘP không được vứt giá hợp đồng ---
 
 	def test_gop_vao_dong_dang_cho_bao_gia_thi_DAN_gia_hop_dong(self):

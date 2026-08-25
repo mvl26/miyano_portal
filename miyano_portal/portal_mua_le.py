@@ -280,7 +280,8 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
 
     if da_chuyen_lan_nay:
         _go_dong_giu_cho(doc)
-    _dam_bao_con_dong_hang(doc)
+    _dam_bao_con_dong_hang(doc, con_nhap)
+    _kep_so_sach_theo_qty(doc)
 
 
 def _neo_lai_ban_sao(doc, dong) -> bool:
@@ -321,8 +322,25 @@ def _neo_lai_ban_sao(doc, dong) -> bool:
             return False
         dong.da_chuyen = 1
         dong.dong_hang = hang.name
-        if not flt(dong.get("so_luong_da_gop")):
-            dong.so_luong_da_gop = flt(dong.so_luong)
+        # **"VẮNG MẶT" ≠ "BẰNG 0"** (re-review 25/08 — lỗ do chính vòng
+        # trước tạo ra). Bản trước đọc `not flt(so_luong_da_gop)` (falsy) là
+        # "bản ghi cũ, cột chưa tồn tại" rồi GHI ĐÈ bằng `so_luong`. Trước
+        # Ruling P39, `da_chuyen = 1` kèm sổ sách 0 quả thật chỉ sinh ra từ
+        # dữ liệu cũ — nhưng P39 khiến nó thành trạng thái BÌNH THƯỜNG VÀ
+        # ĐÚNG (dòng nhường hết phần của mình khi sales hạ tay `qty`). Ghi
+        # đè lúc đó thổi sổ sách của bản sao vượt `qty`, và lần xoá kế tiếp
+        # ăn mất phần khách ĐẶT THẲNG — Important-2 quay lại qua cửa nhân
+        # bản.
+        #
+        # Cách phân biệt: KHÔNG đoán từ giá trị nữa. Giá trị chép sang là
+        # sự thật của bản gốc (nơi bất biến P39 đang đứng), cứ mang nguyên
+        # sang — kể cả `0`. Còn "vắng mặt thật" (payload dựng tay thiếu
+        # hẳn field) rơi về `0` qua `flt(None)`, và `0` ở đây là AN TOÀN:
+        # nó nghĩa "dòng này không đòi gì trên dòng hàng", nên phép hoàn
+        # tác không trừ gì cả — sai theo hướng giữ lại số lượng, không bao
+        # giờ theo hướng ăn mất. Dữ liệu cũ thật thì đã được patch
+        # `them_cot_so_luong_da_gop` backfill từ trước.
+        dong.so_luong_da_gop = flt(dong.get("so_luong_da_gop"), 3)
         return True
     return False
 
@@ -489,7 +507,50 @@ def _hoan_tac_dong_bi_xoa(doc, cu: dict, con_lai: set, gop: dict) -> None:
             hang.idx = idx
 
 
-def _dam_bao_con_dong_hang(doc) -> None:
+def _kep_so_sach_theo_qty(doc) -> None:
+    """Lớp kẹp CUỐI CÙNG của Ruling P39, chạy sau MỌI thay đổi trong một lần
+    lưu: với mỗi dòng hàng, tổng `so_luong_da_gop` của các dòng gõ tay trỏ
+    vào nó không được vượt `qty` của nó.
+
+    Vì sao cần thêm một lớp nữa dù `_ep_bat_bien_so_sach` đã chạy ở đầu:
+    hàm đó đối chiếu `truoc` với hiện tại, nên nó **không có gì để so ở lần
+    `insert`** (`truoc is None`) — đúng đường mà một BẢN SAO đi vào. Kẹp ở
+    đây đọc thẳng trạng thái CUỐI của document, không cần mốc trước, nên nó
+    phủ được cả bản sao lẫn payload dựng tay, và nó là chỗ bất biến P39
+    được bảo đảm chứ không chỉ được mong đợi.
+
+    Cùng thứ tự nhường TẤT ĐỊNH với `_ep_bat_bien_so_sach`: dòng gõ tay
+    nhập SAU nhường trước (`idx` giảm dần).
+
+    Ở luồng bình thường đây là no-op: phép chuyển luôn cộng `qty` đúng bằng
+    phần nó ghi vào sổ sách.
+    """
+    theo_hang: dict = {}
+    for dong in doc.get("custom_dat_ngoai") or []:
+        if dong.get("da_chuyen") and dong.get("dong_hang"):
+            theo_hang.setdefault(dong.get("dong_hang"), []).append(dong)
+    if not theo_hang:
+        return
+    qty = {h.name: flt(h.qty, 3) for h in (doc.get("items") or []) if h.name}
+    for ten_hang, ds in theo_hang.items():
+        if ten_hang not in qty:
+            # Dòng hàng không còn — `kiem_dong_chuyen_con_tren_don` lo ở
+            # `before_submit`, không đoán mò ở đây.
+            continue
+        tong = flt(sum(flt(d.get("so_luong_da_gop"), 3) for d in ds), 3)
+        du = flt(tong - qty[ten_hang], 3)
+        if du <= 0:
+            continue
+        for dong in sorted(ds, key=lambda x: flt(x.get("idx")), reverse=True):
+            if du <= 0:
+                break
+            hien = flt(dong.get("so_luong_da_gop"), 3)
+            bot = min(hien, du)
+            dong.so_luong_da_gop = flt(hien - bot, 3)
+            du = flt(du - bot, 3)
+
+
+def _dam_bao_con_dong_hang(doc, con_nhap: bool = True) -> None:
     """ERPNext KHÔNG lưu nổi một Sales Order với bảng `items` RỖNG
     (`calculate_taxes_and_totals` không có gì để tính, `grand_total` là
     `None`) — xác nhận thực nghiệm, ghi ở `dat_hang._xay_don`.
@@ -501,6 +562,31 @@ def _dam_bao_con_dong_hang(doc) -> None:
     nói cho nhân viên biết chuyện gì vừa xảy ra.
     """
     if doc.get("items"):
+        return
+    if not con_nhap:
+        # Đang XÁC NHẬN đơn. Dòng giữ chỗ là hình dạng của một đơn NHÁP
+        # (§3.4); chèn nó vào lúc này chỉ dẫn tới việc
+        # `kiem_khong_con_dong_giu_cho` từ chối bằng một câu nói về DÒNG GIỮ
+        # CHỖ — chặn đúng nhưng kể sai chuyện, người dùng vừa xoá dòng hàng
+        # chứ không hề thêm dòng giữ chỗ nào.
+        #
+        # Để `items` rỗng và NHƯỜNG LỜI cho hai chốt `before_submit` vốn nói
+        # đúng nguyên nhân hơn hẳn: `kiem_dat_ngoai_da_xu_ly` ("còn dòng
+        # chưa xử lý") và `kiem_dong_chuyen_con_tren_don` ("dòng hàng tương
+        # ứng đã bị xoá hoặc đổi mã"). Chỉ tự lên tiếng khi cả hai chốt đó
+        # đều không có gì để nói — nếu không thì đơn rỗng sẽ chạm tới
+        # `MandatoryError: items` của framework.
+        ds = doc.get("custom_dat_ngoai") or []
+        chot_khac_se_noi = any(not d.get("da_chuyen") for d in ds) or any(
+            d.get("da_chuyen") and d.get("dong_hang") for d in ds
+        )
+        if not chot_khac_se_noi:
+            frappe.throw(
+                "Đơn không còn dòng hàng nào để xác nhận — mọi dòng hàng đã bị "
+                "xoá khỏi đơn. Thêm lại dòng hàng (hoặc khớp mã lại cho các "
+                "dòng đặt ngoài) trước khi xác nhận đơn.",
+                frappe.ValidationError,
+            )
         return
     if not doc.get("custom_dat_ngoai"):
         # Không còn dòng hàng NÀO và cũng không còn dòng gõ tay nào: đơn
