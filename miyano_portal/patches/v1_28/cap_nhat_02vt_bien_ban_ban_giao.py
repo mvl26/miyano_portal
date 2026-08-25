@@ -26,8 +26,11 @@ tài khoản, mẫu tiêu đề thư), patch xoá bản sửa ấy mà không ai
   * **Ghi đè thật thì để `modified` chạy theo** (bỏ `update_modified=False`,
     đúng khuôn v1_11) và ghi MỘT dòng `Error Log` mang độ dài + sha256 của
     bản cũ. Không lưu nguyên bản cũ vào log: nó vài chục KB, và Error Log
-    không phải chỗ chứa bản sao lưu; độ dài + hash đủ để đối chiếu với một
-    bản backup và trả lời được câu "mẫu của tôi có bị thay không".
+    không phải chỗ chứa bản sao lưu. Độ dài + hash chỉ để **PHÁT HIỆN** đã có
+    thay đổi và nhận ra bản nào bị thay — **không phục hồi được gì**, và
+    không có bản sao lưu nào được xác lập ở đâu để "đối chiếu". Muốn giữ lại
+    bản cũ thì phải TỰ chụp sao lưu TRƯỚC khi chạy `bench migrate`. (Lời trong
+    chính dòng log nói đúng như vậy — hai chỗ phải khớp nhau.)
 """
 
 import hashlib
