@@ -201,7 +201,7 @@ cho phần *Chờ báo giá*. Hệ thống không tự tách hộ, vì tách đ�
 
 Khi Miyano báo giá xong, bạn nhận **thông báo trên cổng** (chuông 🔔) và đơn
 chuyển sang trạng thái **"Chờ bạn đồng ý"**. Ở màn **Yêu cầu của tôi** nó nằm ở
-chip **Chờ báo giá** — nghĩa là *giá đã về, đang chờ bạn trả lời*. Mở đơn, đầu
+chip **Chờ quý vị đồng ý** — nghĩa là *giá đã về, đang chờ bạn trả lời*. Mở đơn, đầu
 trang có khối màu cam:
 
 > ⏳ **Báo giá hiệu lực đến 23/08/2026.**
@@ -240,14 +240,18 @@ Lọc bằng dải chip ở đầu danh sách:
 | **Nháp** | Bạn đang soạn, chưa gửi. Bấm vào để mở lại màn Đặt hàng và sửa tiếp | Bạn |
 | **Chờ duyệt** | Đã gửi, quản lý đơn vị chưa duyệt | Quản lý đơn vị |
 | **Đã duyệt** | Đơn đã sang Miyano và đang chạy — kể cả khi Miyano còn đang gom giá, hoặc đã giao được một phần | Miyano |
-| **Chờ báo giá** | **Miyano đã báo giá xong, đang chờ bạn trả lời** (hoặc báo giá đã quá hạn) | Bạn |
+| **Chờ quý vị đồng ý** | **Miyano đã báo giá xong, đang chờ bạn trả lời** (hoặc báo giá đã quá hạn) | Bạn |
 | **Đã giao** | Đã giao đủ, hoặc đơn đã đóng | — |
 | **Từ chối** · **Đã huỷ** | Yêu cầu dừng lại, vẫn giữ để tra sau | — |
 
-> **Hai chip giữa hay bị đọc ngược.** *Chờ báo giá* **không** phải là "đang chờ
-> Miyano ra giá" — nó nghĩa là **giá đã về và đang chờ bạn**. Đơn đang chờ Miyano
-> ra giá thì nằm ở *Đã duyệt*. Đơn mới giao được một phần cũng nằm ở *Đã duyệt*,
-> thanh tiến độ trên dòng cho biết đã giao bao nhiêu phần trăm.
+> **Đọc kỹ hai chip giữa.** Đơn **đang chờ Miyano ra giá** nằm ở *Đã duyệt* —
+> cùng chỗ với đơn đã có giá và đang chạy. *Chờ quý vị đồng ý* là bước SAU đó:
+> **báo giá đã về, và việc đang nằm ở phía bạn.** Đơn mới giao được một phần
+> cũng nằm ở *Đã duyệt*, thanh tiến độ trên dòng cho biết đã giao bao nhiêu
+> phần trăm.
+>
+> *(Chip này trước đây tên "Chờ báo giá" — cái tên đó đọc như đang chờ Miyano,
+> đúng ngược chiều việc. Link cũ có kèm tên cũ vẫn mở đúng chip.)*
 
 Phân trang 10/20/50 như mọi danh sách khác. Bấm vào một dòng để mở **chi tiết**.
 
@@ -703,12 +707,12 @@ hơn ở màn *Yêu cầu của tôi* — đối chiếu ở cột thứ tư.
 | Trạng thái (Desk) | Ai đang giữ việc | Bước tiếp | Khách thấy |
 |---|---|---|---|
 | Chờ xác nhận | Miyano | Báo giá (nếu đơn có dòng chưa có giá) hoặc gửi duyệt | Đã duyệt |
-| Chờ khách đồng ý | **Khách** | Khách đồng ý / sửa SL / huỷ | **Chờ báo giá** |
+| Chờ khách đồng ý | **Khách** | Khách đồng ý / sửa SL / huỷ | **Chờ quý vị đồng ý** |
 | Chờ Miyano xác nhận | Miyano | Bấm Xác nhận | Đã duyệt |
 | Đã xác nhận | Miyano | Lập phiếu giao | Đã duyệt, rồi **Đã giao** khi giao đủ |
 | Từ chối | — | Đơn đóng | Từ chối |
 | Khách huỷ | — | Mở lại được | Đã huỷ |
-| Báo giá hết hạn | — | Mở lại được | **Chờ báo giá** |
+| Báo giá hết hạn | — | Mở lại được | **Chờ quý vị đồng ý** |
 
 ## C2. Biên bản kiểm hàng
 
@@ -731,7 +735,8 @@ hỏng) và *Sẽ giao bù* (hàng thiếu).
 | Hiện tượng | Nguyên nhân | Xử lý |
 |---|---|---|
 | Khách hỏi *"sao hàng hợp đồng của tôi không giao ngay"* | Đơn đó có ít nhất một dòng chưa có giá nên cả đơn đi một vòng báo giá | Giải thích theo A3, và hướng dẫn lần sau đặt riêng một đơn chỉ gồm hàng hợp đồng |
-| Khách hỏi *"đơn ở Chờ báo giá là đang chờ Miyano à"* | Không — giai đoạn đó nghĩa là **giá đã về, đang chờ khách trả lời** | Bảo khách mở đơn và bấm Đồng ý / Sửa số lượng |
+| Khách hỏi *"đơn của tôi đang chờ Miyano ra giá, sao không thấy chip nào tên vậy"* | Đơn chờ Miyano ra giá nằm ở **Đã duyệt**. Chip **Chờ quý vị đồng ý** là bước sau: giá đã về, việc đang ở phía bệnh viện | Bảo khách mở đơn và bấm Đồng ý / Sửa số lượng |
+| Khách mở link cũ có `?chip=Chờ báo giá` | Tên chip đã đổi thành **Chờ quý vị đồng ý** | Không phải làm gì — link cũ vẫn mở đúng chip đó |
 | Khách mở link cũ **Giỏ hàng / Đơn hàng của tôi / Đề xuất mua** | Ba màn đó đã gộp | Không phải làm gì — link tự chuyển sang màn mới |
 | Không xác nhận được đơn | Còn dòng đặt ngoài chưa xử lý, hoặc còn dòng `HANG-DAT-NGOAI` | Xem B2 |
 | Khớp mã xong mà bảng hàng có **hai dòng trùng nhau** | Có người thêm tay một dòng nữa, trong khi hệ thống đã tự dựng dòng đó | Xoá dòng thêm tay đi. Xem B2 |

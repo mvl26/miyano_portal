@@ -245,15 +245,18 @@ Trên cổng, khách không thấy "phiếu" và "đơn" là hai thứ. Họ th�
 | **Nháp** | Đang soạn, chưa gửi | Người lập |
 | **Chờ duyệt** | Đã gửi, gồm cả yêu cầu xin sửa số lượng | Quản lý bệnh viện |
 | **Đã duyệt** | Quản lý đã duyệt, đơn đã sang Miyano và đang chạy — kể cả khi Miyano còn đang gom giá, hoặc đã giao được một phần | Miyano |
-| **Chờ báo giá** | **Miyano đã báo giá xong và đang chờ bệnh viện trả lời** (hoặc báo giá đã quá hạn) | Bệnh viện |
+| **Chờ quý vị đồng ý** | **Miyano đã báo giá xong và đang chờ bệnh viện trả lời** (hoặc báo giá đã quá hạn) | Bệnh viện |
 | **Đã giao** | Đã giao đủ, hoặc đơn đã đóng | — |
 | **Từ chối** · **Đã huỷ** | Hai ngõ cụt, yêu cầu ở lại để truy vết | — |
 
-> **Đọc kỹ hai dòng giữa, đây là chỗ hay hiểu ngược.** *"Chờ báo giá"* KHÔNG có
-> nghĩa là đang chờ Miyano ra giá — nó nghĩa là **giá đã về, bệnh viện cần mở yêu
-> cầu ra và trả lời**. Một yêu cầu đang chờ Miyano ra giá thì vẫn nằm ở *"Đã
-> duyệt"*. Nói ngược hai dòng này là để bệnh viện ngồi chờ một việc đang thuộc về
-> chính họ.
+> **Đọc kỹ hai dòng giữa.** Một yêu cầu **đang chờ Miyano ra giá** nằm ở *"Đã
+> duyệt"* — cùng chỗ với yêu cầu đã có giá và đang chạy. *"Chờ quý vị đồng ý"* là
+> bước SAU đó: **giá đã về, bệnh viện cần mở yêu cầu ra và trả lời.** Nói ngược
+> hai dòng này là để bệnh viện ngồi chờ một việc đang thuộc về chính họ.
+>
+> *(Giai đoạn này trước đây tên "Chờ báo giá" — cái tên đó đọc như đang chờ
+> Miyano, đúng ngược chiều việc, và là lý do chủ đầu tư cho đổi tên ngày
+> 26/08/2026. Link cũ mang tên cũ vẫn mở đúng chip.)*
 
 Trước bản này, một yêu cầu nằm ở màn "Đề xuất mua" khi còn là phiếu rồi **nhảy**
 sang màn "Đơn hàng của tôi" sau khi quản lý duyệt — muốn tìm lại yêu cầu của chính
@@ -358,7 +361,7 @@ Phần trên nói *luật*. Phần này nói *bấm ở đâu* — và **những
 | Màn | Ai thấy | Làm được gì |
 |---|---|---|
 | **Đặt hàng** | mọi vai trò | Tìm hàng, bỏ vào giỏ, điền lý do yêu cầu, ngày giao mong muốn, địa chỉ giao — rồi **Gửi duyệt** (nhân viên khoa) hoặc **Đặt hàng** (quản lý). Có nút **Lưu nháp** để soạn dở |
-| **Yêu cầu của tôi** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy yêu cầu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ báo giá / Đã giao / Từ chối / Đã huỷ`) |
+| **Yêu cầu của tôi** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy yêu cầu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ quý vị đồng ý / Đã giao / Từ chối / Đã huỷ`) |
 | **Duyệt** | **chỉ quản lý** | Hàng chờ: gộp `Chờ duyệt` + `Chờ duyệt sửa`, lọc theo khoa phòng. Con số trên mục menu là số yêu cầu đang chờ |
 | **Chi tiết yêu cầu** | ai mở được yêu cầu đó | Đầu phiếu (truy vết), bảng dòng hàng kèm nhãn giá từng dòng, và thanh nút hành động theo trạng thái + vai trò |
 

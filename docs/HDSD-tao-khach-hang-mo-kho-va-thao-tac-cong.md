@@ -348,10 +348,13 @@ lúc đơn thật sự sinh ra, kèm thông báo còn bao nhiêu.
 ### C3. Theo dõi
 
 **Yêu cầu của tôi** — một danh sách cho cả vòng đời, lọc bằng dải chip:
-`Nháp · Chờ duyệt · Đã duyệt · Chờ báo giá · Đã giao · Từ chối · Đã huỷ`.
+`Nháp · Chờ duyệt · Đã duyệt · Chờ quý vị đồng ý · Đã giao · Từ chối · Đã huỷ`.
 
-> **Chờ báo giá** nghĩa là **giá đã về, đang chờ đơn vị trả lời** — không phải
-> đang chờ Miyano ra giá. Yêu cầu đang chờ Miyano ra giá nằm ở **Đã duyệt**.
+> Yêu cầu **đang chờ Miyano ra giá** nằm ở **Đã duyệt**. **Chờ quý vị đồng ý** là
+> bước sau đó: **giá đã về, đang chờ đơn vị trả lời.**
+>
+> *(Giai đoạn này trước đây tên "Chờ báo giá" — đọc như đang chờ Miyano, ngược
+> chiều việc. Đổi tên 26/08/2026; link cũ mang tên cũ vẫn mở đúng chip.)*
 
 Bấm vào một dòng để xem tiến trình:
 `Chờ xác nhận → Đang xử lý → Đang giao → Hoàn thành`

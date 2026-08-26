@@ -93,7 +93,7 @@ Nghĩa là **để tìm lại yêu cầu của mình, nhân viên phải biết 
 **Và chính chủ đầu tư đã gỡ bỏ rào cản kỹ thuật cuối cùng của việc gộp** khi chốt ngày 21/08 rằng đơn hàng **mang thẳng mã đề xuất** (`MD-HUYETHOC-260819-91`) thay vì `SAL-ORD-…`. Phiếu và đơn giờ **cùng một mã**. Không còn lý do gì để chúng nằm hai danh sách.
 
 **✅ ĐÃ THI CÔNG (Task 11, 25/08/2026).** `/yeu-cau` là danh sách duy nhất,
-**một dòng đời**: `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`
+**một dòng đời**: `Nháp → Chờ duyệt → Đã duyệt → Chờ quý vị đồng ý → Đã giao`
 (cộng hai ngõ cụt `Từ chối`/`Đã huỷ` — trạng thái THẬT mà chính người dùng
 đưa yêu cầu của mình vào, nên phải tìm lại được). Một yêu cầu xuất hiện
 **đúng một lần**, ở bất kỳ giai đoạn nào; phiếu và đơn sinh ra từ nó là
