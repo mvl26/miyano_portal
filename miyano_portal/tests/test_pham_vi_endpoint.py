@@ -25,6 +25,7 @@ from frappe.tests.utils import FrappeTestCase
 from miyano_portal import portal_hen_giao, portal_kiem_hang, search_guard
 from miyano_portal.api import de_xuat as de_xuat_api
 from miyano_portal.api import kho as kho_api
+from miyano_portal.api import nhan_su as nhan_su_api
 from miyano_portal.api import portal as portal_api
 
 # Endpoint ĐÃ đi qua `pham_vi_don()` hoặc `dam_bao_xem_duoc()`.
@@ -147,6 +148,16 @@ STAFF_ONLY_MIEN_PHAM_VI: dict[str, str] = {
 	"kiem_hang_da_xu_ly": "chỉ Sales Manager/System Manager gọi (_kiem_role_duyet), không phải endpoint của khách",
 	"kiem_hang_hen_giao": "chỉ Sales Manager/System Manager gọi (_kiem_role_duyet), không phải endpoint của khách",
 	"hen_giao_lai": "chỉ System Manager/Sales Manager/Sales User gọi (_kiem_role), không phải endpoint của khách",
+	# Task 15 (26/08/2026) — màn nhập nhân sự bằng Excel trong Desk của
+	# Miyano. Cả ba mở đầu bằng `chan_neu_khong_phai_nhan_vien_miyano()`
+	# (chính hàm `portal_provision` dùng, tách ra để chỉ còn MỘT phép so
+	# role). Tham số `customer` do người NHÂN VIÊN chọn trên màn hình
+	# (QĐ-G18) chứ không suy từ phiên — đó là chủ ý: đây là người cấp tài
+	# khoản cho nhiều bệnh viện, không phải khách tự phục vụ. Một Website
+	# User không bao giờ qua nổi dòng đầu để chạm tới `customer` nào.
+	"nhan_su_import_template": "chỉ nhân viên Miyano gọi (chan_neu_khong_phai_nhan_vien_miyano), không phải endpoint của khách",
+	"nhan_su_import_preview": "chỉ nhân viên Miyano gọi (chan_neu_khong_phai_nhan_vien_miyano), không phải endpoint của khách",
+	"nhan_su_import_commit": "chỉ nhân viên Miyano gọi (chan_neu_khong_phai_nhan_vien_miyano), không phải endpoint của khách",
 }
 
 
@@ -209,7 +220,10 @@ class TestMoiEndpointKhaiBaoPhamVi(FrappeTestCase):
 		self.assertFalse(thua, f"Khai báo cho endpoint không còn tồn tại: {sorted(thua)}")
 
 	def test_moi_endpoint_kiem_hang_va_hen_giao_deu_da_khai_bao(self):
-		thuc_te = _endpoints(portal_kiem_hang) | _endpoints(portal_hen_giao)
+		# Union với `nhan_su_api` (Task 15) — cùng cái bẫy mà Task 5 đã dính
+		# một lần: module MỚI không tự lọt vào tầm nhìn của test đếm ngược
+		# này, phải khai tên module ra thì ba endpoint mới có ai canh.
+		thuc_te = _endpoints(portal_kiem_hang) | _endpoints(portal_hen_giao) | _endpoints(nhan_su_api)
 		chua_khai = thuc_te - set(STAFF_ONLY_MIEN_PHAM_VI)
 		self.assertFalse(
 			chua_khai,
@@ -219,6 +233,6 @@ class TestMoiEndpointKhaiBaoPhamVi(FrappeTestCase):
 		)
 
 	def test_khong_khai_bao_thua_kiem_hang_va_hen_giao(self):
-		thuc_te = _endpoints(portal_kiem_hang) | _endpoints(portal_hen_giao)
+		thuc_te = _endpoints(portal_kiem_hang) | _endpoints(portal_hen_giao) | _endpoints(nhan_su_api)
 		thua = set(STAFF_ONLY_MIEN_PHAM_VI) - thuc_te
 		self.assertFalse(thua, f"Khai báo cho endpoint không còn tồn tại: {sorted(thua)}")

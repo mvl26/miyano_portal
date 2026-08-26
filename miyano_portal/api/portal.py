@@ -1938,11 +1938,38 @@ def portal_request_cancel(order, reason) -> dict:
     return {"ok": True}
 
 
-@frappe.whitelist()
-def portal_provision(customer, email, send_invite=False) -> dict:
-    # Caller-role guard: only staff (not portal customers) may provision accounts.
+def chan_neu_khong_phai_nhan_vien_miyano() -> None:
+    """Caller-role guard: only staff (not portal customers) may provision accounts.
+
+    Tách thành hàm riêng (Task 15) để đường nhập nhân sự hàng loạt từ Desk
+    (`api/nhan_su.py`) chốt vai trò bằng ĐÚNG MỘT phép so với `portal_provision`
+    — hai bản sao của cùng một danh sách role là kiểu lệch mà dự án này đã trả
+    giá nhiều lần.
+    """
     if not (set(frappe.get_roles()) & {"System Manager", "Sales Manager", "Sales User"}):
         frappe.throw("Không có quyền", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def portal_provision(
+    customer, email, send_invite=False, first_name=None, vai_tro=None, khoa_phong=None
+) -> dict:
+    """Cấp tài khoản cổng cho một email của một khách hàng.
+
+    Task 15 (QĐ-G21) thêm BA tham số tuỳ chọn cho đường nhập nhân sự từ tệp
+    Excel — bỏ trống cả ba thì hành vi GIỮ NGUYÊN từng dấu phẩy như trước
+    (xem `test_provision.py`, không đổi một dòng nào):
+
+      * `first_name` — tên NGƯỜI. Bỏ trống thì vẫn rơi về `customer` như cũ;
+        đó chính là chỗ khiến tên hiển thị của mọi tài khoản cổng là tên bệnh
+        viện (gốc của lỗi truy vết đã phải vá ở tầng hiển thị, `97fd6e2`).
+      * `vai_tro` + `khoa_phong` — TỜ KHAI THẮNG. Khi người gọi nói rõ vai trò,
+        luật ngầm "tài khoản đầu tiên của một bệnh viện là Quản lý" ở dưới
+        KHÔNG chạy: hai cơ chế cùng quyết một việc là lỗi lặp lại của dự án
+        này. Tài khoản cấp theo tờ khai luôn `active=1` — dùng được ngay,
+        không rơi vào trạng thái chờ-gán-khoa.
+    """
+    chan_neu_khong_phai_nhan_vien_miyano()
 
     if not frappe.db.exists("Customer", customer):
         frappe.throw("Không tìm thấy khách hàng.")
@@ -1963,7 +1990,7 @@ def portal_provision(customer, email, send_invite=False) -> dict:
         )
     if not frappe.db.exists("User", email):
         u = frappe.get_doc({
-            "doctype": "User", "email": email, "first_name": customer,
+            "doctype": "User", "email": email, "first_name": first_name or customer,
             "user_type": "Website User", "send_welcome_email": int(send_invite),
         })
         u.append("roles", {"role": "Customer"})
@@ -2003,6 +2030,18 @@ def portal_provision(customer, email, send_invite=False) -> dict:
     # hai đường cố ý khác hình nhau, không phải một sai lệch cần hợp nhất.
     if frappe.db.exists("Portal Member", {"user": email}):
         cho_gan_khoa = frappe.db.get_value("Portal Member", {"user": email}, "active") == 0
+    elif vai_tro:
+        # TỜ KHAI THẮNG (Task 15, QĐ-G21) — vai trò và khoa phòng do người
+        # nhập khai trên bảng Excel, không suy từ luật ngầm bên dưới. Vẫn đi
+        # qua `doc.insert()` (không `db.set_value`): toàn bộ phép cách ly
+        # "khoa này có thuộc đúng bệnh viện không" nằm trong
+        # `PortalMember.validate()` — xem giới hạn đã biết của
+        # `_chan_hai_quan_ly` trong portal_member.py.
+        frappe.get_doc({
+            "doctype": "Portal Member", "user": email, "customer": customer,
+            "vai_tro": vai_tro, "khoa_phong": khoa_phong or None, "active": 1,
+        }).insert(ignore_permissions=True)
+        cho_gan_khoa = False
     else:
         da_co_quan_ly = frappe.db.exists(
             "Portal Member", {"customer": customer, "vai_tro": "Quản lý", "active": 1}
