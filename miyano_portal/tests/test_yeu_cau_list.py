@@ -6,9 +6,16 @@ trước yêu cầu của mình đang ở giai đoạn NỘI BỘ nào mới tì
 tức phải học sơ đồ kiến trúc của hệ thống.
 
 Endpoint gộp trả về đúng MỘT dòng cho mỗi yêu cầu, ở bất kỳ giai đoạn nào:
-`Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao` (cộng hai ngõ cụt
-`Từ chối`/`Đã huỷ` — trạng thái THẬT mà người dùng tự đưa yêu cầu của mình
-vào, xem bài học "Việc (d)" của `DeXuatList.vue`).
+`nhap → cho_duyet → da_duyet → cho_khach_dong_y → da_giao` (cộng hai ngõ
+cụt `tu_choi`/`da_huy` — trạng thái THẬT mà người dùng tự đưa yêu cầu của
+mình vào, xem bài học "Việc (d)" của `DeXuatList.vue`).
+
+Ruling P54 (26/08/2026) — những giá trị trên là KHOÁ NỘI BỘ, không phải
+nhãn. Endpoint này không nói tiếng Việt về giai đoạn nữa; nhãn hiển thị
+("Nháp", "Chờ quý vị đồng ý", …) sống ở `frontend/src/format.js` và được
+ghim ở `test_giai_doan_khoa_va_nhan.py`. Lý do tách: trước P54 chính chuỗi
+hiển thị là khoá lọc VÀ đi trong URL (`?chip=`), nên đổi một chữ tiếng Việt
+làm chết mọi link đã gửi cho bệnh viện.
 
 BỐI CẢNH KIẾN TRÚC — role `Customer` có ZERO DocPerm trên `Portal De Xuat
 Mua`, nên `frappe.get_list` ném `PermissionError` cho MỌI Website User
@@ -384,12 +391,12 @@ class TestYeuCauList(FrappeTestCase):
 	def test_giai_doan_cua_phieu_nhap(self):
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_nhap)
-		self.assertEqual(dong["giai_doan"], "Nháp")
+		self.assertEqual(dong["giai_doan"], "nhap")
 
 	def test_giai_doan_cua_don_da_giao(self):
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_don(kq, self.don_da_giao)
-		self.assertEqual(dong["giai_doan"], "Đã giao")
+		self.assertEqual(dong["giai_doan"], "da_giao")
 
 	def test_giai_doan_cua_phieu_cho_duyet(self):
 		ten = self._tao_phieu(self.kh_a, self.khoa_huyethoc, self.user_huyethoc)
@@ -397,12 +404,12 @@ class TestYeuCauList(FrappeTestCase):
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
 		kq = self._goi(self.user_huyethoc, limit=100)
-		self.assertEqual(self._tim_theo_phieu(kq, ten)["giai_doan"], "Chờ duyệt")
+		self.assertEqual(self._tim_theo_phieu(kq, ten)["giai_doan"], "cho_duyet")
 
 	def test_giai_doan_cua_phieu_vua_duyet_xong(self):
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertEqual(dong["giai_doan"], "Đã duyệt")
+		self.assertEqual(dong["giai_doan"], "da_duyet")
 
 	# -- Important (review vòng 1) — Miyano TỪ CHỐI đơn ------------------------
 
@@ -421,7 +428,7 @@ class TestYeuCauList(FrappeTestCase):
 		self._miyano_tu_choi(self.don_cua_phieu)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertEqual(dong["giai_doan"], "Từ chối")
+		self.assertEqual(dong["giai_doan"], "tu_choi")
 
 	def test_nhan_chi_tiet_cua_don_bi_tu_choi_khong_doc_ra_Cho_xac_nhan(self):
 		"""Nhãn phụ cũng không cứu được trước bản vá: `_so_status_vi_full`
@@ -437,7 +444,7 @@ class TestYeuCauList(FrappeTestCase):
 		để một yêu cầu ĐÃ CHẾT vẫn TÌM LẠI ĐƯỢC. Trước bản vá, lọc chip
 		"Từ chối" không lôi nó ra."""
 		self._miyano_tu_choi(self.don_cua_phieu)
-		kq = self._goi(self.user_huyethoc, limit=100, giai_doan="Từ chối")
+		kq = self._goi(self.user_huyethoc, limit=100, giai_doan="tu_choi")
 		self.assertIn(self.phieu_da_duyet, self._ma_phieu(kq))
 
 	def test_nhan_don_bi_tu_choi_dung_CA_o_danh_sach_don_cu(self):
@@ -464,7 +471,7 @@ class TestYeuCauList(FrappeTestCase):
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertEqual(dong["giai_doan"], "Đã huỷ")
+		self.assertEqual(dong["giai_doan"], "da_huy")
 		self.assertEqual(dong["trang_thai_don"], "Đã huỷ")
 
 	# -- Ruling P42 — giao MỘT PHẦN chưa phải "Đã giao" ------------------------
@@ -481,8 +488,8 @@ class TestYeuCauList(FrappeTestCase):
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertNotEqual(dong["giai_doan"], "Đã giao")
-		self.assertEqual(dong["giai_doan"], "Đã duyệt")
+		self.assertNotEqual(dong["giai_doan"], "da_giao")
+		self.assertEqual(dong["giai_doan"], "da_duyet")
 		# Nhãn phụ VẪN nói đúng phần còn lại — đó là lý do KHÔNG cần một
 		# giai đoạn thứ sáu (QĐ-G11 chốt năm).
 		self.assertEqual(dong["trang_thai_don"], "Đang giao")
@@ -497,24 +504,62 @@ class TestYeuCauList(FrappeTestCase):
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		self.assertEqual(
-			self._tim_theo_phieu(kq, self.phieu_da_duyet)["giai_doan"], "Đã giao"
+			self._tim_theo_phieu(kq, self.phieu_da_duyet)["giai_doan"], "da_giao"
 		)
 
-	def test_giai_doan_cho_bao_gia_khi_don_dang_o_vong_bao_gia(self):
-		"""Chốt canh cho chính giai đoạn "Chờ báo giá" của QĐ-G11 — nó phải
-		TỚI ĐƯỢC, không phải một chip luôn rỗng (bài học "Việc (d)" của
+	def test_giai_doan_cho_khach_dong_y_khi_don_dang_o_vong_bao_gia(self):
+		"""Chốt canh cho chính giai đoạn `cho_khach_dong_y` của QĐ-G11 — nó
+		phải TỚI ĐƯỢC, không phải một chip luôn rỗng (bài học "Việc (d)" của
 		`DeXuatList.vue`). Trạng thái này do `hooks`/`portal_bao_gia` ghi
-		bằng `db.set_value` y như dòng dưới."""
+		bằng `db.set_value` y như dòng dưới.
+
+		Ruling P54 (26/08/2026) — bài này TRƯỚC ĐÂY ghim chuỗi hiển thị
+		`"Chờ báo giá"`. Giữ nguyên bài, đổi thứ nó ghim: endpoint nay trả
+		KHOÁ NỘI BỘ, còn nhãn tiếng Việt ("Chờ quý vị đồng ý") là việc của
+		tầng hiển thị và được ghim riêng ở `test_giai_doan_khoa_va_nhan.py`.
+		Ghim khoá bằng CHUỖI VIẾT THẲNG, không qua hằng số `GIAI_DOAN_*`:
+		so với hằng số thì bài test đi theo mọi lần đổi giá trị và không
+		còn ghim gì cả."""
 		frappe.db.set_value(
 			"Sales Order", self.don_cua_phieu, "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertEqual(dong["giai_doan"], "Chờ báo giá")
+		self.assertEqual(dong["giai_doan"], "cho_khach_dong_y")
 		# Nhãn CHI TIẾT của đơn vẫn đi kèm — giai đoạn gộp không được nuốt
 		# mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
 		self.assertEqual(dong["trang_thai_don"], "Chờ xác nhận")
+
+	def test_bi_danh_chuoi_CU_van_ra_dung_tap_ket_qua(self):
+		"""Ruling P54, mục 3 — link `?chip=Chờ báo giá` ĐÃ GỬI CHO BỆNH VIỆN
+		phải vẫn dẫn đúng chỗ: không rơi lặng lẽ về "Tất cả", cũng không ném
+		lỗi cho một liên kết hợp lệ ngày hôm qua.
+
+		So HAI TẬP KẾT QUẢ chứ không chỉ "gọi được mà không ném": một bí
+		danh trỏ nhầm khoá vẫn "gọi được" nhưng trả về tập của giai đoạn
+		khác. `assertIn` đi kèm để hai tập cùng RỖNG không thể xanh — đó là
+		cách hỏng dễ xảy ra nhất nếu fixture trôi.
+
+		`_tap(...)` nuốt `ValidationError` thành một CHUỖI có chữ thay vì để
+		nó nổ: mục đích là bài này đỏ ở CẤP KHẲNG ĐỊNH (so hai tập, đọc ra
+		ngay vế nào ném) chứ không đỏ ở cấp exception, nơi thông báo lỗi
+		không nói được vế kia trả về gì."""
+		frappe.db.set_value(
+			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Chờ khách đồng ý", update_modified=False,
+		)
+
+		def _tap(gd):
+			try:
+				kq = self._goi(self.user_huyethoc, limit=100, giai_doan=gd)
+			except frappe.ValidationError as e:
+				return f"NÉM: {e}"
+			return {r["de_xuat"] for r in self._dong(kq)}
+
+		theo_khoa = _tap("cho_khach_dong_y")
+		self.assertIn(self.phieu_da_duyet, theo_khoa)
+		self.assertEqual(_tap("Chờ báo giá"), theo_khoa)
 
 	def test_giai_doan_cua_phieu_bi_tu_choi(self):
 		"""Ngõ cụt VẪN phải tìm lại được — người vừa bị từ chối là người đi
@@ -529,7 +574,7 @@ class TestYeuCauList(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 		kq = self._goi(self.user_huyethoc, limit=100)
-		self.assertEqual(self._tim_theo_phieu(kq, ten)["giai_doan"], "Từ chối")
+		self.assertEqual(self._tim_theo_phieu(kq, ten)["giai_doan"], "tu_choi")
 
 	# -- mã hiện ra cho người dùng --------------------------------------------
 
@@ -574,7 +619,7 @@ class TestYeuCauList(FrappeTestCase):
 		# nhất, mà thứ tự là mới-nhất-trước) — thiếu khẳng định này thì bài
 		# dưới có thể xanh vì TRÙNG HỢP, không vì lọc chạy ở SQL.
 		self.assertNotEqual(self._dong(khong_loc)[0]["de_xuat"], self.phieu_nhap)
-		co_loc = self._goi(self.user_huyethoc, limit=1, start=0, giai_doan="Nháp")
+		co_loc = self._goi(self.user_huyethoc, limit=1, start=0, giai_doan="nhap")
 		self.assertEqual(
 			[r["de_xuat"] for r in self._dong(co_loc)], [self.phieu_nhap]
 		)

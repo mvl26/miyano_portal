@@ -18,7 +18,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { fmtVND, fmtDate, giaiDoanBadge } from '../format'
+import { fmtVND, fmtDate, giaiDoanBadge, nhanGiaiDoan, khoaGiaiDoan, GIAI_DOAN } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
@@ -38,10 +38,12 @@ const tong = ref(0)
 // ĐÚNG bộ `GIAI_DOAN_HOP_LE` của backend, không nhiều không ít: một chip
 // backend không biết sẽ ăn lỗi "Giai đoạn không hợp lệ", còn một giai đoạn
 // thiếu chip thì yêu cầu ở đó chỉ tìm được qua "Tất cả".
-const FILTERS = [
-  '', 'Nháp', 'Chờ duyệt', 'Đã duyệt', 'Chờ báo giá', 'Đã giao',
-  'Từ chối', 'Đã huỷ',
-]
+//
+// Ruling P54 — KHOÁ, không phải nhãn. `FILTERS` vừa vẽ chip, vừa được ghi
+// vào `?chip=`, vừa gửi lên `giai_doan`; để chữ tiếng Việt ở đây là buộc
+// URL và bộ lọc vào một quyết định biên tập. Chữ hiện trên chip lấy từ
+// `nhanGiaiDoan()`. `''` đứng đầu = chip "Tất cả".
+const FILTERS = ['', ...GIAI_DOAN]
 
 // Khoa phòng chỉ có MÃ (`KP-00001`) trong payload — cùng khuôn
 // DeXuatList.vue/PhieuXuat.vue: nạp danh mục khoa phòng của kho rồi tự map
@@ -100,7 +102,7 @@ watch([trang, soDong, filter], load)
 // dùng, mang nguyên sang.
 function coTheSuaNhap(r) {
   return (
-    r.giai_doan === 'Nháp'
+    r.giai_doan === 'nhap'
     && !!r.de_xuat
     && (r.owner === store.me?.user || !!store.me?.la_quan_ly)
   )
@@ -144,8 +146,14 @@ onMounted(async () => {
   // vue` chấp nhận lời gọi thừa đó ("rẻ hơn một nhánh điều kiện"); ở đây
   // nhánh điều kiện là đúng một biến, nên không có gì để đánh đổi.
   let daXepHangLoad = false
-  if (route.query.chip && FILTERS.includes(String(route.query.chip))) {
-    filter.value = String(route.query.chip)
+  // Ruling P54 — `khoaGiaiDoan()` nhận CẢ khoá mới LẪN nhãn cũ, nên một
+  // link `?chip=Chờ báo giá` đã gửi cho bệnh viện vẫn mở đúng chip. Rào
+  // `FILTERS.includes()` cũ trả `false` cho chuỗi cũ và thả người dùng về
+  // "Tất cả" trong im lặng — bí danh phía backend không cứu được, vì khi
+  // đó `giai_doan` gửi lên đã là `undefined` và không bao giờ tới nó.
+  const chip = khoaGiaiDoan(route.query.chip)
+  if (chip) {
+    filter.value = chip
     daXepHangLoad = true
   }
   if (!store.me) {
@@ -184,7 +192,7 @@ onMounted(async () => {
         :class="{ on: filter === f }"
         @click="filter = f"
       >
-        {{ f || 'Tất cả' }}
+        {{ f ? nhanGiaiDoan(f) : 'Tất cả' }}
       </button>
     </div>
 
@@ -227,7 +235,7 @@ onMounted(async () => {
               <span v-else class="tag">—</span>
             </td>
             <td>
-              <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ r.giai_doan }}</span>
+              <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ nhanGiaiDoan(r.giai_doan) }}</span>
               <!-- Giai đoạn gộp KHÔNG được nuốt mất tín hiệu chi tiết của
                    đơn ("Chờ xác nhận"/"Đang giao"/…) — nó là thứ nói ai
                    đang giữ việc. -->
@@ -253,7 +261,7 @@ onMounted(async () => {
         <div class="sb">
           <b v-if="r.ma">{{ r.ma }}</b>
           <span v-else class="tag">(chưa gửi duyệt)</span>
-          <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ r.giai_doan }}</span>
+          <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ nhanGiaiDoan(r.giai_doan) }}</span>
         </div>
         <p class="tag" style="margin-top: 4px">
           {{ tenKhoa(r.khoa_phong) }} · {{ fmtDate(r.thoi_diem) }}

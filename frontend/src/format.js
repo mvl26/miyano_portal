@@ -85,20 +85,78 @@ export function deXuatBadge(trangThai) {
 }
 
 // Task 11 (QĐ-G11) — MỘT dòng đời cho màn "Yêu cầu của tôi":
-// `Nháp → Chờ duyệt → Đã duyệt → Chờ báo giá → Đã giao`, cộng hai ngõ cụt.
-// Giá trị do backend suy (`portal_yeu_cau_cua_toi.giai_doan`), không phải
-// client tự ghép từ hai từ điển trạng thái cũ.
-export function giaiDoanBadge(giaiDoan) {
+// `nhap → cho_duyet → da_duyet → cho_khach_dong_y → da_giao`, cộng hai ngõ
+// cụt. Giá trị do backend suy (`portal_yeu_cau_cua_toi.giai_doan`), không
+// phải client tự ghép từ hai từ điển trạng thái cũ.
+//
+// Ruling P54 (chủ đầu tư, 26/08/2026) — TÁCH KHOÁ KHỎI NHÃN. Tới trước bản
+// này, backend trả thẳng chữ tiếng Việt và chính chữ đó vừa là khoá lọc vừa
+// là giá trị đi trong URL (`?chip=`), nên đổi một chữ vì lý do BIÊN TẬP làm
+// chết mọi link đã gửi cho bệnh viện. Nay backend chỉ nói KHOÁ; ba bảng
+// dưới đây là NƠI DUY NHẤT trong cả hệ thống ánh xạ khoá → chữ người đọc.
+export const GIAI_DOAN = [
+  'nhap', 'cho_duyet', 'da_duyet', 'cho_khach_dong_y',
+  'da_giao', 'tu_choi', 'da_huy',
+]
+
+// Đổi chữ ở BẢNG NÀY là đủ, và từ P54 trở đi việc đó KHÔNG còn động tới
+// khoá, tới URL, tới bộ lọc hay tới bất kỳ liên kết nào đã phát ra ngoài.
+//
+// `cho_khach_dong_y` — tên cũ "Chờ báo giá" đọc NGƯỢC: nó nghe như đang chờ
+// Miyano, trong khi đơn thật sự chờ Miyano ra giá lại nằm ở "Đã duyệt".
+// Giai đoạn này là lúc BÁO GIÁ ĐÃ VỀ và bệnh viện đang giữ việc.
+export const NHAN_GIAI_DOAN = {
+  nhap: 'Nháp',
+  cho_duyet: 'Chờ duyệt',
+  da_duyet: 'Đã duyệt',
+  cho_khach_dong_y: 'Chờ quý vị đồng ý',
+  da_giao: 'Đã giao',
+  tu_choi: 'Từ chối',
+  da_huy: 'Đã huỷ',
+}
+
+// Bí danh cho nhãn CŨ — chính bộ chuỗi đã đi ra ngoài trong `?chip=` trước
+// 26/08/2026. ĐÓNG BĂNG: không thêm nhãn mới vào đây, thêm là buộc lại nhãn
+// vào định danh đúng như trước P54.
+//
+// Bảng này KHÔNG thừa dù backend cũng có bản của nó: đường đi của một link
+// cũ là `?chip=Chờ báo giá` → `onMounted` → rào lọc phía client. Rào đó
+// không nhận ra chuỗi cũ thì `giai_doan` gửi lên là `undefined` và bí danh
+// phía backend KHÔNG BAO GIỜ được chạm tới — bệnh viện thấy "Tất cả" mà
+// không có tín hiệu gì.
+const BI_DANH_GIAI_DOAN_CU = {
+  'Nháp': 'nhap',
+  'Chờ duyệt': 'cho_duyet',
+  'Đã duyệt': 'da_duyet',
+  'Chờ báo giá': 'cho_khach_dong_y',
+  'Đã giao': 'da_giao',
+  'Từ chối': 'tu_choi',
+  'Đã huỷ': 'da_huy',
+}
+
+// Chuẩn hoá một giá trị từ URL về khoá. `''` khi không nhận ra — nơi gọi
+// hiểu là "không lọc", KHÔNG phải là ném lỗi vào mặt người vừa mở một link.
+export function khoaGiaiDoan(gt) {
+  const s = String(gt || '')
+  if (GIAI_DOAN.includes(s)) return s
+  return BI_DANH_GIAI_DOAN_CU[s] || ''
+}
+
+export function nhanGiaiDoan(khoa) {
+  return NHAN_GIAI_DOAN[khoa] || khoa || ''
+}
+
+export function giaiDoanBadge(khoa) {
   const map = {
-    'Nháp': 'b-gray',
-    'Chờ duyệt': 'b-blue',
-    'Đã duyệt': 'b-blue',
-    'Chờ báo giá': 'b-orange',
-    'Đã giao': 'b-green',
-    'Từ chối': 'b-red',
-    'Đã huỷ': 'b-red',
+    nhap: 'b-gray',
+    cho_duyet: 'b-blue',
+    da_duyet: 'b-blue',
+    cho_khach_dong_y: 'b-orange',
+    da_giao: 'b-green',
+    tu_choi: 'b-red',
+    da_huy: 'b-red',
   }
-  return map[giaiDoan] || 'b-gray'
+  return map[khoa] || 'b-gray'
 }
 
 // YYYY-MM-DD hôm nay (local) để so sánh hạn thanh toán.

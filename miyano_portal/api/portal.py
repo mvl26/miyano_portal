@@ -967,13 +967,36 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
 # nguồn duy nhất cho cả hàm suy nhãn chi tiết, danh sách trạng thái ghi đè,
 # và khối CASE này. Ba bản sao chuỗi là đúng cách `Từ chối` lọt lưới lần
 # đầu: nó được đặc biệt hoá ở cấp phiếu mà quên ở cấp đơn.
-GIAI_DOAN_NHAP = "Nháp"
-GIAI_DOAN_CHO_DUYET = "Chờ duyệt"
-GIAI_DOAN_DA_DUYET = "Đã duyệt"
-GIAI_DOAN_CHO_BAO_GIA = "Chờ báo giá"
-GIAI_DOAN_DA_GIAO = "Đã giao"
-GIAI_DOAN_TU_CHOI = "Từ chối"
-GIAI_DOAN_DA_HUY = "Đã huỷ"
+# Ruling P54 (chủ đầu tư, 26/08/2026) — TÁCH KHOÁ KHỎI NHÃN.
+#
+# Tới trước bản này, bảy hằng số dưới đây là CHÍNH CHỮ TIẾNG VIỆT in trên
+# chip. Cùng một chuỗi vì thế gánh BA vai: chữ hiển thị, khoá lọc
+# `giai_doan` của `portal_yeu_cau_cua_toi`, và giá trị đi trong URL
+# (`?chip=` — `YeuCauList.vue` ghi vào, `DeXuatDetail.vue` mang trả lại).
+# Hệ quả: sửa một chữ vì lý do BIÊN TẬP làm chết mọi liên kết đã gửi cho
+# bệnh viện. Đó là đúng lớp lỗi "một thứ gánh hai vai" mà cả nhánh này đang
+# sửa, chỉ là lần này nó nằm ở một chuỗi chứ không ở một cột.
+#
+# Nay: hằng số là KHOÁ NỘI BỘ, ASCII, không dấu, và KHÔNG BAO GIỜ ĐỔI THEO
+# LỜI HIỂN THỊ NỮA. Nhãn tiếng Việt ("Nháp", "Chờ quý vị đồng ý", …) sống ở
+# ĐÚNG MỘT nơi: `frontend/src/format.js::NHAN_GIAI_DOAN`.
+#
+# CỐ Ý KHÔNG đặt thêm một bảng nhãn ở đây rồi trả kèm trong response. Chip
+# phải vẽ được TRƯỚC khi có dòng nào tải về, nên giao diện buộc phải giữ
+# bảng ánh xạ của nó; thêm một bản thứ hai ở máy chủ là dựng lại đúng cái
+# ngã ba mà `_so_status_vi`/`_so_status_vi_full` đã phải gộp lại một lần
+# rồi, và mà docstring `_sql_giai_doan()` ngay dưới tự dặn phải tránh.
+#
+# `cho_khach_dong_y` đọc theo ĐÚNG `workflow_state` mà nó ánh xạ tới ("Chờ
+# khách đồng ý"), không theo tên cũ "chờ báo giá" — tên cũ nói ngược chiều
+# việc đang chờ ai.
+GIAI_DOAN_NHAP = "nhap"
+GIAI_DOAN_CHO_DUYET = "cho_duyet"
+GIAI_DOAN_DA_DUYET = "da_duyet"
+GIAI_DOAN_CHO_KHACH_DONG_Y = "cho_khach_dong_y"
+GIAI_DOAN_DA_GIAO = "da_giao"
+GIAI_DOAN_TU_CHOI = "tu_choi"
+GIAI_DOAN_DA_HUY = "da_huy"
 
 # Năm giai đoạn của QĐ-G11 + HAI ngõ cụt. Hai ngõ cụt KHÔNG phải phần thừa:
 # chúng là trạng thái THẬT mà chính người dùng đưa yêu cầu của mình vào
@@ -981,9 +1004,49 @@ GIAI_DOAN_DA_HUY = "Đã huỷ"
 # tìm lại nó ngay sau đó — đúng bài học "Việc (d)" của `DeXuatList.vue`.
 GIAI_DOAN_HOP_LE = (
     GIAI_DOAN_NHAP, GIAI_DOAN_CHO_DUYET, GIAI_DOAN_DA_DUYET,
-    GIAI_DOAN_CHO_BAO_GIA, GIAI_DOAN_DA_GIAO,
+    GIAI_DOAN_CHO_KHACH_DONG_Y, GIAI_DOAN_DA_GIAO,
     GIAI_DOAN_TU_CHOI, GIAI_DOAN_DA_HUY,
 )
+
+# BÍ DANH — bộ nhãn CŨ đã từng vừa là chữ hiển thị vừa là khoá, tức chính
+# những chuỗi đã đi ra ngoài trong `?chip=` và trong mọi lời gọi API viết
+# trước 26/08/2026. Một liên kết hợp lệ ngày hôm qua không được ném lỗi,
+# cũng không được rơi lặng lẽ về "Tất cả".
+#
+# ĐÓNG BĂNG. Không thêm nhãn MỚI vào đây — thêm là buộc lại nhãn vào định
+# danh, đúng thứ P54 vừa gỡ ra. Bảng này chỉ được PHÉP co lại (khi đã chắc
+# không còn liên kết cũ nào ngoài đời), không được phép nở ra.
+BI_DANH_GIAI_DOAN_CU = {
+    "Nháp": GIAI_DOAN_NHAP,
+    "Chờ duyệt": GIAI_DOAN_CHO_DUYET,
+    "Đã duyệt": GIAI_DOAN_DA_DUYET,
+    "Chờ báo giá": GIAI_DOAN_CHO_KHACH_DONG_Y,
+    "Đã giao": GIAI_DOAN_DA_GIAO,
+    "Từ chối": GIAI_DOAN_TU_CHOI,
+    "Đã huỷ": GIAI_DOAN_DA_HUY,
+}
+
+
+def _khoa_giai_doan(giai_doan: str) -> str:
+    """Chuẩn hoá tham số `giai_doan` của client về KHOÁ nội bộ.
+
+    Nhận khoá mới, HOẶC một nhãn cũ trong `BI_DANH_GIAI_DOAN_CU`. Mọi thứ
+    khác vẫn NÉM y như trước — bí danh là một lối vào có DANH SÁCH, không
+    phải một cái cống.
+
+    KHÔNG viết thành `return BI_DANH_GIAI_DOAN_CU.get(gd, gd)`: dạng đó cho
+    MỌI chuỗi lạ đi thẳng qua, biến phép lọc thành im lặng trả rỗng thay vì
+    báo lỗi — đúng thứ `test_giai_doan_la_thi_bao_loi_chu_khong_am_tham_bo_
+    loc` canh từ Task 11.
+    """
+    if giai_doan in GIAI_DOAN_HOP_LE:
+        return giai_doan
+    khoa = BI_DANH_GIAI_DOAN_CU.get(giai_doan)
+    if khoa:
+        return khoa
+    frappe.throw(
+        f"Giai đoạn không hợp lệ: {giai_doan}", frappe.ValidationError
+    )
 
 
 def _sql_giai_doan(tt: str, so: str) -> str:
@@ -1013,10 +1076,12 @@ def _sql_giai_doan(tt: str, so: str) -> str:
     đã nói đủ phần còn lại; đổi lại, đơn giao gần đủ nằm ở "Đã duyệt" lâu
     hơn, chấp nhận được.
 
-    "Chờ báo giá" = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` — báo
-    giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin lại
-    giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
+    `cho_khach_dong_y` = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` —
+    báo giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin
+    lại giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
     lúc giao hàng, nên chip này TỚI ĐƯỢC chứ không phải một chip luôn rỗng.
+    Ruling P54 — khối CASE này sinh KHOÁ chứ không sinh nhãn tiếng Việt, nên
+    nó cũng thôi phải nhét chữ có dấu vào chuỗi SQL.
     `null` trên `{tt}` (nhánh đơn) làm mọi phép so sánh trạng thái phiếu ra
     NULL — falsy trong SQL — nên nhánh đó rơi thẳng xuống các luật đơn hàng
     mà không cần một biểu thức riêng.
@@ -1035,7 +1100,7 @@ def _sql_giai_doan(tt: str, so: str) -> str:
         when {so}.status in ('Completed', 'Closed') or {so}.per_delivered >= 100
             then '{GIAI_DOAN_DA_GIAO}'
         when {so}.workflow_state in ('{TRANG_THAI_CHO_KHACH}', '{WF_BAO_GIA_HET_HAN}')
-            then '{GIAI_DOAN_CHO_BAO_GIA}'
+            then '{GIAI_DOAN_CHO_KHACH_DONG_Y}'
         else '{GIAI_DOAN_DA_DUYET}'
     end"""
 
@@ -1071,10 +1136,11 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
     "Duyệt" (`/duyet`) KHÔNG gộp vào đây: đó là HÀNG CHỜ VIỆC của quản lý,
     khác mục đích với *danh sách của tôi*.
     """
-    if giai_doan and giai_doan not in GIAI_DOAN_HOP_LE:
-        frappe.throw(
-            f"Giai đoạn không hợp lệ: {giai_doan}", frappe.ValidationError
-        )
+    # Ruling P54 — nhận KHOÁ, và nhận cả nhãn CŨ qua bí danh (link `?chip=`
+    # đã gửi cho bệnh viện, script bên ngoài viết trước 26/08/2026). Chuẩn
+    # hoá NGAY ĐÂY, một lần, để phần dưới chỉ còn làm việc với khoá.
+    if giai_doan:
+        giai_doan = _khoa_giai_doan(giai_doan)
 
     tv = get_portal_member()
     tham_so = {"kh": tv.customer}
