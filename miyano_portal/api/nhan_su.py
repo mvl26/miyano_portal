@@ -18,8 +18,10 @@ Bốn điều đáng nhớ trước khi sửa file này:
 3. **Tất-cả-hoặc-không cho dòng BỊ TỪ CHỐI** (cùng khuôn `import_ton_dau`),
    nhưng dòng *cảnh báo* (QĐ-G23) thì không chặn ai — nó chỉ báo và để Miyano
    quyết.
-4. **Mật khẩu trả về ĐÚNG MỘT LẦN** trong kết quả của `commit` (QĐ-G19).
-   Không ghi vào tệp, không gửi email, không ghi vào log/Comment/Error Log.
+4. **Mật khẩu trả về ĐÚNG MỘT LẦN** trong kết quả của `commit` (QĐ-G19), không
+   ghi vào tệp, không gửi email, không ghi vào Comment. Việc giữ nó ra khỏi
+   `tabError Log` KHÔNG phải chuyện hiển nhiên và không phải chuyện đặt tên
+   biến — đọc `_MatKhauTho` bên dưới trước khi đụng vào đường ghi.
 """
 
 import io
@@ -117,6 +119,32 @@ def _kiem_khach(customer) -> str:
 			frappe.ValidationError,
 		)
 	return customer
+
+
+def _them_ghi_chu(dong: dict, text: str) -> None:
+	"""Ghi chú CỘNG DỒN. Một dòng có thể mang nhiều lời nhắc cùng lúc (tài
+	khoản đang tắt + khoa đang tắt); gán đè sẽ nuốt mất cái trước."""
+	dong["ghi_chu"] = f'{dong["ghi_chu"]} · {text}'.strip(" ·") if dong["ghi_chu"] else text
+
+
+def _kiem_tep_rieng_tu(file_url) -> None:
+	"""Tệp nhân sự mang họ tên + email của nhân viên bệnh viện.
+
+	`_resolve_owned_spreadsheet` chỉ kiểm `owner`, KHÔNG kiểm `is_private` — mà
+	một tệp công khai được phục vụ thẳng từ `/files/` cho bất kỳ ai có đường
+	dẫn, không cần đăng nhập. Tuỳ chọn `make_attachments_public: false` phía JS
+	là lớp tiện lợi, không phải chốt: chốt phải đứng ở server, nơi client không
+	đổi được.
+	"""
+	if not file_url:
+		return  # `_resolve_owned_spreadsheet` lo phần thiếu tệp, với thông điệp của nó
+	if frappe.db.get_value("File", {"file_url": file_url}, "is_private") == 0:
+		frappe.throw(
+			"Tệp nhân sự phải ở chế độ riêng tư (Private). Tệp này đang công khai — "
+			"bất kỳ ai có đường dẫn đều tải được danh sách nhân sự. Xoá tệp đi và "
+			"tải lại bằng nút trên màn hình này.",
+			frappe.ValidationError,
+		)
 
 
 def _kiem_ma_khoa(ma: str) -> str | None:
@@ -250,6 +278,18 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			dong["trang_thai"] = TU_CHOI
 			continue
 		khach_dang_thuoc = frappe.db.get_value("Portal Member", {"user": email}, "customer")
+		if not khach_dang_thuoc:
+			# `Portal Member` là nguồn DANH TÍNH cổng, nhưng không phải thứ duy
+			# nhất cấp quyền đọc: Frappe OR các `User Permission` cùng doctype
+			# lại với nhau, nên một tài khoản đã có `User Permission` trỏ về
+			# bệnh viện KHÁC mà chưa có `Portal Member` sẽ nhận quyền của HAI
+			# bệnh viện nếu cấp tiếp ở đây. Soi cả hai trục, không chỉ trục
+			# danh tính.
+			khach_dang_thuoc = frappe.db.get_value(
+				"User Permission",
+				{"user": email, "allow": "Customer", "for_value": ["!=", customer]},
+				"for_value",
+			)
 		if khach_dang_thuoc and khach_dang_thuoc != customer:
 			# QĐ-G23 — có thể là người thật làm ở hai nơi, cũng có thể là gõ
 			# nhầm. KHÔNG tạo lại, KHÔNG đổi mật khẩu của họ, không chặn các
@@ -262,9 +302,26 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			)
 			continue
 		if khach_dang_thuoc == customer:
+			# Nói ĐÚNG năng lực thật của màn này: nó chỉ TẠO MỚI. Đổi khoa cho
+			# một nhân viên, bật lại tài khoản đã tắt, hay sửa vai trò gõ nhầm
+			# đều KHÔNG làm được ở đây — câu "bỏ qua, không đụng tới" một mình
+			# đọc như "không có gì phải làm", và người nhập sẽ tưởng tệp vừa
+			# cập nhật xong khoa phòng cho cả viện.
 			dong["trang_thai"] = BO_QUA
-			dong["ghi_chu"] = "Đã có tài khoản ở bệnh viện này — bỏ qua, không đụng tới."
+			_them_ghi_chu(dong, (
+				"Đã có tài khoản ở bệnh viện này — bỏ qua. Màn này KHÔNG sửa được "
+				"khoa phòng, vai trò hay trạng thái của tài khoản đã có: sửa trực "
+				"tiếp trên bản ghi Portal Member."
+			))
 			continue
+
+		if frappe.db.get_value("User", email, "enabled") == 0:
+			# Gắn vào bệnh viện thì được, nhưng người ta sẽ KHÔNG đăng nhập
+			# được — báo ngay ở xem trước, đừng để họ đi tìm nguyên nhân.
+			_them_ghi_chu(dong, (
+				"Tài khoản này đang bị VÔ HIỆU HOÁ trên hệ thống — bật lại "
+				"(User → Enabled) thì mới đăng nhập được."
+			))
 
 		# --- (c) chốt nghiệp vụ --------------------------------------------
 		if vai_tro == QUAN_LY:
@@ -304,8 +361,9 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 					dong["khoa"] = da_co["name"]
 					dong["ten_khoa"] = da_co["ten_khoa_phong"]
 					if not da_co.get("active"):
-						dong["ghi_chu"] = (
-							f'Khoa "{da_co["ten_khoa_phong"]}" đang TẮT — bật lại nếu vẫn dùng.'
+						_them_ghi_chu(
+							dong,
+							f'Khoa "{da_co["ten_khoa_phong"]}" đang TẮT — bật lại nếu vẫn dùng.',
 						)
 				else:
 					errors.extend(_ghi_nhan_khoa_moi(dong, khoa_se_tao, ten_khoa, ma_khoa))
@@ -394,15 +452,73 @@ def _cell(row_cells, col: int):
 # ---------------------------------------------------------------------------
 
 
-def _sinh_mat_khau() -> str:
+class _MatKhauTho:
+	"""Mật khẩu thô, KHÔNG BAO GIỜ tự in ra mình.
+
+	Vì sao phải có một kiểu riêng thay vì chỉ đặt tên biến cho khéo — đo được,
+	không phải suy đoán (vòng sửa 1, review bảo mật độc lập):
+
+	* `frappe.get_traceback(with_context=True)` — đường mà `log_error()` và
+	  `log_error_snapshot()` (frappe/app.py, bắn với MỌI mã HTTP ≥ 500) đi qua
+	  — **kết xuất biến cục bộ của mọi khung ngăn xếp**, in bằng `repr()`
+	  (traceback_with_variables/core.py:187).
+	* Bộ khử của Frappe (`_get_traceback_sanitizer`) che theo **TÊN BIẾN**,
+	  bằng `re.search` với `password|passwd|secret|token|key|pwd`, và với dict
+	  thì chỉ che **KHOÁ** nằm trong danh sách đó. Bản đồ `{email: mật khẩu}`
+	  có khoá là email nên **in ra nguyên văn**.
+	* `tabError Log` là MyISAM: dòng đó **sống sót qua rollback** — giao dịch
+	  cuộn ngược xoá sạch tài khoản, nhưng mật khẩu thì nằm lại vĩnh viễn.
+
+	Đặt tên biến là `pwd`/`pwd_map` thì bộ khử theo tên cũng che được, nhưng
+	cách đó mong manh: một lần đổi tên vô hại của người sau là mở lại đúng lỗ
+	này, và không có test nào của họ nói cho họ biết. Ở đây **kiểu dữ liệu**
+	gánh việc đó — `repr()` không bao giờ trả ra bí mật, bất kể biến tên gì,
+	nằm trong dict/list/tuple nào, ở khung của ai.
+
+	**Và vì thế các biến ở đây CỐ Ý mang tên tiếng Việt không khớp danh sách
+	chặn** (`mat_khau`, `bang_mat_khau` — không chứa `password|passwd|secret|
+	token|key|pwd`). Nghe ngược đời, nhưng đã đo: bản đầu của vòng sửa này đặt
+	tên `pwd`/`pwd_map`, và khi thử **phá `__repr__`** cho nó in thẳng bí mật
+	ra, `test_mat_khau_tho_khong_lo_ra_trong_traceback` **vẫn XANH** — bộ khử
+	theo tên đã che hộ, tức bài test đang canh CÁI TÊN chứ không canh cái lớp
+	này. Hai lớp chồng nhau nghe thì an toàn hơn, nhưng lớp ngoài che mất hồi
+	quy của lớp trong, và một chốt không test được là một chốt sẽ mục lặng lẽ.
+	Một lớp DUY NHẤT, mạnh hơn, và có test thật sự phân biệt được — đổi tên
+	biến ở đây thành `pwd_*` là làm bài test đó mù.
+
+	Bí mật chỉ hiện hình khi ai đó gọi `lo_ra()` — một chỗ duy nhất để đọc, và
+	trong file này nó được gọi ở ĐÚNG câu lệnh cuối cùng của `_ghi()`.
+	"""
+
+	__slots__ = ("_bi_mat",)
+
+	def __init__(self, bi_mat: str):
+		self._bi_mat = bi_mat
+
+	def lo_ra(self) -> str:
+		return self._bi_mat
+
+	def __repr__(self) -> str:
+		return "********"
+
+	__str__ = __repr__
+
+	def __format__(self, spec) -> str:
+		return "********"
+
+
+def _sinh_mat_khau() -> _MatKhauTho:
 	"""Mật khẩu bàn giao tay: 12 ký tự, bỏ các ký tự dễ đọc nhầm khi chép ra
 	giấy (0/O, 1/l/I). `secrets` chứ không phải `random` — đây là bí mật đăng
-	nhập, không phải một con số ngẫu nhiên cho vui."""
+	nhập, không phải một con số ngẫu nhiên cho vui.
+
+	Dựng thẳng vào `_MatKhauTho(...)`: chuỗi thô không bao giờ là biến cục bộ
+	có tên trong khung này."""
 	bang = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-	return "".join(secrets.choice(bang) for _ in range(12))
+	return _MatKhauTho("".join(secrets.choice(bang) for _ in range(12)))
 
 
-def _ghi(content: bytes, customer: str) -> dict:
+def _ghi(content: bytes, customer: str, file_url: str | None = None) -> dict:
 	"""Đọc lại TỪ ĐẦU trên server (không tin dữ liệu client gửi), rồi ghi.
 
 	Dòng BỊ TỪ CHỐI khiến KHÔNG GÌ được ghi — tất-cả-hoặc-không, cùng khuôn
@@ -411,6 +527,15 @@ def _ghi(content: bytes, customer: str) -> dict:
 	bước.
 	"""
 	ket_qua = _phan_tich(content, customer)
+	if ket_qua["loi_toan_tep"]:
+		# Fail-closed. Hôm nay nguồn DUY NHẤT của `loi_toan_tep` (thiếu Mã
+		# ngắn) cũng từ chối mọi dòng liên quan, nên nhánh này chưa với tới
+		# được — nó đứng đây để phép kiểm CẤP TỆP tiếp theo không lặng lẽ
+		# trôi qua bước ghi chỉ vì nó không nói gì về một dòng cụ thể.
+		frappe.throw(
+			" ".join(ket_qua["loi_toan_tep"]) + " Chưa có dữ liệu nào được ghi.",
+			frappe.ValidationError,
+		)
 	if ket_qua["so_tu_choi"]:
 		dau_tien = next(r for r in ket_qua["rows"] if r["trang_thai"] == TU_CHOI)
 		frappe.throw(
@@ -421,7 +546,11 @@ def _ghi(content: bytes, customer: str) -> dict:
 			frappe.ValidationError,
 		)
 
-	mat_khau: dict[str, str] = {}
+	# `bang_mat_khau` giữ `_MatKhauTho`, KHÔNG giữ chuỗi thô — xem docstring của
+	# lớp đó (kể cả đoạn giải thích vì sao biến ở đây KHÔNG được đặt tên
+	# `pwd_*`): mọi khung dưới đây đều có thể ném, và mỗi lần ném là một lần
+	# `log_error_snapshot()` kết xuất biến cục bộ vào `tabError Log`.
+	bang_mat_khau: dict[str, _MatKhauTho] = {}
 	khoa_da_tao: list[dict] = []
 	sp = "nhan_su_import_commit_sp"
 	frappe.db.savepoint(sp)
@@ -453,8 +582,11 @@ def _ghi(content: bytes, customer: str) -> dict:
 			)
 			dong["khoa"] = khoa
 			if la_nguoi_moi:
-				mk = _sinh_mat_khau()
-				update_password(dong["email"], mk)
+				mat_khau = _sinh_mat_khau()
+				# `.lo_ra()` ngay trong biểu thức lời gọi: chuỗi thô không trở
+				# thành biến cục bộ của khung này. Ở khung của `update_password`
+				# nó mang tên `pwd` — trùng danh sách chặn theo tên của Frappe.
+				update_password(dong["email"], mat_khau.lo_ra())
 				# "Bắt đổi ở lần đăng nhập đầu" (QĐ-G19): bản Frappe này chỉ
 				# có chính sách theo SỐ NGÀY ở System Settings
 				# (`force_user_to_reset_password`), không có cờ cho từng
@@ -465,20 +597,41 @@ def _ghi(content: bytes, customer: str) -> dict:
 					"User", dong["email"], "last_password_reset_date", "2000-01-01",
 					update_modified=False,
 				)
-				mat_khau[dong["email"]] = mk
+				bang_mat_khau[dong["email"]] = mat_khau
 			else:
-				dong["ghi_chu"] = (
+				_them_ghi_chu(dong, (
 					"Tài khoản đã tồn tại từ trước — chỉ gắn vào bệnh viện này, "
 					"không đặt lại mật khẩu."
-				)
+				))
 	except Exception:
 		frappe.db.rollback(save_point=sp)
 		raise
 
 	ket_qua["khoa_da_tao"] = khoa_da_tao
-	ket_qua["mat_khau"] = mat_khau
 	ket_qua.pop("khoa_se_tao", None)
+	# Ghi xong thì tệp hết việc: để lại là để một danh sách nhân sự đầy đủ nằm
+	# vĩnh viễn trên đĩa. Xoá TRƯỚC câu lệnh bung mật khẩu bên dưới — hàm xoá
+	# có thể ném, và không được ném khi khung này đang cầm mật khẩu thô.
+	if file_url:
+		_xoa_tep_da_nhap(file_url)
+	# CÂU LỆNH CUỐI CÙNG và không có gì ném được giữa đây với `return`: đây là
+	# chỗ duy nhất trong file mật khẩu thô hiện hình.
+	ket_qua["mat_khau"] = {email: p.lo_ra() for email, p in bang_mat_khau.items()}
 	return ket_qua
+
+
+def _xoa_tep_da_nhap(file_url: str) -> None:
+	"""Xoá tệp nhân sự sau khi đã ghi xong. Nuốt mọi lỗi CÓ CHỦ Ý: tệp còn sót
+	lại là chuyện vệ sinh, còn một lỗi ném lên từ đây sẽ (a) làm hỏng một lần
+	nhập ĐÃ THÀNH CÔNG và (b) kéo theo một lần kết xuất biến cục bộ của khung
+	gọi. Bắt lỗi NGAY TRONG hàm này để traceback (nếu có ai log) chỉ chứa các
+	khung từ đây trở xuống."""
+	try:
+		name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+		if name:
+			frappe.delete_doc("File", name, ignore_permissions=True, force=True)
+	except Exception:
+		pass
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +656,7 @@ def nhan_su_import_preview(customer, file_url) -> dict:
 	"""Đọc và phân tích tệp, KHÔNG GHI GÌ. Xem `_phan_tich`."""
 	chan_neu_khong_phai_nhan_vien_miyano()
 	customer = _kiem_khach(customer)
+	_kiem_tep_rieng_tu(file_url)
 	return _phan_tich(_resolve_owned_spreadsheet(file_url), customer)
 
 
@@ -515,4 +669,5 @@ def nhan_su_import_commit(customer, file_url) -> dict:
 	nó chỉ đi đúng một chuyến về màn hình đang mở (QĐ-G19)."""
 	chan_neu_khong_phai_nhan_vien_miyano()
 	customer = _kiem_khach(customer)
-	return _ghi(_resolve_owned_spreadsheet(file_url), customer)
+	_kiem_tep_rieng_tu(file_url)
+	return _ghi(_resolve_owned_spreadsheet(file_url), customer, file_url)

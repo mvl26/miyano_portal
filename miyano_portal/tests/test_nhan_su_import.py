@@ -6,10 +6,17 @@ nên "xem trước không ghi gì" được đo bằng cách đếm bản ghi c�
 mà đường cấp tài khoản đụng tới (User, Contact, User Permission, Portal
 Member, Customer Department), không phải chỉ hai cái cuối.
 
-FrappeTestCase chỉ rollback MỘT LẦN cho cả lớp, mà `User.insert()` tự
-commit bên trong — mọi thứ các test này tạo ra phải được dọn TƯỜNG MINH ở
-setUp (dọn trước, không chỉ dọn sau: một lần chạy đứt gánh giữa chừng không
+`FrappeTestCase` chỉ rollback MỘT LẦN cho cả LỚP, nên bản ghi do test method
+này tạo vẫn còn nguyên khi method sau chạy — vì vậy mọi thứ phải được dọn
+TƯỜNG MINH ở setUp (dọn trước, không chỉ dọn sau: một lần chạy đứt gánh không
 được để lại tài khoản đăng nhập được trên site).
+
+ĐÍNH CHÍNH (vòng sửa 1): bản đầu của file này ghi lý do là *"`User.insert()`
+tự commit bên trong"*. **SAI** — `test_ghi_hong_giua_chung_khong_de_lai_gi`
+bên dưới đo thẳng điều đó: hai tài khoản được tạo rồi lần ghi vỡ ở người thứ
+ba, và điểm lưu (savepoint) cuốn sạch cả hai. Không có `commit` nào trong
+đường ghi. Việc dọn tường minh vẫn cần (lý do ở trên), nhưng lý do cũ thì
+sai, và người sau sẽ tin nó.
 """
 
 import io
@@ -102,10 +109,12 @@ class _NhanSuTestBase(FrappeTestCase):
 		frappe.db.delete("Customer Department", {"customer": ["in", khach]})
 		frappe.db.delete("Dynamic Link", {"parenttype": "Contact", "link_name": ["in", khach]})
 		frappe.db.delete("Customer", {"name": ["in", khach]})
-		# `User.insert()` tự commit bên trong, nên rác của lần chạy trước ĐÃ
-		# nằm ngoài transaction của test — dọn xong phải commit theo, nếu
-		# không cú rollback cuối lớp sẽ HOÀN TÁC chính việc dọn này và trả
-		# lại nguyên đám tài khoản đăng nhập được cho site.
+		# Commit việc dọn: nếu một lần chạy TRƯỚC đã kịp commit ở đâu đó (hoặc
+		# bị giết giữa chừng), rác của nó nằm ngoài transaction hiện tại và chỉ
+		# biến mất thật khi lần dọn này được commit — cú rollback cuối lớp
+		# không phân biệt được "xoá rác cũ" với "xoá dữ liệu test mới", nó
+		# hoàn tác cả hai. KHÔNG phải vì `User.insert()` tự commit: nó không
+		# commit, xem đính chính ở đầu file.
 		frappe.db.commit()
 
 	def _tao_khach(self, ten, ma_ngan=None):
@@ -118,14 +127,17 @@ class _NhanSuTestBase(FrappeTestCase):
 			frappe.db.set_value("Customer", doc.name, "custom_ma_ngan", ma_ngan)
 		return doc.name
 
-	def _upload(self, content: bytes, filename="nhan_su.xlsx", user="Administrator"):
+	def _upload(self, content: bytes, filename="nhan_su.xlsx", user="Administrator", rieng_tu=1):
 		frappe.set_user(user)
 		file_doc = frappe.get_doc({
-			"doctype": "File", "file_name": filename, "is_private": 1, "content": content,
+			"doctype": "File", "file_name": filename, "is_private": rieng_tu, "content": content,
 		})
 		file_doc.insert(ignore_permissions=True)
 		self._created_files.append(file_doc.name)
 		return file_doc
+
+	def _upload_cong_khai(self, content: bytes, filename="nhan_su_cong_khai.xlsx"):
+		return self._upload(content, filename=filename, rieng_tu=0)
 
 	def _counts(self):
 		"""Đếm CẢ NĂM thứ mà đường cấp tài khoản ghi ra."""
@@ -494,3 +506,180 @@ class TestTepMau(_NhanSuTestBase):
 		self.assertEqual(ket_qua["loi_toan_tep"], [])
 		self.assertEqual(ket_qua["so_tu_choi"], 0, ket_qua["rows"])
 		self.assertGreaterEqual(ket_qua["total"], 1)
+
+
+class TestGhiHongGiuaChung(_NhanSuTestBase):
+	"""Vòng sửa 1 — hai bài canh CHÍNH lúc ghi vỡ giữa chừng.
+
+	Trước vòng này không bài nào lái tới đó: bài "tất-cả-hoặc-không" duy nhất
+	ném ở TIỀN KIỂM `so_tu_choi`, tức trước khi ghi một chữ, nên điểm lưu
+	(savepoint) trong `_ghi` chưa từng được một test nào chạy qua — mà "ghi
+	dở dang" lại đúng là kiểu hỏng brief nêu đích danh.
+
+	Cách lái: chặn ở `update_password` — biên NGOÀI CÙNG mà mật khẩu thô đi
+	qua. Cho hai người đầu ghi xong rồi ném ở người thứ ba: đúng hình một lần
+	ghi 60/100 dòng rồi vỡ.
+	"""
+
+	def _chan_o_nguoi_thu_ba(self):
+		"""Chặn ở `update_password` — biên ngoài cùng mà mật khẩu thô đi qua.
+
+		HAI chi tiết của cái bẫy này KHÔNG phải chuyện phong cách, chúng quyết
+		định bài test đo được cái gì (đã thấy tận mắt ở vòng đỏ đầu tiên):
+
+		* `new=` chứ KHÔNG `side_effect=`. Với `side_effect`, lời gọi đi qua ba
+		  khung của `unittest.mock`, mỗi khung giữ `args = (email, 'mật khẩu
+		  thô')` — một tuple tên `args`, KHÔNG nằm trong danh sách chặn của
+		  Frappe. Bài test khi đó tự bơm mật khẩu thô vào chính cái traceback
+		  nó đang soi, và sẽ đỏ vĩnh viễn dù mã sản xuất đã sạch.
+		* Tham số tên `pwd` và bản ghi nhận cất trên `self`. `pwd` khớp danh
+		  sách chặn theo tên nên khung của hàm giả này tự che; `self` in ra
+		  bằng repr của TestCase, không kết xuất thuộc tính. Một biến cục bộ
+		  `da_dat = [...]` thì in nguyên văn — đúng lỗi của vòng đỏ đầu.
+		"""
+		from unittest.mock import patch
+
+		self._mk_da_dat = []
+
+		def gia_lap(user, pwd, *a, **kw):
+			self._mk_da_dat.append(pwd)
+			if len(self._mk_da_dat) == 3:
+				raise frappe.ValidationError("ZZTEST hỏng giữa chừng khi đặt mật khẩu")
+			return update_password(user, pwd, *a, **kw)
+
+		return patch.object(nhan_su_api, "update_password", new=gia_lap)
+
+	def test_ghi_hong_giua_chung_khong_de_lai_gi(self):
+		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+		before = self._counts()
+
+		with self._chan_o_nguoi_thu_ba():
+			with self.assertRaises(frappe.ValidationError) as cm:
+				nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertIn("ZZTEST hỏng giữa chừng", str(cm.exception))
+
+		# Đã đi tới người thứ ba nghĩa là hai người đầu ĐÃ được ghi trước khi
+		# vỡ — nếu không, bài này không canh cái nó tưởng đang canh.
+		self.assertEqual(len(self._mk_da_dat), 3)
+		self.assertEqual(before, self._counts(), "ghi vỡ giữa chừng phải quay lại sạch")
+
+	def test_mat_khau_tho_khong_lo_ra_trong_traceback(self):
+		"""QĐ-G19 cấm đích danh việc mật khẩu vào log.
+
+		`frappe.get_traceback(with_context=True)` (đường mà `log_error()` và
+		`log_error_snapshot()` dùng khi có lỗi 500) KẾT XUẤT BIẾN CỤC BỘ của
+		mọi khung ngăn xếp bằng `repr()`. Bộ khử của Frappe chỉ che theo TÊN
+		BIẾN (`re.search` với password|passwd|secret|token|key|pwd) và chỉ che
+		KHOÁ của dict — giá trị trong dict in nguyên văn. `tabError Log` lại
+		là MyISAM: dòng đó sống sót qua rollback.
+		"""
+		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+
+		with self._chan_o_nguoi_thu_ba():
+			try:
+				nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+				self.fail("phải ném ở người thứ ba")
+			except frappe.ValidationError:
+				vet = frappe.get_traceback(with_context=True)
+
+		self.assertTrue(self._mk_da_dat, "chưa sinh mật khẩu nào thì bài này vô nghĩa")
+		self.assertIn("nhan_su.py", vet, "traceback phải có khung của chính hàm ghi")
+		for mat_khau in self._mk_da_dat:
+			self.assertNotIn(
+				mat_khau, vet,
+				"mật khẩu thô lọt vào traceback — đường này đi thẳng vào tabError Log",
+			)
+
+
+class TestTepTaiLen(_NhanSuTestBase):
+	def test_tep_cong_khai_bi_tu_choi(self):
+		"""Tệp mang họ tên + email nhân viên bệnh viện. Một tệp công khai được
+		phục vụ từ `/files/` KHÔNG cần đăng nhập — chốt phải nằm ở server, không
+		chỉ ở tuỳ chọn của uploader phía JS."""
+		f = self._upload_cong_khai(_xlsx_bytes(TEP_HOP_LE))
+		with self.assertRaises(frappe.ValidationError) as cm:
+			nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		self.assertIn("riêng tư", str(cm.exception))
+
+	def test_tep_bi_xoa_sau_khi_ghi_xong(self):
+		"""Ghi xong thì tệp không còn việc gì để làm — để lại là để một danh
+		sách nhân sự đầy đủ nằm vĩnh viễn trên đĩa."""
+		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertFalse(frappe.db.exists("File", f.name))
+
+	def test_tep_van_con_khi_ghi_that_bai(self):
+		"""Ngược lại: ghi hỏng thì GIỮ tệp — người nhập còn phải sửa và thử lại."""
+		f = self._upload(_xlsx_bytes([_row("Trần Văn Bình", BINH)]))  # thiếu khoa
+		with self.assertRaises(frappe.ValidationError):
+			nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertTrue(frappe.db.exists("File", f.name))
+
+
+class TestCacCaCon(_NhanSuTestBase):
+	def test_user_permission_cua_khach_khac_cung_bi_canh_bao(self):
+		"""Chốt (b) trước vòng này chỉ soi `Portal Member`. Một `User` đã có
+		`User Permission` trỏ về bệnh viện khác mà CHƯA có `Portal Member` thì
+		lọt qua — và Frappe OR các User Permission cùng doctype lại với nhau,
+		nên tài khoản đó nhìn thấy dữ liệu của HAI bệnh viện."""
+		frappe.get_doc({
+			"doctype": "User", "email": DUNG, "first_name": "Phạm Văn Dũng",
+			"user_type": "Website User", "send_welcome_email": 0,
+		}).insert(ignore_permissions=True)
+		frappe.get_doc({
+			"doctype": "User Permission", "user": DUNG,
+			"allow": "Customer", "for_value": CUST_A,
+		}).insert(ignore_permissions=True)
+		self.assertFalse(frappe.db.exists("Portal Member", {"user": DUNG}))
+
+		f = self._upload(_xlsx_bytes([_row("Phạm Văn Dũng", DUNG, "Hồi sức", "HOISUC")]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_B, f.file_url)
+		dong = self._dong(ket_qua, DUNG)
+		self.assertEqual(dong["trang_thai"], "canh_bao")
+		self.assertIn(CUST_A, " ".join(dong["errors"]))
+
+		nhan_su_api.nhan_su_import_commit(CUST_B, f.file_url)
+		self.assertFalse(frappe.db.exists("Portal Member", {"user": DUNG}))
+		self.assertFalse(frappe.db.exists(
+			"User Permission", {"user": DUNG, "allow": "Customer", "for_value": CUST_B}
+		))
+
+	def test_tai_khoan_bi_vo_hieu_hoa_duoc_bao_ro(self):
+		"""Gắn một tài khoản đã tắt vào bệnh viện rồi báo "Đã tạo" mà không
+		nói gì là đẩy người ta đi tìm nguyên nhân "sao đăng nhập không được"."""
+		u = frappe.get_doc({
+			"doctype": "User", "email": DUNG, "first_name": "Phạm Văn Dũng",
+			"user_type": "Website User", "send_welcome_email": 0,
+		})
+		u.insert(ignore_permissions=True)
+		frappe.db.set_value("User", DUNG, "enabled", 0)
+
+		f = self._upload(_xlsx_bytes([_row("Phạm Văn Dũng", DUNG, vai_tro="Quản lý")]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, DUNG)
+		self.assertEqual(dong["trang_thai"], "tao_moi")
+		self.assertIn("vô hiệu hoá", dong["ghi_chu"].lower())
+
+	def test_dong_bo_qua_noi_ro_man_nay_khong_sua_duoc_gi(self):
+		"""Màn này KHÔNG có đường cập nhật: đổi khoa, bật lại tài khoản đã tắt,
+		sửa vai trò gõ nhầm đều phải làm trên bản ghi Portal Member. Câu chữ
+		phải nói đúng năng lực thật, đừng đọc như "không có gì phải làm"."""
+		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+
+		f2 = self._upload(_xlsx_bytes(TEP_HOP_LE), filename="lan_2.xlsx")
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f2.file_url)
+		ghi_chu = self._dong(ket_qua, BINH)["ghi_chu"].lower()
+		self.assertIn("không", ghi_chu)
+		self.assertIn("khoa", ghi_chu)
+		self.assertIn("portal member", ghi_chu)
+
+	def test_khach_cong_khong_tai_duoc_mau(self):
+		"""Chốt vai trò trên endpoint tệp mẫu — bản mẫu cũng là dữ liệu của
+		Miyano, và ba endpoint phải cùng một chốt."""
+		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		frappe.set_user(HOA)
+		with self.assertRaises(frappe.PermissionError):
+			nhan_su_api.nhan_su_import_template()
+		frappe.set_user("Administrator")

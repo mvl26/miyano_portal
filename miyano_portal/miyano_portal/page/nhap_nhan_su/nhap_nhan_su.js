@@ -260,6 +260,13 @@ class NhapNhanSu {
 		const khoa = (kq.khoa_da_tao || [])
 			.map((k) => `${o(k.ten_khoa_phong)} (${o(k.ma_khoa) || "không mã"})`)
 			.join(", ");
+		// Cảnh báo CẤP TỆP ("bệnh viện này sẽ không có quản lý nào") phải sống
+		// tiếp sau khi ghi — nó nói về trạng thái CÒN LẠI của bệnh viện, không
+		// phải về tệp vừa đọc. Bản đầu chỉ vẽ nó ở bước xem trước nên nó biến
+		// mất đúng lúc người ta cần nhớ nhất.
+		const canh_bao = (kq.canh_bao_toan_tep || [])
+			.map((m) => `<div class="text-warning">⚠ ${o(m)}</div>`)
+			.join("");
 		const html = `
 			<div class="frappe-card" style="padding: 14px">
 				<h5>✅ Đã tạo ${kq.so_tao_moi} tài khoản cho ${o(kq.customer)}</h5>
@@ -267,6 +274,7 @@ class NhapNhanSu {
 					Bỏ qua ${kq.so_bo_qua} dòng đã có · ${kq.so_canh_bao} dòng cần Miyano quyết
 					${khoa ? `· khoa mới: ${khoa}` : ""}
 				</div>
+				${canh_bao}
 				${
 					emails.length
 						? `<div class="alert alert-warning" style="margin-top: 12px">
