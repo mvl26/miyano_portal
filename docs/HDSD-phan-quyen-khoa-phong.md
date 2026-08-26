@@ -1,11 +1,12 @@
 # Hướng dẫn thao tác — Phân quyền theo khoa phòng trên cổng khách hàng
 
-App `miyano_portal` · Cập nhật **19/08/2026** · Áp dụng từ bản nền (bước 1–4)
+App `miyano_portal` · Cập nhật **26/08/2026** · Áp dụng từ bản nền (bước 1–4)
 
-**Tài liệu này dành cho nhân viên Miyano** làm việc trên Desk (`/app`). Khách hàng
-nay đã có **ba màn của luồng duyệt** trên cổng (`/de-xuat`, `/duyet`, màn chi tiết
-phiếu) — xem §4, mục "Thao tác trên màn hình". Chúng **chỉ đọc và duyệt**: màn lập
-phiếu và màn quản lý thành viên vẫn chưa làm (§7 mục 2).
+**Tài liệu này dành cho nhân viên Miyano** làm việc trên Desk (`/app`). Vòng
+"khoa yêu cầu → quản lý duyệt → đơn sang Miyano" nay **chạy trọn vẹn trên cổng
+khách**: nhân viên khoa tự lập yêu cầu ở màn **Đặt hàng**, quản lý duyệt ở màn
+**Duyệt**, cả hai theo dõi ở màn **Yêu cầu của tôi** — xem §4, mục "Thao tác
+trên màn hình". Màn quản lý thành viên vẫn chưa làm (§7 mục 2).
 
 ---
 
@@ -43,7 +44,8 @@ họ sẵn sàng — không có ngày "cả hệ thống đổi cách hoạt đ�
 
 ## 2. Bật phân quyền khoa phòng cho một bệnh viện
 
-**Bốn bước, và thứ tự là bắt buộc** — hệ thống sẽ chặn nếu làm sai thứ tự.
+**Ba bước, và thứ tự là bắt buộc** — hệ thống sẽ chặn nếu làm sai thứ tự. Bước 4
+chỉ dùng cho tài khoản cấp lẻ, không đi qua bảng nhân sự.
 
 ### Bước 1 — Đặt Mã ngắn cho bệnh viện
 
@@ -57,6 +59,11 @@ họ sẵn sàng — không có ngày "cả hệ thống đổi cách hoạt đ�
 > bạn cấp tài khoản, chứ không để tới lúc nhân viên bệnh viện bấm gửi mới báo lỗi.
 
 ### Bước 2 — Khai khoa phòng
+
+**Khai trước là tuỳ chọn.** Bảng nhân sự ở bước 3 có cột Khoa và Mã khoa; khoa nào
+chưa có, hệ thống tạo luôn khi bạn bấm Ghi, và bản xem trước nói rõ nó sắp tạo
+những khoa nào. Khai tay trước chỉ cần khi bệnh viện muốn gắn kho cho khoa, hoặc
+khi bạn muốn chốt sẵn tên và mã khoa cho đúng.
 
 `Customer Department` → **New** cho từng khoa:
 
@@ -78,22 +85,26 @@ Quy tắc **Mã khoa** — hệ thống tự viết hoa và kiểm:
 
 ### Bước 3 — Cấp tài khoản
 
-Dùng đúng chức năng cấp tài khoản cổng đang có. Hệ thống tự quyết vai trò:
+Dùng màn **Nhập nhân sự bệnh viện** trên Desk (workspace *Kho khách hàng*): tải
+bảng mẫu Excel cho bệnh viện điền, tải lên, xem trước rồi ghi. Cách làm chi tiết
+nằm ở tài liệu *tạo khách hàng · mở kho · thao tác trên cổng*, mục A5.
 
-| Tình huống | Kết quả |
-|---|---|
-| Bệnh viện **chưa có** tài khoản nào | Tài khoản đầu tiên thành **Quản lý**, **đang hoạt động** — dùng được ngay |
-| Bệnh viện **đã có** quản lý | Tài khoản mới thành **Nhân viên khoa**, **chưa hoạt động**, **chưa gán khoa** |
+Bảng nhân sự nói rõ từng người là **Quản lý** hay **Nhân viên khoa**, và nhân
+viên khoa thuộc khoa nào. Tài khoản cấp theo bảng này **đang hoạt động và đã gán
+khoa ngay** — dùng được luôn, không còn bước gán khoa sau.
 
-Ở trường hợp thứ hai, hệ thống trả về cờ báo *"tài khoản còn chờ gán khoa phòng"*.
-**Tài khoản đó chưa dùng được** — còn bước 4.
+Ba điều bảng xem trước sẽ nhắc trước khi bạn ghi:
 
-> **Vì sao không gán khoa luôn lúc cấp:** người biết nhân viên đó thuộc khoa nào là
-> **quản lý bệnh viện**, không phải Miyano. Nên tài khoản được tạo trước, gán khoa
-> sau. Đó cũng là lý do nó được tạo ở trạng thái chưa hoạt động thay vì hoạt động
-> mà không thấy gì.
+- Bệnh viện **chưa có Mã ngắn** mà bảng có nhân viên khoa → từ chối, làm bước 1 trước.
+- Bảng **không có ai làm Quản lý** và bệnh viện cũng chưa có quản lý đang hoạt
+  động → cảnh báo: sẽ không ai duyệt được yêu cầu của các khoa.
+- Một email **đã thuộc bệnh viện khác** → cảnh báo, không tạo lại và không đổi mật
+  khẩu của người đó. Bạn tự quyết là gõ nhầm hay đúng là một người làm hai nơi.
 
-### Bước 4 — Gán khoa phòng rồi kích hoạt
+### Bước 4 — Chỉ khi cấp tài khoản lẻ
+
+Tài khoản cấp lẻ (không qua bảng nhân sự) cho một bệnh viện **đã có quản lý** sẽ
+thành **Nhân viên khoa**, **chưa hoạt động**, **chưa gán khoa**. Nó chưa dùng được:
 
 `Portal Member` → mở bản ghi vừa tạo:
 
@@ -102,9 +113,7 @@ Dùng đúng chức năng cấp tài khoản cổng đang có. Hệ thống tự
 3. Tích **Hoạt động**
 4. **Lưu**
 
-Xong bước này tài khoản mới dùng được.
-
-> Hiện quản lý bệnh viện **chưa có màn hình** để tự làm bước này — màn "Thành viên
+> Hiện quản lý bệnh viện **chưa có màn hình** để tự làm việc này — màn "Thành viên
 > & phân quyền" thuộc bước 9, chưa làm. Tạm thời Miyano làm hộ trên Desk.
 
 ---
@@ -149,21 +158,68 @@ trên phiếu xuất kho thì hệ thống cũng không cho xoá.
 tài khoản, ai cũng đặt hàng thẳng. Giờ nhân viên khoa **đề xuất**, quản lý **duyệt**,
 rồi đơn mới sang Miyano.
 
+**Cả hai vai làm việc đó ở cùng một chỗ: màn Đặt hàng.** Không còn hai lối "đặt
+hàng" và "lập phiếu đề xuất" chạy song song, cũng không còn hai chế độ "theo hợp
+đồng khung" và "mua lẻ". Người dùng tìm hàng trong một danh sách, bỏ vào một giỏ,
+rồi bấm nút cuối màn — nút đó ghi **Gửi duyệt** với nhân viên khoa và **Đặt hàng**
+với quản lý.
+
 ### Ai làm được gì
 
 | Việc | Nhân viên khoa | Quản lý |
 |---|---|---|
-| Lập phiếu đề xuất | ✔ | ✔ (qua giỏ hàng) |
-| Sửa số lượng khi phiếu còn **Nháp** | ✔ | ✔ |
-| Xoá phiếu **Nháp** | ✔ (phiếu của mình) | ✔ |
-| Gửi duyệt | ✔ (phiếu của mình) | — |
+| Lập yêu cầu ở màn Đặt hàng | ✔ | ✔ |
+| Sửa số lượng khi yêu cầu còn **Nháp** | ✔ | ✔ |
+| Xoá yêu cầu **Nháp** | ✔ (của mình) | ✔ |
+| Gửi duyệt | ✔ (của mình) | — |
 | Duyệt / Từ chối | ✘ | ✔ |
-| Huỷ phiếu đã gửi | ✘ | ✔ |
+| Huỷ yêu cầu đã gửi | ✘ | ✔ |
 | Đặt hàng thẳng, không qua duyệt | ✘ | ✔ |
 
-**Nhân viên khoa không đặt hàng thẳng được nữa.** Bấm đặt trên giỏ hàng sẽ nhận
-thông báo hướng sang chức năng gửi duyệt. Đây là thay đổi hành vi có chủ đích — nếu
-để họ đặt thẳng thì cổng duyệt chỉ là trang trí.
+**Nhân viên khoa không đặt hàng thẳng được nữa.** Màn Đặt hàng chỉ cho họ nút **Gửi
+duyệt**; không có nút nào đưa đơn sang Miyano mà không qua quản lý. Đây là thay đổi
+hành vi có chủ đích — nếu để họ đặt thẳng thì cổng duyệt chỉ là trang trí.
+
+### Một danh sách, ba loại dòng hàng
+
+Màn Đặt hàng có **một ô tìm kiếm** và **một danh sách**, 10 dòng mỗi trang. Hàng
+thuộc hợp đồng của chính bệnh viện đó đứng trước, hết rồi mới tới danh mục chung
+của Miyano. Mỗi dòng hiện tình trạng hàng — **Còn hàng** hoặc **Liên hệ** — và một
+trong hai nhãn giá:
+
+| Loại dòng | Nhãn trên màn hình | Nghĩa |
+|---|---|---|
+| Hàng trong hợp đồng của bệnh viện | **Giá HĐ** kèm số tiền và mã hợp đồng | Giá đã ký, đặt là biết ngay bao nhiêu tiền |
+| Hàng Miyano có bán nhưng ngoài hợp đồng | **Chờ báo giá** | Miyano ra giá sau |
+| Hàng Miyano chưa có mã | **Chờ báo giá** | Người dùng bấm nút *"+ Thêm dòng — hàng chưa có trong hệ thống"* rồi tự gõ tên hàng, đơn vị tính, số lượng. Miyano tìm nguồn và báo lại |
+
+Nút thêm dòng hàng chưa có mã **luôn hiện**, không phải tìm không ra mới xuất hiện.
+
+Vượt hạn mức hợp đồng ở màn này là **cảnh báo**, không chặn: khoa vẫn xin được 100
+khi hợp đồng còn 40, và quản lý gõ số duyệt thật lúc duyệt. Hệ thống không tự cắt
+số lượng thay quản lý. Nhưng **lúc thật sự sinh đơn** — quản lý duyệt, hoặc quản lý
+bấm Đặt hàng thẳng — thì hạn mức là chốt cứng và việc đó thất bại; xem mục *"Quản
+lý duyệt như thế nào"* bên dưới.
+
+### Điều bệnh viện sẽ hỏi: vì sao hàng hợp đồng phải chờ
+
+**Một đơn có bất kỳ dòng nào chưa có giá thì CẢ ĐƠN chờ Miyano báo giá rồi mới
+giao — kể cả những dòng đã có giá hợp đồng.** Trước đây hàng hợp đồng giao được
+ngay; nay nếu nó đứng chung đơn với hàng chưa có giá thì nó chờ cùng.
+
+Màn Đặt hàng nói thẳng điều này ngay trên nút gửi:
+
+> Đơn có hàng chờ báo giá — cả đơn sẽ chờ Miyano báo giá trước khi giao.
+
+**Vì sao:** một đơn hàng là **một** chứng từ, có **một** ngày giao và **một** hoá
+đơn. Muốn phần có giá đi trước thì phải cắt nó thành hai đơn — và hệ thống không
+tự cắt, vì cắt đơn của bệnh viện là một quyết định thương mại mà nó không đủ thông
+tin để ra thay người dùng.
+
+**Khoa cần hàng gấp thì làm gì:** đặt **hai lần**. Một yêu cầu chỉ gồm hàng có giá
+hợp đồng — nó đi thẳng, Miyano xác nhận rồi giao như trước. Một yêu cầu riêng cho
+phần chờ báo giá. Đây là câu trả lời đúng khi bệnh viện gọi hỏi *"sao hàng hợp
+đồng của chúng tôi lâu nay giao ngay mà giờ nằm chờ"*.
 
 ### Vòng đời một phiếu
 
@@ -178,6 +234,31 @@ Nháp ──Gửi duyệt──► Chờ duyệt ──Duyệt──► Đã duy
 thấy, chưa có mã — xoá thật khỏi hệ thống. Từ **Chờ duyệt** trở đi phiếu đã có mã và
 đã vào hàng chờ của quản lý — chỉ **huỷ**, phiếu ở lại để truy vết. Nút trên màn hình
 ghi đúng việc đang làm: "Xoá" ở Nháp, "Huỷ phiếu" từ Chờ duyệt trở đi.
+
+### Bệnh viện nhìn thấy vòng đời đó như thế nào
+
+Trên cổng, khách không thấy "phiếu" và "đơn" là hai thứ. Họ thấy **một** danh sách
+**Yêu cầu của tôi**, mỗi yêu cầu đúng một dòng từ lúc soạn tới lúc nhận hàng:
+
+| Giai đoạn | Nghĩa là | Ai đang giữ việc |
+|---|---|---|
+| **Nháp** | Đang soạn, chưa gửi | Người lập |
+| **Chờ duyệt** | Đã gửi, gồm cả yêu cầu xin sửa số lượng | Quản lý bệnh viện |
+| **Đã duyệt** | Quản lý đã duyệt, đơn đã sang Miyano và đang chạy — kể cả khi Miyano còn đang gom giá, hoặc đã giao được một phần | Miyano |
+| **Chờ báo giá** | **Miyano đã báo giá xong và đang chờ bệnh viện trả lời** (hoặc báo giá đã quá hạn) | Bệnh viện |
+| **Đã giao** | Đã giao đủ, hoặc đơn đã đóng | — |
+| **Từ chối** · **Đã huỷ** | Hai ngõ cụt, yêu cầu ở lại để truy vết | — |
+
+> **Đọc kỹ hai dòng giữa, đây là chỗ hay hiểu ngược.** *"Chờ báo giá"* KHÔNG có
+> nghĩa là đang chờ Miyano ra giá — nó nghĩa là **giá đã về, bệnh viện cần mở yêu
+> cầu ra và trả lời**. Một yêu cầu đang chờ Miyano ra giá thì vẫn nằm ở *"Đã
+> duyệt"*. Nói ngược hai dòng này là để bệnh viện ngồi chờ một việc đang thuộc về
+> chính họ.
+
+Trước bản này, một yêu cầu nằm ở màn "Đề xuất mua" khi còn là phiếu rồi **nhảy**
+sang màn "Đơn hàng của tôi" sau khi quản lý duyệt — muốn tìm lại yêu cầu của chính
+mình, nhân viên phải đoán trước nó đang ở giai đoạn nào. Nay nó không nhảy đi đâu
+cả. Các đường dẫn cũ vẫn dùng được, chúng tự chuyển sang màn mới.
 
 ### Mã phiếu
 
@@ -197,6 +278,15 @@ Vượt 99 phiếu cùng khoa trong một ngày thì tràn sang 3 chữ số (`�
 vòng — mã trùng tệ hơn mã dài.
 
 Đơn quản lý đặt cho **toàn viện** dùng mã khoa dành riêng `CHUNG`: `BM-CHUNG-260819-01`.
+
+**Đơn sinh ra từ một phiếu được duyệt nay MANG CHÍNH MÃ ĐÓ làm số đơn.** Bệnh viện
+và Miyano gọi tên cùng một chứng từ bằng cùng một mã — hết cảnh khoa đọc mã phiếu
+còn sales tra số đơn rồi hai bên nói về hai tờ giấy.
+
+**Một ngoại lệ, nhớ cho kỹ:** đơn quản lý **bấm Đặt hàng thẳng** từ màn Đặt hàng
+vẫn mang số đơn cũ dạng `SAL-ORD-…`, còn mã phiếu được ghi kèm bên cạnh làm mã tra
+cứu. Chỉ đơn đi qua **duyệt** mới lấy mã phiếu làm số đơn. Đừng nói với bệnh viện
+rằng mọi đơn đều mang mã mới.
 
 ### Ba thứ ghi trên phiếu để sau này truy vết
 
@@ -242,15 +332,17 @@ nhìn thấy cả hai để so.
 
 ### Quản lý đặt hàng trực tiếp
 
-Quản lý bấm đặt trên giỏ hàng thì **vẫn chạy như trước**, và hệ thống **tự lập một
-phiếu đề xuất đã duyệt** đứng sau. Không phải bấm thêm nút nào. Mục đích: **mọi đơn
-trên hệ thống đều có đúng một chứng từ đứng sau** — không có hai loại đơn với hai lịch
-sử khác nhau.
+Quản lý bấm **Đặt hàng** ở cuối giỏ thì đơn sang Miyano **ngay trong một lần bấm** —
+họ vốn là người duyệt, bắt họ gửi duyệt rồi tự duyệt là bắt bấm hai lần cho một việc.
+Hệ thống **tự lập một phiếu đề xuất đã duyệt** đứng sau. Không phải bấm thêm nút nào.
+Mục đích: **mọi đơn trên hệ thống đều có đúng một chứng từ đứng sau** — không có hai
+loại đơn với hai lịch sử khác nhau.
 
-Giỏ hàng của quản lý có ô chọn khoa phòng, mặc định **Toàn viện**:
-- Chọn một khoa → đơn thuộc khoa đó, nhân viên khoa đó nhìn thấy đơn và mọi phiếu
-  giao, hoá đơn của nó. Dùng khi quản lý đặt hộ một khoa.
-- Chọn **Toàn viện** → đơn không thuộc khoa nào, **chỉ quản lý thấy**.
+**Đơn quản lý đặt thẳng là đơn của TOÀN VIỆN, không gắn khoa nào.** Màn Đặt hàng
+không còn ô chọn khoa phòng, nên **chỉ quản lý nhìn thấy đơn đó** — nhân viên của
+khoa sẽ không thấy đơn quản lý đặt hộ mình, cũng không thấy phiếu giao và hoá đơn
+của nó. Muốn đơn thuộc về một khoa và khoa đó theo dõi được, để **chính nhân viên
+khoa** lập yêu cầu rồi quản lý duyệt.
 
 **Bệnh viện chưa có Mã ngắn vẫn đặt hàng được.** Phiếu sinh ra sẽ không có mã tra cứu
 cho tới khi Miyano đặt Mã ngắn. Mã tra cứu là tiện ích đối chiếu, không phải điều kiện
@@ -261,13 +353,20 @@ cho tới khi Miyano đặt Mã ngắn. Mã tra cứu là tiện ích đối chi
 Phần trên nói *luật*. Phần này nói *bấm ở đâu* — và **những gì màn hình chưa làm
 được**, để người triển khai không hứa nhầm với bệnh viện.
 
-**Ba màn đang có trên cổng khách:**
+**Bốn màn của luồng này trên cổng khách:**
 
-| Màn | Đường dẫn | Ai thấy | Làm được gì |
-|---|---|---|---|
-| **Đề xuất mua** | `/de-xuat` | mọi vai trò | Danh sách phiếu — nhân viên khoa thấy phiếu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip trạng thái (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ duyệt sửa / Từ chối / Đã huỷ`) |
-| **Duyệt** | `/duyet` | **chỉ quản lý** | Hàng chờ: gộp `Chờ duyệt` + `Chờ duyệt sửa`, lọc theo khoa phòng. Con số trên mục menu là số phiếu đang chờ |
-| **Chi tiết phiếu** | `/de-xuat/<mã>` | ai mở được phiếu đó | Đầu phiếu (truy vết), bảng dòng hàng, và thanh nút hành động theo trạng thái + vai trò |
+| Màn | Ai thấy | Làm được gì |
+|---|---|---|
+| **Đặt hàng** | mọi vai trò | Tìm hàng, bỏ vào giỏ, điền lý do yêu cầu, ngày giao mong muốn, địa chỉ giao — rồi **Gửi duyệt** (nhân viên khoa) hoặc **Đặt hàng** (quản lý). Có nút **Lưu nháp** để soạn dở |
+| **Yêu cầu của tôi** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy yêu cầu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ báo giá / Đã giao / Từ chối / Đã huỷ`) |
+| **Duyệt** | **chỉ quản lý** | Hàng chờ: gộp `Chờ duyệt` + `Chờ duyệt sửa`, lọc theo khoa phòng. Con số trên mục menu là số yêu cầu đang chờ |
+| **Chi tiết yêu cầu** | ai mở được yêu cầu đó | Đầu phiếu (truy vết), bảng dòng hàng kèm nhãn giá từng dòng, và thanh nút hành động theo trạng thái + vai trò |
+
+**Toàn bộ menu của khách nay còn 8 mục** (7 với nhân viên khoa — họ không có mục
+*Duyệt*): Tổng quan · Đặt hàng · Yêu cầu của tôi · Duyệt · Kho của tôi · Hoá đơn &
+công nợ · Thông báo · Hồ sơ đơn vị. Ba mục cũ *Giỏ hàng*, *Đơn hàng của tôi*, *Đề
+xuất mua* đã biến mất; đường dẫn cũ của chúng tự chuyển sang màn mới nên link trong
+thông báo đã gửi đi và bookmark của khách vẫn dùng được.
 
 **Quản lý sửa số lượng rồi duyệt — thao tác chính, làm ở màn chi tiết:**
 
@@ -296,13 +395,7 @@ duyệt** → nút **Xin sửa số lượng** → nhập số mong muốn từn
 quy ước trên: ô để trống nghĩa là không đổi dòng đó, gõ 0 nghĩa là xin bỏ mặt hàng.
 Phiếu chuyển sang **Chờ duyệt sửa** và quay lại hàng chờ của quản lý.
 
-> **Ba màn này hôm nay CHỈ ĐỌC VÀ DUYỆT.** Không có màn lập phiếu trên cổng — xem
-> §7 mục 2. Nghĩa là chuỗi đầy đủ "nhân viên khoa tự lập phiếu → gửi duyệt → quản lý
-> duyệt" **chưa chạy được từ đầu đến cuối trên cổng**: phần "quản lý duyệt" đã có
-> màn, phần "nhân viên lập" thì chưa. Nếu bệnh viện hỏi "chúng tôi bắt đầu dùng được
-> chưa", câu trả lời đúng là *chưa trọn vẹn*.
-
-Ngoài ra màn chi tiết **chưa có ô thêm mặt hàng mới** cho quản lý. Trên cổng, quản
+Màn chi tiết **chưa có ô thêm mặt hàng mới** cho quản lý. Trên cổng, quản
 lý hiện chỉ **hạ số lượng, bỏ mặt hàng và ghi chú** — muốn **thêm** một mặt hàng mà
 khoa không xin thì **quản lý bệnh viện không tự làm được**, phải báo nhân viên Miyano
 thêm giúp trên Desk. (Tài khoản bệnh viện là Website User, **không vào được** màn
@@ -397,20 +490,10 @@ Nói rõ để không ai chờ nhầm:
    và tổng tiền của đợt giao đó. Họ không mở được chính đơn hàng, nhưng cách ly theo
    khoa **chưa trọn vẹn** chừng nào bước 8 chưa chạy. Nếu bệnh viện hỏi, đừng nói
    là đã cách ly xong.
-2. **Màn hình luồng duyệt mới dựng được một nửa: đọc và duyệt, CHƯA lập phiếu.**
-   Hai màn `/de-xuat` (danh sách phiếu) và `/duyet` (hàng chờ của quản lý) cùng màn
-   chi tiết phiếu đã có trên cổng — xem §4, mục "Thao tác trên màn hình". Còn thiếu:
-
-   - **Màn LẬP phiếu đề xuất chưa có.** Đây là chỗ dễ đọc nhầm nhất, nên nói thẳng:
-     **hôm nay không ai lập được phiếu đề xuất từ cổng khách.** Nhân viên khoa bấm
-     đặt trên giỏ hàng thì bị chặn (đúng thiết kế), mà cũng chưa có nút "Lập phiếu"
-     nào thay thế. Phiếu chỉ vào hệ thống bằng hai đường: quản lý đặt hàng qua giỏ
-     (hệ thống tự lập một phiếu **đã duyệt** đứng sau, §4), hoặc nhân viên Miyano
-     tạo trên Desk. **Đừng hứa với bệnh viện rằng luồng đã chạy trọn vẹn** — chừng
-     nào màn lập phiếu chưa có, vòng "khoa đề xuất → quản lý duyệt" chưa khép kín
-     trên cổng.
-   - **Màn `/thanh-vien`** (quản lý tự gán khoa cho nhân viên) và **ô tìm theo tên
-     vật tư** chưa dựng.
+2. **Quản lý bệnh viện chưa có màn hình quản lý thành viên.** Vòng "khoa yêu cầu →
+   quản lý duyệt → đơn sang Miyano" đã khép kín trên cổng (§4), nhưng việc gán khoa
+   và bật/tắt thành viên thì quản lý bệnh viện chưa tự làm được — Miyano vẫn làm hộ
+   trên Desk.
 3. **Chưa có uỷ quyền tạm thời.** Quản lý đi vắng thì chưa có ai duyệt thay —
    thuộc kế hoạch C.
 3b. **Vòng "duyệt sửa" chưa ghi mốc riêng.** Khi quản lý duyệt một yêu cầu sửa số
@@ -421,6 +504,11 @@ Nói rõ để không ai chờ nhầm:
    khoa và bật/tắt thành viên (bước 9).
 5. **Con số thông báo chưa đọc chưa lọc theo khoa.** Nội dung thông báo thì đã lọc
    — chỉ riêng con số trên huy hiệu là đếm chung.
+6. **Không tách đơn theo tình trạng giá.** Đơn trộn hàng có giá và hàng chưa có giá
+   đi **một** vòng báo giá, cả đơn cùng chờ (§4). Khoa muốn phần có giá đi trước thì
+   tự đặt thành hai yêu cầu.
+7. **Quản lý không chọn được khoa khi đặt hàng thẳng.** Đơn họ bấm đặt luôn là đơn
+   toàn viện; muốn đơn thuộc về một khoa thì để nhân viên khoa lập yêu cầu rồi duyệt.
 
 ---
 
@@ -458,4 +546,4 @@ Nói rõ để không ai chờ nhầm:
 |---|---|---|
 | `custom_khoa_phong` | Link Customer Department | **chỉ đọc**, hệ thống ghi lúc tạo đơn từ khoa phòng của người đặt. Đơn cũ để trống |
 | `custom_de_xuat` | Link Portal De Xuat Mua | **chỉ đọc**, trỏ ngược về phiếu đề xuất sinh ra đơn. 102 đơn cũ để trống |
-| `custom_ma_tra_cuu` | Data | mã dễ đọc của khách (`BM-HUYETHOC-260819-01`). Tên đơn trên hệ thống **vẫn là `SAL-ORD-*`** — Miyano thấy cả hai, khách thấy mã của họ |
+| `custom_ma_tra_cuu` | Data | mã dễ đọc của khách (`BM-HUYETHOC-260819-01`). Đơn sinh ra **từ một phiếu được duyệt** lấy luôn mã này làm tên đơn. Đơn quản lý **đặt thẳng** giữ tên `SAL-ORD-*` và chỉ mang mã này bên cạnh |
