@@ -113,6 +113,12 @@ class NhapNhanSu {
 		new frappe.ui.FileUploader({
 			allow_multiple: false,
 			disable_file_browser: true,
+			// Tệp này mang HỌ TÊN và EMAIL của nhân viên bệnh viện. Riêng tư
+			// đã là mặc định của FileUploader, nhưng `allow_toggle_private`
+			// mặc định BẬT — tức người tải lên bấm một cái là tệp thành công
+			// khai. Ghim cả hai, đừng để nó là một lựa chọn.
+			make_attachments_public: false,
+			allow_toggle_private: false,
 			restrictions: { allowed_file_types: [".xlsx"] },
 			on_success: (file_doc) => {
 				this.file_url = file_doc.file_url;
