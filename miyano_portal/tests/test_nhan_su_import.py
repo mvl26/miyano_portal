@@ -603,10 +603,22 @@ class TestTepTaiLen(_NhanSuTestBase):
 
 	def test_tep_bi_xoa_sau_khi_ghi_xong(self):
 		"""Ghi xong thì tệp không còn việc gì để làm — để lại là để một danh
-		sách nhân sự đầy đủ nằm vĩnh viễn trên đĩa."""
+		sách nhân sự đầy đủ nằm vĩnh viễn trên đĩa.
+
+		Khẳng định CẢ BYTE TRÊN ĐĨA, không chỉ dòng trong `tabFile`: mối lo ở
+		đây là tệp nằm lại trên máy chủ, mà `delete_doc(..., force=True)` là
+		đúng cái cờ có thể bỏ qua các bước dọn của `File.on_trash` — xoá được
+		dòng mà bỏ lại tệp thì test vẫn xanh trong khi thứ cần dọn vẫn nằm đó."""
+		import os
+
 		f = self._upload(_xlsx_bytes(TEP_HOP_LE))
+		duong_dan = frappe.get_doc("File", f.name).get_full_path()
+		self.assertTrue(os.path.exists(duong_dan), "tệp phải có thật trước đã")
+
 		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+
 		self.assertFalse(frappe.db.exists("File", f.name))
+		self.assertFalse(os.path.exists(duong_dan), "byte của tệp vẫn còn trên đĩa")
 
 	def test_tep_van_con_khi_ghi_that_bai(self):
 		"""Ngược lại: ghi hỏng thì GIỮ tệp — người nhập còn phải sửa và thử lại."""
