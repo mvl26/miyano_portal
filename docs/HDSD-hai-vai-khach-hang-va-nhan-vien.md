@@ -475,13 +475,15 @@ Mở đơn, làm hai việc rồi bấm một nút:
 hàng khách **tự gõ tay** vì hệ thống chưa có mã:
 
 - Tìm được mã hàng tương ứng → điền vào cột **Mã hàng khớp** rồi **Lưu**. Hệ thống
-  **tự dựng một dòng hàng thật** cho nó ngay trong bảng `Items`, lấy giá hợp đồng
-  nếu mã đó nằm trong hợp đồng còn hiệu lực của khách, để trống giá nếu không.
-  Dòng giữ chỗ `HANG-DAT-NGOAI` (nếu có) được gỡ luôn trong cùng lần lưu đó.
+  **tự dựng một dòng hàng thật** cho nó ngay trong bảng `Items`. Nếu mã đó nằm
+  trong hợp đồng còn hiệu lực của khách thì dòng mang luôn giá hợp đồng; **nếu
+  không thì đơn giá về `0` và bạn phải điền lại** — để nguyên `0` sẽ ăn chốt
+  *"Thiếu giá"* lúc gửi khách duyệt. Dòng giữ chỗ `HANG-DAT-NGOAI` (nếu có) được
+  gỡ luôn trong cùng lần lưu đó.
   *Trước đây bạn phải tự thêm dòng — nay đừng thêm tay nữa, sẽ thành hai dòng.*
 - Không đáp ứng được → vẫn phải đánh dấu đã xử lý, và nên ghi chú lý do.
 
-**2. Điền đơn giá** cho những dòng còn để trống trong bảng `Items`.
+**2. Điền đơn giá** cho những dòng đang là `0` trong bảng `Items`.
 
 **3. Bấm nút workflow "Gửi khách duyệt"** (góc trên bên phải).
 

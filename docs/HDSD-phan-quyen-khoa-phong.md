@@ -466,11 +466,16 @@ select name, patch, creation, skipped from `tabPatch Log`
     or patch like '%them_de_xuat_vao_don_hang%';
 ```
 
-**Bản này có hai patch, không phải một.** Patch cũ thêm cột khoa phòng; patch mới
-(`v1_24`) thêm hai cột trỏ về phiếu đề xuất và mã tra cứu. Thiếu patch mới thì chốt
-"nhân viên không sửa số lượng sau khi đã duyệt" **không có gì để đọc** — hệ thống sẽ
-**chặn nhân viên khoa** kèm thông báo "Hệ thống chưa hoàn tất cập nhật", chứ không mở
+Ba cột trên là của **bản phân quyền khoa phòng**. Thiếu chúng thì chốt "nhân viên
+không sửa số lượng sau khi đã duyệt" **không có gì để đọc** — hệ thống sẽ **chặn
+nhân viên khoa** kèm thông báo "Hệ thống chưa hoàn tất cập nhật", chứ không mở
 toang. An toàn, nhưng họ không làm việc được cho tới khi anh chạy migrate.
+
+> **Truy vấn trên chỉ kiểm bản phân quyền, không kiểm bản anh đang cài.** Mỗi bản
+> sau lại thêm cột và bản vá riêng. Cách kiểm đúng cho **mọi** bản: sau khi migrate,
+> mở `tabPatch Log` và xác nhận **mọi** bản vá của bản đang cài đều có một dòng và
+> `skipped = 0`. Danh sách bản vá của một bản nằm trong ghi chú phát hành của chính
+> bản đó — đừng dựa vào truy vấn cố định ở đây.
 
 **Nếu quên bước 2 hoặc 3:** cổng khách từ chối mọi thứ (an toàn, không rò rỉ), và
 có một dòng trong `Error Log` nói rõ thiếu cột. Chạy migrate, restart, xong.
