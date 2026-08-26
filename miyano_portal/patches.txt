@@ -69,3 +69,4 @@ miyano_portal.patches.v1_27.them_cot_so_luong_da_gop
 miyano_portal.patches.v1_28.cap_nhat_02vt_bien_ban_ban_giao
 miyano_portal.patches.v1_28.them_o_dinh_bien_ban_da_ky
 miyano_portal.patches.v1_29.cap_nhat_02vt_sl_yeu_cau
+miyano_portal.patches.v1_30.them_nhap_nhan_su_vao_workspace
