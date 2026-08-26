@@ -103,6 +103,28 @@ const tenKhoa = computed(() => {
   return k ? k.ten_khoa_phong : ma
 })
 
+// D1 (chủ đầu tư chốt 26/08/2026) — khoa phòng quản lý ĐẶT HỘ. `''` =
+// "Toàn viện", mặc định và luôn còn đó.
+//
+// Đây KHÔNG phải một ô nhập cho đẹp: `portal_yeu_cau_cua_toi` lọc yêu cầu
+// của nhân viên khoa bằng `khoa_phong` đóng trên phiếu/đơn, nên một đơn
+// đặt hộ Huyết học mà để trống khoa là một đơn CHÍNH HUYẾT HỌC không bao
+// giờ tìm lại được — kèm cả phiếu giao và hoá đơn của nó.
+//
+// Chỉ NHÂN VIÊN KHOA mới không có ô này (xem `v-if="dangDatThang"` ở
+// template): server tự suy khoa của họ (`portal_context.khoa_phong_cho_don`)
+// và BỎ QUA giá trị client gửi, nên bày ra một lựa chọn ở đó là mời họ ra
+// một quyết định không tồn tại.
+const khoaPhongChon = ref('')
+
+// CHỈ khoa đang `active`. `kho_khoa_phong_list` được gọi với `ca_inactive: 1`
+// (để `tenKhoa` còn dịch được tên khoa đã tắt của chính người dùng), nhưng
+// `khoa_phong_cho_don()` TỪ CHỐI khoa đã tắt — bày một lựa chọn mà server
+// chắc chắn ném `PermissionError` là dựng sẵn một ngõ cụt.
+const khoaPhongChonDuoc = computed(() =>
+  khoaPhongList.value.filter((k) => Number(k.active) === 1)
+)
+
 // --- Bước hiện tại -------------------------------------------------------
 // `'chon'` = danh sách hàng hoá; `'gio'` = giỏ hàng + thông tin giao hàng.
 // Trạng thái CỤC BỘ, không phải route: giỏ là một BƯỚC của việc đặt hàng,
@@ -645,6 +667,10 @@ async function datHang() {
       note: ghiChu.value || null,
       address: diaChiGiao.value || null,
       request_id: store.requestId,
+      // D1 — `''` ("Toàn viện") gửi `null`, KHÔNG gửi chuỗi rỗng: server
+      // coi rỗng/`None` là Toàn viện như nhau, nhưng `null` mới nói đúng ý
+      // "không quy về khoa nào" ở tầng giao thức.
+      khoa_phong: khoaPhongChon.value || null,
     })
     if (res.da_ton_tai) showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
     donDaDat.value = res
@@ -970,6 +996,25 @@ onMounted(async () => {
           <div v-if="!dangDatThang" class="field">
             <label>Lý do yêu cầu <span class="req">*</span></label>
             <textarea rows="2" v-model="lyDoYeuCau" placeholder="VD: Khoa cần bổ sung vật tư tiêu hao cho quý này..."></textarea>
+          </div>
+          <!-- D1 — ô chọn khoa CHỈ ở nhánh quản lý đặt thẳng (`dangDatThang`
+               = quản lý VÀ màn chưa gắn phiếu nào). Nhân viên khoa bị server
+               ép về khoa của chính họ; quản lý đang SỬA một phiếu thì khoa đã
+               chốt từ lúc phiếu được lập. Cùng cổng với ô "Lý do yêu cầu"
+               ngay trên — một câu hỏi, một cổng. -->
+          <div v-if="dangDatThang" class="field">
+            <label>Đặt cho khoa phòng</label>
+            <select v-model="khoaPhongChon">
+              <option value="">Toàn viện (không quy về khoa nào)</option>
+              <option v-for="k in khoaPhongChonDuoc" :key="k.name" :value="k.name">
+                {{ k.ten_khoa_phong }}
+              </option>
+            </select>
+            <div class="tag">
+              Chọn khoa để chính khoa đó theo dõi được đơn, phiếu giao và hoá
+              đơn của yêu cầu này. Để <b>Toàn viện</b> nếu đơn không thuộc
+              khoa nào — khi đó chỉ quản lý xem được.
+            </div>
           </div>
           <div class="sb" style="gap: 8px">
             <div class="field" style="flex: 1">
