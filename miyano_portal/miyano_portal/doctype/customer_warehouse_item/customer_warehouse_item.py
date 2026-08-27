@@ -9,6 +9,7 @@ class CustomerWarehouseItem(Document):
 		self.ma_vat_tu = (self.ma_vat_tu or "").strip()
 		self._unique_within_warehouse()
 		self._validate_nguong_ton()
+		self._validate_may_su_dung()
 
 	def _unique_within_warehouse(self):
 		"""Mã vật tư chỉ cần duy nhất TRONG một kho.
@@ -108,3 +109,24 @@ class CustomerWarehouseItem(Document):
 
 		if self._da_khai(self.boi_so_dat) and float(self.boi_so_dat) <= 0:
 			frappe.throw("Bội số đặt phải lớn hơn 0.", frappe.ValidationError)
+
+	def _validate_may_su_dung(self):
+		"""Máy gán vào vật tư phải cùng bệnh viện với kho của vật tư, và
+		không lặp. Lặp không sai về số liệu (bảng này không tham gia phép
+		cộng nào) nhưng làm dropdown hiện một máy hai lần."""
+		if not self.get("may_su_dung"):
+			return
+		customer = frappe.db.get_value("Customer Warehouse", self.kho, "customer")
+		da_gap, giu = set(), []
+		for row in self.may_su_dung:
+			if not row.thiet_bi or row.thiet_bi in da_gap:
+				continue
+			chu = frappe.db.get_value("Customer Equipment", row.thiet_bi, "customer")
+			if chu != customer:
+				frappe.throw(
+					"Máy được chọn không thuộc đơn vị của kho này.",
+					frappe.ValidationError,
+				)
+			da_gap.add(row.thiet_bi)
+			giu.append(row)
+		self.may_su_dung = giu

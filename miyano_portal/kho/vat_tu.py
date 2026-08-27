@@ -185,6 +185,13 @@ def tao(kho: str, du_lieu: dict) -> dict:
 		"nhom": _norm(du_lieu.get("nhom")) or None,
 		"ghi_chu": _norm(du_lieu.get("ghi_chu")) or None,
 	})
+	# `may_su_dung` là DANH MỤC TƯƠNG THÍCH, không phải số liệu — sửa được
+	# bất cứ lúc nào kể cả khi vật tư đã có phát sinh sổ kho (khác
+	# TRUONG_KHOA): đổi danh sách máy không quy đổi ngược con số nào.
+	if "may_su_dung" in du_lieu:
+		doc.set("may_su_dung", [
+			{"thiet_bi": m} for m in (du_lieu.get("may_su_dung") or []) if m
+		])
 	doc.insert(ignore_permissions=True)
 	out = ra_dict(doc.name)
 	out["canh_bao_trung"] = canh_bao_trung
@@ -262,6 +269,14 @@ def sua(kho: str, vat_tu: str, du_lieu: dict) -> dict:
 	for truong in TRUONG_NGUONG_TON:
 		if truong in du_lieu:
 			setattr(doc, truong, _so_hoac_khong(du_lieu.get(truong)))
+
+	# `may_su_dung` là DANH MỤC TƯƠNG THÍCH, không phải số liệu — sửa được
+	# bất cứ lúc nào kể cả khi vật tư đã có phát sinh sổ kho (khác
+	# TRUONG_KHOA): đổi danh sách máy không quy đổi ngược con số nào.
+	if "may_su_dung" in du_lieu:
+		doc.set("may_su_dung", [
+			{"thiet_bi": m} for m in (du_lieu.get("may_su_dung") or []) if m
+		])
 
 	# `doc.save()` chạy validate() -> CustomerWarehouseItem._validate_nguong_ton()
 	# (min ≤ ROP ≤ max, lead time 1–60, bội số > 0) — không kiểm lại ở đây,
