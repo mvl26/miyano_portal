@@ -39,12 +39,14 @@ from miyano_portal.kho import vat_tu as vat_tu_mod
 from miyano_portal.portal_context import get_portal_customer, get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
-# Năm loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
+# Loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
 # khuôn _LOAI_TO_DOCTYPE ở trên: tham số `loai` do client gửi không bao giờ
 # được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
 # "nhat_ky"/"dot" thêm ở Gap 2 (review E4 phần B) — hai nút Excel bị khoá ở
-# NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này.
-_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang"}
+# NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này. "thiet_bi" thêm ở
+# task 10 — nối dây đi trước UI (chưa có màn SPA nào gọi loại này, xem
+# docstring reports.bao_cao_thiet_bi_flat_rows()).
+_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang", "thiet_bi"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -1451,6 +1453,21 @@ def kho_bao_cao_excel(
 		)
 		columns = reports.CAP_PHAT_THANG_COLUMNS
 		filename, sheet = "cap_phat_theo_thang_khoa_phong.xlsx", "Cap phat theo thang"
+	elif loai == "thiet_bi":
+		# task 10, bước 4 — nối dây Excel cho báo cáo "Vật tư · Máy · Khoa
+		# phòng" (Task 9). Cùng khuôn "cap_phat_thang": bẻ phẳng đầu ra đã
+		# tính (reports.bao_cao_thiet_bi_flat_rows), không tính lại.
+		if not (tu_ngay and den_ngay):
+			frappe.throw("Thiếu khoảng ngày để xuất báo cáo.", frappe.ValidationError)
+		if khoa_phong:
+			_khoa_cua_kho(khoa_phong, kho)
+		if vat_tu:
+			_vat_tu_cua_kho(vat_tu, kho)
+		rows = reports.bao_cao_thiet_bi_flat_rows(
+			kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+		)
+		columns = reports.THIET_BI_COLUMNS
+		filename, sheet = "bao_cao_vat_tu_may_khoa.xlsx", "Vat tu - May - Khoa"
 	else:
 		so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 		if so_ngay < 0:

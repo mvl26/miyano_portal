@@ -928,6 +928,28 @@ def bao_cao_cap_phat_rows(
 	khoa_phong (kho chưa bật bắt buộc, hoặc thủ kho quen gõ tự do) rất có thể
 	đã ghi đúng tên khoa vào `noi_nhan` — ẩn nó đi sẽ biến "Chưa gắn khoa"
 	thành "không biết gì cả", trong khi thật ra biết một phần.
+
+	CẤP THỨ BA — `theo_may` (task 10): mỗi nhóm khoa còn mang thêm khoá
+	`theo_may`, phân rã CHÍNH `gia_tri` của nhóm đó theo MÁY đã nhận (không
+	phải máy đang đặt ở khoa nào — đó là câu hỏi khác của
+	`bao_cao_thiet_bi_rows.theo_may`). CHỈ THÊM khoá, không đổi/xoá khoá cũ
+	nào (`khoa_phong`/`ten_hien_thi`/`gia_tri`/`pct`/`dong`) và không đổi
+	chữ ký — ba màn SPA và một nút Excel đang gọi hàm này với đúng các khoá
+	cũ đó.
+
+	`theo_may` dùng LẠI đúng vòng lặp và HAI LỚP LỌC đã lập luận ở trên
+	(không viết lại lọc theo cách khác — lọc một lớp sẽ lọt lớp kia), chỉ
+	gộp theo trục khác: (khoa_phong, thiet_bi) thay vì (phiếu, vật_tư). Vì
+	vậy `sum(m["gia_tri"] for m in nhom["theo_may"]) == nhom["gia_tri"]`
+	đúng THEO CẤU TRÚC cho mọi nhóm — cả hai cộng từ đúng cùng một tập
+	entries đã qua đúng cùng bộ lọc.
+
+	GỘP THEO DOCNAME máy, không theo tên (cùng lý lẽ `vat_tu_id` ở "dong" và
+	`bao_cao_thiet_bi_rows.theo_may`): một bệnh viện mua hai máy giống hệt,
+	khai trùng tên `ten_thiet_bi`, là chuyện thường — gộp theo tên sẽ cộng
+	nhầm hai máy khác nhau vào một dòng. Nhóm `thiet_bi=None`
+	("Chưa gắn máy" — dòng sổ không có `Customer Stock Issue Item.thiet_bi`)
+	LUÔN xếp cuối `theo_may`, không lẫn vào máy thật, không bị giấu.
 	"""
 	tu = frappe.utils.getdate(tu_ngay)
 	den = frappe.utils.getdate(den_ngay)
@@ -942,7 +964,7 @@ def bao_cao_cap_phat_rows(
 		filters["vat_tu"] = vat_tu
 	entries = frappe.get_all(
 		"Customer Stock Ledger Entry", filters=filters,
-		fields=["chung_tu", "vat_tu", "so_luong", "gia_tri", "ngay"],
+		fields=["chung_tu", "chung_tu_row", "vat_tu", "so_luong", "gia_tri", "ngay"],
 	)
 	if not entries:
 		return {"tong_gia_tri": 0.0, "nhom": []}
@@ -962,7 +984,23 @@ def bao_cao_cap_phat_rows(
 		)
 	} if vat_tu_names else {}
 
+	# task 10: cấp thứ BA "theo máy" — dòng con nào của phiếu (`chung_tu_row`)
+	# mang máy nào (`Customer Stock Issue Item.thiet_bi`). Tra bulk MỘT LẦN,
+	# dùng ở cả vòng lặp agg (dưới) lẫn khi dựng theo_may (sau nhom_map).
+	row_ids = {e["chung_tu_row"] for e in entries if e.get("chung_tu_row")}
+	item_rows = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Stock Issue Item", filters={"name": ["in", list(row_ids)]},
+			fields=["name", "thiet_bi"],
+		)
+	} if row_ids else {}
+
 	agg: dict[tuple, dict] = {}
+	# theo_may_map[khoa_phong hoặc None][thiet_bi hoặc None] = {"sl","gia_tri"}
+	# — CÙNG vòng lặp, CÙNG hai lớp lọc với agg ở trên (không viết lại lọc
+	# theo cách khác — xem docstring): kp/loai_xuat được chốt một lần duy
+	# nhất trên mỗi entry rồi dùng cho cả hai phép gộp.
+	theo_may_map: dict = {}
 	for e in entries:
 		iss = issues.get(e["chung_tu"])
 		if not iss or iss["loai_xuat"] != "Xuất sử dụng":
@@ -981,6 +1019,21 @@ def bao_cao_cap_phat_rows(
 		# ledger.post_lines) — đảo dấu để hiển thị số dương cho người dùng.
 		row["sl"] += -float(e["so_luong"])
 		row["gia_tri"] += -float(e["gia_tri"] or 0)
+
+		tb = (item_rows.get(e["chung_tu_row"]) or {}).get("thiet_bi") or None
+		tm = theo_may_map.setdefault(kp, {}).setdefault(tb, {"sl": 0.0, "gia_tri": 0.0})
+		tm["sl"] += -float(e["so_luong"])
+		tm["gia_tri"] += -float(e["gia_tri"] or 0)
+
+	# Bulk tên máy + khoa của máy cho MỌI thiet_bi từng có mặt trong
+	# theo_may_map — một lượt, không N+1 theo từng nhóm khoa.
+	all_thiet_bi = {tb for buckets in theo_may_map.values() for tb in buckets if tb}
+	may_info = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Equipment", filters={"name": ["in", list(all_thiet_bi)]},
+			fields=["name", "ten_thiet_bi"],
+		)
+	} if all_thiet_bi else {}
 
 	nhom_map: dict = {}
 	for row in agg.values():
@@ -1018,12 +1071,37 @@ def bao_cao_cap_phat_rows(
 	nhom_out = []
 	for kp, v in nhom_map.items():
 		gia_tri = round(v["gia_tri"], 2)
+
+		# task 10 — cấp thứ BA: máy nào (trong khoa NÀY) đã nhận bao nhiêu.
+		# GỘP THEO DOCNAME máy, không theo tên (một bệnh viện mua hai máy
+		# giống hệt, trùng tên, là chuyện thường — xem docstring
+		# bao_cao_thiet_bi_rows). `sum(m["gia_tri"] for m in theo_may)` LUÔN
+		# đúng bằng `gia_tri` của CHÍNH nhóm này theo cấu trúc: cả hai đều
+		# cộng từ đúng cùng một tập entries đã qua đúng cùng hai lớp lọc,
+		# chỉ khác trục gộp (phiếu×vật tư ở "dong", máy ở "theo_may").
+		theo_may = []
+		for tb, b in theo_may_map.get(kp, {}).items():
+			if tb is None:
+				ten_may = "Chưa gắn máy"
+			else:
+				ten_may = (may_info.get(tb) or {}).get("ten_thiet_bi") or tb
+			tb_gia_tri = round(b["gia_tri"], 2)
+			theo_may.append({
+				"thiet_bi": tb, "ten_may": ten_may,
+				"sl": _r(b["sl"]), "gia_tri": tb_gia_tri,
+				"pct": round(tb_gia_tri / gia_tri * 100, 1) if gia_tri > EPS else 0.0,
+			})
+		# "Chưa gắn máy" LUÔN cuối — không phải một máy để so tên, cùng quy
+		# ước `bao_cao_thiet_bi_rows.theo_may`.
+		theo_may.sort(key=lambda r: (r["thiet_bi"] is None, r["ten_may"]))
+
 		nhom_out.append({
 			"khoa_phong": kp,
 			"ten_hien_thi": ten_khoa.get(kp, kp) if kp else "Chưa gắn khoa",
 			"gia_tri": gia_tri,
 			"pct": round(gia_tri / tong_gia_tri * 100, 1) if tong_gia_tri > EPS else 0.0,
 			"dong": sorted(v["dong"], key=lambda r: (r["ngay"], r["phieu"])),
+			"theo_may": theo_may,
 		})
 	# Khoa có tên sắp trước theo bảng chữ cái; nhóm "Chưa gắn khoa" LUÔN ở
 	# cuối — nó không phải một khoa để so tên, và US-E8.5 muốn nó "tách
@@ -1265,6 +1343,169 @@ def bao_cao_thiet_bi_rows(
 	dong.sort(key=lambda r: (r["vat_tu"], r["vat_tu_id"]))
 	tong_gia_tri = round(sum(r["gia_tri"] for d in dong for r in d["theo_may"]), 2)
 	return {"tong_gia_tri": tong_gia_tri, "dong": dong}
+
+
+THIET_BI_COLUMNS = [
+	("Vật tư", "vat_tu"),
+	("Mã vật tư", "ma_vat_tu"),
+	("ĐVT", "dvt"),
+	("Máy", "ten_may"),
+	("Khoa phòng", "ten_khoa"),
+	("SL cấp phát", "sl"),
+	("Giá trị", "gia_tri"),
+]
+
+
+def bao_cao_thiet_bi_flat_rows(
+	kho: str, tu_ngay, den_ngay, thiet_bi: str | None = None,
+	khoa_phong: str | None = None, vat_tu: str | None = None,
+) -> list[dict]:
+	"""Bản BẺ PHẲNG của `bao_cao_thiet_bi_rows()` cho xuất Excel (task 10,
+	bước 4) — mỗi dòng một (vật tư, máy) từ `dong[*]["theo_may"]`, khớp
+	đúng `THIET_BI_COLUMNS`. Bẻ phẳng từ đầu ra ĐÃ TÍNH, không tính lại —
+	cùng khuôn `cap_phat_thang_flat_rows()` ở trên (round-tripping-
+	spreadsheets: màn hình và file xuất phải là CÙNG một con số).
+
+	CHƯA có màn SPA nào tiêu thụ `bao_cao_thiet_bi_rows()` (Task 9 mới chỉ
+	dựng hàm tính, chưa dựng UI — không có `THIET_BI_COLUMNS` nào trong
+	`frontend/src/kho-bao-cao-columns.js` để đối chiếu), nên khác năm bộ cột
+	kia, bộ cột này KHÔNG có test khẳng định khớp nhãn JS — chưa có nhãn màn
+	hình nào để khớp. Việc nối dây `_BAO_CAO_LOAI`/`kho_bao_cao_excel` ở đây
+	chỉ đi trước một bước, chờ UI."""
+	out = []
+	for d in bao_cao_thiet_bi_rows(
+		kho, tu_ngay, den_ngay, thiet_bi=thiet_bi, khoa_phong=khoa_phong, vat_tu=vat_tu,
+	)["dong"]:
+		for m in d["theo_may"]:
+			out.append({
+				"vat_tu": d["vat_tu"], "ma_vat_tu": d["ma_vat_tu"], "dvt": d["dvt"],
+				"ten_may": m["ten_may"], "ten_khoa": m["ten_khoa"],
+				"sl": m["sl"], "gia_tri": m["gia_tri"],
+			})
+	return out
+
+
+def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
+	"""Báo cáo "tiêu thụ theo máy" (task 10) — XOAY CHIỀU của
+	`bao_cao_thiet_bi_rows`: ở đó trục ngoài là VẬT TƯ (mỗi dòng `dong` bung
+	xuống `theo_may`); ở đây trục ngoài là MÁY, mỗi dòng gộp CẤP PHÁT của
+	MỌI vật tư đã xuất cho máy đó trong kỳ, kèm chi tiết theo vật tư.
+
+	Một dòng = MỘT máy, khoá theo DOCNAME `thiet_bi` (`Customer Equipment.
+	name`), KHÔNG theo `ten_thiet_bi`: một bệnh viện mua hai máy giống hệt
+	và khai trùng tên là chuyện thường (chính ca test bắt buộc của task 10,
+	Task 9 để ngỏ) — gộp theo tên sẽ cộng nhầm hai máy khác nhau làm một.
+	Nhóm `thiet_bi=None` ("Chưa gắn máy") LUÔN xếp cuối, không lẫn vào máy
+	thật, không bị giấu — cùng quy ước "Chưa gắn khoa"/"Chưa gắn máy" đã
+	dùng xuyên suốt module này.
+
+	HAI LỚP LỌC, giống hệt `bao_cao_cap_phat_rows`/`bao_cao_thiet_bi_rows`
+	(không viết lại theo cách khác — lọc một lớp sẽ lọt lớp kia):
+	  * `da_dao=0` ở tầng SỔ (SQL) — bỏ dòng GỐC của một phiếu đã bị huỷ;
+	  * `loai_xuat == "Xuất sử dụng"` ở tầng PHIẾU (Python) — bỏ chính dòng
+	    BÙ TRỪ (`loai_xuat="Phiếu đảo"`, `da_dao=0` vì bản thân nó không bị
+	    đảo — nó VẪN mang `thiet_bi` vì Task 3 đã chép sang, ĐỪNG dựa vào
+	    `thiet_bi` rỗng để nhận diện nó) và mọi loại xuất khác (huỷ/trả
+	    lại/điều chỉnh — không phải cấp phát thật).
+	"""
+	tu = frappe.utils.getdate(tu_ngay)
+	den = frappe.utils.getdate(den_ngay)
+	if tu > den:
+		frappe.throw("Từ ngày phải trước hoặc bằng Đến ngày.", frappe.ValidationError)
+
+	entries = frappe.get_all(
+		"Customer Stock Ledger Entry",
+		filters={
+			"kho": kho, "chung_tu_type": "Customer Stock Issue",
+			"da_dao": 0, "ngay": ["between", [tu, den]],
+		},
+		fields=["chung_tu", "chung_tu_row", "vat_tu", "so_luong", "gia_tri"],
+	)
+	if not entries:
+		return []
+
+	issue_names = {e["chung_tu"] for e in entries}
+	issues = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
+			fields=["name", "loai_xuat"],
+		)
+	}
+	row_ids = {e["chung_tu_row"] for e in entries if e.get("chung_tu_row")}
+	item_rows = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Stock Issue Item", filters={"name": ["in", list(row_ids)]},
+			fields=["name", "thiet_bi"],
+		)
+	} if row_ids else {}
+
+	info = _vat_tu_info(kho)
+
+	# buckets[thiet_bi hoặc None][vat_tu] = {"sl", "gia_tri"}
+	buckets: dict = {}
+	for e in entries:
+		iss = issues.get(e["chung_tu"])
+		if not iss or iss["loai_xuat"] != "Xuất sử dụng":  # lớp lọc thứ hai
+			continue
+		tb = (item_rows.get(e["chung_tu_row"]) or {}).get("thiet_bi") or None
+		may_bucket = buckets.setdefault(tb, {})
+		row = may_bucket.setdefault(e["vat_tu"], {"sl": 0.0, "gia_tri": 0.0})
+		# so_luong/gia_tri của dòng XUẤT mang dấu ÂM — đảo dấu để hiển thị số
+		# dương, cùng quy ước bao_cao_cap_phat_rows.
+		row["sl"] += -float(e["so_luong"])
+		row["gia_tri"] += -float(e["gia_tri"] or 0)
+
+	all_thiet_bi = {tb for tb in buckets if tb}
+	may_info = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Equipment", filters={"name": ["in", list(all_thiet_bi)]},
+			fields=["name", "ma_thiet_bi", "ten_thiet_bi", "khoa_phong"],
+		)
+	} if all_thiet_bi else {}
+	khoa_ids = {m["khoa_phong"] for m in may_info.values() if m.get("khoa_phong")}
+	ten_khoa_map = dict(frappe.get_all(
+		"Customer Department", filters={"name": ["in", list(khoa_ids)]},
+		fields=["name", "ten_khoa_phong"], as_list=True,
+	)) if khoa_ids else {}
+
+	out = []
+	for tb, vt_buckets in buckets.items():
+		if tb is None:
+			ten_may, ma_may, kp, ten_kp = "Chưa gắn máy", "", None, ""
+		else:
+			m = may_info.get(tb) or {}
+			ten_may = m.get("ten_thiet_bi") or tb
+			ma_may = m.get("ma_thiet_bi") or ""
+			kp = m.get("khoa_phong") or None
+			ten_kp = ten_khoa_map.get(kp, kp) if kp else "Chưa gắn khoa"
+
+		vat_tu_list = []
+		sl_total = 0.0
+		gia_tri_total = 0.0
+		for vt, b in vt_buckets.items():
+			meta = info.get(vt) or {}
+			vat_tu_list.append({
+				"vat_tu_id": vt, "ten": meta.get("ten_vat_tu") or vt,
+				"dvt": meta.get("dvt") or "",
+				"sl": _r(b["sl"]), "gia_tri": round(b["gia_tri"], 2),
+			})
+			sl_total += b["sl"]
+			gia_tri_total += b["gia_tri"]
+
+		out.append({
+			"thiet_bi": tb, "ten_may": ten_may, "ma_may": ma_may,
+			"khoa_phong": kp, "ten_khoa": ten_kp,
+			"so_vat_tu": len(vt_buckets),
+			"sl": _r(sl_total), "gia_tri": round(gia_tri_total, 2),
+			"vat_tu": sorted(vat_tu_list, key=lambda r: r["ten"]),
+		})
+
+	# "Chưa gắn máy" LUÔN cuối; docname làm tie-break BẮT BUỘC (không phải
+	# tuỳ chọn) vì hai máy TRÙNG TÊN là chuyện thường (xem docstring) — nếu
+	# không tie-break bằng docname, thứ tự của hai dòng cùng tên phụ thuộc
+	# thứ tự lặp không đảm bảo của dict, không ổn định giữa hai lần chạy.
+	out.sort(key=lambda r: (r["thiet_bi"] is None, r["ten_may"], r["thiet_bi"] or ""))
+	return out
 
 
 def _thang_key(ngay) -> tuple[str, str]:

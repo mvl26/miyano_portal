@@ -86,6 +86,17 @@ REPORTS = [
 		"report_name": "Cấp phát theo tháng và khoa phòng",
 		"ref_doctype": "Customer Stock Ledger Entry",
 	},
+	# Task 10 — báo cáo xoay chiều theo máy (`reports.tieu_thu_theo_may_rows`)
+	# gọi qua `desk_reports.tieu_thu_theo_thiet_bi_rows`. Cùng khuôn an ninh,
+	# cùng ref_doctype "Cấp phát theo khoa phòng" (cùng nguồn dữ liệu — sổ
+	# kho join phiếu xuất). Report tra cứu theo tình huống (như "Cấp phát
+	# theo khoa phòng"/"Tiêu thụ và đề xuất dự trù"), KHÔNG thêm shortcut
+	# workspace — xem install_kho_workspace.py cho lý do bốn report tra cứu
+	# không có shortcut trong khi bốn report định kỳ có.
+	{
+		"report_name": "Tiêu thụ theo máy",
+		"ref_doctype": "Customer Stock Ledger Entry",
+	},
 ]
 
 
