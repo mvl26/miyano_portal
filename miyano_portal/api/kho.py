@@ -1003,24 +1003,26 @@ def kho_phieu_xuat_save(payload) -> dict:
 	doc.kho = kho
 	doc.ngay = payload.get("ngay") or doc.ngay or frappe.utils.today()
 	doc.loai_xuat = payload.get("loai_xuat") or doc.loai_xuat or "Xuất sử dụng"
-	# E8/BR-CP2: `khoa_phong` là một Link do client gửi lên — KHÔNG kiểm sở
-	# hữu ở TẦNG ENDPOINT này (không gọi _khoa_cua_kho()): cùng đúng khuôn
-	# `vat_tu` của từng dòng phiếu, chốt chặn "thuộc kho nào" nằm ở TẦNG
-	# CONTROLLER (customer_stock_issue.py:validate(), hàm
-	# _validate_khoa_phong_thuoc_kho, cùng khuôn
-	# voucher.validate_vat_tu_thuoc_kho()) — vừa chạy trên MỌI đường ghi (kể
-	# cả Desk, không chỉ endpoint này), vừa không lặp logic kiểm hai lần.
-	#
-	# GHI NHẬN (Task 8, KHÔNG sửa ở đây — ngoài phạm vi brief này): review
-	# Task 8 phát hiện đúng oracle "hai loại lỗi/hai thông điệp phân biệt
-	# tồn tại docname" (đóng cho `thiet_bi`/`thiet_bi_mac_dinh` ngay dưới)
-	# CŨNG áp dụng cho `khoa_phong` ở đây — một `KP-#####` bịa chết ở
-	# `_validate_links()` (tiếng Anh), một khoa CÓ THẬT của bệnh viện khác
-	# chết ở `_validate_khoa_phong_thuoc_kho()` (tiếng Việt, message khác).
-	# `khoa_phong` không nằm trong phạm vi Task 8 (brief chỉ giao `thiet_bi`
-	# từng dòng + `thiet_bi_mac_dinh`) nên KHÔNG sửa ở đây — chỉ ghi lại cho
-	# một task sau đóng bằng `_khoa_cua_kho()` (guard đã có, cùng khuôn).
-	doc.khoa_phong = payload.get("khoa_phong") or None
+	# SỬA (đợt sửa cuối, C-1 — trước đây gán thẳng `payload.get("khoa_phong")`
+	# không qua guard nào). Đúng oracle "hai loại lỗi/hai thông điệp phân
+	# biệt tồn tại docname" mà Task 8 đã đóng cho `thiet_bi`/
+	# `thiet_bi_mac_dinh` ngay dưới: một `KP-#####` bịa chết ở
+	# `Document._validate_links()` (LinkValidationError tiếng Anh), một khoa
+	# CÓ THẬT của bệnh viện khác sống sót qua đó rồi mới chết ở
+	# `_validate_khoa_phong_thuoc_kho()` (ValidationError tiếng Việt, thông
+	# điệp khác) — đủ để dò tồn tại `Customer Department` xuyên bệnh viện.
+	# Đóng bằng guard đã có (`_khoa_cua_kho()`, dùng ở `kho_bao_cao_excel`/
+	# `kho_bao_cao_thiet_bi`/`kho_nguoi_nhan_goi_y`), ném CÙNG MỘT
+	# PermissionError (KHÔNG dịch bởi `_phieu_action`) cho cả hai ca, chặn
+	# TRƯỚC khi giá trị chạm `insert()`/`save()`. `str()` trước khi vào guard
+	# — không phải cho chắc: `get_invalid_links()`/`get_value()` tự diễn
+	# giải một `dict` lọt tới đó thành FILTERS, khớp một `Customer
+	# Department` THẬT rồi setattr ngược vào doc, đúng khuôn
+	# `_khoa_cua_khach()`/`_thiet_bi_cua_khach()`. Giá trị GÁN LẠI là giá trị
+	# ĐÃ QUA GUARD (không phải giá trị thô) — kiểm rồi vẫn dùng giá trị thô
+	# là không kiểm gì cả.
+	khoa_phong_raw = payload.get("khoa_phong")
+	doc.khoa_phong = _khoa_cua_kho(str(khoa_phong_raw), kho) if khoa_phong_raw else None
 	# Task 8 — Máy mặc định VÀ máy từng dòng (Link tới Customer Equipment).
 	#
 	# SỬA (so với dự thảo đầu của task này, xem task-8-report.md): dự thảo

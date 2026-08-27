@@ -408,15 +408,21 @@ class TestKhoPhieuXuatSaveKhoaPhong(_KhoE8Fixture):
         self.assertEqual(reloaded.nguoi_nhan, "BS. Tuấn")
 
     def test_khoa_phong_from_other_customer_rejected_through_endpoint(self):
-        """Endpoint (kho_phieu_xuat_save) CỐ Ý không kiểm sở hữu khoa_phong —
-        chốt chặn thật nằm ở controller (_validate_khoa_phong_thuoc_kho,
-        chạy trong validate()) — nên vẫn phải chặn được, chỉ là chặn ở TẦNG
-        KHÁC. Test này đi qua ĐÚNG đường lưu thật của SPA để xác nhận điều
-        đó, không giả định suông."""
+        """SỬA (đợt sửa cuối, C-1): trước đây endpoint CỐ Ý không kiểm sở
+        hữu `khoa_phong`, dựa vào chốt chặn ở tầng controller
+        (`_validate_khoa_phong_thuoc_kho`, chạy trong `validate()`) — nhưng
+        đó chính là oracle "hai loại lỗi/hai thông điệp phân biệt tồn tại
+        docname" (một `KP-#####` bịa chết bằng `LinkValidationError` tiếng
+        Anh ở `_validate_links()`, một khoa CÓ THẬT của khách khác chết
+        bằng `ValidationError` tiếng Việt ở controller). Endpoint giờ tự
+        guard bằng `_khoa_cua_kho()` TRƯỚC khi giá trị chạm `insert()`,
+        chặn bằng `PermissionError` — cùng khuôn `_thiet_bi_cua_khach()`.
+        Test này đi qua ĐÚNG đường lưu thật của SPA để xác nhận điều đó,
+        không giả định suông."""
         frappe.set_user(PXN_USER)
         khoa_pxn = kho_api.kho_khoa_phong_save({"ten_khoa_phong": "Khoa PXN Qua Endpoint"})
         frappe.set_user(BM_USER)
-        with self.assertRaises(frappe.ValidationError) as ctx:
+        with self.assertRaises(frappe.PermissionError) as ctx:
             kho_api.kho_phieu_xuat_save({
                 "ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
                 "khoa_phong": khoa_pxn["name"],

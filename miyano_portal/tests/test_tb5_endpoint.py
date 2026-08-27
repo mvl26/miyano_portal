@@ -768,6 +768,58 @@ class TestPhieuXuatNhanMay(_NenThietBi):
 			})
 
 
+class TestPhieuXuatKhoaPhongOwnership(_NenThietBi):
+	"""Đợt sửa cuối, C-1 — `kho_phieu_xuat_save` gán thẳng
+	`payload.get("khoa_phong")` vào `doc.khoa_phong` mà không qua guard nào
+	(không `str()`, không `_khoa_cua_kho()`). Cùng oracle đã đóng cho
+	`thiet_bi`/`thiet_bi_mac_dinh` ở `TestPhieuXuatNhanMay` (Task 8): một
+	`KP-#####` bịa chết ở `Document._validate_links()` với
+	`LinkValidationError` tiếng Anh, còn một khoa CÓ THẬT của bệnh viện khác
+	sống sót qua đó rồi mới chết ở `_validate_khoa_phong_thuoc_kho()` (C-2)
+	với `ValidationError` tiếng Việt — hai loại lỗi khác nhau, đủ để dò tồn
+	tại `Customer Department` xuyên bệnh viện. Guard `_khoa_cua_kho()` (đã
+	có, dùng ở `kho_bao_cao_excel`/`kho_bao_cao_thiet_bi`/
+	`kho_nguoi_nhan_goi_y`) đóng oracle này bằng cách chặn TRƯỚC khi giá trị
+	chạm `insert()`/`save()`, đúng khuôn `_thiet_bi_cua_khach()`."""
+
+	def test_khoa_khong_ton_tai_va_khoa_vien_khac_cung_mot_loi(self):
+		"""Bằng chứng oracle: trước khi có guard, hai ca này ra HAI loại lỗi/
+		HAI thông điệp khác nhau. Sau khi có guard, cả hai phải ra ĐÚNG CÙNG
+		một loại ngoại lệ và CÙNG một thông điệp — cùng khuôn
+		`test_may_khong_ton_tai_va_may_vien_khac_cung_mot_loi`."""
+		kp_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": KHACH_KHAC,
+			"ten_khoa_phong": "ZZTB5K Khoa Xuat", "ma_khoa": "ZZT5KXU",
+		}).insert(ignore_permissions=True)
+		frappe.set_user(self.ql)
+		ket_qua = []
+		for khoa in ("KP-KHONG-TON-TAI-999999", kp_khac.name):
+			with self.assertRaises(Exception) as cm:
+				kho_api.kho_phieu_xuat_save({
+					"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+					"khoa_phong": khoa,
+					"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+				})
+			ket_qua.append((type(cm.exception), str(cm.exception)))
+		self.assertEqual(ket_qua[0], ket_qua[1])
+		self.assertEqual(ket_qua[0][0], frappe.PermissionError)
+
+	def test_khoa_phong_dict_khong_bi_hieu_thanh_filters(self):
+		"""Cùng khuôn `test_dong_thiet_bi_dict_khong_bi_hieu_thanh_filters` —
+		dựng dict khớp CHÍNH khách hàng của người gọi (`self.khach`) để đây
+		là một lỗ THẬT nếu thiếu `str()`: `frappe.db.get_value(doctype, {
+		"customer": self.khach}, "name")` sẽ tự diễn giải dict thành FILTERS
+		và khớp một `Customer Department` THẬT (`kp_a` hoặc `kp_b`) rồi ÂM
+		THẦM cho qua guard."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_phieu_xuat_save({
+				"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+				"khoa_phong": {"customer": self.khach},
+				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+			})
+
+
 class TestExcelCotMaMay(_NenThietBi):
 	"""Cột Mã máy trong file nhập phiếu xuất hàng loạt.
 
