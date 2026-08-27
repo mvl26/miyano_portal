@@ -260,6 +260,46 @@ def _thiet_bi_cua_khach(thiet_bi: str, customer: str) -> str:
 	return thiet_bi
 
 
+def _khoa_cua_khach(khoa_phong: str, customer: str) -> str:
+	"""Vòng sửa 1 (review Task 7, Important #1) — cùng khuôn
+	`_thiet_bi_cua_khach()`: xác nhận một khoa phòng do client gửi lên đúng
+	là của bệnh viện người gọi TRƯỚC khi giá trị đó chạm Link field
+	`Customer Equipment.khoa_phong`.
+
+	Không phải một guard "cho chắc" — thiếu nó là một kênh rò thật:
+	`Document.insert()`/`.save()` tự resolve Link qua `_validate_links()`
+	(→ `get_invalid_links()`) TRƯỚC `validate()` của doctype, và lỗi từ đó
+	(`LinkValidationError`, con của `ValidationError`) đi qua nhánh
+	`except (ValidationError, PermissionError): raise` của `_thiet_bi_action`
+	NGUYÊN VẸN, không dịch — hai thông điệp Frappe phân biệt được "không tồn
+	tại" (`Could not find Khoa phòng: KP-NNNNN`) với "tồn tại nhưng chưa bị
+	chặn ở TẦNG NÀY" (rơi tiếp xuống `_chan_khoa_khac_benh_vien()` của
+	`customer_equipment.py`, thông điệp "Khoa phòng được chọn không thuộc
+	đơn vị này."), tạo oracle dò tồn tại `Customer Department` xuyên bệnh
+	viện (`KP-.#####` đánh số tuần tự, đoán được) — không lộ TÊN khoa, không
+	ghi được gì, nhưng phân biệt được là đủ để dò.
+
+	`get_invalid_links()` còn tự giải một `dict` filters thành một docname
+	THẬT rồi `setattr` ngược vào doc trước khi validate() kịp chạy — không
+	còn là rủi ro lý thuyết như những chỗ ép `str()` khác trong file này,
+	guard này đóng cả hai nửa cùng lúc bằng cùng một bước ép `str()` + so
+	`customer`.
+
+	KHÔNG dùng `_khoa_cua_kho()`: hàm đó cần một `kho`, còn
+	`kho_thiet_bi_save` CỐ Ý không gọi `get_portal_kho()` (một bệnh viện
+	chưa mở kho vẫn phải khai máy được — xem docstring `kho_thiet_bi_list`).
+	So thẳng `customer`, đúng khuôn `_thiet_bi_cua_khach()`.
+
+	Guard này KHÔNG phá "ép khoa theo phiên, không tin client" (BR-TB-6):
+	một Nhân viên khoa gửi khoa khác CÙNG viện vẫn qua guard này (cùng
+	`customer`), rồi vẫn bị `_khoa_ep_theo_phien()` trong `thiet_bi.save()`
+	ép về khoa của chính họ như cũ — guard này chỉ chặn khoa của bệnh viện
+	KHÁC, không nới thêm quyền chọn khoa cho Nhân viên khoa."""
+	if frappe.db.get_value("Customer Department", khoa_phong, "customer") != customer:
+		raise frappe.PermissionError("Khoa phòng được chọn không thuộc đơn vị này.")
+	return khoa_phong
+
+
 @frappe.whitelist()
 def kho_me() -> dict:
 	kho = get_portal_kho()
@@ -570,11 +610,22 @@ def kho_thiet_bi_save(payload) -> dict:
 	dưới cũng tự kiểm lại `doc.customer` — hai lớp phòng thủ khác nhau
 	(_thiet_bi_cua_khach dùng get_value rẻ, save() cần get_doc để ghi), giữ
 	cả hai không phải thừa.
+
+	`khoa_phong` (nếu có gửi) CŨNG là định danh do client gửi — cùng ép
+	`str()` rồi guard qua `_khoa_cua_khach()` TRƯỚC khi vào `thiet_bi_mod.
+	save()`/`Document.insert()`, xem docstring `_khoa_cua_khach()` cho lý do
+	đây không phải guard thừa (oracle dò tồn tại + kênh dict-thành-filters
+	của `get_invalid_links()`, cả hai KHÔNG được `str()` một mình chặn hết).
+	Guard này không thay thế `_khoa_ep_theo_phien()` trong `thiet_bi.save()`
+	— nó chỉ chặn khoa của bệnh viện KHÁC; ép về khoa của chính Nhân viên
+	khoa vẫn là việc của `_khoa_ep_theo_phien()` như cũ.
 	"""
 	customer = get_portal_customer()
 	du_lieu = _parse_payload(payload)
 	if du_lieu.get("name"):
 		du_lieu["name"] = _thiet_bi_cua_khach(str(du_lieu["name"]), customer)
+	if du_lieu.get("khoa_phong"):
+		du_lieu["khoa_phong"] = _khoa_cua_khach(str(du_lieu["khoa_phong"]), customer)
 	return thiet_bi_mod.save(customer, frappe.session.user, du_lieu)
 
 

@@ -516,6 +516,50 @@ class TestThietBiEndpoint(_NenThietBi):
 				"name": self.may_benh_vien_khac.name, "ten_thiet_bi": "Đổi trộm qua endpoint",
 			})
 
+	def test_save_khoa_phong_benh_vien_khac_bi_chan(self):
+		"""Vòng sửa 1 (Important #1) — `khoa_phong` trong payload cũng là
+		định danh do client gửi, phải qua `_khoa_cua_khach()` TRƯỚC khi chạm
+		Link field `Customer Equipment.khoa_phong` (get_invalid_links() +
+		validate() của doctype). Khoa của MỘT bệnh viện khác phải bị chặn
+		ngay ở tầng endpoint, không rơi xuống để lộ oracle phân biệt "không
+		tồn tại" / "khác bệnh viện" qua thông điệp Frappe/controller."""
+		kp_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": KHACH_KHAC,
+			"ten_khoa_phong": "ZZTB5K Khoa", "ma_khoa": "ZZT5KX",
+		}).insert(ignore_permissions=True)
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_thiet_bi_save({
+				"ten_thiet_bi": "May gan khoa vien khac", "ma_thiet_bi": "ZZTB5-EP-KPX",
+				"khoa_phong": kp_khac.name,
+			})
+
+	def test_save_khoa_phong_dict_khong_bi_hieu_thanh_filters(self):
+		"""Cùng khuôn `test_vat_tu_dict_khong_bi_hieu_thanh_filters` — dựng
+		dict khớp CHÍNH `self.kp_a` (khoa của người gọi) để chứng minh có lỗ
+		thật nếu thiếu ép `str()`, không phải một dict ngẫu nhiên."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_thiet_bi_save({
+				"ten_thiet_bi": "May khoa dict", "ma_thiet_bi": "ZZTB5-EP-KPD",
+				"khoa_phong": {"customer": self.khach},
+			})
+
+	def test_save_khoa_phong_cung_benh_vien_van_bi_ep_ve_khoa_minh(self):
+		"""Đối chứng: guard mới KHÔNG phá BR-TB-6. Nhân viên khoa A gửi khoa B
+		(CÙNG bệnh viện, qua được `_khoa_cua_khach()`) vẫn phải bị
+		`_khoa_ep_theo_phien()` (trong `thiet_bi.save()`) ép về khoa A —
+		guard chỉ chặn khoa của bệnh viện KHÁC, không nới quyền chọn khoa."""
+		frappe.set_user(self.nv_a)
+		ra = kho_api.kho_thiet_bi_save({
+			"ten_thiet_bi": "May qua endpoint bi ep khoa", "ma_thiet_bi": "ZZTB5-EP-EP",
+			"khoa_phong": self.kp_b.name,
+		})
+		self.assertEqual(
+			frappe.db.get_value("Customer Equipment", ra["name"], "khoa_phong"),
+			self.kp_a.name,
+		)
+
 	def test_tao_nhanh_qua_endpoint(self):
 		frappe.set_user(self.nv_a)
 		ra = kho_api.kho_thiet_bi_tao_nhanh({
@@ -528,12 +572,23 @@ class TestThietBiEndpoint(_NenThietBi):
 	def test_vat_tu_dict_khong_bi_hieu_thanh_filters(self):
 		"""Ép kiểu tại biên (mang từ Task 6 sang) — nếu một endpoint lỡ chuyển
 		thẳng một payload chưa ép kiểu cho get_value(doctype, name, field),
-		một `dict` sẽ bị hiểu là FILTERS chứ không phải docname. Endpoint phải
-		ép `str()` trước khi guard chạm tới, nên một dict gửi vào `vat_tu`
-		không được lặng lẽ khớp bừa — chỉ được phép thất bại rõ ràng (không
-		lộ traceback), không bao giờ trả list đầy đủ vì "filters rỗng"."""
+		một `dict` sẽ bị hiểu là FILTERS chứ không phải docname.
+
+		SỬA (vòng review 1, Important #2) — bản trước dùng khuôn
+		try/except-không-assertRaises nên KHÔNG BAO GIỜ đỏ được: dict lọc
+		`{"kho": ["!=", "KHONG-TON-TAI"]}` luôn khớp MỘT hàng nào đó (hoặc
+		không khớp gì), cả hai nhánh đều không ném ngoại lệ nên test luôn
+		xanh dù có ép `str()` hay không — đúng lỗi mà chính test này lẽ ra
+		phải canh.
+
+		Dựng dict khớp CHÍNH `self.vat_tu` (kho của người gọi) thay vì một
+		dict ngẫu nhiên — đây là điều kiện để chứng minh có lỗ thật: nếu
+		endpoint không ép `str()` trước `_vat_tu_cua_kho()`, dict này sẽ được
+		`frappe.db.get_value` diễn giải thành FILTERS, khớp đúng vat_tu của
+		CHÍNH người gọi, và lặng lẽ ĐI QUA guard — không phải một dict bất kỳ
+		nào cũng làm được việc đó. Có ép `str()` (code hiện tại): dict bị ép
+		thành một chuỗi vô nghĩa, không khớp docname nào, guard ném
+		PermissionError."""
 		frappe.set_user(self.ql)
-		try:
-			kho_api.kho_thiet_bi_list(vat_tu={"kho": ["!=", "KHONG-TON-TAI"]})
-		except Exception as e:
-			self.assertNotIn("Traceback", str(e))
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_thiet_bi_list(vat_tu={"kho": self.kho.name})
