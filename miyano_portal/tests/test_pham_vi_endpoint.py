@@ -183,6 +183,55 @@ KHO_DA_AP_PHAM_VI: dict[str, str] = {
 		"với nhau, không so với người gọi, nên một cặp thật+khớp nhưng "
 		"thuộc bệnh viện KHÁC vẫn lọt nếu thiếu guard này."
 	),
+	# Task 14 (28/08/2026, vòng sửa 1 — chốt test này ĐỎ khi endpoint mới ra
+	# đời mà không ai khai báo). `kho_bao_cao_thiet_bi` bọc
+	# `reports.bao_cao_thiet_bi_rows()` cho màn BaoCaoThietBi.vue. Đã đọc lại
+	# `reports.py` (grep `pham_vi_don` trên `miyano_portal/kho/*.py`): hàm đó
+	# CHỈ được gọi trong `thiet_bi.py`/`khoa_phong.py` — `reports.py` sạch,
+	# không đâu trong đó tự lọc theo khoa.
+	"kho_bao_cao_thiet_bi": (
+		"Trục khoa: KHÔNG áp — KHÁC `kho_vat_tu_gan_thiet_bi` ngay trên: ở "
+		"đó trục khoa KHÔNG TỒN TẠI trong dữ liệu; ở ĐÂY trục khoa TỒN TẠI "
+		"thật (mỗi dòng `theo_may` mang `khoa_phong` của máy) nhưng KHÔNG "
+		"được lọc theo NGƯỜI GỌI — hàm không gọi `pham_vi_don()` ở đâu cả, "
+		"và `reports.bao_cao_thiet_bi_rows()` mà nó bọc cũng không (đã đọc "
+		"lại, không đoán — pham_vi_don() chỉ được gọi trong thiet_bi.py/"
+		"khoa_phong.py, reports.py sạch). Một Nhân viên khoa A gọi endpoint "
+		"này (kho suy từ get_portal_kho(), không lọc theo vai trò) THẤY ĐƯỢC "
+		"dữ liệu cấp phát của khoa B cùng bệnh viện — cả năm cột ngoài (tồn "
+		"đầu/nhập/cấp phát/xuất khác/tồn cuối, vốn là số CẤP KHO, không tách "
+		"được theo khoa) lẫn bảng con theo_may của MỌI khoa. Tham số "
+		"khoa_phong/thiet_bi do client gửi CHỈ thu hẹp HIỂN THỊ trên "
+		"theo_may của một request (kiểm sở hữu qua _khoa_cua_kho()/"
+		"_thiet_bi_cua_khach() nên không nới ra ngoài bệnh viện của phiên) — "
+		"KHÔNG phải một biên an toàn: bỏ tham số đó đi là thấy lại hết. "
+		"CỐ Ý KHÔNG thêm pham_vi_don() ở vòng sửa này (đã hỏi cố vấn độc lập "
+		"trước khi quyết định) vì ba lý do: (1) kho_bao_cao_cap_phat — CHÍNH "
+		"báo cáo 'cấp phát theo khoa', vẫn nằm trong KHO_CON_SO_CU — cũng "
+		"không lọc người gọi; chỉ khoá riêng màn MỚI này tạo ra một nghịch "
+		"lý MỚI (cùng một câu hỏi 'khoa B tiêu gì', hai màn cho hai câu trả "
+		"lời khác nhau) thay vì sửa nghịch lý cũ. (2) pham_vi_don() trả một "
+		"filter hình dạng Sales Order ({'custom_khoa_phong': ...}) — "
+		"Customer Stock Ledger Entry/Customer Equipment không có field đó, "
+		"gắn vào đây là bịa ngữ nghĩa map mới giữa hai mô hình dữ liệu không "
+		"tương thích, không phải nối một cơ chế sẵn có. (3) Năm cột ngoài "
+		"KHÔNG có trục khoa để mà thu hẹp (tồn kho/nhập kho là số CẤP KHO) — "
+		"một dòng 'đã lọc một nửa' (bảng con thu hẹp, cột ngoài thì không) "
+		"là một lời NÓI DỐI MỚI, không phải một bản vá. ĐÂY LÀ HIỆN TRẠNG "
+		"CHUNG của cả họ kho_bao_cao_* (nxt/the_kho/canh_bao/dot/cap_phat/"
+		"cap_phat_thang — sáu endpoint, tất cả còn nằm trong KHO_CON_SO_CU, "
+		"không cái nào gọi pham_vi_don()) — kho_bao_cao_thiet_bi kế thừa "
+		"ĐÚNG quy ước hiện có của module báo cáo kho, không phải một lỗ hổng "
+		"MỚI phát sinh riêng ở Task 14. Đây là một CÂU HỎI SẢN PHẨM CHƯA "
+		"CHỐT (có nên hạn chế Nhân viên khoa khỏi mọi báo cáo kho không?), "
+		"không phải một quyết định bảo mật đã được duyệt — cờ cho Bước 8 "
+		"(spec §7.1c) khi phân loại cả họ kho_bao_cao_*, xem "
+		"task-14-report.md mục 'Vòng sửa 1'. Trục khách hàng/kho (TENANT) "
+		"CÓ áp: kho/customer suy từ phiên qua get_portal_kho()/"
+		"get_portal_customer() (không nhận từ client); thiet_bi qua "
+		"_thiet_bi_cua_khach(), khoa_phong qua _khoa_cua_kho() — cả hai "
+		"TRƯỚC khi chạm reports.bao_cao_thiet_bi_rows()."
+	)
 }
 
 # Con số ĐÓNG BĂNG (baseline nợ kỹ thuật trước Task 7/commit `de582d1`, khi
