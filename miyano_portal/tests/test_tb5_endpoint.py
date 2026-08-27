@@ -12,10 +12,13 @@ Bốn lớp test trong file này (Task 6, 7, 8, 11) dùng CHUNG lớp nền
 fixture riêng.
 """
 
+import re
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import kho as kho_api
+from miyano_portal.kho import dong_phieu
 from miyano_portal.kho import thiet_bi as thiet_bi_mod
 
 KHACH = "ZZTB5 Benh Vien"
@@ -282,6 +285,17 @@ class TestThietBiLogic(_NenThietBi):
 			frappe.db.get_value("Customer Equipment", self.may_a.name, "khoa_phong"),
 			self.kp_a.name,
 		)
+
+	def test_truong_tao_nhanh_chua_khoa_phong(self):
+		"""Canary cho cảnh báo trong task-11-report.md: `kho_thiet_bi_tao_
+		nhanh` an toàn CHỈ VÌ `khoa_phong` chưa có trong tuple này (`tao_
+		nhanh()` ép khoa theo phiên bằng `_khoa_ep_theo_phien`, không đọc
+		payload client cho trường đó — xem `test_tao_nhanh_nhan_vien_khoa_
+		van_bi_ep_khoa` ở trên). Nếu về sau ai thêm `khoa_phong` vào tuple
+		này mà quên thêm guard tương ứng, ca này phải đỏ TRƯỚC khi kênh dò
+		liên khoa (BR-TB-6) tái diễn — nó không tự sửa được lỗ, chỉ ngăn lỗ
+		đó lọt qua âm thầm."""
+		self.assertNotIn("khoa_phong", thiet_bi_mod.TRUONG_TAO_NHANH)
 
 	def test_tao_nhanh_van_validate_day_du(self):
 		""""Nhanh" nói về SỐ Ô, không nói về độ chặt."""
@@ -684,6 +698,19 @@ class TestPhieuXuatNhanMay(_NenThietBi):
 				           "so_luong": 1, "thiet_bi": self.may_benh_vien_khac.name}],
 			})
 
+	def test_thiet_bi_mac_dinh_may_benh_vien_khac_bi_chan(self):
+		"""Mang từ Task 8 sang (việc còn thiếu, chỉ thị Task 11): chưa có ca
+		nào ghim TRỰC TIẾP `thiet_bi_mac_dinh` nhận một docname THẬT của bệnh
+		viện khác — ca dict-filter ngay dưới chỉ kiểm nhánh dict cho header,
+		không kiểm nhánh docname thật này."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_phieu_xuat_save({
+				"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+				"thiet_bi_mac_dinh": self.may_benh_vien_khac.name,
+				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+			})
+
 	def test_may_khong_ton_tai_va_may_vien_khac_cung_mot_loi(self):
 		"""Bằng chứng oracle đã đóng (lý do đổi thiết kế, xem docstring lớp
 		và task-8-report.md): trước khi có guard, một máy KHÔNG TỒN TẠI và
@@ -739,3 +766,179 @@ class TestPhieuXuatNhanMay(_NenThietBi):
 				"thiet_bi_mac_dinh": {"ma_thiet_bi": self.may_a.ma_thiet_bi},
 				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
 			})
+
+
+class TestExcelCotMaMay(_NenThietBi):
+	"""Cột Mã máy trong file nhập phiếu xuất hàng loạt.
+
+	Test dựng workbook THẬT bằng openpyxl rồi cho `doc_file` đọc bytes — đúng
+	đường mà người dùng đi. Không gọi thẳng hàm nội bộ nào.
+	"""
+
+	def _file(self, ma_may):
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		dong = [""] * len(tieu_de)
+		dong[tieu_de.index("Mã vật tư")] = self.vat_tu.ma_vat_tu
+		dong[tieu_de.index("Số lô")] = self.lo
+		dong[tieu_de.index("Số lượng")] = 2
+		dong[tieu_de.index("Mã máy")] = ma_may
+		ws.append(dong)
+		buf = _io.BytesIO()
+		wb.save(buf)
+		return buf.getvalue()
+
+	def test_file_mau_co_cot_ma_may(self):
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		self.assertIn("Mã máy", [c.value for c in wb.active[1]])
+
+	def test_ma_may_khong_bat_buoc(self):
+		"""Cột mới KHÔNG được vào REQUIRED — mọi file mẫu cũ đang lưu trên máy
+		khách phải nạp lại được, nếu không đây là hồi quy chứ không phải tính
+		năng."""
+		self.assertNotIn("ma_thiet_bi", dong_phieu.REQUIRED["xuat"])
+
+	def test_ma_dung_ra_docname(self):
+		"""SỬA so với brief gốc (task-11-brief.md dùng literal "XN500-01" —
+		đó là mã trong fixture của plan doc gốc/test_tb1_doctype.py, KHÔNG
+		phải mã trong `_NenThietBi` thật của file này, nơi `may_a.ma_thiet_bi
+		== "ZZTB5-MAY-A"`. Dùng thẳng `self.may_a.ma_thiet_bi` để test không
+		phụ thuộc một hằng số trùng hợp."""
+		ra = dong_phieu.doc_file(self._file(self.may_a.ma_thiet_bi), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], self.may_a.name)
+		self.assertEqual(row["loi"], [])
+
+	def test_o_trong_la_khong_gan_may_khong_phai_loi(self):
+		ra = dong_phieu.doc_file(self._file(""), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], "")
+		self.assertEqual(row["loi"], [])
+		self.assertEqual(row["trang_thai"], "khop")
+
+	def test_ma_sai_vao_loi_cua_dong_chu_khong_bi_bo_qua(self):
+		"""Bỏ qua im lặng = ghi sổ thiếu máy mà người dùng tin là đã có."""
+		ra = dong_phieu.doc_file(self._file("KHONG-CO"), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertTrue(any("KHONG-CO" in x for x in row["loi"]))
+		self.assertEqual(row["trang_thai"], "loi")
+		self.assertEqual(row["thiet_bi"], "")
+
+	def test_ma_may_benh_vien_khac_bao_loi_giong_ma_khong_ton_tai(self):
+		"""Không được lộ ra rằng mã đó CÓ THẬT ở bệnh viện khác — thông điệp
+		phải cùng khuôn, chỉ khác phần mã được trích dẫn."""
+		la = dong_phieu.doc_file(
+			self._file(self.may_benh_vien_khac.ma_thiet_bi), self.kho.name, "xuat"
+		)["rows"][0]
+		bia = dong_phieu.doc_file(self._file("HOAN-TOAN-BIA"), self.kho.name, "xuat")["rows"][0]
+		# Không để hai vế trống cùng lúc biến phép so thành bất biến hình
+		# thức — nếu tra cứu bị bỏ qua hoàn toàn, cả hai `loi` đều rỗng và
+		# assertEqual dưới đây vẫn xanh dù không kiểm được gì.
+		self.assertTrue(la["loi"])
+		self.assertTrue(bia["loi"])
+		chuan = lambda t: re.sub(r'"[^"]*"', '"X"', t)
+		self.assertEqual(
+			[chuan(x) for x in la["loi"]], [chuan(x) for x in bia["loi"]]
+		)
+
+	def test_ma_khong_phan_biet_hoa_thuong(self):
+		"""`Customer Equipment.validate()` tự viết hoa `ma_thiet_bi` — mã gõ
+		thường trong file vẫn phải khớp, đúng như ca `_match_vat_tu` (không
+		phân biệt hoa thường) đã làm cho vật tư."""
+		ra = dong_phieu.doc_file(
+			self._file(self.may_a.ma_thiet_bi.lower()), self.kho.name, "xuat"
+		)
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], self.may_a.name)
+		self.assertEqual(row["loi"], [])
+
+	def test_file_mau_cu_thieu_cot_ma_may_van_nap_duoc(self):
+		"""Requirement #1 kiểm ở HÀNH VI, không chỉ ở hằng số REQUIRED: một
+		file mẫu khách đã tải TRƯỚC Task 11 (không có cột "Mã máy" — mô
+		phỏng bằng cách xoá hẳn cột đó khỏi workbook, không chỉ để trống) vẫn
+		phải nạp được, dòng vẫn "khop" và không kèm lỗi nào."""
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		ws.delete_cols(tieu_de.index("Mã máy") + 1)
+		tieu_de_moi = [c.value for c in ws[1]]
+		self.assertNotIn("Mã máy", tieu_de_moi)
+		dong = [""] * len(tieu_de_moi)
+		dong[tieu_de_moi.index("Mã vật tư")] = self.vat_tu.ma_vat_tu
+		dong[tieu_de_moi.index("Số lô")] = self.lo
+		dong[tieu_de_moi.index("Số lượng")] = 2
+		ws.append(dong)
+		buf = _io.BytesIO()
+		wb.save(buf)
+		ra = dong_phieu.doc_file(buf.getvalue(), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["trang_thai"], "khop")
+		self.assertEqual(row["loi"], [])
+		self.assertEqual(row["thiet_bi"], "")
+
+	def test_doc_file_hoat_dong_duoi_phien_khach_hang_khong_phai_admin(self):
+		"""`doc_file` tra `Customer Equipment` bằng `frappe.get_all` — hàm đó
+		luôn chạy `ignore_permissions=True` nên hoạt động ĐÚNG dù không có
+		DocPerm cho role Customer trên doctype này (Global Constraint 2 của
+		kế hoạch). Test này neo điều đó bằng hành vi thay vì bằng tài liệu:
+		nếu ai đó đổi `get_all` thành `get_list`, ca này phải đỏ vì phiên
+		Website User không có quyền đọc `Customer Equipment`."""
+		frappe.set_user(self.ql)
+		ra = dong_phieu.doc_file(self._file(self.may_a.ma_thiet_bi), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], self.may_a.name)
+		self.assertEqual(row["loi"], [])
+
+
+class TestExportGiuLaiMaMay(_NenThietBi):
+	"""Task 11, phần xuất tệp: `export_rows`/`build_export_xlsx` dùng chung
+	`COLUMNS["xuat"]` với `doc_file` — nếu không tự điền lại "Mã máy", một
+	vòng xuất-rồi-nạp-lại (khách tải phiếu về sửa rồi nạp lại) sẽ âm thầm
+	đánh rơi mọi gán máy đã lưu trên phiếu xuất."""
+
+	def test_export_giu_lai_ma_may(self):
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+			           "so_luong": 1, "thiet_bi": self.may_chung.name}],
+		})
+		content = dong_phieu.build_export_xlsx("Customer Stock Issue", ra["name"])
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(content))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		idx = tieu_de.index("Mã máy")
+		dong_du_lieu = list(ws.iter_rows(min_row=2, max_row=2))[0]
+		self.assertEqual(dong_du_lieu[idx].value, self.may_chung.ma_thiet_bi)
+
+		# Đóng trọn vòng: tệp vừa xuất phải NẠP LẠI đúng ra cùng một máy —
+		# hai test độc lập (xuất viết đúng mã / đọc khớp đúng docname) không
+		# tự chứng minh việc nối chúng lại vẫn đúng.
+		ra_doc = dong_phieu.doc_file(content, self.kho.name, "xuat")
+		self.assertEqual(ra_doc["rows"][0]["thiet_bi"], self.may_chung.name)
+		self.assertEqual(ra_doc["rows"][0]["loi"], [])
+
+	def test_export_dong_khong_co_may_de_trong_khong_loi(self):
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+		})
+		content = dong_phieu.build_export_xlsx("Customer Stock Issue", ra["name"])
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(content))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		idx = tieu_de.index("Mã máy")
+		dong_du_lieu = list(ws.iter_rows(min_row=2, max_row=2))[0]
+		self.assertFalse(dong_du_lieu[idx].value)
