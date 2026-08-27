@@ -1168,10 +1168,17 @@ def bao_cao_thiet_bi_rows(
 
 	`theo_may` join SỔ → `chung_tu_row` (docname dòng con thật, không phải
 	tên) → `Customer Stock Issue Item.thiet_bi`, GỘP THEO DOCNAME máy —
-	KHÔNG theo tên: một bệnh viện mua hai máy giống hệt và khai trùng tên là
-	chuyện thường (cùng lý lẽ gộp `vat_tu` theo docname bên dưới, vì trong
-	CÙNG một kho `ten_vat_tu` không duy nhất — hai vật tư khác ĐVT trùng tên
-	sẽ bị cộng nhầm nếu gộp theo tên). Khoa phòng của một dòng `theo_may` là
+	KHÔNG theo tên. PHÒNG THỦ, không mô tả hiện trạng: luật hiện hành
+	(`CustomerEquipment._chan_trung_ten()`, spec §4.1) CHẶN CỨNG hai máy
+	trùng `ten_thiet_bi` trong CÙNG một khách hàng, nên qua đường tạo mới
+	bình thường một khách hàng không có hai máy trùng tên; trạng thái đó
+	chỉ dựng được trong test bằng `flags.ignore_validate` (xem
+	`tieu_thu_theo_may_rows`/`bao_cao_cap_phat_rows.theo_may`, hai chỗ có
+	ca test cho đúng tình huống này). Gộp theo docname vẫn đúng bất kể luật
+	đó — nếu dữ liệu trùng tên từng phát sinh, gộp theo tên sẽ cộng nhầm.
+	Cùng lý lẽ với việc gộp `vat_tu` theo docname bên dưới: trong CÙNG một
+	kho `ten_vat_tu` không duy nhất — hai vật tư khác ĐVT trùng tên sẽ bị
+	cộng nhầm nếu gộp theo tên. Khoa phòng của một dòng `theo_may` là
 	khoa mà MÁY ĐÓ đang đặt (`Customer Equipment.khoa_phong`) — khác trục
 	nhóm của `bao_cao_cap_phat_rows` (khoa trên ĐẦU PHIẾU xuất, nơi hàng
 	được giao tới); ở đây câu hỏi là "máy này, đang ở khoa nào", không phải

@@ -522,8 +522,12 @@ class TestBaoCaoTheoMay(FrappeTestCase):
 		self.assertAlmostEqual(gia_tri_by_thiet_bi[self.may_x2.name], 80000.0, places=2)
 
 	def test_tieu_thu_theo_may_gop_theo_docname(self):
-		"""Hai máy khác nhau CÙNG TÊN (bệnh viện mua hai máy giống hệt, khai
-		trùng tên là chuyện thường) phải ra HAI dòng."""
+		"""Hai máy khác nhau CÙNG TÊN phải ra HAI dòng — PHÒNG THỦ, không
+		mô tả hiện trạng: luật hiện hành (`_chan_trung_ten()`, spec §4.1)
+		chặn cứng trùng tên trong một bệnh viện qua đường tạo mới bình
+		thường; trạng thái này chỉ dựng được ở đây bằng
+		`flags.ignore_validate` (xem setUp), để ghim gộp theo docname vẫn
+		đúng NẾU luật đổi sau này."""
 		rows = reports.tieu_thu_theo_may_rows(self.kho, self.tu, self.den)
 		cung_ten = [r for r in rows if r["ten_may"] == "Máy XN-500"]
 		self.assertEqual(len(cung_ten), 2)
