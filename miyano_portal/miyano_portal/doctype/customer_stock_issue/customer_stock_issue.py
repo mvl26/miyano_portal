@@ -198,6 +198,7 @@ class CustomerStockIssue(Document):
 			if self.loai_xuat == "Xuất sử dụng":
 				self._chan_lo_het_han_chua_xac_nhan()
 				self._chan_thieu_khoa_phong()
+				self._chan_thieu_thiet_bi()
 			# NL-4.12: khoa phòng đã tắt (active=0) còn nằm trên phiếu nháp —
 			# kiểm ở MỌI loại xuất (không chỉ "Xuất sử dụng") vì field không bị
 			# ràng buộc chỉ dùng cho loại đó; kiểm khi GHI SỔ, không phải khi
@@ -258,6 +259,39 @@ class CustomerStockIssue(Document):
 				"Kho đã bật \"Bắt buộc chọn khoa phòng\" cho phiếu Xuất sử "
 				"dụng tạo sau thời điểm đó. Hãy chọn Khoa phòng nhận trước "
 				"khi ghi sổ.",
+				frappe.ValidationError,
+			)
+
+	def _chan_thieu_thiet_bi(self):
+		"""BR-TB-3 — sao y `_chan_thieu_khoa_phong()` ở trên, KỂ CẢ phần tự
+		lành khi cờ bật mà mốc rỗng: chỉ áp cho loại "Xuất sử dụng", chỉ cho
+		phiếu TẠO SAU thời điểm kho bật cờ `bat_buoc_thiet_bi` (so với
+		`self.creation`, KHÔNG phải thời điểm hàm này chạy). "Cờ bật, mốc
+		rỗng" chỉ xảy ra khi cờ được bật qua đường bỏ qua
+		`CustomerWarehouse.validate()` (patch rollout hàng loạt, Data
+		Import, `frappe.db.set_value` trực tiếp) — TỰ LÀNH bằng cách coi
+		thời điểm PHÁT HIỆN (bây giờ) là mốc, ghi luôn xuống `Customer
+		Warehouse`, ân hạn mọi phiếu nháp đang tồn. Fail-closed ở đây sẽ
+		ĐÓNG BĂNG NGAY LẬP TỨC mọi phiếu nháp đang mở ở MỌI kho — đúng cái
+		NL-4.11/E8 sinh ra để tránh, xem docstring
+		`_ghi_moc_bat_buoc_thiet_bi()` và `_chan_thieu_khoa_phong()`."""
+		bat, moc = frappe.db.get_value(
+			"Customer Warehouse", self.kho,
+			["bat_buoc_thiet_bi", "bat_buoc_thiet_bi_tu"],
+		)
+		if not frappe.utils.cint(bat):
+			return
+		if not moc:
+			moc = frappe.utils.now_datetime()
+			frappe.db.set_value("Customer Warehouse", self.kho, "bat_buoc_thiet_bi_tu", moc)
+		tao_luc = frappe.utils.get_datetime(self.creation or frappe.utils.now_datetime())
+		if tao_luc <= frappe.utils.get_datetime(moc):
+			return
+		thieu = [r.idx for r in self.items if not r.thiet_bi]
+		if thieu:
+			frappe.throw(
+				"Kho đã bật \"Bắt buộc chọn máy\" cho phiếu Xuất sử dụng tạo "
+				f"sau thời điểm đó. Còn thiếu máy ở dòng: {', '.join(map(str, thieu))}.",
 				frappe.ValidationError,
 			)
 
