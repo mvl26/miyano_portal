@@ -913,7 +913,18 @@ git commit -m "feat(kho): máy trên dòng phiếu xuất — BR-TB-1/2/4/5"
 
 - [ ] **Step 1: Viết test đỏ**
 
-`miyano_portal/tests/test_tb3_bat_buoc.py`:
+`miyano_portal/tests/test_tb3_bat_buoc.py`.
+
+`setUp()` dựng nền y như Task 3 (bệnh viện ZZTB3, kho, một khoa, một máy, một
+vật tư, một phiếu nhập đã submit). Hai helper riêng của task này:
+
+- `_phieu_nhap_lieu(thiet_bi=None, loai_xuat="Xuất sử dụng")` — lập phiếu và
+  **DỪNG Ở NHÁP** (`submit=False`). Bắt buộc phải nháp: mọi ca ở đây so *thời
+  điểm TẠO phiếu* với *mốc bật cờ*, nên phiếu phải tồn tại trước khi cờ bật.
+- `_bat_co()` — `self.kho.bat_buoc_thiet_bi = 1; self.kho.save(ignore_permissions=True)`.
+  Đi qua `save()` chứ **không** `db.set_value`, để `_ghi_moc_bat_buoc_thiet_bi()`
+  chạy và ghi mốc — trừ đúng ca `test_co_bat_ma_moc_rong_thi_tu_lanh` cố tình
+  đi đường vòng để dựng lại tình huống patch rollout.
 
 ```python
 """BR-TB-3 — cờ bắt buộc chọn máy, sao y cơ chế mốc thời gian của khoa phòng.
@@ -1228,9 +1239,24 @@ git commit -m "feat(kho): cách ly Customer Equipment theo bệnh viện và kho
 
 - [ ] **Step 1: Viết test đỏ**
 
-Tạo `miyano_portal/tests/test_tb5_endpoint.py`. Nền: một bệnh viện ZZTB5 có kho,
-hai khoa A/B, ba `Portal Member` (`ql`, `nv_a`, `nv_b`), ba máy (`may_a` ở khoa A,
-`may_b` ở khoa B, `may_chung` không khoa), một vật tư.
+Tạo `miyano_portal/tests/test_tb5_endpoint.py`.
+
+**Bốn lớp test trong file này (Task 6, 7, 8, 11) dùng CHUNG một lớp nền
+`_NenThietBi`.** Định nghĩa nó ngay trong task này — ba task sau kế thừa, không
+task nào dựng lại fixture riêng. Nếu mỗi lớp tự dựng, bốn bộ fixture sẽ trôi khỏi
+nhau và một task sửa nền sẽ làm đỏ test của task khác mà không rõ vì sao.
+
+`_NenThietBi.setUp()` dựng: bệnh viện ZZTB5 + một bệnh viện khác (`ZZTB5 Benh
+Vien Khac`, để có `may_benh_vien_khac` và `vat_tu_khac_kho` **có thật**), kho,
+hai khoa A/B, ba `Portal Member` (`ql`, `nv_a`, `nv_b` — email `zztb5.*@demo.miyano`,
+mật khẩu bất kỳ), ba máy (`may_a` khoa A, `may_b` khoa B, `may_chung` không
+khoa), một vật tư `ZZTB5-HC1`, và một phiếu nhập đã submit để có lô `self.lo`
+với tồn 100.
+
+`_don()` lọc theo đúng hai bệnh viện ZZTB5 — xem Ràng buộc chung 12b.
+
+`tearDown()` gọi `frappe.set_user("Administrator")` **trước** khi dọn, nếu không
+phiên còn đang là Website User và mọi `delete_doc` sẽ ném `PermissionError`.
 
 ```python
 """Logic + endpoint danh mục thiết bị.
@@ -1248,7 +1274,7 @@ from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import thiet_bi as thiet_bi_mod
 
 
-class TestThietBiLogic(FrappeTestCase):
+class TestThietBiLogic(_NenThietBi):
 	def test_nhan_vien_khoa_chi_thay_may_khoa_minh_va_may_chung(self):
 		frappe.set_user(self.nv_a)
 		ten = {r["name"] for r in thiet_bi_mod.list_rows(self.khach, self.nv_a)}
@@ -1428,7 +1454,7 @@ git commit -m "feat(kho): module danh mục thiết bị, ép khoa theo phiên"
 Thêm lớp vào `miyano_portal/tests/test_tb5_endpoint.py`:
 
 ```python
-class TestThietBiEndpoint(FrappeTestCase):
+class TestThietBiEndpoint(_NenThietBi):
 	def test_endpoint_khong_nhan_customer_tu_client(self):
 		"""Chữ ký hàm KHÔNG được có tham số customer/kho — nguyên tắc bất di
 		bất dịch ở đầu api/kho.py. Test đọc chữ ký để một PR sau không thêm
@@ -1532,7 +1558,7 @@ git commit -m "feat(kho): 4 endpoint cổng cho danh mục thiết bị"
 - [ ] **Step 1: Viết test đỏ**
 
 ```python
-class TestPhieuXuatNhanMay(FrappeTestCase):
+class TestPhieuXuatNhanMay(_NenThietBi):
 	def test_dong_ghi_dung_may(self):
 		frappe.set_user(self.ql)
 		ra = kho_api.kho_phieu_xuat_save({
@@ -1827,55 +1853,94 @@ không đổi khoá cũ, không đổi chữ ký.
 - Modify: `miyano_portal/kho/dong_phieu.py`
 - Test: `miyano_portal/tests/test_tb5_endpoint.py`
 
-**Interfaces:**
-- Produces: file mẫu phiếu xuất có thêm cột **"Mã máy"**; hàm đọc trả về `thiet_bi` (docname) trên mỗi dòng, và **lỗi có cấu trúc** khi mã không tìm thấy.
+**Interfaces (API THẬT của module — đã đối chiếu mã nguồn 27/08):**
+- `dong_phieu.build_mau_xlsx(loai: str) -> bytes` — file mẫu.
+- `dong_phieu.doc_file(content: bytes, kho: str, loai: str) -> {"total": int, "rows": [...]}`
+  — **đọc từ bytes**, không đọc từ list dict. Lỗi của một dòng nằm trong
+  `row["loi"]` (list[str]) của **chính dòng đó**, không có danh sách lỗi riêng.
+- Cột khai trong `COLUMNS[loai]` dạng `("Nhãn hiển thị", "fieldname")`, bắt buộc
+  khai trong `REQUIRED[loai]`.
+- Produces: cột `("Mã máy", "ma_thiet_bi")` trong `COLUMNS["xuat"]` (**không**
+  thêm vào `REQUIRED`), và khoá `thiet_bi` trên mỗi row trả về.
+
+> **Bất biến bắt buộc, sao y bất biến `vat_tu` đã có:** `thiet_bi` **chỉ** khác
+> rỗng khi mã máy khớp một máy thật của bệnh viện đó. Mã sai → `loi` có thêm một
+> dòng và `trang_thai` thành `"loi"`; **không** được vừa báo lỗi vừa để lại một
+> `thiet_bi` đoán được.
 
 - [ ] **Step 1: Viết test đỏ**
 
 ```python
-class TestExcelCotMaMay(FrappeTestCase):
-	def test_ma_dung_ra_docname(self):
-		rows, loi = dong_phieu.doc_rows_xuat(self.kho, [
-			{"Mã vật tư": "ZZTB-HC1", "Số lô": self.lo, "Số lượng": 2,
-			 "Mã máy": "XN500-01"},
-		])
-		self.assertEqual(rows[0]["thiet_bi"], self.may_a.name)
-		self.assertEqual(loi, [])
+class TestExcelCotMaMay(_NenThietBi):
+	"""Cột Mã máy trong file nhập phiếu xuất hàng loạt.
 
-	def test_ma_sai_vao_danh_sach_loi_chu_khong_bi_bo_qua(self):
-		"""Bỏ qua im lặng = ghi sổ thiếu máy mà người dùng tin là đã có."""
-		rows, loi = dong_phieu.doc_rows_xuat(self.kho, [
-			{"Mã vật tư": "ZZTB-HC1", "Số lô": self.lo, "Số lượng": 2,
-			 "Mã máy": "KHONG-CO"},
-		])
-		self.assertTrue(loi)
-		self.assertIn("KHONG-CO", loi[0]["thong_diep"])
+	Test dựng workbook THẬT bằng openpyxl rồi cho `doc_file` đọc bytes — đúng
+	đường mà người dùng đi. Không gọi thẳng hàm nội bộ nào.
+	"""
 
-	def test_o_trong_la_khong_gan_may_khong_phai_loi(self):
-		rows, loi = dong_phieu.doc_rows_xuat(self.kho, [
-			{"Mã vật tư": "ZZTB-HC1", "Số lô": self.lo, "Số lượng": 2, "Mã máy": ""},
-		])
-		self.assertIsNone(rows[0]["thiet_bi"])
-		self.assertEqual(loi, [])
-
-	def test_ma_may_cua_benh_vien_khac_bao_loi_giong_ma_khong_ton_tai(self):
-		"""Không được lộ ra rằng mã đó CÓ THẬT ở bệnh viện khác."""
-		_, loi_la = dong_phieu.doc_rows_xuat(self.kho, [
-			{"Mã vật tư": "ZZTB-HC1", "Số lô": self.lo, "Số lượng": 1,
-			 "Mã máy": self.may_benh_vien_khac.ma_thiet_bi},
-		])
-		_, loi_ma = dong_phieu.doc_rows_xuat(self.kho, [
-			{"Mã vật tư": "ZZTB-HC1", "Số lô": self.lo, "Số lượng": 1,
-			 "Mã máy": "HOAN-TOAN-BIA"},
-		])
-		self.assertEqual(loi_la[0]["ly_do"], loi_ma[0]["ly_do"])
+	def _file(self, ma_may):
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		dong = [""] * len(tieu_de)
+		dong[tieu_de.index("Mã vật tư")] = self.vat_tu.ma_vat_tu
+		dong[tieu_de.index("Số lô")] = self.lo
+		dong[tieu_de.index("Số lượng")] = 2
+		dong[tieu_de.index("Mã máy")] = ma_may
+		ws.append(dong)
+		buf = _io.BytesIO()
+		wb.save(buf)
+		return buf.getvalue()
 
 	def test_file_mau_co_cot_ma_may(self):
-		import openpyxl, io as _io
-		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.mau_xuat_bytes()))
-		tieu_de = [c.value for c in wb.active[1]]
-		self.assertIn("Mã máy", tieu_de)
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		self.assertIn("Mã máy", [c.value for c in wb.active[1]])
+
+	def test_ma_may_khong_bat_buoc(self):
+		"""Cột mới KHÔNG được vào REQUIRED — mọi file mẫu cũ đang lưu trên máy
+		khách phải nạp lại được, nếu không đây là hồi quy chứ không phải tính
+		năng."""
+		self.assertNotIn("ma_thiet_bi", dong_phieu.REQUIRED["xuat"])
+
+	def test_ma_dung_ra_docname(self):
+		ra = dong_phieu.doc_file(self._file("XN500-01"), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], self.may_a.name)
+		self.assertEqual(row["loi"], [])
+
+	def test_o_trong_la_khong_gan_may_khong_phai_loi(self):
+		ra = dong_phieu.doc_file(self._file(""), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["thiet_bi"], "")
+		self.assertEqual(row["loi"], [])
+		self.assertEqual(row["trang_thai"], "khop")
+
+	def test_ma_sai_vao_loi_cua_dong_chu_khong_bi_bo_qua(self):
+		"""Bỏ qua im lặng = ghi sổ thiếu máy mà người dùng tin là đã có."""
+		ra = dong_phieu.doc_file(self._file("KHONG-CO"), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertTrue(any("KHONG-CO" in x for x in row["loi"]))
+		self.assertEqual(row["trang_thai"], "loi")
+		self.assertEqual(row["thiet_bi"], "")
+
+	def test_ma_may_benh_vien_khac_bao_loi_giong_ma_khong_ton_tai(self):
+		"""Không được lộ ra rằng mã đó CÓ THẬT ở bệnh viện khác — thông điệp
+		phải cùng khuôn, chỉ khác phần mã được trích dẫn."""
+		la = dong_phieu.doc_file(
+			self._file(self.may_benh_vien_khac.ma_thiet_bi), self.kho.name, "xuat"
+		)["rows"][0]
+		bia = dong_phieu.doc_file(self._file("HOAN-TOAN-BIA"), self.kho.name, "xuat")["rows"][0]
+		chuan = lambda t: re.sub(r'"[^"]*"', '"X"', t)
+		self.assertEqual(
+			[chuan(x) for x in la["loi"]], [chuan(x) for x in bia["loi"]]
+		)
 ```
+
+Thêm `import re` và `from miyano_portal.kho import dong_phieu` vào đầu file test.
 
 - [ ] **Step 2: Chạy test, xác nhận ĐỎ**
 
@@ -1884,23 +1949,69 @@ cd /home/hoangvietyeuem/frappe-bench-yhct
 bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_tb5_endpoint
 ```
 
-- [ ] **Step 3: Thêm cột vào mẫu và vào bộ đọc**
+Kỳ vọng: 6 test mới FAIL — `"Mã máy" not in` tiêu đề file mẫu.
 
-Khớp `ma_thiet_bi` trong phạm vi `customer` suy từ `kho`, **một truy vấn cho cả
-file** (không phải mỗi dòng một truy vấn — file nhập hàng loạt có thể vài trăm
-dòng):
+- [ ] **Step 3: Thêm cột vào `COLUMNS["xuat"]`**
+
+Trong `kho/dong_phieu.py`, thêm vào tuple `COLUMNS["xuat"]` (**không** thêm vào
+`REQUIRED["xuat"]`):
 
 ```python
-	ma_to_name = {
-		r["ma_thiet_bi"]: r["name"] for r in frappe.get_all(
-			"Customer Equipment",
-			filters={"customer": frappe.db.get_value("Customer Warehouse", kho, "customer")},
-			fields=["name", "ma_thiet_bi"],
-		)
-	}
+		("Mã máy", "ma_thiet_bi"),
 ```
-- [ ] **Step 4: Chạy test, xác nhận XANH.**
-- [ ] **Step 5: Commit** — `feat(kho): cột Mã máy trong Excel nhập phiếu xuất hàng loạt`
+
+- [ ] **Step 4: Tra mã máy trong `doc_file`**
+
+**Một truy vấn cho cả file**, không phải mỗi dòng một truy vấn — file nhập hàng
+loạt có thể vài trăm dòng. Dựng map ngay sau `_kiem_loai(loai)`:
+
+```python
+	# Chỉ phiếu xuất mới có cột máy. Tra một lần cho cả file, khoá theo mã đã
+	# chuẩn hoá (viết hoa) đúng như CustomerEquipment.validate() lưu.
+	may_theo_ma = {}
+	if loai == "xuat":
+		customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+		may_theo_ma = {
+			r["ma_thiet_bi"]: r["name"] for r in frappe.get_all(
+				"Customer Equipment",
+				filters={"customer": customer},
+				fields=["name", "ma_thiet_bi"],
+			)
+		}
+```
+
+Trong vòng lặp dòng, cạnh các phép kiểm khác:
+
+```python
+		thiet_bi = ""
+		ma_may = _norm(raw.get("ma_thiet_bi")).upper()
+		if ma_may:
+			thiet_bi = may_theo_ma.get(ma_may, "")
+			if not thiet_bi:
+				# Thông điệp GIỐNG HỆT cho "mã bịa" và "mã của bệnh viện khác"
+				# — chênh nhau một chữ là một kênh dò dữ liệu khách khác.
+				loi.append(f'Không tìm thấy máy có mã "{ma_may}" trong đơn vị này')
+```
+
+Và trong dict `row` trả về, cạnh khoá `vat_tu`:
+
+```python
+			"thiet_bi": thiet_bi if trang_thai_cuoi == "khop" else "",
+```
+
+- [ ] **Step 5: Cho `kho_dong_phieu_doc_file` chuyển tiếp `thiet_bi`**
+
+Kiểm `api/kho.py::kho_dong_phieu_doc_file` có trả nguyên `rows` không. Nếu nó
+lọc khoá thì thêm `thiet_bi` vào danh sách khoá được trả.
+
+- [ ] **Step 6: Chạy test, xác nhận XANH** — cùng lệnh Step 2.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add miyano_portal/kho/dong_phieu.py miyano_portal/api/kho.py miyano_portal/tests/test_tb5_endpoint.py
+git commit -m "feat(kho): cột Mã máy trong Excel nhập phiếu xuất hàng loạt"
+```
 
 ---
 
