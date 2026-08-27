@@ -1061,10 +1061,14 @@ def bao_cao_thiet_bi_rows(
 	`xuat_khac = xuat_sl (NXT, mọi dòng xuất) - cap_phat (hai lớp)`.
 	Vì `cap_phat` luôn là một TẬP CON của `xuat_sl` (mọi dòng "Xuất sử dụng"
 	da_dao=0 đều có so_luong<0 nên đều rơi vào xuat_sl), hiệu số này LUÔN
-	dương và LUÔN đúng bằng "huỷ/trả lại/điều chỉnh (da_dao=0) + phần đã bị
-	đảo (dòng gốc da_dao=1 của phiếu đã huỷ)" — không cần liệt kê từng loại
-	loai_xuat, và bất biến trên đúng theo cấu trúc, không phải hai phép tính
-	độc lập tình cờ khớp nhau.
+	dương và LUÔN đúng bằng TỔNG BA THÀNH PHẦN: (a) huỷ/trả lại/điều chỉnh
+	(chung_tu_type=Issue, da_dao=0, loai_xuat khác "Xuất sử dụng"); (b) phần
+	đã bị đảo (dòng GỐC của Issue, da_dao=1); và (c) dòng ĐẢO CỦA MỘT PHIẾU
+	NHẬP (chung_tu_type=Receipt, loai_nhap="Phiếu đảo", so_luong<0 — huỷ một
+	lần nhập cũng làm giảm tồn, và nxt_data() không phân biệt receipt/issue
+	khi bó theo dấu so_luong, xem docstring đầu file) — không cần liệt kê
+	từng loại loai_xuat/loai_nhap, và bất biến trên đúng theo cấu trúc,
+	không phải các phép tính độc lập tình cờ khớp nhau.
 
 	HAI LỚP LỌC cho `cap_phat`, giống hệt `bao_cao_cap_phat_rows` (không viết
 	lại theo cách khác — lọc một lớp sẽ lọt lớp kia):
@@ -1097,6 +1101,17 @@ def bao_cao_thiet_bi_rows(
 	dòng `theo_may` khớp rồi bỏ hẳn những `dong` mà sau lọc không còn dòng
 	nào, KHÔNG đổi ý nghĩa `ton_dau/nhap/cap_phat/xuat_khac/ton_cuoi`: đó
 	luôn là con số của CẢ vật tư, độc lập với đang xem máy nào.
+
+	HỆ QUẢ CẦN BIẾT: bất biến `sum(r["sl"] for r in theo_may) == cap_phat`
+	(test_tong_theo_may_bang_cot_cap_phat) chỉ đúng khi KHÔNG truyền
+	`thiet_bi`/`khoa_phong` — có lọc thì `theo_may` bị thu hẹp còn `cap_phat`
+	thì không, hai số CỐ Ý lệch nhau. Một màn hình render cả cột `cap_phat`
+	lẫn `theo_may` đã lọc cùng lúc sẽ cho người xem thấy "hai con số của
+	cùng một vật tư, trên hai chỗ cạnh nhau, chọi nhau" — đúng lớp bẫy mà
+	`cap_phat_thang_rows()` đã cảnh báo (nhưng ở đó là giữa hai MÀN HÌNH,
+	còn ở đây là giữa hai CỘT của cùng một hàng). Không phải bug — chỉ cần
+	người dựng UI không đặt `cap_phat` (chưa lọc) cạnh `theo_may` (đã lọc)
+	mà không chú thích rõ.
 	"""
 	tu = frappe.utils.getdate(tu_ngay)
 	den = frappe.utils.getdate(den_ngay)
