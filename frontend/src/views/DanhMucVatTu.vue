@@ -75,10 +75,21 @@ function moSua(r) {
   modalOpen.value = true
 }
 
-function onSaved() {
+// Task 13 (GHI NHẬN — xem task-13-report.md) — `kho_vat_tu_list` (nguồn của
+// `rows`) KHÔNG chọn cột `may_su_dung`; chỉ phản hồi của chính lần LƯU này
+// (`kho_vat_tu_sua`/`kho_vat_tu_tao`, qua `ra_dict()`) mới mang trường đó.
+// `load()` load lại NGUYÊN mảng `rows` từ kho_vat_tu_list nên sẽ xoá mất phần
+// vừa vá nếu vá TRƯỚC — phải `await load()` XONG rồi mới vá ĐÈ lên bản ghi vừa
+// lưu, để "Sửa" lại CÙNG một vật tư trong CÙNG phiên này thấy đúng danh sách
+// máy (VatTuModal.vue đọc `bietDanhSachMay` từ đúng sự có mặt của khoá này).
+// Vật tư CHƯA từng được lưu trong phiên vẫn không biết được — đó là giới hạn
+// thật của kho_vat_tu_list, không phải lỗi ở đây.
+async function onSaved(row) {
   modalOpen.value = false
   showToast('Đã lưu danh mục.')
-  load()
+  await load()
+  const idx = rows.value.findIndex((r) => r.name === row.name)
+  if (idx !== -1) rows.value[idx] = { ...rows.value[idx], may_su_dung: row.may_su_dung }
 }
 
 onMounted(load)
