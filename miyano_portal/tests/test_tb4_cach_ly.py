@@ -140,11 +140,52 @@ class TestCachLyThietBi(FrappeTestCase):
 			"vai_tro": vai_tro, "khoa_phong": khoa_phong,
 		}).insert(ignore_permissions=True)
 
+	# Task 5, VÒNG SỬA 1 (I-4, review model mạnh nhất — coi là nghiêm trọng
+	# nhất trong bốn điểm Important). Hai test dưới đây (`test_controller_
+	# override_chan_qua_instance_khac_benh_vien`, `test_parent_has_permission_
+	# qua_framework_chan_benh_vien_khac`) phải cấp một `Custom DocPerm` TẠM
+	# (role Customer, read=1) trên đúng hai doctype cha này để đi qua được
+	# vòng kiểm role trước khi tới lượt has_permission()/voucher_item_
+	# readable() chạy. Site erptest.local ĐÃ CÓ TIỀN LỆ bench bị OOM-kill khi
+	# nhiều bench chạy chung máy (memory "test_rest_guard chập chờn") — một
+	# lần chạy bị SIGKILL giữa chừng sẽ không chạy `finally` của test, để lại
+	# grant TẠM này sống sót như một lỗ cách ly thật trên site làm việc thật.
+	# Dọn ở đây — trong `_don()`, chạy ở CẢ setUp (tự chữa lành trước khi
+	# test bắt đầu) LẪN addCleanup (dọn sau khi test kết thúc, kể cả khi nó
+	# raise) — thay vì chỉ tự chữa lành cục bộ trong từng test. Lọc ĐÚNG HAI
+	# khoá `{parent, role}` — không match-all — nên không đụng gì khác.
+	_GRANT_TAM_DOCTYPES = ("Customer Warehouse Item", "Customer Equipment")
+
+	def _don_grant_tam(self):
+		frappe.db.delete(
+			"Custom DocPerm",
+			{"parent": ["in", self._GRANT_TAM_DOCTYPES], "role": "Customer"},
+		)
+		for dt in self._GRANT_TAM_DOCTYPES:
+			frappe.clear_cache(doctype=dt)
+
+	def _cap_grant_tam(self, parent_doctype: str):
+		"""Cấp MỘT `Custom DocPerm` tạm (role Customer, read=1) trên
+		`parent_doctype` — dùng chung cho cả hai test cần đi qua vòng kiểm
+		role thật. KHÔNG tự dọn ở đây — `_don()` (setUp/addCleanup) lo việc
+		đó, xem comment trên `_GRANT_TAM_DOCTYPES`."""
+		assert parent_doctype in self._GRANT_TAM_DOCTYPES, (
+			f"{parent_doctype} chưa khai trong _GRANT_TAM_DOCTYPES — thêm "
+			"vào đó trước, để _don() dọn được nó."
+		)
+		frappe.get_doc({
+			"doctype": "Custom DocPerm", "parent": parent_doctype,
+			"parenttype": "DocType", "parentfield": "permissions",
+			"role": "Customer", "read": 1,
+		}).insert(ignore_permissions=True)
+		frappe.clear_cache(doctype=parent_doctype)
+
 	def _don(self):
 		"""Dọn CHỈ dữ liệu của hai khách hàng ZZTB4 của bộ test này. TUYỆT ĐỐI
 		không xoá không lọc — erptest.local mang dữ liệu demo của nhiều bệnh
 		viện và nhiều bộ test khác (xem `_don()` của `test_tb3_bat_buoc.py`,
 		khuôn mẫu đúng)."""
+		self._don_grant_tam()
 		khach = [KHACH_A, KHACH_B]
 		khos = frappe.get_all(
 			"Customer Warehouse", filters={"customer": ["in", khach]}, pluck="name"
@@ -208,17 +249,68 @@ class TestCachLyThietBi(FrappeTestCase):
 		"""Chốt bằng số liệu thật, không chỉ soi chuỗi SQL: áp điều kiện của
 		`thiet_bi_query` trực tiếp vào `frappe.db.sql` (đường vòng qua tầng
 		phân quyền, giống hệt cách framework tự AND điều kiện này vào mọi
-		`frappe.get_list`/reportview) và kiểm đúng tập máy trả về."""
+		`frappe.get_list`/reportview) và kiểm đúng tập máy trả về.
+
+		VÒNG SỬA 1 (I-1, review model mạnh nhất) — bản trước tự AND thêm
+		`and customer = %s` (KHACH_A) vào câu SQL. Điều đó tự VÔ HIỆU HOÁ
+		đúng cái bẫy bài test này phải bắt: nếu ai đó gỡ ngoặc quanh vế OR
+		trong `thiet_bi_query` (đúng kịch bản rò rỉ chéo bệnh viện — xem
+		`test_dieu_kien_sql_khong_lo_may_benh_vien_khac_qua_hop_le_khoa`
+		ngay dưới, nơi lỗi đó được đo bằng THỰC NGHIỆM gỡ ngoặc), vế `customer
+		= %s` bên NGOÀI vẫn ép kết quả về đúng bệnh viện A — bài test này vẫn
+		xanh dù `dieu_kien` đã hỏng. Bỏ hẳn vế lọc phụ trợ đó; chỉ còn đúng
+		`dieu_kien` tự nó quyết định tập kết quả."""
 		frappe.set_user(self.nv_a1.user)
 		dieu_kien = permissions.thiet_bi_query(self.nv_a1.user)
 		ten = frappe.db.sql_list(
-			f"select name from `tabCustomer Equipment` where {dieu_kien} "
-			"and customer = %s",
-			KHACH_A,
+			f"select name from `tabCustomer Equipment` where {dieu_kien}"
 		)
 		self.assertIn(self.may_a1.name, ten)
 		self.assertIn(self.may_a_dung_chung.name, ten)
 		self.assertNotIn(self.may_a2.name, ten)
+
+	def test_dieu_kien_sql_khong_lo_may_benh_vien_khac_qua_hop_le_khoa(self):
+		"""VÒNG SỬA 1 (I-2, review model mạnh nhất) — không ca nào trong file
+		này trước đó bắt được lỗi THIẾU NGOẶC quanh vế OR trong
+		`thiet_bi_query` (`kho/permissions.py`):
+
+		```
+		dieu_kien += (
+			f" and (`tabCustomer Equipment`.`khoa_phong` = {kp}"
+			" or `tabCustomer Equipment`.`khoa_phong` is null"
+			" or `tabCustomer Equipment`.`khoa_phong` = '')"
+		)
+		```
+
+		Nếu cặp ngoặc `(...)` quanh ba vế OR bị gỡ, `and` chỉ còn ăn đúng vế
+		đầu (`khoa_phong = kp`) — hai vế `or khoa_phong is null`/`or
+		khoa_phong = ''` tách khỏi mệnh đề `customer in (...)`, tức khớp BẤT
+		KỲ máy nào trong TOÀN BỘ bảng có `khoa_phong` rỗng, không riêng gì
+		bệnh viện A. `self.may_b` (máy của bệnh viện B, `khoa_phong` để
+		trống — "máy dùng chung" của B, chưa ca nào trong file này dùng tới)
+		là fixture đúng để lộ ca này: nó phải KHÔNG BAO GIỜ lọt vào kết quả
+		của một Nhân viên khoa bệnh viện A, kể cả khi khoa_phong rỗng.
+
+		CỐ Ý không có bộ lọc `customer` phụ trợ nào (khác I-1 ngay trên) —
+		đúng nguyên tắc I-1 vừa sửa: một bộ lọc phụ trợ sẽ tự che mất đúng lỗ
+		bài test này sinh ra để bắt.
+
+		THỰC NGHIỆM (ghi trong task-5-report.md, mục "Vòng sửa 1"): đã gỡ tay
+		cặp ngoặc trong `kho/permissions.py`, chạy lại module này, xác nhận
+		ĐÚNG bài test này đỏ (và chỉ bài này, các bài `assertIn`/`assertNotIn`
+		soi chuỗi khác vẫn xanh — xác nhận nhận định I-2 rằng chúng không bắt
+		được lỗi này), rồi revert nguyên trạng."""
+		frappe.set_user(self.nv_a1.user)
+		dieu_kien = permissions.thiet_bi_query(self.nv_a1.user)
+		ten = frappe.db.sql_list(
+			f"select name from `tabCustomer Equipment` where {dieu_kien}"
+		)
+		self.assertNotIn(self.may_b.name, ten)
+		# Đối chứng: vẫn phải thấy đúng máy của khoa mình + máy dùng chung
+		# của CHÍNH bệnh viện A — bài test không được thoái hoá thành "1=0"
+		# vô điều kiện.
+		self.assertIn(self.may_a1.name, ten)
+		self.assertIn(self.may_a_dung_chung.name, ten)
 
 	# -- Lớp 3: KHÔNG có DocPerm cho role Customer — lớp chịu lực ------------
 
@@ -327,45 +419,43 @@ class TestCachLyThietBi(FrappeTestCase):
 		`VoucherItemBase`). Cần role Customer có DocPerm thật trên `Customer
 		Warehouse Item` để bài kiểm này có ý nghĩa (nếu không, super().
 		has_permission() đã trả False từ vòng kiểm role, override không kịp
-		chạy tới nhánh voucher_item_readable) — dựng grant TẠM cho đúng một
-		test này rồi dọn lại ngay trong cùng test, không đụng JSON trên đĩa
-		(lớp CHỊU LỰC — test_khong_co_docperm_cho_role_customer* — vẫn phải
-		thấy JSON sạch).
-
-		Tự chữa lành ở ĐẦU test (không chỉ ở `finally`): `finally` không
-		sống sót qua SIGKILL (OOM kill nhiều bench chung máy — xem memory
-		`test_rest_guard chập chờn`), nên một lần chạy bị giết giữa chừng có
-		thể để lại grant TẠM này sống trên erptest.local. Lọc theo ĐÚNG HAI
-		khoá (parent + role) — không match-all — nên không đụng gì khác."""
-		frappe.db.delete(
-			"Custom DocPerm", {"parent": "Customer Warehouse Item", "role": "Customer"}
+		chạy tới nhánh voucher_item_readable) — dựng grant TẠM qua
+		`_cap_grant_tam()`; `_don()` (setUp/addCleanup) lo việc dọn, xem
+		comment trên `_GRANT_TAM_DOCTYPES` — không đụng JSON trên đĩa (lớp
+		CHỊU LỰC — test_khong_co_docperm_cho_role_customer* — vẫn phải thấy
+		JSON sạch)."""
+		self._cap_grant_tam("Customer Warehouse Item")
+		row_a = frappe.get_doc(
+			"Customer Warehouse Item Equipment",
+			{"parent": self.vat_tu_a.name, "parentfield": "may_su_dung"},
 		)
-		frappe.clear_cache(doctype="Customer Warehouse Item")
-		frappe.get_doc({
-			"doctype": "Custom DocPerm", "parent": "Customer Warehouse Item",
-			"parenttype": "DocType", "parentfield": "permissions",
-			"role": "Customer", "read": 1,
-		}).insert(ignore_permissions=True)
-		frappe.clear_cache(doctype="Customer Warehouse Item")
-		try:
-			row_a = frappe.get_doc(
-				"Customer Warehouse Item Equipment",
-				{"parent": self.vat_tu_a.name, "parentfield": "may_su_dung"},
-			)
-			row_b = frappe.get_doc(
-				"Customer Warehouse Item Equipment",
-				{"parent": self.vat_tu_b.name, "parentfield": "may_su_dung"},
-			)
-			frappe.set_user(self.ql_a.user)
-			self.assertTrue(row_a.has_permission("read"))
-			self.assertFalse(row_b.has_permission("read"))
-		finally:
-			frappe.set_user("Administrator")
-			frappe.db.delete(
-				"Custom DocPerm",
-				{"parent": "Customer Warehouse Item", "role": "Customer"},
-			)
-			frappe.clear_cache(doctype="Customer Warehouse Item")
+		row_b = frappe.get_doc(
+			"Customer Warehouse Item Equipment",
+			{"parent": self.vat_tu_b.name, "parentfield": "may_su_dung"},
+		)
+		frappe.set_user(self.ql_a.user)
+		self.assertTrue(row_a.has_permission("read"))
+		self.assertFalse(row_b.has_permission("read"))
+
+	def test_parent_has_permission_qua_framework_chan_benh_vien_khac(self):
+		"""VÒNG SỬA 1 (I-3, review model mạnh nhất) — sáu ca
+		`test_parent_has_permission_*` ở trên gọi THẲNG `thiet_bi_has_
+		permission()` bằng Python, không đi qua framework: nếu dây nối
+		trong `hooks.py["has_permission"]["Customer Equipment"]` bị đứt
+		(tên hàm gõ sai, entry bị xoá nhầm), sáu ca đó vẫn xanh trong khi
+		`frappe.has_permission()`/`doc.check_permission()` thật đã hỏng.
+		Cùng khuôn `_cap_grant_tam` với bài test bảng con ngay trên — cần
+		DocPerm thật trên `Customer Equipment` để đi qua vòng kiểm role
+		trước khi tới lượt hook has_permission chạy."""
+		self._cap_grant_tam("Customer Equipment")
+		frappe.set_user(self.ql_a.user)
+		may_a1 = frappe.get_doc("Customer Equipment", self.may_a1.name)
+		may_b = frappe.get_doc("Customer Equipment", self.may_b.name)
+		self.assertTrue(frappe.has_permission("Customer Equipment", "read", may_a1))
+		may_a1.check_permission("read")  # không ném gì cả — đây chính là phép kiểm
+		self.assertFalse(frappe.has_permission("Customer Equipment", "read", may_b))
+		with self.assertRaises(frappe.PermissionError):
+			may_b.check_permission("read")
 
 	def test_nhan_vien_khoa_active_ma_khoa_phong_rong_fail_closed(self):
 		"""VÒNG SỬA (trước commit) — bản đầu của `thiet_bi_query` tự đọc
