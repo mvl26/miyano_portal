@@ -1356,6 +1356,85 @@ class TestV3KhoaKhongGanKhoVanQuaDuocCong(_NenCachLy):
 			kho_api._khoa_cua_kho(kp_khac.name, self.kho)
 
 
+class TestTask12bKhoaPhongKhongCanKho(_NenCachLy):
+	"""Task 12b — ô "Khoa phòng" của `ThietBiModal.vue` gọi
+	`kho_khoa_phong_list_khach()` (KHÔNG đòi kho), thay vì
+	`kho_khoa_phong_list()` (đòi kho qua `get_portal_kho()`, ném
+	`PermissionError` khi khách chưa mở kho).
+
+	Fixture `_NenCachLy` đã đúng hình cần kiểm mà không cần dựng gì thêm:
+	`kp_a`/`kp_b` tạo bằng `_kp()` (không gắn kho), và bản thân KHACH không
+	có `Customer Warehouse` nào trong setUp gốc — đây CHÍNH LÀ ca spec §4.1
+	định hỗ trợ ("bệnh viện chưa mở kho trên cổng vẫn khai được máy")."""
+
+	def setUp(self):
+		super().setUp()
+		self.assertIsNone(
+			frappe.db.get_value("Customer Warehouse", {"customer": KHACH}),
+			"Fixture lỗi: KHACH không được có Customer Warehouse nào — đây "
+			"chính là ca cốt lõi (khách có khoa phòng nhưng chưa mở kho). "
+			"Một test khác trong cùng lần chạy đã để sót kho, hoặc fixture "
+			"gốc đã đổi.",
+		)
+
+	def test_kho_khoa_phong_list_cu_van_doi_kho_regression(self):
+		"""Chốt hồi quy: endpoint CŨ (`kho_khoa_phong_list`) KHÔNG bị sửa —
+		vẫn ném `PermissionError` khi khách chưa có kho. Nếu ai đó sau này
+		"tiện tay" áp fix của Task 12b lên luôn endpoint cũ, test này đỏ —
+		đó chính là thứ tám màn khác (NhatKy/BaoCaoNXT/PhieuXuat(Detail)/
+		LapPhieu/DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue) đang
+		trông cậy vào (đòi kho là chủ ý cho các màn đó)."""
+		frappe.set_user(self.ql.user)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_khoa_phong_list()
+
+	def test_quan_ly_liet_ke_duoc_khong_can_kho(self):
+		frappe.set_user(self.ql.user)
+		rows = kho_api.kho_khoa_phong_list_khach(ca_inactive=1)
+		self.assertEqual({r["name"] for r in rows}, {self.kp_a.name, self.kp_b.name})
+
+	def test_nhan_vien_khoa_chi_thay_khoa_minh_khong_can_kho(self):
+		"""Set CHÍNH XÁC {kp_a} — không chỉ "không có kp_b" (một đột biến
+		nới `chi_khoa` thành lọc kiểu OR/không lọc gì vẫn có thể qua nếu chỉ
+		kiểm assertNotIn kp_b)."""
+		frappe.set_user(self.nv_a.user)
+		rows = kho_api.kho_khoa_phong_list_khach(ca_inactive=1)
+		self.assertEqual({r["name"] for r in rows}, {self.kp_a.name})
+
+	def _xoa_khach_khac_t12b(self, khach_khac: str) -> None:
+		frappe.db.delete("Customer Department", {"customer": khach_khac})
+		frappe.delete_doc("Customer", khach_khac, force=True, ignore_permissions=True)
+
+	def test_khong_lo_khoa_cua_khach_khac(self):
+		khach_khac = "ZZTEST8T12B Benh Vien Khac"
+		if not frappe.db.exists("Customer", khach_khac):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": khach_khac,
+				"customer_type": "Company", "customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
+		self.addCleanup(self._xoa_khach_khac_t12b, khach_khac)
+		frappe.get_doc({
+			"doctype": "Customer Department", "customer": khach_khac,
+			"ten_khoa_phong": "ZZTEST8T12B Khoa Khac",
+		}).insert(ignore_permissions=True)
+
+		frappe.set_user(self.ql.user)
+		rows = kho_api.kho_khoa_phong_list_khach(ca_inactive=1)
+		self.assertEqual({r["name"] for r in rows}, {self.kp_a.name, self.kp_b.name})
+
+	def test_fail_closed_nhan_vien_khoa_thieu_khoa_phong(self):
+		"""Đi vòng qua `PortalMember.validate()` bằng `db.set_value` — kịch
+		bản đã xác nhận có thật (`test_tb4_cach_ly.py`). Nếu
+		`list_rows_theo_khach()` từng quay lại đọc thẳng `vai_tro`/
+		`khoa_phong` thay vì gọi `pham_vi_don()`, test này phải đỏ
+		(fail-open thay vì fail-closed)."""
+		frappe.db.set_value("Portal Member", self.nv_a.name, "khoa_phong", "")
+		frappe.set_user(self.nv_a.user)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_khoa_phong_list_khach(ca_inactive=1)
+
+
 class TestBienBanBanGiaoDaKy(_NenCachLy):
 	"""Bản scan biên bản bàn giao ĐÃ KÝ trên cổng khách hàng.
 

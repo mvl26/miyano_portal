@@ -550,6 +550,34 @@ def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> li
 
 @frappe.whitelist()
 @_khoa_action
+def kho_khoa_phong_list_khach(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> list | dict:
+	"""Danh mục khoa phòng theo BỆNH VIỆN — Task 12b, KHÔNG đòi hỏi kho.
+
+	`kho_khoa_phong_list` (trên) suy `kho` qua `get_portal_kho()`, ném
+	`PermissionError` khi khách chưa có `Customer Warehouse` — đúng cho tám
+	màn đang dùng nó (NhatKy/BaoCaoNXT/PhieuXuat(Detail)/LapPhieu/DuyetList/
+	YeuCauList/DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho trực tiếp).
+	SAI cho ô "Khoa phòng" của `ThietBiModal.vue`: spec đề án §4.1 CỐ Ý treo
+	`Customer Equipment` vào `Customer` (không `Customer Warehouse`) CHÍNH
+	VÌ "Bệnh viện chưa mở kho trên cổng vẫn khai được máy" — nạp danh mục
+	khoa phòng qua endpoint đòi kho phá đúng ca đó.
+
+	Endpoint RIÊNG (không sửa `kho_khoa_phong_list`) để không đụng tám màn
+	kia — đổi phạm vi lọc của endpoint đang chạy (thêm `pham_vi_don()`, xem
+	`list_rows_theo_khach()`) sẽ âm thầm thu hẹp dropdown khoa phòng của
+	Nhân viên khoa trên cả tám màn đó, một thay đổi hành vi không ai yêu
+	cầu.
+
+	`customer` suy từ phiên qua `get_portal_customer()` — không nhận từ
+	client, cùng nguyên tắc đầu file."""
+	customer = get_portal_customer()
+	return khoa_phong_mod.list_rows_theo_khach(
+		customer, frappe.session.user, tim_kiem, ca_inactive, limit, start
+	)
+
+
+@frappe.whitelist()
+@_khoa_action
 def kho_khoa_phong_save(data) -> dict:
 	"""Tạo mới (thiếu `name`) hoặc sửa một khoa phòng của kho người gọi.
 	Cùng khuôn kho_ncc_save() ở trên — đọc docstring ở đó."""

@@ -29,15 +29,41 @@ const form = ref({
 // của cổng — App.vue/LapPhieu.vue), KHÔNG tự suy từ `vai_tro === 'Quản lý'`.
 const laNhanVienKhoa = computed(() => !store.me?.la_quan_ly)
 
-// Danh sách khoa phòng cho Ô CHỌN của Quản lý — cùng khuôn PhieuXuat.vue:22-30
-// (`ca_inactive: 1`, không truyền `limit` nên trả list phẳng, không phân trang).
+// Danh sách khoa phòng cho Ô CHỌN của Quản lý — GỌI kho_khoa_phong_list_khach
+// (Task 12b), KHÔNG PHẢI kho_khoa_phong_list mà PhieuXuat.vue/NhatKy.vue/...
+// dùng. kho_khoa_phong_list suy kho qua get_portal_kho() và ném lỗi khi
+// khách chưa mở kho trên cổng — đúng cho các màn phiếu nhưng SAI ở đây:
+// spec đề án §4.1 cố ý treo Customer Equipment vào Customer (không Customer
+// Warehouse) CHÍNH VÌ "Bệnh viện chưa mở kho trên cổng vẫn khai được máy".
+// kho_khoa_phong_list_khach suy khách hàng thẳng từ phiên, không cần kho.
 const khoaPhongList = ref([])
+const khoaPhongLoi = ref(false)
 onMounted(async () => {
   try {
-    khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
+    khoaPhongList.value = await api.callKho('kho_khoa_phong_list_khach', { ca_inactive: 1 })
   } catch (e) {
-    // Best-effort — mất phần chọn khoa cho Quản lý, không chặn cả modal.
+    // Không nuốt câm — ghiChuKhoaRong bên dưới phân biệt "gọi lỗi" với
+    // "danh sách rỗng thật", hai câu giải thích khác nhau.
+    khoaPhongLoi.value = true
   }
+})
+
+// Ô Khoa phòng rỗng có BA nguyên nhân khác nhau — bài học Task 12
+// (ThietBiList.vue): câu giải thích phải đúng NGUYÊN NHÂN thật, không gộp
+// chung một câu cho mọi trường hợp trống.
+const ghiChuKhoaRong = computed(() => {
+  if (khoaPhongList.value.length > 0) return ''
+  if (khoaPhongLoi.value) {
+    return 'Không tải được danh sách khoa phòng. Thử lại hoặc liên hệ nhân viên kinh doanh Miyano.'
+  }
+  if (laNhanVienKhoa.value) {
+    // pham_vi_don() ở server fail-closed (ném lỗi) khi tài khoản Nhân viên
+    // khoa active mà thiếu khoa_phong — nên gọi thành công mà vẫn rỗng ở
+    // đây nghĩa là khoa của họ không còn tồn tại/đã đổi, một sự cố cấu
+    // hình, không phải "đơn vị chưa khai khoa nào".
+    return 'Không tìm thấy khoa phòng của bạn. Liên hệ quản lý đơn vị bạn để kiểm tra lại.'
+  }
+  return 'Đơn vị bạn chưa khai khoa phòng nào. Có thể lưu máy là "Dùng chung" — liên hệ nhân viên kinh doanh Miyano nếu cần khai khoa phòng.'
 })
 
 watch(
@@ -119,7 +145,8 @@ async function onSave() {
                 {{ k.ten_khoa_phong }}{{ k.active ? '' : ' (đã tắt)' }}
               </option>
             </select>
-            <p v-if="laNhanVienKhoa" class="tag">Đặt theo khoa của bạn — do hệ thống ép, không tự đổi được.</p>
+            <p v-if="laNhanVienKhoa && !ghiChuKhoaRong" class="tag">Đặt theo khoa của bạn — do hệ thống ép, không tự đổi được.</p>
+            <p v-if="ghiChuKhoaRong" class="tag">{{ ghiChuKhoaRong }}</p>
           </div>
           <div v-if="mode === 'sua'" class="field">
             <label style="display: flex; align-items: center; gap: 6px">

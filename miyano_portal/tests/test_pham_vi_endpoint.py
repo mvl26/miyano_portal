@@ -157,6 +157,20 @@ KHO_DA_AP_PHAM_VI: dict[str, str] = {
 		"pham_vi_don() (cùng fail-closed); không có `name` client gửi nên "
 		"không cần guard sở hữu thêm ở tầng endpoint."
 	),
+	# Task 12b (28/08/2026) — endpoint MỚI, không phải một trong bốn của
+	# Task 7. `_thiet_bi_action` không tự lọc gì (cùng ghi chú đầu khối);
+	# phạm vi khoa nằm ở `khoa_phong_mod.list_rows_theo_khach()` ->
+	# `pham_vi_don()`, đúng khuôn `kho_thiet_bi_list` ngay trên.
+	"kho_khoa_phong_list_khach": (
+		"lọc trục khoa qua khoa_phong_mod.list_rows_theo_khach() -> "
+		"portal_context.pham_vi_don(): Nhân viên khoa chỉ thấy khoa của "
+		"chính mình (pham_vi_don() trả khoa cụ thể -> lọc filters['name']), "
+		"Quản lý thấy mọi khoa của bệnh viện (pham_vi_don() trả {} = không "
+		"giới hạn). `customer` suy từ phiên qua get_portal_customer(), "
+		"KHÔNG qua get_portal_kho() — đây chính là lý do endpoint này tồn "
+		"tại (spec §4.1: bệnh viện chưa mở kho vẫn khai được máy, nhưng "
+		"kho_khoa_phong_list cũ đòi kho)."
+	),
 	"kho_vat_tu_gan_thiet_bi": (
 		"Trục khoa: KHÔNG áp — `Customer Warehouse Item` (vật tư) không có "
 		"field khoa phòng, không có trục khoa để lọc; một Nhân viên khoa A "
