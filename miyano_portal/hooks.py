@@ -237,6 +237,16 @@ permission_query_conditions = {
 	# Grandchild item tables — không có field `kho` riêng, phải lọc qua parent.
 	"Customer Stock Receipt Item": "miyano_portal.kho.permissions.receipt_item_query",
 	"Customer Stock Issue Item": "miyano_portal.kho.permissions.issue_item_query",
+	# Thiết bị — treo vào `customer` (KHÔNG vào `kho`), cùng hình dạng
+	# `Customer Warehouse`. Không có DocPerm nào cho role Customer (xem
+	# JSON): cổng thật là api/kho.py, entry này là lớp phòng thủ thứ hai.
+	"Customer Equipment": "miyano_portal.kho.permissions.thiet_bi_query",
+	# Bảng "máy sử dụng được vật tư này" — istable=1, nhưng VẪN cần entry ở
+	# đây (khác has_permission ngay dưới): permission_query_conditions vẫn
+	# được dựng cho một lời get_list thô trên CHÍNH bảng con, tách biệt khỏi
+	# has_child_permission() — cùng khuôn Customer Stock Receipt Item/Issue
+	# Item ngay trên (dòng của một chứng từ/danh mục có `kho`).
+	"Customer Warehouse Item Equipment": "miyano_portal.kho.permissions.vat_tu_may_item_query",
 }
 
 has_permission = {
@@ -269,6 +279,24 @@ has_permission = {
 	"Customer Supplier": "miyano_portal.kho.permissions.kho_child_has_permission",
 	# E8: cùng khuôn — Customer Department mang field `kho` riêng.
 	"Customer Department": "miyano_portal.kho.permissions.kho_child_has_permission",
+	# Task 5 — Customer Equipment mang `customer` TRỰC TIẾP (không phải
+	# `kho`), cùng ngã ba Customer Supplier/Customer Department, NHƯNG không
+	# dùng chung kho_has_permission: máy còn có `khoa_phong`, nên has_
+	# permission của nó phải tự kiểm thêm vế khoa (xem docstring hàm).
+	"Customer Equipment": "miyano_portal.kho.permissions.thiet_bi_has_permission",
+	# Task 5 — `Customer Warehouse Item Equipment` KHÔNG có entry ở đây (dù
+	# nó thuộc diện cách ly). Lý do CỐ Ý: đọc đoạn "Customer Stock Receipt
+	# Item / Customer Stock Issue Item CỐ Ý không có entry" ngay bên dưới —
+	# doctype này giờ thuộc CÙNG nhóm "chết cấu trúc" đó, không phải một sơ
+	# suất thiếu dòng. Cơ chế thật: controller
+	# `customer_warehouse_item_equipment.py` KẾ THỪA
+	# `miyano_portal.kho.voucher_item.VoucherItemBase` — CÙNG bản
+	# `has_permission()` dùng chung với Customer Stock Receipt Item/Issue
+	# Item (FINDING N4: không viết một bản has_permission thứ ba giống hệt
+	# hai bản kia). Áp được vì cha của nó, `Customer Warehouse Item`, CÓ field
+	# `kho` — đúng điều kiện mà `voucher_item_readable()` (tra `kho` của
+	# PARENT qua `doc.get("parenttype")`) cần, dù `Customer Warehouse Item`
+	# không phải một "chứng từ" theo nghĩa phiếu nhập/xuất.
 	# =====================================================================
 	# CÁI GÌ ĐANG THẬT SỰ BẢO VỆ TÁM DOCTYPE KHO (vòng 4 — mô hình hiện tại)
 	# =====================================================================
@@ -299,26 +327,30 @@ has_permission = {
 	# khác. Giữ lại vì rẻ và vì chúng biến một sai lầm cấu hình tương lai từ
 	# "rò rỉ toàn bộ" thành "vẫn lọc theo kho".
 	#
-	# Customer Stock Receipt Item / Customer Stock Issue Item CỐ Ý không có
-	# entry ở đây (dù CÓ entry trong permission_query_conditions ở trên).
-	# Đây là loại "chết" KHÁC HẲN với đoạn trên, đừng gộp hai thứ làm một:
-	# chúng là istable=1, và frappe.permissions.has_child_permission() rẽ
-	# nhánh sang kiểm PARENT trước khi bất kỳ hook has_permission nào đăng ký
-	# cho CHÍNH doctype con có cơ hội chạy — một entry ở đây KHÔNG BAO GIỜ
-	# được gọi, bất kể cấu hình DocPerm thế nào, kể cả sau khi ai đó cấp lại
-	# quyền cho `Customer` (đã xác minh thực nghiệm, xem task-6-report.md
-	# phần "Deviation"). Tức là: các entry khác ở khối này "chết có điều
-	# kiện" (sống lại nếu grant quay lại), hai entry này thì "chết cấu trúc"
-	# (không bao giờ sống). ĐỪNG thêm lại chúng — một entry has_permission
-	# "có vẻ đúng" nhưng chết là một decoy.
+	# Customer Stock Receipt Item / Customer Stock Issue Item / Customer
+	# Warehouse Item Equipment (Task 5) CỐ Ý không có entry ở đây (hai cái
+	# đầu CÓ entry trong permission_query_conditions ở trên; cái thứ ba thì
+	# không, vì nó là bảng con thật của Customer Warehouse Item, không bao
+	# giờ đi qua permission_query_conditions). Đây là loại "chết" KHÁC HẲN
+	# với đoạn trên, đừng gộp hai thứ làm một: cả ba đều istable=1, và
+	# frappe.permissions.has_child_permission() rẽ nhánh sang kiểm PARENT
+	# trước khi bất kỳ hook has_permission nào đăng ký cho CHÍNH doctype con
+	# có cơ hội chạy — một entry ở đây KHÔNG BAO GIỜ được gọi, bất kể cấu
+	# hình DocPerm thế nào, kể cả sau khi ai đó cấp lại quyền cho `Customer`
+	# (đã xác minh thực nghiệm, xem task-6-report.md phần "Deviation"). Tức
+	# là: các entry khác ở khối này "chết có điều kiện" (sống lại nếu grant
+	# quay lại), ba entry này thì "chết cấu trúc" (không bao giờ sống). ĐỪNG
+	# thêm lại chúng — một entry has_permission "có vẻ đúng" nhưng chết là
+	# một decoy.
 	#
 	# has_permission() ghi đè trên class controller
-	# (customer_stock_receipt_item.py / customer_stock_issue_item.py) cũng
-	# thuộc lớp phòng thủ thứ hai, KHÔNG phải cơ chế chính: nó chỉ chặn được
-	# lời gọi qua INSTANCE (doc.check_permission()/doc.has_permission()),
-	# không chặn được lời gọi MODULE-LEVEL frappe.has_permission(doctype,
-	# ptype, doc) mà /printview dùng. Lỗ /printview được đóng bởi việc gỡ
-	# DocPerm ở trên, KHÔNG phải bởi override đó.
+	# (customer_stock_receipt_item.py / customer_stock_issue_item.py /
+	# customer_warehouse_item_equipment.py) cũng thuộc lớp phòng thủ thứ hai,
+	# KHÔNG phải cơ chế chính: nó chỉ chặn được lời gọi qua INSTANCE
+	# (doc.check_permission()/doc.has_permission()), không chặn được lời gọi
+	# MODULE-LEVEL frappe.has_permission(doctype, ptype, doc) mà /printview
+	# dùng. Lỗ /printview được đóng bởi việc gỡ DocPerm ở trên, KHÔNG phải
+	# bởi override đó.
 }
 
 # DocType Class

@@ -207,3 +207,105 @@ def voucher_item_readable(doc, ptype=None, user=None) -> bool:
 		return False
 	kho = frappe.db.get_value(parent_type, parent, "kho")
 	return bool(kho) and kho in get_allowed_khos(user)
+
+
+def thiet_bi_query(user=None) -> str:
+	"""LỚP PHÒNG THỦ THỨ HAI cho `Customer Equipment` — đọc docstring đầu
+	file trước.
+
+	Khác năm doctype kho phía trên: máy treo vào `customer` chứ không vào
+	`kho` (khoa phòng đã chuyển chủ sở hữu sang bệnh viện từ 18/08), nên
+	dùng khuôn `kho_query()` chứ không dùng `_kho_condition()`.
+
+	Vế thứ hai — lọc theo khoa — là thứ năm doctype kia không có: một Nhân
+	viên khoa chỉ được thấy máy của khoa mình CỘNG máy dùng chung
+	(`khoa_phong` rỗng). Máy dùng chung phải lọt vào vì đó chính là những
+	máy không thuộc khoa nào; ẩn chúng đi thì vật tư dùng chung không xuất
+	cho máy nào được.
+
+	SỬA (review trước commit) — bản đầu của hàm này tự đọc `get_portal_member
+	(user).vai_tro`/`.khoa_phong` trực tiếp, đúng lỗi mà `la_quan_ly()` cấm
+	tường minh trong docstring của nó ("mọi nơi gọi PHẢI hỏi hàm này, KHÔNG
+	được tự đọc `vai_tro`") và đúng lỗi mà review I2 của `khoa_phong_cho_don`
+	đã từng mắc. Tệ hơn: `and tv.khoa_phong` coi một Nhân viên khoa `active=1`
+	mà `khoa_phong` rỗng như "không giới hạn theo khoa" — TRÁI NGƯỢC với
+	`pham_vi_don()` (VÒNG SỬA 3, F5), nơi đúng trạng thái này bị fail-closed
+	bằng `PermissionError` vì `validate()` có thể bị đi vòng qua
+	`db.set_value()`/`db_set()`. Dùng LẠI `pham_vi_don()` thay vì tự đọc
+	field — không viết lại logic khoa ở đây, đúng nguyên tắc
+	`_khoa_query_condition`/`de_xuat_query_condition` đã lập ở
+	`permissions.py`."""
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return ""
+	customers = get_allowed_customers(user)
+	if not customers:
+		return "1=0"
+	joined = ", ".join(frappe.db.escape(c) for c in customers)
+	dieu_kien = f"`tabCustomer Equipment`.`customer` in ({joined})"
+
+	from miyano_portal.portal_context import pham_vi_don
+
+	try:
+		pv = pham_vi_don(user)
+	except frappe.PermissionError:
+		# Fail-closed — cùng nguyên tắc _khoa_query_condition/de_xuat_query_
+		# condition: không xác định được phạm vi khoa thì KHÔNG được coi là
+		# "không giới hạn thêm".
+		return "1=0"
+	khoa = pv.get("custom_khoa_phong")
+	if khoa:
+		kp = frappe.db.escape(khoa)
+		dieu_kien += (
+			f" and (`tabCustomer Equipment`.`khoa_phong` = {kp}"
+			" or `tabCustomer Equipment`.`khoa_phong` is null"
+			" or `tabCustomer Equipment`.`khoa_phong` = '')"
+		)
+	return dieu_kien
+
+
+def thiet_bi_has_permission(doc, ptype=None, user=None) -> bool:
+	"""`has_permission` cho `Customer Equipment` (doctype CHA, không istable)
+	— BẮT BUỘC phải có mặt trong `hooks.py["has_permission"]`
+	(`test_kho_isolation.py::test_hooks_registered_for_every_kho_doctype`
+	đòi mọi doctype kho KHÔNG istable phải được đăng ký ở đây).
+
+	Không dùng chung `kho_has_permission` dù cùng hình dạng bề ngoài (kiểm
+	`customer` trực tiếp): máy còn mang `khoa_phong` (nền phân quyền khoa
+	phòng) mà `Customer Warehouse`/`Customer Supplier`/`Customer Department`
+	không có — một Nhân viên khoa đọc thẳng MỘT bản ghi máy của khoa khác
+	trong CÙNG bệnh viện (`doc.check_permission("read")`) phải bị chặn ở đây
+	giống hệt `thiet_bi_query` chặn nó ở danh sách, không chỉ ở tầng customer.
+	Dùng lại `pham_vi_don()` — không viết lại logic khoa ở đây."""
+	user = user or frappe.session.user
+	if not _is_restricted_user(user):
+		return True
+	if doc.get("customer") not in get_allowed_customers(user):
+		return False
+
+	from miyano_portal.portal_context import pham_vi_don
+
+	try:
+		pv = pham_vi_don(user)
+	except frappe.PermissionError:
+		return False
+	khoa = pv.get("custom_khoa_phong")
+	if not khoa:
+		return True
+	may_khoa = doc.get("khoa_phong")
+	return not may_khoa or may_khoa == khoa
+
+
+def vat_tu_may_item_query(user=None) -> str:
+	"""`permission_query_conditions` cho `Customer Warehouse Item Equipment`
+	— istable=1 nhưng vẫn PHẢI có mặt ở đây, khác `has_permission` (xem
+	docstring `voucher_item_readable`/comment hooks.py cho hai cơ chế khác
+	nhau): một lời gọi LIST QUERY thô (`frappe.get_list`, kể cả trên chính
+	bảng con) vẫn dựng SQL qua `get_permission_query_conditions`, tách biệt
+	hoàn toàn khỏi đường `has_child_permission()` mà `has_permission` bị
+	rẽ nhánh bỏ qua — đúng khuôn `receipt_item_query`/`issue_item_query`
+	(cùng là bảng dòng của một doctype cha có field `kho`, cùng dùng lại
+	`_child_condition()`, KHÔNG viết lại subquery)."""
+	return _child_condition(
+		"Customer Warehouse Item Equipment", "Customer Warehouse Item", user
+	)
