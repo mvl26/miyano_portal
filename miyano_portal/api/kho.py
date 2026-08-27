@@ -710,6 +710,15 @@ def _phieu_to_dict(doc) -> dict:
 	out["docstatus"] = int(doc.docstatus)
 	out["trang_thai"] = _TRANG_THAI.get(int(doc.docstatus), "")
 	out["items"] = [row.as_dict() for row in doc.items]
+	# Task 8 — cảnh báo mềm BR-TB-2/4 gom trong validate() vào
+	# `doc.flags.canh_bao_thiet_bi` (xem docstring `_validate_thiet_bi()`).
+	# Khoá này PHẢI luôn có mặt, kể cả rỗng: SPA đọc thẳng
+	# `ket_qua.canh_bao_thiet_bi`, thiếu khoá vỡ màn hình. `doc.flags` là
+	# một `frappe._dict` (get() không ném KeyError) nhưng trên một doc vừa
+	# `get_doc()` từ CSDL (đường `kho_phieu_get`, không đi qua validate() của
+	# lần lưu vừa rồi) `flags` không có mục này — `.get(...) or []` phủ cả
+	# hai ca, không cần kiểm `hasattr`/`is_new`.
+	out["canh_bao_thiet_bi"] = list(doc.flags.get("canh_bao_thiet_bi") or [])
 	return out
 
 
@@ -959,12 +968,60 @@ def kho_phieu_xuat_save(payload) -> dict:
 	doc.loai_xuat = payload.get("loai_xuat") or doc.loai_xuat or "Xuất sử dụng"
 	# E8/BR-CP2: `khoa_phong` là một Link do client gửi lên — KHÔNG kiểm sở
 	# hữu ở TẦNG ENDPOINT này (không gọi _khoa_cua_kho()): cùng đúng khuôn
-	# `vat_tu` của từng dòng phiếu ngay bên dưới, chốt chặn "thuộc kho nào"
-	# nằm ở TẦNG CONTROLLER (customer_stock_issue.py:validate(), hàm
+	# `vat_tu` của từng dòng phiếu, chốt chặn "thuộc kho nào" nằm ở TẦNG
+	# CONTROLLER (customer_stock_issue.py:validate(), hàm
 	# _validate_khoa_phong_thuoc_kho, cùng khuôn
 	# voucher.validate_vat_tu_thuoc_kho()) — vừa chạy trên MỌI đường ghi (kể
 	# cả Desk, không chỉ endpoint này), vừa không lặp logic kiểm hai lần.
+	#
+	# GHI NHẬN (Task 8, KHÔNG sửa ở đây — ngoài phạm vi brief này): review
+	# Task 8 phát hiện đúng oracle "hai loại lỗi/hai thông điệp phân biệt
+	# tồn tại docname" (đóng cho `thiet_bi`/`thiet_bi_mac_dinh` ngay dưới)
+	# CŨNG áp dụng cho `khoa_phong` ở đây — một `KP-#####` bịa chết ở
+	# `_validate_links()` (tiếng Anh), một khoa CÓ THẬT của bệnh viện khác
+	# chết ở `_validate_khoa_phong_thuoc_kho()` (tiếng Việt, message khác).
+	# `khoa_phong` không nằm trong phạm vi Task 8 (brief chỉ giao `thiet_bi`
+	# từng dòng + `thiet_bi_mac_dinh`) nên KHÔNG sửa ở đây — chỉ ghi lại cho
+	# một task sau đóng bằng `_khoa_cua_kho()` (guard đã có, cùng khuôn).
 	doc.khoa_phong = payload.get("khoa_phong") or None
+	# Task 8 — Máy mặc định VÀ máy từng dòng (Link tới Customer Equipment).
+	#
+	# SỬA (so với dự thảo đầu của task này, xem task-8-report.md): dự thảo
+	# đầu định KHÔNG kiểm sở hữu ở tầng endpoint, sao y đúng khuôn
+	# `khoa_phong`/`vat_tu` ("chốt chặn nằm ở tầng controller"), với điều
+	# kiện brief tự đặt ra: "chấp nhận được NẾU controller chặn với CÙNG
+	# thông điệp cho mọi ca". Kiểm thực tế (bench console) cho thấy điều
+	# kiện đó SAI: một máy KHÔNG TỒN TẠI chết ở `Document._validate_links()`
+	# (chạy TRƯỚC validate(), xem get_invalid_links() trong
+	# frappe/model/base_document.py) với `LinkValidationError` tiếng Anh
+	# ("Could not find Row #1: Máy sử dụng: TBK-99999999"), còn một máy CÓ
+	# THẬT của bệnh viện khác sống sót qua đó rồi mới chết ở
+	# `_validate_thiet_bi()` với `ValidationError` tiếng Việt ("Máy được
+	# chọn không thuộc đơn vị bạn.") — hai loại lỗi, hai thông điệp khác
+	# nhau, đúng oracle dò tồn tại docname mà docstring `_khoa_cua_khach()`
+	# (Task 7) đã cảnh báo cho `khoa_phong`, chỉ khác đối tượng là
+	# `Customer Equipment` thay vì `Customer Department`. Đóng bằng ĐÚNG
+	# guard đã có (`_thiet_bi_cua_khach`, Task 7) — không viết guard mới,
+	# không lặp logic: guard này ném CÙNG MỘT `PermissionError` (KHÔNG dịch
+	# bởi `_phieu_action`, đúng khuôn `_khoa_cua_khach`) cho cả hai ca, đóng
+	# oracle bằng cách chặn TRƯỚC khi giá trị chạm `Document.insert()`/
+	# `.save()`. `_validate_thiet_bi()` ở tầng controller VẪN giữ nguyên —
+	# vẫn là chốt chặn duy nhất cho đường Desk (guard này chỉ chạy trên
+	# đường cổng), và guard endpoint không lặp lại cảnh báo mềm BR-TB-2/4
+	# của nó.
+	#
+	# `str()` trước khi đưa vào guard/gán field — không phải cho chắc: đây
+	# là Link field, và `get_invalid_links()` tự gọi `frappe.db.get_value
+	# (doctype, docname, "name")` với giá trị nguyên vẹn nếu nó lọt qua
+	# guard mà chưa ép kiểu. Một `dict` lọt tới đó bị hiểu thành FILTERS,
+	# khớp một Customer Equipment THẬT rồi setattr ngược vào doc — `str()`
+	# tại biên (trước cả khi gọi guard) đóng cả nhánh guard lẫn nhánh
+	# _validate_links() cùng lúc, đúng khuôn `_khoa_cua_khach()`.
+	customer = get_portal_customer()
+	tb_mac_dinh = payload.get("thiet_bi_mac_dinh")
+	doc.thiet_bi_mac_dinh = (
+		_thiet_bi_cua_khach(str(tb_mac_dinh), customer) if tb_mac_dinh else None
+	)
 	doc.noi_nhan = payload.get("noi_nhan")
 	doc.nguoi_nhan = payload.get("nguoi_nhan")
 	doc.dien_giai = payload.get("dien_giai")
@@ -974,12 +1031,19 @@ def kho_phieu_xuat_save(payload) -> dict:
 		# don_gia và han_su_dung KHÔNG nhận từ client dù có gửi kèm: controller
 		# (_lay_gia_va_han_tu_lo) luôn ghi đè bằng giá/hạn hiện hành của lô ở
 		# validate(), đúng như test_price_taken_from_lot_not_user đã khẳng định.
+		tb_dong = row.get("thiet_bi")
 		doc.append("items", {
 			"vat_tu": row.get("vat_tu"),
 			"so_lo": row.get("so_lo"),
 			"so_luong": row.get("so_luong"),
 			"xac_nhan_het_han": 1 if row.get("xac_nhan_het_han") else 0,
 			"ghi_chu": row.get("ghi_chu"),
+			# Task 8 — `thiet_bi` của dòng qua ĐÚNG guard `_thiet_bi_cua_
+			# khach()` như `thiet_bi_mac_dinh` phía trên — xem comment ở đó
+			# cho lý do (oracle tồn tại docname qua _validate_links()).
+			"thiet_bi": (
+				_thiet_bi_cua_khach(str(tb_dong), customer) if tb_dong else None
+			),
 		})
 
 	doc.flags.ignore_permissions = True

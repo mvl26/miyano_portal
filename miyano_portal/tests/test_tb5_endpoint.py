@@ -592,3 +592,150 @@ class TestThietBiEndpoint(_NenThietBi):
 		frappe.set_user(self.ql)
 		with self.assertRaises(frappe.PermissionError):
 			kho_api.kho_thiet_bi_list(vat_tu={"kho": self.kho.name})
+
+
+class TestPhieuXuatNhanMay(_NenThietBi):
+	"""Task 8 — `kho_phieu_xuat_save` nhận `thiet_bi` trên từng dòng và
+	`thiet_bi_mac_dinh` ở header, trả cảnh báo mềm `canh_bao_thiet_bi` cho
+	giao diện.
+
+	SỬA (so với brief gốc, xem task-8-report.md): brief định KHÔNG kiểm sở
+	hữu máy ở tầng endpoint, với điều kiện tự đặt ra "chấp nhận được NẾU
+	controller chặn với CÙNG thông điệp cho mọi ca". Kiểm thực tế cho thấy
+	SAI: `Document._validate_links()` (chạy TRƯỚC `validate()`) chết với
+	`LinkValidationError` tiếng Anh cho máy KHÔNG TỒN TẠI, còn
+	`_validate_thiet_bi()` chết với `ValidationError` tiếng Việt cho máy CÓ
+	THẬT của bệnh viện khác — hai loại lỗi khác nhau, một oracle dò tồn tại
+	docname. Endpoint giờ tự guard bằng `_thiet_bi_cua_khach()` (Task 7,
+	dùng lại nguyên) cho cả `thiet_bi` từng dòng lẫn `thiet_bi_mac_dinh` —
+	xem `test_may_khong_ton_tai_va_may_vien_khac_cung_mot_loi` cho bằng
+	chứng oracle đã đóng."""
+
+	def test_dong_ghi_dung_may(self):
+		# `self.kp_a` (từ `_NenThietBi`) không gắn `kho` — đúng mô hình "khoa
+		# thuộc bệnh viện" (Task 2/3). Nhưng `_validate_khoa_phong_thuoc_kho`
+		# trong `customer_stock_issue.py` VẪN so trực tiếp `Customer
+		# Department.kho == self.kho` (mô hình CŨ, ngoài phạm vi BR-TB — xem
+		# đúng ghi chú tại `test_tb2_phieu_xuat.py::_khoa()`), nên một khoa
+		# không gắn kho làm MỌI phiếu xuất trỏ tới nó ném lỗi "không thuộc
+		# kho" — không liên quan gì tới máy. Gắn kho cho kp_a NGAY TRONG test
+		# này (không sửa `_NenThietBi` dùng chung cho Task 6/7/11) để phiếu
+		# lưu được, đúng khuôn `test_tb2_phieu_xuat.py::_khoa()`.
+		frappe.db.set_value("Customer Department", self.kp_a.name, "kho", self.kho.name)
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"khoa_phong": self.kp_a.name, "thiet_bi_mac_dinh": self.may_a.name,
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+			           "so_luong": 2, "thiet_bi": self.may_a.name}],
+		})
+		doc = frappe.get_doc("Customer Stock Issue", ra["name"])
+		self.assertEqual(doc.items[0].thiet_bi, self.may_a.name)
+		self.assertEqual(doc.thiet_bi_mac_dinh, self.may_a.name)
+
+	def test_may_ngoai_danh_muc_van_luu_duoc_kem_canh_bao(self):
+		self.vat_tu.set("may_su_dung", [{"thiet_bi": self.may_a.name}])
+		self.vat_tu.save(ignore_permissions=True)
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+			           "so_luong": 1, "thiet_bi": self.may_chung.name}],
+		})
+		self.assertTrue(ra["name"])
+		self.assertTrue(ra["canh_bao_thiet_bi"])
+
+	def test_khong_co_canh_bao_thi_khoa_van_ton_tai_va_rong(self):
+		"""SPA đọc thẳng `ket_qua.canh_bao_thiet_bi` — thiếu khoá sẽ vỡ giao
+		diện, nên khoá phải LUÔN có, kể cả khi không có cảnh báo nào."""
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+		})
+		self.assertEqual(ra["canh_bao_thiet_bi"], [])
+
+	def test_doc_lai_phieu_cung_co_khoa_canh_bao_rong(self):
+		"""`_phieu_to_dict` còn được `kho_phieu_get` dùng lại trên một doc vừa
+		`get_doc()` từ CSDL — doc đó KHÔNG có `flags.canh_bao_thiet_bi` (flag
+		chỉ được set trong validate() của LẦN LƯU vừa rồi, không lưu xuống
+		DB). Khoá vẫn phải là `[]`, không phải lỗi khi đọc `doc.flags` thiếu,
+		cũng không phải vắng mặt."""
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+			"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+		})
+		doc_lai = kho_api.kho_phieu_get("Customer Stock Issue", ra["name"])
+		self.assertEqual(doc_lai["canh_bao_thiet_bi"], [])
+
+	def test_may_benh_vien_khac_bi_chan_o_tang_endpoint(self):
+		"""Đổi tên so với brief gốc ("...o_tang_controller") — chốt chặn thật
+		sự nằm ở GUARD ENDPOINT (`_thiet_bi_cua_khach`), không phải
+		controller (xem lý do ở docstring lớp). `assertRaises(frappe.
+		PermissionError)` của brief ĐÚNG với code đã sửa: guard ném
+		PermissionError, và `_phieu_action` chuyển tiếp nguyên vẹn (không
+		dịch) — cùng khuôn `test_save_sua_may_benh_vien_khac_bi_chan`."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_phieu_xuat_save({
+				"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+				           "so_luong": 1, "thiet_bi": self.may_benh_vien_khac.name}],
+			})
+
+	def test_may_khong_ton_tai_va_may_vien_khac_cung_mot_loi(self):
+		"""Bằng chứng oracle đã đóng (lý do đổi thiết kế, xem docstring lớp
+		và task-8-report.md): trước khi có guard, một máy KHÔNG TỒN TẠI và
+		một máy CÓ THẬT của bệnh viện khác ra HAI loại lỗi/HAI thông điệp
+		khác nhau (`LinkValidationError` tiếng Anh của
+		`Document._validate_links()` so với `ValidationError` tiếng Việt của
+		`_validate_thiet_bi()`) — đủ để dò tồn tại docname `Customer
+		Equipment` xuyên bệnh viện. Với guard `_thiet_bi_cua_khach()` chặn
+		TRƯỚC khi giá trị chạm `insert()`, cả hai ca phải ra ĐÚNG CÙNG một
+		loại ngoại lệ và CÙNG một thông điệp."""
+		frappe.set_user(self.ql)
+		ket_qua = []
+		for thiet_bi in ("TBK-KHONG-TON-TAI-999", self.may_benh_vien_khac.name):
+			with self.assertRaises(Exception) as cm:
+				kho_api.kho_phieu_xuat_save({
+					"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+					"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+					           "so_luong": 1, "thiet_bi": thiet_bi}],
+				})
+			ket_qua.append((type(cm.exception), str(cm.exception)))
+		self.assertEqual(ket_qua[0], ket_qua[1])
+		self.assertEqual(ket_qua[0][0], frappe.PermissionError)
+
+	def test_dong_thiet_bi_dict_khong_bi_hieu_thanh_filters(self):
+		"""Cùng khuôn `test_save_khoa_phong_dict_khong_bi_hieu_thanh_filters`
+		(Task 7) — nếu endpoint KHÔNG ép `str()` trước khi đưa `thiet_bi` của
+		dòng vào `_thiet_bi_cua_khach()`/`doc.append()`, guard đó (dùng
+		`frappe.db.get_value(doctype, thiet_bi, "customer")`) sẽ tự diễn
+		giải một `dict` thành FILTERS, khớp một `Customer Equipment` THẬT
+		rồi ÂM THẦM cho qua guard — dựng dict khớp CHÍNH `self.may_a` (máy
+		của người gọi, không phải máy ngẫu nhiên) để đây là một lỗ THẬT: nó
+		phải khớp được máy nào đó thì mới chứng minh có lỗ, một dict không
+		khớp gì thì dù có ép `str()` hay không hai nhánh đều ném lỗi, không
+		phân biệt được. Có `str()` (code hiện tại): dict bị ép thành chuỗi
+		vô nghĩa, guard không tìm thấy máy nào khớp, ném `PermissionError`
+		đúng thông điệp "Máy không thuộc đơn vị bạn."."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_phieu_xuat_save({
+				"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo,
+				           "so_luong": 1, "thiet_bi": {"ma_thiet_bi": self.may_a.ma_thiet_bi}}],
+			})
+
+	def test_thiet_bi_mac_dinh_dict_khong_bi_hieu_thanh_filters(self):
+		"""Cùng lý do như test ngay trên, áp cho field HEADER
+		`thiet_bi_mac_dinh` — cũng đi qua `_thiet_bi_cua_khach()` trước khi
+		gán vào doc."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_phieu_xuat_save({
+				"ngay": frappe.utils.today(), "loai_xuat": "Xuất sử dụng",
+				"thiet_bi_mac_dinh": {"ma_thiet_bi": self.may_a.ma_thiet_bi},
+				"items": [{"vat_tu": self.vat_tu.name, "so_lo": self.lo, "so_luong": 1}],
+			})
