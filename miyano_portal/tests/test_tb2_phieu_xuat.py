@@ -48,15 +48,17 @@ class TestMayTrenPhieuXuat(FrappeTestCase):
 		nhap.submit()
 
 	def _khoa(self, ten, ma):
-		# `kho` PHẢI điền: _validate_khoa_phong_thuoc_kho() (customer_stock_issue.py)
-		# vẫn so kho_cua_khoa == self.kho theo mô hình khoa-phòng-thuộc-kho
-		# CŨ — chưa được cập nhật theo migration 18/08 chuyển khoa phòng
-		# sang thuộc bệnh viện (Customer Department.kho nay là Tuỳ chọn).
-		# Một khoa không gắn kho làm MỌI phiếu xuất of khoa đó ném lỗi
-		# "không thuộc kho". Đây là lỗ hổng có thật, NGOÀI phạm vi BR-TB —
-		# xem ghi chú trong task-3-report.md, không sửa ở đây.
+		# SỬA (đợt sửa cuối, C-2): KHÔNG điền `kho` — đúng đường onboarding
+		# thật (`api/nhan_su.py::nhan_su_import_commit`, HDSD-phan-quyen-
+		# khoa-phong.md:75 dạy "Kho — để trống"). Trước đây fixture này CỐ
+		# TÌNH điền `kho` để né lỗ hổng "khoa không gắn kho bị chặn nhầm" ở
+		# `_validate_khoa_phong_thuoc_kho()` — điền tay như vậy che mất lỗ,
+		# vì mọi test dùng `_khoa()` không bao giờ chạm nhánh khoa-không-
+		# gắn-kho mà onboarding thật tạo ra. Hàm đó nay đã sửa để so
+		# `customer` (đúng khuôn `_khoa_cua_kho()`), khoa không gắn `kho`
+		# vẫn ghi sổ được.
 		return frappe.get_doc({
-			"doctype": "Customer Department", "customer": KHACH, "kho": self.kho.name,
+			"doctype": "Customer Department", "customer": KHACH,
 			"ten_khoa_phong": ten, "ma_khoa": ma,
 		}).insert(ignore_permissions=True)
 
@@ -211,3 +213,32 @@ class TestMayTrenPhieuXuat(FrappeTestCase):
 			frappe.get_doc("Customer Stock Issue", dao_name).items[0].thiet_bi,
 			self.may_a.name,
 		)
+
+	def test_khoa_khong_gan_kho_van_ghi_so_duoc(self):
+		"""C-2 (đợt sửa cuối). `self.kp_a` (từ `_khoa()`) KHÔNG gắn `kho` —
+		đúng như đường onboarding thật (`api/nhan_su.py::
+		nhan_su_import_commit` tạo khoa không có `kho`; HDSD-phan-quyen-
+		khoa-phong.md:75 dạy để trống). Trước khi sửa,
+		`_validate_khoa_phong_thuoc_kho()` so `Customer Department.kho ==
+		self.kho` — khoa không gắn kho luôn khớp `None != self.kho`, chặn
+		nhầm MỌI phiếu của một khoa hợp lệ, có thật, đúng bệnh viện. Phiếu
+		phải ghi sổ được."""
+		doc = self._xuat(thiet_bi=self.may_a.name, khoa_phong=self.kp_a.name)
+		self.assertEqual(doc.docstatus, 1)
+		self.assertIsNone(frappe.db.get_value("Customer Department", self.kp_a.name, "kho"))
+
+	def test_khoa_cua_benh_vien_khac_van_bi_chan(self):
+		"""C-2 — đối chứng: guard đổi sang so `customer` không nới quyền,
+		khoa của MỘT BỆNH VIỆN KHÁC vẫn phải bị chặn."""
+		if not frappe.db.exists("Customer", "ZZTB2 Benh Vien Khac"):
+			frappe.get_doc({
+				"doctype": "Customer", "customer_name": "ZZTB2 Benh Vien Khac",
+				"customer_type": "Company", "customer_group": "All Customer Groups",
+				"territory": "All Territories",
+			}).insert(ignore_permissions=True)
+		kp_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": "ZZTB2 Benh Vien Khac",
+			"ten_khoa_phong": "ZZTB2K Khoa La", "ma_khoa": "ZZTB2KL",
+		}).insert(ignore_permissions=True)
+		with self.assertRaises(frappe.ValidationError):
+			self._xuat(khoa_phong=kp_khac.name)

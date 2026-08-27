@@ -108,17 +108,32 @@ class CustomerStockIssue(Document):
 
 	def _validate_khoa_phong_thuoc_kho(self):
 		"""E8/BR-CP2 — cùng khuôn voucher.validate_vat_tu_thuoc_kho(): chặn
-		phiếu trỏ tới khoa phòng của một kho khác. Đây vừa là kiểm tra dữ
-		liệu vừa là hàng rào cách ly, chạy ở TẦNG CONTROLLER nên áp dụng cho
-		MỌI đường ghi (kho_phieu_xuat_save lẫn Desk) — endpoint cố tình
-		KHÔNG lặp lại kiểm tra này (xem comment trong api/kho.py).
+		phiếu trỏ tới khoa phòng của một BỆNH VIỆN khác. Đây vừa là kiểm tra
+		dữ liệu vừa là hàng rào cách ly, chạy ở TẦNG CONTROLLER nên áp dụng
+		cho MỌI đường ghi (kho_phieu_xuat_save lẫn Desk) — endpoint cũng tự
+		guard bằng `_khoa_cua_kho()` (api/kho.py) TRƯỚC khi giá trị chạm
+		insert()/save(), đóng oracle phân biệt lỗi; chốt chặn ở đây vẫn là
+		hàng rào bắt buộc vì nó là chốt DUY NHẤT trên đường Desk.
+
+		SỬA (đợt sửa cuối, C-2 — bản trước so `Customer Department.kho ==
+		self.kho`, mô hình CŨ). Từ 18/08 khoa phòng thuộc BỆNH VIỆN, không
+		thuộc kho (`Customer Department.kho` nay là Tuỳ chọn) —
+		`api/nhan_su.py::nhan_su_import_commit` (đường onboarding chính
+		thức) tạo khoa KHÔNG gắn `kho`, và `docs/HDSD-phan-quyen-khoa-
+		phong.md:75` dạy chính nhân viên Miyano để trống ô Kho. So `kho` làm
+		MỌI khoa không gắn kho — tức mọi khoa tạo qua đường onboarding thật
+		— bị chặn nhầm dù nó thuộc đúng bệnh viện của kho. Đổi sang so
+		`customer` (suy từ `Customer Warehouse.customer` của `self.kho`),
+		đúng khuôn `_khoa_cua_kho()` (api/kho.py, sửa cùng lý do ngày
+		18/08) — không còn đòi hỏi CHÍNH khoa đó phải gắn kho.
 		"""
 		if not self.khoa_phong:
 			return
-		kho_cua_khoa = frappe.db.get_value("Customer Department", self.khoa_phong, "kho")
-		if kho_cua_khoa != self.kho:
+		customer_cua_kho = frappe.db.get_value("Customer Warehouse", self.kho, "customer")
+		customer_cua_khoa = frappe.db.get_value("Customer Department", self.khoa_phong, "customer")
+		if customer_cua_khoa != customer_cua_kho:
 			frappe.throw(
-				f"Khoa phòng {self.khoa_phong} không thuộc kho {self.kho}.",
+				f"Khoa phòng {self.khoa_phong} không thuộc bệnh viện của kho {self.kho}.",
 				frappe.ValidationError,
 			)
 
