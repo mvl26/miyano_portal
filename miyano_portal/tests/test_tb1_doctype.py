@@ -7,6 +7,8 @@ Dùng khách hàng ZZTB RIÊNG của bộ test này, không mượn khách thậ
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal.kho import vat_tu as vat_tu_mod
+
 KHACH = "ZZTB Benh Vien"
 
 
@@ -115,14 +117,23 @@ class TestVatTuMaySuDung(FrappeTestCase):
 		}).insert(ignore_permissions=True)
 
 	def _don(self):
+		"""Mỗi doctype PHẢI có filter tường minh của riêng nó — không filter
+		mặc định khớp-tất-cả. Review vòng 1 (task-2, Minor #4): bản trước
+		đây khởi tạo `flt` mặc định `{"kho": ["like", "%"]}` rồi mới override
+		theo từng nhánh if/elif — an toàn tình cờ vì cả ba doctype hiện có
+		đều rơi vào một nhánh override, nhưng thêm doctype thứ tư mà quên
+		viết nhánh cho nó sẽ ÂM THẦM kế thừa filter khớp-tất-cả và xoá sạch
+		doctype đó trên toàn site (đúng bẫy mà nguyên tắc #3 của kế hoạch
+		cấm). Không có `else` an toàn: doctype lạ phải NÉM LỖI ngay, không
+		được lặng lẽ bỏ qua hay xoá tất."""
+		khos = frappe.get_all("Customer Warehouse", filters={"customer": KHACH}, pluck="name")
+		filters_theo_dt = {
+			"Customer Warehouse Item": {"kho": ["in", khos or [""]]},
+			"Customer Equipment": {"customer": KHACH},
+			"Customer Warehouse": {"customer": KHACH},
+		}
 		for dt in ("Customer Warehouse Item", "Customer Equipment", "Customer Warehouse"):
-			flt = {"kho": ["like", "%"]} if dt != "Customer Equipment" else {"customer": KHACH}
-			if dt == "Customer Warehouse":
-				flt = {"customer": KHACH}
-			elif dt == "Customer Warehouse Item":
-				khos = frappe.get_all("Customer Warehouse", filters={"customer": KHACH}, pluck="name")
-				flt = {"kho": ["in", khos or [""]]}
-			for r in frappe.get_all(dt, filters=flt, pluck="name"):
+			for r in frappe.get_all(dt, filters=filters_theo_dt[dt], pluck="name"):
 				frappe.delete_doc(dt, r, force=True, ignore_permissions=True)
 		if frappe.db.exists("Customer", KHACH):
 			frappe.delete_doc("Customer", KHACH, force=True, ignore_permissions=True)
@@ -143,8 +154,13 @@ class TestVatTuMaySuDung(FrappeTestCase):
 		vt = self._vat_tu(may_su_dung=[
 			{"thiet_bi": self.may.name}, {"thiet_bi": may2.name},
 		])
+		# Đọc lại TỪ CSDL, không assert trên doc trong bộ nhớ (review vòng 1,
+		# Important #2): nếu db_update() của bảng con lỗi âm thầm, doc trong
+		# bộ nhớ vẫn "đúng" (nó chưa từng bị ghi đè) trong khi CSDL sai — chỉ
+		# đọc lại mới lộ ra khác biệt đó.
+		lai = frappe.get_doc("Customer Warehouse Item", vt.name)
 		self.assertEqual(
-			{r.thiet_bi for r in vt.may_su_dung}, {self.may.name, may2.name}
+			{r.thiet_bi for r in lai.may_su_dung}, {self.may.name, may2.name}
 		)
 
 	def test_bang_trong_la_vat_tu_dung_chung(self):
@@ -174,4 +190,54 @@ class TestVatTuMaySuDung(FrappeTestCase):
 		vt = self._vat_tu(may_su_dung=[
 			{"thiet_bi": self.may.name}, {"thiet_bi": self.may.name},
 		])
-		self.assertEqual(len(vt.may_su_dung), 1)
+		# Đọc lại TỪ CSDL — cùng lý do với test_gan_duoc_nhieu_may ở trên.
+		lai = frappe.get_doc("Customer Warehouse Item", vt.name)
+		self.assertEqual(len(lai.may_su_dung), 1)
+
+	# ------------------------------------------------------------------
+	# Review vòng 1 (task-2), Important #1 — `api/kho.py::kho_vat_tu_tao`/
+	# `kho_vat_tu_sua` chuyển `_parse_payload(payload)` NGUYÊN XI xuống
+	# `vat_tu.tao()`/`vat_tu.sua()` làm `du_lieu`, không lọc khoá nào. Đường
+	# `may_su_dung` từ client vì vậy là CODE SỐNG, không phải code chết —
+	# ba ca dưới đây đi thẳng qua `vat_tu_mod.tao()`/`vat_tu_mod.sua()`
+	# (không phải `frappe.get_doc().insert()` thẳng như `_vat_tu()` ở trên),
+	# đúng con đường một request thật từ client sẽ đi qua.
+	# ------------------------------------------------------------------
+
+	def test_tao_qua_vat_tu_mod_voi_may_su_dung(self):
+		ket = vat_tu_mod.tao(self.kho.name, {
+			"ma_vat_tu": "ZZTB-HC2", "ten_vat_tu": "Hoá chất ZZTB 2", "dvt": "Hộp",
+			"may_su_dung": [self.may.name],
+		})
+		lai = frappe.get_doc("Customer Warehouse Item", ket["name"])
+		self.assertEqual({r.thiet_bi for r in lai.may_su_dung}, {self.may.name})
+
+	def test_sua_khong_gui_khoa_may_su_dung_giu_nguyen_bang_may(self):
+		"""Ca CHỐNG MẤT DỮ LIỆU — quan trọng nhất trong ba ca này: một request
+		sửa vật tư không đụng gì tới máy (ví dụ chỉ đổi tên) không được lặng
+		lẽ xoá sạch bảng máy đang có. Đây chính là điều `if "may_su_dung" in
+		du_lieu` trong `vat_tu.sua()` phải bảo đảm — thiếu khoá phải khác
+		hẳn với có khoá mà rỗng (ca kế tiếp)."""
+		vt = self._vat_tu(may_su_dung=[{"thiet_bi": self.may.name}])
+		vat_tu_mod.sua(self.kho.name, vt.name, {"ten_vat_tu": "Đổi tên, không đụng máy"})
+		lai = frappe.get_doc("Customer Warehouse Item", vt.name)
+		self.assertEqual({r.thiet_bi for r in lai.may_su_dung}, {self.may.name})
+
+	def test_sua_gui_bang_rong_xoa_het_may(self):
+		"""Đối chứng với ca trên: gửi `may_su_dung=[]` (CÓ khoá, danh sách
+		rỗng) phải xoá hết, phân biệt rõ với KHÔNG gửi khoá."""
+		vt = self._vat_tu(may_su_dung=[{"thiet_bi": self.may.name}])
+		vat_tu_mod.sua(self.kho.name, vt.name, {"may_su_dung": []})
+		lai = frappe.get_doc("Customer Warehouse Item", vt.name)
+		self.assertEqual(lai.may_su_dung, [])
+
+	def test_ra_dict_tra_ve_may_su_dung(self):
+		"""Review vòng 1, Important #3 — `ra_dict()` từng không trả
+		`may_su_dung`: client ghi được nhưng response không có gì để hiện
+		lại ngay sau khi lưu."""
+		vt = self._vat_tu(may_su_dung=[{"thiet_bi": self.may.name}])
+		row = vat_tu_mod.ra_dict(vt.name)
+		self.assertEqual(
+			[(r["thiet_bi"], r["ten_thiet_bi"]) for r in row["may_su_dung"]],
+			[(self.may.name, self.may.ten_thiet_bi)],
+		)

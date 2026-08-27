@@ -118,6 +118,28 @@ def _chuan_hoa_row(row: dict) -> dict:
 	return row
 
 
+def _may_su_dung_cua(vat_tu: str) -> list[dict]:
+	"""Danh sách máy đang gắn với vật tư (bảng "Máy sử dụng"), kèm tên máy
+	để hiển thị — modal danh mục vật tư cần hiện đúng các máy đang gắn NGAY
+	sau khi lưu mà không phải gọi thêm một round-trip tra ngược từng
+	docname. Đây CHỈ là đọc lại để hiển thị/lọc dropdown — không tham gia
+	phép cộng số liệu nào (xem docstring field `may_su_dung` trong DocType
+	JSON)."""
+	rows = frappe.get_all(
+		"Customer Warehouse Item Equipment",
+		filters={"parent": vat_tu, "parenttype": "Customer Warehouse Item"},
+		fields=["thiet_bi"],
+		order_by="idx asc",
+	)
+	ten = {}
+	if rows:
+		ten = dict(frappe.get_all(
+			"Customer Equipment", filters={"name": ["in", [r.thiet_bi for r in rows]]},
+			fields=["name", "ten_thiet_bi"], as_list=True,
+		))
+	return [{"thiet_bi": r.thiet_bi, "ten_thiet_bi": ten.get(r.thiet_bi, "")} for r in rows]
+
+
 def ra_dict(name: str, da_co: bool = False) -> dict:
 	row = frappe.db.get_value(
 		"Customer Warehouse Item", name,
@@ -131,6 +153,11 @@ def ra_dict(name: str, da_co: bool = False) -> dict:
 	# `da_co` cho giao diện biết đây là vật tư đã tồn tại chứ không phải vừa
 	# tạo — nút "Tạo vật tư" ở dòng thứ hai cùng mã không được báo lỗi.
 	row["da_co"] = da_co
+	# Review vòng 1 (task-2): tao()/sua() ghi được may_su_dung nhưng response
+	# không trả lại — client không biết vừa lưu gì. Đọc lại TỪ DB (không lấy
+	# từ doc trong bộ nhớ) vì ra_dict() cũng được gọi từ đường _match_vat_tu
+	# "existing" (tao()) nơi không hề có doc Document nào trong tay.
+	row["may_su_dung"] = _may_su_dung_cua(name)
 	return row
 
 
