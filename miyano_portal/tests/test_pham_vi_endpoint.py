@@ -1,12 +1,12 @@
 """Mọi endpoint whitelist phải KHAI BÁO lập trường về phạm vi khoa phòng.
 
 Đây không phải test một hành vi — nó là một cái chốt. Cổng có 27 endpoint ở
-`api/portal.py` và 38 ở `api/kho.py`; nếu mỗi cái tự viết điều kiện lọc thì
+`api/portal.py` và 42 ở `api/kho.py`; nếu mỗi cái tự viết điều kiện lọc thì
 việc MỘT cái quên lọc là chắc chắn xảy ra. App đã dính đúng kiểu đó hai lần
 trong tuần 17–18/08 (phiếu trả hàng lọt vào danh sách đợt giao; phiếu giao
 nháp lọt ra cổng khách).
 
-Thêm endpoint mới mà không thêm tên nó vào một trong hai/ba tập bên dưới
+Thêm endpoint mới mà không thêm tên nó vào một trong các tập bên dưới
 (theo module) thì test này ĐỎ. Đó là toàn bộ mục đích của nó.
 
 VÒNG SỬA 1 (review độc lập, I3) — bản trước CHỈ soi `api/portal.py`. Ba
@@ -110,6 +110,74 @@ MIEN_PHAM_VI: dict[str, str] = {
 	"portal_provision": "chỉ nhân viên Miyano gọi, không phải endpoint của khách",
 }
 
+# api/kho.py — Bước 8 (spec §7.1c) CHƯA phân loại từng cái trong số 38
+# endpoint có TỪ TRƯỚC nhánh `feat/thiet-bi-vat-tu` (`KHO_CON_SO_CU` bên
+# dưới) — chốt cho phần đó tạm thời chỉ còn là một con số, xem test
+# `test_module_kho_chua_ap_pham_vi_la_no_biet_dieu_do`.
+#
+# Bốn endpoint MỚI của module thiết bị (Task 7, commit `de582d1`) thì ĐÃ
+# được xem xét và khai báo ở đây — tập này đóng vai trò của `DA_AP_PHAM_VI`
+# (module portal.py) nhưng riêng cho `api/kho.py`, và sẽ là nơi khai báo cho
+# mọi endpoint kho mới về sau, không chỉ bốn cái của Task 7. `b48f54a` (Task
+# 8) chỉ SỬA `kho_phieu_xuat_save` (endpoint có sẵn, đã nằm trong
+# `KHO_CON_SO_CU`) chứ không thêm endpoint mới, nên không có gì phải khai
+# thêm ở đây cho commit đó.
+#
+# Giá trị mỗi mục KHÔNG đồng nghĩa "đã lọc theo khoa" — ba cái đầu đi qua
+# `pham_vi_don()` (có trục khoa thật, xem chi tiết từng dòng), còn
+# `kho_vat_tu_gan_thiet_bi` KHÔNG có trục khoa để lọc (đọc lý do của nó:
+# `Customer Warehouse Item` không có field khoa phòng) — nó chỉ khai lập
+# trường TENANT (kho + khách hàng), không phải KHOA. Ghi rõ sự khác biệt
+# này trong từng chuỗi lý do, đừng để cả bốn trông như cùng một khuôn.
+KHO_DA_AP_PHAM_VI: dict[str, str] = {
+	# Cả bốn đều suy `customer` từ phiên qua `get_portal_customer()` — không
+	# nhận từ client. `_thiet_bi_action` (dùng chung `_action()`) CHỈ dịch lỗi
+	# sang tiếng Việt, không tự lọc gì — phạm vi khoa nằm ở logic bên trong
+	# từng hàm, không phải ở decorator.
+	"kho_thiet_bi_list": (
+		"lọc trục khoa qua thiet_bi_mod.list_rows() -> "
+		"portal_context.pham_vi_don(): Nhân viên khoa chỉ thấy máy của khoa "
+		"mình CỘNG máy dùng chung (pham_vi_don() trả khoa cụ thể), Quản lý "
+		"thấy xuyên khoa (pham_vi_don() trả {} = không giới hạn). Tham số "
+		"`khoa_phong` do client gửi (endpoint chỉ ép str(), KHÔNG kiểm sở "
+		"hữu) là lọc THÊM AND vào danh sách đã bị pham_vi_don() thu hẹp "
+		"trước đó trong list_rows() — không phải một filter độc lập chạy "
+		"lại từ đầu, nên không thể WIDEN ra ngoài khoa của phiên."
+	),
+	"kho_thiet_bi_save": (
+		"khoa_phong ÉP theo phiên qua _khoa_ep_theo_phien()/pham_vi_don() "
+		"trong thiet_bi_mod.save() — fail-closed bằng PermissionError khi "
+		"Nhân viên khoa thiếu khoa_phong trên hồ sơ. `name`/`khoa_phong` do "
+		"client gửi còn bị guard sở hữu qua _thiet_bi_cua_khach()/"
+		"_khoa_cua_khach() TRƯỚC khi chạm doc (Vòng sửa 1, Important #1)."
+	),
+	"kho_thiet_bi_tao_nhanh": (
+		"cùng cơ chế kho_thiet_bi_save: thiet_bi_mod.tao_nhanh() luôn TẠO "
+		"MỚI nên khoa_phong luôn tính qua _khoa_ep_theo_phien()/"
+		"pham_vi_don() (cùng fail-closed); không có `name` client gửi nên "
+		"không cần guard sở hữu thêm ở tầng endpoint."
+	),
+	"kho_vat_tu_gan_thiet_bi": (
+		"Trục khoa: KHÔNG áp — `Customer Warehouse Item` (vật tư) không có "
+		"field khoa phòng, không có trục khoa để lọc; một Nhân viên khoa A "
+		"gắn được máy của khoa B CÙNG bệnh viện vào vật tư dùng chung — đó "
+		"là chủ ý (danh mục vật tư là cấp KHO, không phải cấp khoa), không "
+		"phải một lỗ hở bị bỏ sót. Trục khách hàng/kho (TENANT): guard CẢ "
+		"HAI định danh (vat_tu qua _vat_tu_cua_kho(), thiet_bi qua "
+		"_thiet_bi_cua_khach()) về đúng kho/khách của PHIÊN gọi TRƯỚC khi "
+		"gọi xuống gan_vao_vat_tu() — hàm đó chỉ tự kiểm hai đầu KHỚP NHAU "
+		"với nhau, không so với người gọi, nên một cặp thật+khớp nhưng "
+		"thuộc bệnh viện KHÁC vẫn lọt nếu thiếu guard này."
+	),
+}
+
+# Con số ĐÓNG BĂNG (baseline nợ kỹ thuật trước Task 7/commit `de582d1`, khi
+# Bước 8 — spec §7.1c, phân loại từng cái — còn chưa làm). Chỉ được PHÉP
+# GIẢM khi Bước 8 phân loại bớt một endpoint cũ ra khỏi con số này (và thêm
+# nó vào KHO_DA_AP_PHAM_VI). KHÔNG BAO GIỜ tăng số này để dập lửa — endpoint
+# kho MỚI luôn đi vào KHO_DA_AP_PHAM_VI ở trên, không vào đây.
+KHO_CON_SO_CU = 38
+
 # search_guard.py — Vòng sửa 1 (I3). Bảy hàm này là vỏ mỏng quanh
 # `frappe.client.*`/`frappe.desk.search.*`, KHÔNG tự gọi `pham_vi_don()`/
 # `dam_bao_xem_duoc()` — chúng thừa hưởng phạm vi khoa qua HAI cơ chế khác
@@ -196,13 +264,29 @@ class TestMoiEndpointKhaiBaoPhamVi(FrappeTestCase):
 		self.assertFalse(thua, f"Khai báo cho endpoint không còn tồn tại: {sorted(thua)}")
 
 	def test_module_kho_chua_ap_pham_vi_la_no_biet_dieu_do(self):
-		"""Bước 8 của đề án mới cách ly module kho. Cho tới lúc đó, test này
-		giữ CON SỐ để việc thêm endpoint kho mới không lặng lẽ trôi qua."""
+		"""Bước 8 (spec §7.1c) của đề án mới cách ly module kho CHƯA phân loại
+		từng cái trong `KHO_CON_SO_CU` — chốt cho phần đó vẫn tạm là một con
+		số, y như trước. Nhưng từ Task 7 trở đi, endpoint kho MỚI không còn
+		được phép núp sau con số đó: phải khai vào `KHO_DA_AP_PHAM_VI` (kèm
+		cơ chế lọc thật) thì test này mới xanh trở lại — đúng khuôn
+		`DA_AP_PHAM_VI` của `api/portal.py`."""
+		thuc_te = _endpoints(kho_api)
+		khai_them = set(KHO_DA_AP_PHAM_VI)
+		sai_ten = khai_them - thuc_te
+		self.assertFalse(
+			sai_ten,
+			f"KHO_DA_AP_PHAM_VI có tên không khớp endpoint thật trong "
+			f"api/kho.py (đổi tên/xoá mà quên sửa khai báo?): {sorted(sai_ten)}",
+		)
 		self.assertEqual(
-			len(_endpoints(kho_api)), 38,
-			"Số endpoint api/kho.py đã đổi. Bước 8 phân loại 38 cái này thành "
-			"13 phải lọc / 8 phải thu hẹp / 17 chặn theo vai trò — xem spec "
-			"§7.1c. Cập nhật cả hai chỗ cùng lúc.",
+			len(thuc_te), KHO_CON_SO_CU + len(khai_them),
+			f"Số endpoint api/kho.py là {len(thuc_te)}, kỳ vọng "
+			f"{KHO_CON_SO_CU} (cũ, chưa phân loại — Bước 8) + "
+			f"{len(khai_them)} (đã khai trong KHO_DA_AP_PHAM_VI) = "
+			f"{KHO_CON_SO_CU + len(khai_them)}. Nếu bạn vừa thêm endpoint kho "
+			"mới: đọc code, xác định lập trường phạm vi khoa thật của nó, rồi "
+			"thêm vào KHO_DA_AP_PHAM_VI kèm cơ chế lọc (không phải chỉ nâng "
+			"con số cho hết đỏ).",
 		)
 
 	def test_moi_endpoint_search_guard_deu_da_khai_bao(self):
