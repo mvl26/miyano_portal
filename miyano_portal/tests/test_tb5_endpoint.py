@@ -15,6 +15,7 @@ fixture riêng.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal.api import kho as kho_api
 from miyano_portal.kho import thiet_bi as thiet_bi_mod
 
 KHACH = "ZZTB5 Benh Vien"
@@ -353,6 +354,20 @@ class TestThietBiLogic(_NenThietBi):
 				"ten_thiet_bi": "May hong khoa nhanh", "ma_thiet_bi": "ZZTB5-BROKEN2",
 			})
 
+	def test_nhan_vien_khoa_active_khoa_rong_bi_chan_khi_sua(self):
+		"""Task 7, mang từ Task 6 sang — `_chan_sua_ngoai_pham_vi()` mới được
+		test ở nhánh TẠO MỚI (test ngay phía trên). Ghim thêm nhánh SỬA (`save()`
+		có truyền `name`) cùng kịch bản Nhân viên khoa `active=1`/`khoa_phong=""`
+		đi vòng qua validate() bằng `db.set_value`. Hành vi hôm nay đã fail-closed
+		(save() gọi `_chan_sua_ngoai_pham_vi()` -> `pham_vi_don()` -> ném
+		PermissionError trước khi chạm ghi) nhưng chưa có test nào ghim lại."""
+		frappe.db.set_value("Portal Member", self.tv_nv_a.name, "khoa_phong", "")
+		frappe.set_user(self.nv_a)
+		with self.assertRaises(frappe.PermissionError):
+			thiet_bi_mod.save(self.khach, self.nv_a, {
+				"name": self.may_a.name, "ten_thiet_bi": "Đổi trộm khi khoa rỗng",
+			})
+
 	# -- Review vòng 1 (Important #2) — ra_dict() tự kiểm tenant --------------
 
 	def test_ra_dict_tra_dung_may_cua_minh(self):
@@ -391,3 +406,134 @@ class TestThietBiLogic(_NenThietBi):
 		}
 		self.assertEqual(ten_khac_vien, ten_khong_ton_tai)
 		self.assertEqual(len(ten_khac_vien), 3)
+
+
+class TestThietBiEndpoint(_NenThietBi):
+	"""Task 7 — bốn endpoint cổng nối `kho/thiet_bi.py` (Task 6). Không dựng
+	fixture riêng, kế thừa nguyên `_NenThietBi` (xem docstring lớp đó)."""
+
+	def test_endpoint_khong_nhan_customer_tu_client(self):
+		"""Chữ ký hàm KHÔNG được có tham số customer/kho/user — nguyên tắc bất
+		di bất dịch ở đầu api/kho.py. Test đọc chữ ký để một PR sau không thêm
+		vào cho tiện."""
+		import inspect
+		for ten in ("kho_thiet_bi_list", "kho_thiet_bi_save",
+		            "kho_thiet_bi_tao_nhanh", "kho_vat_tu_gan_thiet_bi"):
+			tham_so = set(inspect.signature(getattr(kho_api, ten)).parameters)
+			self.assertFalse(
+				tham_so & {"customer", "kho", "user"},
+				f"{ten} nhận định danh từ client",
+			)
+
+	def test_list_qua_endpoint_loc_dung_theo_phien(self):
+		frappe.set_user(self.nv_a)
+		ten = {r["name"] for r in kho_api.kho_thiet_bi_list()}
+		self.assertNotIn(self.may_b.name, ten)
+
+	def test_may_benh_vien_khac_gan_vao_vat_tu_bi_chan(self):
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_vat_tu_gan_thiet_bi(self.vat_tu.name, self.may_benh_vien_khac.name)
+
+	def test_vat_tu_benh_vien_khac_bi_chan(self):
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_vat_tu_gan_thiet_bi(self.vat_tu_khac_kho.name, self.may_a.name)
+
+	def test_gan_vao_vat_tu_qua_endpoint_thanh_cong(self):
+		"""Đối chứng ca đúng cho ba test "bị chặn" ở trên — endpoint không chỉ
+		biết chặn mà còn phải cho một cặp vật tư/máy CÙNG bệnh viện đi qua.
+
+		Kèm chốt hình dạng: `gan_vao_vat_tu()` trả `vat_tu.ra_dict()` — dữ liệu
+		VẬT TƯ, không phải thiết bị — và trường `may_su_dung` bên trong là
+		DANH SÁCH DICT `{"thiet_bi": docname, "ten_thiet_bi": tên}`, khác hẳn
+		hình dạng `tao()`/`sua()` NHẬN VÀO (danh sách docname trần). Một caller
+		nối thẳng response này vào payload của `kho_vat_tu_sua` mà không tự
+		rút `thiet_bi` ra trước sẽ gửi sai hình dạng."""
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_vat_tu_gan_thiet_bi(self.vat_tu.name, self.may_a.name)
+		self.assertEqual(ra["name"], self.vat_tu.name)
+		self.assertEqual(ra["may_su_dung"], [
+			{"thiet_bi": self.may_a.name, "ten_thiet_bi": self.may_a.ten_thiet_bi}
+		])
+
+	def test_loc_theo_vat_tu_cua_kho_khac_bi_chan(self):
+		"""`vat_tu` là định danh do client gửi — phải qua guard TRƯỚC khi dùng
+		làm bộ lọc, nếu không nó thành một kênh dò dữ liệu kho khác."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_thiet_bi_list(vat_tu=self.vat_tu_khac_kho.name)
+
+	def test_loi_khong_lo_ten_lop_ngoai_le(self):
+		"""Decorator _thiet_bi_action phải dịch mọi lỗi lạ sang tiếng Việt.
+
+		Ca này (giữ nguyên theo brief) KHÔNG tự nó chứng minh gì: guard
+		`_thiet_bi_cua_khach` chặn "KHONG-CO-THAT" bằng `PermissionError` —
+		nhánh mà `_action` CHUYỂN TIẾP NGUYÊN VẸN (không dịch), không phải
+		nhánh `except Exception` cần kiểm. Xem
+		`test_loi_la_duoc_dich_sang_tieng_viet` ngay dưới cho ca thật sự chạm
+		nhánh dịch lỗi."""
+		frappe.set_user(self.ql)
+		try:
+			kho_api.kho_thiet_bi_save({"name": "KHONG-CO-THAT"})
+		except Exception as e:
+			self.assertNotIn("Traceback", str(e))
+
+	def test_loi_la_duoc_dich_sang_tieng_viet(self):
+		"""Nhánh `except Exception` thật sự của `_thiet_bi_action` — một lỗi
+		LẠ (không phải ValidationError/PermissionError của chính module) từ
+		`thiet_bi_mod.list_rows()` phải được dịch sang một ValidationError
+		tiếng Việt, không lộ tên lớp/thông điệp gốc."""
+		from unittest.mock import patch
+
+		frappe.set_user(self.ql)
+		with patch.object(
+			thiet_bi_mod, "list_rows",
+			side_effect=RuntimeError("'NoneType' object has no attribute 'lft'"),
+		):
+			with self.assertRaises(frappe.ValidationError) as cm:
+				kho_api.kho_thiet_bi_list()
+		thong_diep = str(cm.exception)
+		self.assertIn("thiết bị", thong_diep)
+		self.assertNotIn("RuntimeError", thong_diep)
+		self.assertNotIn("NoneType", thong_diep)
+
+	def test_save_qua_endpoint_tao_moi(self):
+		frappe.set_user(self.ql)
+		ra = kho_api.kho_thiet_bi_save({
+			"ten_thiet_bi": "May moi qua endpoint", "ma_thiet_bi": "ZZTB5-EP-NEW",
+		})
+		self.assertEqual(
+			frappe.db.get_value("Customer Equipment", ra["name"], "customer"), self.khach
+		)
+
+	def test_save_sua_may_benh_vien_khac_bi_chan(self):
+		"""`name` trong payload cũng là định danh do client gửi — phải qua
+		guard trước khi save() chạm doc, đúng nguyên tắc đầu file."""
+		frappe.set_user(self.ql)
+		with self.assertRaises(frappe.PermissionError):
+			kho_api.kho_thiet_bi_save({
+				"name": self.may_benh_vien_khac.name, "ten_thiet_bi": "Đổi trộm qua endpoint",
+			})
+
+	def test_tao_nhanh_qua_endpoint(self):
+		frappe.set_user(self.nv_a)
+		ra = kho_api.kho_thiet_bi_tao_nhanh({
+			"ten_thiet_bi": "May nhanh qua endpoint", "ma_thiet_bi": "ZZTB5-EP-NHANH",
+		})
+		self.assertEqual(
+			frappe.db.get_value("Customer Equipment", ra["name"], "khoa_phong"), self.kp_a.name
+		)
+
+	def test_vat_tu_dict_khong_bi_hieu_thanh_filters(self):
+		"""Ép kiểu tại biên (mang từ Task 6 sang) — nếu một endpoint lỡ chuyển
+		thẳng một payload chưa ép kiểu cho get_value(doctype, name, field),
+		một `dict` sẽ bị hiểu là FILTERS chứ không phải docname. Endpoint phải
+		ép `str()` trước khi guard chạm tới, nên một dict gửi vào `vat_tu`
+		không được lặng lẽ khớp bừa — chỉ được phép thất bại rõ ràng (không
+		lộ traceback), không bao giờ trả list đầy đủ vì "filters rỗng"."""
+		frappe.set_user(self.ql)
+		try:
+			kho_api.kho_thiet_bi_list(vat_tu={"kho": ["!=", "KHONG-TON-TAI"]})
+		except Exception as e:
+			self.assertNotIn("Traceback", str(e))

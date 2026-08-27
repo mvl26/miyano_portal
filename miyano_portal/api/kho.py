@@ -33,6 +33,7 @@ from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import ncc as ncc_mod
 from miyano_portal.kho import reports
+from miyano_portal.kho import thiet_bi as thiet_bi_mod
 from miyano_portal.kho import voucher
 from miyano_portal.kho import vat_tu as vat_tu_mod
 from miyano_portal.portal_context import get_portal_customer, get_portal_kho
@@ -205,6 +206,7 @@ _phieu_action = _action("phiếu")
 _vat_tu_action = _action("vật tư")
 _ncc_action = _action("NCC")
 _khoa_action = _action("khoa phòng")
+_thiet_bi_action = _action("thiết bị")
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -244,6 +246,18 @@ def _khoa_cua_kho(khoa_phong: str, kho: str) -> str:
 	if frappe.db.get_value("Customer Department", khoa_phong, "customer") != customer:
 		raise frappe.PermissionError("Khoa phòng không thuộc kho của đơn vị bạn.")
 	return khoa_phong
+
+
+def _thiet_bi_cua_khach(thiet_bi: str, customer: str) -> str:
+	"""Cùng khuôn _vat_tu_cua_kho(): xác nhận một máy do client gửi lên đúng
+	là của bệnh viện người gọi TRƯỚC khi get_doc/save chạm vào nó.
+
+	`Customer Equipment` treo vào `customer` (không có field `kho` — xem
+	docstring đầu `kho/thiet_bi.py`), nên guard này so `customer`, khác
+	`_vat_tu_cua_kho()`/`_ncc_cua_kho()`/`_phieu_cua_kho()` vốn so `kho`."""
+	if frappe.db.get_value("Customer Equipment", thiet_bi, "customer") != customer:
+		raise frappe.PermissionError("Máy không thuộc đơn vị bạn.")
+	return thiet_bi
 
 
 @frappe.whitelist()
@@ -514,6 +528,86 @@ def kho_nguoi_nhan_goi_y(khoa_phong: str, tu_khoa=None) -> list:
 	kho = get_portal_kho()
 	_khoa_cua_kho(khoa_phong, kho)
 	return khoa_phong_mod.nguoi_nhan_goi_y(kho, khoa_phong, tu_khoa)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_list(tim_kiem=None, ca_inactive=0, khoa_phong=None, vat_tu=None,
+                       limit=None, start=0) -> list | dict:
+	"""Danh mục máy — KIÊM HAI VAI: màn danh mục và dropdown trên phiếu xuất.
+
+	`vat_tu` là bộ lọc TẦNG HAI (chỉ những máy trong bảng "Máy sử dụng" của
+	vật tư đó). Đây là lý do SPA không được dùng Link field chuẩn: bộ lọc
+	tầng hai phải do SERVER áp, client tự khai thì bỏ qua được.
+
+	`vat_tu`/`khoa_phong` là định danh do client gửi — ép `str()` trước khi
+	chạm bất kỳ get_value/so sánh nào (Task 6 để lại: một payload JSON không
+	ép kiểu có thể mang một `dict` thay vì chuỗi, và `frappe.db.get_value`
+	hiểu tham số thứ hai là FILTERS chứ không phải docname nếu nó không phải
+	chuỗi/số — ngữ nghĩa khác hẳn). `vat_tu` còn được kiểm sở hữu TRƯỚC khi
+	truyền cho `thiet_bi_mod.list_rows()` — module đó (Important #3, Task 6)
+	coi một `vat_tu` lạ/không tồn tại là "không lọc gì" (an toàn nhưng ÂM
+	THẦM), còn ở đây ta muốn báo lỗi RÕ cho một tham số client tự khai sai,
+	đúng như `_vat_tu_cua_kho()` đã làm cho `kho_lo`/`kho_vat_tu_sua`."""
+	customer = get_portal_customer()
+	if vat_tu:
+		vat_tu = _vat_tu_cua_kho(str(vat_tu), get_portal_kho())
+	if khoa_phong:
+		khoa_phong = str(khoa_phong)
+	return thiet_bi_mod.list_rows(
+		customer, frappe.session.user, tim_kiem, ca_inactive, khoa_phong, vat_tu, limit, start
+	)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_save(payload) -> dict:
+	"""Tạo mới (thiếu `name`) hoặc sửa một máy của bệnh viện người gọi.
+
+	`name` trong payload là định danh do client gửi — ép `str()` rồi guard
+	qua `_thiet_bi_cua_khach()` TRƯỚC khi `thiet_bi_mod.save()` chạm doc,
+	đúng nguyên tắc đầu file (guard trước, get_doc sau). `save()` ở tầng
+	dưới cũng tự kiểm lại `doc.customer` — hai lớp phòng thủ khác nhau
+	(_thiet_bi_cua_khach dùng get_value rẻ, save() cần get_doc để ghi), giữ
+	cả hai không phải thừa.
+	"""
+	customer = get_portal_customer()
+	du_lieu = _parse_payload(payload)
+	if du_lieu.get("name"):
+		du_lieu["name"] = _thiet_bi_cua_khach(str(du_lieu["name"]), customer)
+	return thiet_bi_mod.save(customer, frappe.session.user, du_lieu)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_tao_nhanh(payload) -> dict:
+	"""Form "Tạo nhanh thiết bị" — luôn TẠO MỚI, không có `name` trong payload
+	nên không cần guard định danh ở tầng này."""
+	customer = get_portal_customer()
+	return thiet_bi_mod.tao_nhanh(customer, frappe.session.user, _parse_payload(payload))
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_vat_tu_gan_thiet_bi(vat_tu, thiet_bi) -> dict:
+	"""Gắn một máy vào bảng "Máy sử dụng" của một vật tư.
+
+	`thiet_bi_mod.gan_vao_vat_tu()` (Task 6) KHÔNG nhận `customer`/`user` —
+	nó tự suy tenant từ HAI ĐẦU (kho của vật tư -> customer; customer của
+	máy) rồi chặn khi LỆCH NHAU, nhưng không so với `customer` của PHIÊN
+	đang gọi. Không guard thêm ở đây thì một quản lý của bệnh viện A gọi
+	endpoint này với một cặp (vật tư B, máy B) — hai định danh CÓ THẬT và
+	KHỚP NHAU, chỉ không phải của A — vẫn lọt qua kiểm "lệch nhau" của
+	gan_vao_vat_tu() dù không thuộc bệnh viện của người gọi. Guard cả hai
+	định danh (ép `str()` trước) về ĐÚNG kho/khách của phiên TRƯỚC khi gọi
+	xuống, đúng nguyên tắc đầu file — không tin việc hai đầu tự khớp nhau là
+	đủ an toàn.
+	"""
+	customer = get_portal_customer()
+	kho = get_portal_kho()
+	vat_tu = _vat_tu_cua_kho(str(vat_tu), kho)
+	thiet_bi = _thiet_bi_cua_khach(str(thiet_bi), customer)
+	return thiet_bi_mod.gan_vao_vat_tu(vat_tu, thiet_bi)
 
 
 @frappe.whitelist()
