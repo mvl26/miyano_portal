@@ -1240,7 +1240,7 @@ def bao_cao_thiet_bi_rows(
 		issues = {
 			r["name"]: r for r in frappe.get_all(
 				"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
-				fields=["name", "loai_xuat"],
+				fields=["name", "loai_xuat", "khoa_phong"],
 			)
 		}
 		row_ids = {e["chung_tu_row"] for e in entries if e["chung_tu_row"]}
@@ -1252,31 +1252,44 @@ def bao_cao_thiet_bi_rows(
 				)
 			}
 
-	# per_item_cap_phat[vat_tu][thiet_bi hoặc None] = {"sl", "gia_tri"}
+	# per_item_cap_phat[vat_tu][(thiet_bi hoặc None, khoa_phong hoặc None)]
+	# = {"sl", "gia_tri"}.
+	#
+	# SỬA (đợt sửa cuối, I-1 — bản trước khoá bucket CHỈ theo `tb` rồi suy
+	# khoa từ `Customer Equipment.khoa_phong` bên dưới). QĐ-TB-13 (spec §3.1,
+	# §9.1): khoa của một dòng cấp phát là khoa GHI TRÊN PHIẾU tại thời điểm
+	# xuất, không phải khoa máy ĐANG đặt — suy theo máy làm số liệu các kỳ
+	# TRƯỚC tự viết lại đúng ngày máy đó chuyển khoa. Khoá bucket theo CẢ hai
+	# trục (thiet_bi, khoa_phong-trên-phiếu): một máy có thể xuất hiện trên
+	# phiếu của nhiều khoa khác nhau trong cùng kỳ (BR-TB-4 chỉ CẢNH BÁO
+	# khoa trên phiếu lệch khoa của máy, không cấm) — gộp chỉ theo `tb` sẽ
+	# làm khoa của lần cấp phát SAU đè lên khoa của lần cấp phát TRƯỚC.
 	per_item_cap_phat: dict[str, dict] = {}
 	for e in entries:
 		iss = issues.get(e["chung_tu"])
 		if not iss or iss["loai_xuat"] != "Xuất sử dụng":  # lớp lọc thứ hai
 			continue
 		tb = (item_rows.get(e["chung_tu_row"]) or {}).get("thiet_bi") or None
+		kp = iss["khoa_phong"] or None
 		bucket = per_item_cap_phat.setdefault(e["vat_tu"], {})
-		row = bucket.setdefault(tb, {"sl": 0.0, "gia_tri": 0.0})
+		row = bucket.setdefault((tb, kp), {"sl": 0.0, "gia_tri": 0.0})
 		# so_luong/gia_tri của dòng XUẤT mang dấu ÂM (xem docstring
 		# ledger.post_lines) — đảo dấu để hiển thị số dương, cùng quy ước
 		# bao_cao_cap_phat_rows.
 		row["sl"] += -float(e["so_luong"])
 		row["gia_tri"] += -float(e["gia_tri"] or 0)
 
-	# Bulk tra tên máy + khoa của máy cho MỌI thiet_bi từng có cấp phát —
-	# một lượt, không N+1 theo từng dòng theo_may.
-	all_thiet_bi = {tb for buckets in per_item_cap_phat.values() for tb in buckets if tb}
+	# Bulk tra TÊN máy cho mọi thiet_bi từng có cấp phát — một lượt, không
+	# N+1 theo từng dòng theo_may. KHÔNG còn tra `khoa_phong` từ đây (xem
+	# SỬA ở trên) — khoa nay đến từ bucket key, đã lấy từ phiếu.
+	all_thiet_bi = {tb for buckets in per_item_cap_phat.values() for tb, _kp in buckets if tb}
 	may_info = {
 		r["name"]: r for r in frappe.get_all(
 			"Customer Equipment", filters={"name": ["in", list(all_thiet_bi)]},
-			fields=["name", "ten_thiet_bi", "khoa_phong"],
+			fields=["name", "ten_thiet_bi"],
 		)
 	} if all_thiet_bi else {}
-	khoa_ids = {m["khoa_phong"] for m in may_info.values() if m.get("khoa_phong")}
+	khoa_ids = {kp for buckets in per_item_cap_phat.values() for _tb, kp in buckets if kp}
 	ten_khoa_map = dict(frappe.get_all(
 		"Customer Department", filters={"name": ["in", list(khoa_ids)]},
 		fields=["name", "ten_khoa_phong"], as_list=True,
@@ -1317,14 +1330,18 @@ def bao_cao_thiet_bi_rows(
 		xuat_khac_sl = closed["xuat_sl"] - cap_phat_sl
 
 		theo_may = []
-		for tb, b in cap_phat_buckets.items():
+		for (tb, kp), b in cap_phat_buckets.items():
 			if tb is None:
-				ten_may, kp, ten_kp = "Chưa gắn máy", None, ""
+				ten_may = "Chưa gắn máy"
 			else:
 				m = may_info.get(tb) or {}
 				ten_may = m.get("ten_thiet_bi") or tb
-				kp = m.get("khoa_phong") or None
-				ten_kp = ten_khoa_map.get(kp, kp) if kp else "Chưa gắn khoa"
+			# `kp` đến từ bucket key (khoa GHI TRÊN PHIẾU, QĐ-TB-13) — KHÔNG
+			# còn suy từ `Customer Equipment.khoa_phong`. Vẫn hiển thị dù
+			# `tb is None` ("Chưa gắn máy" là dữ liệu thật, không phải lý do
+			# để giấu khoa thật của phiếu — cùng lý lẽ "Chưa gắn khoa"
+			# không bị giấu ở `bao_cao_cap_phat_rows`).
+			ten_kp = ten_khoa_map.get(kp, kp) if kp else "Chưa gắn khoa"
 			theo_may.append({
 				"thiet_bi": tb, "ten_may": ten_may,
 				"khoa_phong": kp, "ten_khoa": ten_kp,
@@ -1429,6 +1446,15 @@ def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
 	    đảo — nó VẪN mang `thiet_bi` vì Task 3 đã chép sang, ĐỪNG dựa vào
 	    `thiet_bi` rỗng để nhận diện nó) và mọi loại xuất khác (huỷ/trả
 	    lại/điều chỉnh — không phải cấp phát thật).
+
+	KHÔNG có cột khoa phòng (đợt sửa cuối, I-1 — bản trước có, suy từ
+	`Customer Equipment.khoa_phong`, sai theo QĐ-TB-13). Bỏ hẳn thay vì sửa
+	thành lấy từ phiếu: một dòng ở đây là MỘT MÁY gộp qua CẢ KỲ, còn khoa
+	trên phiếu là thuộc tính của TỪNG LẦN CẤP PHÁT — một máy dùng chung có
+	thể lên phiếu của nhiều khoa khác nhau trong cùng kỳ (BR-TB-4 chỉ cảnh
+	báo lệch khoa, không cấm), nên "khoa của dòng-một-máy" không có một giá
+	trị đúng duy nhất để gán mà không phá bất biến "một dòng = một máy" của
+	chính báo cáo này (§9.3 không yêu cầu cột khoa — không có gì để giữ).
 	"""
 	tu = frappe.utils.getdate(tu_ngay)
 	den = frappe.utils.getdate(den_ngay)
@@ -1481,25 +1507,31 @@ def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
 	may_info = {
 		r["name"]: r for r in frappe.get_all(
 			"Customer Equipment", filters={"name": ["in", list(all_thiet_bi)]},
-			fields=["name", "ma_thiet_bi", "ten_thiet_bi", "khoa_phong"],
+			fields=["name", "ma_thiet_bi", "ten_thiet_bi"],
 		)
 	} if all_thiet_bi else {}
-	khoa_ids = {m["khoa_phong"] for m in may_info.values() if m.get("khoa_phong")}
-	ten_khoa_map = dict(frappe.get_all(
-		"Customer Department", filters={"name": ["in", list(khoa_ids)]},
-		fields=["name", "ten_khoa_phong"], as_list=True,
-	)) if khoa_ids else {}
-
+	# SỬA (đợt sửa cuối, I-1) — bản trước gắn thêm `khoa_phong`/`ten_khoa`
+	# vào mỗi dòng, suy từ `Customer Equipment.khoa_phong` (khoa máy ĐANG
+	# đặt) — sai theo QĐ-TB-13 (khoa phải lấy từ PHIẾU). KHÔNG sửa thành lấy
+	# từ phiếu ở ĐÂY: một dòng của hàm này là MỘT MÁY gộp qua CẢ KỲ, trong
+	# khi khoa trên phiếu là thuộc tính của TỪNG LẦN CẤP PHÁT — một máy dùng
+	# chung có thể xuất hiện trên phiếu của nhiều khoa khác nhau trong cùng
+	# kỳ (BR-TB-4 chỉ cảnh báo, không cấm), nên "khoa của dòng-một-máy" ở
+	# đây không có một giá trị đúng duy nhất để gán. Spec §9.3 (báo cáo xoay
+	# chiều "Theo máy") không yêu cầu cột khoa — bỏ hẳn hai khoá này thay vì
+	# giữ một con số sai hoặc phải tách một máy thành nhiều dòng theo khoa
+	# (phá bất biến "một dòng = một máy" mà §9.3 và mọi test của hàm này
+	# đang dựa vào). Cùng quyết định áp dụng cho
+	# `desk_reports.tieu_thu_theo_thiet_bi_rows()` và report Desk "Tiêu thụ
+	# theo máy" tiêu thụ hàm này.
 	out = []
 	for tb, vt_buckets in buckets.items():
 		if tb is None:
-			ten_may, ma_may, kp, ten_kp = "Chưa gắn máy", "", None, ""
+			ten_may, ma_may = "Chưa gắn máy", ""
 		else:
 			m = may_info.get(tb) or {}
 			ten_may = m.get("ten_thiet_bi") or tb
 			ma_may = m.get("ma_thiet_bi") or ""
-			kp = m.get("khoa_phong") or None
-			ten_kp = ten_khoa_map.get(kp, kp) if kp else "Chưa gắn khoa"
 
 		vat_tu_list = []
 		sl_total = 0.0
@@ -1516,7 +1548,6 @@ def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
 
 		out.append({
 			"thiet_bi": tb, "ten_may": ten_may, "ma_may": ma_may,
-			"khoa_phong": kp, "ten_khoa": ten_kp,
 			"so_vat_tu": len(vt_buckets),
 			"sl": _r(sl_total), "gia_tri": round(gia_tri_total, 2),
 			"vat_tu": sorted(vat_tu_list, key=lambda r: r["ten"]),

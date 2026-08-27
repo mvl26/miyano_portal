@@ -248,6 +248,47 @@ class TestBaoCaoThietBi(FrappeTestCase):
 					msg=f"Hàng không cân ở vật tư {d['ma_vat_tu']}",
 				)
 
+	def test_may_chuyen_khoa_giua_ky_khong_doi_so_lieu_ky_truoc(self):
+		"""Ca 4, spec §11 (đợt sửa cuối, I-1) — QĐ-TB-13: khoa lấy từ PHIẾU,
+		không suy theo `Customer Equipment.khoa_phong` tại thời điểm chạy
+		báo cáo. Nếu suy theo máy, ngày máy A chuyển từ Khoa A sang Khoa D
+		sẽ làm số liệu kỳ báo cáo TRƯỚC ĐÓ (đã đóng, đã in) tự viết lại —
+		bản in tháng trước và bản in lại hôm nay ra hai con số khác nhau,
+		không ai đối chiếu được. `self.tu`/`self.den` là kỳ CỐ ĐỊNH trong
+		quá khứ (08/2026); việc chuyển khoa xảy ra SAU kỳ đó, ở "hiện tại"
+		của test."""
+		bc_truoc = reports.bao_cao_thiet_bi_rows(self.kho, self.tu, self.den)
+		dong_truoc = self._dong(bc_truoc, self.vat_tu.name)
+		r_truoc = next(r for r in dong_truoc["theo_may"] if r["thiet_bi"] == self.may_a.name)
+		self.assertEqual(r_truoc["khoa_phong"], self.kp_a.name)
+
+		# Máy A chuyển khoa — KHÔNG chạm gì tới phiếu/sổ của kỳ đã đóng.
+		self.may_a.khoa_phong = self.kp_d.name
+		self.may_a.save(ignore_permissions=True)
+
+		bc_sau = reports.bao_cao_thiet_bi_rows(self.kho, self.tu, self.den)
+		dong_sau = self._dong(bc_sau, self.vat_tu.name)
+		r_sau = next(r for r in dong_sau["theo_may"] if r["thiet_bi"] == self.may_a.name)
+
+		self.assertEqual(r_sau["khoa_phong"], self.kp_a.name)  # vẫn khoa TRÊN PHIẾU
+		self.assertNotEqual(r_sau["khoa_phong"], self.kp_d.name)  # không phải khoa MỚI của máy
+		self.assertEqual(r_truoc, r_sau)  # số liệu kỳ trước không đổi
+
+	def test_loc_khoa_phong_theo_khoa_tren_phieu_khong_phai_khoa_cua_may(self):
+		"""Hệ quả thứ hai của cùng lỗi: bộ lọc `khoa_phong` phải lọc theo
+		khoa GHI TRÊN PHIẾU (nơi hàng được cấp phát tới), không phải khoa
+		máy ĐANG đặt. Chuyển máy A sang Khoa D rồi lọc theo Khoa A: dòng
+		cấp phát cho máy A (phiếu ghi khoa A) vẫn phải hiện ra, dù máy A
+		hiện đã ở khoa D — nhãn màn hình "Khoa phòng" nói cấp phát, không
+		phải vị trí máy hiện tại."""
+		self.may_a.khoa_phong = self.kp_d.name
+		self.may_a.save(ignore_permissions=True)
+		bc = reports.bao_cao_thiet_bi_rows(
+			self.kho, self.tu, self.den, khoa_phong=self.kp_a.name
+		)
+		dong = self._dong(bc, self.vat_tu.name)
+		self.assertTrue(any(r["thiet_bi"] == self.may_a.name for r in dong["theo_may"]))
+
 
 # --------------------------------------------------------------- Task 10 ---
 # Báo cáo xoay chiều theo máy (`reports.tieu_thu_theo_may_rows`), mở rộng

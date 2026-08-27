@@ -12,6 +12,14 @@ Quyền hạn: `ref_doctype=Customer Stock Ledger Entry`, `roles=System Manager/
 Sales Manager/Sales User` (xem setup/install_kho_desk_reports.py). Role
 `Customer` KHÔNG có DocPerm nào trên doctype này — report liệt kê tiêu thụ
 theo máy của MỌI khách hàng, cùng hạn chế VĐ-10 như các report desk khác.
+
+KHÔNG có cột khoa phòng (đợt sửa cuối, I-1 — bản trước có cột "Khoa phòng
+đặt máy" suy từ `Customer Equipment.khoa_phong`, sai theo QĐ-TB-13: khoa
+phải lấy từ PHIẾU, không suy theo máy tại thời điểm chạy báo cáo). Bỏ hẳn
+thay vì sửa thành lấy từ phiếu — xem lý do đầy đủ ở docstring
+`reports.tieu_thu_theo_may_rows()`: một dòng ở đây là MỘT MÁY gộp qua CẢ
+KỲ, khoa trên phiếu là thuộc tính của TỪNG LẦN CẤP PHÁT, không có một giá
+trị đúng duy nhất để gán mà không phá bất biến "một dòng = một máy".
 """
 
 import frappe
@@ -27,7 +35,6 @@ COLUMNS = [
 	},
 	{"label": "Tên máy", "fieldname": "ten_may", "fieldtype": "Data", "width": 180},
 	{"label": "Mã máy", "fieldname": "ma_may", "fieldtype": "Data", "width": 110},
-	{"label": "Khoa phòng đặt máy", "fieldname": "ten_khoa", "fieldtype": "Data", "width": 150},
 	{
 		"label": "Vật tư", "fieldname": "vat_tu_id", "fieldtype": "Link",
 		"options": "Customer Warehouse Item", "width": 160,

@@ -308,8 +308,16 @@ onMounted(() => {
                         <!-- "Chưa gắn máy" backend LUÔN xếp cuối theo_may (đã
                              kiểm ở test_tb6_bao_cao.py::test_phieu_cu_khong_
                              may_vao_nhom_chua_gan) — KHÔNG re-sort ở đây, chỉ
-                             tô khác đi để không trông như một máy thật. -->
-                        <tr v-for="m in row.theo_may" :key="m.thiet_bi || '__chua_gan__'"
+                             tô khác đi để không trông như một máy thật.
+
+                             KEY ghép CẢ thiet_bi LẪN khoa_phong (đợt sửa cuối,
+                             I-1): từ khi khoa lấy từ PHIẾU thay vì từ máy, một
+                             máy dùng chung có thể xuất hiện ở HAI dòng trong
+                             cùng theo_may (cùng máy, khác khoa trên phiếu) —
+                             key chỉ theo thiet_bi sẽ trùng, khiến Vue mis-patch
+                             hàng. -->
+                        <tr v-for="m in row.theo_may"
+                            :key="(m.thiet_bi || '__chua_gan__') + '|' + (m.khoa_phong || '__chua_gan_khoa__')"
                             :class="{ 'chua-gan': !m.thiet_bi }">
                           <td>{{ m.ten_may }}</td>
                           <td>{{ m.ten_khoa || '—' }}</td>

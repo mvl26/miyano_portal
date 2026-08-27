@@ -629,7 +629,12 @@ def tieu_thu_theo_thiet_bi_rows(
 
 	`customer=None` KHÔNG lọc — gom tất cả bệnh viện, đúng vai trò Desk
 	("nhân viên Miyano nhìn nhiều bệnh viện"), khác hẳn `reports.py` (một
-	kho của một khách, luôn suy từ phiên đăng nhập portal)."""
+	kho của một khách, luôn suy từ phiên đăng nhập portal).
+
+	KHÔNG có khoá `khoa_phong`/`ten_khoa` (đợt sửa cuối, I-1 — bản trước có,
+	suy từ `Customer Equipment.khoa_phong`, sai theo QĐ-TB-13, xem docstring
+	`reports.tieu_thu_theo_may_rows()` — lý do bỏ hẳn, không sửa thành lấy
+	từ phiếu)."""
 	khos = _active_khos(customer)
 	if not khos:
 		return []
@@ -647,8 +652,6 @@ def tieu_thu_theo_thiet_bi_rows(
 					"thiet_bi": may["thiet_bi"],
 					"ten_may": may["ten_may"],
 					"ma_may": may["ma_may"],
-					"khoa_phong": may["khoa_phong"],
-					"ten_khoa": may["ten_khoa"],
 					"vat_tu_id": vt["vat_tu_id"],
 					"ten_vat_tu": vt["ten"],
 					"dvt": vt["dvt"],
