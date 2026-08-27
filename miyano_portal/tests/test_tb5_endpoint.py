@@ -829,6 +829,35 @@ class TestExcelCotMaMay(_NenThietBi):
 		self.assertEqual(row["trang_thai"], "loi")
 		self.assertEqual(row["thiet_bi"], "")
 
+	def test_dong_loi_vi_so_luong_ma_may_van_khop_thi_khong_lo_thiet_bi(self):
+		"""Vòng sửa 1 (review coordinator) — ghim đúng vùng nguy hiểm giữa hai
+		cực mà bộ test ban đầu bỏ sót: `ma_thiet_bi` KHỚP một máy thật của
+		CHÍNH khách hàng này, nhưng dòng vẫn "loi" vì một lý do KHÁC (Số
+		lượng). Đây đúng là lỗ mà module đã vỡ một lần với `vat_tu` (xem
+		`test_kho_dong_phieu.py::test_dong_loi_co_ma_khop_vat_tu_that_thi_van_khong_lo_vat_tu`,
+		chú thích "khoá lỗ hổng round 2") — sao y bất biến mà không sao y ca
+		test khoá bất biến đó thì một refactor sau này (ví dụ bỏ gate
+		`trang_thai_cuoi == "khop"` ở dict trả về) có thể mở lại đúng lỗ ấy mà
+		không ca nào trong bộ test bắt được — hai cực còn lại (`ma_may` rỗng/sai,
+		hoặc dòng hoàn toàn "khop") không phân biệt được hai nhánh code."""
+		import io as _io
+		import openpyxl
+		wb = openpyxl.load_workbook(_io.BytesIO(dong_phieu.build_mau_xlsx("xuat")))
+		ws = wb.active
+		tieu_de = [c.value for c in ws[1]]
+		dong = [""] * len(tieu_de)
+		dong[tieu_de.index("Mã vật tư")] = self.vat_tu.ma_vat_tu
+		dong[tieu_de.index("Số lô")] = self.lo
+		dong[tieu_de.index("Số lượng")] = "abc"  # sai định dạng, không liên quan tới máy
+		dong[tieu_de.index("Mã máy")] = self.may_a.ma_thiet_bi  # máy THẬT, khớp đúng
+		ws.append(dong)
+		buf = _io.BytesIO()
+		wb.save(buf)
+		ra = dong_phieu.doc_file(buf.getvalue(), self.kho.name, "xuat")
+		row = ra["rows"][0]
+		self.assertEqual(row["trang_thai"], "loi")
+		self.assertEqual(row["thiet_bi"], "")
+
 	def test_ma_may_benh_vien_khac_bao_loi_giong_ma_khong_ton_tai(self):
 		"""Không được lộ ra rằng mã đó CÓ THẬT ở bệnh viện khác — thông điệp
 		phải cùng khuôn, chỉ khác phần mã được trích dẫn."""
