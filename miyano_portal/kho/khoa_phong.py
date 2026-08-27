@@ -163,10 +163,12 @@ def list_rows(
 
 	Brief 2026-08-15 (phân trang) — cùng ràng buộc/khuôn `ncc.list_rows()`:
 	endpoint `kho_khoa_phong_list` KIÊM HAI VAI (màn danh mục + dropdown
-	NhatKy.vue/BaoCaoNXT.vue), `limit=None` giữ nguyên hành vi cũ (list
-	đầy đủ), chỉ cắt trang khi `limit` được truyền — đọc docstring
-	`ncc.list_rows()` cho lý do đầy đủ (lọc Python, cắt trước khi tính
-	thống kê 90 ngày để không lãng phí truy vấn cho dòng không hiển thị).
+	NhatKy.vue/BaoCaoThietBi.vue — KHÔNG PHẢI `BaoCaoNXT.vue`, đính chính
+	Task 15 hạng mục 12b, xem docstring `list_rows_theo_khach()` ngay
+	dưới), `limit=None` giữ nguyên hành vi cũ (list đầy đủ), chỉ cắt trang
+	khi `limit` được truyền — đọc docstring `ncc.list_rows()` cho lý do
+	đầy đủ (lọc Python, cắt trước khi tính thống kê 90 ngày để không lãng
+	phí truy vấn cho dòng không hiển thị).
 
 	SỬA (fix-wave 2026-08-18, V3 — Ruling SAI §7.0 của kế hoạch gốc). Bản
 	trước lọc `{"kho": kho}` — cùng lỗi với `_khoa_cua_kho()` (`api/kho.py`,
@@ -176,12 +178,13 @@ def list_rows(
 	(suy từ `kho`) — cùng phạm vi `_existing_rows()` ngay trên đã dùng từ
 	Vòng sửa 1, phát hiện 4.
 
-	Task 12b — đòi `kho` là ĐÚNG THIẾT KẾ cho bốn màn dùng hàm này qua
-	endpoint `kho_khoa_phong_list` (NhatKy/BaoCaoNXT/PhieuXuat(Detail)/
+	Task 12b — đòi `kho` là ĐÚNG THIẾT KẾ cho tám màn dùng hàm này qua
+	endpoint `kho_khoa_phong_list` (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/
 	LapPhieu/DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue — đọc
-	kho trực tiếp, không có lý do bỏ đòi hỏi này). Hàm KHÔNG sửa ở đây —
-	xem `list_rows_theo_khach()` ngay dưới cho đường KHÔNG cần kho, dùng
-	riêng cho màn Thiết bị."""
+	kho trực tiếp, không có lý do bỏ đòi hỏi này; `BaoCaoNXT.vue` KHÔNG
+	gọi hàm này — tự grep xác nhận, sửa Task 15 hạng mục 12b). Hàm KHÔNG
+	sửa ở đây — xem `list_rows_theo_khach()` ngay dưới cho đường KHÔNG
+	cần kho, dùng riêng cho màn Thiết bị."""
 	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
 	return _list_rows_theo_customer(customer, tim_kiem, ca_inactive, limit, start)
 

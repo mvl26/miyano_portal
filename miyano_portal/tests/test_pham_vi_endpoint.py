@@ -158,9 +158,12 @@ KHO_DA_AP_PHAM_VI: dict[str, str] = {
 		"không cần guard sở hữu thêm ở tầng endpoint."
 	),
 	# Task 12b (28/08/2026) — endpoint MỚI, không phải một trong bốn của
-	# Task 7. `_thiet_bi_action` không tự lọc gì (cùng ghi chú đầu khối);
-	# phạm vi khoa nằm ở `khoa_phong_mod.list_rows_theo_khach()` ->
-	# `pham_vi_don()`, đúng khuôn `kho_thiet_bi_list` ngay trên.
+	# Task 7. Decorator thật trên `kho_khoa_phong_list_khach` là
+	# `_khoa_action`, không phải `_thiet_bi_action` (sửa Task 15 hạng mục
+	# 12b) — cùng dùng chung `_action()` nên cũng CHỈ dịch lỗi sang tiếng
+	# Việt, không tự lọc gì; phạm vi khoa nằm ở
+	# `khoa_phong_mod.list_rows_theo_khach()` -> `pham_vi_don()`, đúng khuôn
+	# `kho_thiet_bi_list` ngay trên.
 	"kho_khoa_phong_list_khach": (
 		"lọc trục khoa qua khoa_phong_mod.list_rows_theo_khach() -> "
 		"portal_context.pham_vi_don(): Nhân viên khoa chỉ thấy khoa của "

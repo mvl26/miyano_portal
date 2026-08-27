@@ -544,9 +544,11 @@ def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> li
 	"""Danh mục khoa phòng của kho — US-E8.1.
 
 	Brief 2026-08-15 (phân trang) — endpoint này KIÊM HAI VAI (màn danh
-	mục + dropdown NhatKy.vue/BaoCaoNXT.vue). `limit=None` giữ nguyên
-	hành vi cũ; phân trang thật sự nằm ở `kho/khoa_phong.py::list_rows()`
-	— xem docstring ở đó.
+	mục + dropdown NhatKy.vue/BaoCaoThietBi.vue — KHÔNG PHẢI `BaoCaoNXT.vue`,
+	đính chính Task 15 hạng mục 12b: tự grep xác nhận `BaoCaoNXT.vue` không
+	gọi endpoint này, xem docstring `kho_khoa_phong_list_khach` ngay dưới).
+	`limit=None` giữ nguyên hành vi cũ; phân trang thật sự nằm ở
+	`kho/khoa_phong.py::list_rows()` — xem docstring ở đó.
 	"""
 	return khoa_phong_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive, limit, start)
 
@@ -558,8 +560,10 @@ def kho_khoa_phong_list_khach(tim_kiem=None, ca_inactive=0, limit=None, start=0)
 
 	`kho_khoa_phong_list` (trên) suy `kho` qua `get_portal_kho()`, ném
 	`PermissionError` khi khách chưa có `Customer Warehouse` — đúng cho tám
-	màn đang dùng nó (NhatKy/BaoCaoNXT/PhieuXuat(Detail)/LapPhieu/DuyetList/
-	YeuCauList/DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho trực tiếp).
+	màn đang dùng nó (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/LapPhieu/
+	DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho
+	trực tiếp; `BaoCaoNXT.vue` KHÔNG gọi hàm này — tự grep xác nhận, sửa
+	Task 15 hạng mục 12b).
 	SAI cho ô "Khoa phòng" của `ThietBiModal.vue`: spec đề án §4.1 CỐ Ý treo
 	`Customer Equipment` vào `Customer` (không `Customer Warehouse`) CHÍNH
 	VÌ "Bệnh viện chưa mở kho trên cổng vẫn khai được máy" — nạp danh mục
