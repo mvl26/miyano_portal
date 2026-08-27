@@ -251,7 +251,7 @@ async function vanTao() {
         <p v-else class="tag">
           Chưa tải được danh sách máy hiện đang gắn với vật tư này ở màn danh mục — không sửa được ở đây để
           tránh xoá nhầm máy đã gắn từ trước. Mở lại "Sửa" sau khi vừa lưu một lần trong phiên này để sửa được,
-          hoặc liên hệ kỹ thuật (xem GHI NHẬN task-13-report.md).
+          hoặc liên hệ bộ phận quản trị hệ thống nếu tình trạng này lặp lại.
         </p>
       </div>
 

@@ -60,41 +60,85 @@ function labelOf(o) {
 // KHÔNG lọc gì để suy tên — đúng một round-trip mỗi khi modelValue đổi sang
 // một docname chưa biết tên, có bảo vệ giá trị cũ (resolvedFor) để không hiện
 // nhầm tên của lần trước trong lúc đang tải lần này.
-const resolvedLabel = ref('')
+//
+// QUAN TRỌNG (vòng sửa 1, Critical): dù gọi `ca_inactive: 1` và không kèm
+// `khoa_phong`, `thiet_bi.list_rows()` VẪN luôn áp bộ lọc theo khoa của
+// PHIÊN đăng nhập hiện tại (Nhân viên khoa chỉ thấy máy khoa mình + máy dùng
+// chung — server-side, client không khai báo được để tắt). Vì vậy "không tìm
+// thấy trong danh sách trả về" KHÔNG có nghĩa "máy không tồn tại/chưa chọn"
+// — rất có thể máy có thật (BR-TB-4 cho phép máy khác khoa với khoa nhận
+// trên phiếu, chỉ cảnh báo mềm) nhưng người xem hiện tại bị lọc quyền không
+// thấy nó. Ba trạng thái dưới đây PHẢI phân biệt được, không được gộp lại
+// thành một chuỗi rỗng như trước (khiến "có máy nhưng bị lọc" hiển thị y hệt
+// "chưa chọn máy" — sai với thực trạng dữ liệu, đặc biệt nguy hiểm trên dòng
+// đã ghi sổ vì không còn sửa được nữa).
+const resolvedLabel = ref('') // suy xong, TÌM THẤY trong danh sách đầy đủ
+const resolveNotFound = ref(false) // suy xong, KHÔNG thấy — có thể bị lọc theo khoa, không hẳn là không tồn tại
+const resolveError = ref('') // lỗi thật từ server lúc suy tên — hiện nguyên văn, không nuốt
 let resolvedFor = null
+
+function resetResolveState() {
+  resolvedLabel.value = ''
+  resolveNotFound.value = false
+  resolveError.value = ''
+}
 
 async function resolveLabel(name) {
   try {
     const list = await api.callKho('kho_thiet_bi_list', { ca_inactive: 1 })
     if (resolvedFor !== name) return // đã có một modelValue mới hơn xen vào
     const found = (list || []).find((o) => o.name === name)
-    resolvedLabel.value = found ? labelOf(found) : ''
+    if (found) {
+      resolvedLabel.value = labelOf(found)
+    } else {
+      resolveNotFound.value = true // KHÔNG suy ra là "chưa chọn" — xem chú thích ở trên
+    }
   } catch (e) {
-    if (resolvedFor === name) resolvedLabel.value = ''
+    if (resolvedFor === name) resolveError.value = e.message || 'Không tải được tên máy.'
   }
 }
 
 function kiemTraCanSuyNhan() {
   const val = props.modelValue
   if (!val) {
-    resolvedLabel.value = ''
+    resetResolveState()
     resolvedFor = null
     return
   }
-  if (options.value.some((o) => o.name === val)) return // đã có sẵn trong options
+  if (options.value.some((o) => o.name === val)) {
+    // Đã tìm thấy qua đường rẻ (options) — chỉ dọn cờ not-found/error của lần
+    // suy trước, KHÔNG đụng `resolvedLabel`: nếu `resolvedFor === val`,
+    // `resolvedLabel` đang mang đúng nhãn đã suy được cho CHÍNH giá trị này
+    // (vòng sửa 1, phát hiện qua advisor — bản trước gọi resetResolveState()
+    // ở đây, xoá luôn resolvedLabel; đổi vatTu qua lại đủ ba lần — lần 1 máy
+    // NGOÀI options nên suy qua round-trip, lần 2 máy LỌT vào options (xoá
+    // nhãn vừa suy), lần 3 máy lại NGOÀI options nhưng `resolvedFor` không
+    // đổi nên `resolveLabel()` không gọi lại — displayLabel kẹt vĩnh viễn ở
+    // "đang tải tên…" dù không còn round-trip nào đang chạy — CÙNG HỌ LỖI
+    // với Critical đang vá: một dòng có máy thật nhưng câu hiển thị nói khác).
+    resolveNotFound.value = false
+    resolveError.value = ''
+    return
+  }
   if (resolvedFor === val) return // đang suy hoặc đã suy xong đúng giá trị này
   resolvedFor = val
-  resolvedLabel.value = ''
+  resetResolveState()
   resolveLabel(val)
 }
 watch(() => props.modelValue, kiemTraCanSuyNhan, { immediate: true })
 watch(options, kiemTraCanSuyNhan)
 
+// Không bao giờ trả '' khi modelValue có giá trị — mọi nhánh dưới đây đều
+// phải nói đúng thực trạng: "đã ghi máy X" (kèm lý do nếu không xem được chi
+// tiết), không được đọc như "chưa chọn máy".
 const displayLabel = computed(() => {
   if (!props.modelValue) return ''
   const o = options.value.find((x) => x.name === props.modelValue)
   if (o) return labelOf(o)
-  return resolvedLabel.value
+  if (resolvedLabel.value) return resolvedLabel.value
+  if (resolveError.value) return `Đã ghi máy ${props.modelValue} — lỗi tải tên: ${resolveError.value}`
+  if (resolveNotFound.value) return `Đã ghi máy ${props.modelValue} — không xem được chi tiết (ngoài khoa/quyền của bạn)`
+  return `Đã ghi máy ${props.modelValue} — đang tải tên…`
 })
 
 // --- Tải danh sách gợi ý (dropdown) -----------------------------------------
@@ -175,11 +219,12 @@ onUnmounted(() => clearTimeout(searchTimer))
 </script>
 
 <template>
-  <input v-if="disabled" type="text" disabled :value="displayLabel || '—'" />
+  <input v-if="disabled" type="text" disabled :value="displayLabel || '—'" :title="displayLabel" />
   <div v-else class="tb-picker">
     <input
       type="text"
       :value="open ? tuKhoa : displayLabel"
+      :title="!open ? displayLabel : ''"
       placeholder="Tìm hoặc chọn máy…"
       autocomplete="off"
       @focus="onFocus"
