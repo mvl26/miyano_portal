@@ -9,7 +9,7 @@
  "is_submittable": 1,
  "field_order": [
   "kho", "ngay", "loai_xuat",
-  "col_1", "khoa_phong", "noi_nhan", "nguoi_nhan",
+  "col_1", "khoa_phong", "thiet_bi_mac_dinh", "noi_nhan", "nguoi_nhan",
   "sec_ref", "phieu_goc",
   "sec_items", "items", "tong_tien", "dien_giai", "amended_from"
  ],
@@ -19,6 +19,7 @@
   {"fieldname": "loai_xuat", "fieldtype": "Select", "label": "Loại xuất", "options": "Xuất sử dụng\nXuất huỷ - hết hạn\nXuất trả lại\nĐiều chỉnh kiểm kê\nPhiếu đảo", "reqd": 1, "default": "Xuất sử dụng", "in_list_view": 1},
   {"fieldname": "col_1", "fieldtype": "Column Break"},
   {"fieldname": "khoa_phong", "fieldtype": "Link", "label": "Khoa phòng nhận", "options": "Customer Department", "description": "E8/BR-CP2 — bắt buộc khi kho bật \"Bắt buộc khoa phòng\" và loại xuất là \"Xuất sử dụng\" (chỉ áp cho phiếu tạo sau khi bật cờ)"},
+  {"fieldname": "thiet_bi_mac_dinh", "fieldtype": "Link", "label": "Máy mặc định", "options": "Customer Equipment", "description": "Chỉ để điền nhanh xuống các dòng đang trống trên giao diện. KHÔNG ghi sổ, KHÔNG báo cáo nào đọc ô này."},
   {"fieldname": "noi_nhan", "fieldtype": "Data", "label": "Nơi nhận", "description": "Ghi tự do, ví dụ: Khoa Hồi sức tích cực"},
   {"fieldname": "nguoi_nhan", "fieldtype": "Data", "label": "Người nhận", "description": "≤100 ký tự; gợi ý theo lịch sử của khoa phòng đã chọn (BR-CP3)"},
   {"fieldname": "sec_ref", "fieldtype": "Section Break", "label": "Tham chiếu", "collapsible": 1},
