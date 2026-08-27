@@ -930,12 +930,20 @@ def bao_cao_cap_phat_rows(
 	thành "không biết gì cả", trong khi thật ra biết một phần.
 
 	CẤP THỨ BA — `theo_may` (task 10): mỗi nhóm khoa còn mang thêm khoá
-	`theo_may`, phân rã CHÍNH `gia_tri` của nhóm đó theo MÁY đã nhận (không
-	phải máy đang đặt ở khoa nào — đó là câu hỏi khác của
-	`bao_cao_thiet_bi_rows.theo_may`). CHỈ THÊM khoá, không đổi/xoá khoá cũ
-	nào (`khoa_phong`/`ten_hien_thi`/`gia_tri`/`pct`/`dong`) và không đổi
-	chữ ký — ba màn SPA và một nút Excel đang gọi hàm này với đúng các khoá
-	cũ đó.
+	`theo_may`, phân rã CHÍNH `gia_tri` của nhóm đó theo MÁY đã nhận — khoa
+	ở đây đã cố định bởi nhóm cha (khoa GHI TRÊN PHIẾU, không phải khoa máy
+	đang đặt). CHỈ THÊM khoá, không đổi/xoá khoá cũ nào (`khoa_phong`/
+	`ten_hien_thi`/`gia_tri`/`pct`/`dong`) và không đổi chữ ký — ba màn SPA
+	và một nút Excel đang gọi hàm này với đúng các khoá cũ đó.
+
+	LƯU Ý cho người đọc `bao_cao_thiet_bi_rows.theo_may`: sau đợt sửa cuối
+	(I-1), hàm đó CŨNG lấy khoa từ PHIẾU, giống hệt ở đây — KHÔNG còn là
+	"câu hỏi khác" (máy đang đặt ở khoa nào). Khác biệt còn lại chỉ là tổ
+	chức dữ liệu: ở đây khoa là khoá NHÓM CHA (phiếu xuất cho khoa nào thì
+	giá trị record vào khoa đó trước, rồi mới tách theo máy); ở
+	`bao_cao_thiet_bi_rows.theo_may`, khoa là một PHẦN của khoá bucket
+	(thiet_bi, khoa_phong) đi cùng cấp với máy, cho MỘT vật tư xuyên suốt kỳ
+	— không nhóm khoa trước.
 
 	`theo_may` dùng LẠI đúng vòng lặp và HAI LỚP LỌC đã lập luận ở trên
 	(không viết lại lọc theo cách khác — lọc một lớp sẽ lọt lớp kia), chỉ
@@ -1032,8 +1040,10 @@ def bao_cao_cap_phat_rows(
 		tm["sl"] += -float(e["so_luong"])
 		tm["gia_tri"] += -float(e["gia_tri"] or 0)
 
-	# Bulk tên máy + khoa của máy cho MỌI thiet_bi từng có mặt trong
-	# theo_may_map — một lượt, không N+1 theo từng nhóm khoa.
+	# Bulk tên máy cho MỌI thiet_bi từng có mặt trong theo_may_map — một
+	# lượt, không N+1 theo từng nhóm khoa. KHÔNG tra `Customer Equipment.
+	# khoa_phong` ở đây: khoa (`kp`, khoá ngoài của theo_may_map) đã chốt
+	# từ `iss["khoa_phong"]` (khoa GHI TRÊN PHIẾU) ở vòng lặp phía trên.
 	all_thiet_bi = {tb for buckets in theo_may_map.values() for tb in buckets if tb}
 	may_info = {
 		r["name"]: r for r in frappe.get_all(
@@ -1178,11 +1188,18 @@ def bao_cao_thiet_bi_rows(
 	đó — nếu dữ liệu trùng tên từng phát sinh, gộp theo tên sẽ cộng nhầm.
 	Cùng lý lẽ với việc gộp `vat_tu` theo docname bên dưới: trong CÙNG một
 	kho `ten_vat_tu` không duy nhất — hai vật tư khác ĐVT trùng tên sẽ bị
-	cộng nhầm nếu gộp theo tên. Khoa phòng của một dòng `theo_may` là
-	khoa mà MÁY ĐÓ đang đặt (`Customer Equipment.khoa_phong`) — khác trục
-	nhóm của `bao_cao_cap_phat_rows` (khoa trên ĐẦU PHIẾU xuất, nơi hàng
-	được giao tới); ở đây câu hỏi là "máy này, đang ở khoa nào", không phải
-	"phiếu này giao cho khoa nào". Nhóm `thiet_bi=None` ("Chưa gắn máy")
+	cộng nhầm nếu gộp theo tên. Khoa phòng của một dòng `theo_may` là khoa
+	GHI TRÊN PHIẾU XUẤT tại thời điểm cấp phát (`Customer Stock Issue.
+	khoa_phong`), KHÔNG phải khoa mà `Customer Equipment.khoa_phong` (master
+	máy) đang ghi — QĐ-TB-13 (spec §3.1, §9.1): suy khoa theo master máy sẽ
+	làm số liệu các kỳ TRƯỚC tự viết lại đúng vào ngày máy đó chuyển khoa,
+	vì master chỉ giữ khoa HIỆN TẠI của máy, không phải khoa tại từng thời
+	điểm xuất. Bucket khoá theo CẢ hai trục (thiet_bi, khoa_phong-trên-phiếu)
+	đúng như vậy — một máy có thể lên phiếu của nhiều khoa khác nhau trong
+	cùng kỳ (BR-TB-4 chỉ CẢNH BÁO khoa trên phiếu lệch khoa của máy, không
+	cấm), nên câu hỏi ở đây là "phiếu này giao cho khoa nào", cùng trục với
+	`bao_cao_cap_phat_rows`, KHÔNG phải "máy này hiện đang ở khoa nào". Nhóm
+	`thiet_bi=None` ("Chưa gắn máy")
 	LUÔN xếp cuối `theo_may`, không lẫn vào máy thật, không bị giấu — cùng
 	lý lẽ nhóm "Chưa gắn khoa" của `bao_cao_cap_phat_rows`: đó là dữ liệu
 	thật.

@@ -151,7 +151,21 @@ const canDoi = computed(() => {
 function dsMaySuDung(row) {
   const thatSu = row.theo_may.filter((m) => m.thiet_bi)
   const coChuaGan = row.theo_may.some((m) => !m.thiet_bi)
-  return { ten: thatSu.map((m) => m.ten_may), coChuaGan, rong: row.theo_may.length === 0 }
+  // Khử trùng lặp theo DOCNAME (`m.thiet_bi`), không theo tên hiển thị —
+  // cùng quy ước xuyên suốt nhánh (backend gộp theo_may theo docname, xem
+  // reports.bao_cao_thiet_bi_rows). Từ khi khoa lấy theo PHIẾU (đợt sửa
+  // cuối, I-1), một máy lên hai phiếu khác nhau trong kỳ — kể cả khi chỉ
+  // khác ở có/không điền khoa_phong trên phiếu — tạo HAI bucket cùng
+  // `thiet_bi` khác `khoa_phong` trong `row.theo_may` (xem key ghép ở
+  // template dưới). Cột tóm tắt này liệt kê MÁY, không liệt kê MÁY×KHOA,
+  // nên phải gộp lại — không khử sẽ hiện "Máy A, Máy A".
+  const idDuyNhat = [...new Set(thatSu.map((m) => m.thiet_bi))]
+  const tenTheoId = new Map(thatSu.map((m) => [m.thiet_bi, m.ten_may]))
+  return {
+    ten: idDuyNhat.map((id) => tenTheoId.get(id)),
+    coChuaGan,
+    rong: row.theo_may.length === 0,
+  }
 }
 
 // kho_bao_cao_excel (loai="thiet_bi") CHỈ nhận tu_ngay/den_ngay/khoa_phong/
