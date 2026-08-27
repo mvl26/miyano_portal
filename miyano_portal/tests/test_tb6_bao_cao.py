@@ -318,19 +318,21 @@ class TestBaoCaoTheoMay(FrappeTestCase):
 			"ten_khoa_phong": "ZZTB10 Khoa A", "ma_khoa": "ZZTB10KA",
 		}).insert(ignore_permissions=True)
 
-		# Hai máy CÙNG TÊN, khác docname — chuyện thường (bệnh viện mua hai
-		# máy giống hệt) và là ca test bắt buộc của task-10-brief.md.
+		# Hai máy CÙNG TÊN, khác docname — ca test bắt buộc của
+		# task-10-brief.md để ghim việc gộp theo DOCNAME, không theo tên.
 		#
-		# LỆCH cần ghi rõ (xem task-10-report.md): `CustomerEquipment.
-		# _chan_trung_ten()` (Task 1, BR gốc) hiện CHẶN CỨNG hai máy trùng
-		# tên trong CÙNG một khách hàng — ngược hẳn tiền đề "chuyện thường"
-		# của task-10-brief.md. Task 10 không được giao sửa
-		# customer_equipment.py (không nằm trong "Files" của brief, và nới
-		# lỏng BR-TB đó là quyết định nghiệp vụ ngoài phạm vi task này) nên
-		# ở đây dựng dữ liệu bằng `flags.ignore_validate` để mô phỏng đúng
-		# tình huống "dữ liệu trùng tên đã tồn tại" (di trú/nhập Excel cũ,
-		# hoặc chờ BR được nới) mà lớp báo cáo VẪN PHẢI gộp đúng theo docname
-		# — không phụ thuộc việc tầng tạo mới có cho phép hay không.
+		# QUYẾT ĐỊNH đã chốt (chủ đầu tư, vòng sửa 1 của Task 10, xem
+		# task-10-report.md): GIỮ NGUYÊN luật tên máy duy nhất — spec §4.1
+		# là thẩm quyền, "hai máy trùng tên là chuyện thường" trong
+		# task-10-brief.md là brief SAI, không phải spec sai.
+		# `CustomerEquipment._chan_trung_ten()` (Task 1) CHẶN CỨNG hai máy
+		# trùng `ten_thiet_bi` trong CÙNG một khách hàng — nghĩa là qua
+		# đường tạo mới bình thường, trạng thái dựng ở đây KHÔNG THỂ phát
+		# sinh. Đây KHÔNG phải mô phỏng một tình huống thật (không có "di
+		# trú"/"import cũ" nào tạo ra được nó — chưa từng có đường nào khác
+		# ngoài `ignore_validate`); đây là dựng THẲNG một trạng thái BẤT KHẢ
+		# qua đường bình thường, chỉ để ghim logic gộp theo docname vẫn đúng
+		# NẾU luật đổi trong tương lai — phòng thủ, không phải hiện trạng.
 		self.may_x1 = frappe.get_doc({
 			"doctype": "Customer Equipment", "customer": KHACH_MAY_A,
 			"ma_thiet_bi": "ZZTB10-MX1", "ten_thiet_bi": "Máy XN-500",
@@ -476,6 +478,34 @@ class TestBaoCaoTheoMay(FrappeTestCase):
 				self.assertAlmostEqual(
 					sum(m["gia_tri"] for m in nhom["theo_may"]), nhom["gia_tri"], places=2
 				)
+
+	def test_theo_may_loc_hai_lop_khi_co_phieu_dao(self):
+		"""I-2 (review vòng sửa 1) — `theo_may` của `bao_cao_cap_phat_rows`
+		trước bản này CHỈ có `test_theo_may_cong_bang_gia_tri_cua_khoa` bảo
+		vệ, và ca đó là một bất biến HÌNH THỨC: `sum(theo_may.gia_tri)` và
+		`nhom.gia_tri` cộng từ CÙNG một vòng lặp, CÙNG một `continue` lọc
+		`loai_xuat` — xoá bộ lọc đó làm CẢ HAI vế lệch NHƯ NHAU nên ca đó
+		không đỏ (cùng loại bẫy "bất biến hàng cân tautological" Task 9 đã
+		bị chỉ ra). Ca này kiểm một GIÁ TRỊ TUYỆT ĐỐI, không phải một tổng
+		nội bộ, nên không tự triệt tiêu theo cách đó.
+
+		`vat_tu_dao`/`may_dao` (khoa_phong=None -> nhóm "Chưa gắn khoa"): một
+		phiếu 5 đơn vị GIỮ NGUYÊN (đơn giá 20.000 -> gia_tri 100.000) và một
+		phiếu 10 đơn vị bị HUỶ. Lọc đúng hai lớp phải ra sl=5.0/gia_tri=
+		100.000 cho `may_dao`; thiếu lớp `loai_xuat` sẽ cộng NGƯỢC DẤU dòng
+		bù trừ của phiếu đảo (nó VẪN mang `thiet_bi=may_dao` vì Task 3 chép
+		sang) vào tổng, ra sl=-5.0/gia_tri=-100.000 — sai rõ ràng.
+
+		Thực nghiệm xác nhận (ghi lại trong task-10-report.md): xoá tạm điều
+		kiện `iss["loai_xuat"] != "Xuất sử dụng"` khỏi vòng lặp xây
+		`theo_may_map` trong `bao_cao_cap_phat_rows` -> ca này ĐỎ (gia_tri
+		ra -100000.0 thay vì 100000.0) -> revert -> xanh lại.
+		"""
+		bc = reports.bao_cao_cap_phat_rows(self.kho, self.tu, self.den)
+		nhom_chua_gan = next(n for n in bc["nhom"] if n["khoa_phong"] is None)
+		dong = next(m for m in nhom_chua_gan["theo_may"] if m["thiet_bi"] == self.may_dao.name)
+		self.assertAlmostEqual(dong["sl"], 5.0, places=4)
+		self.assertAlmostEqual(dong["gia_tri"], 100000.0, places=2)
 
 	def test_theo_may_tach_hai_may_cung_ten_theo_docname(self):
 		"""Khoa A có HAI máy cùng tên 'Máy XN-500' (khác docname) — phải ra

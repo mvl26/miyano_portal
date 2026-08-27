@@ -945,9 +945,16 @@ def bao_cao_cap_phat_rows(
 	entries đã qua đúng cùng bộ lọc.
 
 	GỘP THEO DOCNAME máy, không theo tên (cùng lý lẽ `vat_tu_id` ở "dong" và
-	`bao_cao_thiet_bi_rows.theo_may`): một bệnh viện mua hai máy giống hệt,
-	khai trùng tên `ten_thiet_bi`, là chuyện thường — gộp theo tên sẽ cộng
-	nhầm hai máy khác nhau vào một dòng. Nhóm `thiet_bi=None`
+	`bao_cao_thiet_bi_rows.theo_may`) — PHÒNG THỦ, không phải mô tả trạng
+	thái dữ liệu bình thường: luật hiện hành (`CustomerEquipment.
+	_chan_trung_ten()`, spec §4.1) CHẶN CỨNG hai máy trùng `ten_thiet_bi`
+	trong CÙNG một khách hàng, nên qua đường tạo mới bình thường một khách
+	hàng KHÔNG BAO GIỜ có hai máy trùng tên. Gộp theo docname vẫn là lựa
+	chọn đúng: nó không phụ thuộc luật đó có đổi hay không, và nếu dữ liệu
+	trùng tên phát sinh qua đường khác (luật được nới sau này, thao tác
+	thẳng vào DB, ...) thì gộp theo tên sẽ âm thầm cộng nhầm hai máy khác
+	nhau vào một dòng — trả giá bằng đúng ba dòng code này để không phải
+	trả giá bằng một con số sai không ai phát hiện. Nhóm `thiet_bi=None`
 	("Chưa gắn máy" — dòng sổ không có `Customer Stock Issue Item.thiet_bi`)
 	LUÔN xếp cuối `theo_may`, không lẫn vào máy thật, không bị giấu.
 	"""
@@ -1073,12 +1080,15 @@ def bao_cao_cap_phat_rows(
 		gia_tri = round(v["gia_tri"], 2)
 
 		# task 10 — cấp thứ BA: máy nào (trong khoa NÀY) đã nhận bao nhiêu.
-		# GỘP THEO DOCNAME máy, không theo tên (một bệnh viện mua hai máy
-		# giống hệt, trùng tên, là chuyện thường — xem docstring
-		# bao_cao_thiet_bi_rows). `sum(m["gia_tri"] for m in theo_may)` LUÔN
-		# đúng bằng `gia_tri` của CHÍNH nhóm này theo cấu trúc: cả hai đều
-		# cộng từ đúng cùng một tập entries đã qua đúng cùng hai lớp lọc,
-		# chỉ khác trục gộp (phiếu×vật tư ở "dong", máy ở "theo_may").
+		# GỘP THEO DOCNAME máy, không theo tên — PHÒNG THỦ: luật hiện hành
+		# (CustomerEquipment._chan_trung_ten(), spec §4.1) chặn cứng hai máy
+		# trùng ten_thiet_bi trong CÙNG khách hàng, nên qua đường tạo mới
+		# bình thường trạng thái trùng tên không phát sinh được; xem docstring
+		# bao_cao_cap_phat_rows cho lý do vẫn gộp theo docname bất kể luật đó.
+		# `sum(m["gia_tri"] for m in theo_may)` LUÔN đúng bằng `gia_tri` của
+		# CHÍNH nhóm này theo cấu trúc: cả hai đều cộng từ đúng cùng một tập
+		# entries đã qua đúng cùng hai lớp lọc, chỉ khác trục gộp (phiếu×vật
+		# tư ở "dong", máy ở "theo_may").
 		theo_may = []
 		for tb, b in theo_may_map.get(kp, {}).items():
 			if tb is None:
@@ -1392,12 +1402,17 @@ def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
 	MỌI vật tư đã xuất cho máy đó trong kỳ, kèm chi tiết theo vật tư.
 
 	Một dòng = MỘT máy, khoá theo DOCNAME `thiet_bi` (`Customer Equipment.
-	name`), KHÔNG theo `ten_thiet_bi`: một bệnh viện mua hai máy giống hệt
-	và khai trùng tên là chuyện thường (chính ca test bắt buộc của task 10,
-	Task 9 để ngỏ) — gộp theo tên sẽ cộng nhầm hai máy khác nhau làm một.
-	Nhóm `thiet_bi=None` ("Chưa gắn máy") LUÔN xếp cuối, không lẫn vào máy
-	thật, không bị giấu — cùng quy ước "Chưa gắn khoa"/"Chưa gắn máy" đã
-	dùng xuyên suốt module này.
+	name`), KHÔNG theo `ten_thiet_bi` — PHÒNG THỦ, không phải mô tả trạng
+	thái bình thường: luật hiện hành (`CustomerEquipment._chan_trung_ten()`,
+	spec §4.1) chặn cứng hai máy trùng tên trong CÙNG một khách hàng, nên
+	qua đường tạo mới bình thường một khách hàng KHÔNG có hai máy trùng
+	tên. Ca test bắt buộc của task 10 (Task 9 để ngỏ) dựng trạng thái đó
+	bằng `flags.ignore_validate` để ghim đúng việc gộp theo docname vẫn
+	đúng BẤT KỂ luật đó — nếu dữ liệu trùng tên từng phát sinh (luật được
+	nới sau này, thao tác thẳng vào DB, ...), gộp theo tên sẽ âm thầm cộng
+	nhầm hai máy khác nhau làm một. Nhóm `thiet_bi=None` ("Chưa gắn máy")
+	LUÔN xếp cuối, không lẫn vào máy thật, không bị giấu — cùng quy ước
+	"Chưa gắn khoa"/"Chưa gắn máy" đã dùng xuyên suốt module này.
 
 	HAI LỚP LỌC, giống hệt `bao_cao_cap_phat_rows`/`bao_cao_thiet_bi_rows`
 	(không viết lại theo cách khác — lọc một lớp sẽ lọt lớp kia):
@@ -1501,9 +1516,12 @@ def tieu_thu_theo_may_rows(kho: str, tu_ngay, den_ngay) -> list[dict]:
 		})
 
 	# "Chưa gắn máy" LUÔN cuối; docname làm tie-break BẮT BUỘC (không phải
-	# tuỳ chọn) vì hai máy TRÙNG TÊN là chuyện thường (xem docstring) — nếu
-	# không tie-break bằng docname, thứ tự của hai dòng cùng tên phụ thuộc
-	# thứ tự lặp không đảm bảo của dict, không ổn định giữa hai lần chạy.
+	# tuỳ chọn) — luật hiện hành chặn hai máy trùng tên trong CÙNG một khách
+	# hàng (xem docstring), nhưng tie-break này KHÔNG phụ thuộc luật đó còn
+	# hiệu lực hay không: nếu hai dòng có cùng `ten_may` (dù luật hiện tại
+	# chặn ca đó, hay một máy "Chưa gắn máy" và một máy thật trùng tên rác),
+	# thứ tự của chúng phải ổn định giữa hai lần chạy thay vì phụ thuộc thứ
+	# tự lặp không đảm bảo của dict.
 	out.sort(key=lambda r: (r["thiet_bi"] is None, r["ten_may"], r["thiet_bi"] or ""))
 	return out
 
