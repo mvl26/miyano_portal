@@ -39,8 +39,8 @@
   {"fieldname": "bat_buoc_khoa_phong", "fieldtype": "Check", "label": "Bắt buộc chọn khoa phòng khi Xuất sử dụng", "default": "0", "description": "US-E8.2/BR-CP2 — chỉ áp cho phiếu \"Xuất sử dụng\" TẠO SAU thời điểm bật cờ này (xem Bắt buộc từ). Phiếu nháp tạo trước đó vẫn ghi sổ được không cần khoa."},
   {"fieldname": "col_cap_phat", "fieldtype": "Column Break"},
   {"fieldname": "bat_buoc_khoa_phong_tu", "fieldtype": "Datetime", "label": "Bắt buộc từ", "read_only": 1, "description": "Hệ tự ghi thời điểm cờ bên trái chuyển từ tắt sang bật — không sửa tay được."},
-  {"fieldname": "bat_buoc_thiet_bi", "fieldtype": "Check", "label": "Bắt buộc chọn máy khi Xuất sử dụng", "default": "0", "description": "BR-TB-3 — chỉ áp cho phiếu \"Xuất sử dụng\" TẠO SAU thời điểm bật cờ này (xem Bắt buộc từ). Phiếu nháp tạo trước đó vẫn ghi sổ được không cần máy."},
-  {"fieldname": "bat_buoc_thiet_bi_tu", "fieldtype": "Datetime", "label": "Bắt buộc chọn máy từ", "read_only": 1, "description": "Hệ tự ghi thời điểm cờ bên trái chuyển từ tắt sang bật — không sửa tay được."}
+  {"fieldname": "bat_buoc_thiet_bi", "fieldtype": "Check", "label": "Bắt buộc chọn máy khi Xuất sử dụng", "default": "0", "description": "BR-TB-3 — chỉ áp cho phiếu \"Xuất sử dụng\" TẠO SAU thời điểm bật cờ này (xem Bắt buộc chọn máy từ). Phiếu nháp tạo trước đó vẫn ghi sổ được không cần máy."},
+  {"fieldname": "bat_buoc_thiet_bi_tu", "fieldtype": "Datetime", "label": "Bắt buộc chọn máy từ", "read_only": 1, "description": "Hệ tự ghi thời điểm cờ Bắt buộc chọn máy ở trên chuyển từ tắt sang bật — không sửa tay được."}
  ],
  "index_web_pages_for_search": 0,
  "links": [],

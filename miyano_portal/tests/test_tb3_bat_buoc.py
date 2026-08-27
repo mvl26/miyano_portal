@@ -8,6 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 KHACH = "ZZTB3 Benh Vien"
+KHACH_MOI = "ZZTB3 Benh Vien Moi"
 
 
 class TestBatBuocThietBi(FrappeTestCase):
@@ -69,12 +70,14 @@ class TestBatBuocThietBi(FrappeTestCase):
 		self.kho.save(ignore_permissions=True)
 
 	def _don(self):
-		"""Dọn CHỈ dữ liệu của khách hàng ZZTB3 của bộ test này.
+		"""Dọn CHỈ dữ liệu của hai khách hàng ZZTB3 của bộ test này (KHACH và
+		KHACH_MOI — KHACH_MOI phục vụ ca "kho mới tạo với cờ bật sẵn", cần
+		khách hàng riêng vì mỗi khách hàng chỉ được một kho).
 
 		TUYỆT ĐỐI không xoá không lọc — erptest.local là site làm việc thật
 		mang dữ liệu demo của nhiều bệnh viện và nhiều bộ test khác.
 		"""
-		khach = [KHACH]
+		khach = [KHACH, KHACH_MOI]
 		khos = frappe.get_all(
 			"Customer Warehouse", filters={"customer": ["in", khach]}, pluck="name"
 		) or [""]
@@ -138,6 +141,45 @@ class TestBatBuocThietBi(FrappeTestCase):
 		doc = self._phieu_nhap_lieu(thiet_bi=self.may.name)
 		doc.submit()
 		self.assertEqual(doc.docstatus, 1)
+
+	def test_moc_khong_bi_ghi_de_khi_luu_lai_kho(self):
+		"""Giết đột biến `if bat:` (bỏ điều kiện `not truoc`) trong
+		`_ghi_moc_bat_buoc_thiet_bi()`: nếu mốc bị ghi đè mỗi lần lưu kho
+		trong khi cờ đang bật, thời hạn ân hạn bị đặt lại liên tục — một
+		phiếu nháp lập từ hôm qua sẽ bị chặn chỉ vì hôm nay ai đó sửa một
+		field không liên quan của kho (ví dụ tên thủ kho) rồi bấm Lưu."""
+		self._bat_co()
+		moc_qua_khu = frappe.utils.add_to_date(frappe.utils.now_datetime(), days=-5)
+		frappe.db.set_value(
+			"Customer Warehouse", self.kho.name, "bat_buoc_thiet_bi_tu", moc_qua_khu
+		)
+		self.kho.reload()
+		self.kho.thu_kho = "Ai đó khác"
+		self.kho.save(ignore_permissions=True)
+		moc_sau = frappe.db.get_value(
+			"Customer Warehouse", self.kho.name, "bat_buoc_thiet_bi_tu"
+		)
+		self.assertEqual(
+			frappe.utils.get_datetime(moc_sau), frappe.utils.get_datetime(moc_qua_khu)
+		)
+
+	def test_kho_moi_tao_voi_co_bat_san_co_moc_ngay(self):
+		"""Nhánh `is_new()` của `_ghi_moc_bat_buoc_thiet_bi()`: kho MỚI tạo
+		với cờ bật sẵn phải có mốc ngay từ insert() đầu tiên, không đợi một
+		lần bật thứ hai. Cần khách hàng RIÊNG (KHACH_MOI) vì mỗi khách hàng
+		chỉ được có một kho (_one_per_customer)."""
+		frappe.get_doc({
+			"doctype": "Customer", "customer_name": KHACH_MOI,
+			"customer_type": "Company", "customer_group": "All Customer Groups",
+			"territory": "All Territories",
+		}).insert(ignore_permissions=True)
+		kho_moi = frappe.get_doc({
+			"doctype": "Customer Warehouse", "customer": KHACH_MOI,
+			"ten_kho": "ZZTB3 Kho Moi", "ma_kho": "ZZTB3M",
+			"ngay_bat_dau": frappe.utils.add_days(frappe.utils.today(), -30),
+			"bat_buoc_thiet_bi": 1,
+		}).insert(ignore_permissions=True)
+		self.assertIsNotNone(kho_moi.bat_buoc_thiet_bi_tu)
 
 	def test_phieu_dao_khong_bi_chan(self):
 		"""on_cancel KHÔNG được phép ném lỗi — bật cờ giữa lúc xuất và lúc
