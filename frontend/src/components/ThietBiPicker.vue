@@ -116,6 +116,20 @@ function kiemTraCanSuyNhan() {
     // đổi nên `resolveLabel()` không gọi lại — displayLabel kẹt vĩnh viễn ở
     // "đang tải tên…" dù không còn round-trip nào đang chạy — CÙNG HỌ LỖI
     // với Critical đang vá: một dòng có máy thật nhưng câu hiển thị nói khác).
+    //
+    // Vòng sửa 2 (re-review, phát hiện lỗ còn sót): hai cờ này KHÔNG theo
+    // từng docname — chỉ dọn khi `resolvedFor === val`, tức chúng đang thuộc
+    // ĐÚNG giá trị hiện tại. Nếu `resolvedFor` đang trỏ một giá trị KHÁC
+    // (A) trong khi `val` (B) vừa lọt vào options, KHÔNG được đụng cờ của A
+    // — và phải đặt `resolvedFor = null` để giá trị A, nếu quay lại sau này
+    // (undo, hoặc `v-for` không có `:key` ổn định tái dùng component cho
+    // dòng khác), buộc round-trip lại thay vì bị nhánh `resolvedFor === val`
+    // ở dưới early-return vào đúng cờ rỗng đã bị dọn nhầm trước đó — kẹt
+    // "đang tải tên…" vĩnh viễn, cùng họ lỗi Critical.
+    if (resolvedFor !== val) {
+      resolvedFor = null
+      return
+    }
     resolveNotFound.value = false
     resolveError.value = ''
     return
