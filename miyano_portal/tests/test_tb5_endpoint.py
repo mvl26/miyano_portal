@@ -327,3 +327,67 @@ class TestThietBiLogic(_NenThietBi):
 		này."""
 		with self.assertRaises(frappe.PermissionError):
 			thiet_bi_mod.gan_vao_vat_tu(self.vat_tu.name, self.may_benh_vien_khac.name)
+
+	# -- Review vòng 1 (Important #1) — fail-closed chốt TẠI RANH GIỚI
+	# thiet_bi.py, không chỉ ở pham_vi_don()/thiet_bi_query (đã chốt ở Task
+	# 5, KHÔNG kiểm ranh giới module này). Đi vòng qua PortalMember.
+	# validate() bằng db.set_value, đúng kịch bản đã xác nhận có thật
+	# (test_tb4_cach_ly.py::test_nhan_vien_khoa_active_ma_khoa_phong_rong_
+	# fail_closed).
+
+	def test_nhan_vien_khoa_active_khoa_rong_bi_chan_o_moi_ham(self):
+		"""Important #1 — nếu `_khoa_ep_theo_phien`/`_chan_sua_ngoai_pham_vi`/
+		`list_rows` từng quay lại đọc thẳng `vai_tro`/`khoa_phong` (hoặc bọc
+		`pham_vi_don()` trong try/except nuốt lỗi), test này phải đỏ — xem
+		"Vòng sửa 1" trong task-6-report.md cho kết quả thực nghiệm đột biến."""
+		frappe.db.set_value("Portal Member", self.tv_nv_a.name, "khoa_phong", "")
+		frappe.set_user(self.nv_a)
+		with self.assertRaises(frappe.PermissionError):
+			thiet_bi_mod.list_rows(self.khach, self.nv_a)
+		with self.assertRaises(frappe.PermissionError):
+			thiet_bi_mod.save(self.khach, self.nv_a, {
+				"ma_thiet_bi": "ZZTB5-BROKEN", "ten_thiet_bi": "May hong khoa",
+			})
+		with self.assertRaises(frappe.PermissionError):
+			thiet_bi_mod.tao_nhanh(self.khach, self.nv_a, {
+				"ten_thiet_bi": "May hong khoa nhanh", "ma_thiet_bi": "ZZTB5-BROKEN2",
+			})
+
+	# -- Review vòng 1 (Important #2) — ra_dict() tự kiểm tenant --------------
+
+	def test_ra_dict_tra_dung_may_cua_minh(self):
+		ra = thiet_bi_mod.ra_dict(self.may_a.name, self.khach)
+		self.assertEqual(ra["name"], self.may_a.name)
+
+	def test_ra_dict_tu_choi_may_benh_vien_khac(self):
+		with self.assertRaises(frappe.PermissionError):
+			thiet_bi_mod.ra_dict(self.may_benh_vien_khac.name, self.khach)
+
+	def test_ra_dict_khong_ton_tai_va_may_benh_vien_khac_cung_thong_diep(self):
+		"""Không phân biệt "không tồn tại" với "của bệnh viện khác" — phân
+		biệt là lộ ra một docname bệnh viện khác có thật."""
+		with self.assertRaises(frappe.PermissionError) as cm1:
+			thiet_bi_mod.ra_dict("ZZTB5-KHONG-TON-TAI", self.khach)
+		with self.assertRaises(frappe.PermissionError) as cm2:
+			thiet_bi_mod.ra_dict(self.may_benh_vien_khac.name, self.khach)
+		self.assertEqual(str(cm1.exception), str(cm2.exception))
+
+	# -- Review vòng 1 (Important #3) — vat_tu không còn là oracle -----------
+
+	def test_loc_tang_hai_tu_choi_vat_tu_benh_vien_khac(self):
+		"""`vat_tu` của bệnh viện khác (có thật, `vat_tu_khac_kho`) phải cho
+		kết quả GIỐNG HỆT một `vat_tu` không tồn tại — không còn phân biệt
+		được, không còn là oracle dò tồn tại xuyên bệnh viện."""
+		frappe.set_user(self.ql)
+		ten_khac_vien = {
+			r["name"] for r in thiet_bi_mod.list_rows(
+				self.khach, self.ql, vat_tu=self.vat_tu_khac_kho.name
+			)
+		}
+		ten_khong_ton_tai = {
+			r["name"] for r in thiet_bi_mod.list_rows(
+				self.khach, self.ql, vat_tu="ZZTB5-KHONG-TON-TAI"
+			)
+		}
+		self.assertEqual(ten_khac_vien, ten_khong_ton_tai)
+		self.assertEqual(len(ten_khac_vien), 3)

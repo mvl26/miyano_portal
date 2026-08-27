@@ -37,6 +37,12 @@ TRUONG_TAO_NHANH = ("ten_thiet_bi", "ma_thiet_bi", "hang_san_xuat", "xuat_xu", "
 # Trường mô tả tự do — rỗng hoá thành "" khi trả ra (không trả None cho SPA).
 _TRUONG_MO_TA_RONG = ("hang_san_xuat", "xuat_xu", "model", "so_serial", "ghi_chu")
 
+# Important #2 (review vòng 1) — thông điệp DUY NHẤT cho "không tồn tại" VÀ
+# "tồn tại nhưng của bệnh viện khác", đúng khuôn `portal_context.LOI_KHONG_
+# THAY`: phân biệt hai câu đó là lộ thêm thông tin ("bệnh viện khác có thiết
+# bị mã X") mà một khách hàng không cần biết.
+LOI_KHONG_THAY = "Không tìm thấy thiết bị."
+
 
 def _khoa_ep_theo_phien(user: str, khoa_client):
 	"""BR-TB-6 — ép khoa theo phiên, không tin client.
@@ -47,12 +53,20 @@ def _khoa_ep_theo_phien(user: str, khoa_client):
 	thuộc ĐÚNG bệnh viện `customer` khi ghi, nên không lặp lại kiểm đó ở
 	đây).
 
-	SỬA SO VỚI BRIEF (quan trọng): khối "Khung bắt buộc" của brief gốc viết
-	hàm này bằng cách tự đọc `get_portal_member(user).vai_tro`/`.khoa_phong`
-	trực tiếp — ĐÚNG anti-pattern mà CHÍNH đoạn mô tả brief ngay phía trên nó
-	cấm tường minh ("đừng tự đọc vai_tro/khoa_phong rồi tự suy — bản đầu của
-	kế hoạch làm vậy và đã fail-open"), và đúng lỗi mà review I2 của
-	`portal_context.khoa_phong_cho_don()` từng bắt. Nếu một Nhân viên khoa
+	SỬA SO VỚI KHUNG CODE TRONG task-6-brief.md (đính chính vòng review 1 —
+	nguồn trích dẫn trước đây SAI): khối "Khung bắt buộc" trong task-6-brief.md
+	tự viết hàm này bằng cách đọc thẳng `get_portal_member(user).vai_tro`/
+	`.khoa_phong`, chỉ dẫn docstring của CHÍNH nó là "Cùng nguyên tắc
+	`portal_context.khoa_phong_cho_don()`" — không có câu cấm nào trong
+	task-6-brief.md. Câu cấm "đừng tự đọc vai_tro/khoa_phong rồi tự suy — bản
+	đầu của kế hoạch làm vậy và đã fail-open" nằm trong CHỈ THỊ GIAO TASK gửi
+	kèm (không phải trong file brief), và chính chỉ thị đó là căn cứ cho
+	quyết định viết lại này — hai nguồn khác nhau đưa ra hai định hướng khác
+	nhau, không phải "brief tự mâu thuẫn nội bộ" như report vòng 1 từng ghi
+	nhầm. Quyết định viết lại vẫn đúng và đã được duyệt; chỉ sửa lại trích
+	dẫn cho chính xác.
+
+	Lỗi thực chất của khung code brief: nếu một Nhân viên khoa
 	`active=1` mà `khoa_phong` rỗng (đi vòng qua validate() bằng
 	`db.set_value`/`db_set()`, xem docstring `pham_vi_don()`), bản khung sẽ
 	trả `None` — tạo ra một MÁY DÙNG CHUNG ngoài ý muốn, cùng họ lỗi fail-
@@ -113,9 +127,24 @@ def _chuan_hoa_row(row: dict) -> dict:
 	return row
 
 
-def ra_dict(name: str) -> dict:
+def ra_dict(name: str, customer: str) -> dict:
 	"""Một máy dạng phẳng cho SPA — kèm `ten_khoa_phong` để hiển thị (Link
-	`khoa_phong` không tự có tên đi kèm), đúng lý do Gap 1 của `ncc.py`."""
+	`khoa_phong` không tự có tên đi kèm), đúng lý do Gap 1 của `ncc.py`.
+
+	Important #2 (review vòng 1) — THÊM tham số `customer` và TỰ KIỂM sở hữu
+	ở đây, dù trong phạm vi Task 6 hàm này chỉ được gọi sau khi `save()` đã
+	kiểm rồi (nên có vẻ "thừa"). Bắt buộc vì brief liệt `ra_dict` vào nhóm
+	"Produces" — một hàm PUBLIC của module — và Task 7 sắp nối các hàm này
+	vào endpoint nhận `name` THẲNG từ client (vd. "xem chi tiết một máy theo
+	docname"); nối `ra_dict(name)` không kiểm gì vào một endpoint như vậy là
+	đọc xuyên bệnh viện. Sửa ngay tại nguồn thay vì để lại một cái bẫy cho
+	Task 7 phải tự nhớ kiểm ở tầng gọi.
+
+	`name` không tồn tại VÀ `name` tồn tại nhưng của bệnh viện khác dùng
+	CHUNG một thông điệp lỗi (`LOI_KHONG_THAY`) — không phân biệt, đúng
+	nguyên tắc `portal_context.dam_bao_xem_duoc()` đã áp cho Sales Order/
+	Delivery Note/Sales Invoice: phân biệt hai câu đó là lộ thêm việc "một
+	bệnh viện khác có thiết bị mã X" cho khách hàng hiện tại."""
 	row = frappe.db.get_value(
 		"Customer Equipment", name,
 		["name", "customer", "ma_thiet_bi", "ten_thiet_bi", "khoa_phong",
@@ -123,6 +152,8 @@ def ra_dict(name: str) -> dict:
 		 "ngay_lap_dat", "ghi_chu", "active"],
 		as_dict=True,
 	)
+	if not row or row["customer"] != customer:
+		raise frappe.PermissionError(LOI_KHONG_THAY)
 	_chuan_hoa_row(row)
 	row["ten_khoa_phong"] = _ten_khoa({row["khoa_phong"]}).get(row["khoa_phong"], "")
 	return row
@@ -154,6 +185,20 @@ def list_rows(
 	không máy nào" — đây là DANH MỤC TƯƠNG THÍCH, không phải ràng buộc cứng
 	(Ràng buộc chung 3).
 
+	Important #3 (review vòng 1) — `vat_tu` PHẢI được kiểm thuộc ĐÚNG
+	`customer` của tham số hàm này TRƯỚC khi dùng để dựng tập máy cho phép.
+	Thiếu bước này, `vat_tu` biến thành một ORACLE dò tồn tại xuyên bệnh
+	viện: gửi một `vat_tu` có thật của bệnh viện khác (đã khai máy tương
+	thích) trả `[]`, còn gửi một `vat_tu` không tồn tại (hoặc bảng máy rỗng)
+	trả đủ danh sách — hai kết quả PHÂN BIỆT được là đủ để dò tuần tự
+	`Customer Warehouse Item` (đặt tên `VTK-.#####`, đoán được) xem một mã có
+	tồn tại và đã khai máy hay chưa, của BẤT KỲ bệnh viện nào, không chỉ
+	bệnh viện của phiên. Sửa: `vat_tu` không thuộc `customer` (kể cả không
+	tồn tại) được coi như KHÔNG được gửi — cùng quy ước "bảng rỗng = không
+	lọc" ở trên, không phải một nhánh lỗi mới — nên hai trường hợp "của bệnh
+	viện khác" và "không tồn tại" luôn cho CÙNG một kết quả (đầy đủ danh
+	sách theo tầng 1/1b), không còn phân biệt được nữa.
+
 	Cùng khuôn phân trang `ncc.list_rows()`/`khoa_phong.list_rows()`:
 	`limit=None` (mặc định) trả list đầy đủ; truyền `limit` mới cắt trang và
 	đổi hình dạng trả về sang `{"rows": [...], "tong": N}`.
@@ -181,15 +226,23 @@ def list_rows(
 		rows = [r for r in rows if r.khoa_phong == khoa_phong]
 
 	if vat_tu:
-		may_cho_phep = {
-			r.thiet_bi for r in frappe.get_all(
-				"Customer Warehouse Item Equipment",
-				filters={"parent": vat_tu, "parenttype": "Customer Warehouse Item"},
-				fields=["thiet_bi"],
-			)
-		}
-		if may_cho_phep:
-			rows = [r for r in rows if r.name in may_cho_phep]
+		kho_vt = frappe.db.get_value("Customer Warehouse Item", vat_tu, "kho")
+		customer_vt = (
+			frappe.db.get_value("Customer Warehouse", kho_vt, "customer") if kho_vt else None
+		)
+		# Important #3 — vat_tu không thuộc customer (kể cả không tồn tại)
+		# thì coi như KHÔNG được gửi, không tạo oracle dò tồn tại xuyên bệnh
+		# viện. Chỉ dựng tập máy cho phép khi tenant khớp.
+		if customer_vt == customer:
+			may_cho_phep = {
+				r.thiet_bi for r in frappe.get_all(
+					"Customer Warehouse Item Equipment",
+					filters={"parent": vat_tu, "parenttype": "Customer Warehouse Item"},
+					fields=["thiet_bi"],
+				)
+			}
+			if may_cho_phep:
+				rows = [r for r in rows if r.name in may_cho_phep]
 
 	if tim_kiem:
 		hay = similarity.khong_dau(tim_kiem)
@@ -261,7 +314,7 @@ def save(customer: str, user: str, du_lieu: dict) -> dict:
 	else:
 		doc.save(ignore_permissions=True)
 
-	return ra_dict(doc.name)
+	return ra_dict(doc.name, customer)
 
 
 def tao_nhanh(customer: str, user: str, du_lieu: dict) -> dict:
