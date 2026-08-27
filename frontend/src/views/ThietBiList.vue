@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import api from '../api'
 import { store } from '../store'
 import { useIsMobile } from '../useMobile'
@@ -55,6 +55,28 @@ watch(tim, () => {
   clearTimeout(timTimer)
   trang.value = 1
   timTimer = setTimeout(() => load(), 300)
+})
+
+// Vòng sửa 1 (review) — câu trạng thái rỗng PHẢI khớp thực trạng dữ liệu lúc
+// đó, không chỉ khớp trạng thái ô lọc. Ba nhánh, đúng thứ tự ưu tiên:
+//   1. Đang tìm (so `tim.trim()` — CÙNG điều kiện `load()` dùng để quyết định
+//      có gửi `tim_kiem` hay không, không phải `tim` thô — gõ toàn khoảng
+//      trắng thì server không lọc gì, câu "khớp bộ lọc" sẽ là câu sai).
+//   2. Không tìm, CHƯA bật "Hiện cả máy đã tắt" — rỗng ở đây có thể vì kho
+//      trống HOẶC vì mọi máy đều đã tắt (bị `ca_inactive:0` che đi); "Chưa
+//      khai máy nào" là một lời NÓI DỐI khi rơi vào ca thứ hai (máy đó vẫn
+//      tồn tại) và còn xui người dùng tạo trùng thay vì bật bộ lọc — không
+//      biết chắc ca nào nên câu phải mời cả hai lối ra, không khẳng định.
+//   3. Không tìm, ĐÃ bật "Hiện cả máy đã tắt" — `ca_inactive:1` đã cho thấy
+//      MỌI máy (kể cả đã tắt) rồi mà vẫn rỗng, nên đây mới thật sự là "chưa
+//      khai máy nào" — hienCaTat là cờ MỞ RỘNG phạm vi (không bao giờ làm
+//      hẹp kết quả), nên nó không thuộc nhánh (1)/"đang lọc" như bản trước.
+const trangThaiRong = computed(() => {
+  if (tim.value.trim()) return 'Không có máy nào khớp bộ lọc.'
+  if (!hienCaTat.value) {
+    return 'Không có máy nào đang hoạt động. Bấm "Hiện cả máy đã tắt" để xem máy đã tắt, hoặc Thêm để khai máy mới.'
+  }
+  return 'Chưa khai máy nào. Bấm Thêm để khai máy đầu tiên.'
 })
 
 function moTao() {
@@ -124,13 +146,7 @@ onMounted(async () => {
 
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
-    <div v-else-if="!rows.length" class="empty">
-      {{
-        tim || hienCaTat
-          ? 'Không có máy nào khớp bộ lọc.'
-          : 'Chưa khai máy nào. Bấm Thêm để khai máy đầu tiên.'
-      }}
-    </div>
+    <div v-else-if="!rows.length" class="empty">{{ trangThaiRong }}</div>
 
     <!-- DESKTOP -->
     <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
