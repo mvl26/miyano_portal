@@ -1033,6 +1033,225 @@ def bao_cao_cap_phat_rows(
 	return {"tong_gia_tri": round(tong_gia_tri, 2), "nhom": nhom_out}
 
 
+def bao_cao_thiet_bi_rows(
+	kho: str, tu_ngay, den_ngay, thiet_bi: str | None = None,
+	khoa_phong: str | None = None, vat_tu: str | None = None,
+) -> dict:
+	"""Báo cáo "Vật tư · Máy · Khoa phòng" (task 9) — trái tim của bài toán:
+	một vật tư đã nhập bao nhiêu, cấp phát cho máy nào, khoa nào.
+
+	HAI CỘT XUẤT, cố ý. Module này chạy hai quy ước đếm khác nhau: NXT/thẻ
+	kho KHÔNG lọc `da_dao` khỏi bất kỳ tổng nào (câu hỏi kế toán lịch sử —
+	xem docstring đầu file), còn `bao_cao_cap_phat_rows` lọc HAI LỚP (câu hỏi
+	"khoa nào đang thực sự giữ hàng"). Đặt một cột "Đã xuất" kiểu NXT cạnh
+	phần tách theo máy kiểu cấp phát thì hai bên lệch nhau vì HAI LÝ DO ĐỘC
+	LẬP: phiếu bị đảo, và các loại xuất huỷ/trả lại/điều chỉnh vốn KHÔNG
+	mang máy theo thiết kế (BR-TB-3 chỉ áp cho "Xuất sử dụng"). Đo trên site
+	27/08: 4 phiếu xuất, chỉ 3 là "Xuất sử dụng" — lệch là ca THƯỜNG, không
+	phải ca biên.
+
+	Nên: `cap_phat` (lọc hai lớp, khớp đúng tổng `theo_may`) và `xuat_khac`
+	(phần còn lại), giữ bất biến
+	`ton_dau + nhap - cap_phat - xuat_khac == ton_cuoi`.
+
+	CÁCH TÍNH `xuat_khac` — không truy vấn riêng, TỰ SUY từ hai nguồn đã có,
+	đúng khuôn "tồn cuối luôn được TÍNH, không bao giờ đọc từ nơi khác"
+	(`_close()` ở trên): gọi `nxt_data()` (không lọc gì, cho `ton_dau/nhap/
+	ton_cuoi/xuat_sl` của MỘT vật tư đúng quy ước module), rồi
+	`xuat_khac = xuat_sl (NXT, mọi dòng xuất) - cap_phat (hai lớp)`.
+	Vì `cap_phat` luôn là một TẬP CON của `xuat_sl` (mọi dòng "Xuất sử dụng"
+	da_dao=0 đều có so_luong<0 nên đều rơi vào xuat_sl), hiệu số này LUÔN
+	dương và LUÔN đúng bằng "huỷ/trả lại/điều chỉnh (da_dao=0) + phần đã bị
+	đảo (dòng gốc da_dao=1 của phiếu đã huỷ)" — không cần liệt kê từng loại
+	loai_xuat, và bất biến trên đúng theo cấu trúc, không phải hai phép tính
+	độc lập tình cờ khớp nhau.
+
+	HAI LỚP LỌC cho `cap_phat`, giống hệt `bao_cao_cap_phat_rows` (không viết
+	lại theo cách khác — lọc một lớp sẽ lọt lớp kia):
+	  * `da_dao=0` ở tầng SỔ — bỏ dòng GỐC của một phiếu đã bị huỷ (SQL);
+	  * `loai_xuat == "Xuất sử dụng"` ở tầng PHIẾU — bỏ chính dòng BÙ TRỪ
+	    (`loai_xuat="Phiếu đảo"`, `da_dao=0` vì bản thân nó không bị đảo —
+	    ĐỪNG dựa vào `thiet_bi` rỗng để nhận diện nó, Task 3 đã chép
+	    `thiet_bi` sang dòng đảo để giữ quy kết máy) VÀ mọi loại xuất khác.
+
+	`theo_may` join SỔ → `chung_tu_row` (docname dòng con thật, không phải
+	tên) → `Customer Stock Issue Item.thiet_bi`, GỘP THEO DOCNAME máy —
+	KHÔNG theo tên: một bệnh viện mua hai máy giống hệt và khai trùng tên là
+	chuyện thường (cùng lý lẽ gộp `vat_tu` theo docname bên dưới, vì trong
+	CÙNG một kho `ten_vat_tu` không duy nhất — hai vật tư khác ĐVT trùng tên
+	sẽ bị cộng nhầm nếu gộp theo tên). Khoa phòng của một dòng `theo_may` là
+	khoa mà MÁY ĐÓ đang đặt (`Customer Equipment.khoa_phong`) — khác trục
+	nhóm của `bao_cao_cap_phat_rows` (khoa trên ĐẦU PHIẾU xuất, nơi hàng
+	được giao tới); ở đây câu hỏi là "máy này, đang ở khoa nào", không phải
+	"phiếu này giao cho khoa nào". Nhóm `thiet_bi=None` ("Chưa gắn máy")
+	LUÔN xếp cuối `theo_may`, không lẫn vào máy thật, không bị giấu — cùng
+	lý lẽ nhóm "Chưa gắn khoa" của `bao_cao_cap_phat_rows`: đó là dữ liệu
+	thật.
+
+	Bộ lọc `thiet_bi`/`khoa_phong`/`vat_tu` — KHÔNG có ca test bắt buộc nào
+	của task 9 phủ ba tham số này, đây là lựa chọn của người viết hàm này,
+	ghi rõ để review sau biết đó là suy diễn chứ không phải hợp đồng đã
+	kiểm: `vat_tu` thu hẹp `dong` về đúng một vật tư (và thu hẹp thẳng
+	truy vấn cấp phát theo nó). `thiet_bi`/`khoa_phong` là bộ lọc HIỂN THỊ
+	trên `theo_may`, cùng khuôn `khoa_phong` của `nhat_ky_rows` — chỉ giữ
+	dòng `theo_may` khớp rồi bỏ hẳn những `dong` mà sau lọc không còn dòng
+	nào, KHÔNG đổi ý nghĩa `ton_dau/nhap/cap_phat/xuat_khac/ton_cuoi`: đó
+	luôn là con số của CẢ vật tư, độc lập với đang xem máy nào.
+	"""
+	tu = frappe.utils.getdate(tu_ngay)
+	den = frappe.utils.getdate(den_ngay)
+	if tu > den:
+		frappe.throw("Từ ngày phải trước hoặc bằng Đến ngày.", frappe.ValidationError)
+
+	data = nxt_data(kho, tu_ngay, den_ngay)
+	info = _vat_tu_info(kho)
+
+	vat_tu_ids = [vat_tu] if vat_tu else list(data["items"].keys())
+	vat_tu_ids = [v for v in vat_tu_ids if v in data["items"] and v in info]
+
+	# HAI LỚP LỌC — lớp 1 (da_dao=0) ngay trong SQL, lớp 2 (loai_xuat) ở
+	# vòng lặp Python bên dưới, đúng khuôn bao_cao_cap_phat_rows().
+	entries = []
+	if vat_tu_ids:
+		filters = {
+			"kho": kho, "chung_tu_type": "Customer Stock Issue",
+			"da_dao": 0, "ngay": ["between", [tu, den]],
+			"vat_tu": ["in", vat_tu_ids],
+		}
+		entries = frappe.get_all(
+			"Customer Stock Ledger Entry", filters=filters,
+			fields=["chung_tu", "chung_tu_row", "vat_tu", "so_luong", "gia_tri"],
+		)
+
+	issues = {}
+	item_rows = {}
+	if entries:
+		issue_names = {e["chung_tu"] for e in entries}
+		issues = {
+			r["name"]: r for r in frappe.get_all(
+				"Customer Stock Issue", filters={"name": ["in", list(issue_names)]},
+				fields=["name", "loai_xuat"],
+			)
+		}
+		row_ids = {e["chung_tu_row"] for e in entries if e["chung_tu_row"]}
+		if row_ids:
+			item_rows = {
+				r["name"]: r for r in frappe.get_all(
+					"Customer Stock Issue Item", filters={"name": ["in", list(row_ids)]},
+					fields=["name", "thiet_bi"],
+				)
+			}
+
+	# per_item_cap_phat[vat_tu][thiet_bi hoặc None] = {"sl", "gia_tri"}
+	per_item_cap_phat: dict[str, dict] = {}
+	for e in entries:
+		iss = issues.get(e["chung_tu"])
+		if not iss or iss["loai_xuat"] != "Xuất sử dụng":  # lớp lọc thứ hai
+			continue
+		tb = (item_rows.get(e["chung_tu_row"]) or {}).get("thiet_bi") or None
+		bucket = per_item_cap_phat.setdefault(e["vat_tu"], {})
+		row = bucket.setdefault(tb, {"sl": 0.0, "gia_tri": 0.0})
+		# so_luong/gia_tri của dòng XUẤT mang dấu ÂM (xem docstring
+		# ledger.post_lines) — đảo dấu để hiển thị số dương, cùng quy ước
+		# bao_cao_cap_phat_rows.
+		row["sl"] += -float(e["so_luong"])
+		row["gia_tri"] += -float(e["gia_tri"] or 0)
+
+	# Bulk tra tên máy + khoa của máy cho MỌI thiet_bi từng có cấp phát —
+	# một lượt, không N+1 theo từng dòng theo_may.
+	all_thiet_bi = {tb for buckets in per_item_cap_phat.values() for tb in buckets if tb}
+	may_info = {
+		r["name"]: r for r in frappe.get_all(
+			"Customer Equipment", filters={"name": ["in", list(all_thiet_bi)]},
+			fields=["name", "ten_thiet_bi", "khoa_phong"],
+		)
+	} if all_thiet_bi else {}
+	khoa_ids = {m["khoa_phong"] for m in may_info.values() if m.get("khoa_phong")}
+	ten_khoa_map = dict(frappe.get_all(
+		"Customer Department", filters={"name": ["in", list(khoa_ids)]},
+		fields=["name", "ten_khoa_phong"], as_list=True,
+	)) if khoa_ids else {}
+
+	# Bulk tra "máy tương thích" (danh mục, ĐỘC LẬP với lịch sử cấp phát —
+	# một máy khai trong danh mục nhưng chưa từng xuất vẫn phải xuất hiện ở
+	# đây dù KHÔNG được xuất hiện trong theo_may với số 0 giả).
+	compat_rows = frappe.get_all(
+		"Customer Warehouse Item Equipment",
+		filters={"parent": ["in", vat_tu_ids], "parenttype": "Customer Warehouse Item"},
+		fields=["parent", "thiet_bi"], order_by="idx asc",
+	) if vat_tu_ids else []
+	compat_thiet_bi_ids = {r["thiet_bi"] for r in compat_rows}
+	# Máy tương thích có thể chưa từng xuất -> chưa có tên trong may_info;
+	# tra bổ sung riêng (KHÔNG gộp với may_info của theo_may — hai danh sách
+	# phục vụ hai câu hỏi khác nhau, xem docstring).
+	can_ten_them = compat_thiet_bi_ids - set(may_info.keys())
+	compat_ten = dict(frappe.get_all(
+		"Customer Equipment", filters={"name": ["in", list(can_ten_them)]},
+		fields=["name", "ten_thiet_bi"], as_list=True,
+	)) if can_ten_them else {}
+	compat_by_vat_tu: dict[str, list] = {}
+	for r in compat_rows:
+		ten = may_info.get(r["thiet_bi"], {}).get("ten_thiet_bi") or compat_ten.get(r["thiet_bi"], r["thiet_bi"])
+		compat_by_vat_tu.setdefault(r["parent"], []).append(
+			{"thiet_bi": r["thiet_bi"], "ten": ten}
+		)
+
+	dong = []
+	for vt in vat_tu_ids:
+		closed = data["items"][vt]
+		meta = info[vt]
+		cap_phat_buckets = per_item_cap_phat.get(vt, {})
+		cap_phat_sl = sum(b["sl"] for b in cap_phat_buckets.values())
+		cap_phat_gia_tri = sum(b["gia_tri"] for b in cap_phat_buckets.values())
+		# Tự suy, không truy vấn riêng — xem docstring hàm.
+		xuat_khac_sl = closed["xuat_sl"] - cap_phat_sl
+
+		theo_may = []
+		for tb, b in cap_phat_buckets.items():
+			if tb is None:
+				ten_may, kp, ten_kp = "Chưa gắn máy", None, ""
+			else:
+				m = may_info.get(tb) or {}
+				ten_may = m.get("ten_thiet_bi") or tb
+				kp = m.get("khoa_phong") or None
+				ten_kp = ten_khoa_map.get(kp, kp) if kp else "Chưa gắn khoa"
+			theo_may.append({
+				"thiet_bi": tb, "ten_may": ten_may,
+				"khoa_phong": kp, "ten_khoa": ten_kp,
+				"sl": _r(b["sl"]), "gia_tri": round(b["gia_tri"], 2),
+				"pct": round(b["gia_tri"] / cap_phat_gia_tri * 100, 1)
+				if cap_phat_gia_tri > EPS else 0.0,
+			})
+		# "Chưa gắn máy" LUÔN cuối — không phải một máy để so tên.
+		theo_may.sort(key=lambda r: (r["thiet_bi"] is None, r["ten_may"]))
+
+		if thiet_bi or khoa_phong:
+			loc = theo_may
+			if thiet_bi:
+				loc = [r for r in loc if r["thiet_bi"] == thiet_bi]
+			if khoa_phong:
+				loc = [r for r in loc if r["khoa_phong"] == khoa_phong]
+			if not loc:
+				continue  # không còn gì khớp bộ lọc -> vật tư này không hiện
+			theo_may = loc
+
+		dong.append({
+			"vat_tu_id": vt, "ma_vat_tu": meta["ma_vat_tu"],
+			"vat_tu": meta["ten_vat_tu"], "dvt": meta["dvt"],
+			"ton_dau": _r(closed["ton_dau_sl"]), "nhap": _r(closed["nhap_sl"]),
+			"cap_phat": _r(cap_phat_sl), "xuat_khac": _r(xuat_khac_sl),
+			"ton_cuoi": _r(closed["ton_cuoi_sl"]),
+			"may_tuong_thich": compat_by_vat_tu.get(vt, []),
+			"theo_may": theo_may,
+		})
+
+	# Tên trước, docname sau — tie-break BẮT BUỘC vì ten_vat_tu không duy
+	# nhất trong một kho (xem "Nước cất" Chai/Lít).
+	dong.sort(key=lambda r: (r["vat_tu"], r["vat_tu_id"]))
+	tong_gia_tri = round(sum(r["gia_tri"] for d in dong for r in d["theo_may"]), 2)
+	return {"tong_gia_tri": tong_gia_tri, "dong": dong}
+
+
 def _thang_key(ngay) -> tuple[str, str]:
 	"""(khoá sắp xếp "2026-08", nhãn hiển thị "08/2026") của một ngày.
 
