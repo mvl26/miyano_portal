@@ -1977,6 +1977,79 @@ class TestKhoApiDoorStillOpen(FrappeTestCase):
                 self.assertNotIn("Traceback", msg)
 
 
+class TestKhoBaoCaoThietBiIsolation(FrappeTestCase):
+    """Task 14 — endpoint JSON mới `kho_bao_cao_thiet_bi` (bọc
+    `reports.bao_cao_thiet_bi_rows()` cho màn SPA BaoCaoThietBi.vue; endpoint
+    này KHÔNG tồn tại trước task 14, xem comment ở đầu hàm trong api/kho.py).
+
+    Cùng khuôn TestKhoApiDoorStillOpen: positive control (mỗi khách thấy
+    đúng dữ liệu của mình) BẮT BUỘC đi kèm phủ định (thiet_bi/khoa_phong của
+    khách kia bị chặn) — thiếu vế phủ định thì một `thiet_bi`/`khoa_phong`
+    do client tự gõ sẽ đọc được máy/khoa của bệnh viện khác, vì `thiet_bi`
+    treo vào CUSTOMER (không có field `kho`, xem `_thiet_bi_cua_khach`)."""
+
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        for k in (self.kho["kho_bm"], self.kho["kho_pxn"]):
+            frappe.db.delete("Customer Stock Ledger Entry", {"kho": k})
+            frappe.db.delete("Customer Stock Lot Balance", {"kho": k})
+        self.tu, self.den = "2026-02-01", "2026-03-31"
+        _make_receipt(self.kho["kho_bm"], self.kho["vt_bm"], "LO-TB14-BM")
+        _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-TB14-PXN")
+        _make_issue(self.kho["kho_bm"], self.kho["vt_bm"], "LO-TB14-BM")
+        _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-TB14-PXN")
+        self.may_bm = _make_thiet_bi(CUSTOMER_BM, "ZZTB14-BM", "May test BM 14")
+        self.may_pxn = _make_thiet_bi(CUSTOMER_PXN, "ZZTB14-PXN", "May test PXN 14")
+        self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa test BM 14")
+        self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa test PXN 14")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_own_customer_data_reachable_positive_control(self):
+        for user, own_vt in ((BM_USER, "vt_bm"), (PXN_USER, "vt_pxn")):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                out = kho_api.kho_bao_cao_thiet_bi(tu_ngay=self.tu, den_ngay=self.den)
+                self.assertTrue(any(d["vat_tu_id"] == self.kho[own_vt] for d in out["dong"]))
+                self.assertIn("tong_doi_chieu", out)
+
+    def test_thiet_bi_filter_rejects_other_customers_equipment(self):
+        for user, other_may in ((BM_USER, self.may_pxn.name), (PXN_USER, self.may_bm.name)):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                with self.assertRaises(frappe.PermissionError) as cm:
+                    kho_api.kho_bao_cao_thiet_bi(
+                        tu_ngay=self.tu, den_ngay=self.den, thiet_bi=other_may,
+                    )
+                msg = str(cm.exception)
+                self.assertIn("không thuộc", msg)
+                self.assertNotIn("Traceback", msg)
+
+    def test_khoa_phong_filter_rejects_other_customers_department(self):
+        for user, other_khoa in ((BM_USER, self.khoa_pxn.name), (PXN_USER, self.khoa_bm.name)):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                with self.assertRaises(frappe.PermissionError) as cm:
+                    kho_api.kho_bao_cao_thiet_bi(
+                        tu_ngay=self.tu, den_ngay=self.den, khoa_phong=other_khoa,
+                    )
+                msg = str(cm.exception)
+                self.assertIn("không thuộc", msg)
+                self.assertNotIn("Traceback", msg)
+
+    def test_tim_khong_khop_tra_rong_khong_phai_loi(self):
+        """`tim` là lọc Python thêm ở task 14 (reports.bao_cao_thiet_bi_rows
+        không có tham số này) — một chuỗi không khớp gì phải trả `dong`
+        rỗng, không phải ném lỗi."""
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_bao_cao_thiet_bi(
+            tu_ngay=self.tu, den_ngay=self.den, tim="khong-khop-gi-ca-zz",
+        )
+        self.assertEqual(out["dong"], [])
+        self.assertEqual(out["tong"], 0)
+
+
 class TestKhoStaffDeskAccess(_KhoVoucherFixture):
     """Positive control cho phía nhân viên: gỡ quyền của `Customer` không
     được đụng tới desk Miyano. Dùng một System Manager THẬT (không phải

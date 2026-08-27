@@ -16,6 +16,7 @@ import PhieuNhapDetail from './views/PhieuNhapDetail.vue'
 import PhieuXuat from './views/PhieuXuat.vue'
 import PhieuXuatDetail from './views/PhieuXuatDetail.vue'
 import BaoCaoNXT from './views/BaoCaoNXT.vue'
+import BaoCaoThietBi from './views/BaoCaoThietBi.vue'
 import NccList from './views/NccList.vue'
 import KhoaPhongList from './views/KhoaPhongList.vue'
 import ThietBiList from './views/ThietBiList.vue'
@@ -89,6 +90,13 @@ const routes = [
   { path: '/kho/xuat', name: 'kho-xuat', component: PhieuXuat, meta: { title: 'Phiếu xuất kho' } },
   { path: '/kho/xuat/:name', name: 'kho-xuat-detail', component: PhieuXuatDetail, meta: { title: 'Chi tiết phiếu xuất' } },
   { path: '/kho/bao-cao', name: 'kho-bao-cao', component: BaoCaoNXT, meta: { title: 'Báo cáo kho' } },
+  // Task 14 — báo cáo "vật tư · máy · khoa phòng" (câu hỏi trung tâm của
+  // epic thiết bị/vật tư khoa phòng). Màn RIÊNG, không phải một tab của
+  // BaoCaoNXT.vue (bộ lọc/bảng khác hẳn: có Máy, có bảng con theo máy).
+  {
+    path: '/kho/bao-cao-thiet-bi', name: 'kho-bao-cao-thiet-bi', component: BaoCaoThietBi,
+    meta: { title: 'Báo cáo vật tư · máy · khoa phòng' },
+  },
   { path: '/kho/ncc', name: 'kho-ncc', component: NccList, meta: { title: 'NCC của tôi' } },
   { path: '/kho/khoa-phong', name: 'kho-khoa-phong', component: KhoaPhongList, meta: { title: 'Danh mục khoa phòng' } },
   // Task 12 — màn danh mục Thiết bị (SPA đầu tiên của epic thiết bị/vật tư

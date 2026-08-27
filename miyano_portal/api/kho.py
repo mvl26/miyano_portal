@@ -44,8 +44,11 @@ from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_
 # được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
 # "nhat_ky"/"dot" thêm ở Gap 2 (review E4 phần B) — hai nút Excel bị khoá ở
 # NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này. "thiet_bi" thêm ở
-# task 10 — nối dây đi trước UI (chưa có màn SPA nào gọi loại này, xem
-# docstring reports.bao_cao_thiet_bi_flat_rows()).
+# task 10 — nối dây đi TRƯỚC UI (task 10 chưa có màn SPA nào gọi loại này).
+# Task 14 thêm màn BaoCaoThietBi.vue + endpoint JSON `kho_bao_cao_thiet_bi`
+# (bên dưới) tiêu thụ đúng `reports.bao_cao_thiet_bi_rows()` mà "thiet_bi"
+# ở đây bọc bản bẻ phẳng của cùng hàm — nút Excel của màn đó giờ có dữ liệu
+# thật để xuất.
 _BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang", "thiet_bi"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
@@ -1392,6 +1395,80 @@ def kho_bao_cao_cap_phat_thang(
 	if tong is not None:
 		ket_qua["tong"] = tong
 	return ket_qua
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_bao_cao_thiet_bi(
+	tu_ngay, den_ngay, thiet_bi=None, khoa_phong=None, tim=None, limit=None, start=0
+) -> dict:
+	"""Báo cáo "Vật tư · Máy · Khoa phòng" (task 9/10) — CỔNG JSON cho màn
+	SPA BaoCaoThietBi.vue (task 14).
+
+	SỬA (brief task-14-brief.md gõ THIẾU): brief mô tả màn hình "gọi qua
+	`api.callKho('kho_bao_cao_thiet_bi', ...)`" như thể endpoint này đã tồn
+	tại, nhưng `reports.bao_cao_thiet_bi_rows()` (task 9) và bản bẻ phẳng
+	cho Excel (task 10, `_BAO_CAO_LOAI` đã có "thiet_bi") CHƯA từng có một
+	hàm whitelist nào bọc JSON cho SPA — xem docstring
+	`reports.bao_cao_thiet_bi_flat_rows`: "CHƯA có màn SPA nào tiêu thụ
+	bao_cao_thiet_bi_rows()". Không có endpoint này thì màn hình không có gì
+	để gọi. Thêm ở đây, tối thiểu, đúng khuôn NĂM endpoint báo cáo phía trên
+	(kho suy từ phiên, định danh do client gửi kiểm sở hữu trước khi chạm
+	dữ liệu) — KHÔNG đụng `reports.py` (tầng tính toán giữ nguyên, đã có bộ
+	test_tb6_bao_cao.py ghim đúng ngữ nghĩa hai cột xuất).
+
+	`thiet_bi` treo vào CUSTOMER (không có field kho — xem docstring
+	`_thiet_bi_cua_khach`), khác `khoa_phong` treo vào kho qua
+	`_khoa_cua_kho()` — hai guard khác nhau, không dùng lẫn.
+
+	`tim` — LỌC PYTHON substring trên mã/tên vật tư của `dong`, cùng khuôn
+	`kho_vat_tu_list` (`tim` ở đó cũng là lọc Python, không phải SQL LIKE):
+	`bao_cao_thiet_bi_rows()` không có tham số `tim` (chưa có UI khi hàm đó
+	được viết) — thêm nó vào reports.py là sửa tầng tính toán, ngoài phạm
+	vi "nối dây" của task này; lọc SAU khi đã có `dong`, giữ reports.py
+	nguyên vẹn.
+
+	`tong_doi_chieu` — tổng NĂM cột đối chiếu bất biến (`ton_dau + nhap -
+	cap_phat - xuat_khac == ton_cuoi`), tính từ TOÀN BỘ `dong` đã lọc
+	`tim`/`thiet_bi`/`khoa_phong` (TRƯỚC khi cắt trang) — cùng chốt "Tổng
+	cộng (toàn kỳ)" mà `kho_bao_cao_cap_phat`/`kho_bao_cao_cap_phat_thang`
+	đã dùng: dòng tổng ở màn hình không được đổi khi khách bấm sang trang
+	khác. Vì bất biến đúng theo TỪNG DÒNG (đảm bảo ở `reports.py`), tổng của
+	một tập con dòng bất kỳ vẫn tự cân — không phải một phép tính riêng có
+	thể trôi khỏi từng dòng.
+	"""
+	kho = get_portal_kho()
+	customer = get_portal_customer()
+	if thiet_bi:
+		thiet_bi = _thiet_bi_cua_khach(str(thiet_bi), customer)
+	if khoa_phong:
+		khoa_phong = _khoa_cua_kho(str(khoa_phong), kho)
+	ket_qua = reports.bao_cao_thiet_bi_rows(
+		kho, tu_ngay, den_ngay, thiet_bi=thiet_bi, khoa_phong=khoa_phong
+	)
+	dong = ket_qua["dong"]
+	tim = (tim or "").strip().lower()
+	if tim:
+		dong = [
+			d for d in dong
+			if tim in (d["ma_vat_tu"] or "").lower() or tim in (d["vat_tu"] or "").lower()
+		]
+	tong_doi_chieu = {
+		k: round(sum(d[k] for d in dong), 4)
+		for k in ("ton_dau", "nhap", "cap_phat", "xuat_khac", "ton_cuoi")
+	}
+	trang_dong, tong = _ap_dung_phan_trang(dong, limit, start)
+	return {
+		"dong": trang_dong,
+		"tong": tong if tong is not None else len(dong),
+		"tong_doi_chieu": tong_doi_chieu,
+		# Bộ lọc thiet_bi/khoa_phong THU HẸP `theo_may` của từng dòng nhưng
+		# KHÔNG thu hẹp `cap_phat` (xem docstring bao_cao_thiet_bi_rows,
+		# "HỆ QUẢ CẦN BIẾT") — cờ này để màn hình biết KHI NÀO
+		# sum(theo_may.sl) == cap_phat không còn đúng, tránh hiện một dòng
+		# "lệch" trông như bug.
+		"loc_theo_may_hoac_khoa": bool(thiet_bi or khoa_phong),
+	}
 
 
 @frappe.whitelist()

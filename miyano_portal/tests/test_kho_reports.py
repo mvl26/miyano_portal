@@ -476,15 +476,26 @@ class TestKhoBaoCaoExcel(_KhoBmTestCase):
 			self._js_array("CAP_PHAT_THANG_COLUMNS"),
 		)
 
+	def test_thiet_bi_excel_columns_match_js_labels(self):
+		"""Task 14 — màn SPA BaoCaoThietBi.vue giờ tồn tại và
+		kho-bao-cao-columns.js có `THIET_BI_COLUMNS` (bộ cột PHẲNG/Excel,
+		khác bộ cột của bảng ngoài/bảng con trên màn hình) — đóng nốt lời
+		hứa "chờ UI" mà test_thiet_bi_excel_matches_flat_rows (bên dưới) để
+		lại từ task 10, cùng khuôn năm test `..._excel_columns_match_js_
+		labels` phía trên."""
+		self.assertEqual(
+			[label for label, _ in reports.THIET_BI_COLUMNS],
+			self._js_array("THIET_BI_COLUMNS"),
+		)
+
 	def test_thiet_bi_excel_matches_flat_rows(self):
 		"""Task 10, bước 4 — nối dây `loai="thiet_bi"` vào `kho_bao_cao_excel`.
 
-		CHƯA có màn SPA nào của báo cáo này (Task 9 mới chỉ dựng hàm tính,
-		xem docstring `reports.bao_cao_thiet_bi_flat_rows`), nên khác năm
-		bộ cột kia không có nhãn JS để đối chiếu — bài test này chỉ khẳng
-		định điều DUY NHẤT đã hứa: file .xlsx PHẢI khớp đúng
+		Bài test này khẳng định điều đã hứa: file .xlsx PHẢI khớp đúng
 		`reports.bao_cao_thiet_bi_flat_rows()`, cùng khuôn đối chiếu Excel
-		với JSON đã dùng cho "dot"/"nxt" ở trên."""
+		với JSON đã dùng cho "dot"/"nxt" ở trên. (Task 14 thêm test khớp
+		nhãn JS riêng, ngay phía trên — file .xlsx không tự đối chiếu nhãn
+		màn hình vì nó dùng bộ cột PHẲNG khác bộ cột màn hình.)"""
 		today = _today()
 		tu_ngay, den_ngay = _iso(frappe.utils.add_days(today, -10)), _iso(today)
 		_nhap(self.K, self.VT, 20, 15000, frappe.utils.add_days(today, -5))

@@ -128,6 +128,13 @@ onUnmounted(() => clearTimeout(searchTimer))
         <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
         <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
         <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+        <!-- Task 14 — brief chỉ liệt router.js/App.vue/kho-bao-cao-columns.js
+             là file phải sửa, BỎ SÓT chính lối vào màn (không router-link
+             nào trỏ /kho/bao-cao-thiet-bi thì màn chỉ gõ URL tay mới tới
+             được) — thêm ở đây, cạnh nút "Báo cáo" cũ, cùng khuôn Task 12 đã
+             làm cho "Thiết bị"/"Khoa phòng" (thêm CẢ hai chỗ desktop lẫn
+             mobile cùng lúc, không để lệch). -->
+        <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
       </div>
     </div>
 
@@ -161,6 +168,8 @@ onUnmounted(() => clearTimeout(searchTimer))
           <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
           <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
           <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+          <!-- Task 14 — cùng lý do bình luận ở khối desktop phía trên. -->
+          <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
         </div>
       </div>
 
