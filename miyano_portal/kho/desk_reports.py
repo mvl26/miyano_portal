@@ -601,6 +601,69 @@ def cap_phat_thang_theo_khoa_rows(
 	)
 
 
+def tieu_thu_theo_thiet_bi_rows(
+	customer: str | None = None, tu_ngay=None, den_ngay=None,
+) -> list[dict]:
+	"""Task 10 — "Tiêu thụ theo máy" của MỌI khách hàng (hoặc một khách nếu
+	lọc). Gọi lại `reports.tieu_thu_theo_may_rows()` cho từng kho — KHÔNG
+	cộng gộp/viết lại phép tính theo máy lần thứ hai, nó đã sống trong
+	reports.py — rồi BẺ PHẲNG xuống MỨC DÒNG CHI TIẾT (một dòng = một máy ×
+	một vật tư), cùng khuôn `cap_phat_theo_khoa_rows()` ở trên (Desk xem ở
+	mức dòng để lọc/sắp xếp chéo NHIỀU khách trên cùng một bảng — nhân viên
+	Miyano không mở nổi 30 dòng lồng nhau kiểu portal).
+
+	KHÔNG spread thẳng đầu ra của `reports.tieu_thu_theo_may_rows()`: hàm đó
+	trả `vat_tu` là một DANH SÁCH LỒNG (đúng hợp đồng task-10-brief.md, xem
+	docstring ở đó) — spread thẳng sẽ đặt một list vào cột `vat_tu` của MỘT
+	dòng bảng phẳng, trong khi MỌI hàm khác của file này (`nxt_khach_hang_
+	rows`, `cap_phat_theo_khoa_rows`, `tieu_thu_de_xuat_rows`, ...) đều trả
+	`vat_tu` là một GIÁ TRỊ VÔ HƯỚNG. Một cột Script Report kiểu Data/Link
+	không render được một list — bẻ phẳng ở đây trước khi ra khỏi module.
+
+	LỆCH so với task-10-brief.md (ghi rõ trong task-10-report.md): trường
+	gắn thêm là `customer_name`, không phải `ten_khach` như brief gõ — MỌI
+	hàm khác trong file này (`ton_kho_khach_hang_rows`, `nxt_khach_hang_
+	rows`, `canh_bao_han_khach_hang_rows`, `cap_phat_theo_khoa_rows`, ...)
+	đều dùng `customer_name`; đặt tên khác riêng một hàm sẽ phá tính nhất
+	quán của cả file mà không có lý do nghiệp vụ nào đứng sau.
+
+	`customer=None` KHÔNG lọc — gom tất cả bệnh viện, đúng vai trò Desk
+	("nhân viên Miyano nhìn nhiều bệnh viện"), khác hẳn `reports.py` (một
+	kho của một khách, luôn suy từ phiên đăng nhập portal).
+
+	KHÔNG có khoá `khoa_phong`/`ten_khoa` (đợt sửa cuối, I-1 — bản trước có,
+	suy từ `Customer Equipment.khoa_phong`, sai theo QĐ-TB-13, xem docstring
+	`reports.tieu_thu_theo_may_rows()` — lý do bỏ hẳn, không sửa thành lấy
+	từ phiếu)."""
+	khos = _active_khos(customer)
+	if not khos:
+		return []
+	names = _customer_names([k["customer"] for k in khos])
+
+	out = []
+	for k in khos:
+		for may in reports.tieu_thu_theo_may_rows(k["name"], tu_ngay, den_ngay):
+			for vt in may["vat_tu"]:
+				out.append({
+					"customer": k["customer"],
+					"customer_name": names.get(k["customer"]) or k["customer"],
+					"kho": k["name"],
+					"ten_kho": k["ten_kho"],
+					"thiet_bi": may["thiet_bi"],
+					"ten_may": may["ten_may"],
+					"ma_may": may["ma_may"],
+					"vat_tu_id": vt["vat_tu_id"],
+					"ten_vat_tu": vt["ten"],
+					"dvt": vt["dvt"],
+					"sl": vt["sl"],
+					"gia_tri": vt["gia_tri"],
+				})
+	return sorted(
+		out,
+		key=lambda r: (r["customer_name"], r["ten_may"], r["thiet_bi"] or "", r["ten_vat_tu"]),
+	)
+
+
 def ty_trong_nguon_cung_rows(customer: str | None = None, tu_ngay=None, den_ngay=None) -> list[dict]:
 	"""US-E5.5 (UC-51) — "Tỷ trọng nguồn cung" (share-of-wallet): giá trị +
 	SL nhập theo nguồn (Miyano vs từng NCC khác) trong một kỳ, từ phiếu nhập

@@ -33,17 +33,23 @@ from miyano_portal.kho import ledger
 from miyano_portal.kho import import_ton_dau
 from miyano_portal.kho import ncc as ncc_mod
 from miyano_portal.kho import reports
+from miyano_portal.kho import thiet_bi as thiet_bi_mod
 from miyano_portal.kho import voucher
 from miyano_portal.kho import vat_tu as vat_tu_mod
 from miyano_portal.portal_context import get_portal_customer, get_portal_kho
 from miyano_portal.setup.install_kho_print_formats import DEFAULT_NHAP, DEFAULT_XUAT
 
-# Năm loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
+# Loại báo cáo hợp lệ cho kho_bao_cao_excel — danh sách trắng, giống hệt
 # khuôn _LOAI_TO_DOCTYPE ở trên: tham số `loai` do client gửi không bao giờ
 # được nội suy thẳng vào tên sheet/hàm mà không qua kiểm tra thành viên trước.
 # "nhat_ky"/"dot" thêm ở Gap 2 (review E4 phần B) — hai nút Excel bị khoá ở
-# NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này.
-_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang"}
+# NhatKy.vue/BaoCaoNXT.vue vì thiếu đúng hai loại này. "thiet_bi" thêm ở
+# task 10 — nối dây đi TRƯỚC UI (task 10 chưa có màn SPA nào gọi loại này).
+# Task 14 thêm màn BaoCaoThietBi.vue + endpoint JSON `kho_bao_cao_thiet_bi`
+# (bên dưới) tiêu thụ đúng `reports.bao_cao_thiet_bi_rows()` mà "thiet_bi"
+# ở đây bọc bản bẻ phẳng của cùng hàm — nút Excel của màn đó giờ có dữ liệu
+# thật để xuất.
+_BAO_CAO_LOAI = {"nxt", "the_kho", "canh_bao", "nhat_ky", "dot", "cap_phat_thang", "thiet_bi"}
 
 # Ánh xạ tham số `loai` do client gửi ("nhap"/"xuat") sang doctype thật. Không
 # bao giờ nhận thẳng tên doctype từ client cho các endpoint liệt kê — chỉ hai
@@ -205,6 +211,7 @@ _phieu_action = _action("phiếu")
 _vat_tu_action = _action("vật tư")
 _ncc_action = _action("NCC")
 _khoa_action = _action("khoa phòng")
+_thiet_bi_action = _action("thiết bị")
 
 
 def _vat_tu_cua_kho(vat_tu: str, kho: str) -> str:
@@ -243,6 +250,58 @@ def _khoa_cua_kho(khoa_phong: str, kho: str) -> str:
 	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
 	if frappe.db.get_value("Customer Department", khoa_phong, "customer") != customer:
 		raise frappe.PermissionError("Khoa phòng không thuộc kho của đơn vị bạn.")
+	return khoa_phong
+
+
+def _thiet_bi_cua_khach(thiet_bi: str, customer: str) -> str:
+	"""Cùng khuôn _vat_tu_cua_kho(): xác nhận một máy do client gửi lên đúng
+	là của bệnh viện người gọi TRƯỚC khi get_doc/save chạm vào nó.
+
+	`Customer Equipment` treo vào `customer` (không có field `kho` — xem
+	docstring đầu `kho/thiet_bi.py`), nên guard này so `customer`, khác
+	`_vat_tu_cua_kho()`/`_ncc_cua_kho()`/`_phieu_cua_kho()` vốn so `kho`."""
+	if frappe.db.get_value("Customer Equipment", thiet_bi, "customer") != customer:
+		raise frappe.PermissionError("Máy không thuộc đơn vị bạn.")
+	return thiet_bi
+
+
+def _khoa_cua_khach(khoa_phong: str, customer: str) -> str:
+	"""Vòng sửa 1 (review Task 7, Important #1) — cùng khuôn
+	`_thiet_bi_cua_khach()`: xác nhận một khoa phòng do client gửi lên đúng
+	là của bệnh viện người gọi TRƯỚC khi giá trị đó chạm Link field
+	`Customer Equipment.khoa_phong`.
+
+	Không phải một guard "cho chắc" — thiếu nó là một kênh rò thật:
+	`Document.insert()`/`.save()` tự resolve Link qua `_validate_links()`
+	(→ `get_invalid_links()`) TRƯỚC `validate()` của doctype, và lỗi từ đó
+	(`LinkValidationError`, con của `ValidationError`) đi qua nhánh
+	`except (ValidationError, PermissionError): raise` của `_thiet_bi_action`
+	NGUYÊN VẸN, không dịch — hai thông điệp Frappe phân biệt được "không tồn
+	tại" (`Could not find Khoa phòng: KP-NNNNN`) với "tồn tại nhưng chưa bị
+	chặn ở TẦNG NÀY" (rơi tiếp xuống `_chan_khoa_khac_benh_vien()` của
+	`customer_equipment.py`, thông điệp "Khoa phòng được chọn không thuộc
+	đơn vị này."), tạo oracle dò tồn tại `Customer Department` xuyên bệnh
+	viện (`KP-.#####` đánh số tuần tự, đoán được) — không lộ TÊN khoa, không
+	ghi được gì, nhưng phân biệt được là đủ để dò.
+
+	`get_invalid_links()` còn tự giải một `dict` filters thành một docname
+	THẬT rồi `setattr` ngược vào doc trước khi validate() kịp chạy — không
+	còn là rủi ro lý thuyết như những chỗ ép `str()` khác trong file này,
+	guard này đóng cả hai nửa cùng lúc bằng cùng một bước ép `str()` + so
+	`customer`.
+
+	KHÔNG dùng `_khoa_cua_kho()`: hàm đó cần một `kho`, còn
+	`kho_thiet_bi_save` CỐ Ý không gọi `get_portal_kho()` (một bệnh viện
+	chưa mở kho vẫn phải khai máy được — xem docstring `kho_thiet_bi_list`).
+	So thẳng `customer`, đúng khuôn `_thiet_bi_cua_khach()`.
+
+	Guard này KHÔNG phá "ép khoa theo phiên, không tin client" (BR-TB-6):
+	một Nhân viên khoa gửi khoa khác CÙNG viện vẫn qua guard này (cùng
+	`customer`), rồi vẫn bị `_khoa_ep_theo_phien()` trong `thiet_bi.save()`
+	ép về khoa của chính họ như cũ — guard này chỉ chặn khoa của bệnh viện
+	KHÁC, không nới thêm quyền chọn khoa cho Nhân viên khoa."""
+	if frappe.db.get_value("Customer Department", khoa_phong, "customer") != customer:
+		raise frappe.PermissionError("Khoa phòng được chọn không thuộc đơn vị này.")
 	return khoa_phong
 
 
@@ -485,11 +544,43 @@ def kho_khoa_phong_list(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> li
 	"""Danh mục khoa phòng của kho — US-E8.1.
 
 	Brief 2026-08-15 (phân trang) — endpoint này KIÊM HAI VAI (màn danh
-	mục + dropdown NhatKy.vue/BaoCaoNXT.vue). `limit=None` giữ nguyên
-	hành vi cũ; phân trang thật sự nằm ở `kho/khoa_phong.py::list_rows()`
-	— xem docstring ở đó.
+	mục + dropdown NhatKy.vue/BaoCaoThietBi.vue — KHÔNG PHẢI `BaoCaoNXT.vue`,
+	đính chính Task 15 hạng mục 12b: tự grep xác nhận `BaoCaoNXT.vue` không
+	gọi endpoint này, xem docstring `kho_khoa_phong_list_khach` ngay dưới).
+	`limit=None` giữ nguyên hành vi cũ; phân trang thật sự nằm ở
+	`kho/khoa_phong.py::list_rows()` — xem docstring ở đó.
 	"""
 	return khoa_phong_mod.list_rows(get_portal_kho(), tim_kiem, ca_inactive, limit, start)
+
+
+@frappe.whitelist()
+@_khoa_action
+def kho_khoa_phong_list_khach(tim_kiem=None, ca_inactive=0, limit=None, start=0) -> list | dict:
+	"""Danh mục khoa phòng theo BỆNH VIỆN — Task 12b, KHÔNG đòi hỏi kho.
+
+	`kho_khoa_phong_list` (trên) suy `kho` qua `get_portal_kho()`, ném
+	`PermissionError` khi khách chưa có `Customer Warehouse` — đúng cho tám
+	màn đang dùng nó (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/LapPhieu/
+	DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho
+	trực tiếp; `BaoCaoNXT.vue` KHÔNG gọi hàm này — tự grep xác nhận, sửa
+	Task 15 hạng mục 12b).
+	SAI cho ô "Khoa phòng" của `ThietBiModal.vue`: spec đề án §4.1 CỐ Ý treo
+	`Customer Equipment` vào `Customer` (không `Customer Warehouse`) CHÍNH
+	VÌ "Bệnh viện chưa mở kho trên cổng vẫn khai được máy" — nạp danh mục
+	khoa phòng qua endpoint đòi kho phá đúng ca đó.
+
+	Endpoint RIÊNG (không sửa `kho_khoa_phong_list`) để không đụng tám màn
+	kia — đổi phạm vi lọc của endpoint đang chạy (thêm `pham_vi_don()`, xem
+	`list_rows_theo_khach()`) sẽ âm thầm thu hẹp dropdown khoa phòng của
+	Nhân viên khoa trên cả tám màn đó, một thay đổi hành vi không ai yêu
+	cầu.
+
+	`customer` suy từ phiên qua `get_portal_customer()` — không nhận từ
+	client, cùng nguyên tắc đầu file."""
+	customer = get_portal_customer()
+	return khoa_phong_mod.list_rows_theo_khach(
+		customer, frappe.session.user, tim_kiem, ca_inactive, limit, start
+	)
 
 
 @frappe.whitelist()
@@ -514,6 +605,97 @@ def kho_nguoi_nhan_goi_y(khoa_phong: str, tu_khoa=None) -> list:
 	kho = get_portal_kho()
 	_khoa_cua_kho(khoa_phong, kho)
 	return khoa_phong_mod.nguoi_nhan_goi_y(kho, khoa_phong, tu_khoa)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_list(tim_kiem=None, ca_inactive=0, khoa_phong=None, vat_tu=None,
+                       limit=None, start=0) -> list | dict:
+	"""Danh mục máy — KIÊM HAI VAI: màn danh mục và dropdown trên phiếu xuất.
+
+	`vat_tu` là bộ lọc TẦNG HAI (chỉ những máy trong bảng "Máy sử dụng" của
+	vật tư đó). Đây là lý do SPA không được dùng Link field chuẩn: bộ lọc
+	tầng hai phải do SERVER áp, client tự khai thì bỏ qua được.
+
+	`vat_tu`/`khoa_phong` là định danh do client gửi — ép `str()` trước khi
+	chạm bất kỳ get_value/so sánh nào (Task 6 để lại: một payload JSON không
+	ép kiểu có thể mang một `dict` thay vì chuỗi, và `frappe.db.get_value`
+	hiểu tham số thứ hai là FILTERS chứ không phải docname nếu nó không phải
+	chuỗi/số — ngữ nghĩa khác hẳn). `vat_tu` còn được kiểm sở hữu TRƯỚC khi
+	truyền cho `thiet_bi_mod.list_rows()` — module đó (Important #3, Task 6)
+	coi một `vat_tu` lạ/không tồn tại là "không lọc gì" (an toàn nhưng ÂM
+	THẦM), còn ở đây ta muốn báo lỗi RÕ cho một tham số client tự khai sai,
+	đúng như `_vat_tu_cua_kho()` đã làm cho `kho_lo`/`kho_vat_tu_sua`."""
+	customer = get_portal_customer()
+	if vat_tu:
+		vat_tu = _vat_tu_cua_kho(str(vat_tu), get_portal_kho())
+	if khoa_phong:
+		khoa_phong = str(khoa_phong)
+	return thiet_bi_mod.list_rows(
+		customer, frappe.session.user, tim_kiem, ca_inactive, khoa_phong, vat_tu, limit, start
+	)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_save(payload) -> dict:
+	"""Tạo mới (thiếu `name`) hoặc sửa một máy của bệnh viện người gọi.
+
+	`name` trong payload là định danh do client gửi — ép `str()` rồi guard
+	qua `_thiet_bi_cua_khach()` TRƯỚC khi `thiet_bi_mod.save()` chạm doc,
+	đúng nguyên tắc đầu file (guard trước, get_doc sau). `save()` ở tầng
+	dưới cũng tự kiểm lại `doc.customer` — hai lớp phòng thủ khác nhau
+	(_thiet_bi_cua_khach dùng get_value rẻ, save() cần get_doc để ghi), giữ
+	cả hai không phải thừa.
+
+	`khoa_phong` (nếu có gửi) CŨNG là định danh do client gửi — cùng ép
+	`str()` rồi guard qua `_khoa_cua_khach()` TRƯỚC khi vào `thiet_bi_mod.
+	save()`/`Document.insert()`, xem docstring `_khoa_cua_khach()` cho lý do
+	đây không phải guard thừa (oracle dò tồn tại + kênh dict-thành-filters
+	của `get_invalid_links()`, cả hai KHÔNG được `str()` một mình chặn hết).
+	Guard này không thay thế `_khoa_ep_theo_phien()` trong `thiet_bi.save()`
+	— nó chỉ chặn khoa của bệnh viện KHÁC; ép về khoa của chính Nhân viên
+	khoa vẫn là việc của `_khoa_ep_theo_phien()` như cũ.
+	"""
+	customer = get_portal_customer()
+	du_lieu = _parse_payload(payload)
+	if du_lieu.get("name"):
+		du_lieu["name"] = _thiet_bi_cua_khach(str(du_lieu["name"]), customer)
+	if du_lieu.get("khoa_phong"):
+		du_lieu["khoa_phong"] = _khoa_cua_khach(str(du_lieu["khoa_phong"]), customer)
+	return thiet_bi_mod.save(customer, frappe.session.user, du_lieu)
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_thiet_bi_tao_nhanh(payload) -> dict:
+	"""Form "Tạo nhanh thiết bị" — luôn TẠO MỚI, không có `name` trong payload
+	nên không cần guard định danh ở tầng này."""
+	customer = get_portal_customer()
+	return thiet_bi_mod.tao_nhanh(customer, frappe.session.user, _parse_payload(payload))
+
+
+@frappe.whitelist()
+@_thiet_bi_action
+def kho_vat_tu_gan_thiet_bi(vat_tu, thiet_bi) -> dict:
+	"""Gắn một máy vào bảng "Máy sử dụng" của một vật tư.
+
+	`thiet_bi_mod.gan_vao_vat_tu()` (Task 6) KHÔNG nhận `customer`/`user` —
+	nó tự suy tenant từ HAI ĐẦU (kho của vật tư -> customer; customer của
+	máy) rồi chặn khi LỆCH NHAU, nhưng không so với `customer` của PHIÊN
+	đang gọi. Không guard thêm ở đây thì một quản lý của bệnh viện A gọi
+	endpoint này với một cặp (vật tư B, máy B) — hai định danh CÓ THẬT và
+	KHỚP NHAU, chỉ không phải của A — vẫn lọt qua kiểm "lệch nhau" của
+	gan_vao_vat_tu() dù không thuộc bệnh viện của người gọi. Guard cả hai
+	định danh (ép `str()` trước) về ĐÚNG kho/khách của phiên TRƯỚC khi gọi
+	xuống, đúng nguyên tắc đầu file — không tin việc hai đầu tự khớp nhau là
+	đủ an toàn.
+	"""
+	customer = get_portal_customer()
+	kho = get_portal_kho()
+	vat_tu = _vat_tu_cua_kho(str(vat_tu), kho)
+	thiet_bi = _thiet_bi_cua_khach(str(thiet_bi), customer)
+	return thiet_bi_mod.gan_vao_vat_tu(vat_tu, thiet_bi)
 
 
 @frappe.whitelist()
@@ -565,6 +747,15 @@ def _phieu_to_dict(doc) -> dict:
 	out["docstatus"] = int(doc.docstatus)
 	out["trang_thai"] = _TRANG_THAI.get(int(doc.docstatus), "")
 	out["items"] = [row.as_dict() for row in doc.items]
+	# Task 8 — cảnh báo mềm BR-TB-2/4 gom trong validate() vào
+	# `doc.flags.canh_bao_thiet_bi` (xem docstring `_validate_thiet_bi()`).
+	# Khoá này PHẢI luôn có mặt, kể cả rỗng: SPA đọc thẳng
+	# `ket_qua.canh_bao_thiet_bi`, thiếu khoá vỡ màn hình. `doc.flags` là
+	# một `frappe._dict` (get() không ném KeyError) nhưng trên một doc vừa
+	# `get_doc()` từ CSDL (đường `kho_phieu_get`, không đi qua validate() của
+	# lần lưu vừa rồi) `flags` không có mục này — `.get(...) or []` phủ cả
+	# hai ca, không cần kiểm `hasattr`/`is_new`.
+	out["canh_bao_thiet_bi"] = list(doc.flags.get("canh_bao_thiet_bi") or [])
 	return out
 
 
@@ -812,14 +1003,64 @@ def kho_phieu_xuat_save(payload) -> dict:
 	doc.kho = kho
 	doc.ngay = payload.get("ngay") or doc.ngay or frappe.utils.today()
 	doc.loai_xuat = payload.get("loai_xuat") or doc.loai_xuat or "Xuất sử dụng"
-	# E8/BR-CP2: `khoa_phong` là một Link do client gửi lên — KHÔNG kiểm sở
-	# hữu ở TẦNG ENDPOINT này (không gọi _khoa_cua_kho()): cùng đúng khuôn
-	# `vat_tu` của từng dòng phiếu ngay bên dưới, chốt chặn "thuộc kho nào"
-	# nằm ở TẦNG CONTROLLER (customer_stock_issue.py:validate(), hàm
-	# _validate_khoa_phong_thuoc_kho, cùng khuôn
-	# voucher.validate_vat_tu_thuoc_kho()) — vừa chạy trên MỌI đường ghi (kể
-	# cả Desk, không chỉ endpoint này), vừa không lặp logic kiểm hai lần.
-	doc.khoa_phong = payload.get("khoa_phong") or None
+	# SỬA (đợt sửa cuối, C-1 — trước đây gán thẳng `payload.get("khoa_phong")`
+	# không qua guard nào). Đúng oracle "hai loại lỗi/hai thông điệp phân
+	# biệt tồn tại docname" mà Task 8 đã đóng cho `thiet_bi`/
+	# `thiet_bi_mac_dinh` ngay dưới: một `KP-#####` bịa chết ở
+	# `Document._validate_links()` (LinkValidationError tiếng Anh), một khoa
+	# CÓ THẬT của bệnh viện khác sống sót qua đó rồi mới chết ở
+	# `_validate_khoa_phong_thuoc_kho()` (ValidationError tiếng Việt, thông
+	# điệp khác) — đủ để dò tồn tại `Customer Department` xuyên bệnh viện.
+	# Đóng bằng guard đã có (`_khoa_cua_kho()`, dùng ở `kho_bao_cao_excel`/
+	# `kho_bao_cao_thiet_bi`/`kho_nguoi_nhan_goi_y`), ném CÙNG MỘT
+	# PermissionError (KHÔNG dịch bởi `_phieu_action`) cho cả hai ca, chặn
+	# TRƯỚC khi giá trị chạm `insert()`/`save()`. `str()` trước khi vào guard
+	# — không phải cho chắc: `get_invalid_links()`/`get_value()` tự diễn
+	# giải một `dict` lọt tới đó thành FILTERS, khớp một `Customer
+	# Department` THẬT rồi setattr ngược vào doc, đúng khuôn
+	# `_khoa_cua_khach()`/`_thiet_bi_cua_khach()`. Giá trị GÁN LẠI là giá trị
+	# ĐÃ QUA GUARD (không phải giá trị thô) — kiểm rồi vẫn dùng giá trị thô
+	# là không kiểm gì cả.
+	khoa_phong_raw = payload.get("khoa_phong")
+	doc.khoa_phong = _khoa_cua_kho(str(khoa_phong_raw), kho) if khoa_phong_raw else None
+	# Task 8 — Máy mặc định VÀ máy từng dòng (Link tới Customer Equipment).
+	#
+	# SỬA (so với dự thảo đầu của task này, xem task-8-report.md): dự thảo
+	# đầu định KHÔNG kiểm sở hữu ở tầng endpoint, sao y đúng khuôn
+	# `khoa_phong`/`vat_tu` ("chốt chặn nằm ở tầng controller"), với điều
+	# kiện brief tự đặt ra: "chấp nhận được NẾU controller chặn với CÙNG
+	# thông điệp cho mọi ca". Kiểm thực tế (bench console) cho thấy điều
+	# kiện đó SAI: một máy KHÔNG TỒN TẠI chết ở `Document._validate_links()`
+	# (chạy TRƯỚC validate(), xem get_invalid_links() trong
+	# frappe/model/base_document.py) với `LinkValidationError` tiếng Anh
+	# ("Could not find Row #1: Máy sử dụng: TBK-99999999"), còn một máy CÓ
+	# THẬT của bệnh viện khác sống sót qua đó rồi mới chết ở
+	# `_validate_thiet_bi()` với `ValidationError` tiếng Việt ("Máy được
+	# chọn không thuộc đơn vị bạn.") — hai loại lỗi, hai thông điệp khác
+	# nhau, đúng oracle dò tồn tại docname mà docstring `_khoa_cua_khach()`
+	# (Task 7) đã cảnh báo cho `khoa_phong`, chỉ khác đối tượng là
+	# `Customer Equipment` thay vì `Customer Department`. Đóng bằng ĐÚNG
+	# guard đã có (`_thiet_bi_cua_khach`, Task 7) — không viết guard mới,
+	# không lặp logic: guard này ném CÙNG MỘT `PermissionError` (KHÔNG dịch
+	# bởi `_phieu_action`, đúng khuôn `_khoa_cua_khach`) cho cả hai ca, đóng
+	# oracle bằng cách chặn TRƯỚC khi giá trị chạm `Document.insert()`/
+	# `.save()`. `_validate_thiet_bi()` ở tầng controller VẪN giữ nguyên —
+	# vẫn là chốt chặn duy nhất cho đường Desk (guard này chỉ chạy trên
+	# đường cổng), và guard endpoint không lặp lại cảnh báo mềm BR-TB-2/4
+	# của nó.
+	#
+	# `str()` trước khi đưa vào guard/gán field — không phải cho chắc: đây
+	# là Link field, và `get_invalid_links()` tự gọi `frappe.db.get_value
+	# (doctype, docname, "name")` với giá trị nguyên vẹn nếu nó lọt qua
+	# guard mà chưa ép kiểu. Một `dict` lọt tới đó bị hiểu thành FILTERS,
+	# khớp một Customer Equipment THẬT rồi setattr ngược vào doc — `str()`
+	# tại biên (trước cả khi gọi guard) đóng cả nhánh guard lẫn nhánh
+	# _validate_links() cùng lúc, đúng khuôn `_khoa_cua_khach()`.
+	customer = get_portal_customer()
+	tb_mac_dinh = payload.get("thiet_bi_mac_dinh")
+	doc.thiet_bi_mac_dinh = (
+		_thiet_bi_cua_khach(str(tb_mac_dinh), customer) if tb_mac_dinh else None
+	)
 	doc.noi_nhan = payload.get("noi_nhan")
 	doc.nguoi_nhan = payload.get("nguoi_nhan")
 	doc.dien_giai = payload.get("dien_giai")
@@ -829,12 +1070,19 @@ def kho_phieu_xuat_save(payload) -> dict:
 		# don_gia và han_su_dung KHÔNG nhận từ client dù có gửi kèm: controller
 		# (_lay_gia_va_han_tu_lo) luôn ghi đè bằng giá/hạn hiện hành của lô ở
 		# validate(), đúng như test_price_taken_from_lot_not_user đã khẳng định.
+		tb_dong = row.get("thiet_bi")
 		doc.append("items", {
 			"vat_tu": row.get("vat_tu"),
 			"so_lo": row.get("so_lo"),
 			"so_luong": row.get("so_luong"),
 			"xac_nhan_het_han": 1 if row.get("xac_nhan_het_han") else 0,
 			"ghi_chu": row.get("ghi_chu"),
+			# Task 8 — `thiet_bi` của dòng qua ĐÚNG guard `_thiet_bi_cua_
+			# khach()` như `thiet_bi_mac_dinh` phía trên — xem comment ở đó
+			# cho lý do (oracle tồn tại docname qua _validate_links()).
+			"thiet_bi": (
+				_thiet_bi_cua_khach(str(tb_dong), customer) if tb_dong else None
+			),
 		})
 
 	doc.flags.ignore_permissions = True
@@ -1156,6 +1404,80 @@ def kho_bao_cao_cap_phat_thang(
 
 
 @frappe.whitelist()
+@_thiet_bi_action
+def kho_bao_cao_thiet_bi(
+	tu_ngay, den_ngay, thiet_bi=None, khoa_phong=None, tim=None, limit=None, start=0
+) -> dict:
+	"""Báo cáo "Vật tư · Máy · Khoa phòng" (task 9/10) — CỔNG JSON cho màn
+	SPA BaoCaoThietBi.vue (task 14).
+
+	SỬA (brief task-14-brief.md gõ THIẾU): brief mô tả màn hình "gọi qua
+	`api.callKho('kho_bao_cao_thiet_bi', ...)`" như thể endpoint này đã tồn
+	tại, nhưng `reports.bao_cao_thiet_bi_rows()` (task 9) và bản bẻ phẳng
+	cho Excel (task 10, `_BAO_CAO_LOAI` đã có "thiet_bi") CHƯA từng có một
+	hàm whitelist nào bọc JSON cho SPA — xem docstring
+	`reports.bao_cao_thiet_bi_flat_rows`: "CHƯA có màn SPA nào tiêu thụ
+	bao_cao_thiet_bi_rows()". Không có endpoint này thì màn hình không có gì
+	để gọi. Thêm ở đây, tối thiểu, đúng khuôn NĂM endpoint báo cáo phía trên
+	(kho suy từ phiên, định danh do client gửi kiểm sở hữu trước khi chạm
+	dữ liệu) — KHÔNG đụng `reports.py` (tầng tính toán giữ nguyên, đã có bộ
+	test_tb6_bao_cao.py ghim đúng ngữ nghĩa hai cột xuất).
+
+	`thiet_bi` treo vào CUSTOMER (không có field kho — xem docstring
+	`_thiet_bi_cua_khach`), khác `khoa_phong` treo vào kho qua
+	`_khoa_cua_kho()` — hai guard khác nhau, không dùng lẫn.
+
+	`tim` — LỌC PYTHON substring trên mã/tên vật tư của `dong`, cùng khuôn
+	`kho_vat_tu_list` (`tim` ở đó cũng là lọc Python, không phải SQL LIKE):
+	`bao_cao_thiet_bi_rows()` không có tham số `tim` (chưa có UI khi hàm đó
+	được viết) — thêm nó vào reports.py là sửa tầng tính toán, ngoài phạm
+	vi "nối dây" của task này; lọc SAU khi đã có `dong`, giữ reports.py
+	nguyên vẹn.
+
+	`tong_doi_chieu` — tổng NĂM cột đối chiếu bất biến (`ton_dau + nhap -
+	cap_phat - xuat_khac == ton_cuoi`), tính từ TOÀN BỘ `dong` đã lọc
+	`tim`/`thiet_bi`/`khoa_phong` (TRƯỚC khi cắt trang) — cùng chốt "Tổng
+	cộng (toàn kỳ)" mà `kho_bao_cao_cap_phat`/`kho_bao_cao_cap_phat_thang`
+	đã dùng: dòng tổng ở màn hình không được đổi khi khách bấm sang trang
+	khác. Vì bất biến đúng theo TỪNG DÒNG (đảm bảo ở `reports.py`), tổng của
+	một tập con dòng bất kỳ vẫn tự cân — không phải một phép tính riêng có
+	thể trôi khỏi từng dòng.
+	"""
+	kho = get_portal_kho()
+	customer = get_portal_customer()
+	if thiet_bi:
+		thiet_bi = _thiet_bi_cua_khach(str(thiet_bi), customer)
+	if khoa_phong:
+		khoa_phong = _khoa_cua_kho(str(khoa_phong), kho)
+	ket_qua = reports.bao_cao_thiet_bi_rows(
+		kho, tu_ngay, den_ngay, thiet_bi=thiet_bi, khoa_phong=khoa_phong
+	)
+	dong = ket_qua["dong"]
+	tim = (tim or "").strip().lower()
+	if tim:
+		dong = [
+			d for d in dong
+			if tim in (d["ma_vat_tu"] or "").lower() or tim in (d["vat_tu"] or "").lower()
+		]
+	tong_doi_chieu = {
+		k: round(sum(d[k] for d in dong), 4)
+		for k in ("ton_dau", "nhap", "cap_phat", "xuat_khac", "ton_cuoi")
+	}
+	trang_dong, tong = _ap_dung_phan_trang(dong, limit, start)
+	return {
+		"dong": trang_dong,
+		"tong": tong if tong is not None else len(dong),
+		"tong_doi_chieu": tong_doi_chieu,
+		# Bộ lọc thiet_bi/khoa_phong THU HẸP `theo_may` của từng dòng nhưng
+		# KHÔNG thu hẹp `cap_phat` (xem docstring bao_cao_thiet_bi_rows,
+		# "HỆ QUẢ CẦN BIẾT") — cờ này để màn hình biết KHI NÀO
+		# sum(theo_may.sl) == cap_phat không còn đúng, tránh hiện một dòng
+		# "lệch" trông như bug.
+		"loc_theo_may_hoac_khoa": bool(thiet_bi or khoa_phong),
+	}
+
+
+@frappe.whitelist()
 def kho_canh_bao_han(so_ngay=90, limit=None, start=0) -> list | dict:
 	"""Lô đã hết hạn còn tồn và lô sắp hết hạn trong `so_ngay` ngày tới."""
 	kho = get_portal_kho()
@@ -1242,6 +1564,21 @@ def kho_bao_cao_excel(
 		)
 		columns = reports.CAP_PHAT_THANG_COLUMNS
 		filename, sheet = "cap_phat_theo_thang_khoa_phong.xlsx", "Cap phat theo thang"
+	elif loai == "thiet_bi":
+		# task 10, bước 4 — nối dây Excel cho báo cáo "Vật tư · Máy · Khoa
+		# phòng" (Task 9). Cùng khuôn "cap_phat_thang": bẻ phẳng đầu ra đã
+		# tính (reports.bao_cao_thiet_bi_flat_rows), không tính lại.
+		if not (tu_ngay and den_ngay):
+			frappe.throw("Thiếu khoảng ngày để xuất báo cáo.", frappe.ValidationError)
+		if khoa_phong:
+			_khoa_cua_kho(khoa_phong, kho)
+		if vat_tu:
+			_vat_tu_cua_kho(vat_tu, kho)
+		rows = reports.bao_cao_thiet_bi_flat_rows(
+			kho, tu_ngay, den_ngay, khoa_phong=khoa_phong, vat_tu=vat_tu
+		)
+		columns = reports.THIET_BI_COLUMNS
+		filename, sheet = "bao_cao_vat_tu_may_khoa.xlsx", "Vat tu - May - Khoa"
 	else:
 		so_ngay = _so_nguyen(so_ngay, "Số ngày", 90)
 		if so_ngay < 0:

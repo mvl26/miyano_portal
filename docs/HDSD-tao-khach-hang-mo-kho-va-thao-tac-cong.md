@@ -595,6 +595,19 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 | MYN-ALT | Hoá chất sinh hoá ALT (GPT) – hộp 4×50ml | Hộp | có |
 | **MD-BONG-01** | Bông y tế cuộn 500g (bệnh viện tự mua) | Cuộn | **không — mã riêng** |
 
+`MYN-ALT` khai **"Máy sử dụng"** gồm cả hai máy ở bảng dưới — ví dụ thật cho
+"một vật tư dùng được nhiều máy", xem *HDSD-quan-ly-vat-tu-theo-may.md*.
+
+### Danh mục thiết bị (Task 15)
+
+| Mã máy | Tên máy | Khoa phòng | Hãng · Model |
+|---|---|---|---|
+| MAY-SH-01 | Máy sinh hoá tự động XN-550 (chính) | Dùng chung | Sysmex · XN-550 |
+| MAY-SH-02 | Máy sinh hoá tự động XN-550 (dự phòng) | Dùng chung | Sysmex · XN-550 |
+
+Hai máy cùng model, một chính một dự phòng — cả hai đều khai trong "Máy sử
+dụng" của `MYN-ALT` vì cùng chạy chung một hoá chất.
+
 ### Chứng từ đã sinh
 
 | Chứng từ | Số | Trạng thái / ý nghĩa demo |
@@ -611,6 +624,7 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 | Phiếu xuất sử dụng | `PX-MD-2026-00001` | 12 Hộp bơm tiêm cho Khoa Xét nghiệm, lô do FEFO chọn |
 | Phiếu xuất huỷ | `PX-MD-2026-00002` | 2 Hộp ALT **đã quá hạn**, có tick xác nhận |
 | Phiếu nhập tay + phiếu đảo | `PN-MD-2026-00004` (Đã huỷ) → `PN-MD-2026-00005` (Phiếu đảo) | để demo cơ chế huỷ ở mục C10 |
+| Phiếu xuất theo máy (Task 15) | `PX-MD-2026-00005` | 2 dòng cùng ALT — 2 Hộp cho MAY-SH-01, 2 Hộp cho MAY-SH-02, để báo cáo thiết bị có số liệu tách theo máy ở CẢ HAI máy |
 
 ### Tồn hiện tại (thời điểm dựng dữ liệu)
 
@@ -618,10 +632,17 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 |---|---|---|---|
 | Găng tay khám nitrile size M | 218 Hộp | 15.964.000 ₫ | 4 |
 | Bơm tiêm 10ml G21 | 133 Hộp | 9.052.000 ₫ | 3 |
-| Hoá chất ALT (GPT) | 13 Hộp | 12.340.000 ₫ | 2 |
+| Hoá chất ALT (GPT) | 9 Hộp | 8.540.000 ₫ | 2 |
 | Bông y tế cuộn 500g | 50 Cuộn | 2.250.000 ₫ | 1 |
 
 Báo cáo **Cảnh báo hạn dùng** (90 ngày) trả 7 dòng, trong đó 2 lô đã quá hạn còn tồn.
+
+> Bảng trên là con số sinh ra bởi ĐÚNG kịch bản trong `demo_kho_flow.py`, chạy
+> một lần trên một site sạch. `erptest.local` là site phát triển dùng chung —
+> nếu ai đó từng lập tay thêm lô/phiếu cho chính kho demo này lúc kiểm thử màn
+> hình (không đi qua script), số tồn thật trên site có thể lệch bảng này. Kiểm
+> lại bằng màn **Kho của tôi** hoặc báo cáo **Nhập - Xuất - Tồn** nếu nghi ngờ
+> — script không tự dọn dữ liệu người khác đã thêm.
 
 ### Dựng thêm một khách hàng demo khác
 

@@ -15,6 +15,7 @@ import frappe
 
 from miyano_portal.kho import similarity
 from miyano_portal.kho.import_ton_dau import _norm
+from miyano_portal.portal_context import pham_vi_don
 
 TRUONG_MO_TA = ("ma_khoa", "ghi_chu")
 
@@ -97,32 +98,29 @@ def _thong_ke_90n(name: str) -> tuple[int, float]:
 	return so_phieu, float(tong[0][0] or 0)
 
 
-def list_rows(
-	kho: str, tim_kiem: str | None = None, ca_inactive=False,
-	limit: int | None = None, start: int = 0,
+def _list_rows_theo_customer(
+	customer: str, tim_kiem: str | None, ca_inactive, limit, start,
+	chi_khoa: str | None = None,
 ) -> list[dict] | dict:
-	"""Danh mục khoa phòng — cùng khuôn `kho_ncc_list()`: trả ĐỦ chi tiết mô
-	tả trong MỘT lượt, không chỉ vài cột hiển thị bảng (Gap 1, review E4
-	phần B — xem docstring ncc.list_rows() cho lý do đầy đủ).
+	"""Lõi dùng chung của `list_rows()` (theo kho) và `list_rows_theo_khach()`
+	(theo khách hàng, Task 12b) — cả hai chỉ khác nhau ở CÁCH suy `customer`
+	và ở tham số `chi_khoa` (chỉ hàm sau dùng, xem docstring ở đó). Giữ MỘT
+	nơi tính `so_phieu_90n`/`gia_tri_90n`/phân trang để hai đường gọi không
+	trôi lệch nhau qua thời gian.
 
-	Brief 2026-08-15 (phân trang) — cùng ràng buộc/khuôn `ncc.list_rows()`:
-	endpoint `kho_khoa_phong_list` KIÊM HAI VAI (màn danh mục + dropdown
-	NhatKy.vue/BaoCaoNXT.vue), `limit=None` giữ nguyên hành vi cũ (list
-	đầy đủ), chỉ cắt trang khi `limit` được truyền — đọc docstring
-	`ncc.list_rows()` cho lý do đầy đủ (lọc Python, cắt trước khi tính
-	thống kê 90 ngày để không lãng phí truy vấn cho dòng không hiển thị).
-
-	SỬA (fix-wave 2026-08-18, V3 — Ruling SAI §7.0 của kế hoạch gốc). Bản
-	trước lọc `{"kho": kho}` — cùng lỗi với `_khoa_cua_kho()` (`api/kho.py`,
-	đọc docstring ở đó): một khoa phòng của ĐÚNG khách hàng nhưng KHÔNG gắn
-	kho (hình HDSD dạy Miyano khai) sẽ không bao giờ hiện trong danh mục
-	cổng, dù nhân viên đứng đúng kho của bệnh viện mình. Lọc theo `customer`
-	(suy từ `kho`) — cùng phạm vi `_existing_rows()` ngay trên đã dùng từ
-	Vòng sửa 1, phát hiện 4."""
-	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+	`so_phieu_90n`/`gia_tri_90n` vẫn được tính cho CẢ HAI đường gọi (kể cả
+	`list_rows_theo_khach()`, nơi không caller nào hiện tại đọc hai trường
+	này — ThietBiModal.vue chỉ cần `name`/`ten_khoa_phong`/`active`) để giữ
+	NGUYÊN một hình dạng response cho "danh mục khoa phòng", không tạo thêm
+	một hợp đồng rút gọn khác biệt chỉ vì một caller chưa cần — chấp nhận
+	thêm tối đa vài truy vấn nhỏ mỗi khoa (dữ liệu vài chục khoa/bệnh viện,
+	không đáng kể), đổi lấy một chỗ duy nhất để sửa nếu sau này có caller
+	thứ hai cần các số liệu đó."""
 	filters = {"customer": customer}
 	if not frappe.utils.cint(ca_inactive):
 		filters["active"] = 1
+	if chi_khoa:
+		filters["name"] = chi_khoa
 	rows = frappe.get_all(
 		"Customer Department", filters=filters,
 		fields=["name", "ten_khoa_phong", "ma_khoa", "ghi_chu", "active"],
@@ -153,6 +151,81 @@ def list_rows(
 			"active": int(r.active or 0),
 		})
 	return {"rows": out, "tong": tong} if phan_trang else out
+
+
+def list_rows(
+	kho: str, tim_kiem: str | None = None, ca_inactive=False,
+	limit: int | None = None, start: int = 0,
+) -> list[dict] | dict:
+	"""Danh mục khoa phòng — cùng khuôn `kho_ncc_list()`: trả ĐỦ chi tiết mô
+	tả trong MỘT lượt, không chỉ vài cột hiển thị bảng (Gap 1, review E4
+	phần B — xem docstring ncc.list_rows() cho lý do đầy đủ).
+
+	Brief 2026-08-15 (phân trang) — cùng ràng buộc/khuôn `ncc.list_rows()`:
+	endpoint `kho_khoa_phong_list` KIÊM HAI VAI (màn danh mục + dropdown
+	NhatKy.vue/BaoCaoThietBi.vue — KHÔNG PHẢI `BaoCaoNXT.vue`, đính chính
+	Task 15 hạng mục 12b, xem docstring `list_rows_theo_khach()` ngay
+	dưới), `limit=None` giữ nguyên hành vi cũ (list đầy đủ), chỉ cắt trang
+	khi `limit` được truyền — đọc docstring `ncc.list_rows()` cho lý do
+	đầy đủ (lọc Python, cắt trước khi tính thống kê 90 ngày để không lãng
+	phí truy vấn cho dòng không hiển thị).
+
+	SỬA (fix-wave 2026-08-18, V3 — Ruling SAI §7.0 của kế hoạch gốc). Bản
+	trước lọc `{"kho": kho}` — cùng lỗi với `_khoa_cua_kho()` (`api/kho.py`,
+	đọc docstring ở đó): một khoa phòng của ĐÚNG khách hàng nhưng KHÔNG gắn
+	kho (hình HDSD dạy Miyano khai) sẽ không bao giờ hiện trong danh mục
+	cổng, dù nhân viên đứng đúng kho của bệnh viện mình. Lọc theo `customer`
+	(suy từ `kho`) — cùng phạm vi `_existing_rows()` ngay trên đã dùng từ
+	Vòng sửa 1, phát hiện 4.
+
+	Task 12b — đòi `kho` là ĐÚNG THIẾT KẾ cho tám màn dùng hàm này qua
+	endpoint `kho_khoa_phong_list` (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/
+	LapPhieu/DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue — đọc
+	kho trực tiếp, không có lý do bỏ đòi hỏi này; `BaoCaoNXT.vue` KHÔNG
+	gọi hàm này — tự grep xác nhận, sửa Task 15 hạng mục 12b). Hàm KHÔNG
+	sửa ở đây — xem `list_rows_theo_khach()` ngay dưới cho đường KHÔNG
+	cần kho, dùng riêng cho màn Thiết bị."""
+	customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+	return _list_rows_theo_customer(customer, tim_kiem, ca_inactive, limit, start)
+
+
+def list_rows_theo_khach(
+	customer: str, user: str, tim_kiem: str | None = None, ca_inactive=False,
+	limit: int | None = None, start: int = 0,
+) -> list[dict] | dict:
+	"""Danh mục khoa phòng theo BỆNH VIỆN — Task 12b, KHÔNG đòi hỏi kho.
+
+	`list_rows()` ở trên đòi `kho` (nơi gọi `api/kho.py::kho_khoa_phong_list`
+	suy nó qua `get_portal_kho()`, ném `PermissionError` khi khách chưa mở
+	kho) — đúng thiết kế cho các màn phiếu, nhưng phá đúng ca mà spec đề án
+	§4.1 CỐ Ý treo `Customer Equipment` vào `Customer` thay vì `Customer
+	Warehouse`: "Bệnh viện chưa mở kho trên cổng vẫn khai được máy." Ô
+	"Khoa phòng" của `ThietBiModal.vue` gọi hàm này (qua endpoint
+	`kho_khoa_phong_list_khach`) — nhận thẳng `customer` đã suy từ phiên ở
+	tầng gọi (`get_portal_customer()`, không qua kho).
+
+	Trục khoa: áp `pham_vi_don(user)` — CÙNG khuôn `thiet_bi.list_rows()`
+	(đọc docstring ở đó). Quản lý (`pham_vi_don()` trả `{}`) thấy MỌI khoa
+	của bệnh viện; Nhân viên khoa CHỈ thấy khoa của chính mình — đúng khoa
+	server sẽ ép khi họ lưu máy (`thiet_bi._khoa_ep_theo_phien()`), không
+	có lý do cho họ chọn giữa những khoa khác trong dropdown. Nhân viên khoa
+	`active=1` mà `khoa_phong` rỗng (đi vòng qua validate()) khiến
+	`pham_vi_don()` tự ném `PermissionError` — KHÔNG tự đọc `vai_tro`/
+	`khoa_phong` ở đây để tránh lặp lại lỗi fail-open đã xảy ra ở bản đầu
+	của kế hoạch này.
+
+	`chi_khoa` (tham số của `_list_rows_theo_customer()`) chỉ thu hẹp CÙNG
+	lúc với `filters["active"]`: `ThietBiModal.vue` luôn gọi với
+	`ca_inactive=1` nên một khoa của Nhân viên khoa đã bị tắt (`active=0`)
+	vẫn hiện — cố ý, không phải sơ suất. Một caller khác gọi hàm này KHÔNG
+	truyền `ca_inactive=1` mà nhân viên đó lại thuộc một khoa đã tắt sẽ
+	nhận một danh sách rỗng thật (đúng theo bộ lọc `active=1` họ tự chọn,
+	không phải một lỗi)."""
+	pv = pham_vi_don(user)
+	khoa_phien = pv.get("custom_khoa_phong") if pv else None
+	return _list_rows_theo_customer(
+		customer, tim_kiem, ca_inactive, limit, start, chi_khoa=khoa_phien
+	)
 
 
 def save(kho: str, du_lieu: dict) -> dict:

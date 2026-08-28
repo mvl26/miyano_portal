@@ -96,7 +96,8 @@ function isActive(key) {
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',
-      'kho-bao-cao', 'kho-ncc', 'kho-nhat-ky', 'kho-vat-tu', 'kho-vat-tu-import',
+      'kho-bao-cao', 'kho-bao-cao-thiet-bi', 'kho-ncc', 'kho-nhat-ky', 'kho-vat-tu',
+      'kho-vat-tu-import', 'kho-khoa-phong', 'kho-thiet-bi',
     ].includes(name)
   }
   if (key === 'profile') return name === 'profile' || name === 'invoices' || name === 'thong-bao'

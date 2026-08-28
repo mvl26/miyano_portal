@@ -125,8 +125,16 @@ onUnmounted(() => clearTimeout(searchTimer))
         <router-link to="/kho/vat-tu" class="btn-o btn-sm">Danh mục vật tư</router-link>
         <router-link to="/kho/ncc" class="btn-o btn-sm">NCC của tôi</router-link>
         <router-link to="/kho/khoa-phong" class="btn-o btn-sm">Khoa phòng</router-link>
+        <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
         <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
         <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+        <!-- Task 14 — brief chỉ liệt router.js/App.vue/kho-bao-cao-columns.js
+             là file phải sửa, BỎ SÓT chính lối vào màn (không router-link
+             nào trỏ /kho/bao-cao-thiet-bi thì màn chỉ gõ URL tay mới tới
+             được) — thêm ở đây, cạnh nút "Báo cáo" cũ, cùng khuôn Task 12 đã
+             làm cho "Thiết bị"/"Khoa phòng" (thêm CẢ hai chỗ desktop lẫn
+             mobile cùng lúc, không để lệch). -->
+        <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
       </div>
     </div>
 
@@ -151,8 +159,17 @@ onUnmounted(() => clearTimeout(searchTimer))
           <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
           <router-link to="/kho/vat-tu" class="btn-o btn-sm">Danh mục vật tư</router-link>
           <router-link to="/kho/ncc" class="btn-o btn-sm">NCC của tôi</router-link>
+          <!-- Task 12 — "Khoa phòng" thiếu ở hàng mobile này từ trước (E8),
+               chỉ có ở topbar desktop phía trên. Thêm luôn CẢ HAI ở đây: để
+               "Thiết bị" một mình mà bỏ qua khoảng trống liền kề là để lại
+               đúng kiểu bất đối xứng khó hiểu — sửa cùng lúc, không phải mở
+               rộng phạm vi task. -->
+          <router-link to="/kho/khoa-phong" class="btn-o btn-sm">Khoa phòng</router-link>
+          <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
           <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
           <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+          <!-- Task 14 — cùng lý do bình luận ở khối desktop phía trên. -->
+          <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
         </div>
       </div>
 

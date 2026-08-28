@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "TBK-.#####",
+ "creation": "2026-08-27 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer", "ma_thiet_bi", "ten_thiet_bi", "khoa_phong", "active",
+  "col_1", "hang_san_xuat", "xuat_xu", "model", "so_serial",
+  "nam_san_xuat", "ngay_lap_dat",
+  "sec_1", "ghi_chu"
+ ],
+ "fields": [
+  {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "search_index": 1},
+  {"fieldname": "ma_thiet_bi", "fieldtype": "Data", "label": "Mã máy", "reqd": 1, "length": 40, "in_list_view": 1, "description": "Nhập phiếu hàng loạt bằng Excel khớp máy theo mã này — không để trống"},
+  {"fieldname": "ten_thiet_bi", "fieldtype": "Data", "label": "Tên máy", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "khoa_phong", "fieldtype": "Link", "label": "Khoa phòng đặt máy", "options": "Customer Department", "search_index": 1, "description": "Để trống = máy dùng chung, không thuộc khoa nào"},
+  {"fieldname": "active", "fieldtype": "Check", "label": "Đang hoạt động", "default": "1"},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "hang_san_xuat", "fieldtype": "Data", "label": "Hãng sản xuất"},
+  {"fieldname": "xuat_xu", "fieldtype": "Data", "label": "Xuất xứ"},
+  {"fieldname": "model", "fieldtype": "Data", "label": "Model"},
+  {"fieldname": "so_serial", "fieldtype": "Data", "label": "Số serial"},
+  {"fieldname": "nam_san_xuat", "fieldtype": "Int", "label": "Năm sản xuất"},
+  {"fieldname": "ngay_lap_dat", "fieldtype": "Date", "label": "Ngày lắp đặt"},
+  {"fieldname": "sec_1", "fieldtype": "Section Break"},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-27 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Customer Equipment",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Sales Manager", "read": 1, "write": 1, "create": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ten_thiet_bi",
+ "track_changes": 1
+}

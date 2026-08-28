@@ -85,10 +85,22 @@ KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 # phòng) còn chờ Task 4 — vế customer đã được kéo lên cài ngay trong Task 1
 # (permissions.de_xuat_query_condition/de_xuat_co_quyen/de_xuat_item_query,
 # hooks.py) để không có lúc nào doctype này tồn tại mà thiếu dây cách ly.
+#
+# `Customer Equipment` (Task 5 nền phân quyền khoa phòng, thiết bị — thực ra
+# đã tồn tại từ Task 1 của kế hoạch đó, 27/08/2026) — treo vào `customer`
+# TRỰC TIẾP, đúng ngã ba "Customer Supplier"/"Customer Department" ngay trên:
+# không chia sẻ tiền tố với ai (tên không bắt đầu bằng "Customer Warehouse"/
+# "Customer Stock"). PHÁT HIỆN khi vá lỗ cách ly máy (task-5-report.md): guard
+# này đã ĐỎ kể từ lúc doctype ra đời ở Task 1-4 vì chưa ai đăng ký nó ở đây —
+# _nap_doctype_kho() làm đúng việc nó sinh ra để làm, chỉ là không ai chạy
+# module test này giữa các task đó. Khác "Customer Supplier"/"Customer
+# Department": máy còn có field `khoa_phong` (nền phân quyền khoa phòng)
+# nên has_permission của nó (`kho.permissions.thiet_bi_has_permission`)
+# không dùng chung khuôn `kho_has_permission` — có thêm vế khoa.
 KHO_DOCTYPES_KHAC: tuple[str, ...] = (
     "Customer Supplier", "Portal Item Request", "Customer Department",
     "Portal Delivery Inspection", "Portal Delivery Inspection Item",
-    "Portal De Xuat Mua", "Portal De Xuat Mua Item",
+    "Portal De Xuat Mua", "Portal De Xuat Mua Item", "Customer Equipment",
 )
 
 # Bảng con NẰM TRONG diện cách ly nhưng KHÔNG thuộc họ chứng từ kho — không có
@@ -469,6 +481,40 @@ def _make_khoa_phong(kho, ten):
     })
     doc.insert(ignore_permissions=True)
     return doc
+
+
+def _make_thiet_bi(customer, ma, ten):
+    """Task 5 — idempotent, cùng lý do với `_make_ncc`/`_make_khoa_phong`:
+    setUp chạy lại nhiều lần trong cùng một class với cùng `ma` (`ma_thiet_bi`
+    là field bắt buộc, không unique nhưng dùng làm khoá tra idempotent ở
+    đây, cùng vai trò `ten` đóng cho hai hàm kia)."""
+    existing = frappe.db.get_value(
+        "Customer Equipment", {"customer": customer, "ma_thiet_bi": ma}, "name"
+    )
+    if existing:
+        return frappe.get_doc("Customer Equipment", existing)
+    doc = frappe.get_doc({
+        "doctype": "Customer Equipment",
+        "customer": customer,
+        "ma_thiet_bi": ma,
+        "ten_thiet_bi": ten,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
+def _add_thiet_bi_row(vat_tu_name, thiet_bi_name):
+    """Task 5 — thêm MỘT dòng mới vào bảng `may_su_dung` của một `Customer
+    Warehouse Item` đã có sẵn, trả về TÊN dòng con vừa thêm. CỐ Ý không
+    idempotent (khác `_make_thiet_bi`/`_make_ncc`): cùng lý do
+    `_make_bien_ban` đã ghi — vài lớp test trong file này XOÁ dòng con thật
+    (`frappe.delete_doc`), nên một fixture "tìm thấy thì trả về" sẽ đưa cho
+    lần setUp sau một dòng đã bị xoá."""
+    doc = frappe.get_doc("Customer Warehouse Item", vat_tu_name)
+    doc.append("may_su_dung", {"thiet_bi": thiet_bi_name})
+    doc.save(ignore_permissions=True)
+    doc.reload()
+    return doc.may_su_dung[-1].name
 
 
 def _item_kiem_hang() -> str:
@@ -977,6 +1023,12 @@ class TestKhoIsolationDeep(FrappeTestCase):
         self.de_xuat_bm = _make_de_xuat(CUSTOMER_BM, "De xuat test BM")
         self.de_xuat_pxn = _make_de_xuat(CUSTOMER_PXN, "De xuat test PXN")
 
+        # Thiết bị (Task 5, nền phân quyền khoa phòng — thiết bị): doctype
+        # kho cha thứ mười hai, mang `customer` trực tiếp — cùng ngã ba
+        # Portal Item Request/Portal Delivery Inspection/Portal De Xuat Mua.
+        self.thiet_bi_bm = _make_thiet_bi(CUSTOMER_BM, "ZZISO-BM", "May test BM")
+        self.thiet_bi_pxn = _make_thiet_bi(CUSTOMER_PXN, "ZZISO-PXN", "May test PXN")
+
         # Một bản ghi của PXN (khách B) cho từng doctype kho cha.
         self.pxn_records = {
             "Customer Warehouse": self.kho["kho_pxn"],
@@ -990,6 +1042,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Department": self.khoa_pxn.name,
             "Portal Delivery Inspection": self.bien_ban_pxn.name,
             "Portal De Xuat Mua": self.de_xuat_pxn.name,
+            "Customer Equipment": self.thiet_bi_pxn.name,
         }
         # Cùng danh sách đó, nhưng bản ghi của chính BM (khách A) — dùng để
         # chứng minh cách ly không lỡ tay chặn luôn dữ liệu CỦA CHÍNH khách
@@ -1007,6 +1060,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
             "Customer Department": self.khoa_bm.name,
             "Portal Delivery Inspection": self.bien_ban_bm.name,
             "Portal De Xuat Mua": self.de_xuat_bm.name,
+            "Customer Equipment": self.thiet_bi_bm.name,
         }
         for nhan, m in (("pxn_records", self.pxn_records),
                         ("bm_records", self.bm_records)):
@@ -1020,13 +1074,15 @@ class TestKhoIsolationDeep(FrappeTestCase):
 
     def _pxn_filter(self, doctype):
         if doctype in ("Customer Warehouse", "Portal Item Request",
-                       "Portal Delivery Inspection", "Portal De Xuat Mua"):
+                       "Portal Delivery Inspection", "Portal De Xuat Mua",
+                       "Customer Equipment"):
             return {"customer": CUSTOMER_PXN}
         return {"kho": self.kho["kho_pxn"]}
 
     def _bm_filter(self, doctype):
         if doctype in ("Customer Warehouse", "Portal Item Request",
-                       "Portal Delivery Inspection", "Portal De Xuat Mua"):
+                       "Portal Delivery Inspection", "Portal De Xuat Mua",
+                       "Customer Equipment"):
             return {"customer": CUSTOMER_BM}
         return {"kho": self.kho["kho_bm"]}
 
@@ -1110,7 +1166,7 @@ class TestKhoIsolationDeep(FrappeTestCase):
                 if dt == "Customer Warehouse":
                     rows = frappe.get_all(dt, filters={"name": kho}, pluck="name")
                 elif dt in ("Portal Item Request", "Portal Delivery Inspection",
-                            "Portal De Xuat Mua"):
+                            "Portal De Xuat Mua", "Customer Equipment"):
                     rows = frappe.get_all(dt, filters={"customer": customer}, pluck="name")
                 else:
                     rows = frappe.get_all(dt, filters={"kho": kho}, pluck="name")
@@ -1171,12 +1227,22 @@ class TestKhoIsolationChildItems(FrappeTestCase):
         self.de_xuat_bm = _make_de_xuat(CUSTOMER_BM, "De xuat test BM")
         self.de_xuat_pxn = _make_de_xuat(CUSTOMER_PXN, "De xuat test PXN")
 
+        # Task 5 — máy (`Customer Equipment`, idempotent) + một dòng MỚI
+        # trong bảng "máy sử dụng" của mỗi vật tư (CỐ Ý không idempotent,
+        # cùng lý do bien_ban/de_xuat ngay trên — lớp này có test XOÁ dòng
+        # con thật).
+        self.thiet_bi_bm = _make_thiet_bi(CUSTOMER_BM, "ZZCI-BM", "May test BM")
+        self.thiet_bi_pxn = _make_thiet_bi(CUSTOMER_PXN, "ZZCI-PXN", "May test PXN")
+        self.vtbi_bm_row = _add_thiet_bi_row(self.kho["vt_bm"], self.thiet_bi_bm.name)
+        self.vtbi_pxn_row = _add_thiet_bi_row(self.kho["vt_pxn"], self.thiet_bi_pxn.name)
+
         # doctype của bảng con -> (tên doctype cha, tên dòng con của PXN,
         # tên dòng con của BM). Đây chính là bốn giá trị các test dưới đây
         # xoay quanh.
         self.child_map = {
             "Customer Stock Receipt Item": {
                 "parent_doctype": "Customer Stock Receipt",
+                "child_fieldname": "items",
                 "pxn_parent": self.receipt_pxn.name,
                 "bm_parent": self.receipt_bm.name,
                 "pxn_row": self.receipt_pxn.items[0].name,
@@ -1184,6 +1250,7 @@ class TestKhoIsolationChildItems(FrappeTestCase):
             },
             "Customer Stock Issue Item": {
                 "parent_doctype": "Customer Stock Issue",
+                "child_fieldname": "items",
                 "pxn_parent": self.issue_pxn.name,
                 "bm_parent": self.issue_bm.name,
                 "pxn_row": self.issue_pxn.items[0].name,
@@ -1191,6 +1258,7 @@ class TestKhoIsolationChildItems(FrappeTestCase):
             },
             "Portal Delivery Inspection Item": {
                 "parent_doctype": "Portal Delivery Inspection",
+                "child_fieldname": "items",
                 "pxn_parent": self.bien_ban_pxn.name,
                 "bm_parent": self.bien_ban_bm.name,
                 "pxn_row": self.bien_ban_pxn.items[0].name,
@@ -1198,10 +1266,23 @@ class TestKhoIsolationChildItems(FrappeTestCase):
             },
             "Portal De Xuat Mua Item": {
                 "parent_doctype": "Portal De Xuat Mua",
+                "child_fieldname": "items",
                 "pxn_parent": self.de_xuat_pxn.name,
                 "bm_parent": self.de_xuat_bm.name,
                 "pxn_row": self.de_xuat_pxn.items[0].name,
                 "bm_row": self.de_xuat_bm.items[0].name,
+            },
+            # Task 5 — KHÁC bốn doctype trên: bảng con của `Customer Warehouse
+            # Item` tên là `may_su_dung`, không phải `items`. `child_fieldname`
+            # tồn tại đúng để hai test generic dưới đây (form="attached") đọc
+            # đúng field thay vì hardcode ".items[0]".
+            "Customer Warehouse Item Equipment": {
+                "parent_doctype": "Customer Warehouse Item",
+                "child_fieldname": "may_su_dung",
+                "pxn_parent": self.kho["vt_pxn"],
+                "bm_parent": self.kho["vt_bm"],
+                "pxn_row": self.vtbi_pxn_row,
+                "bm_row": self.vtbi_bm_row,
             },
         }
         _assert_fixture_phu_het(self, self.child_map, kho_child_doctypes(),
@@ -1258,10 +1339,15 @@ class TestKhoIsolationChildItems(FrappeTestCase):
         return doc
 
     def _rows(self, dt, parent_doctype):
+        # Task 5 — chỉ hỏi hai field UNIVERSAL cho mọi bảng con (name/parent).
+        # Bản trước hardcode thêm vat_tu/so_lo/don_gia (chỉ đúng cho Receipt/
+        # Issue Item) — "Customer Warehouse Item Equipment" không có ba field
+        # đó (chỉ có `thiet_bi`), nên một fields list chung phải là giao của
+        # mọi doctype trong child_map, không phải hợp của doctype đầu tiên.
         return frappe.get_list(
             dt,
             parent_doctype=parent_doctype,
-            fields=["name", "parent", "vat_tu", "so_lo", "don_gia"],
+            fields=["name", "parent"],
             limit_page_length=0,
         )
 
@@ -1332,9 +1418,10 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                     doc.check_permission("read")
             with self.subTest(doctype=dt, form="attached"):
                 parent = frappe.get_doc(info["parent_doctype"], info["pxn_parent"])
-                self.assertIsNotNone(parent.items[0].parent_doc)
+                row = getattr(parent, info["child_fieldname"])[0]
+                self.assertIsNotNone(row.parent_doc)
                 with self.assertRaises(frappe.PermissionError):
-                    parent.items[0].check_permission("read")
+                    row.check_permission("read")
 
     # -- 4. Vòng 4: dòng con CỦA CHÍNH MÌNH cũng không đọc trực tiếp được ----
     #
@@ -1361,8 +1448,9 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                     doc.check_permission("read")
             with self.subTest(doctype=dt, form="attached"):
                 parent = frappe.get_doc(info["parent_doctype"], info["bm_parent"])
+                row = getattr(parent, info["child_fieldname"])[0]
                 with self.assertRaises(frappe.PermissionError):
-                    parent.items[0].check_permission("read")
+                    row.check_permission("read")
 
     # -- 4b. "print" cũng đóng, cho cả hai khách ----------------------------
     #
@@ -1396,6 +1484,24 @@ class TestKhoIsolationChildItems(FrappeTestCase):
         staff = _ensure_staff_user()
         frappe.set_user(staff)
         for dt, info in self.child_map.items():
+            if dt == "Customer Warehouse Item Equipment":
+                # Task 5 — KHÁC bốn doctype voucher (Receipt/Issue/Kiểm hàng/
+                # Đề xuất, tất cả có `print: 1` cho staff trong JSON): cha của
+                # bảng con này, `Customer Warehouse Item`, là doctype MASTER
+                # — cùng quy ước với bốn master khác của module (`Customer
+                # Warehouse`/`Customer Supplier`/`Customer Department`/
+                # `Customer Equipment`, đã kiểm cả bốn JSON): KHÔNG doctype
+                # master nào có `print: 1`, kể cả cho System Manager. Đây là
+                # quy ước CÓ CHỦ ĐÍCH nhất quán trên toàn module (không có
+                # quy trình nghiệp vụ "in" một bản ghi danh mục), không phải
+                # một chỗ thiếu sót riêng của doctype này — nên `super().
+                # has_permission("print")` trả False cho MỌI role, kể cả
+                # staff, và `VoucherItemBase.has_permission()` (dùng chung,
+                # xem docstring) đúng đắn giao lại False đó, không phải một
+                # lỗi cách ly. Bỏ qua doctype này ở ĐÚNG một test "print" này;
+                # mọi test "read"/"delete"/"write" khác của lớp vẫn chạy nó
+                # bình thường.
+                continue
             for label, row in (("PXN", info["pxn_row"]), ("BM", info["bm_row"])):
                 with self.subTest(doctype=dt, row=label):
                     doc = frappe.get_doc(dt, row)
@@ -1631,6 +1737,13 @@ class _KhoVoucherFixture(FrappeTestCase):
         # bảng con, cùng lý do kiểm hàng ngay trên.
         self.de_xuat_bm = _make_de_xuat(CUSTOMER_BM, "De xuat test BM")
         self.de_xuat_pxn = _make_de_xuat(CUSTOMER_PXN, "De xuat test PXN")
+        # Task 5 — máy (idempotent) + một dòng MỚI trong bảng "máy sử dụng"
+        # của mỗi vật tư, cùng lý do bien_ban/de_xuat ngay trên: bản ghi tối
+        # thiểu cho MỌI doctype kho cha/con, cả hai khách.
+        self.thiet_bi_bm = _make_thiet_bi(CUSTOMER_BM, "ZZKV-BM", "May test BM")
+        self.thiet_bi_pxn = _make_thiet_bi(CUSTOMER_PXN, "ZZKV-PXN", "May test PXN")
+        self.vtbi_bm_row = _add_thiet_bi_row(self.kho["vt_bm"], self.thiet_bi_bm.name)
+        self.vtbi_pxn_row = _add_thiet_bi_row(self.kho["vt_pxn"], self.thiet_bi_pxn.name)
 
         self.child_rows = {
             "Customer Stock Receipt Item": {
@@ -1648,6 +1761,10 @@ class _KhoVoucherFixture(FrappeTestCase):
             "Portal De Xuat Mua Item": {
                 "pxn": self.de_xuat_pxn.items[0].name,
                 "bm": self.de_xuat_bm.items[0].name,
+            },
+            "Customer Warehouse Item Equipment": {
+                "pxn": self.vtbi_pxn_row,
+                "bm": self.vtbi_bm_row,
             },
         }
         _assert_fixture_phu_het(self, self.child_rows, kho_child_doctypes(),
@@ -1860,6 +1977,79 @@ class TestKhoApiDoorStillOpen(FrappeTestCase):
                 self.assertNotIn("Traceback", msg)
 
 
+class TestKhoBaoCaoThietBiIsolation(FrappeTestCase):
+    """Task 14 — endpoint JSON mới `kho_bao_cao_thiet_bi` (bọc
+    `reports.bao_cao_thiet_bi_rows()` cho màn SPA BaoCaoThietBi.vue; endpoint
+    này KHÔNG tồn tại trước task 14, xem comment ở đầu hàm trong api/kho.py).
+
+    Cùng khuôn TestKhoApiDoorStillOpen: positive control (mỗi khách thấy
+    đúng dữ liệu của mình) BẮT BUỘC đi kèm phủ định (thiet_bi/khoa_phong của
+    khách kia bị chặn) — thiếu vế phủ định thì một `thiet_bi`/`khoa_phong`
+    do client tự gõ sẽ đọc được máy/khoa của bệnh viện khác, vì `thiet_bi`
+    treo vào CUSTOMER (không có field `kho`, xem `_thiet_bi_cua_khach`)."""
+
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        for k in (self.kho["kho_bm"], self.kho["kho_pxn"]):
+            frappe.db.delete("Customer Stock Ledger Entry", {"kho": k})
+            frappe.db.delete("Customer Stock Lot Balance", {"kho": k})
+        self.tu, self.den = "2026-02-01", "2026-03-31"
+        _make_receipt(self.kho["kho_bm"], self.kho["vt_bm"], "LO-TB14-BM")
+        _make_receipt(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-TB14-PXN")
+        _make_issue(self.kho["kho_bm"], self.kho["vt_bm"], "LO-TB14-BM")
+        _make_issue(self.kho["kho_pxn"], self.kho["vt_pxn"], "LO-TB14-PXN")
+        self.may_bm = _make_thiet_bi(CUSTOMER_BM, "ZZTB14-BM", "May test BM 14")
+        self.may_pxn = _make_thiet_bi(CUSTOMER_PXN, "ZZTB14-PXN", "May test PXN 14")
+        self.khoa_bm = _make_khoa_phong(self.kho["kho_bm"], "Khoa test BM 14")
+        self.khoa_pxn = _make_khoa_phong(self.kho["kho_pxn"], "Khoa test PXN 14")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def test_own_customer_data_reachable_positive_control(self):
+        for user, own_vt in ((BM_USER, "vt_bm"), (PXN_USER, "vt_pxn")):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                out = kho_api.kho_bao_cao_thiet_bi(tu_ngay=self.tu, den_ngay=self.den)
+                self.assertTrue(any(d["vat_tu_id"] == self.kho[own_vt] for d in out["dong"]))
+                self.assertIn("tong_doi_chieu", out)
+
+    def test_thiet_bi_filter_rejects_other_customers_equipment(self):
+        for user, other_may in ((BM_USER, self.may_pxn.name), (PXN_USER, self.may_bm.name)):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                with self.assertRaises(frappe.PermissionError) as cm:
+                    kho_api.kho_bao_cao_thiet_bi(
+                        tu_ngay=self.tu, den_ngay=self.den, thiet_bi=other_may,
+                    )
+                msg = str(cm.exception)
+                self.assertIn("không thuộc", msg)
+                self.assertNotIn("Traceback", msg)
+
+    def test_khoa_phong_filter_rejects_other_customers_department(self):
+        for user, other_khoa in ((BM_USER, self.khoa_pxn.name), (PXN_USER, self.khoa_bm.name)):
+            with self.subTest(user=user):
+                frappe.set_user(user)
+                with self.assertRaises(frappe.PermissionError) as cm:
+                    kho_api.kho_bao_cao_thiet_bi(
+                        tu_ngay=self.tu, den_ngay=self.den, khoa_phong=other_khoa,
+                    )
+                msg = str(cm.exception)
+                self.assertIn("không thuộc", msg)
+                self.assertNotIn("Traceback", msg)
+
+    def test_tim_khong_khop_tra_rong_khong_phai_loi(self):
+        """`tim` là lọc Python thêm ở task 14 (reports.bao_cao_thiet_bi_rows
+        không có tham số này) — một chuỗi không khớp gì phải trả `dong`
+        rỗng, không phải ném lỗi."""
+        frappe.set_user(BM_USER)
+        out = kho_api.kho_bao_cao_thiet_bi(
+            tu_ngay=self.tu, den_ngay=self.den, tim="khong-khop-gi-ca-zz",
+        )
+        self.assertEqual(out["dong"], [])
+        self.assertEqual(out["tong"], 0)
+
+
 class TestKhoStaffDeskAccess(_KhoVoucherFixture):
     """Positive control cho phía nhân viên: gỡ quyền của `Customer` không
     được đụng tới desk Miyano. Dùng một System Manager THẬT (không phải
@@ -1891,6 +2081,7 @@ class TestKhoStaffDeskAccess(_KhoVoucherFixture):
             "Customer Department": (self.khoa_bm.name, self.khoa_pxn.name),
             "Portal Delivery Inspection": (self.bien_ban_bm.name, self.bien_ban_pxn.name),
             "Portal De Xuat Mua": (self.de_xuat_bm.name, self.de_xuat_pxn.name),
+            "Customer Equipment": (self.thiet_bi_bm.name, self.thiet_bi_pxn.name),
         }
         _assert_fixture_phu_het(self, records, kho_parent_doctypes(), "records")
         for dt, (bm_name, pxn_name) in records.items():

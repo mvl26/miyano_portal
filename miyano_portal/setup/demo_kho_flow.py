@@ -88,6 +88,36 @@ VAT_TU = [
 	},
 ]
 
+# --- Thiết bị (Task 15) ------------------------------------------------------
+# Hai máy CÙNG MODEL, một chính một dự phòng — ví dụ thật cho câu hỏi §3.1 của
+# spec 27/08 mà HDSD-quan-ly-vat-tu-theo-may.md phải trả lời: "một vật tư dùng
+# được cho NHIỀU máy". `MYN-ALT` (đã có sẵn trong VAT_TU) được gắn vào bảng
+# "Máy sử dụng" của CẢ HAI máy này (_ensure_thiet_bi_gan_vat_tu), rồi xuất cho
+# cả hai (_xuat_theo_may) để báo cáo "Vật tư · Máy · Khoa phòng" có số liệu
+# thật ở phần tách theo máy, không chỉ một dòng "Chưa gắn máy". `MYN-GLOVE-M`
+# (găng tay) KHÔNG gắn máy nào — ví dụ thật cho "vật tư dùng chung".
+# `khoa_phong` để trống (máy dùng chung) — demo này không dựng `Customer
+# Department`, nằm ngoài phạm vi Task 15 (chỉ thêm THIẾT BỊ vào kịch bản).
+THIET_BI = [
+	{
+		"ma_thiet_bi": "MAY-SH-01",
+		"ten_thiet_bi": "Máy sinh hoá tự động XN-550 (chính)",
+		"hang_san_xuat": "Sysmex",
+		"xuat_xu": "Nhật Bản",
+		"model": "XN-550",
+		"so_serial": "SH01-2024-0091",
+	},
+	{
+		"ma_thiet_bi": "MAY-SH-02",
+		"ten_thiet_bi": "Máy sinh hoá tự động XN-550 (dự phòng)",
+		"hang_san_xuat": "Sysmex",
+		"xuat_xu": "Nhật Bản",
+		"model": "XN-550",
+		"so_serial": "SH02-2024-0114",
+	},
+]
+MA_VAT_TU_DUNG_HAI_MAY = "MYN-ALT"
+
 # --- Tồn đầu kỳ: CỐ Ý trải lô theo ba mốc hạn dùng --------------------------
 # Delivery Note trên site này không gắn lô (Item không bật batch), nên phiếu
 # nhập sinh từ đơn hàng luôn rơi vào lô "KHONG-LO" và KHÔNG có hạn dùng. Nếu
@@ -119,6 +149,7 @@ NHAN_TON_DAU = "[DEMO] Tồn đầu kỳ chuyển sang khi mở kho trên cổng
 NHAN_XUAT_SU_DUNG = "[DEMO] Xuất cho Khoa Xét nghiệm dùng trong tuần"
 NHAN_XUAT_HUY = "[DEMO] Xuất huỷ lô đã quá hạn theo biên bản huỷ"
 NHAN_NHAP_SAI = "[DEMO] Phiếu nhập nhầm — dùng để minh hoạ huỷ phiếu/phiếu đảo"
+NHAN_XUAT_THEO_MAY = "[DEMO] Xuất hoá chất cho cả hai máy sinh hoá dùng chung"
 
 # Tồn tối thiểu phía kho Miyano để ba đơn hàng demo giao được. Dưới ngưỡng này
 # thì bù lên MUC_BU_TON bằng một phiếu nhập kho ERPNext.
@@ -367,6 +398,54 @@ def _ensure_vat_tu(kho: str) -> dict:
 	return out
 
 
+def _ensure_thiet_bi() -> dict:
+	"""Trả về {ma_thiet_bi: docname} — cùng khuôn `_ensure_vat_tu()` ở trên:
+	`Customer Equipment` treo vào `Customer` (không `Customer Warehouse`,
+	QĐ-TB-8 của spec 27/08), nên đối chiếu idempotent theo `(customer,
+	ma_thiet_bi)`, không theo `kho`.
+
+	Ghi THẲNG bằng `frappe.get_doc(...).insert(ignore_permissions=True)`,
+	KHÔNG qua endpoint `kho_thiet_bi_save`: khác `_dat_don()`/`_xuat_kho()`
+	(nơi đi qua endpoint có ý nghĩa thật — session khách quyết logic BR-TB-6
+	ép khoa, giá theo hợp đồng, gợi ý lô FEFO...), việc TẠO một máy dùng
+	chung bởi Administrator không có nhánh business rule nào khác nhánh
+	trực tiếp — cùng lý do `_ensure_kho()`/`_ensure_vat_tu()` ở trên cũng
+	ghi thẳng."""
+	out = {}
+	for tb in THIET_BI:
+		ten = frappe.db.get_value(
+			"Customer Equipment", {"customer": CUSTOMER, "ma_thiet_bi": tb["ma_thiet_bi"]}, "name"
+		)
+		if not ten:
+			doc = frappe.get_doc({
+				"doctype": "Customer Equipment",
+				"customer": CUSTOMER,
+				"active": 1,
+				**tb,
+			})
+			doc.insert(ignore_permissions=True)
+			ten = doc.name
+		out[tb["ma_thiet_bi"]] = ten
+	return out
+
+
+def _ensure_thiet_bi_gan_vat_tu(vat_tu: dict, thiet_bi: dict) -> None:
+	"""Gắn CẢ HAI máy vào bảng "Máy sử dụng" của `MA_VAT_TU_DUNG_HAI_MAY` —
+	ví dụ thật cho QĐ-TB-2 (một vật tư dùng được nhiều máy) mà HDSD cần chỉ
+	trên màn hình thật. Idempotent bằng kiểm tra trước khi append (không
+	dùng lại `thiet_bi_mod.gan_vao_vat_tu()` để khỏi mở phiên khách chỉ cho
+	một thao tác ghi thẳng đơn giản — cùng lý lẽ ở `_ensure_thiet_bi()`)."""
+	doc = frappe.get_doc("Customer Warehouse Item", vat_tu[MA_VAT_TU_DUNG_HAI_MAY])
+	da_gan = {r.thiet_bi for r in doc.may_su_dung}
+	thay_doi = False
+	for ma in ("MAY-SH-01", "MAY-SH-02"):
+		if thiet_bi[ma] not in da_gan:
+			doc.append("may_su_dung", {"thiet_bi": thiet_bi[ma]})
+			thay_doi = True
+	if thay_doi:
+		doc.save(ignore_permissions=True)
+
+
 def _phieu_theo_nhan(doctype: str, kho: str, nhan: str) -> str | None:
 	return frappe.db.get_value(
 		doctype, {"kho": kho, "dien_giai": nhan, "docstatus": ["<", 2]}, "name"
@@ -560,6 +639,57 @@ def _xuat_kho(kho: str, vat_tu: str, so_luong: float, loai_xuat: str,
 	return phieu["name"]
 
 
+def _xuat_theo_may(kho: str, dong_may: list[dict], loai_xuat: str,
+	                noi_nhan: str, nguoi_nhan: str, nhan: str) -> str | None:
+	"""Một phiếu "Xuất sử dụng" NHIỀU dòng, mỗi dòng gắn một MÁY KHÁC NHAU —
+	`_xuat_kho()` ở trên chỉ xuất một vật tư/một dòng nên không đủ để báo cáo
+	"Vật tư · Máy · Khoa phòng" (§9.2 spec) có số liệu tách theo máy cho CẢ
+	HAI máy demo; thiếu hàm này, phần "theo máy" của báo cáo sẽ chỉ có một
+	dòng thật (dòng còn lại toàn số 0 giả — đúng thứ spec §11 ca 1 cấm).
+
+	`dong_may`: `[{"vat_tu": docname, "so_luong": n, "thiet_bi": docname}, ...]`.
+	Mỗi dòng tự gọi `kho_lo_goi_y()` RIÊNG (không gộp số lượng rồi tự chia) —
+	cùng lý do `_xuat_kho()` không tự chọn lô: dữ liệu demo phải phản ánh
+	đúng gợi ý FEFO thật cho từng dòng, không phải một phép chia tay áng
+	chừng. Chỉ lấy lô CÒN HẠN (giữ đơn giản, không cần tick xác nhận hết hạn
+	ở kịch bản này — `_xuat_kho()` đã có ví dụ xuất huỷ hết hạn riêng)."""
+	da_co = _phieu_theo_nhan("Customer Stock Issue", kho, nhan)
+	if da_co:
+		if frappe.db.get_value("Customer Stock Issue", da_co, "docstatus") == 0:
+			with _lam_khach():
+				kho_api.kho_phieu_submit("Customer Stock Issue", da_co)
+		return da_co
+
+	with _lam_khach():
+		dong = []
+		for d in dong_may:
+			goi_y = kho_api.kho_lo_goi_y(d["vat_tu"], d["so_luong"])
+			dong.extend(
+				{
+					"vat_tu": d["vat_tu"],
+					"thiet_bi": d["thiet_bi"],
+					"so_lo": lot["so_lo"],
+					"so_luong": lot["de_xuat"],
+					"xac_nhan_het_han": 0,
+				}
+				for lot in goi_y["lots"]
+				if lot["de_xuat"] > 0 and not lot["het_han"]
+			)
+		if not dong:
+			return None
+		phieu = kho_api.kho_phieu_xuat_save({
+			"ngay": frappe.utils.today(),
+			"loai_xuat": loai_xuat,
+			"noi_nhan": noi_nhan,
+			"nguoi_nhan": nguoi_nhan,
+			"dien_giai": nhan,
+			"items": dong,
+		})
+		kho_api.kho_phieu_submit("Customer Stock Issue", phieu["name"])
+	_log(f"Xuất kho theo máy {phieu['name']} — {loai_xuat}")
+	return phieu["name"]
+
+
 def _phieu_nhap_sai_va_dao(kho: str, vat_tu: dict) -> dict:
 	"""Một phiếu nhập tay bị huỷ, để dữ liệu demo có sẵn một PHIẾU ĐẢO.
 
@@ -621,6 +751,8 @@ def setup_khach_hang() -> dict:
 
 	kho = _ensure_kho()
 	vat_tu = _ensure_vat_tu(kho)
+	thiet_bi = _ensure_thiet_bi()
+	_ensure_thiet_bi_gan_vat_tu(vat_tu, thiet_bi)
 	ton_dau = _ensure_ton_dau(kho, vat_tu)
 
 	_log(f"Khách hàng {CUSTOMER} · kho {kho} · hợp đồng {contract}")
@@ -631,6 +763,7 @@ def setup_khach_hang() -> dict:
 		"contract": contract,
 		"kho": kho,
 		"vat_tu": vat_tu,
+		"thiet_bi": thiet_bi,
 		"phieu_ton_dau": ton_dau,
 	}
 
@@ -639,6 +772,7 @@ def chay_flow(ctx: dict) -> dict:
 	"""Phần 3 + 4: ba đơn hàng ở ba trạng thái khác nhau, phiếu nhập/xuất, phiếu đảo."""
 	_bu_ton_miyano()
 	contract, kho, vat_tu = ctx["contract"], ctx["kho"], ctx["vat_tu"]
+	thiet_bi = ctx["thiet_bi"]
 
 	# Đơn 1 — trọn vẹn: xác nhận → giao đủ → khách ghi sổ phiếu nhập → xuất hoá
 	# đơn → thu tiền một phần (để màn hình Công nợ có số dư thật).
@@ -692,6 +826,27 @@ def chay_flow(ctx: dict) -> dict:
 		chap_nhan_het_han=True,
 	)
 
+	# Task 15 — xuất CÙNG một hoá chất (MYN-ALT, đã gắn cả hai máy ở
+	# _ensure_thiet_bi_gan_vat_tu) cho HAI máy sinh hoá khác nhau trong MỘT
+	# phiếu, để bảng "theo máy" của báo cáo thiết bị có số liệu thật ở CẢ HAI
+	# dòng máy, không chỉ một.
+	#
+	# `so_luong=3` (không phải 1): lô CÒN HẠN gần nhất của MYN-ALT xếp SAU lô
+	# ALT2505-A đã hết hạn (còn đúng 1 đơn vị tồn, phần dư lại sau NHAN_XUAT_HUY
+	# ở trên) trong thứ tự FEFO của `kho_lo_goi_y` — gợi ý greedy CHIA HẾT một
+	# yêu cầu nhỏ (`so_luong=1`) cho riêng lô hết hạn đó, để lại 0 cho lô còn
+	# hạn, và dòng bị lọc `not het_han` ở `_xuat_theo_may()` rỗng hoàn toàn (đã
+	# đo thực nghiệm khi viết hàm này). `so_luong=3` tràn qua khỏi 1 đơn vị của
+	# lô hết hạn, đủ để phần CÒN HẠN của gợi ý luôn có 2 đơn vị thật cho mỗi máy.
+	xuat3 = _xuat_theo_may(
+		kho,
+		[
+			{"vat_tu": vat_tu["MYN-ALT"], "so_luong": 3, "thiet_bi": thiet_bi["MAY-SH-01"]},
+			{"vat_tu": vat_tu["MYN-ALT"], "so_luong": 3, "thiet_bi": thiet_bi["MAY-SH-02"]},
+		],
+		"Xuất sử dụng", "Khoa Xét nghiệm", "Nguyễn Văn Minh", NHAN_XUAT_THEO_MAY,
+	)
+
 	dao = _phieu_nhap_sai_va_dao(kho, vat_tu)
 
 	return {
@@ -700,6 +855,7 @@ def chay_flow(ctx: dict) -> dict:
 		"don_giao_thieu": don2, "delivery_note_2": dn2, "phieu_nhap_con_nhap": pn2,
 		"don_cho_xac_nhan": don3,
 		"phieu_xuat_su_dung": xuat1, "phieu_xuat_huy": xuat2,
+		"phieu_xuat_theo_may": xuat3,
 		**dao,
 	}
 
@@ -711,7 +867,7 @@ def chay_tat_ca() -> dict:
 	tong_hop = {**ctx, **kq}
 	print("\n== Xong ==")
 	for k, v in tong_hop.items():
-		if k != "vat_tu":
+		if k not in ("vat_tu", "thiet_bi"):
 			print(f"  {k}: {v}")
 	print("\n  Đăng nhập cổng: http://192.168.61.129:8003/portal/login")
 	print(f"  Tài khoản: {PORTAL_EMAIL} / {PORTAL_PASSWORD}")

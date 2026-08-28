@@ -118,6 +118,28 @@ def _chuan_hoa_row(row: dict) -> dict:
 	return row
 
 
+def _may_su_dung_cua(vat_tu: str) -> list[dict]:
+	"""Danh sách máy đang gắn với vật tư (bảng "Máy sử dụng"), kèm tên máy
+	để hiển thị — modal danh mục vật tư cần hiện đúng các máy đang gắn NGAY
+	sau khi lưu mà không phải gọi thêm một round-trip tra ngược từng
+	docname. Đây CHỈ là đọc lại để hiển thị/lọc dropdown — không tham gia
+	phép cộng số liệu nào (xem docstring field `may_su_dung` trong DocType
+	JSON)."""
+	rows = frappe.get_all(
+		"Customer Warehouse Item Equipment",
+		filters={"parent": vat_tu, "parenttype": "Customer Warehouse Item"},
+		fields=["thiet_bi"],
+		order_by="idx asc",
+	)
+	ten = {}
+	if rows:
+		ten = dict(frappe.get_all(
+			"Customer Equipment", filters={"name": ["in", [r.thiet_bi for r in rows]]},
+			fields=["name", "ten_thiet_bi"], as_list=True,
+		))
+	return [{"thiet_bi": r.thiet_bi, "ten_thiet_bi": ten.get(r.thiet_bi, "")} for r in rows]
+
+
 def ra_dict(name: str, da_co: bool = False) -> dict:
 	row = frappe.db.get_value(
 		"Customer Warehouse Item", name,
@@ -131,6 +153,11 @@ def ra_dict(name: str, da_co: bool = False) -> dict:
 	# `da_co` cho giao diện biết đây là vật tư đã tồn tại chứ không phải vừa
 	# tạo — nút "Tạo vật tư" ở dòng thứ hai cùng mã không được báo lỗi.
 	row["da_co"] = da_co
+	# Review vòng 1 (task-2): tao()/sua() ghi được may_su_dung nhưng response
+	# không trả lại — client không biết vừa lưu gì. Đọc lại TỪ DB (không lấy
+	# từ doc trong bộ nhớ) vì ra_dict() cũng được gọi từ đường _match_vat_tu
+	# "existing" (tao()) nơi không hề có doc Document nào trong tay.
+	row["may_su_dung"] = _may_su_dung_cua(name)
 	return row
 
 
@@ -185,6 +212,13 @@ def tao(kho: str, du_lieu: dict) -> dict:
 		"nhom": _norm(du_lieu.get("nhom")) or None,
 		"ghi_chu": _norm(du_lieu.get("ghi_chu")) or None,
 	})
+	# `may_su_dung` là DANH MỤC TƯƠNG THÍCH, không phải số liệu — sửa được
+	# bất cứ lúc nào kể cả khi vật tư đã có phát sinh sổ kho (khác
+	# TRUONG_KHOA): đổi danh sách máy không quy đổi ngược con số nào.
+	if "may_su_dung" in du_lieu:
+		doc.set("may_su_dung", [
+			{"thiet_bi": m} for m in (du_lieu.get("may_su_dung") or []) if m
+		])
 	doc.insert(ignore_permissions=True)
 	out = ra_dict(doc.name)
 	out["canh_bao_trung"] = canh_bao_trung
@@ -262,6 +296,14 @@ def sua(kho: str, vat_tu: str, du_lieu: dict) -> dict:
 	for truong in TRUONG_NGUONG_TON:
 		if truong in du_lieu:
 			setattr(doc, truong, _so_hoac_khong(du_lieu.get(truong)))
+
+	# `may_su_dung` là DANH MỤC TƯƠNG THÍCH, không phải số liệu — sửa được
+	# bất cứ lúc nào kể cả khi vật tư đã có phát sinh sổ kho (khác
+	# TRUONG_KHOA): đổi danh sách máy không quy đổi ngược con số nào.
+	if "may_su_dung" in du_lieu:
+		doc.set("may_su_dung", [
+			{"thiet_bi": m} for m in (du_lieu.get("may_su_dung") or []) if m
+		])
 
 	# `doc.save()` chạy validate() -> CustomerWarehouseItem._validate_nguong_ton()
 	# (min ≤ ROP ≤ max, lead time 1–60, bội số > 0) — không kiểm lại ở đây,
