@@ -156,11 +156,16 @@ class TestChiTietGopBackend(FrappeTestCase):
 		không ở JS — `frontend/` không có test nào, và đây cũng là truy vấn
 		`Sales Order Item` mà hàm này ĐÃ chạy sẵn cho `so_luong_tren_don`
 		(Ruling P51), nên không tốn thêm một vòng hỏi CSDL nào."""
+		# `delivered_qty` PHẢI khác 0: `frappe._dict` trả `None` cho khoá
+		# vắng mặt (không ném lỗi), nên nếu ai lỡ xoá "delivered_qty" khỏi
+		# `fields=[...]` của truy vấn, `float(tren_don.delivered_qty or 0)`
+		# vẫn ra 0.0 y hệt kỳ vọng cũ — test xanh giả. Chọn 3 (khác 1500 và
+		# 15000) để nếu code map nhầm cột thì khẳng định cũng đỏ.
 		phieu = self._phieu_da_duyet(so_luong=10)
 		frappe.db.set_value(
 			"Sales Order Item",
 			{"parent": phieu.sales_order, "item_code": self.item},
-			{"rate": 1500, "amount": 15000},
+			{"rate": 1500, "amount": 15000, "delivered_qty": 3},
 			update_modified=False,
 		)
 		frappe.set_user(self.quan_ly)
@@ -168,7 +173,7 @@ class TestChiTietGopBackend(FrappeTestCase):
 		dong = next(d for d in kq["items"] if d["item_code"] == self.item)
 		self.assertEqual(float(dong["don_gia_tren_don"]), 1500.0)
 		self.assertEqual(float(dong["thanh_tien_tren_don"]), 15000.0)
-		self.assertEqual(float(dong["da_giao_tren_don"]), 0.0)
+		self.assertEqual(float(dong["da_giao_tren_don"]), 3.0)
 
 	def test_chi_tiet_phieu_chua_co_don_tra_None_khong_phai_0(self):
 		"""`0` và "chưa có đơn" là HAI ca khác nhau, đừng gộp — cùng lý do
