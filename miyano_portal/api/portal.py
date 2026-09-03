@@ -1583,6 +1583,23 @@ def portal_order_track(order) -> dict:
         # Task 6, QĐ-A4 — cùng khoá `ma_tra_cuu` với `portal_order_history`,
         # xem chú thích ở đó. Đơn cũ không có phiếu đề xuất đứng sau: rỗng.
         "ma_tra_cuu": so.get("custom_ma_tra_cuu") or "",
+        # 03/09/2026 (màn chi tiết GỘP) — phiếu đề xuất đứng sau đơn này.
+        # Vào màn bằng đường `/yeu-cau/don/<name>` (link trong mọi thông báo
+        # đã gửi đi, xem `_link_chung_tu`) thì đây là đường DUY NHẤT tìm
+        # ngược ra phiếu: `Sales Order.name` và `Portal De Xuat Mua.name`
+        # là hai naming khác nhau, không suy ra nhau được.
+        #
+        # `""` (không phải thiếu khoá) cho ~102 đơn cũ có TRƯỚC luồng duyệt:
+        # màn gộp đọc khoá này để quyết định có nạp nửa phiếu hay không, và
+        # một khoá vắng mặt buộc client phải đoán.
+        "de_xuat": so.get("custom_de_xuat") or "",
+        # Ruling P42 — giai đoạn "Đã giao" đòi `>= 100`, KHÔNG phải `> 0`.
+        # Payload đã có `milestones[delivering].done` nhưng cờ đó là `> 0`
+        # (giao một thùng cũng bật), nên nó KHÔNG thay được con số này. Màn
+        # gộp đọc `per_delivered` để suy giai đoạn — cùng luật với
+        # `_sql_giai_doan()` mà danh sách đang dùng, không phải một luật
+        # thứ hai viết riêng cho màn chi tiết.
+        "per_delivered": float(so.per_delivered or 0),
         # review (Phần C báo thiếu)
         "loai_don": so.get("custom_loai_don") or "Theo HĐNT",
         "workflow_state": so.get("workflow_state") or "",
