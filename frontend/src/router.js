@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import Dashboard from './views/Dashboard.vue'
 import YeuCauList from './views/YeuCauList.vue'
-import OrderDetail from './views/OrderDetail.vue'
 import ChiTietYeuCau from './views/ChiTietYeuCau.vue'
 import LapPhieu from './views/LapPhieu.vue'
 import Invoices from './views/Invoices.vue'
@@ -43,12 +42,13 @@ const routes = [
   // duyệt, bắt nhân viên phải biết trước giai đoạn nội bộ mới tìm lại
   // được yêu cầu của chính mình.
   { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Danh sách đơn hàng' } },
-  // Task 7a (03/09/2026) — CHỈ đường phiếu chuyển sang màn gộp ở bước này.
-  // Đường đơn GIỮ NGUYÊN `OrderDetail.vue` cho tới Task 7b: hai đường, hai
-  // màn, không đường nào gãy trong lúc màn gộp còn đang được soi mắt. Một
-  // phiếu đã duyệt tự nạp luôn nửa đơn của nó (xem `ChiTietYeuCau.vue::
-  // load()`), nên bước này đã chạy thử phần lớn mã của cả hai nửa.
-  { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn hàng' } },
+  // Task 7b (03/09/2026) — HAI đường, MỘT màn. Chi tiết một yêu cầu là MỘT
+  // trang; hai đường chỉ là hai ĐẦU MỐI khác nhau (docname phiếu / docname
+  // đơn) vì hai doctype đặt tên khác nhau. Cố ý KHÔNG gộp thành một đường:
+  // đường đơn nằm trong link của MỌI thông báo tự động đã gửi đi
+  // (`_link_chung_tu`, xem `api/portal.py`), nên đổi đường là kéo theo một
+  // lớp tương thích mà không ai được lợi.
+  { path: '/yeu-cau/don/:name', name: 'order-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
   { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
   // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
   // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404

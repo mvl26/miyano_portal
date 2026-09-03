@@ -14,10 +14,9 @@
 // (`/yeu-cau/don/<name>`, xem `api/portal.py::_link_chung_tu`) không phải
 // đụng một dòng nào.
 //
-// TASK 7a — chỉ đường `/yeu-cau/phieu/:ten` trỏ vào màn này ở bước này;
-// `/yeu-cau/don/:name` vẫn tạm trỏ `OrderDetail.vue` (xem router.js). Màn
-// này VẪN xử lý đủ cả hai đầu mối — nạp qua đường đơn hoạt động đúng ngay
-// từ 7a, chỉ là chưa có route nào dẫn vào nó theo lối đó (Task 7b sẽ đổi).
+// TASK 7b — cả hai đường `/yeu-cau/phieu/:ten` và `/yeu-cau/don/:name` nay
+// trỏ vào màn này (xem router.js); `OrderDetail.vue`/`DeXuatDetail.vue` đã
+// nghỉ, xoá khỏi cây view.
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'

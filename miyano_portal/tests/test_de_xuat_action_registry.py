@@ -141,7 +141,11 @@ class TestActionRegistry(FrappeTestCase):
 		self.assertIn("App.vue", duong_dan)
 		self.assertIn("cho-duyet.js", duong_dan)
 		self.assertIn("de-xuat-actions.js", duong_dan)
-		self.assertIn("views/DeXuatDetail.vue", duong_dan)
+		# Task 7b (03/09/2026) — `DeXuatDetail.vue` đã nghỉ, gộp vào màn
+		# `ChiTietYeuCau.vue`; đổi mốc chứng minh "quét cả views/" sang file
+		# thay thế, KHÔNG xoá bài — ý nghĩa của bài (vùng quét thật sự chạm
+		# tới views/) không đổi.
+		self.assertIn("views/ChiTietYeuCau.vue", duong_dan)
 		# Và lưới phải thật sự BẮT ĐƯỢC tên từ những file đó — không chỉ mở
 		# file rồi bỏ qua nội dung.
 		self.assertIn("de_xuat_danh_sach", self._methods_goi_tu_frontend())

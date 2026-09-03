@@ -15,6 +15,9 @@ Hai bổ sung backend ở đây là thứ làm màn gộp CHẠY ĐƯỢC:
     JS là một hàm không ai canh.
 """
 
+import re
+from pathlib import Path
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -231,3 +234,88 @@ class TestChiTietGopBackend(FrappeTestCase):
 		frappe.set_user(self.quan_ly)
 		kq = de_xuat.de_xuat_chi_tiet(ten=phieu.name)
 		self.assertEqual(kq["giai_doan"], "cho_duyet")
+
+
+class TestManGopTrenRouter(FrappeTestCase):
+	"""Đọc `router.js`/thư mục `views` bằng regex — cùng lý do và cùng tiền
+	lệ `test_yeu_cau_list.py::TestDuongCuVaSoCua`: frontend không có hạ
+	tầng test, và "hai đường trỏ về một màn" không có bước build nào bắt
+	được."""
+
+	FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
+
+	def _router(self) -> str:
+		return (self.FRONTEND_SRC / "router.js").read_text(encoding="utf-8")
+
+	def _khoi_route(self, path: str) -> str:
+		"""Khối `{ ... }` khai báo route có `path: '<path>'`.
+
+		Lệch khỏi mẫu regex đơn dòng ở brief Step 1: cả hai route ở đây có
+		`meta: { title: ... }` LỒNG BÊN TRONG, nên `[^{}]*\\}` (không cho
+		đi qua dấu ngoặc) không bao giờ khớp tới dấu đóng ngoài cùng — cùng
+		hố mà `test_yeu_cau_list.py::TestDuongCuVaSoCua._khoi_route` đã vá
+		bằng bước thử THỨ HAI (đa dòng, DOTALL, dừng ở dòng đóng `},`).
+		Chép nguyên cách vá đó thay vì bản đơn giản trong brief."""
+		noi_dung = self._router()
+		moc = re.search(
+			r"\{[^{}]*path:\s*'" + re.escape(path) + r"'.*?\n\s*\},?\n",
+			noi_dung, re.S,
+		)
+		if moc:
+			return moc.group(0)
+		moc = re.search(r"\{[^{}]*path:\s*'" + re.escape(path) + r"'[^{}]*\}", noi_dung)
+		self.assertIsNotNone(moc, f"router.js không còn khai báo {path}")
+		return moc.group(0)
+
+	def test_hai_duong_cu_van_con_va_deu_tro_vao_man_gop(self):
+		"""Hai đường này nằm trong bookmark của khách VÀ trong link của MỌI
+		thông báo tự động đã gửi đi (`api/portal.py::_link_chung_tu`, chốt
+		bởi `test_thong_bao_endpoint.py`). Kế hoạch gộp CỐ Ý không đổi
+		đường — đổi là kéo theo một lớp tương thích mà không ai được lợi."""
+		for path in ("/yeu-cau/don/:name", "/yeu-cau/phieu/:ten"):
+			khoi = self._khoi_route(path)
+			self.assertIn(
+				"ChiTietYeuCau", khoi,
+				f"{path} không trỏ vào màn gộp — hai cửa lại dẫn về hai phòng.",
+			)
+
+	def test_hai_man_cu_da_nghi(self):
+		"""Còn file là còn đường một route lạc quay lại nửa màn cũ."""
+		for ten in ("OrderDetail.vue", "DeXuatDetail.vue"):
+			self.assertFalse(
+				(self.FRONTEND_SRC / "views" / ten).exists(),
+				f"{ten} phải nghỉ (gộp vào ChiTietYeuCau.vue)",
+			)
+
+	def test_man_gop_noi_CA_HAI_registry_hanh_dong(self):
+		"""Thanh hành động là điểm được nhiều nhất của việc gộp: nhân viên
+		khoa và quản lý có hai đường sửa số lượng khác nhau, trước đây nằm ở
+		hai màn. Nối thiếu một registry là trả lại đúng cái hố đó."""
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertIn("de-xuat-actions", man)
+		self.assertIn("don-actions", man)
+
+	def test_man_gop_GIEO_ghi_chu_quan_ly(self):
+		"""Một quy tắc mà chốt duy nhất là văn xuôi trong tài liệu thì không
+		phải một chốt. `BangMatHang.vue` chỉ GHI vào `ghiChuSua`, không tự
+		gieo; quên gieo ở màn cha thì quản lý bấm Duyệt sẽ gửi chuỗi rỗng đè
+		lên ghi chú họ viết vòng trước — mất dữ liệu trong im lặng, build
+		vẫn xanh."""
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertIn(
+			"ghi_chu_quan_ly", man,
+			"ChiTietYeuCau.vue không gieo `ghiChuSua` từ `ghi_chu_quan_ly` — "
+			"bấm Duyệt sẽ xoá trắng ghi chú quản lý cũ.",
+		)
+
+	def test_man_gop_KHONG_tu_suy_giai_doan(self):
+		"""Giai đoạn phải do SERVER trả (`_sql_giai_doan()` là định nghĩa duy
+		nhất). Một bản suy thứ hai ở client đã trôi khỏi bản gốc ba nhánh
+		ngay trong task đầu tiên dùng nó — trong đó có ca đơn BỊ TỪ CHỐI
+		hiện badge xanh "Đã duyệt"."""
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertNotIn(
+			"'cho_khach_dong_y'", man,
+			"ChiTietYeuCau.vue lại tự suy giai đoạn ở client — phải đọc "
+			"`giai_doan` do server trả.",
+		)
