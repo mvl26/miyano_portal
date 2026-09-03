@@ -154,9 +154,9 @@ function coTheSuaNhap(r) {
 //   * có phiếu             -> chi tiết phiếu (khối truy vết + link sang
 //     đơn đứng sau nó, xem DeXuatDetail.vue);
 //   * không có phiếu       -> chi tiết đơn (đơn cũ, có trước luồng duyệt).
-// Nút "Đơn hàng" riêng ở cột cuối đưa thẳng tới màn giao hàng cho dòng đã
-// thành đơn — một LỐI VÀO NHÌN THẤY ĐƯỢC, không phải một quy tắc ẩn người
-// dùng phải học.
+// 03/09/2026 — MỘT đích cho mọi dòng. Nút "Đơn hàng" riêng ở cột cuối đã
+// bỏ cùng lúc hai màn chi tiết gộp làm một: nó từng là lối vào NỬA KIA của
+// cùng một yêu cầu, nay là cửa thứ hai vào đúng một phòng.
 function moYeuCau(r) {
   if (coTheSuaNhap(r)) {
     router.push({ name: 'dat-hang', params: { ten: r.de_xuat } })
@@ -177,10 +177,6 @@ function moYeuCau(r) {
     })
     return
   }
-  router.push({ name: 'order-detail', params: { name: r.sales_order } })
-}
-
-function moDon(r) {
   router.push({ name: 'order-detail', params: { name: r.sales_order } })
 }
 
@@ -311,7 +307,6 @@ onMounted(async () => {
             </td>
             <td style="white-space: nowrap">
               <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)">Sửa</button>
-              <button v-if="r.sales_order" class="btn-o btn-sm" @click.stop="moDon(r)">Đơn hàng</button>
             </td>
           </tr>
         </tbody>
@@ -342,7 +337,6 @@ onMounted(async () => {
         </template>
         <div style="margin-top: 8px">
           <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)">Sửa</button>
-          <button v-if="r.sales_order" class="btn-o btn-sm" @click.stop="moDon(r)">Đơn hàng</button>
         </div>
       </div>
     </template>

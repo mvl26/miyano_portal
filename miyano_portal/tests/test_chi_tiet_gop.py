@@ -382,3 +382,14 @@ class TestManGopTrenRouter(FrappeTestCase):
 			"window.confirm() phải nằm ở hàm GỌI TRƯỚC (onClickAction()/nhanDuyet()), "
 			"không phải trong chayHanhDong().",
 		)
+
+	def test_danh_sach_khong_con_hai_cua_cho_mot_dong(self):
+		"""Nút "Đơn hàng" ở cột cuối từng là LỐI VÀO THỨ HAI, dẫn tới nửa
+		kia của cùng một yêu cầu. Từ khi hai nửa nằm chung một màn, nó là
+		cửa thứ hai vào đúng một phòng — và một dòng có hai đích là đúng
+		thứ QĐ-G11 dỡ ở tầng danh sách."""
+		man = (self.FRONTEND_SRC / "views" / "YeuCauList.vue").read_text(encoding="utf-8")
+		self.assertNotIn(
+			"Đơn hàng</button>", man,
+			"YeuCauList.vue còn nút 'Đơn hàng' — hai cửa cho một dòng.",
+		)
