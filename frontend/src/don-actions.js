@@ -11,14 +11,9 @@
 // hai họ tên vào một mảng làm lưới đó mất khả năng nói "tên này không tồn
 // tại" — nó không biết phải hỏi module nào.
 //
-// Khoá `nhom` (giá trị chuỗi "don") để người gọi biết dùng `api.call`. Mục
-// của `de-xuat-actions.js` không mang khoá này (mặc định là phiếu) — cố ý
-// không đi sửa tám mục đã có và tám dòng test đang canh chúng.
-//
-// (Ghi chú này CỐ Ý viết tách khoá và giá trị ra hai chữ riêng thay vì gõ
-// liền dạng thuộc tính — cách viết liền trùng khuôn đếm chuỗi thô của
-// `test_moi_muc_registry_don_deu_mang_nhom_don`, đếm trên TOÀN BỘ file kể cả
-// comment; gõ liền ở đây sẽ làm bài đó đếm thừa 1.)
+// `nhom: 'don'` để người gọi biết dùng `api.call`. Mục của
+// `de-xuat-actions.js` không mang khoá này (mặc định là phiếu) — cố ý không
+// đi sửa tám mục đã có và tám dòng test đang canh chúng.
 //
 // File CỐ Ý là JS thuần, không import Vue.
 
@@ -31,7 +26,7 @@ export const ACTIONS_DON = [
     when: (d) => !!d.chap_nhan?.can_dong_y },
 
   { method: 'portal_order_accept', label: '✕ Không đồng ý…', variant: 'secondary',
-    nhom: 'don', khoa: 'khong_dong_y',
+    nhom: 'don',
     args: [
       { key: 'action', const: 'khong_dong_y' },
       { key: 'ly_do', label: 'Lý do không đồng ý báo giá', type: 'textarea', required: true },
