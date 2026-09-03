@@ -106,9 +106,84 @@ class TestNhatKyChiThem(FrappeTestCase):
 	def test_ghi_hong_KHONG_nem_loi_ra_ngoai(self):
 		"""Ràng buộc tuyệt đối. Hàm này chạy ngay sau những chuyển trạng
 		thái ĐÃ THÀNH CÔNG; ném lỗi ở đây là cuốn theo cả transaction và
-		làm mất đúng thứ vừa làm được."""
+		làm mất đúng thứ vừa làm được.
+
+		KHÔNG chỉ khẳng định `ghi()` trả None — bài đó xanh y hệt nếu ai đó
+		lỡ xoá lời gọi `frappe.log_error` bên trong, và luật "không rơi im
+		lặng" chết mà không ai biết. `tabError Log` khai engine MyISAM (phi
+		giao dịch, cùng lưu ý ở test_khoa_phong_theo_khach.py/test_e3_doi_
+		soat.py/test_kho_delivery_hook.py) — rollback theo CLASS của
+		FrappeTestCase không dọn được bảng này, nên dọn tay cả trước lẫn sau.
+
+		`frappe.log_error(title=...)` đổ vào cột `method` của Error Log (quy
+		ước riêng của Frappe) — lọc đúng tiêu đề `ghi()` dùng, không đếm mọi
+		dòng Error Log trên site (site test dùng chung, có thể có rác từ
+		lượt chạy khác)."""
+		tieu_de = f"Nhật ký thao tác: không ghi được sự kiện {nhat_ky.SK_KHOA_GUI_DUYET}"
+		frappe.db.delete("Error Log", {"method": tieu_de})
+		self.addCleanup(frappe.db.delete, "Error Log", {"method": tieu_de})
+
 		ten = nhat_ky.ghi(
 			nhat_ky.SK_KHOA_GUI_DUYET, customer="_KHACH_KHONG_TON_TAI_",
 			de_xuat=self._phieu(), vai=nhat_ky.VAI_KHOA,
 		)
 		self.assertIsNone(ten)
+
+		log = frappe.get_all("Error Log", filters={"method": tieu_de})
+		self.assertEqual(
+			len(log), 1,
+			"ghi() nuot loi nhung khong duoc roi im lang: phai co dung mot dong "
+			"Error Log cho lan goi hong nay",
+		)
+
+
+class TestNhatKyKhongLoRaChoKhach(FrappeTestCase):
+	"""Lớp chịu lực RIÊNG cho `Portal Nhat Ky Yeu Cau` — tách khỏi
+	TestNhatKyChiThem vì không cần fixture (khách/khoa/vật tư), chỉ cần đọc
+	`tabDocPerm`.
+
+	Sau bản vá phân loại `Portal Nhat Ky Yeu Cau` vào `KHONG_PHAI_DOCTYPE_KHO`
+	trong test_kho_isolation.py, doctype này đứng NGOÀI kho_doctypes() nên
+	KHÔNG được TestKhoDocPermConfig (lưới "zero DocPerm cho Customer" chung
+	của mọi doctype kho) đo tới nữa — đúng khuôn `Portal Member` (xem
+	TestPortalMemberKhongLoRaChoKhach trong test_portal_member.py, và comment
+	KÍCH HOẠT PHÂN LOẠI LẠI ngay trên entry của doctype này trong
+	test_kho_isolation.py).
+
+	Hỏng ra sao nếu không có lưới riêng: một cú click trong Role Permission
+	Manager cấp `read` cho role `Customer` trên `Portal Nhat Ky Yeu Cau`.
+	Doctype này không có hook permission_query_conditions/has_permission nào
+	(đúng như lý do nó nằm trong KHONG_PHAI_DOCTYPE_KHO — chưa từng được
+	thiết kế để khách tự đọc), nên DocPerm đó sẽ là ĐƯỜNG DUY NHẤT quyết định
+	quyền: bệnh viện A đọc được lý do từ chối/ghi chú duyệt trong phiếu của
+	bệnh viện B qua get_list thẳng trên doctype này — không ai biết cho tới
+	khi có người tình cờ phát hiện. Toàn bộ phần còn lại của bộ test vẫn xanh
+	vì không có test nào khác động tới doctype này.
+
+	Đọc `tabDocPerm`/`tabCustom DocPerm` THẬT (không đọc file JSON): điều cần
+	canh là trạng thái trên CSDL sau khi migrate — cấp quyền qua Role
+	Permission Manager tạo `Custom DocPerm`, không đụng vào JSON, nên một bài
+	chỉ đọc `portal_nhat_ky_yeu_cau.json` sẽ không bắt được lỗ này."""
+
+	def test_khong_co_docperm_nao_cho_role_customer(self):
+		rows = frappe.get_all(
+			"DocPerm", filters={"parent": nhat_ky.DOCTYPE, "role": "Customer"}
+		)
+		self.assertEqual(
+			rows, [],
+			"Portal Nhat Ky Yeu Cau không được có DocPerm nào cho role Customer "
+			"trong JSON — nếu đỏ, ai đó đã thêm quyền đọc trực tiếp cho khách "
+			"vào portal_nhat_ky_yeu_cau.json.",
+		)
+
+	def test_khong_co_custom_docperm_nao_cho_role_customer(self):
+		rows = frappe.get_all(
+			"Custom DocPerm", filters={"parent": nhat_ky.DOCTYPE, "role": "Customer"}
+		)
+		self.assertEqual(
+			rows, [],
+			"Chưa ai được chỉnh quyền Portal Nhat Ky Yeu Cau qua Role Permission "
+			"Manager — nếu đỏ, một Custom DocPerm đã cấp quyền cho role Customer, "
+			"mở toang sổ nhật ký của MỌI bệnh viện cho MỌI tài khoản cổng vì "
+			"doctype này không có hook cách ly nào đứng sau.",
+		)
