@@ -115,6 +115,7 @@ Cột mọc theo giai đoạn:
 |---|---|
 | Mặt hàng, ĐVT | luôn |
 | SL đề xuất | có phiếu |
+| SL đặt (số THẬT trên đơn) | có đơn |
 | SL duyệt | có phiếu VÀ `trang_thai !== 'Nháp'` |
 | SL xin sửa | `trang_thai === 'Chờ duyệt sửa'` |
 | Ghi chú quản lý | có phiếu |
@@ -639,7 +640,9 @@ export function hanhDongDonChoPhep(don, me) {
 
 - [ ] **Step 2: Viết lưới canh tên endpoint (đỏ trước)**
 
-Thêm vào `miyano_portal/tests/test_de_xuat_action_registry.py`, cuối file:
+**Ruling preflight #3:** ba bài dưới đây viết **thêm vào lớp `TestDeXuatActionRegistry` sẵn có** (không dựng lớp mới). Lớp đó đã có `_endpoint_that_portal()` ở dòng 169 và `_METHOD_RE` ở module — dựng lớp `TestRegistryDon` riêng buộc phải CHÉP LẠI helper đó, đúng thứ rubric review coi là lỗi; còn nâng helper lên module-level là churn lên một lưới đang chạy tốt.
+
+Thêm vào `miyano_portal/tests/test_de_xuat_action_registry.py`, trong lớp `TestDeXuatActionRegistry`, sau `test_luoi_api_call_bat_duoc_ten_bia`:
 
 ```python
 # 03/09/2026 (màn chi tiết GỘP) — registry THỨ HAI, cho hành động của Sales
@@ -647,27 +650,23 @@ Thêm vào `miyano_portal/tests/test_de_xuat_action_registry.py`, cuối file:
 # mới phải đối chiếu với `api/portal.py`. Không mở rộng lưới cũ để nó quét
 # cả hai: khi đó nó mất khả năng nói "tên này không tồn tại" — một tên sai
 # trong file này sẽ được coi là hợp lệ chỉ vì file kia có một tên trùng.
-REGISTRY_DON = FRONTEND_SRC / "don-actions.js"
+	# -- 03/09/2026, màn chi tiết GỘP: registry THỨ HAI -----------------------
 
-
-class TestRegistryDon(FrappeTestCase):
 	def _methods_registry_don(self) -> set[str]:
 		return set(_METHOD_RE.findall(REGISTRY_DON.read_text(encoding="utf-8")))
 
-	def _endpoint_that_portal(self) -> set[str]:
-		return {
-			ten for ten, fn in inspect.getmembers(portal_api, inspect.isfunction)
-			if fn in frappe.whitelisted and fn.__module__ == portal_api.__name__
-		}
-
-	def test_file_ton_tai(self):
+	def test_file_registry_don_ton_tai(self):
 		self.assertTrue(REGISTRY_DON.exists(), f"Không thấy {REGISTRY_DON}")
 
-	def test_registry_khong_rong(self):
+	def test_registry_don_khong_rong(self):
 		"""Vế dương — thiếu nó thì một registry rỗng cũng qua bài."""
 		self.assertGreaterEqual(len(self._methods_registry_don()), 4)
 
-	def test_moi_method_la_endpoint_that_cua_portal(self):
+	def test_moi_method_cua_registry_don_la_endpoint_that_cua_portal(self):
+		"""Đối chiếu với `api/portal.py`, KHÔNG phải `api/de_xuat.py`. Đó
+		là lý do đây là file registry thứ hai chứ không phải thêm mục vào
+		file cũ: trộn hai họ tên vào một mảng làm lưới mất khả năng nói
+		'tên này không tồn tại' — nó không biết phải hỏi module nào."""
 		thua = self._methods_registry_don() - self._endpoint_that_portal()
 		self.assertEqual(
 			thua, set(),
@@ -675,7 +674,7 @@ class TestRegistryDon(FrappeTestCase):
 			f"api/portal.py: {thua}. Đây là nút sẽ 404 lúc người dùng bấm.",
 		)
 
-	def test_moi_muc_deu_mang_nhom_don(self):
+	def test_moi_muc_registry_don_deu_mang_nhom_don(self):
 		"""Màn gộp nối HAI registry rồi mới render; `nhom: 'don'` là thứ
 		DUY NHẤT cho nó biết gọi `api.call` thay vì `api.callDeXuat`. Một
 		mục quên khoá này sẽ được gọi sai module và 404 lúc bấm."""
@@ -687,6 +686,8 @@ class TestRegistryDon(FrappeTestCase):
 			f"{so_muc} mục nhưng chỉ {so_nhom} mục khai `nhom: 'don'`.",
 		)
 ```
+
+và thêm hằng `REGISTRY_DON = FRONTEND_SRC / "don-actions.js"` ở module-level, cạnh `REGISTRY` đã có.
 
 - [ ] **Step 3: Chạy lưới, xác nhận XANH**
 
@@ -976,7 +977,7 @@ const dong = computed(() => {
     item_code: it.item_code,
     item_name: it.item_name,
     dvt: it.uom,
-    so_luong_tren_don: it.qty,
+    so_luong_tren_don: it.qty,   // Ruling preflight #2 — nuôi cột "SL đặt"
     don_gia_tren_don: it.rate,
     thanh_tien_tren_don: it.amount,
     da_giao_tren_don: it.delivered_qty,
@@ -1018,6 +1019,14 @@ function khongDuyet(row) {
           <th v-if="coPhieu" class="right">SL đề xuất</th>
           <th v-if="coCotDuyet" class="right">SL duyệt</th>
           <th v-if="coCotXinSua" class="right">SL xin sửa</th>
+          <!-- Ruling preflight #2 — SỐ THẬT TRÊN ĐƠN, không phải `so_luong_
+               duyet`. Hai con số này lệch nhau khi Miyano khớp một dòng gõ
+               tay vào đơn (Ruling P51: `_gop_hoac_them_dong_hang` cộng
+               thẳng vào `Sales Order Item.qty` mà không đụng cột duyệt).
+               Với đơn cũ KHÔNG có phiếu, đây là cột số lượng DUY NHẤT —
+               thiếu nó thì bảng in giá của một thứ không ai biết đặt bao
+               nhiêu. -->
+          <th v-if="coDon" class="right">SL đặt</th>
           <th v-if="coDon" class="right">Đơn giá</th>
           <th v-if="coDon" class="right">Thành tiền</th>
           <th v-if="coCotDaGiao" class="right">Đã giao</th>
@@ -1069,7 +1078,9 @@ Task lớn nhất. Sau task này hai view cũ biến mất.
 - Create: `frontend/src/views/ChiTietYeuCau.vue`
 - Modify: `frontend/src/router.js`
 - Delete: `frontend/src/views/OrderDetail.vue`, `frontend/src/views/DeXuatDetail.vue`
-- Test: `miyano_portal/tests/test_chi_tiet_gop.py` (thêm lớp lưới regex), `miyano_portal/tests/test_yeu_cau_list.py`
+- Test: `miyano_portal/tests/test_chi_tiet_gop.py` (thêm lớp lưới regex)
+
+> **Ruling preflight #1** — `tests/test_yeu_cau_list.py` đã GỠ khỏi danh sách này: chỉ Task 10 Step 1 thật sự sửa nó, và một file nằm trong hai task là hai người cùng sửa một chỗ.
 
 **Interfaces:**
 - Consumes: mọi thứ của Task 1–6
