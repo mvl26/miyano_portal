@@ -280,6 +280,64 @@ class TestNutThuHoiTrenRegistry(FrappeTestCase):
 		/ "frontend" / "src" / "de-xuat-actions.js"
 	)
 
+	def _muc(self, method: str) -> str:
+		"""Mục registry của `method`, đã lọc chú thích. Cùng phép cắt
+		`_dong_thu_hoi()` dùng, tách ra vì hai bài dưới hỏi mục KHÁC."""
+		noi_dung = _bo_chu_thich(self.REGISTRY.read_text(encoding="utf-8"))
+		moc = [
+			d for d in noi_dung.split("{ method:")
+			if d.startswith(f" '{method}'")
+		]
+		self.assertEqual(
+			len(moc), 1,
+			f"Không thấy (hoặc thấy nhiều hơn một) mục `{method}` trong "
+			"de-xuat-actions.js.",
+		)
+		return moc[0]
+
+	def test_nut_XOA_bien_mat_tren_phieu_DA_TUNG_GUI(self):
+		"""Hệ quả trực tiếp của việc chốt server đổi từ TRẠNG THÁI sang MÃ
+		(review toàn nhánh, Việc 1). `when()` cũ hỏi `trang_thai === 'Nháp'`
+		— soi gương chốt CŨ — nên trên một phiếu VỪA THU HỒI (Nháp, đã có
+		mã) nút "Xoá" vẫn hiện và giờ CHẮC CHẮN ném lỗi lúc bấm. Đúng thứ
+		docstring của chính registry này cấm: "hiện một nút chắc chắn ăn 403
+		lúc bấm là cách nhanh nhất dạy người dùng sợ cả thanh công cụ".
+
+		Một `when()` soi gương một chốt server ĐÃ ĐỔI là cùng họ lỗi mà Việc
+		5 vừa sửa cho một nút khác — chỉ khác là ở đây nó do CHÍNH bản vá
+		Việc 1 sinh ra."""
+		self.assertIn(
+			"ma_de_xuat", self._muc("de_xuat_xoa_nhap"),
+			"Nút 'Xoá' không hỏi `ma_de_xuat` — nó vẫn hiện trên phiếu vừa thu "
+			"hồi, nơi server chắc chắn từ chối.",
+		)
+
+	def test_nut_HUY_hien_tren_phieu_DA_THU_HOI(self):
+		"""Vế còn lại: cạnh `Nháp → Đã huỷ` mở ở doctype và endpoint mà
+		`when()` không biết thì đường GIỮ DẤU VẾT vẫn không có cửa nào để
+		đi. Quản lý mở một phiếu vừa bị thu hồi phải thấy "Huỷ phiếu" —
+		không thì phiếu đó nằm lại vĩnh viễn: xoá thì server cấm (đã từng
+		gửi), huỷ thì không có nút.
+
+		CHỈ quản lý, không nới: `de_xuat_huy` là quản lý-only từ §5.4b và
+		bản vá này không đụng tới quyền đó."""
+		muc = self._muc("de_xuat_huy")
+		self.assertIn(
+			"'Nháp'", muc,
+			"Nút 'Huỷ phiếu' không nhận trạng thái Nháp — phiếu vừa thu hồi "
+			"không còn lối ra nào trên giao diện.",
+		)
+		self.assertIn(
+			"ma_de_xuat", muc,
+			"Nút 'Huỷ phiếu' hiện trên MỌI phiếu Nháp, kể cả phiếu chưa từng "
+			"gửi — với phiếu đó 'Xoá' mới là việc đúng, và hai nút đỏ cạnh "
+			"nhau cho hai việc khác nhau là chỗ để bấm nhầm.",
+		)
+		self.assertIn(
+			"la_quan_ly", muc,
+			"Nút 'Huỷ phiếu' thôi hỏi vai trò — `de_xuat_huy` là quản lý-only.",
+		)
+
 	def _dong_thu_hoi(self) -> str:
 		"""Review TOÀN NHÁNH (03/09/2026) — LỌC CHÚ THÍCH trước khi cắt.
 

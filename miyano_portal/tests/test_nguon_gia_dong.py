@@ -537,6 +537,24 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(khop[0]["hop_dong_cu"], bo)
 		self.assertIsNone(khop[0]["hop_dong_moi"])
 
+	def test_thu_hoi_canh_bao_hop_dong_chet_TOI_DUOC_duong_duyet_that(self):
+		"""Bài trên gọi THẲNG `_kiem_gia_doi()` — một hàm nội bộ. Điều người
+		dùng thật nhận được là kết quả của `duyet_va_tao_don()`, và giữa hai
+		thứ đó còn `_kiem_han_muc()` chạy TRƯỚC: một dòng mang `blanket_order`
+		ĐÃ ĐÓNG BĂNG (hợp đồng hết hạn) đi qua phép kiểm hạn mức khác hẳn một
+		dòng "Chờ báo giá" trước bản vá. Nếu nó ném lỗi ở đó thì cảnh báo
+		không bao giờ tới tay quản lý, và bài trên vẫn xanh."""
+		doc, item, bo = self._phieu_da_gui_roi_hop_dong_het_han()
+		doc.thu_hoi()
+		doc.reload()
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		khop = [c for c in kq["canh_bao_gia"] if c["item_code"] == item]
+		self.assertEqual(len(khop), 1)
+		self.assertEqual(khop[0]["ly_do"], "hop_dong_doi")
+		self.assertTrue(kq["sales_order"])
+
 	def test_thu_hoi_roi_them_dong_MOI_van_duoc_suy_dung(self):
 		"""VẾ DƯƠNG — bản vá không được biến thành "phiếu có mã thì đóng băng
 		CẢ TẬP DÒNG". Thu hồi tồn tại để nhân viên SỬA phiếu; một dòng thêm
