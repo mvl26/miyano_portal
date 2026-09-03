@@ -426,6 +426,8 @@ class TestNhatKySuKienKhach(FrappeTestCase):
 		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_KHONG_DONG_Y)
 		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
 		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
 		self.assertEqual(dong[0].ghi_chu, ly_do)
 
 	def test_sua_so_luong_ghi_dong_nhat_ky_dem_dung_so_dong_doi(self):
@@ -449,7 +451,9 @@ class TestNhatKySuKienKhach(FrappeTestCase):
 		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA)
 		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
 		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
-		self.assertEqual(dong[0].ghi_chu, "2 dòng đổi số lượng")
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		self.assertEqual(dong[0].ghi_chu, "2 dòng thay đổi")
 
 	def test_huy_ghi_dong_nhat_ky_voi_ly_do(self):
 		so = self._don_cho_khach(self.kh_a, self.khoa_a)
@@ -462,6 +466,8 @@ class TestNhatKySuKienKhach(FrappeTestCase):
 		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_HUY_DON)
 		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
 		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
 		self.assertEqual(dong[0].ghi_chu, ly_do)
 
 	def test_don_cua_benh_vien_khac_bi_chan_va_KHONG_ghi_nhat_ky(self):

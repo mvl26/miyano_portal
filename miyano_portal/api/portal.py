@@ -2660,6 +2660,14 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     # ra. `vai` cố định VAI_QUAN_LY — sổ này không phân biệt người bấm là
     # quản lý hay nhân viên khoa, chỉ ghi nhận đây là quyết định phía
     # khách hàng trên đơn (đối lập với quyết định phía Miyano).
+    #
+    # review vòng 2 — `elif action == "khong_dong_y"`, KHÔNG `else` trần.
+    # `action` chỉ có hai giá trị hợp lệ tới được đây (giá trị thứ ba đã bị
+    # `frappe.throw` chặn từ đầu hàm), nên hôm nay hai nhánh tương đương —
+    # nhưng một `else` trần sẽ ÂM THẦM ghi "khách không đồng ý" cho bất kỳ
+    # action hợp lệ THỨ BA nào thêm sau này mà quên sửa khối này. Sổ không
+    # sửa được: thà hỏng ồn ào (không khớp nhánh nào, không ghi gì) còn hơn
+    # ghi sai vĩnh viễn một việc khách chưa từng làm.
     from miyano_portal import nhat_ky
     if action == "dong_y":
         nhat_ky.ghi(
@@ -2667,7 +2675,7 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
             customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
             sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
         )
-    else:
+    elif action == "khong_dong_y":
         nhat_ky.ghi(
             nhat_ky.SK_KHACH_KHONG_DONG_Y,
             customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
@@ -2973,16 +2981,23 @@ def portal_order_sua_so_luong(order, dong) -> dict:
 
     # Task 3 (nhật ký thao tác) — SAU khi đơn đã lưu + chuyển trạng thái +
     # đồng bộ phiếu đứng sau (nếu có) đều thành công, TRƯỚC return, cùng
-    # lý do/khuôn với `portal_order_accept`. `ghi_chu` đếm SỐ DÒNG đổi
+    # lý do/khuôn với `portal_order_accept`. `ghi_chu` đếm SỐ DÒNG
     # (`len(thay_doi)`), không chép lại nội dung `thay_doi` — sổ chỉ cần
     # nói "khách gửi lại báo giá cho mấy dòng", chi tiết từng dòng đã có
     # sẵn trong Comment `so.add_comment()` phía trên.
+    #
+    # review vòng 2 — chữ "dòng THAY ĐỔI", không phải "dòng ĐỔI SỐ LƯỢNG":
+    # `thay_doi` (dựng ở vòng lặp phía trên) gộp CẢ dòng bị BỎ HẲN
+    # (`qty → 0`, xoá khỏi đơn) LẪN dòng `dat_ngoai`, không chỉ dòng thuần
+    # tuý đổi số lượng một hàng thật còn giữ lại. Chữ "đổi số lượng" nói
+    # hẹp hơn thứ con số này thật sự đếm — trên một chứng từ không sửa
+    # được, tên gọi phải khớp đúng phạm vi đang đếm.
     from miyano_portal import nhat_ky
     nhat_ky.ghi(
         nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA,
         customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
         sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
-        ghi_chu=f"{len(thay_doi)} dòng đổi số lượng",
+        ghi_chu=f"{len(thay_doi)} dòng thay đổi",
     )
 
     return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
