@@ -295,10 +295,33 @@ class TestManGopTrenRouter(FrappeTestCase):
 	def test_man_gop_noi_CA_HAI_registry_hanh_dong(self):
 		"""Thanh hành động là điểm được nhiều nhất của việc gộp: nhân viên
 		khoa và quản lý có hai đường sửa số lượng khác nhau, trước đây nằm ở
-		hai màn. Nối thiếu một registry là trả lại đúng cái hố đó."""
+		hai màn. Nối thiếu một registry là trả lại đúng cái hố đó.
+
+		Review TOÀN NHÁNH (03/09/2026) — bản trước `assertIn("de-xuat-
+		actions", man)` chỉ khớp DÒNG IMPORT. Xoá hai dòng NỐI thật bên
+		trong `const hanhDong = computed(...)` để lại `computed(() => [])`,
+		tức thanh hành động RỖNG HOÀN TOÀN trên mọi phiếu và mọi đơn — mà
+		hai `import` vẫn nằm nguyên đó nên bài vẫn xanh. Một import không
+		phải một lời gọi.
+
+		Neo vào CHÍNH khối `hanhDong`: hai hàm lọc phải được GỌI bên trong
+		nó. Hình thức `.filter((a) => !a.dacBiet)` phía sau lời gọi thứ hai
+		cố ý KHÔNG bị khoá — đó là một quyết định hiển thị riêng (xem chú
+		thích ngay trên khối), không phải phần của bất biến "nối cả hai
+		registry"."""
 		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
 		self.assertIn("de-xuat-actions", man)
 		self.assertIn("don-actions", man)
+		khoi = re.search(r"const hanhDong = computed\(.*?\n\]\)", man, re.S)
+		self.assertIsNotNone(
+			khoi, "ChiTietYeuCau.vue không còn `const hanhDong = computed([...])`"
+		)
+		for goi in ("hanhDongChoPhep(", "hanhDongDonChoPhep("):
+			self.assertIn(
+				goi, khoi.group(0),
+				f"`{goi}` không được GỌI trong khối `hanhDong` — thanh hành động "
+				"mất nguyên một registry (hoặc rỗng hẳn), dù dòng import vẫn còn.",
+			)
 
 	def test_man_gop_GIEO_ghi_chu_quan_ly(self):
 		"""Một quy tắc mà chốt duy nhất là văn xuôi trong tài liệu thì không
@@ -316,6 +339,28 @@ class TestManGopTrenRouter(FrappeTestCase):
 		vậy trong toàn file — hai chỗ còn lại là ĐỌC `ghiChuSua.value[...]`,
 		không khớp `\\s*=` ngay sau `.value`)."""
 		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		# Review TOÀN NHÁNH (03/09/2026) — khẳng định dưới đây neo vào THÂN
+		# hàm `dungLaiDieuChinh()`, tức nó chỉ canh hàm gieo CÒN ĐÚNG. Nó
+		# KHÔNG canh việc hàm đó được GỌI. Xoá riêng lời gọi ở nhánh nạp qua
+		# đường ĐƠN (`napPhieu()`) thì vào màn bằng link đơn — đường mà MỌI
+		# thông báo tự động gửi đi đang dùng — `ghiChuSua` không bao giờ được
+		# gieo, quản lý bấm Duyệt gửi chuỗi rỗng đè lên ghi chú vòng trước.
+		# Canh CẢ HAI lời gọi, theo HÀM BAO chứ không theo số lần xuất hiện:
+		# một phép đếm gộp cả dòng ĐỊNH NGHĨA và sẽ đỏ giả nếu mai này có
+		# nhánh nạp thứ ba gọi thêm một lần nữa.
+		for ten_ham in ("load", "napPhieu"):
+			than = re.search(
+				r"async function " + ten_ham + r"\([^)]*\)\s*\{.*?\n\}", man, re.S
+			)
+			self.assertIsNotNone(
+				than, f"Không tìm thấy hàm {ten_ham}() trong ChiTietYeuCau.vue"
+			)
+			self.assertIn(
+				"dungLaiDieuChinh()", than.group(0),
+				f"{ten_ham}() không gọi `dungLaiDieuChinh()` — nhánh nạp này để "
+				"`ghiChuSua` rỗng, và cú bấm Duyệt kế tiếp xoá trắng ghi chú "
+				"quản lý đã viết vòng trước.",
+			)
 		self.assertRegex(
 			man,
 			# Bó buộc trong CỬA SỔ 200 ký tự ngay sau lệnh gán, KHÔNG dùng

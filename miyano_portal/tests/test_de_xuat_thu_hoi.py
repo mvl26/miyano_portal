@@ -32,6 +32,7 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.test_de_xuat_action_registry import _bo_chu_thich
 
 
 class TestThuHoiDoctype(FrappeTestCase):
@@ -280,7 +281,21 @@ class TestNutThuHoiTrenRegistry(FrappeTestCase):
 	)
 
 	def _dong_thu_hoi(self) -> str:
-		noi_dung = self.REGISTRY.read_text(encoding="utf-8")
+		"""Review TOÀN NHÁNH (03/09/2026) — LỌC CHÚ THÍCH trước khi cắt.
+
+		Bản trước `split("{ method:")` trên TOÀN VĂN THÔ. Chú thích-hoá mục
+		"Thu hồi để sửa" (thêm `// ` vào hai dòng) làm nút BIẾN MẤT khỏi
+		giao diện mà cả ba bài của lớp này vẫn xanh — đây là lưới canh
+		CHÍNH của cả tính năng thu hồi, và nó không đỏ được khi mã hỏng.
+
+		Dùng lại `_bo_chu_thich` của `test_de_xuat_action_registry.py`
+		(IMPORT, không chép: hai bản sao của cùng một bộ lọc sớm muộn cũng
+		trôi khỏi nhau, đúng luật file kia tự đặt ra cho chính nó). GIỚI HẠN
+		THỪA HƯỞNG: nó chỉ bỏ dòng bắt đầu bằng `//`, không hiểu `/* */` —
+		một mục bị bọc trong block comment vẫn lọt. Chấp nhận: đó không phải
+		hình dạng chú thích nào trong repo này dùng, và bịt nó đòi một trình
+		phân tích JS thật."""
+		noi_dung = _bo_chu_thich(self.REGISTRY.read_text(encoding="utf-8"))
 		moc = [
 			d for d in noi_dung.split("{ method:")
 			if d.startswith(" 'de_xuat_thu_hoi'")
