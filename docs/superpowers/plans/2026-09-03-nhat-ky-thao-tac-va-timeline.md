@@ -38,6 +38,8 @@
 | `miyano_portal/nhat_ky.py` | **Đúng một** hàm ghi, các hằng khoá sự kiện và vai |
 | `miyano_portal/tests/test_nhat_ky.py` | Luật chỉ-thêm, không-ném-lỗi, ghi đúng trường |
 | `miyano_portal/tests/test_nhat_ky_su_kien.py` | Mỗi sự kiện một bài, đi qua đường mã thật |
+| `miyano_portal/tests/test_nhat_ky_doc.py` | Endpoint đọc: phạm vi, tên/số, suy dòng cho đơn cũ |
+| `miyano_portal/tests/test_nhat_ky_giao_dien.py` | Lưới regex frontend — **Task 6 tạo**, Task 7+8 ghi thêm |
 | `frontend/src/components/chi-tiet/KhoiDongThoiGian.vue` | Dòng thời gian |
 
 **Sửa**
@@ -104,6 +106,7 @@ class TestNhatKyChiThem(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.khoa_a = f.khoa_huyethoc
+		self.item = f.item
 
 	def _ghi(self, **kw):
 		return nhat_ky.ghi(
@@ -114,11 +117,15 @@ class TestNhatKyChiThem(FrappeTestCase):
 		)
 
 	def _phieu(self):
+		# `self.item` lấy trong setUp, KHÔNG gọi lại `dung_fixture()` ở đây:
+		# hàm đó XOÁ SẠCH mọi phiếu `_TEST DX%` mỗi lần chạy, nên gọi lại
+		# giữa chừng là tự xoá dữ liệu bài test vừa dựng — và triệu chứng sẽ
+		# nổ ra ở một bài khác, khó lần ngược.
 		if not getattr(self, "_ten_phieu", None):
 			doc = frappe.get_doc({
 				"doctype": "Portal De Xuat Mua",
 				"customer": self.kh_a, "khoa_phong": self.khoa_a,
-				"items": [{"item_code": dung_fixture(self).item, "so_luong_de_xuat": 1}],
+				"items": [{"item_code": self.item, "so_luong_de_xuat": 1}],
 			}).insert(ignore_permissions=True)
 			self._ten_phieu = doc.name
 		return self._ten_phieu
@@ -441,19 +448,22 @@ Tạo `miyano_portal/tests/test_nhat_ky_su_kien.py` với lớp `TestNhatKySuKie
 		self.assertIn(nhat_ky.SK_KHOA_THU_HOI, self._khoa_su_kien(phieu.name))
 
 	def test_ghi_nhat_ky_hong_KHONG_lam_hong_chuyen_trang_thai(self):
-		"""Ràng buộc tuyệt đối, kiểm bằng cách làm hỏng thật khâu ghi."""
+		"""Ràng buộc tuyệt đối, kiểm bằng cách làm hỏng THẬT khâu ghi.
+
+		Làm hỏng ở TẦNG DƯỚI (`frappe.get_doc` bên trong module `nhat_ky`),
+		KHÔNG mock lên chính `nhat_ky.ghi`: mock lên hàm đó sẽ thay luôn cả
+		lớp `try/except` nằm bên trong nó, tức đo một thứ khác hẳn với thứ
+		đang cần chứng minh."""
 		from unittest.mock import patch as mock_patch
 		phieu = self._phieu_nhap()
 		frappe.set_user(self.chu_phieu)
 		phieu.reload()
-		with mock_patch.object(nhat_ky, "ghi", side_effect=RuntimeError("hỏng")):
-			with self.assertRaises(RuntimeError):
-				phieu.gui_duyet()
-		# ^ mock ném thẳng nên gui_duyet() vỡ; đó KHÔNG phải hành vi ta muốn.
-		# Bài thật là bài dưới: hàm ghi THẬT nuốt lỗi.
+		with mock_patch.object(nhat_ky.frappe, "get_doc",
+		                       side_effect=RuntimeError("ổ đĩa hỏng")):
+			phieu.gui_duyet()
+		phieu.reload()
+		self.assertEqual(phieu.trang_thai, "Chờ duyệt")
 ```
-
-**Ghi chú cho người thi công về bài cuối:** bài trên viết sai có chủ ý để bạn thấy cái bẫy — `mock_patch` lên chính `nhat_ky.ghi` sẽ bỏ qua lớp `try/except` nằm *bên trong* nó, nên nó đo nhầm thứ. Bài đúng là **làm hỏng ở tầng dưới**: patch `frappe.get_doc` trong module `nhat_ky` để ném lỗi, rồi khẳng định `gui_duyet()` vẫn thành công và trạng thái vẫn đổi. Viết bài đúng, xoá bài sai, và ghi lý do trong báo cáo.
 
 - [ ] **Step 2: Chạy cho ĐỎ**
 
@@ -650,7 +660,7 @@ Hôm nay `de_xuat_chi_tiet` đã trả `nguoi_yeu_cau_ten` (giải ở BIÊN GI�
 - [ ] **Step 2: Chạy cho ĐỎ.**
 - [ ] **Step 3: Thêm ba khoá vào `de_xuat_chi_tiet`**, giải ở **BIÊN GIỚI API** cạnh `nguoi_yeu_cau_ten` đã có — cùng chỗ, cùng lý do, không đổi giá trị LƯU.
 - [ ] **Step 4: Sửa `KhoiTruyVet.vue`** — hiện số dưới dạng `<a :href="'tel:' + …">`, bọc `v-if` trên **chính giá trị số**, không dùng `|| '—'`.
-- [ ] **Step 5: Lưới regex** trong `test_nhat_ky_giao_dien.py`: khẳng định `KhoiTruyVet.vue` có `tel:` và **không** chứa chuỗi `'—'` ở nhánh số điện thoại. Một dấu gạch ở chỗ đáng lẽ có số là một câu hỏi màn hình không trả lời được.
+- [ ] **Step 5: Lưới regex** — **TẠO** `miyano_portal/tests/test_nhat_ky_giao_dien.py` (Task 7 sẽ ghi thêm vào chính file này, không tạo lại): khẳng định `KhoiTruyVet.vue` có `tel:` và **không** chứa chuỗi `'—'` ở nhánh số điện thoại. Một dấu gạch ở chỗ đáng lẽ có số là một câu hỏi màn hình không trả lời được.
 - [ ] **Step 6: `yarn build`.**
 - [ ] **Step 7: Chứng minh ĐỎ được** — đổi `v-if` thành `|| '—'`, lưới phải đỏ; hoàn nguyên.
 - [ ] **Step 8: Commit.**
@@ -670,7 +680,7 @@ Hôm nay `de_xuat_chi_tiet` đã trả `nguoi_yeu_cau_ten` (giải ở BIÊN GI�
 
 Bố cục theo §9 của spec — **dùng lại `.vtl`/`.vst` đã có**, chỉ thêm bốn lớp màu chấm. Không thêm lớp bố cục mới.
 
-- [ ] **Step 1: Lưới regex đỏ trước.** Ba bài: (a) `format.js` có đủ **18** khoá và mỗi khoá có nhãn khác rỗng — thiếu một khoá thì một sự kiện thật sẽ hiện ra chuỗi khoá thô trước mặt bệnh viện; (b) component dùng `.vst` chứ không dựng lớp bố cục mới; (c) số điện thoại render bằng `tel:`.
+- [ ] **Step 1: Lưới regex đỏ trước.** Ghi thêm vào `miyano_portal/tests/test_nhat_ky_giao_dien.py` **do Task 6 đã tạo** — đừng tạo lại. Ba bài: (a) `format.js` có đủ **18** khoá và mỗi khoá có nhãn khác rỗng — thiếu một khoá thì một sự kiện thật sẽ hiện ra chuỗi khoá thô trước mặt bệnh viện; (b) component dùng `.vst` chứ không dựng lớp bố cục mới; (c) số điện thoại render bằng `tel:`.
 - [ ] **Step 2–7**: viết nhãn, viết component, `yarn build`, chứng minh đỏ được, commit.
 
 ---
