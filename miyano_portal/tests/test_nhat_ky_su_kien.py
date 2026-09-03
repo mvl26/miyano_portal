@@ -40,10 +40,14 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal import nhat_ky
+from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+
+COMPANY = "Miyano Việt Nam"
+WAREHOUSE = "Stores - MYN"
 
 
 class TestNhatKySuKienPhieu(FrappeTestCase):
@@ -285,3 +289,189 @@ class TestNhatKySuKienPhieu(FrappeTestCase):
 			phieu.gui_duyet()
 		phieu.reload()
 		self.assertEqual(phieu.trang_thai, "Chờ duyệt")
+
+
+class TestNhatKySuKienKhach(FrappeTestCase):
+	"""Task 3 — bốn sự kiện do KHÁCH thao tác trên đơn hàng (`Sales Order`):
+	đồng ý / không đồng ý báo giá, sửa số lượng gửi lại báo giá, huỷ đơn.
+	Nhân bản `TestNhatKySuKienPhieu` ở trên xoay quanh `Portal De Xuat
+	Mua` (phiếu, Task 2) — lớp này xoay quanh `Sales Order` (đơn, Task 3).
+
+	KHÔNG cần vá lại "CẠM BẪY THỨ HAI" (dòng nhật ký rò giữa các bài, xem
+	docstring module) ở đây: cạm bẫy đó chỉ nổ khi fixture BỊ XOÁ giữa các
+	bài trong cùng lớp khiến `revert_series_if_last()` tái dùng lại đúng
+	MỘT cái TÊN cho phiếu của bài SAU. Lớp này không xoá `Sales Order` nào
+	giữa các bài (`dung_fixture()` chỉ xoá `Portal De Xuat Mua`) — mỗi bài
+	tự dựng một đơn mang tên MỚI, và lọc theo `sales_order=<tên đơn của
+	chính bài đó>` không bao giờ chạm dòng của bài khác."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		f = dung_fixture(self)
+		self.kh_a, self.kh_b = f.kh_a, f.kh_b
+		self.khoa_a = f.khoa_huyethoc
+		self.item = f.item
+		self.item2 = self._item2()
+
+		self.quan_ly_a = self._thanh_vien("nkkhach.ql.a@demo.miyano", self.kh_a)
+		self.quan_ly_b = self._thanh_vien("nkkhach.ql.b@demo.miyano", self.kh_b)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	# -- fixture riêng của lớp này -------------------------------------------
+
+	def _item2(self):
+		"""Vật tư THỨ HAI, riêng của lớp này — cần cho bài đếm số dòng đổi
+		(`test_sua_so_luong_...`): một đơn CHỈ một dòng không phân biệt
+		được `ghi_chu` đếm ĐÚNG `len(thay_doi)` với một hằng số "1 dòng…"
+		viết cứng ăn may đúng ở đúng một dòng."""
+		ten = "_TEST DX NK ITEM 2"
+		if not frappe.db.exists("Item", ten):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ten, "item_name": ten,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Nos", "is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		return ten
+
+	def _thanh_vien(self, email, customer):
+		"""Luôn dựng "Quản lý" — bảng "Bốn sự kiện" của brief chốt `vai`
+		ghi xuống sổ là `VAI_QUAN_LY` cho cả bốn, và `portal_order_accept`/
+		`portal_order_huy` không hỏi vai trò gì cả, còn `portal_order_sua_
+		so_luong` MỞ cho quản lý vô điều kiện (`la_quan_ly()` trả `True`
+		là `_ly_do_khong_sua_don_da_duyet` `return None` ngay) — dùng
+		"Quản lý" tránh việc phải dựng thêm một `Portal De Xuat Mua` chỉ để
+		đơn có `custom_de_xuat` cho nhân viên khoa đi qua guard Task 9, một
+		việc Task 3 không cần chứng minh lại."""
+		if not frappe.db.exists("User", email):
+			u = frappe.get_doc({
+				"doctype": "User", "email": email,
+				"first_name": email.split("@")[0],
+				"user_type": "Website User", "send_welcome_email": 0,
+			})
+			u.append("roles", {"role": "Customer"})
+			u.insert(ignore_permissions=True)
+		ten_tv = frappe.db.get_value("Portal Member", {"user": email}, "name")
+		gia_tri = {"customer": customer, "vai_tro": "Quản lý", "khoa_phong": None, "active": 1}
+		if ten_tv:
+			frappe.db.set_value("Portal Member", ten_tv, gia_tri)
+		else:
+			frappe.get_doc({
+				"doctype": "Portal Member", "user": email, **gia_tri,
+			}).insert(ignore_permissions=True)
+		return email
+
+	def _don_cho_khach(self, customer, khoa_phong, items=None):
+		"""Sales Order thẳng ở "Chờ khách đồng ý", KHÔNG qua workflow thật
+		— cùng khuôn `test_e2_workflow_va_accept.py`/`test_de_xuat_sua_sau_
+		duyet.py`: `frappe.db.set_value(..., update_modified=False)` ép
+		thẳng cột SAU KHI `insert()` (Workflow không cho gán trạng thái lúc
+		tạo mới).
+
+		`custom_loai_don = "Mua lẻ"` (đúng dấu `di_vong_bao_gia` đọc) —
+		KHÔNG kích hoạt chốt hết hiệu lực (BR-R5): `han_hieu_luc_bao_gia`
+		rơi về `transaction_date` khi `custom_ngay_gui_khach_duyet` rỗng
+		(đúng trường hợp fixture này — ép thẳng cột nên hook `ghi_ngay_
+		gui_khach_duyet` không chạy), và `transaction_date = today()` +
+		hạn mặc định 7 ngày còn lâu mới hết hiệu lực."""
+		so = frappe.get_doc({
+			"doctype": "Sales Order", "customer": customer, "company": COMPANY,
+			"transaction_date": frappe.utils.today(),
+			"delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
+			"selling_price_list": "Standard Selling",
+			"custom_loai_don": "Mua lẻ",
+			"custom_khoa_phong": khoa_phong,
+			"items": items or [
+				{"item_code": self.item, "qty": 1, "rate": 1000, "warehouse": WAREHOUSE},
+			],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value(
+			"Sales Order", so.name, "workflow_state", "Chờ khách đồng ý",
+			update_modified=False,
+		)
+		so.reload()
+		return so
+
+	def _dong_cua_don(self, ten_don):
+		return frappe.get_all(
+			nhat_ky.DOCTYPE, filters={"sales_order": ten_don},
+			fields=["su_kien", "nguoi_thao_tac", "vai", "customer", "khoa_phong", "ghi_chu"],
+			order_by="thoi_diem asc, creation asc",
+		)
+
+	# -- các bài --------------------------------------------------------------
+
+	def test_dong_y_ghi_dong_nhat_ky(self):
+		so = self._don_cho_khach(self.kh_a, self.khoa_a)
+		frappe.set_user(self.quan_ly_a)
+		portal.portal_order_accept(so.name, "dong_y")
+		frappe.set_user("Administrator")
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_DONG_Y)
+		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+
+	def test_khong_dong_y_ghi_dong_nhat_ky_voi_ly_do(self):
+		so = self._don_cho_khach(self.kh_a, self.khoa_a)
+		ly_do = "Giá cao hơn dự toán của đơn vị."
+		frappe.set_user(self.quan_ly_a)
+		portal.portal_order_accept(so.name, "khong_dong_y", ly_do=ly_do)
+		frappe.set_user("Administrator")
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_KHONG_DONG_Y)
+		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].ghi_chu, ly_do)
+
+	def test_sua_so_luong_ghi_dong_nhat_ky_dem_dung_so_dong_doi(self):
+		"""`ghi_chu` phải đếm ĐÚNG `len(thay_doi)` — hai dòng đổi số lượng
+		trên một đơn hai dòng, không phải một hằng số "1 dòng…" viết cứng
+		chỉ ăn may đúng với một đơn một dòng."""
+		so = self._don_cho_khach(self.kh_a, self.khoa_a, items=[
+			{"item_code": self.item, "qty": 1, "rate": 1000, "warehouse": WAREHOUSE},
+			{"item_code": self.item2, "qty": 2, "rate": 500, "warehouse": WAREHOUSE},
+		])
+		frappe.set_user(self.quan_ly_a)
+		portal.portal_order_sua_so_luong(so.name, {
+			"items": [
+				{"item_code": self.item, "qty": 5},
+				{"item_code": self.item2, "qty": 7},
+			],
+		})
+		frappe.set_user("Administrator")
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA)
+		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].ghi_chu, "2 dòng đổi số lượng")
+
+	def test_huy_ghi_dong_nhat_ky_voi_ly_do(self):
+		so = self._don_cho_khach(self.kh_a, self.khoa_a)
+		ly_do = "Đổi ý, không mua hàng này nữa."
+		frappe.set_user(self.quan_ly_a)
+		portal.portal_order_huy(so.name, ly_do)
+		frappe.set_user("Administrator")
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_KHACH_HUY_DON)
+		self.assertEqual(dong[0].nguoi_thao_tac, self.quan_ly_a)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_QUAN_LY)
+		self.assertEqual(dong[0].ghi_chu, ly_do)
+
+	def test_don_cua_benh_vien_khac_bi_chan_va_KHONG_ghi_nhat_ky(self):
+		"""Vế âm bắt buộc (brief) — thiếu bài này thì lưới không phân biệt
+		được "chặn đúng" với "chặn nhưng vẫn kịp ghi": bốn bài dương phía
+		trên chỉ chứng minh có ghi khi thao tác THÀNH CÔNG, không chứng
+		minh gì về đường bị chặn."""
+		so = self._don_cho_khach(self.kh_a, self.khoa_a)
+		frappe.set_user(self.quan_ly_b)
+		with self.assertRaises(frappe.PermissionError):
+			portal.portal_order_accept(so.name, "dong_y")
+		frappe.set_user("Administrator")
+		self.assertEqual(self._dong_cua_don(so.name), [])

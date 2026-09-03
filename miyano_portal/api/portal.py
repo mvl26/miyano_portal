@@ -2654,6 +2654,26 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
                 f"[Portal] Khách không đồng ý báo giá {so.name} — lý do: {ghi_chu}",
             )
 
+    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() (và mọi cập nhật
+    # phụ trợ phía trên) đã chạy XONG: ghi trước một việc mà transaction có
+    # thể còn ném lỗi ở dưới sẽ để lại một dòng kể một việc chưa từng xảy
+    # ra. `vai` cố định VAI_QUAN_LY — sổ này không phân biệt người bấm là
+    # quản lý hay nhân viên khoa, chỉ ghi nhận đây là quyết định phía
+    # khách hàng trên đơn (đối lập với quyết định phía Miyano).
+    from miyano_portal import nhat_ky
+    if action == "dong_y":
+        nhat_ky.ghi(
+            nhat_ky.SK_KHACH_DONG_Y,
+            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
+        )
+    else:
+        nhat_ky.ghi(
+            nhat_ky.SK_KHACH_KHONG_DONG_Y,
+            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ghi_chu,
+        )
+
     return {"trang_thai_moi": so.get("workflow_state")}
 
 
@@ -2951,6 +2971,20 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     if de_xuat_ten and doi_items_ap_dung:
         _dong_bo_so_luong_duyet_ve_phieu(de_xuat_ten, doi_items_ap_dung)
 
+    # Task 3 (nhật ký thao tác) — SAU khi đơn đã lưu + chuyển trạng thái +
+    # đồng bộ phiếu đứng sau (nếu có) đều thành công, TRƯỚC return, cùng
+    # lý do/khuôn với `portal_order_accept`. `ghi_chu` đếm SỐ DÒNG đổi
+    # (`len(thay_doi)`), không chép lại nội dung `thay_doi` — sổ chỉ cần
+    # nói "khách gửi lại báo giá cho mấy dòng", chi tiết từng dòng đã có
+    # sẵn trong Comment `so.add_comment()` phía trên.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA,
+        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
+        ghi_chu=f"{len(thay_doi)} dòng đổi số lượng",
+    )
+
     return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
 
 
@@ -3033,6 +3067,17 @@ def portal_order_huy(order, ly_do) -> dict:
     cap_nhat_yeu_cau_goc(so, "Khách huỷ")
 
     gui_email_khach_huy(so, ly_do)
+
+    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() + cập nhật yêu
+    # cầu gốc + gửi email đều đã chạy XONG, TRƯỚC return; cùng lý do/khuôn
+    # với hai endpoint phía trên. `ghi_chu` mang đúng lý do huỷ khách nhập
+    # — chứng từ huỷ mất lý do thì không còn gì để tra sau này.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_KHACH_HUY_DON,
+        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ly_do,
+    )
 
     return {"trang_thai_moi": so.get("workflow_state")}
 
