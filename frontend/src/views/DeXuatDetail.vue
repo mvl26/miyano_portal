@@ -2,13 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { fmtDateTime, deXuatBadge } from '../format'
+import { deXuatBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import { showToast } from '../toast'
 import { hanhDongChoPhep } from '../de-xuat-actions'
 import { capNhatChoDuyetCount } from '../cho-duyet'
 import ReasonModal from '../components/ReasonModal.vue'
+import KhoiTruyVet from '../components/chi-tiet/KhoiTruyVet.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,27 +48,6 @@ const actions = computed(() => hanhDongChoPhep(doc.value, store.me))
 // hàng). Cùng điều kiện chủ sở hữu như nút
 // "Xoá" của registry (owner hoặc quản lý) để hai nút không lệch quyền nhìn
 // thấy nhau trên cùng một phiếu.
-// Chủ đầu tư chốt 25/08 — khối truy vết phải cho thấy TÊN TÀI KHOẢN, không
-// chỉ tên đơn vị. Lý do đo được trên site: tài khoản cổng của bệnh viện đặt
-// `User.full_name` bằng chính tên bệnh viện/khoa ("Khoa Dược BV Đa khoa
-// Miyano", "Bệnh viện Bạch Mai"), nên bản vá 21/08 ("hiện TÊN thay vì
-// email") tuy đúng ý định nhưng in ra đúng cái tên bệnh viện mà người ký
-// duyệt đã biết thừa — khối truy vết mất sạch giá trị nhận dạng NGƯỜI.
-//
-// Hiện CẢ HAI: tên hiển thị + tên tài khoản đã đăng nhập. Tên tài khoản là
-// thứ DUY NHẤT phân biệt được hai người cùng một khoa, và là khoá tra ngược
-// khi cần đối chất ("ai đã bấm gửi lúc 14:02").
-//
-// Chỉ ghép khi hai thứ KHÁC nhau: tài khoản đã bị xoá thì server lui về
-// chính email (`portal_context.ten_nguoi_dung`), ghép nữa sẽ thành
-// "a@b.com (a@b.com)".
-const nguoiYeuCau = computed(() => {
-  const d = doc.value
-  if (!d) return { ten: '', taiKhoan: '' }
-  const taiKhoan = d.nguoi_yeu_cau || d.owner || ''
-  const ten = d.nguoi_yeu_cau_ten || taiKhoan
-  return { ten, taiKhoan: ten === taiKhoan ? '' : taiKhoan }
-})
 
 const coTheSuaNhap = computed(
   () => doc.value?.trang_thai === 'Nháp' && (doc.value?.owner === store.me?.user || store.me?.la_quan_ly)
@@ -502,42 +482,17 @@ onMounted(async () => {
     <div v-else-if="error" class="empty">{{ error }}</div>
 
     <template v-else-if="doc">
-      <!-- Đầu phiếu: mã + badge trạng thái, khoa phòng, khối truy vết —
-           QĐ-KP-9: ba thứ này hiện ngay đầu, không đi tìm trong lịch sử. -->
+      <!-- Đầu phiếu: mã + badge trạng thái, khoa phòng, link đơn hàng —
+           QĐ-KP-9: những thứ này hiện ngay đầu, không đi tìm trong lịch sử.
+           Khối truy vết (ai xin, ai duyệt) KHÔNG ở đây — nó là dữ liệu đối
+           chiếu, không phải thứ mở trang ra để tìm ngay, nên tách sang
+           `KhoiTruyVet.vue` thu gọn được, ngay dưới. -->
       <div class="card mb10" style="margin-bottom: 14px">
         <div class="sb">
           <b style="font-size: 18px">{{ doc.ma_de_xuat || '(chưa gửi duyệt)' }}</b>
           <span class="badge" :class="deXuatBadge(doc.trang_thai)">{{ doc.trang_thai }}</span>
         </div>
         <p class="tag" style="margin-top: 4px">{{ tenKhoa }}</p>
-
-        <div style="margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px">
-          <p class="tag" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px">
-            Truy vết yêu cầu
-          </p>
-          <p style="font-size: 13px; margin-bottom: 2px">
-            <!-- Chủ đầu tư chốt 21/08 — TÊN NGƯỜI, không phải email; chốt
-                 25/08 — kèm TÊN TÀI KHOẢN, vì `full_name` của tài khoản cổng
-                 chính là tên bệnh viện. Tên do server suy
-                 (`de_xuat_chi_tiet` → `portal_context.ten_nguoi_dung`),
-                 KHÔNG tra ở đây: hai nơi cùng quyết định "hiện tên thế nào"
-                 sớm muộn cũng lệch, và tầng này không đọc được `tabUser`.
-                 Đường lui về email vẫn còn trong `nguoiYeuCau` cho một
-                 payload cũ trong bộ nhớ đệm — ô trống ở khối truy vết là
-                 mất dấu vết. -->
-            <b>Người yêu cầu:</b>
-            {{ nguoiYeuCau.ten }}
-            <span v-if="nguoiYeuCau.taiKhoan" class="tag">({{ nguoiYeuCau.taiKhoan }})</span>
-          </p>
-          <p style="font-size: 13px; margin-bottom: 2px">
-            <b>Thời điểm gửi:</b> {{ doc.thoi_diem_gui ? fmtDateTime(doc.thoi_diem_gui) : 'Chưa gửi' }}
-          </p>
-          <p style="font-size: 13px">
-            <b>Lý do yêu cầu:</b>
-            <span v-if="doc.ly_do_yeu_cau"> {{ doc.ly_do_yeu_cau }}</span>
-            <span v-else class="tag"> Chưa có</span>
-          </p>
-        </div>
 
         <p v-if="doc.ly_do_tu_choi" class="tag" style="color: var(--red); margin-top: 8px">
           Lý do từ chối: {{ doc.ly_do_tu_choi }}
@@ -560,6 +515,12 @@ onMounted(async () => {
           </router-link>
         </p>
       </div>
+
+      <!-- Mở sẵn (`moSan` mặc định true) — màn này chưa biết khái niệm
+           "giai đoạn" để quyết định thu hay mở (đó là việc của Task 7 trên
+           màn gộp); và khối này sắp bị xoá khỏi đây khi Task 7 chuyển màn
+           gộp sang dùng `KhoiTruyVet` trực tiếp. -->
+      <KhoiTruyVet :phieu="doc" />
 
       <!-- Panel hành động — render từ hanhDongChoPhep(doc, me), cộng nút
            điều hướng "Sửa nháp" (KHÔNG qua registry — xem `coTheSuaNhap`).
