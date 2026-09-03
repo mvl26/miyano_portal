@@ -129,11 +129,10 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
         </tr>
       </thead>
       <tbody>
-        <!-- CHÉP các ô từ bảng cũ của DeXuatDetail.vue (gạch ngang + nhãn
-             "Không duyệt" theo `khongDuyet(row)`, ô nhập SL duyệt và ô ghi
-             chú khi `quanLyDangDuyet`) và thêm ba ô mới: đơn giá, thành
-             tiền, đã giao — dùng `fmtVND` cho hai ô tiền.
-             Ô tiền của dòng KHÔNG có trên đơn in "—", KHÔNG in "0 ₫". -->
+        <!-- `dong` (không phải `phieu.items`/`don.items` trực tiếp) — nguồn
+             dòng đã được quyết định ở computed `dong` phía trên: PHIẾU khi
+             có phiếu, đơn khi không, để mỗi `<tr>` dưới đây không phải tự
+             hỏi lại câu đó. -->
         <tr
           v-for="row in dong"
           :key="row.item_code"
@@ -142,7 +141,7 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
           <td>
             <b>{{ row.item_code }}</b>
             <template v-if="row.item_name"> — {{ row.item_name }}</template>
-            <br v-if="khongDuyet(row) || row.nguon_dong === 'Quản lý thêm'" />
+            <br />
             <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
             <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
           </td>
@@ -210,7 +209,7 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                 v-model="ghiChuSua[row.item_code]"
                 placeholder="Ghi chú của quản lý (tuỳ chọn)"
                 :aria-label="`Ghi chú quản lý cho ${row.item_code}`"
-                style="width: 100%; max-width: 340px"
+                style="width: 100%; max-width: 340px; margin-top: 6px"
               />
             </template>
             <template v-else-if="row.ghi_chu_quan_ly">
