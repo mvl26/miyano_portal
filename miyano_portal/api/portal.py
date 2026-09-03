@@ -671,6 +671,18 @@ def _dam_bao_phieu_tu_duyet(
         "custom_de_xuat": doc.name,
         "custom_ma_tra_cuu": doc.ma_de_xuat,
     })
+
+    # Task 4 — ghi SAU `doc.insert()`: trước điểm đó `doc.name` còn rỗng
+    # (đơn tự duyệt của quản lý — hàm này SINH RA phiếu, không đi qua
+    # gui_duyet()/duyet() nên không có dòng nhật ký nào khác kể việc này).
+    # `vai=VAI_HE_THONG` (brief) — không phải hành động của MỘT người,
+    # `nguoi_thao_tac` bỏ trống đúng ngữ nghĩa `nhat_ky.ghi()` dành cho vai
+    # đó, tương tự `duyet_va_tao_don`.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_DON_TAO, customer=customer, khoa_phong=khoa_phong,
+        de_xuat=doc.name, sales_order=sales_order, vai=nhat_ky.VAI_HE_THONG,
+    )
     return doc.name
 
 

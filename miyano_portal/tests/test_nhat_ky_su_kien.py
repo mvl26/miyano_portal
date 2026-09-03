@@ -39,7 +39,7 @@ Vá bằng đúng kiểu bypass `on_trash` mà `dung_fixture()` đã dùng cho c
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import nhat_ky
+from miyano_portal import de_xuat_duyet, nhat_ky, nhat_ky_hook
 from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
@@ -481,3 +481,375 @@ class TestNhatKySuKienKhach(FrappeTestCase):
 			portal.portal_order_accept(so.name, "dong_y")
 		frappe.set_user("Administrator")
 		self.assertEqual(self._dong_cua_don(so.name), [])
+
+
+class TestNhatKySuKienMiyano(FrappeTestCase):
+	"""Task 4 — sáu sự kiện MIYANO/HỆ THỐNG: ba chuyển `workflow_state` của
+	`Sales Order` (`SK_MIYANO_XAC_NHAN`/`SK_MIYANO_BAO_GIA`/`SK_MIYANO_TU_CHOI`,
+	qua `nhat_ky_hook.tu_sales_order_on_update`), `SK_GIAO_HANG` (Delivery
+	Note submit), `SK_HOA_DON` (Sales Invoice submit, qua `nhat_ky_hook.
+	tu_sales_invoice_on_submit`), và `SK_DON_TAO` ở HAI nơi sinh Sales Order
+	trực tiếp — `de_xuat_duyet.duyet_va_tao_don` và `api/portal._dam_bao_
+	phieu_tu_duyet` (đứng sau `portal_order_place`, giỏ hàng quản lý).
+
+	Không cần vá "CẠM BẪY THỨ HAI" (dòng nhật ký rò giữa các bài trong cùng
+	lớp — xem docstring module đầu file): mọi fixture của lớp này tự dựng
+	MỘT `Sales Order` mang TÊN MỚI ở mỗi bài (không xoá-rồi-tái-dùng tên như
+	`dung_fixture()` làm với `Portal De Xuat Mua`), và mọi khẳng định lọc
+	theo `sales_order=<tên đơn của chính bài đó>` — không đụng dòng của bài
+	khác dù `FrappeTestCase` không rollback giữa các method."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		f = dung_fixture(self)
+		self.kh_a = f.kh_a
+		self.khoa_a = f.khoa_huyethoc
+		self.item = f.item
+		self.chu_phieu = self._thanh_vien(
+			"nkmiyano.nv@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_a,
+		)
+		self.quan_ly = self._thanh_vien(
+			"nkmiyano.ql@demo.miyano", self.kh_a, "Quản lý", None, gan_contact=True,
+		)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	# -- fixture chung của lớp ------------------------------------------
+
+	def _thanh_vien(self, email, customer, vai_tro, khoa_phong, gan_contact=False):
+		if not frappe.db.exists("User", email):
+			u = frappe.get_doc({
+				"doctype": "User", "email": email,
+				"first_name": email.split("@")[0],
+				"user_type": "Website User", "send_welcome_email": 0,
+			})
+			u.append("roles", {"role": "Customer"})
+			u.insert(ignore_permissions=True)
+		ten_tv = frappe.db.get_value("Portal Member", {"user": email}, "name")
+		gia_tri = {
+			"customer": customer, "vai_tro": vai_tro,
+			"khoa_phong": khoa_phong, "active": 1,
+		}
+		if ten_tv:
+			frappe.db.set_value("Portal Member", ten_tv, gia_tri)
+		else:
+			frappe.get_doc({
+				"doctype": "Portal Member", "user": email, **gia_tri,
+			}).insert(ignore_permissions=True)
+		if gan_contact:
+			# `dat_hang.tao_sales_order` đọc Contact của `frappe.session.
+			# user` để điền `contact_person` — thiếu Dynamic Link tới
+			# khách hàng thì ERPNext ném "Contact Person does not belong
+			# to {customer}" ngay lúc insert (cùng bẫy đã ghi ở
+			# `test_de_xuat_duyet.py::_gan_contact_vao_khach`). CHỈ cần
+			# cho `quan_ly` — người duy nhất trong lớp này gọi vào đường
+			# sinh Sales Order (`duyet_va_tao_don`/`portal_order_place`).
+			self._gan_contact_vao_khach(email, customer)
+		return email
+
+	def _gan_contact_vao_khach(self, email, customer):
+		contact_name = frappe.db.get_value("Contact", {"user": email})
+		if not contact_name:
+			return
+		if frappe.db.exists("Dynamic Link", {
+			"parent": contact_name, "parenttype": "Contact",
+			"link_doctype": "Customer", "link_name": customer,
+		}):
+			return
+		c = frappe.get_doc("Contact", contact_name)
+		c.append("links", {"link_doctype": "Customer", "link_name": customer})
+		c.save(ignore_permissions=True)
+
+	def _don_moi(self, items=None):
+		"""Sales Order THẬT ở trạng thái ĐẦU của workflow ("Chờ xác nhận",
+		Frappe tự gán lúc insert — KHÔNG ép tay bằng `db.set_value`), để
+		các bài dưới tự đi tiếp bằng `apply_workflow` — đường THẬT một
+		Sales User/Sales Manager đi trên Desk (xem `test_yeu_cau_list.py::
+		_miyano_tu_choi`), không phải ghi thẳng cột."""
+		so = frappe.get_doc({
+			"doctype": "Sales Order", "customer": self.kh_a, "company": COMPANY,
+			"transaction_date": frappe.utils.today(),
+			"delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
+			"selling_price_list": "Standard Selling",
+			"custom_loai_don": "Mua lẻ",
+			"custom_khoa_phong": self.khoa_a,
+			"items": items or [
+				{"item_code": self.item, "qty": 1, "rate": 1000, "warehouse": WAREHOUSE},
+			],
+		}).insert(ignore_permissions=True)
+		so.reload()
+		return so
+
+	def _dong_cua_don(self, ten_don):
+		return frappe.get_all(
+			nhat_ky.DOCTYPE, filters={"sales_order": ten_don},
+			fields=["su_kien", "nguoi_thao_tac", "vai", "customer", "khoa_phong", "ghi_chu"],
+			order_by="thoi_diem asc, creation asc",
+		)
+
+	# -- Sales Order: ba trạng thái Miyano đứng tên ----------------------
+
+	def test_tu_choi_ghi_dung_mot_dong_voi_nguoi_thao_tac(self):
+		"""Bài trọng tâm của Task 4 (brief) — đường THẬT qua `apply_workflow`,
+		không gán tay cột `workflow_state`."""
+		from frappe.model.workflow import apply_workflow
+		so = self._don_moi()
+		# "Chờ Miyano xác nhận" KHÔNG nằm trong ánh xạ — bước này không ghi
+		# gì; nếu bài dưới đếm ra 2 dòng, lỗi nằm ở CHÍNH bước này bị ghi
+		# nhầm, không phải ở bước "Từ chối".
+		so = apply_workflow(so, "Gửi duyệt")
+		frappe.db.set_value(
+			"Sales Order", so.name, "custom_ly_do_tu_choi",
+			"Hàng ngừng nhập, không cấp được lô này.", update_modified=False,
+		)
+		so = apply_workflow(so, "Từ chối")
+		self.assertEqual(
+			so.workflow_state, "Từ chối",
+			"fixture chưa tới được trạng thái cần đo",
+		)
+
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1, "chỉ 'Từ chối' được map — 'Gửi duyệt' không được ghi")
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_MIYANO_TU_CHOI)
+		self.assertEqual(dong[0].nguoi_thao_tac, "Administrator")
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		self.assertEqual(dong[0].ghi_chu, "Hàng ngừng nhập, không cấp được lô này.")
+
+	def test_luu_lai_khong_doi_workflow_state_khong_sinh_dong(self):
+		"""Vế bắt buộc thứ hai (brief) — lưới của cả phép so cũ/mới: thiếu
+		bài này thì mỗi lần Miyano sửa PO Number/ghi chú vặt trên đơn cũng
+		đẻ một dòng."""
+		so = self._don_moi()
+		truoc = so.workflow_state
+		so.po_no = "PO-NHATKY-TEST"
+		so.save(ignore_permissions=True)
+		so.reload()
+		self.assertEqual(so.workflow_state, truoc, "fixture phải giữ nguyên workflow_state")
+		self.assertEqual(self._dong_cua_don(so.name), [])
+
+	def test_xac_nhan_ghi_dung_mot_dong(self):
+		from frappe.model.workflow import apply_workflow
+		so = self._don_moi()
+		so = apply_workflow(so, "Gửi duyệt")
+		so = apply_workflow(so, "Xác nhận")
+		self.assertEqual(so.workflow_state, "Đã xác nhận")
+		self.assertEqual(
+			so.docstatus, 1,
+			"'Xác nhận' submit đơn — on_update vẫn chạy TRƯỚC on_submit (Frappe "
+			"run_post_save_methods), nên hook vẫn bắt được chuyển tiếp này",
+		)
+
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_MIYANO_XAC_NHAN)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+
+	def test_bao_gia_ghi_dung_mot_dong_voi_han_hieu_luc(self):
+		from frappe.model.workflow import apply_workflow
+		from miyano_portal.portal_mua_le import hieu_luc_bao_gia_ngay
+		so = self._don_moi()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(so.workflow_state, "Chờ khách đồng ý")
+
+		dong = self._dong_cua_don(so.name)
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_MIYANO_BAO_GIA)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		# `ghi_ngay_gui_khach_duyet` (validate(), TRƯỚC on_update) ghi
+		# `custom_ngay_gui_khach_duyet = today()` NGAY lượt save này — hạn
+		# hiệu lực phải đếm từ HÔM NAY, không phải `transaction_date`.
+		han_mong_doi = frappe.utils.add_days(frappe.utils.today(), hieu_luc_bao_gia_ngay())
+		self.assertIn(frappe.utils.formatdate(han_mong_doi), dong[0].ghi_chu)
+
+	def test_trang_thai_trung_gian_khong_ghi(self):
+		"""'Chờ Miyano xác nhận' không nằm trong ánh xạ ba trạng thái — vế
+		âm cho `_ANH_XA_TRANG_THAI`, không chỉ kiểm ba trạng thái CÓ map."""
+		from frappe.model.workflow import apply_workflow
+		so = self._don_moi()
+		so = apply_workflow(so, "Gửi duyệt")
+		self.assertEqual(so.workflow_state, "Chờ Miyano xác nhận")
+		self.assertEqual(self._dong_cua_don(so.name), [])
+
+	# -- Delivery Note / Sales Invoice ------------------------------------
+
+	def _kho_hoat_dong(self):
+		ten = frappe.db.get_value("Customer Warehouse", {"customer": self.kh_a}, "name")
+		if ten:
+			frappe.db.set_value(
+				"Customer Warehouse", ten, {"active": 1, "ngay_bat_dau": "2020-01-01"},
+			)
+			return ten
+		return frappe.get_doc({
+			"doctype": "Customer Warehouse", "customer": self.kh_a,
+			"ten_kho": "_TEST Kho nhat ky", "ma_kho": "_TESTNKKHO",
+			"active": 1, "ngay_bat_dau": "2020-01-01",
+		}).insert(ignore_permissions=True).name
+
+	def _don_da_xac_nhan(self):
+		"""SO `docstatus=1` — Frappe TỰ khớp `workflow_state` sang trạng
+		thái có `doc_status` bằng docstatus mới, NGAY CẢ khi submit thẳng
+		không qua `apply_workflow` (đã đo trên `erptest.local`); dòng
+		`SK_MIYANO_XAC_NHAN` sinh ra từ đó là hiệu ứng CÓ THẬT của hành
+		động submit, không phải nhiễu cần né — các bài dưới lọc `dong` theo
+		ĐÚNG `su_kien` đang đo, không đếm tổng số dòng của cả đơn."""
+		so = self._don_moi()
+		so.submit()
+		return so
+
+	def test_giao_hang_ghi_dung_mot_dong_voi_dot(self):
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+		self._kho_hoat_dong()
+		so = self._don_da_xac_nhan()
+		dn = make_delivery_note(so.name)
+		dn.set_posting_time = 1
+		dn.posting_date = frappe.utils.today()
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+		self.assertEqual(dn.docstatus, 1)
+
+		dong = [r for r in self._dong_cua_don(so.name) if r.su_kien == nhat_ky.SK_GIAO_HANG]
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].nguoi_thao_tac, "Administrator")
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		self.assertEqual(dong[0].ghi_chu, "Đợt 1")
+
+	def test_hoa_don_ghi_dung_mot_dong(self):
+		from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+		so = self._don_da_xac_nhan()
+		si = make_sales_invoice(so.name)
+		si.set_posting_time = 1
+		si.insert(ignore_permissions=True)
+		si.submit()
+		self.assertEqual(si.docstatus, 1)
+
+		dong = [r for r in self._dong_cua_don(so.name) if r.su_kien == nhat_ky.SK_HOA_DON]
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+
+	def test_hoa_don_tra_hang_khong_ghi(self):
+		"""Vế âm — giấy báo có (`is_return`) không phải một lần PHÁT HÀNH
+		hoá đơn mới cho khách; ghi nó vào sổ sẽ làm một khoản hoàn tiền
+		trông giống một lần xuất hoá đơn (xem docstring `nhat_ky_hook.
+		tu_sales_invoice_on_submit`).
+
+		Dùng một double nhẹ (`_GiaDoc`) thay vì dựng cả một hoá đơn trả hàng
+		thật: hàm chỉ chạm ba thuộc tính (`customer`/`is_return`/`items`)
+		qua `.get()`/lặp — double khớp đúng giao diện đó (KHÔNG dùng
+		`frappe._dict`: nó là `dict` con, nên `.items` đọc ra hẳn phương
+		thức `dict.items` có sẵn thay vì khoá `"items"` gán tay — che mất
+		đúng nhánh `for row in doc.items` cần đo). Patch thẳng `nhat_ky.ghi`
+		để khẳng định KHÔNG BỊ GỌI, chính xác hơn đếm dòng CSDL lọc theo
+		`sales_order=None` (bộ lọc đó có thể trùng dòng của một hoá đơn
+		khác trong cùng lớp nếu sau này ai đó thêm bài mới)."""
+		from unittest.mock import patch as mock_patch
+
+		class _GiaDoc:
+			def __init__(self, **kw):
+				self._d = kw
+
+			def get(self, key):
+				return self._d.get(key)
+
+			def __getattr__(self, key):
+				return self._d[key]
+
+		fake_doc = _GiaDoc(customer=self.kh_a, is_return=1, items=[])
+		with mock_patch.object(nhat_ky, "ghi") as gia:
+			nhat_ky_hook.tu_sales_invoice_on_submit(fake_doc)
+		gia.assert_not_called()
+
+	# -- SK_DON_TAO: hai nơi sinh Sales Order trực tiếp -------------------
+
+	def _phieu_cho_duyet(self):
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"ly_do_yeu_cau": "cần gấp",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 3}],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", self.chu_phieu)
+		doc.reload()
+		frappe.set_user(self.chu_phieu)
+		doc.gui_duyet()
+		doc.reload()
+		frappe.set_user(self.quan_ly)
+		return doc
+
+	def test_don_tao_qua_duyet_va_tao_don_ghi_dung_mot_dong_he_thong(self):
+		doc = self._phieu_cho_duyet()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.quan_ly)
+		frappe.set_user("Administrator")
+
+		dong = self._dong_cua_don(kq["sales_order"])
+		self.assertEqual(len(dong), 1, "duyet_va_tao_don chỉ nên sinh MỘT dòng SK_DON_TAO")
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_DON_TAO)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_HE_THONG)
+		self.assertIsNone(
+			dong[0].nguoi_thao_tac,
+			"vai=VAI_HE_THONG không được gán nguoi_thao_tac (xem nhat_ky.ghi())",
+		)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		# `de_xuat` không nằm trong field list của `_dong_cua_don()` — đọc
+		# riêng để khẳng định mắt xích dò vết KHÔNG rỗng (cạm bẫy thứ tự
+		# (b) trong brief: `doc.name` chỉ có SAU `doc.duyet()`/insert).
+		ten_de_xuat = frappe.db.get_value(
+			nhat_ky.DOCTYPE,
+			{"sales_order": kq["sales_order"], "su_kien": nhat_ky.SK_DON_TAO},
+			"de_xuat",
+		)
+		self.assertEqual(ten_de_xuat, doc.name)
+
+	def test_don_tao_qua_gio_hang_quan_ly_ghi_dung_mot_dong_he_thong(self):
+		frappe.set_user(self.quan_ly)
+		kq = portal.portal_order_place(
+			mode="ban_le", items=[{"item_code": self.item, "qty": 2}],
+			khoa_phong=self.khoa_a, request_id="_TEST NK GIO HANG DON",
+		)
+		frappe.set_user("Administrator")
+
+		dong = self._dong_cua_don(kq["sales_order"])
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].su_kien, nhat_ky.SK_DON_TAO)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_HE_THONG)
+		self.assertIsNone(dong[0].nguoi_thao_tac)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		ten_de_xuat = frappe.db.get_value(
+			nhat_ky.DOCTYPE,
+			{"sales_order": kq["sales_order"], "su_kien": nhat_ky.SK_DON_TAO},
+			"de_xuat",
+		)
+		self.assertEqual(ten_de_xuat, kq["de_xuat"])
+
+	def test_don_tao_bam_lai_khong_sinh_dong_thu_hai(self):
+		"""BR-O12 (bấm lại/`da_ton_tai=True`) — KHÔNG được sinh dòng SK_DON_TAO
+		thứ hai cho một Sales Order KHÔNG hề được tạo mới lần này."""
+		frappe.set_user(self.quan_ly)
+		kq1 = portal.portal_order_place(
+			mode="ban_le", items=[{"item_code": self.item, "qty": 2}],
+			khoa_phong=self.khoa_a, request_id="_TEST NK GIO HANG BAM LAI",
+		)
+		kq2 = portal.portal_order_place(
+			mode="ban_le", items=[{"item_code": self.item, "qty": 2}],
+			khoa_phong=self.khoa_a, request_id="_TEST NK GIO HANG BAM LAI",
+		)
+		frappe.set_user("Administrator")
+
+		self.assertTrue(kq2["da_ton_tai"], "fixture chưa tới được kịch bản bấm lại")
+		self.assertEqual(kq1["sales_order"], kq2["sales_order"])
+		dong = [
+			r for r in self._dong_cua_don(kq1["sales_order"]) if r.su_kien == nhat_ky.SK_DON_TAO
+		]
+		self.assertEqual(len(dong), 1)

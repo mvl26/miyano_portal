@@ -417,7 +417,15 @@ doc_events = {
 	# nên "hàm chạy đúng" và "hàm có được gọi hay không" là hai chuyện khác
 	# nhau. Xoá dòng này là tắt cả tính năng mà mọi test vẫn xanh.
 	"Sales Invoice": {
-		"on_submit": "miyano_portal.hddt_tu_dong.tu_sales_invoice",
+		# Task 4 (sổ nhật ký) — thêm TÊN HÀM thứ hai vào chuỗi `on_submit` CÓ
+		# SẴN ở trên, không dựng điểm móc riêng: ghi `SK_HOA_DON` sau khi hoá
+		# đơn đã submit thật. Chuyển từ string sang list ĐÚNG một lần ở đây —
+		# `test_e7b_tu_dong.TestHookDuocDangKy` đọc qua `frappe.get_hooks()`
+		# (tự gộp string thành list), không đọc chuỗi thô, nên không vỡ.
+		"on_submit": [
+			"miyano_portal.hddt_tu_dong.tu_sales_invoice",
+			"miyano_portal.nhat_ky_hook.tu_sales_invoice_on_submit",
+		],
 		# Cùng lý do/chốt với "Delivery Note" ở trên — Notification "Portal -
 		# Hoá đơn phát hành".
 		"on_update": "miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
@@ -505,7 +513,15 @@ doc_events = {
 		# Cùng lý do/chốt với "Delivery Note"/"Sales Invoice" ở trên —
 		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối"/"Báo giá sẵn
 		# sàng" (brief 2026-08-15, trang thông báo, Phần 2).
-		"on_update": ["miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach"],
+		#
+		# Task 4 (sổ nhật ký) — thêm TÊN HÀM vào danh sách CÓ SẴN này, không
+		# dựng điểm móc `on_update` thứ hai cho cùng doctype: ghi ba sự kiện
+		# workflow_state phía Miyano (xác nhận/gửi khách duyệt/từ chối), tự
+		# lọc theo phép so cũ-mới bên trong (xem `nhat_ky_hook.py`).
+		"on_update": [
+			"miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
+			"miyano_portal.nhat_ky_hook.tu_sales_order_on_update",
+		],
 	},
 }
 

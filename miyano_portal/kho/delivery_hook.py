@@ -27,7 +27,7 @@ Ba điều dễ làm sai mà đã được cố định ở đây:
 
 import frappe
 
-from miyano_portal import portal_context
+from miyano_portal import nhat_ky, portal_context
 from miyano_portal.kho.ledger import LOT_KHONG_CO
 from miyano_portal.portal_thong_bao_khach import bao_da_nhap_hang
 
@@ -175,6 +175,22 @@ def _tao_phieu(dn, kho: str, dong: list[dict], co_canh_bao_dvt: bool = False) ->
 		"items": dong,
 	})
 	phieu.insert(ignore_permissions=True)
+
+	# Task 4 — ghi SAU khi phiếu nhập đã insert thành công. `vai=VAI_MIYANO`:
+	# người bấm submit Delivery Note trên Desk là nhân sự Miyano thật (kho
+	# khách chỉ là sổ phụ trợ ghi lại việc đó, không phải bên tự hành động),
+	# nên `nguoi_thao_tac` để `nhat_ky.ghi()` tự suy ra `frappe.session.user`
+	# — đúng người đang submit, không phải một giá trị hệ thống vô danh.
+	# `_sales_order_dau_tien(dn)` (không phải `_sales_order_cua(dn)` đang
+	# dùng cho field `phieu.sales_order` ở trên): field đó là Small Text
+	# gộp NHIỀU SO nếu DN giao chung, còn `sales_order` của sổ nhật ký là
+	# Link — chỉ nhận MỘT tên, cùng SO mà `so_dot` bên trên đã tính.
+	nhat_ky.ghi(
+		nhat_ky.SK_GIAO_HANG, customer=dn.customer,
+		khoa_phong=_khoa_phong_dau_tien(dn), sales_order=_sales_order_dau_tien(dn),
+		vai=nhat_ky.VAI_MIYANO,
+		ghi_chu=f"Đợt {so_dot}" if so_dot else None,
+	)
 	return phieu.name
 
 
