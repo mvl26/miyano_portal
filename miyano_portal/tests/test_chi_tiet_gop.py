@@ -274,7 +274,7 @@ class TestManGopTrenRouter(FrappeTestCase):
 
 	def test_hai_duong_cu_van_con_va_deu_tro_vao_man_gop(self):
 		"""Hai đường này nằm trong bookmark của khách VÀ trong link của MỌI
-		thông báo tự động đã gửi đi (`api/portal.py::_link_chung_tu`, chốt
+		thông báo tự động đã gửi đi (`api/portal.py::_lien_ket_thong_bao`, chốt
 		bởi `test_thong_bao_endpoint.py`). Kế hoạch gộp CỐ Ý không đổi
 		đường — đổi là kéo theo một lớp tương thích mà không ai được lợi."""
 		for path in ("/yeu-cau/don/:name", "/yeu-cau/phieu/:ten"):
@@ -384,11 +384,34 @@ class TestManGopTrenRouter(FrappeTestCase):
 		)
 
 	def test_danh_sach_khong_con_hai_cua_cho_mot_dong(self):
-		"""Nút "Đơn hàng" ở cột cuối từng là LỐI VÀO THỨ HAI, dẫn tới nửa
-		kia của cùng một yêu cầu. Từ khi hai nửa nằm chung một màn, nó là
-		cửa thứ hai vào đúng một phòng — và một dòng có hai đích là đúng
-		thứ QĐ-G11 dỡ ở tầng danh sách."""
+		"""Review Task 8+9 (IMPORTANT) — bản đầu chỉ cấm chuỗi
+		`"Đơn hàng</button>"`, tức khoá theo NHÃN HIỂN THỊ: một cửa thứ hai
+		mang nhãn khác ("Xem đơn", "Chi tiết đơn"...), hoặc gọi thẳng
+		`router.push({ name: 'order-detail' })` từ một chỗ khác trong cùng
+		dòng (không qua `moYeuCau()`), vẫn lọt lưới cũ mà không ai biết.
+
+		Khoá đúng bất biến bằng CẤU TRÚC thay vì chữ: route `order-detail`
+		chỉ được GỌI đúng MỘT chỗ trong cả file, và chỗ đó phải nằm TRONG
+		hàm `moYeuCau()` — tức một dòng có ĐÚNG MỘT hàm quyết định đích, bất
+		kể nút nào (nhãn gì) kích hoạt nó. Bắt được cả hai ca lưới cũ bỏ
+		sót: thêm nút nhãn khác gọi thẳng route, VÀ thêm một hàm kiểu
+		`moDon()` mới gọi route từ ngoài `moYeuCau()`."""
 		man = (self.FRONTEND_SRC / "views" / "YeuCauList.vue").read_text(encoding="utf-8")
+		so_lan = man.count("name: 'order-detail'")
+		self.assertEqual(
+			so_lan, 1,
+			f"route 'order-detail' xuất hiện {so_lan} lần trong YeuCauList.vue — "
+			"phải đúng MỘT chỗ, nếu không một dòng lại có hai đích.",
+		)
+		than_ham = re.search(r"function moYeuCau\([^)]*\)\s*\{.*?\n\}", man, re.S)
+		self.assertIsNotNone(than_ham, "Không tìm thấy hàm moYeuCau() trong YeuCauList.vue")
+		self.assertIn(
+			"name: 'order-detail'", than_ham.group(0),
+			"route 'order-detail' không nằm TRONG moYeuCau() — một cửa khác "
+			"đang tự gọi route này, ngoài hàm quyết định đích duy nhất.",
+		)
+		# Phụ — tín hiệu con người dễ đọc, KHÔNG phải chốt chính (chốt chính
+		# là hai khẳng định cấu trúc ở trên). Giữ lại vì nó vẫn đúng và rẻ.
 		self.assertNotIn(
 			"Đơn hàng</button>", man,
 			"YeuCauList.vue còn nút 'Đơn hàng' — hai cửa cho một dòng.",
