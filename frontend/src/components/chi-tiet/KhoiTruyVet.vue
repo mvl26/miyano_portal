@@ -7,13 +7,28 @@
 // đâu, hoá đơn đâu"; con số duyệt là chuyện đã xong. Nhưng nó là dữ liệu
 // ĐỐI CHIẾU khi có tranh cãi ("khoa xin 100, ai hạ xuống 40?"), nên THU
 // GỌN, không giấu — một cú bấm là ra, và chữ trên nhãn nói sẵn nó chứa gì.
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { fmtDateTime } from '../../format'
 
 const props = defineProps({
   phieu: { type: Object, required: true },
   moSan: { type: Boolean, default: true },
 })
+
+// `moSan` chỉ là trạng thái KHỞI ĐẦU, không phải trạng thái Vue áp lại liên
+// tục. Nếu bind thẳng `:open="moSan"`, Vue ghi đè DOM `open` mỗi khi `moSan`
+// đổi giá trị — vô hại ở Task 5 (hằng `true`) nhưng vỡ ở màn gộp (Task 7):
+// `moSan` tính từ `giaiDoan`, và `giaiDoan` đổi sau MỖI hành động (Duyệt,
+// Từ chối…) vì chứng từ nạp lại. Người dùng bấm mở khối ra đọc, bấm Duyệt,
+// chứng từ nạp lại → khối tự đóng/mở lại theo prop, giẫm lên đúng cái họ
+// vừa bấm — lỗi kiểu "màn hình tự nhảy" không ai báo được thành lời.
+// ĐỪNG "dọn" `dangMo`/`nhanToggle` về lại `:open="moSan"` — đó là tái sinh
+// đúng lỗi này. `dangMo` chỉ ĐỌC prop lúc khởi tạo; từ đó người dùng làm
+// chủ qua sự kiện `toggle` gốc của `<details>`.
+const dangMo = ref(props.moSan)
+function nhanToggle(e) {
+  dangMo.value = e.target.open
+}
 
 // Chủ đầu tư chốt 25/08 — hiện CẢ tên hiển thị LẪN tên tài khoản. Lý do đo
 // được trên site: tài khoản cổng của bệnh viện đặt `User.full_name` bằng
@@ -29,7 +44,7 @@ const nguoiYeuCau = computed(() => {
 </script>
 
 <template>
-  <details class="card mb10" :open="moSan" style="margin-bottom: 14px">
+  <details class="card mb10" :open="dangMo" @toggle="nhanToggle" style="margin-bottom: 14px">
     <summary style="cursor: pointer; font-weight: 600">
       Yêu cầu &amp; duyệt
       <span class="tag" style="font-weight: 400">
