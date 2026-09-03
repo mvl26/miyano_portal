@@ -77,6 +77,27 @@ const nguoiYeuCau = computed(() => {
         <span v-if="phieu.ly_do_yeu_cau"> {{ phieu.ly_do_yeu_cau }}</span>
         <span v-else class="tag"> Chưa có</span>
       </p>
+
+      <!-- Task 7a (03/09/2026) — vế DUYỆT. `de_xuat_chi_tiet` trả nguyên
+           `doc.as_dict()` nên ba field này đã có từ trước; màn chi tiết cũ
+           (DeXuatDetail.vue) chưa từng hiện chúng. Bọc theo `phieu.nguoi_
+           duyet`: phiếu chưa ai duyệt thì không có gì để nói ở vế này. -->
+      <template v-if="phieu.nguoi_duyet">
+        <p class="tag" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; margin: 10px 0 6px">
+          Truy vết duyệt
+        </p>
+        <p style="font-size: 13px; margin-bottom: 2px">
+          <b>Người duyệt:</b> {{ phieu.nguoi_duyet }}
+        </p>
+        <p style="font-size: 13px; margin-bottom: 2px">
+          <b>Thời điểm duyệt:</b> {{ phieu.thoi_diem_duyet ? fmtDateTime(phieu.thoi_diem_duyet) : 'Chưa có' }}
+        </p>
+        <p style="font-size: 13px">
+          <b>Tư cách duyệt:</b>
+          <span v-if="phieu.duyet_voi_tu_cach"> {{ phieu.duyet_voi_tu_cach }}</span>
+          <span v-else class="tag"> Chưa có</span>
+        </p>
+      </template>
     </div>
   </details>
 </template>

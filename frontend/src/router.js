@@ -3,7 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Dashboard from './views/Dashboard.vue'
 import YeuCauList from './views/YeuCauList.vue'
 import OrderDetail from './views/OrderDetail.vue'
-import DeXuatDetail from './views/DeXuatDetail.vue'
+import ChiTietYeuCau from './views/ChiTietYeuCau.vue'
 import LapPhieu from './views/LapPhieu.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
@@ -43,8 +43,13 @@ const routes = [
   // duyệt, bắt nhân viên phải biết trước giai đoạn nội bộ mới tìm lại
   // được yêu cầu của chính mình.
   { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Danh sách đơn hàng' } },
+  // Task 7a (03/09/2026) — CHỈ đường phiếu chuyển sang màn gộp ở bước này.
+  // Đường đơn GIỮ NGUYÊN `OrderDetail.vue` cho tới Task 7b: hai đường, hai
+  // màn, không đường nào gãy trong lúc màn gộp còn đang được soi mắt. Một
+  // phiếu đã duyệt tự nạp luôn nửa đơn của nó (xem `ChiTietYeuCau.vue::
+  // load()`), nên bước này đã chạy thử phần lớn mã của cả hai nửa.
   { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn hàng' } },
-  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đơn hàng' } },
+  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
   // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
   // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404
   // cho một đường đang chạy là hồi quy, không phải dọn dẹp. Hai đường có
