@@ -194,3 +194,40 @@ class TestChiTietGopBackend(FrappeTestCase):
 		self.assertIsNone(dong["don_gia_tren_don"])
 		self.assertIsNone(dong["thanh_tien_tren_don"])
 		self.assertIsNone(dong["da_giao_tren_don"])
+
+	# --- Review Task 7a (Critical 1) — `giai_doan` phải là ĐÚNG kết quả của
+	# `_sql_giai_doan()`, không phải một bản suy lại ở client. Hai bài dưới
+	# đây khớp trực tiếp hai chỗ lệch reviewer đã đối chiếu tay và bắt được
+	# trong `ChiTietYeuCau.vue` bản đầu — cả hai đều phải ĐỎ nếu backend
+	# thôi không trả `giai_doan`, hoặc trả sai theo đúng lỗi cũ.
+
+	def test_order_track_tra_giai_doan_tu_choi_khi_miyano_tu_choi(self):
+		"""Bài canh đúng ca đang hỏng: `status_vi` của một đơn Miyano từ chối
+		là "Miyano đã từ chối" (`_so_status_vi_full`), một chuỗi KHÁC hằng
+		trạng thái PHIẾU 'Từ chối' — bản suy client cũ so `d.status_vi ===
+		'Từ chối'`, không bao giờ khớp, và đơn rơi hết nhánh ra 'da_duyet'.
+		`portal_order_track` phải tự trả đúng khoá `giai_doan`, không để
+		client đoán lại phép so đó."""
+		phieu = self._phieu_da_duyet()
+		frappe.db.set_value(
+			"Sales Order", phieu.sales_order, "workflow_state", "Từ chối",
+			update_modified=False,
+		)
+		frappe.set_user(self.quan_ly)
+		kq = portal.portal_order_track(order=phieu.sales_order)
+		self.assertEqual(kq["giai_doan"], "tu_choi")
+
+	def test_chi_tiet_giai_doan_phieu_thang_truoc_du_da_co_don(self):
+		"""Thứ tự nhánh của `_sql_giai_doan()` là CÓ CHỦ Ý: trạng thái PHIẾU
+		thắng trước trạng thái ĐƠN. Một phiếu đang 'Chờ duyệt' dù `sales_
+		order` đã có giá trị (ca xin sửa/khớp lại) thì thứ nó đang CHỜ vẫn là
+		quản lý, không phải Miyano — phải ra 'cho_duyet', không phải
+		'da_duyet' hay giai đoạn nào suy từ đơn."""
+		phieu = self._phieu_da_duyet()
+		frappe.db.set_value(
+			"Portal De Xuat Mua", phieu.name, "trang_thai", "Chờ duyệt",
+			update_modified=False,
+		)
+		frappe.set_user(self.quan_ly)
+		kq = de_xuat.de_xuat_chi_tiet(ten=phieu.name)
+		self.assertEqual(kq["giai_doan"], "cho_duyet")

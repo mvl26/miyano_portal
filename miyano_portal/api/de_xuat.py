@@ -277,6 +277,27 @@ def de_xuat_chi_tiet(ten) -> dict:
 		row["don_gia_tren_don"] = float(tren_don.rate or 0) if tren_don else None
 		row["thanh_tien_tren_don"] = float(tren_don.amount or 0) if tren_don else None
 		row["da_giao_tren_don"] = float(tren_don.delivered_qty or 0) if tren_don else None
+
+	# Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()` của danh
+	# sách (`api/portal.py`), KHÔNG một bản suy lại ở client. Bản suy ở
+	# `ChiTietYeuCau.vue` (trước bản vá này) thiếu ba nhánh — đơn Miyano đã
+	# từ chối, đơn đóng sớm (`status = 'Closed'`), báo giá hết hạn — cả ba
+	# đọc ra "Đã duyệt" sai sự thật, lệch với chính danh sách đứng cạnh nó.
+	# Nhập hàm PRIVATE (`_sql_giai_doan`, có gạch dưới) từ `api/portal.py`
+	# CÓ CHỦ Ý, không đổi tên công khai: hàm chỉ có ĐÚNG một khách ngoài
+	# module là đây, và `api/portal.py` đã có tiền lệ nhập chéo tương tự
+	# (`de_xuat_xin_sua` nhập cả module `portal` để gọi
+	# `portal_order_sua_so_luong`) — đổi tên công khai cho một khách duy
+	# nhất chỉ thêm diện tích đổi mà không thêm rào chắn nào.
+	from miyano_portal.api.portal import _sql_giai_doan
+
+	kq["giai_doan"] = frappe.db.sql(
+		f"""select {_sql_giai_doan("p.trang_thai", "so")}
+			from `tabPortal De Xuat Mua` p
+			left join `tabSales Order` so on so.name = p.sales_order
+			where p.name = %s""",
+		doc.name,
+	)[0][0]
 	return kq
 
 

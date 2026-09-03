@@ -96,27 +96,20 @@ async function napPhieu(ten) {
   }
 }
 
-// Giai đoạn — MỘT badge, đúng bộ khoá của `_sql_giai_doan()` (api/portal.py)
-// mà danh sách đang dùng. Suy ở client theo ĐÚNG thứ tự nhánh của server:
-// trạng thái PHIẾU thắng trước (một phiếu "Chờ duyệt sửa" đã có đơn đứng
-// sau, nhưng thứ nó đang CHỜ là quản lý, không phải Miyano).
-const giaiDoan = computed(() => {
-  const tt = phieu.value?.trang_thai
-  if (tt === 'Nháp') return 'nhap'
-  if (tt === 'Chờ duyệt' || tt === 'Chờ duyệt sửa') return 'cho_duyet'
-  if (tt === 'Từ chối') return 'tu_choi'
-  if (tt === 'Đã huỷ') return 'da_huy'
-  const d = don.value
-  if (!d) return 'da_duyet'
-  if (d.docstatus === 2 || d.status_vi === 'Đã huỷ') return 'da_huy'
-  if (d.status_vi === 'Từ chối') return 'tu_choi'
-  // `>= 100`, KHÔNG phải `> 0` — Ruling P42. `per_delivered` do Task 1
-  // thêm vào payload chính vì phép so này (cờ milestone `delivering` là
-  // `> 0`, dùng nó sẽ thu gọn khối truy vết ngay khi vừa giao đợt đầu).
-  if (Number(d.per_delivered || 0) >= 100) return 'da_giao'
-  if (d.chap_nhan?.can_dong_y) return 'cho_khach_dong_y'
-  return 'da_duyet'
-})
+// Review Task 7a (Critical 1) — giai đoạn ĐỌC THẲNG từ server, KHÔNG suy
+// lại ở client. Bản suy trước đây (đối chiếu tay với `_sql_giai_doan()`,
+// api/portal.py) là một TẬP CON THU HẸP của luật thật — thiếu ba nhánh:
+//   * `d.status_vi === 'Từ chối'` không bao giờ khớp: `_so_status_vi_full()`
+//     trả "Miyano đã từ chối", một chuỗi khác hẳn hằng trạng thái PHIẾU
+//     'Từ chối' — đơn Miyano đã từ chối rơi hết nhánh, ra badge "Đã duyệt";
+//   * thiếu `so.status == 'Closed'` (đơn đóng sớm giữa chừng);
+//   * thiếu `workflow_state == 'Báo giá hết hạn'` (`chap_nhan` chỉ được set
+//     khi đang "Chờ khách đồng ý", rỗng khi đã hết hạn).
+// Ba lỗi đó đúng loại "bản sao thứ hai trôi khỏi bản gốc" mà kế hoạch gộp
+// đã cảnh báo trước — sửa bằng cách xoá bản sao, không vá từng nhánh.
+// `de_xuat_chi_tiet`/`portal_order_track` nay trả sẵn `giai_doan`, tính
+// bằng CHÍNH `_sql_giai_doan()` mà danh sách dùng.
+const giaiDoan = computed(() => phieu.value?.giai_doan || don.value?.giai_doan || 'da_duyet')
 
 const ma = computed(() => phieu.value?.ma_de_xuat || don.value?.order || phieu.value?.name || '')
 
@@ -517,17 +510,28 @@ async function datLai() {
   }
 }
 
-// Việc 1/brief 2026-08-15 — sửa số lượng trước khi gửi lại báo giá.
-// `KhoiBaoGia.vue` tự validate + tính chênh lệch rồi phát `sua-so-luong`
-// mang sẵn payload — ở màn gộp không còn modal xác nhận trung gian
-// (`guiLaiOpen` của OrderDetail.vue cũ): khối sửa số lượng đã bày từng dòng
-// ra ngay trong banner trước khi khách bấm nút của chính nó, nên bước xác
-// nhận thứ hai chỉ lặp lại cùng một câu hỏi.
+// Việc 1/brief 2026-08-15 + controller ruling 2026-08-16 — sửa số lượng
+// trước khi gửi lại báo giá. `KhoiBaoGia.vue` tự validate + tính chênh lệch
+// rồi phát `sua-so-luong` mang sẵn payload; CHA vẫn phải giữ modal xác nhận
+// (`guiLaiOpen`, chép nguyên từ `OrderDetail.vue`) — review Task 7a Critical
+// 2 đã sửa lại đúng chỗ bản đầu bỏ mất: hành động này đặt `rate` các dòng
+// đã đổi về 0 và đẩy đơn về "Chờ xác nhận", khách MẤT báo giá đang có nếu
+// bấm nhầm. `KhoiBaoGia` bày sẵn các dòng để SỬA số, không phải để XÁC
+// NHẬN gửi đi — hai việc khác nhau, và ruling gốc đòi modal riêng cho việc
+// sau. Modal chỉ đóng ở nhánh THÀNH CÔNG (đúng hợp đồng `KhoiBaoGia.vue` đã
+// ghi: "modal xác nhận... KHÔNG đóng khi API lỗi, để khách bấm lại").
 const dangSuaSoLuong = ref(false)
-async function guiLaiBaoGia(dong) {
+const guiLaiOpen = ref(false)
+const dongGuiLai = ref({ items: [], dat_ngoai: [] })
+function nhanSuaSoLuong(dong) {
+  dongGuiLai.value = dong
+  guiLaiOpen.value = true
+}
+async function guiLaiBaoGia() {
   if (dangSuaSoLuong.value) return
-  const { items: doiItems, dat_ngoai: doiDatNgoai } = dong
+  const { items: doiItems, dat_ngoai: doiDatNgoai } = dongGuiLai.value
   if (!doiItems.length && !doiDatNgoai.length) {
+    guiLaiOpen.value = false
     showToast('Chưa sửa số lượng dòng nào.', 'error')
     return
   }
@@ -537,6 +541,7 @@ async function guiLaiBaoGia(dong) {
       order: don.value.order,
       dong: JSON.stringify({ items: doiItems, dat_ngoai: doiDatNgoai }),
     })
+    guiLaiOpen.value = false
     showToast('Đã gửi số lượng mới — đơn chuyển sang chờ Miyano báo giá lại.')
     await load()
   } catch (e) {
@@ -588,10 +593,18 @@ onMounted(async () => {
         </p>
       </div>
 
+      <!-- Review Task 7a (Important 3) — banner báo giá GATE RIÊNG theo
+           `don?.chap_nhan?.can_dong_y`, KHÔNG lồng trong khối "Việc đang
+           chờ bạn". Khối đó (và cả `hanhDong`) rỗng khi `store.me` chưa
+           nạp được (`hanhDongChoPhep`/`hanhDongDonChoPhep` tự chặn `!me`) —
+           lồng chung nghĩa là một lỗi `portal_me` cuốn theo cả hạn báo giá,
+           link PDF và khối sửa số lượng, không chỉ mất thanh nút như
+           `onMounted` tự nhận. -->
+      <KhoiBaoGia v-if="don?.chap_nhan?.can_dong_y" :don="don" :dang-gui="dangSuaSoLuong" @sua-so-luong="nhanSuaSoLuong" />
+
       <!-- 2. Việc đang chờ bạn — banner + TOÀN BỘ nút, một chỗ duy nhất. -->
       <div v-if="hanhDong.length || coTheSuaNhap" class="card mb10" style="margin-bottom: 14px">
         <div class="h3">Việc đang chờ bạn</div>
-        <KhoiBaoGia v-if="don?.chap_nhan?.can_dong_y" :don="don" :dang-gui="dangSuaSoLuong" @sua-so-luong="guiLaiBaoGia" />
         <p v-if="quanLyDangDuyet" class="tag" style="margin-bottom: 10px">
           Bạn có thể <b>sửa số lượng duyệt</b> ở bảng bên dưới trước khi bấm Duyệt. Để trống một ô
           nghĩa là <b>giữ nguyên</b> dòng đó; gõ <b>0</b> nghĩa là <b>bỏ mặt hàng</b> khỏi đơn.
@@ -671,6 +684,22 @@ onMounted(async () => {
       submit-label="Gửi"
       @close="argModalAction = null"
       @submit="onSubmitArgModal"
+    />
+
+    <!-- controller ruling 2026-08-16 (chép nguyên từ OrderDetail.vue, xem
+         Critical 2 review Task 7a) — "Gửi lại để báo giá" đặt rate về 0 và
+         đẩy đơn về "Chờ xác nhận"; cần một bước xác nhận vì khách MẤT báo
+         giá đang có nếu bấm nhầm. `min-len="0"` — không bắt nhập lý do, chỉ
+         cần xác nhận trong đúng khuôn modal của app. -->
+    <ReasonModal
+      :open="guiLaiOpen"
+      title="Gửi lại để báo giá"
+      desc="Số lượng dòng đã đổi sẽ về giá 0 và đơn chuyển về 'Chờ xác nhận' để Miyano báo giá lại — báo giá hiện tại của các dòng đó KHÔNG còn hiệu lực. Bấm Xác nhận để tiếp tục."
+      :min-len="0"
+      :submitting="dangSuaSoLuong"
+      submit-label="Xác nhận gửi lại"
+      @close="guiLaiOpen = false"
+      @submit="guiLaiBaoGia"
     />
 
     <!-- Ruling coordinator (2) — "Xin sửa số lượng": khoa nhập số mong muốn

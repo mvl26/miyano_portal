@@ -1558,9 +1558,23 @@ def portal_order_track(order) -> dict:
     # CHUNG với `portal_order_history`, không viết tay điều kiện này hai lần.
     status_vi = _so_status_vi_full(so.status, so.per_delivered, so.get("workflow_state"))
 
+    # Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()`, KHÔNG
+    # một bản suy lại ở client (`ChiTietYeuCau.vue` từng có một bản như vậy,
+    # thiếu ba nhánh: 'Miyano đã từ chối', 'Closed', 'Báo giá hết hạn' — ba
+    # nhãn SAI trạng thái trên cùng một tài liệu đứng cạnh danh sách đọc
+    # đúng). MỘT định nghĩa, dùng lại chính biểu thức lọc/đếm/hiển thị của
+    # danh sách — `tt` truyền `null` vì hàm này KHÔNG có phiếu đứng trước để
+    # hỏi (đường vào là chính Sales Order, xem `_sql_giai_doan()` docstring
+    # về nhánh "đơn-không-qua-đề-xuất").
+    giai_doan = frappe.db.sql(
+        f"select {_sql_giai_doan('null', 'so')} from `tabSales Order` so where so.name = %s",
+        so.name,
+    )[0][0]
+
     return {
         "order": so.name,
         "status_vi": status_vi,
+        "giai_doan": giai_doan,
         # Ruling P49 — `docstatus` để màn chi tiết TẮT nhãn "Có hàng chờ báo
         # giá" khi đơn đã được xác nhận. Trên một đơn đã giao xong, nhãn đó
         # không phải một phân loại sai — nó là một lời nói SAI VỀ HIỆN TẠI:
