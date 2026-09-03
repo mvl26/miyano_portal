@@ -1075,6 +1075,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 Task lớn nhất. Sau task này hai view cũ biến mất.
 
+> **Ruling preflight #16 — TÁCH LÀM HAI, quyết trước khi thi công.**
+> Mục "Rủi ro đã biết" ở cuối kế hoạch này tự cho phép tách nếu thấy quá lớn; Task 4 (nhỏ hơn hẳn) đã ngốn gấp ba lần các task khác, nên tách trước còn hơn tách giữa chừng khi đã dở dang.
+>
+> - **Task 7a** — dựng đủ `ChiTietYeuCau.vue` (nạp hai nửa, đầu trang, thanh hành động gộp, lắp sáu component) và trỏ **DUY NHẤT** đường `/yeu-cau/phieu/:ten` vào nó. Đường `/yeu-cau/don/:name` **giữ nguyên** ở `OrderDetail.vue`. **KHÔNG xoá file nào.** Soi mắt ba ca phiếu (Nháp, Chờ duyệt–quản lý, Chờ duyệt–chủ phiếu). Vì một phiếu đã duyệt tự nạp luôn nửa đơn của nó, bước này đã chạy thử phần lớn mã của cả hai nửa.
+> - **Task 7b** — trỏ nốt `/yeu-cau/don/:name` sang màn gộp, **xoá** `OrderDetail.vue` + `DeXuatDetail.vue`, viết lớp lưới regex, soi mắt ba ca đơn còn lại (chờ đồng ý, đã giao, đơn cũ không phiếu).
+>
+> Ở mỗi bước đều có phần mềm chạy được: sau 7a, màn phiếu dùng bản gộp còn màn đơn vẫn là bản cũ — hai đường, hai màn, không đường nào gãy.
+
 **Files:**
 - Create: `frontend/src/views/ChiTietYeuCau.vue`
 - Modify: `frontend/src/router.js`
@@ -1125,6 +1133,26 @@ class TestManGopTrenRouter(FrappeTestCase):
 				(self.FRONTEND_SRC / "views" / ten).exists(),
 				f"{ten} phải nghỉ (gộp vào ChiTietYeuCau.vue)",
 			)
+
+	def test_man_gop_GIEO_ghi_chu_quan_ly(self):
+		"""Ruling #15 — biến Ruling #14 từ văn xuôi thành LƯỚI.
+
+		`BangMatHang.vue` chỉ GHI vào `ghiChuSua`, không tự gieo giá trị
+		đang có. Quên gieo ở màn cha thì mỗi lần quản lý bấm Duyệt sẽ gửi
+		chuỗi rỗng ĐÈ LÊN ghi chú họ viết vòng trước — mất dữ liệu trong im
+		lặng, build vẫn xanh, không lỗi nào nổ ra cho tới khi có người phát
+		hiện ghi chú biến mất.
+
+		Một quy tắc mà chốt duy nhất là một đoạn prose trong tài liệu kế
+		hoạch thì không phải một chốt. Repo này đã có sẵn khuôn cho đúng ca
+		đó: quét file .vue bằng regex (xem `test_de_xuat_action_registry.py`),
+		vì frontend không có hạ tầng test nào."""
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertIn(
+			"ghi_chu_quan_ly", man,
+			"ChiTietYeuCau.vue không gieo `ghiChuSua` từ `ghi_chu_quan_ly` — "
+			"bấm Duyệt sẽ xoá trắng ghi chú quản lý cũ. Xem Ruling #14.",
+		)
 
 	def test_man_gop_noi_CA_HAI_registry_hanh_dong(self):
 		"""Thanh hành động là điểm được nhiều nhất của việc gộp: nhân viên
