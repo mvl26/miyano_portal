@@ -185,8 +185,45 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = (
 # Request, KHÔNG phải khuôn `kho` của Customer Department — Portal Member
 # không có field `kho`) và một fixture thật trong TestKhoIsolationDeep —
 # đừng để entry này đứng yên khi tiền đề đổi.
+#
+# `Portal Nhat Ky Yeu Cau` (Task 1, nền nhật ký thao tác, 2026-09-03) — sổ
+# nhật ký chỉ-thêm ghi lại "ai làm gì lúc nào" trên phiếu đề xuất/đơn hàng.
+# NÓ MANG `customer`/`khoa_phong` TRỰC TIẾP (cố ý phi chuẩn hoá, xem spec
+# §5) — đọc kỹ cảnh báo E6/`Portal Member` ngay trên trước khi đồng ý với
+# dòng này: mang dữ liệu khách không tự động là căn cứ xếp vào KHONG_PHAI_
+# DOCTYPE_KHO. Trường hợp này khớp ĐÚNG tiền lệ `Portal Member`, không phải
+# một ngoại lệ tiện tay.
+#
+# Áp đúng hai tiêu chí `Portal Member` đã dùng:
+#   - Không field `kho` — không thuộc họ kho, không lọc theo `kho` được.
+#   - Zero DocPerm cho role `Customer`, xác nhận cả trong JSON lẫn DB thật
+#     (`frappe.get_all("DocPerm", filters={"parent": "Portal Nhat Ky Yeu
+#     Cau"})` không có dòng nào cho `Customer`), và KHÔNG hook nào trong
+#     permission_query_conditions/has_permission (hooks.py) nhắc tên nó —
+#     Task 1 CHƯA nối dây gì, vì `nhat_ky.ghi()` chưa được gọi từ đâu trong
+#     mã sản phẩm (việc đó thuộc các task sau) và chưa có endpoint đọc nào
+#     tồn tại. Bảng chỉ được GHI từ phía SERVER qua `nhat_ky.ghi()`, không
+#     phải một đường mà Website User tự gọi trực tiếp.
+#
+# ĐIỀU KIỆN PHÂN LOẠI LẠI (đúng khuôn `Portal Member` ngay trên): ngày nào
+# `Portal Nhat Ky Yeu Cau` (a) được cấp DocPerm cho role `Customer`, HOẶC
+# (b) có một đường đọc mà một Website User tự gọi TRỰC TIẾP (frappe.client.
+# get_list/REST/printview) thay vì luôn đi qua hàm nội bộ phía server, ngày
+# đó nó PHẢI chuyển sang KHO_DOCTYPES_KHAC kèm wiring permission_query_
+# conditions/has_permission đầy đủ (khuôn `customer` trực tiếp của Portal
+# Item Request, KHÔNG phải khuôn `kho` của Customer Department).
+#
+# Endpoint đọc nhật ký ở spec §10 (một task SAU Task 1) KHÔNG kích hoạt
+# điều kiện (b): nó là một hàm whitelist chạy phía SERVER, tự hỏi đúng chốt
+# phạm vi đã có (`_phieu_cua_toi()`/`dam_bao_xem_duoc()` — spec §10), rồi
+# mới lấy dòng nhật ký theo chứng từ ĐÃ QUA CỬA — đúng khuôn `Portal
+# Member` được đọc qua `api/portal.py` hôm nay, không phải một đường mà
+# Website User tự gọi get_list/REST trực tiếp trên chính doctype này. (b)
+# chỉ xảy ra nếu một ngày nào đó có đường đọc KHÁC, đi vòng qua whitelist
+# đó — không phải chính endpoint whitelist kể trên.
 KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = (
     "Miyano Portal Settings", "Sales Order Dat Ngoai Item", "Portal Member",
+    "Portal Nhat Ky Yeu Cau",
 )
 
 # --------------------------------------------------------------------- AN-1
