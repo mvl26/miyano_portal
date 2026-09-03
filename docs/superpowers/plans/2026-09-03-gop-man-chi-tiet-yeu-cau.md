@@ -1294,6 +1294,15 @@ onMounted(async () => {
 </script>
 ```
 
+> **Ruling preflight #9 (phát sinh từ review Task 3) — `args` của `don-actions.js` KHÔNG dùng lại được khuôn cũ.**
+> `DeXuatDetail.vue` hôm nay dựng hộp thoại đối số bằng `argModalAction.value.args[0].key` — đúng MỘT textarea, đúng MỘT phần tử. Khuôn đó **không** dựng được lời gọi cho hai hình dạng mới của `don-actions.js`:
+> - mục `'✔ Đồng ý đặt hàng'` có `args: [{ key: 'action', const: 'dong_y' }]` — một hằng số **không** phải ô nhập, không có `label`, không được hiện hộp thoại nào;
+> - mục `'✕ Không đồng ý…'` có **hai** phần tử args: một hằng số cộng một textarea bắt buộc.
+>
+> Nên trong Task 7, `onClickAction` phải: gom mọi phần tử có `const` vào đối số gửi thẳng; nếu **không còn** phần tử nào cần nhập thì gọi luôn, không mở hộp thoại; nếu **còn đúng một** phần tử cần nhập thì mở `ReasonModal` cho phần tử đó (dùng `minLen` của nó nếu có). Đừng đọc cứng `args[0]`.
+>
+> Cùng chỗ đó: hai mục dùng chung `method: 'portal_order_accept'`, nên `v-for` trên thanh hành động **không** được `:key="a.method"` (trùng khoá). Dùng `:key="a.method + '|' + a.label"`.
+
 **Ghi chú thi công (không phải placeholder — đây là hướng dẫn CHÉP):** phần còn lại của `<script setup>` — `slDuyetSua`, `ghiChuSua`, `dungLaiDieuChinh`, `soDuyetMoi`, `dieuChinhItems`, `nhanDuyet`, `chayHanhDong`, `argModalAction`, `xinSuaOpen` + toàn bộ luồng "Xin sửa số lượng", `datLai` — **chép nguyên** từ `DeXuatDetail.vue` và `OrderDetail.vue`, đổi `doc.` → `phieu.`, `data.` → `don.`. Trong `chayHanhDong`, chọn module theo `action.nhom`:
 
 ```js
