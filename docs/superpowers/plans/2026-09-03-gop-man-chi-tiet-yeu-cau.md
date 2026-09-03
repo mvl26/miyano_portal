@@ -1356,6 +1356,18 @@ Theo đúng thứ tự khối của mục "Bố cục" ở đầu tài liệu:
       <KhoiTienTrinh v-if="don" :milestones="don.milestones" />
 
       <KhoiTruyVet v-if="phieu" :phieu="phieu" :mo-san="giaiDoan !== 'da_giao'" />
+      <!-- Ruling preflight #12 (phát sinh từ Task 5) — khối truy vết hôm nay
+           CHỈ có ba nhãn: Người yêu cầu / Thời điểm gửi / Lý do yêu cầu.
+           Ba nhãn của vế DUYỆT (Người duyệt · Thời điểm duyệt · Tư cách
+           duyệt) chưa từng được hiện trên cổng, dù backend đã ghi đủ ba
+           field (`nguoi_duyet`, `thoi_diem_duyet`, `duyet_voi_tu_cach` —
+           `de_xuat_chi_tiet` trả nguyên `doc.as_dict()`).
+           Task 7 PHẢI thêm chúng vào `KhoiTruyVet`, hiện `v-if` theo
+           `phieu.nguoi_duyet` (phiếu chưa duyệt thì không có gì để nói).
+           Vì sao đáng làm ở đây: "ai duyệt, lúc nào, với tư cách gì" là câu
+           hỏi trung tâm của một luồng duyệt, và `duyet_voi_tu_cach` phân
+           biệt quản lý chính với người được uỷ quyền — thứ chỉ có giá trị
+           khi cần đối chất. Khối này là chỗ duy nhất hợp lý cho nó. -->
 
       <div class="grid2">
         <BangMatHang
