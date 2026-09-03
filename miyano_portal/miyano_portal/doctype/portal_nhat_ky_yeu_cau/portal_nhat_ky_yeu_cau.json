@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "NKY-.#####",
+ "creation": "2026-09-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer", "khoa_phong", "de_xuat", "sales_order", "thoi_diem",
+  "su_kien", "nguoi_thao_tac", "vai", "ghi_chu"
+ ],
+ "fields": [
+  {"fieldname": "customer", "fieldtype": "Link", "label": "Khách hàng", "options": "Customer", "reqd": 1, "search_index": 1, "in_list_view": 1},
+  {"fieldname": "khoa_phong", "fieldtype": "Link", "label": "Khoa phòng", "options": "Customer Department", "search_index": 1, "description": "Rỗng nghĩa \"toàn viện\""},
+  {"fieldname": "de_xuat", "fieldtype": "Link", "label": "Phiếu đề xuất", "options": "Portal De Xuat Mua", "search_index": 1},
+  {"fieldname": "sales_order", "fieldtype": "Link", "label": "Đơn hàng", "options": "Sales Order", "search_index": 1},
+  {"fieldname": "thoi_diem", "fieldtype": "Datetime", "label": "Thời điểm", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "su_kien", "fieldtype": "Data", "label": "Sự kiện", "reqd": 1, "in_list_view": 1, "description": "Khoá nội bộ — nhãn tiếng Việt sống ở frontend"},
+  {"fieldname": "nguoi_thao_tac", "fieldtype": "Data", "label": "Người thao tác", "options": "Email", "description": "Rỗng cho sự kiện hệ thống"},
+  {"fieldname": "vai", "fieldtype": "Select", "label": "Vai", "options": "khoa\nquan_ly\nmiyano\nhe_thong", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Portal Nhat Ky Yeu Cau",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "report": 1},
+  {"role": "Sales Manager", "read": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
