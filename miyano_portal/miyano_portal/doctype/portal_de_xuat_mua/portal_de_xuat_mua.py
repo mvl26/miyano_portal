@@ -119,7 +119,15 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 
 class PortalDeXuatMua(Document):
 	CHUYEN_HOP_LE = {
-		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET},
+		# `Nháp → Đã huỷ` (review toàn nhánh 03/09/2026) — mở lại đường GIỮ
+		# DẤU VẾT cho phiếu đã thu hồi. Trước cạnh này, một phiếu thu hồi về
+		# Nháp không còn cách nào kết thúc tử tế: `on_trash` (đúng §5.4b)
+		# cấm xoá vì nó ĐÃ TỪNG gửi, mà `huy()` cũng cấm vì nó ĐANG ở Nháp
+		# — đường xoá sạch thì mở, đường §5.4b bắt phải dùng thì bất khả
+		# thi. Cạnh này cũng cho phép huỷ một phiếu CHƯA TỪNG gửi (không có
+		# mã): nới rộng có chủ ý, và vô hại — nhân viên vẫn xoá được phiếu
+		# đó nếu muốn dọn hẳn, huỷ chỉ là lựa chọn thứ hai.
+		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET, TRANG_THAI_DA_HUY},
 		# `Chờ duyệt → Nháp` (03/09/2026) — nhân viên THU HỒI phiếu mình vừa
 		# gửi để sửa lại. Cạnh này là cách DUY NHẤT chủ đầu tư nhận được
 		# "NV sửa được đơn ở trạng thái Chờ duyệt" mà không phải nới
@@ -806,7 +814,25 @@ class PortalDeXuatMua(Document):
 		self.save(ignore_permissions=True)
 
 	def on_trash(self):
-		if self.trang_thai != TRANG_THAI_NHAP:
+		"""§5.4b — "phiếu đã gửi duyệt thì không xoá được, dùng Huỷ phiếu để
+		giữ lại dấu vết".
+
+		Review TOÀN NHÁNH (03/09/2026, Critical) — hỏi `ma_de_xuat`, KHÔNG
+		chỉ hỏi `trang_thai`. Bản trước hỏi `trang_thai != "Nháp"`, đúng chỉ
+		chừng nào bất biến "Nháp ⇒ chưa từng gửi" còn đứng; `thu_hoi()`
+		(cùng phiên này) đưa một phiếu ĐÃ gửi duyệt về lại Nháp nên hai cú
+		bấm `Thu hồi để sửa → Xoá` đi vòng qua chốt. Cái mất không phải bản
+		ghi: `frappe.delete_doc` cuốn theo CẢ `Version` (toàn bộ `track_
+		changes` — chính thứ `thu_hoi()` viện dẫn khi nói "giá trị cũ không
+		mất") lẫn `Notification Log` trỏ tới chứng từ, còn số `sinh_ma()` đã
+		tiêu thì để lại một lỗ vĩnh viễn trong dãy mã của bệnh viện.
+
+		`ma_de_xuat` là dấu "ĐÃ TỪNG GỬI" duy nhất sống sót sau thu hồi —
+		`thu_hoi()` CỐ Ý giữ nó (mã sinh đúng một lần), và không đường nào
+		trong app xoá nó đi. Trạng thái chỉ nói phiếu ĐANG ở đâu; câu hỏi
+		§5.4b thật sự cần là phiếu ĐÃ TỪNG ra khỏi khoa hay chưa.
+		"""
+		if self.trang_thai != TRANG_THAI_NHAP or self.ma_de_xuat:
 			frappe.throw(
 				"Phiếu đã gửi duyệt thì không xoá được. Dùng Huỷ phiếu để giữ "
 				"lại dấu vết.",

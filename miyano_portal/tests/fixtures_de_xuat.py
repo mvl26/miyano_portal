@@ -20,6 +20,20 @@ def dung_fixture(case):
 	"""
 	# FrappeTestCase rollback MỘT LẦN cho cả class → dọn phiếu cũ ở đây để
 	# các test trong cùng class không thấy phiếu của nhau.
+	#
+	# GỠ CHỐT `on_trash` bằng SQL thô TRƯỚC khi xoá. `force=True` chỉ bỏ
+	# kiểm liên kết, KHÔNG bỏ `on_trash`, và từ 03/09/2026 chốt đó hỏi
+	# `ma_de_xuat` chứ không hỏi trạng thái (phiếu thu hồi về Nháp vẫn là
+	# phiếu ĐÃ TỪNG gửi — xem `PortalDeXuatMua.on_trash()`). Gộp vào ĐÂY,
+	# cùng bộ lọc với vòng xoá ngay dưới, thay vì sửa mười tám hàm dọn rải
+	# rác trong `tests/`: chúng đều chạy trước đúng lời gọi này, và mười
+	# tám bản sao của cùng một mẹo gỡ chốt là mười tám chỗ để trôi lệch khi
+	# chốt đổi lần sau.
+	frappe.db.sql(
+		"""UPDATE `tabPortal De Xuat Mua`
+		   SET trang_thai = 'Nháp', ma_de_xuat = NULL
+		   WHERE customer LIKE '\\_TEST DX%'"""
+	)
 	for r in frappe.get_all(
 		"Portal De Xuat Mua", filters={"customer": ["like", "_TEST DX%"]}
 	):

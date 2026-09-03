@@ -301,3 +301,132 @@ class TestNutThuHoiTrenRegistry(FrappeTestCase):
 		nghiệp cùng khoa đi qua được `_phieu_cua_toi()` nhưng bị chốt riêng
 		đó chặn — nút hiện cho họ là một nút chỉ biết báo lỗi."""
 		self.assertIn("d.owner === me.user", self._dong_thu_hoi())
+
+
+class TestThuHoiRoiXoaHoacHuy(FrappeTestCase):
+	"""Review TOÀN NHÁNH 03/09/2026 (Critical) — hai tính năng đúng riêng lẻ,
+	ghép lại thì mất dữ liệu.
+
+	`on_trash` canh §5.4b ("phiếu đã gửi duyệt thì không xoá được, dùng Huỷ
+	phiếu để giữ dấu vết") bằng cách hỏi `trang_thai != "Nháp"`. Câu hỏi đó
+	chỉ đúng khi "Nháp ⇒ chưa từng gửi" — và `thu_hoi()` (thêm trong chính
+	phiên này) PHÁ đúng bất biến ấy: nó đưa một phiếu ĐÃ gửi duyệt về lại
+	Nháp. Hai cú bấm `Thu hồi để sửa → Xoá` đi vòng qua chốt và `frappe.
+	delete_doc` cuốn theo CẢ `Version` (toàn bộ `track_changes` — chính thứ
+	docstring `thu_hoi()` viện dẫn khi nói "giá trị cũ không mất") lẫn
+	`Notification Log` trỏ tới chứng từ, còn số của `sinh_ma()` thì thủng
+	một lỗ vĩnh viễn trong dãy mã của bệnh viện.
+
+	Không lớp test nào của riêng từng tính năng thấy được điều này: lớp canh
+	xoá (`test_de_xuat_doctype`/`test_de_xuat_endpoint`) chưa biết tới thu
+	hồi, lớp canh thu hồi (bên trên) chưa hỏi tới xoá.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		f = dung_fixture(self)
+		self.kh_a = f.kh_a
+		self.khoa_a = f.khoa_huyethoc
+		self.item = f.item
+		self.chu_phieu = self._thanh_vien(
+			"dxxoa.nv@demo.miyano", "Nhân viên khoa", self.khoa_a
+		)
+		self.quan_ly = self._thanh_vien("dxxoa.ql@demo.miyano", "Quản lý", None)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def _thanh_vien(self, email, vai_tro, khoa_phong):
+		if not frappe.db.exists("User", email):
+			u = frappe.get_doc({
+				"doctype": "User", "email": email,
+				"first_name": email.split("@")[0],
+				"user_type": "Website User", "send_welcome_email": 0,
+			})
+			u.append("roles", {"role": "Customer"})
+			u.insert(ignore_permissions=True)
+		ten_tv = frappe.db.get_value("Portal Member", {"user": email}, "name")
+		gia_tri = {
+			"customer": self.kh_a, "vai_tro": vai_tro,
+			"khoa_phong": khoa_phong, "active": 1,
+		}
+		if ten_tv:
+			frappe.db.set_value("Portal Member", ten_tv, gia_tri)
+		else:
+			frappe.get_doc({
+				"doctype": "Portal Member", "user": email, **gia_tri,
+			}).insert(ignore_permissions=True)
+		return email
+
+	def _nhap(self):
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"ly_do_yeu_cau": "Hết găng tay cỡ M",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 5}],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", self.chu_phieu)
+		doc.reload()
+		return doc
+
+	def _da_thu_hoi(self):
+		doc = self._nhap()
+		doc.gui_duyet()
+		doc.thu_hoi()
+		self.assertEqual(doc.trang_thai, TRANG_THAI_NHAP)
+		self.assertTrue(doc.ma_de_xuat, "thu_hoi() phải GIỮ mã — dấu 'đã từng gửi'")
+		return doc
+
+	def test_thu_hoi_roi_xoa_bi_chan_o_DOCTYPE(self):
+		"""Chốt cuối là `on_trash`, nên bài này phải đi thẳng `delete_doc`
+		— `force=True` CÓ CHỦ Ý: `force` chỉ bỏ kiểm liên kết, không bỏ
+		`on_trash`, và đây đúng là đường mà mọi hàm dọn fixture của app đi."""
+		doc = self._da_thu_hoi()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			frappe.delete_doc("Portal De Xuat Mua", doc.name, force=True)
+		self.assertIn("Huỷ phiếu", str(ctx.exception))
+		self.assertTrue(frappe.db.exists("Portal De Xuat Mua", doc.name))
+
+	def test_thu_hoi_roi_xoa_bi_chan_o_ENDPOINT(self):
+		"""Cửa người dùng thật bấm. Chốt ở `de_xuat_xoa_nhap` chỉ để báo lỗi
+		dễ hiểu — nhưng nó phải hỏi CÙNG câu hỏi với `on_trash`, nếu không
+		hai tầng nói hai luật khác nhau."""
+		doc = self._da_thu_hoi()
+		frappe.set_user(self.chu_phieu)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat.de_xuat_xoa_nhap(doc.name)
+		self.assertIn("Huỷ phiếu", str(ctx.exception))
+		frappe.set_user("Administrator")
+		self.assertTrue(frappe.db.exists("Portal De Xuat Mua", doc.name))
+
+	def test_thu_hoi_roi_HUY_duoc_va_phieu_con_nguyen(self):
+		"""NGHỊCH LÝ KHÉP KÍN của bản trước: `CHUYEN_HOP_LE[Nháp]` chỉ có
+		`{Chờ duyệt}` — không có cạnh sang "Đã huỷ". Đường XOÁ SẠCH thì mở,
+		đường GIỮ DẤU VẾT mà chính §5.4b bắt phải dùng thì bất khả thi. Bài
+		này canh cạnh mới, ĐI QUA ENDPOINT THẬT (`de_xuat_huy` là quản lý
+		-only) chứ không chỉ `doc.huy()`: nếu chỉ cạnh doctype mở mà endpoint
+		không với tới được thì người dùng vẫn đứng trước cùng một ngõ cụt."""
+		doc = self._da_thu_hoi()
+		ma = doc.ma_de_xuat
+		frappe.set_user(self.quan_ly)
+		de_xuat.de_xuat_huy(doc.name)
+		frappe.set_user("Administrator")
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "trang_thai"),
+			"Đã huỷ",
+		)
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "ma_de_xuat"), ma
+		)
+
+	def test_phieu_NHAP_chua_tung_gui_van_xoa_duoc(self):
+		"""VẾ DƯƠNG — thiếu bài này thì bản vá có thể khoá cứng MỌI đường
+		xoá (VD: đổi `on_trash` thành "không bao giờ xoá") mà không ai biết:
+		cả ba bài trên vẫn xanh, và nhân viên gõ nhầm một phiếu nháp thì
+		vĩnh viễn không dọn được nó khỏi danh sách của mình."""
+		doc = self._nhap()
+		self.assertFalse(doc.ma_de_xuat, "Phiếu chưa gửi thì chưa được cấp mã")
+		frappe.set_user(self.chu_phieu)
+		de_xuat.de_xuat_xoa_nhap(doc.name)
+		frappe.set_user("Administrator")
+		self.assertFalse(frappe.db.exists("Portal De Xuat Mua", doc.name))

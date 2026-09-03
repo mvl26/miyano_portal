@@ -295,10 +295,20 @@ class TestDeXuatVongDoi(FrappeTestCase):
 		doc.huy()
 		self.assertEqual(doc.trang_thai, "Đã huỷ")
 
-	def test_khong_huy_duoc_tu_nhap(self):
-		"""Nháp chỉ có một lối ra hợp lệ: gửi duyệt hoặc xoá thật — không
-		có cạnh `huy()` nào xuất phát từ Nháp trong máy trạng thái §5.4."""
+	def test_huy_duoc_tu_nhap(self):
+		"""ĐẢO NGƯỢC khẳng định cũ (`test_khong_huy_duoc_tu_nhap`, bỏ
+		03/09/2026 cùng cạnh `Nháp → Đã huỷ`).
+
+		Điều đổi ý kiến: `thu_hoi()` đưa một phiếu ĐÃ gửi duyệt về lại Nháp,
+		và `on_trash` (đúng §5.4b) cấm xoá phiếu đã từng gửi. Không có cạnh
+		này thì phiếu vừa thu hồi không còn lối ra nào — đường xoá sạch bị
+		cấm, đường giữ dấu vết chưa mở. Xem `CHUYEN_HOP_LE` và
+		`test_de_xuat_thu_hoi.py::TestThuHoiRoiXoaHoacHuy`.
+
+		Phiếu Nháp CHƯA TỪNG gửi (ca của bài này) cũng huỷ được theo — nới
+		rộng có chủ ý, không phải tác dụng phụ bỏ sót: người dùng vẫn xoá
+		hẳn được nó (`test_xoa_phieu_nhap_duoc`), huỷ chỉ là lựa chọn thứ
+		hai và nó KHÔNG mất gì."""
 		doc = self._nhap()
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			doc.huy()
-		self.assertIn("Không chuyển được phiếu", str(ctx.exception))
+		doc.huy()
+		self.assertEqual(doc.trang_thai, "Đã huỷ")

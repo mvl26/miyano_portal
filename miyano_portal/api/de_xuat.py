@@ -110,11 +110,25 @@ def de_xuat_luu_nhap(ten, items=None, dat_ngoai=None, ngay_can=None,
 
 @frappe.whitelist()
 def de_xuat_xoa_nhap(ten) -> dict:
-	"""§5.4b — XOÁ THẬT, chỉ ở trạng thái Nháp. `on_trash` của doctype là
-	chốt cuối; kiểm ở đây chỉ để báo lỗi dễ hiểu hơn. Owner HOẶC quản lý
-	(`_phieu_cua_toi()` mặc định `cho_quan_ly=False` đã cho cả hai đi
-	qua)."""
+	"""§5.4b — XOÁ THẬT, chỉ phiếu CHƯA TỪNG gửi duyệt. `on_trash` của
+	doctype là chốt cuối; kiểm ở đây chỉ để báo lỗi dễ hiểu hơn. Owner HOẶC
+	quản lý (`_phieu_cua_toi()` mặc định `cho_quan_ly=False` đã cho cả hai
+	đi qua).
+
+	Review toàn nhánh (03/09/2026) — hỏi `ma_de_xuat`, KHÔNG hỏi trạng
+	thái: `thu_hoi()` đưa phiếu ĐÃ gửi duyệt về lại Nháp, nên "đang ở Nháp"
+	thôi không còn nghĩa là "chưa ai thấy phiếu này". Lý do đầy đủ (và cái
+	mất khi xoá nhầm: `Version`, `Notification Log`, một số trong dãy mã)
+	nằm ở `PortalDeXuatMua.on_trash()`. Hai tầng phải hỏi CÙNG một câu —
+	tầng này lệch một chữ là người dùng nhận thông điệp của tầng kia, viết
+	cho một hoàn cảnh khác."""
 	doc = _phieu_cua_toi(ten)
+	if doc.ma_de_xuat:
+		frappe.throw(
+			f'Phiếu {doc.ma_de_xuat} đã từng gửi duyệt nên không xoá được, kể '
+			"cả sau khi thu hồi về Nháp. Dùng Huỷ phiếu để giữ lại dấu vết.",
+			frappe.ValidationError,
+		)
 	frappe.delete_doc(DOCTYPE, doc.name, ignore_permissions=True)
 	return {"ok": True}
 

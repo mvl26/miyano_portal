@@ -64,13 +64,20 @@ class TestKhoaThayDonQuanLyDatHo(_NenCachLy):
 		self.addCleanup(self._don_phieu)
 
 	def _don_phieu(self):
-		"""HẠ VỀ NHÁP RỒI MỚI XOÁ — `PortalDeXuatMua.on_trash()` từ chối xoá
-		mọi phiếu đã qua Gửi duyệt ("dùng Huỷ phiếu để giữ dấu vết"), mà
-		phiếu tự duyệt do `portal_order_place` sinh ra đời đã là "Đã duyệt".
-		Cùng khuôn `test_dat_hang_gop.py::_don_phieu_cu`."""
+		"""HẠ VỀ NHÁP, XOÁ MÃ, RỒI MỚI XOÁ — `PortalDeXuatMua.on_trash()` từ
+		chối xoá mọi phiếu đã qua Gửi duyệt ("dùng Huỷ phiếu để giữ dấu
+		vết"), mà phiếu tự duyệt do `portal_order_place` sinh ra đời đã là
+		"Đã duyệt". Cùng khuôn `test_dat_hang_gop.py::_don_phieu_cu`.
+
+		`ma_de_xuat = NULL` (03/09/2026) — từ review toàn nhánh, chốt đó hỏi
+		MÃ chứ không hỏi trạng thái (phiếu thu hồi về Nháp vẫn là phiếu đã
+		từng gửi). Lớp này dọn theo `customer` RIÊNG của nó nên không đi qua
+		`fixtures_de_xuat.dung_fixture()`, chỗ mẹo gỡ chốt đã được gộp cho
+		mọi lớp `_TEST DX%`."""
 		frappe.set_user("Administrator")
 		frappe.db.sql(
-			"UPDATE `tabPortal De Xuat Mua` SET trang_thai = %s WHERE customer = %s",
+			"""UPDATE `tabPortal De Xuat Mua`
+			   SET trang_thai = %s, ma_de_xuat = NULL WHERE customer = %s""",
 			(TRANG_THAI_NHAP, KHACH),
 		)
 		for ten in frappe.get_all(
