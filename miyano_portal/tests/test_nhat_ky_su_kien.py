@@ -199,6 +199,38 @@ class TestNhatKySuKienPhieu(FrappeTestCase):
 		phieu.duyet_sua()
 		self.assertIn(nhat_ky.SK_QUAN_LY_DUYET_SUA, self._khoa_su_kien(phieu.name))
 
+	def test_tu_choi_sua_ghi_mot_dong(self):
+		"""Nhân bản `test_duyet_sua_ghi_mot_dong` — `tu_choi_sua()` có CÙNG
+		tiền điều kiện rẻ (`self.trang_thai` + cột `so_luong_xin_sua`),
+		KHÔNG đi qua `_kiem_don_dung_duoc_xin_sua()` (chốt đó chỉ nằm trong
+		`xin_sua()`, xem thân hàm) nên không cần Sales Order thật ở đây
+		cũng như ở `duyet_sua()`. Thiếu bài này là thiếu đúng MỘT trong hai
+		phương thức "duyệt sửa/từ chối sửa" nằm cạnh nhau trong code — một
+		lỗi copy-paste đổi nhầm khoá `SK_QUAN_LY_TU_CHOI_SUA` thành
+		`SK_QUAN_LY_DUYET_SUA` (hai hằng số đứng ngay cạnh nhau) sẽ không
+		bài nào trong bộ này bắt được nếu thiếu nó."""
+		phieu = self._phieu_nhap()
+		frappe.set_user(self.chu_phieu)
+		phieu.reload(); phieu.gui_duyet()
+		phieu.db_set("trang_thai", "Chờ duyệt sửa")
+		phieu.reload()
+		phieu.items[0].so_luong_xin_sua = 3
+		frappe.set_user(self.quan_ly)
+		phieu.tu_choi_sua("Đơn đã chốt giá, không sửa được nữa")
+		dong = frappe.get_all(
+			nhat_ky.DOCTYPE, filters={"de_xuat": phieu.name},
+			fields=["su_kien", "ghi_chu"],
+			order_by="thoi_diem asc, creation asc",
+		)
+		su_kien = [d.su_kien for d in dong]
+		self.assertIn(nhat_ky.SK_QUAN_LY_TU_CHOI_SUA, su_kien)
+		dong_tu_choi_sua = next(
+			d for d in dong if d.su_kien == nhat_ky.SK_QUAN_LY_TU_CHOI_SUA
+		)
+		self.assertEqual(
+			dong_tu_choi_sua.ghi_chu, "Đơn đã chốt giá, không sửa được nữa"
+		)
+
 	def test_huy_tu_nhap_ghi_mot_dong(self):
 		"""Cạnh `Nháp → Đã huỷ` (review toàn nhánh 03/09/2026, xem
 		`CHUYEN_HOP_LE`) — quản lý huỷ được cả phiếu CHƯA TỪNG gửi."""
