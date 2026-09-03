@@ -26,6 +26,7 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.test_de_xuat_action_registry import _bo_chu_thich
 
 COMPANY = "Miyano Việt Nam"
 
@@ -377,6 +378,64 @@ class TestManGopTrenRouter(FrappeTestCase):
 			"Object.fromEntries(...ghi_chu_quan_ly...)` — bấm Duyệt sẽ xoá trắng ghi chú "
 			"quản lý cũ.",
 		)
+
+	def test_hop_thoai_HUY_DON_van_noi_ro_KHONG_HOAN_TAC(self):
+		"""Review TOÀN NHÁNH (Important) — "🗑 Huỷ đơn…" mất lời cảnh báo.
+
+		`OrderDetail.vue` (màn cũ, đã nghỉ) mở một hộp thoại RIÊNG cho hành
+		động này: *"Đơn sẽ ĐÓNG NGAY, không thể hoàn tác từ phía khách. Vui
+		lòng nêu lý do (≥ 10 ký tự) — được gửi kèm email cho Miyano."* kèm
+		placeholder gợi ý. Màn gộp đẩy nó qua `ReasonModal` CHUNG với `desc`
+		sinh máy móc từ nhãn args, nên tất cả những gì khách còn đọc được là
+		*"Lý do huỷ đơn (≥ 10 ký tự) — bắt buộc."* — một câu nói về ĐỊNH
+		DẠNG Ô NHẬP, không nói chuyện gì sắp xảy ra.
+
+		Trên CÙNG màn đó, "Xoá" và "Thu hồi để sửa" vẫn có `window.confirm`
+		nói rõ hệ quả. Nên huỷ đơn đang là hành động KHÔNG ĐẢO NGƯỢC duy
+		nhất chỉ hỏi lý do mà không cảnh báo gì.
+
+		Bài canh CẢ HAI nửa: registry PHẢI mang câu cảnh báo, và màn PHẢI
+		truyền nó vào modal. Thiếu nửa nào cũng đưa khách về đúng câu máy
+		móc cũ."""
+		registry = _bo_chu_thich(
+			(self.FRONTEND_SRC / "don-actions.js").read_text(encoding="utf-8")
+		)
+		muc = [
+			d for d in registry.split("{ method:")
+			if d.startswith(" 'portal_order_huy'")
+		]
+		self.assertEqual(
+			len(muc), 1,
+			"Không thấy (hoặc thấy nhiều hơn một) mục `portal_order_huy` trong "
+			"don-actions.js.",
+		)
+		self.assertIn(
+			"không thể hoàn tác", muc[0],
+			"Mục 'Huỷ đơn' không còn mang câu cảnh báo KHÔNG HOÀN TÁC — khách "
+			"bấm một hành động đóng đơn ngay lập tức mà chỉ được hỏi lý do.",
+		)
+		self.assertIn(
+			"placeholder", muc[0],
+			"Mục 'Huỷ đơn' không còn placeholder gợi ý — màn cũ có, và ô trống "
+			"không nói được rằng lý do này đi thẳng vào email gửi Miyano.",
+		)
+
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertRegex(
+			man, r"argModalArg\.value(\?)?\.desc",
+			"ChiTietYeuCau.vue không đọc `desc` của mục args — câu cảnh báo nằm "
+			"trong registry nhưng không tới được hộp thoại.",
+		)
+		self.assertRegex(
+			man, r"argModalArg\.value(\?)?\.placeholder",
+			"ChiTietYeuCau.vue không đọc `placeholder` của mục args.",
+		)
+		for buoc in (':desc="argModalDesc"', ':placeholder="argModalPlaceholder"'):
+			self.assertIn(
+				buoc, man,
+				f"ReasonModal của thanh hành động không nhận `{buoc}` — hai "
+				"computed được khai nhưng không ai hỏi chúng.",
+			)
 
 	def test_man_gop_KHONG_tu_suy_giai_doan(self):
 		"""Giai đoạn phải do SERVER trả (`_sql_giai_doan()` là định nghĩa duy

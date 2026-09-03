@@ -329,6 +329,18 @@ async function chayHanhDong(action, extraArgs) {
 const argModalAction = ref(null)
 const argModalArg = ref(null)
 const argModalConsts = ref({})
+// Việc 5 (review toàn nhánh 03/09/2026) — mục args được phép mang `desc`/
+// `placeholder` VIẾT TAY, và hai computed này là chỗ chúng tới được modal.
+// Câu sinh máy móc bên dưới GIỮ LẠI làm đường lui: nó vẫn đúng cho ba mục
+// args còn lại (đều đảo ngược được, hoặc chỉ ghi một yêu cầu chờ Miyano xử
+// lý), nên bắt cả bốn mục tự viết một câu là bốn chỗ để trôi lệch. Chỉ hành
+// động KHÔNG QUAY LẠI ĐƯỢC mới đáng một câu riêng — xem "🗑 Huỷ đơn…" trong
+// `don-actions.js`.
+const argModalDesc = computed(() => {
+  if (!argModalArg.value) return ''
+  return argModalArg.value.desc || `${argModalArg.value.label} — bắt buộc.`
+})
+const argModalPlaceholder = computed(() => argModalArg.value?.placeholder || '')
 function onSubmitArgModal(gia_tri) {
   chayHanhDong(argModalAction.value, { ...argModalConsts.value, [argModalArg.value.key]: gia_tri })
 }
@@ -677,7 +689,8 @@ onMounted(async () => {
     <ReasonModal
       :open="!!argModalAction"
       :title="argModalAction ? argModalAction.label : ''"
-      :desc="argModalArg ? `${argModalArg.label} — bắt buộc.` : ''"
+      :desc="argModalDesc"
+      :placeholder="argModalPlaceholder"
       :min-len="argModalArg ? (argModalArg.minLen || 1) : 1"
       :submitting="!!dangChay"
       submit-label="Gửi"

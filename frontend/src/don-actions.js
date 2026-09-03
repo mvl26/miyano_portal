@@ -36,9 +36,24 @@ export const ACTIONS_DON = [
   // Việc 2/brief 2026-08-15 — huỷ THẬT (đơn đóng ngay), khác
   // `portal_request_cancel` bên dưới. Server đòi lý do >= 10 ký tự
   // (`LY_DO_TOI_THIEU_KHACH`) — nói ra ở đây để hộp thoại đòi đúng bằng đó.
+  //
+  // `desc`/`placeholder` (review toàn nhánh 03/09/2026) — chép NGUYÊN VĂN
+  // từ hộp thoại riêng của `OrderDetail.vue` (màn cũ, đã nghỉ). Khi màn gộp
+  // đẩy hành động này qua `ReasonModal` chung, `desc` sinh máy móc từ `label`
+  // chỉ còn nói về ĐỊNH DẠNG Ô NHẬP ("Lý do huỷ đơn (≥ 10 ký tự) — bắt
+  // buộc."), không nói chuyện gì sắp xảy ra. Trên cùng màn đó, "Xoá" và
+  // "Thu hồi để sửa" vẫn có `window.confirm` nói rõ hệ quả — huỷ đơn khi ấy
+  // là hành động KHÔNG ĐẢO NGƯỢC DUY NHẤT chỉ hỏi lý do mà không cảnh báo.
+  //
+  // Hai khoá này là TUỲ CHỌN cho mọi mục args: không mục nào khác khai
+  // chúng và không mục nào khác đổi (`ChiTietYeuCau.vue` giữ nguyên câu
+  // sinh máy móc làm đường lui) — chỉ hành động không quay lại được mới cần
+  // một câu viết tay.
   { method: 'portal_order_huy', label: '🗑 Huỷ đơn…', variant: 'danger',
     nhom: 'don',
-    args: [{ key: 'ly_do', label: 'Lý do huỷ đơn (≥ 10 ký tự)', type: 'textarea', required: true, minLen: 10 }],
+    args: [{ key: 'ly_do', label: 'Lý do huỷ đơn (≥ 10 ký tự)', type: 'textarea', required: true, minLen: 10,
+      desc: 'Đơn sẽ ĐÓNG NGAY, không thể hoàn tác từ phía khách. Vui lòng nêu lý do (≥ 10 ký tự) — được gửi kèm email cho Miyano.',
+      placeholder: 'VD: Đặt nhầm số lượng, không còn nhu cầu...' }],
     when: (d) => !!d.chap_nhan?.can_dong_y },
 
   // Task 6 (QĐ-G2b) + Task 7 (Ruling P49) — CHỐT, không phải nhãn. Soi
