@@ -3070,6 +3070,20 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
             # mang đường mới, không phải một đường sống nhờ lớp tương thích.
             return f"/yeu-cau/don/{document_name}"
 
+        if document_type == "Portal De Xuat Mua":
+            if frappe.db.get_value("Portal De Xuat Mua", document_name, "customer") != customer:
+                return None
+            # 03/09/2026 — trước bản này doctype này KHÔNG có nhánh nào ở
+            # đây, nên mọi thông báo §5.8 về phiếu (gửi duyệt / duyệt / từ
+            # chối / xin sửa) hiện ra KHÔNG có nút đi tới chứng từ: quản lý
+            # đọc "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" rồi phải tự mở
+            # danh sách và tìm lại X bằng mắt.
+            #
+            # Vá được ĐÚNG LÚC NÀY vì chi tiết một yêu cầu vừa có MỘT màn
+            # chính tắc — trước đó, trỏ vào đường phiếu là bỏ nửa đơn, trỏ
+            # vào đường đơn thì phiếu Chờ duyệt chưa có đơn nào để trỏ.
+            return f"/yeu-cau/phieu/{document_name}"
+
         if document_type == "Sales Invoice":
             if frappe.db.get_value("Sales Invoice", document_name, "customer") != customer:
                 return None

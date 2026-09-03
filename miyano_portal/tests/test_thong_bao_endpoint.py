@@ -97,6 +97,40 @@ class TestPortalThongBaoList(FrappeTestCase):
         row = next(i for i in res["items"] if i["subject"] == "Định tuyến sai")
         self.assertIsNone(row["link"], "Chứng từ của khách khác phải bị chặn, không trả link")
 
+    def test_link_thong_bao_phieu_de_xuat_tro_toi_man_chi_tiet(self):
+        """Lỗ có TỪ Task 8 (§5.8): `bao_de_xuat_gui_duyet` gửi cho quản lý
+        "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" — và trang Thông báo ẩn
+        nút đi tới chứng từ, vì `_lien_ket_thong_bao` không biết doctype này.
+        Quản lý phải tự mở danh sách và tìm lại đúng phiếu bằng mắt.
+
+        Vá được từ 03/09/2026 vì chi tiết một yêu cầu nay có MỘT màn chính
+        tắc, không còn phải chọn giữa hai đường."""
+        phieu = frappe.get_doc({
+            "doctype": "Portal De Xuat Mua",
+            "customer": "Bệnh viện Bạch Mai", "khoa_phong": None,
+            "items": [{"item_code": "VT0005", "so_luong_de_xuat": 1}],
+        }).insert(ignore_permissions=True)
+        _tao_log(USER_BVBM, "Phiếu chờ duyệt", "Portal De Xuat Mua", phieu.name)
+        frappe.set_user(USER_BVBM)
+        res = portal_thong_bao_list()
+        row = next(i for i in res["items"] if i["subject"] == "Phiếu chờ duyệt")
+        self.assertEqual(row["link"], f"/yeu-cau/phieu/{phieu.name}")
+
+    def test_link_phieu_cua_khach_khac_bi_chan(self):
+        """VẾ ÂM — cùng lớp kiểm thứ hai mà mọi nhánh khác của
+        `_lien_ket_thong_bao` đều có: `for_user` đúng KHÔNG phải bằng chứng
+        người đó đọc được chứng từ đang trỏ tới."""
+        phieu = frappe.get_doc({
+            "doctype": "Portal De Xuat Mua",
+            "customer": "PXN ABC",
+            "items": [{"item_code": "VT0005", "so_luong_de_xuat": 1}],
+        }).insert(ignore_permissions=True)
+        _tao_log(USER_BVBM, "Phiếu khách khác", "Portal De Xuat Mua", phieu.name)
+        frappe.set_user(USER_BVBM)
+        res = portal_thong_bao_list()
+        row = next(i for i in res["items"] if i["subject"] == "Phiếu khách khác")
+        self.assertIsNone(row["link"])
+
 
 class TestPortalThongBaoDoc(FrappeTestCase):
     def setUp(self):
