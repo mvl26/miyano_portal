@@ -21,6 +21,7 @@ việc đó và nó BẮT BUỘC lý do. Quản lý cũng không mất gì: họ
 lượng tại chỗ qua `dieu_chinh` của `de_xuat_duyet_phieu` (§5.3).
 """
 
+import re
 from pathlib import Path
 
 import frappe
@@ -306,10 +307,17 @@ class TestNutThuHoiTrenRegistry(FrappeTestCase):
 		Một `when()` soi gương một chốt server ĐÃ ĐỔI là cùng họ lỗi mà Việc
 		5 vừa sửa cho một nút khác — chỉ khác là ở đây nó do CHÍNH bản vá
 		Việc 1 sinh ra."""
-		self.assertIn(
-			"ma_de_xuat", self._muc("de_xuat_xoa_nhap"),
-			"Nút 'Xoá' không hỏi `ma_de_xuat` — nó vẫn hiện trên phiếu vừa thu "
-			"hồi, nơi server chắc chắn từ chối.",
+		muc = self._muc("de_xuat_xoa_nhap")
+		# CHIỀU, không chỉ SỰ XUẤT HIỆN: `assertIn("ma_de_xuat", …)` một mình
+		# vẫn xanh khi ai đó đảo thành `d.ma_de_xuat` — đúng bug NGƯỢC LẠI,
+		# nút Xoá biến mất khỏi mọi phiếu nháp thật. `(?<!!)` chặn đúng chỗ
+		# đó: chuỗi `!!d.ma_de_xuat` (điều kiện của nút Huỷ) không được tính
+		# là khớp.
+		self.assertRegex(
+			muc, r"(?<!!)!d\.ma_de_xuat",
+			"Nút 'Xoá' không hỏi `!d.ma_de_xuat` — hoặc nó vẫn hiện trên phiếu "
+			"vừa thu hồi (nơi server chắc chắn từ chối), hoặc điều kiện bị đảo "
+			"và nó biến mất khỏi mọi phiếu nháp thật.",
 		)
 
 	def test_nut_HUY_hien_tren_phieu_DA_THU_HOI(self):
@@ -327,11 +335,14 @@ class TestNutThuHoiTrenRegistry(FrappeTestCase):
 			"Nút 'Huỷ phiếu' không nhận trạng thái Nháp — phiếu vừa thu hồi "
 			"không còn lối ra nào trên giao diện.",
 		)
-		self.assertIn(
-			"ma_de_xuat", muc,
-			"Nút 'Huỷ phiếu' hiện trên MỌI phiếu Nháp, kể cả phiếu chưa từng "
-			"gửi — với phiếu đó 'Xoá' mới là việc đúng, và hai nút đỏ cạnh "
-			"nhau cho hai việc khác nhau là chỗ để bấm nhầm.",
+		# CHIỀU, không chỉ SỰ XUẤT HIỆN — cùng lý do bài Xoá ở trên. Ở đây
+		# chiều đúng là KHẲNG ĐỊNH (`!!`): nút chỉ hiện khi phiếu ĐÃ có mã.
+		self.assertRegex(
+			muc, r"!!d\.ma_de_xuat",
+			"Nút 'Huỷ phiếu' không hỏi `!!d.ma_de_xuat` — hoặc nó hiện trên MỌI "
+			"phiếu Nháp (kể cả phiếu chưa từng gửi, nơi 'Xoá' mới là việc đúng "
+			"và hai nút đỏ cạnh nhau là chỗ để bấm nhầm), hoặc điều kiện bị đảo "
+			"và phiếu vừa thu hồi lại mất lối ra.",
 		)
 		self.assertIn(
 			"la_quan_ly", muc,
@@ -503,3 +514,72 @@ class TestThuHoiRoiXoaHoacHuy(FrappeTestCase):
 		de_xuat.de_xuat_xoa_nhap(doc.name)
 		frappe.set_user("Administrator")
 		self.assertFalse(frappe.db.exists("Portal De Xuat Mua", doc.name))
+
+
+class TestNutXoaTrenManDatHang(FrappeTestCase):
+	"""TẤM GƯƠNG THỨ BA của chốt server mà Việc 1 đổi — ngoài hai registry.
+
+	`LapPhieu.vue` (màn Đặt hàng, `/dat-hang/:ten`) có nút "Xoá phiếu"
+	RIÊNG, không đi qua registry nào, và `v-if` của nó chỉ hỏi `tenPhieu`.
+	Nó nằm ĐÚNG trên đường đi chính của luồng Thu hồi: nhân viên bấm "Thu
+	hồi để sửa" → `ChiTietYeuCau.vue` đẩy thẳng sang `{name: 'dat-hang'}`
+	= chính màn này → thấy nút đỏ "Xoá phiếu" → hộp xác nhận hứa "Dữ liệu
+	sẽ bị xoá VĨNH VIỄN khỏi hệ thống — KHÔNG thể khôi phục" → bấm OK →
+	nhận toast lỗi. Trước Việc 1 nút đó chạy được; sau Việc 1 nó LUÔN
+	hỏng. Lối vào thứ hai: `YeuCauList.vue::coTheSuaNhap()` đưa mọi dòng
+	giai đoạn `nhap` — kể cả phiếu vừa thu hồi — vào đúng màn này.
+
+	BẪY của bản vá, và lý do lớp này canh việc GÁN chứ không canh việc
+	template có nhắc tên ref: `napTuPhieu()` KHÔNG giữ `ma_de_xuat` vào ref
+	nào. Viết `v-if="tenPhieu && !maDeXuat"` với một ref chưa bao giờ được
+	gán thì điều kiện LUÔN đúng, nút vẫn hiện, và một lưới chỉ tìm chuỗi
+	`maDeXuat` trong file vẫn xanh — đúng bài học "một dòng import không
+	phải một lời gọi" của Việc 3.
+	"""
+
+	MAN = (
+		Path(frappe.get_app_path("miyano_portal")).parent
+		/ "frontend" / "src" / "views" / "LapPhieu.vue"
+	)
+
+	def _than_ham(self, ten: str) -> str:
+		noi_dung = self.MAN.read_text(encoding="utf-8")
+		moc = re.search(
+			r"function " + ten + r"\([^)]*\)\s*\{.*?\n\}", noi_dung, re.S
+		)
+		self.assertIsNotNone(moc, f"Không tìm thấy hàm {ten}() trong LapPhieu.vue")
+		return moc.group(0)
+
+	def test_napTuPhieu_GIU_ma_de_xuat_tu_response(self):
+		"""Vế "gán thật". `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên
+		field có sẵn — thứ thiếu là một dòng giữ nó lại."""
+		self.assertRegex(
+			self._than_ham("napTuPhieu"),
+			r"maDeXuat\.value\s*=\s*d\.ma_de_xuat",
+			"napTuPhieu() không giữ `ma_de_xuat` từ response — mọi điều kiện "
+			"`v-if` dựa trên nó sẽ đọc một ref rỗng vĩnh viễn và luôn cho nút "
+			"'Xoá phiếu' hiện.",
+		)
+
+	def test_resetState_DON_ma_de_xuat(self):
+		"""Vế NGƯỢC LẠI, cũng hỏng lặng lẽ: `LapPhieu.vue` tái dùng cùng một
+		instance khi chỉ `route.params.ten` đổi (xem `watch` của nó). Mở một
+		phiếu ĐÃ TỪNG GỬI rồi bấm "Đặt hàng" để lập phiếu MỚI mà không dọn
+		ref thì mã cũ ở lại, và nút "Xoá phiếu" biến mất khỏi một phiếu nháp
+		hoàn toàn xoá được."""
+		self.assertIn(
+			"maDeXuat", self._than_ham("resetState"),
+			"resetState() không dọn `maDeXuat` — mã của phiếu trước ở lại và "
+			"giấu nút 'Xoá phiếu' khỏi phiếu nháp mới.",
+		)
+
+	def test_nut_XOA_PHIEU_bien_mat_khi_phieu_da_tung_gui(self):
+		"""Vế "template thật sự hỏi". Ba nút Xoá của app giờ hỏi CÙNG một
+		câu hỏi mà server hỏi (`ma_de_xuat`), không phải câu hỏi cũ
+		(`trang_thai`)."""
+		noi_dung = self.MAN.read_text(encoding="utf-8")
+		self.assertIn(
+			'v-if="tenPhieu && !maDeXuat"', noi_dung,
+			"Nút 'Xoá phiếu' trên màn Đặt hàng không hỏi `maDeXuat` — nó vẫn "
+			"hiện trên phiếu vừa thu hồi, hứa xoá vĩnh viễn rồi trả về toast lỗi.",
+		)

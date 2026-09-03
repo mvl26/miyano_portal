@@ -125,8 +125,15 @@ class PortalDeXuatMua(Document):
 		# cấm xoá vì nó ĐÃ TỪNG gửi, mà `huy()` cũng cấm vì nó ĐANG ở Nháp
 		# — đường xoá sạch thì mở, đường §5.4b bắt phải dùng thì bất khả
 		# thi. Cạnh này cũng cho phép huỷ một phiếu CHƯA TỪNG gửi (không có
-		# mã): nới rộng có chủ ý, và vô hại — nhân viên vẫn xoá được phiếu
-		# đó nếu muốn dọn hẳn, huỷ chỉ là lựa chọn thứ hai.
+		# mã) — nới rộng có chủ ý, nhưng KHÔNG phải "vô hại vì vẫn xoá được
+		# sau": một khi sang "Đã huỷ", `on_trash` từ chối vĩnh viễn (nó hỏi
+		# TRẠNG THÁI trước, và "Đã huỷ" != "Nháp"), nên bản ghi đó không ai
+		# dọn được nữa. Giao diện không dẫn tới ca này (`de-xuat-actions.js`
+		# chỉ hiện "Huỷ phiếu" cho phiếu CÓ mã, và "Xoá" cho phiếu không có),
+		# nhưng `de_xuat_huy` là endpoint whitelist nên một quản lý gọi thẳng
+		# API vẫn tạo ra được. Chấp nhận: một phiếu "Đã huỷ" không xoá được
+		# đúng bằng một phiếu "Đã huỷ" bình thường của §5.4b — dấu vết là thứ
+		# §5.4b muốn giữ, không phải thứ cần dọn.
 		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET, TRANG_THAI_DA_HUY},
 		# `Chờ duyệt → Nháp` (03/09/2026) — nhân viên THU HỒI phiếu mình vừa
 		# gửi để sửa lại. Cạnh này là cách DUY NHẤT chủ đầu tư nhận được

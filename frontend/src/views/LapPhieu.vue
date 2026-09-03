@@ -143,6 +143,17 @@ const phieuError = ref('')
 // phiếu chưa từng lưu luôn thuộc về người đang tạo).
 const phieuOwner = ref('')
 
+// Mã đề xuất của phiếu đang mở, RỖNG nếu phiếu chưa từng gửi duyệt (review
+// toàn nhánh 03/09/2026). Nó ở đây vì MỘT lý do: từ Việc 1, chốt xoá phía
+// server hỏi `ma_de_xuat` chứ không hỏi trạng thái — `thu_hoi()` đưa một
+// phiếu ĐÃ gửi duyệt về lại Nháp mà vẫn giữ mã, và `on_trash` từ chối xoá
+// nó vĩnh viễn để không cuốn theo `Version`/`Notification Log`/một số trong
+// dãy mã của bệnh viện. Màn này nằm ĐÚNG trên đường đi của luồng đó
+// (`ChiTietYeuCau.vue` đẩy thẳng sang đây sau khi thu hồi), nên nút "Xoá
+// phiếu" bên dưới phải hỏi cùng câu hỏi — nếu không nó hứa xoá vĩnh viễn
+// rồi trả về một toast lỗi.
+const maDeXuat = ref('')
+
 // Kết quả đơn hàng của nhánh QUẢN LÝ (một lần bấm ra đơn) — giữ lại để hiện
 // màn xác nhận sau khi giỏ đã bị dọn.
 const donDaDat = ref(null)
@@ -393,6 +404,11 @@ const diaChiOptions = computed(() => store.me?.addresses || [])
 function resetState() {
   tenPhieu.value = ''
   phieuOwner.value = ''
+  // PHẢI dọn: màn này tái dùng cùng một instance khi chỉ `route.params.ten`
+  // đổi (xem `watch` bên dưới). Mã của phiếu TRƯỚC ở lại sẽ giấu nút "Xoá
+  // phiếu" khỏi một phiếu nháp hoàn toàn xoá được — hỏng theo chiều ngược
+  // lại, và cũng lặng lẽ y như vậy.
+  maDeXuat.value = ''
   // `phieuError` PHẢI được dọn ở đây: mở `/dat-hang/DXM-xxx` gặp lỗi → bấm
   // "Đặt hàng" ở nav (route về `/dat-hang`, không `:ten`) → nếu để nguyên,
   // template ưu tiên nhánh lỗi và form KHÔNG BAO GIỜ hiện. Đó là trạng thái
@@ -420,6 +436,11 @@ function resetState() {
 function napTuPhieu(d) {
   tenPhieu.value = d.name
   phieuOwner.value = d.owner || ''
+  // `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên field có sẵn — thứ
+  // duy nhất cần là giữ nó lại. Không giữ thì `v-if` bên dưới đọc một ref
+  // rỗng vĩnh viễn và luôn cho nút "Xoá phiếu" hiện, đúng bẫy false-green
+  // mà lưới `test_de_xuat_thu_hoi.py::TestNutXoaTrenManDatHang` canh.
+  maDeXuat.value = d.ma_de_xuat || ''
   items.value = (d.items || []).map((it) => ({
     item_code: it.item_code,
     item_name: it.item_name,
@@ -1057,8 +1078,11 @@ onMounted(async () => {
             >
               {{ dangGui ? 'Đang gửi…' : nhanNutChinh }}
             </button>
+            <!-- `!maDeXuat` — soi gương chốt server (xem ref `maDeXuat`).
+                 Phiếu đã từng gửi duyệt đi ra bằng "Huỷ phiếu" của quản lý
+                 (§5.4b, giữ dấu vết), không phải bằng nút này. -->
             <button
-              v-if="tenPhieu"
+              v-if="tenPhieu && !maDeXuat"
               class="btn-o btn-danger"
               style="margin-left: auto"
               :disabled="dangLuu || dangGui || dangXoa"
