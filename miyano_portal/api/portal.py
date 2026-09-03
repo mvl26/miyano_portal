@@ -1599,7 +1599,7 @@ def portal_order_track(order) -> dict:
         "ma_tra_cuu": so.get("custom_ma_tra_cuu") or "",
         # 03/09/2026 (màn chi tiết GỘP) — phiếu đề xuất đứng sau đơn này.
         # Vào màn bằng đường `/yeu-cau/don/<name>` (link trong mọi thông báo
-        # đã gửi đi, xem `_link_chung_tu`) thì đây là đường DUY NHẤT tìm
+        # đã gửi đi, xem `_lien_ket_thong_bao`) thì đây là đường DUY NHẤT tìm
         # ngược ra phiếu: `Sales Order.name` và `Portal De Xuat Mua.name`
         # là hai naming khác nhau, không suy ra nhau được.
         #
