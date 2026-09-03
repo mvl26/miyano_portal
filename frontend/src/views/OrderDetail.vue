@@ -6,7 +6,10 @@ import { fmtVND, fmtDate, statusBadge } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import ReasonModal from '../components/ReasonModal.vue'
-import HoaDonNhap from '../components/HoaDonNhap.vue'
+import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
+import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
+import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
+import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
 
 // Mã lý do do server trả về (`30_API_Spec` §5) → thông điệp cho người đọc.
 // Server trả mã chứ không trả câu chữ để một chỗ đổi câu không phải sửa hai nơi.
@@ -62,37 +65,9 @@ const LOAI_DON_BAO_GIA = 'Mua lẻ'
 const coHangChoBaoGia = computed(
   () => data.value?.loai_don === LOAI_DON_BAO_GIA && data.value?.docstatus === 0
 )
-// CHỐT — soi gương HAI trong các điều kiện của
-// `portal.portal_order_sua_so_luong`. Nói cho hết, vì một chú thích khai
-// khống "soi gương chốt server" còn tệ hơn không có chú thích:
-//   * chốt loại đơn (`portal_mua_le.di_vong_bao_gia`) — soi qua `loai_don`;
-//   * guard VAI TRÒ `dam_bao_duoc_sua_don_da_duyet` (Task 9) — soi qua
-//     `duoc_sua_da_duyet`, câu TRẢ LỜI server tự tính và trả ra
-//     (`portal_context.duoc_sua_don_da_duyet`). KHÔNG suy lại từ dữ kiện:
-//     `ma_tra_cuu` KHÔNG phải bản sao của `custom_de_xuat` (quản lý đặt
-//     thẳng cho khách chưa khai Mã ngắn thì `custom_de_xuat` có mà
-//     `ma_tra_cuu` rỗng), và nhánh thiếu cột thì mọi dữ kiện client đều nói
-//     "được sửa" trong khi server chặn;
-//   * `workflow_state == "Chờ khách đồng ý"` — KHÔNG soi ở đây, khối sửa số
-//     lượng nằm LỒNG trong banner `chap_nhan.can_dong_y` phía dưới, và
-//     `chap_nhan` chỉ khác `null` đúng ở state đó;
-//   * hiệu lực báo giá — `chap_nhan.can_dong_y` đã mang câu trả lời đó.
-// Trước Task 7 biến này chỉ soi chốt loại đơn, nên nhân viên khoa mở một đơn
-// đi qua đường đề xuất THẤY nút, bấm, và nhận "Đơn này đã được quản lý
-// duyệt…" — mọi lần, không có đường nào thành công. Quy ước dự án: ẨN,
-// không phải hiện-rồi-báo-lỗi.
-//
-// `!== false` chứ không `=== true`, CÓ CHỦ Ý và KHÁC với `portal_context.py`
-// (nơi thiếu cột thì CHẶN chứ không thả). Bất đối xứng đó đúng vì hai bên
-// canh hai rủi ro khác nhau: server là nơi cuối cùng, thả nhầm ở đó là lỗ
-// hổng THẬT; còn ở đây khoá vắng mặt chỉ có thể do phục vụ một bản backend
-// cũ hơn bundle này, và khi đó `=== true` sẽ giấu khối sửa số lượng khỏi CẢ
-// quản lý — lấy mất một chức năng đang chạy để phòng một lỗi mà server vẫn
-// tự chặn được. Server không bao giờ mất quyền nói không.
-// Giữ riêng khỏi `coHangChoBaoGia` để cái NHÃN và cái CHỐT đổi độc lập được.
-const suaDuocSoLuong = computed(
-  () => data.value?.loai_don === LOAI_DON_BAO_GIA && data.value?.duoc_sua_da_duyet !== false
-)
+// Task 4 — cái CHỐT `suaDuocSoLuong` (soi `duoc_sua_da_duyet`) chuyển sang
+// `components/chi-tiet/KhoiBaoGia.vue` cùng khối sửa số lượng nó gác; xem
+// chú thích đầy đủ ở đó, không chép lần hai.
 
 // review I-4 — spec §3.4: "Dòng đã khớp mã chuyển sang nhóm trên, kèm ghi
 // chú nhỏ '(từ yêu cầu: <tên khách gõ>)' để khách đối chiếu được cái mình
@@ -108,33 +83,14 @@ const acceptOpen = ref(false)
 const rejecting = ref(false)
 const accepting = ref(false)
 
-// Việc 1/brief 2026-08-15 (bao-gia-hai-chieu) — khách sửa số lượng ngay
-// trong khối "Chờ bạn đồng ý". Hai map RIÊNG (items theo item_code,
-// dat_ngoai theo `name`) — khớp đúng khoá endpoint `portal_order_sua_so_
-// luong` dùng để tìm dòng ĐÃ CÓ trên đơn (server chỉ đọc item_code/name +
-// qty, mọi field khác trong payload đều bị bỏ qua/từ chối).
-const soLuongMoiItems = ref({})
-const soLuongMoiDatNgoai = ref({})
+// Task 4 — `soLuongMoiItems`/`soLuongMoiDatNgoai`/`initSoLuongMoi()` chuyển
+// sang `KhoiBaoGia.vue` cùng khối ô nhập chúng phục vụ. `dangSuaSoLuong` ở
+// lại: nó còn đi hai đường — truyền xuống con làm prop `dang-gui` (nhãn nút
+// + disable), và là `:submitting` của `ReasonModal` xác nhận bên dưới.
 const dangSuaSoLuong = ref(false)
-function initSoLuongMoi() {
-  soLuongMoiItems.value = Object.fromEntries((data.value?.items || []).map((it) => [it.item_code, it.qty]))
-  soLuongMoiDatNgoai.value = Object.fromEntries((data.value?.dat_ngoai || []).map((d) => [d.name, d.so_luong]))
-}
 
 const huyOpen = ref(false)
 const huyDangGui = ref(false)
-
-// Bước hiện tại = mốc đầu tiên chưa hoàn thành (để tô cam như mockup).
-const currentIdx = computed(() => {
-  if (!data.value) return -1
-  const i = data.value.milestones.findIndex((m) => !m.done)
-  return i
-})
-function stepClass(m, idx) {
-  if (m.done) return 'done'
-  if (idx === currentIdx.value) return 'cur'
-  return ''
-}
 
 // UC-14 — đặt lại theo đơn cũ, theo giá hiện hành.
 //
@@ -190,85 +146,17 @@ async function datLai() {
   }
 }
 
-// E9 — màu badge trạng thái biên bản kiểm hàng. Cùng bảng màu với
-// KiemHang.vue; giữ hai bản vì hai màn đọc hai nguồn khác nhau và một import
-// chéo giữa hai view chỉ vì bảy dòng ánh xạ là một cạnh phụ thuộc không đáng.
-const KIEM_HANG_BADGE = {
-  'Chờ xử lý': 'b-orange',
-  'Đã xác nhận': 'b-green',
-  'Đã duyệt trả': 'b-blue',
-  'Đã thu hồi': 'b-green',
-  'Đã xử lý': 'b-green',
-  'Từ chối': 'b-red',
-}
-function kiemHangBadge(tt) {
-  return KIEM_HANG_BADGE[tt] || 'b-gray'
-}
-
-// --- Hoá đơn nháp đính theo phiếu giao (E7b) --------------------------------
-// Cờ `d.co_hoa_don_nhap` đi sẵn trong `portal_order_track`; NỘI DUNG chỉ nạp
-// khi khách bấm xem — khác khối HĐĐT ở trang Hoá đơn (nhúng sẵn): ở đây có
-// thể có nhiều đợt giao, nhét sẵn dòng hàng của mọi bản nháp vào response chi
-// tiết đơn là trả về một đống dữ liệu hầu như không ai mở tới.
-const nhapMo = ref(null)
-const nhapData = ref({})
-const nhapDangTai = ref(null)
-
-async function toggleNhap(dnName) {
-  if (nhapMo.value === dnName) {
-    nhapMo.value = null
-    return
-  }
-  nhapMo.value = dnName
-  if (dnName in nhapData.value) return
-  nhapDangTai.value = dnName
-  try {
-    const khoi = await api.call('portal_einvoice_nhap', { delivery_note: dnName })
-    nhapData.value = { ...nhapData.value, [dnName]: khoi }
-  } catch (e) {
-    showToast(e.message || 'Không xem được hoá đơn nháp.', 'error')
-    nhapMo.value = null
-  } finally {
-    nhapDangTai.value = null
-  }
-}
-
-function urlPdfNhap(dnName) {
-  const khoi = nhapData.value[dnName]
-  if (!khoi || !khoi.nhap_tai_duoc) return ''
-  return (
-    '/api/method/miyano_portal.api.portal.portal_einvoice_nhap_pdf?delivery_note=' +
-    encodeURIComponent(dnName)
-  )
-}
-
-// M3 (E3 phần B review): `so_dot` (BR-K16 — thứ tự DN ĐÃ GHI SỔ của SO) và
-// chỉ số mảng `i+1` KHÔNG PHẢI luôn cùng một con số — `data.deliveries` lọc
-// docstatus < 2 (GỒM CẢ DN nháp chưa ghi sổ), còn so_dot chỉ đếm DN đã ghi
-// sổ (docstatus=1). Một đơn có DN đang soạn (nháp) xen giữa hai DN đã ghi
-// sổ sẽ khiến "Đợt {{i+1}}" và so_dot lệch nhau ngay trên cùng màn hình.
-// Dùng so_dot khi có (khách có kho, DN đã ghi sổ); chỉ số mảng chỉ còn là
-// phương án dự phòng khi chưa có mốc nào (khách không có kho, hoặc DN còn
-// nháp — chưa từng qua delivery_hook).
-function dotLabel(d, i) {
-  return d.so_dot || i + 1
-}
-
-function pdfUrl(doctype, docname) {
-  return (
-    '/api/method/miyano_portal.api.portal.portal_document_download?doctype=' +
-    encodeURIComponent(doctype) +
-    '&name=' +
-    encodeURIComponent(docname)
-  )
-}
+// Task 4 — `KIEM_HANG_BADGE`/`kiemHangBadge`/`nhapMo`/`nhapData`/
+// `nhapDangTai`/`toggleNhap`/`urlPdfNhap`/`dotLabel`/`pdfUrl` chuyển sang
+// `components/chi-tiet/KhoiGiaoHang.vue` (và một bản riêng của `pdfUrl` sang
+// `KhoiHoaDonTaiLieu.vue`, xem chú thích ở đó) cùng khối "Giao hàng"/"Hoá
+// đơn của đơn này" chúng phục vụ. Không chép lại ở đây.
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
     data.value = await api.call('portal_order_track', { order: name.value })
-    initSoLuongMoi()
   } catch (e) {
     error.value = e.message || 'Không tải được chi tiết đơn hàng.'
   } finally {
@@ -290,30 +178,26 @@ async function load() {
 // mà "Huỷ đơn" đang dùng (`minLen: 0` — không bắt nhập lý do, chỉ cần một
 // bước xác nhận trong modal của app, không phải dialog gốc trình duyệt).
 const guiLaiOpen = ref(false)
+// Task 4 — `KhoiBaoGia` đã validate + tính sẵn phần chênh lệch (item_code/
+// name + qty mới) trước khi phát `sua-so-luong`; ở đây chỉ CẤT payload đó
+// chờ khách xác nhận trong modal, không tính lại từ ref cục bộ nữa (những
+// ref đó đã chuyển sang component con).
+const dongGuiLai = ref({ items: [], dat_ngoai: [] })
 
-function moGuiLai() {
-  const coDoi =
-    (data.value.items || []).some(
-      (it) => Number(soLuongMoiItems.value[it.item_code]) !== Number(it.qty)
-    ) ||
-    (data.value.dat_ngoai || []).some(
-      (d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong)
-    )
-  if (!coDoi) {
-    showToast('Chưa sửa số lượng dòng nào.', 'error')
-    return
-  }
+// Task 4 — trước bản này `moGuiLai()` (validate rồi mở modal) và
+// `guiLaiBaoGia()` (tính chênh lệch rồi gọi API) đứng CHUNG một file, cùng
+// đọc `soLuongMoiItems`/`soLuongMoiDatNgoai`. Việc validate + tính chênh
+// lệch đã chuyển sang `KhoiBaoGia.moGuiLai()` (khác hàm cùng tên ở đây, xem
+// file đó); hàm này chỉ còn NHẬN payload qua sự kiện `sua-so-luong` rồi mở
+// modal xác nhận — đúng vị trí `moGuiLai()` cũ đứng trong luồng UI.
+function nhanSuaSoLuong(dong) {
+  dongGuiLai.value = dong
   guiLaiOpen.value = true
 }
 
 async function guiLaiBaoGia() {
   if (dangSuaSoLuong.value) return
-  const doiItems = (data.value.items || [])
-    .filter((it) => Number(soLuongMoiItems.value[it.item_code]) !== Number(it.qty))
-    .map((it) => ({ item_code: it.item_code, qty: Number(soLuongMoiItems.value[it.item_code]) }))
-  const doiDatNgoai = (data.value.dat_ngoai || [])
-    .filter((d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong))
-    .map((d) => ({ name: d.name, qty: Number(soLuongMoiDatNgoai.value[d.name]) }))
+  const { items: doiItems, dat_ngoai: doiDatNgoai } = dongGuiLai.value
   if (!doiItems.length && !doiDatNgoai.length) {
     guiLaiOpen.value = false
     showToast('Chưa sửa số lượng dòng nào.', 'error')
@@ -441,95 +325,32 @@ onMounted(load)
       </div>
 
       <!-- E6/F-07 [MỚI — QĐ-6] — banner "Chờ bạn đồng ý" -->
-      <div v-if="data.chap_nhan && data.chap_nhan.can_dong_y" class="card mb10" style="margin-bottom: 14px">
-        <div class="note" style="background: #fff7ed; border-color: #fed7aa; color: #9a3412">
-          ⏳ <b>Báo giá hiệu lực đến {{ fmtDate(data.chap_nhan.han_hieu_luc) }}.</b>
-          Sau ngày này đơn tự đóng — cần hàng phải yêu cầu báo giá lại. <span class="newtag">MỚI</span>
-        </div>
-        <p style="font-size: 13px; margin: 8px 0 10px">
-          Bấm <b>Đồng ý</b> = chấp nhận đặt hàng theo giá trên. Hệ thống ghi lại người bấm và thời điểm.
-        </p>
-        <div class="flex" style="flex-wrap: wrap">
+      <!-- Task 4/ruling — banner + khối sửa số lượng chuyển vào KhoiBaoGia;
+           ba nút hành động (Đồng ý/Không đồng ý/Huỷ đơn) VẪN do
+           OrderDetail.vue render (registry Task 3 + thanh hành động Task 7
+           thay thế sau), qua hai slot đúng vị trí flex cũ — không phải một
+           nút bị rớt lại ngoài ý muốn. -->
+      <KhoiBaoGia
+        v-if="data.chap_nhan && data.chap_nhan.can_dong_y"
+        :don="data"
+        :dang-gui="dangSuaSoLuong"
+        @sua-so-luong="nhanSuaSoLuong"
+      >
+        <template #hanh-dong>
           <button class="btn-g" :disabled="accepting" @click="dongY">
             {{ accepting ? 'Đang gửi…' : '✔ Đồng ý đặt hàng' }}
           </button>
           <button class="btn-o btn-danger" :disabled="accepting" @click="acceptOpen = true">✕ Không đồng ý…</button>
-          <a
-            class="btn-o"
-            :href="`/api/method/miyano_portal.api.portal.portal_bao_gia_pdf?order=${encodeURIComponent(name)}`"
-            target="_blank"
-            rel="noopener"
-          >⬇ Tải báo giá (PDF)</a>
-        </div>
-
-        <!-- Việc 1/brief 2026-08-15 — sửa số lượng NGAY tại đây, chỉ cho
-             đơn đi vòng báo giá (đúng điều kiện server
-             `portal_order_sua_so_luong` đòi, xem `portal_mua_le.
-             di_vong_bao_gia`). Đơn giá cho N hộp không còn đúng ở M hộp —
-             gửi lại là để sales báo giá lại, KHÔNG giữ giá cũ (server tự
-             đặt rate = 0 cho dòng đã đổi). -->
-        <div v-if="suaDuocSoLuong" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
-          <p style="font-size: 13px; margin-bottom: 8px">
-            Số lượng chưa đúng? Sửa rồi bấm <b>Gửi lại để báo giá</b> — đơn sẽ
-            về Miyano báo giá lại theo số lượng mới (giá hiện tại của dòng đã
-            đổi không còn áp dụng).
-          </p>
-          <div v-for="it in data.items" :key="'sl-' + it.item_code" class="rowline">
-            <span>
-              <b>{{ it.item_code }}</b> — {{ it.item_name }}
-              <br /><span class="tag">{{ it.uom }} · hiện {{ it.qty }} · {{ fmtVND(it.rate) }}/{{ it.uom }}</span>
-            </span>
-            <input
-              type="number" min="0" step="any"
-              v-model.number="soLuongMoiItems[it.item_code]"
-              style="width: 90px; text-align: right"
-            />
-          </div>
-          <div v-for="d in data.dat_ngoai" :key="'sl-dn-' + d.name" class="rowline">
-            <span>
-              <b>{{ d.ten_hang }}</b>
-              <br /><span class="tag">{{ d.dvt }} · hiện {{ d.so_luong }} (đặt ngoài)</span>
-            </span>
-            <input
-              type="number" min="0" step="any"
-              v-model.number="soLuongMoiDatNgoai[d.name]"
-              style="width: 90px; text-align: right"
-            />
-          </div>
-          <button class="btn-o" style="margin-top: 8px" :disabled="dangSuaSoLuong" @click="moGuiLai">
-            {{ dangSuaSoLuong ? 'Đang gửi…' : '✎ Gửi lại để báo giá' }}
-          </button>
-        </div>
-
-        <!-- Việc 2/brief 2026-08-15 — Huỷ đơn = HUỶ THẬT (khác requestCancel
-             bên dưới — đó chỉ ghi yêu cầu chờ xử lý, dùng cho đơn đã xác
-             nhận). Áp cho MỌI loại đơn đang ở trạng thái này (server không
-             giới hạn theo custom_loai_don), không chỉ Mua lẻ. -->
-        <div style="margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px">
+        </template>
+        <template #huy>
           <button class="btn-o btn-danger" :disabled="huyDangGui" @click="huyOpen = true">
             🗑 Huỷ đơn…
           </button>
-        </div>
-      </div>
+        </template>
+      </KhoiBaoGia>
 
       <!-- Tiến trình -->
-      <div class="card mb10" style="margin-bottom: 14px">
-        <div class="h3">Tiến trình</div>
-        <!-- desktop: ngang -->
-        <div v-if="!isMobile" class="tl">
-          <div v-for="(m, i) in data.milestones" :key="m.key" class="st" :class="stepClass(m, i)">
-            <div class="dot">{{ m.done ? '✓' : i + 1 }}</div>
-            <div class="lb">{{ m.label }}</div>
-          </div>
-        </div>
-        <!-- mobile: dọc -->
-        <div v-else class="vtl">
-          <div v-for="(m, i) in data.milestones" :key="m.key" class="vst" :class="stepClass(m, i)">
-            <div class="vdot">{{ m.done ? '✓' : i + 1 }}</div>
-            <div class="vlb"><b>{{ m.label }}</b>{{ m.done ? 'Hoàn thành' : (i === currentIdx ? 'Đang thực hiện' : 'Chưa thực hiện') }}</div>
-          </div>
-        </div>
-      </div>
+      <KhoiTienTrinh :milestones="data.milestones" />
 
       <div class="grid2">
         <!-- Mặt hàng -->
@@ -634,133 +455,12 @@ onMounted(load)
         </div>
 
         <!-- Giao hàng -->
+        <!-- Task 4 — MỘT `.card` chung cho KhoiGiaoHang + KhoiHoaDonTaiLieu +
+             nút Huỷ/Sửa đơn (giữ ở OrderDetail.vue, xem ruling Bước 6), để
+             `grid2` không có thêm con và bố cục không đổi. -->
         <div class="card">
-          <div class="h3">Giao hàng</div>
-          <!-- Miyano hẹn lại lịch giao (2026-08-16). Đặt Ở ĐẦU khối giao
-               hàng: khi có lời hẹn thì đó là thứ khách vào trang này để đọc,
-               không phải danh sách đợt đã giao. -->
-          <div
-            v-if="data.hen_giao"
-            style="border: 1px solid var(--orange); border-radius: 8px; padding: 10px; margin-bottom: 12px"
-          >
-            <p style="margin: 0 0 4px">
-              <span class="badge b-orange">{{ data.hen_giao.loai }}</span>
-              <b style="margin-left: 8px">Dự kiến giao {{ fmtDate(data.hen_giao.ngay) }}</b>
-            </p>
-            <p v-if="data.hen_giao.ly_do" class="tag" style="margin: 0">
-              {{ data.hen_giao.ly_do }}
-            </p>
-          </div>
-          <template v-if="data.deliveries.length">
-            <div v-for="(d, i) in data.deliveries" :key="d.name" style="margin-bottom: 12px">
-              <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDate(d.posting_date) }} ({{ d.percent }}%)</b></p>
-              <p class="tag">
-                Phiếu giao: {{ d.name }}
-                <template v-if="d.carrier"> · {{ d.carrier }}</template>
-                <template v-if="d.awb"> · Vận đơn: {{ d.awb }}</template>
-              </p>
-              <!-- US-E3.4 (F-07 khối đợt giao) — chỉ hiện khi khách có kho
-                   (server chỉ trả d.phieu_nhap trong trường hợp đó). -->
-              <p v-if="d.phieu_nhap" class="tag" style="margin-top: 2px">
-                Phiếu nhập:
-                <router-link
-                  v-if="d.phieu_nhap.trang_thai === 'Nháp'"
-                  :to="`/kho/nhap/${d.phieu_nhap.name}`"
-                  style="text-decoration: underline"
-                >
-                  {{ d.phieu_nhap.name }} — Nháp, chờ kiểm nhận
-                </router-link>
-                <span v-else-if="d.phieu_nhap.co_chenh_lech" style="color: var(--red); font-weight: 600">
-                  {{ d.phieu_nhap.name }} — Có chênh lệch ⚠
-                </span>
-                <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
-              </p>
-              <!-- E9 (2026-08-16) — kiểm hàng khi nhận. KHÔNG gắn với việc
-                   khách có kho hay không: `d.kiem_hang` luôn có mặt trên mọi
-                   đợt giao, `null` nghĩa là khách chưa lập biên bản. -->
-              <p class="tag" style="margin-top: 4px">
-                <template v-if="d.kiem_hang">
-                  Kiểm hàng:
-                  <router-link :to="`/kiem-hang/${d.name}`" style="text-decoration: underline">
-                    {{ d.kiem_hang.name }}
-                  </router-link>
-                  <span
-                    class="badge"
-                    :class="kiemHangBadge(d.kiem_hang.trang_thai)"
-                    style="margin-left: 6px"
-                  >{{ d.kiem_hang.trang_thai }}</span>
-                </template>
-                <template v-else>
-                  <router-link :to="`/kiem-hang/${d.name}`">
-                    <button class="btn-o btn-sm">Kiểm hàng đợt này</button>
-                  </router-link>
-                </template>
-              </p>
-
-              <!-- E7b — hoá đơn nháp lập từ chính phiếu giao này. Neo ở đây
-                   chứ không ở trang Hoá đơn: chứng từ HĐĐT sinh từ phiếu giao
-                   có thể chưa có Sales Invoice nào để bám vào. -->
-              <template v-if="d.co_hoa_don_nhap">
-                <p class="tag" style="margin-top: 4px">
-                  <span class="badge b-gray">Hoá đơn nháp</span>
-                  <button class="btn-o btn-sm" style="margin-left: 8px" @click="toggleNhap(d.name)">
-                    {{ nhapMo === d.name ? '▾ Ẩn hoá đơn nháp' : '▸ Xem hoá đơn nháp' }}
-                  </button>
-                </p>
-                <div
-                  v-if="nhapMo === d.name"
-                  style="border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 6px"
-                >
-                  <p v-if="nhapDangTai === d.name" class="tag">Đang tải hoá đơn nháp…</p>
-                  <HoaDonNhap
-                    v-else-if="nhapData[d.name]"
-                    :du-lieu="nhapData[d.name]"
-                    :url-pdf="urlPdfNhap(d.name)"
-                  />
-                  <p v-else class="tag">Phiếu giao này chưa có hoá đơn nháp.</p>
-                </div>
-              </template>
-              <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
-                <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ dotLabel(d, i) }}</button>
-              </a>
-            </div>
-          </template>
-          <p v-else class="tag">Chưa có đợt giao hàng nào.</p>
-
-          <!-- Khoảng trống 2026-08-16 — trước bản này cổng chỉ có mốc "Hoá
-               đơn" bật/tắt và một trang Hoá đơn TOÀN CỤC; khách muốn xem hoá
-               đơn CỦA ĐƠN NÀY phải tự dò. `data.hoa_don` do
-               `portal_order_track` trả về, nối qua Sales Invoice Item. -->
-          <template v-if="data.hoa_don && data.hoa_don.length">
-            <hr class="sep" />
-            <div class="h3">Hoá đơn của đơn này</div>
-            <div v-for="h in data.hoa_don" :key="h.name" class="rowline">
-              <span>
-                <b>{{ h.name }}</b> · {{ fmtDate(h.ngay) }}<br />
-                <span class="tag">
-                  {{ fmtVND(h.tong_tien) }}
-                  <template v-if="h.con_no > 0"> · còn nợ {{ fmtVND(h.con_no) }}</template>
-                  <template v-if="h.han_thanh_toan"> · hạn {{ fmtDate(h.han_thanh_toan) }}</template>
-                </span>
-              </span>
-              <a :href="pdfUrl('Sales Invoice', h.name)" target="_blank" rel="noopener">
-                <button class="btn-o btn-sm">⬇ PDF</button>
-              </a>
-            </div>
-          </template>
-
-          <hr class="sep" />
-          <a :href="pdfUrl('Sales Order', data.order)" target="_blank" rel="noopener">
-            <button class="btn-o btn-sm">⬇ PDF đơn hàng</button>
-          </a>
-          <button
-            class="btn-o btn-sm"
-            style="margin-left: 8px"
-            :disabled="dangDatLai"
-            @click="datLai"
-          >
-            🔁 Đặt lại đơn này
-          </button>
+          <KhoiGiaoHang :don="data" />
+          <KhoiHoaDonTaiLieu :don="data" :dang-dat-lai="dangDatLai" @dat-lai="datLai" />
           <!-- Ẩn khi đang "Chờ bạn đồng ý": hai bộ hành động (Đồng ý/Không
                đồng ý ở banner trên và Huỷ/Sửa đơn ở đây) cùng hiện sẽ tranh
                nhau — báo giá tự có đường "Không đồng ý" riêng, không cần
