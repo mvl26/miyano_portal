@@ -254,7 +254,14 @@ class PortalDeXuatMua(Document):
 		`Version` giữ lại lần gửi trước.
 
 		KHÔNG đụng `ma_de_xuat` (mã sinh đúng một lần — quản lý và khoa đã
-		gọi tên phiếu bằng nó), KHÔNG đụng `so_luong_duyet`/`don_gia`: cả
+		gọi tên phiếu bằng nó). Từ review toàn nhánh 03/09/2026, việc giữ
+		field này còn CHỊU TẢI: nó là dấu "đã từng gửi duyệt" duy nhất sống
+		sót qua thu hồi, và HAI chốt hỏi thẳng nó thay vì hỏi trạng thái —
+		`on_trash` (không cho xoá vĩnh viễn thứ quản lý đã thấy) và gate
+		đóng băng của `_suy_nguon_gia()` (không cho hợp đồng của dòng cũ bị
+		tính lại). Xoá mã ở đây là mở lại cả hai.
+
+		KHÔNG đụng `so_luong_duyet`/`don_gia`: cả
 		hai được `gui_duyet()` đóng dấu lại ở lần gửi sau, nên xoá tay ở
 		đây chỉ là một nơi thứ hai phải nhớ cập nhật khi luật đóng dấu đổi.
 
@@ -939,9 +946,34 @@ class PortalDeXuatMua(Document):
 		sẽ tính lại theo trạng thái hợp đồng HIỆN TẠI — nếu hợp đồng đã hết
 		hạn từ lúc đó, phiếu ĐÃ được duyệt dựa trên giá hợp đồng nào sẽ bị
 		âm thầm ghi đè thành "Chờ báo giá", xoá mất bằng chứng đã dùng lúc
-		duyệt. Cùng điều kiện `is_new() or trang_thai == Nháp` — một phiếu
-		đã gửi duyệt thì khoá vĩnh viễn, không phải hai luật khoá lệch
-		nhau vì viết hai điều kiện khác nhau ở hai nơi.
+		duyệt.
+
+		SỬA (review TOÀN NHÁNH, 03/09/2026) — gate hỏi `ma_de_xuat`, KHÔNG
+		hỏi trạng thái, nên nó CỐ Ý KHÁC điều kiện của `_chan_sua_so_luong_
+		de_xuat` (bản trước hai nơi viết cùng một điều kiện và nói rõ là cố
+		ý; giờ chúng phải khác nhau). Vì sao hai khoá tách đôi:
+
+		  * khoá SỐ LƯỢNG phải MỞ LẠI khi thu hồi — đó là toàn bộ lý do
+		    `thu_hoi()` tồn tại (nhân viên sửa lại đơn mình vừa gửi);
+		  * khoá NGUỒN GIÁ thì KHÔNG — "hợp đồng nào đứng sau dòng này" là
+		    bằng chứng, không phải một ô để sửa, và không ai bấm Thu hồi để
+		    xin đổi nó.
+
+		Nếu gate này vẫn hỏi trạng thái, chính `thu_hoi()` mở nó ra: hàm đó
+		đặt `trang_thai = "Nháp"` TRƯỚC `save()`, nên `validate()` của lần
+		lưu đó chạy với `dong_bang = False` và tính lại MỌI dòng. Ca thật:
+		dòng đang là "Hợp đồng", hợp đồng hết hạn trong lúc chờ duyệt → thu
+		hồi lật nó sang "Chờ báo giá" + `blanket_order = None`; lần gửi
+		duyệt sau `_dong_dau_gia` bỏ qua dòng chờ báo giá nên `don_gia` cũ
+		SỐNG NGUYÊN, rồi `_kiem_gia_doi` im hoàn toàn (hai vế hợp đồng cùng
+		`None` → `hop_dong_doi` False; `gia_moi` `None` → `gia_doi` False).
+		Quản lý duyệt một dòng chờ báo giá mang giá của một hợp đồng đã
+		chết. Xem `test_nguon_gia_dong.py::test_thu_hoi_roi_gui_lai_VAN_
+		canh_bao_hop_dong_da_chet`.
+
+		`ma_de_xuat` là dấu "ĐÃ TỪNG gửi duyệt" duy nhất sống sót qua thu
+		hồi (`thu_hoi()` cố ý giữ nó) — cùng dấu mà `on_trash` đã chuyển
+		sang hỏi, một sự thật chứ không phải hai.
 
 		SỬA (advisor, ngay sau review vòng 1) — đóng băng theo TỪNG DÒNG đã
 		có lúc gửi duyệt, KHÔNG `return` sớm cho CẢ `self.items`:
@@ -954,7 +986,9 @@ class PortalDeXuatMua(Document):
 		không hề thuộc hợp đồng nào: đúng bẫy false-green đã ghi ở đầu task
 		này, quay lại qua một cửa khác.
 		"""
-		dong_bang = not self.is_new() and self.trang_thai != TRANG_THAI_NHAP
+		dong_bang = not self.is_new() and (
+			bool(self.ma_de_xuat) or self.trang_thai != TRANG_THAI_NHAP
+		)
 		# SỬA (advisor, ngay sau bản sửa I3 đầu) — KHÔNG dùng `self.get_doc_
 		# before_save()` làm nguồn `da_khoa`: property đó chỉ được Frappe
 		# điền trong một chu trình `save()` ĐÃ XẢY RA trên CHÍNH object
