@@ -149,3 +149,43 @@ class TestChiTietGopBackend(FrappeTestCase):
 		frappe.set_user(self.quan_ly)
 		kq = portal.portal_order_track(order=so.name)
 		self.assertEqual(kq["de_xuat"], "")
+
+	def test_chi_tiet_tra_gia_va_da_giao_theo_dong(self):
+		"""Bảng mặt hàng của màn gộp là MỘT bảng: SL xin / SL duyệt (của
+		phiếu) đứng cạnh Đơn giá / Đã giao (của đơn). Phép nối làm ở ĐÂY,
+		không ở JS — `frontend/` không có test nào, và đây cũng là truy vấn
+		`Sales Order Item` mà hàm này ĐÃ chạy sẵn cho `so_luong_tren_don`
+		(Ruling P51), nên không tốn thêm một vòng hỏi CSDL nào."""
+		phieu = self._phieu_da_duyet(so_luong=10)
+		frappe.db.set_value(
+			"Sales Order Item",
+			{"parent": phieu.sales_order, "item_code": self.item},
+			{"rate": 1500, "amount": 15000},
+			update_modified=False,
+		)
+		frappe.set_user(self.quan_ly)
+		kq = de_xuat.de_xuat_chi_tiet(ten=phieu.name)
+		dong = next(d for d in kq["items"] if d["item_code"] == self.item)
+		self.assertEqual(float(dong["don_gia_tren_don"]), 1500.0)
+		self.assertEqual(float(dong["thanh_tien_tren_don"]), 15000.0)
+		self.assertEqual(float(dong["da_giao_tren_don"]), 0.0)
+
+	def test_chi_tiet_phieu_chua_co_don_tra_None_khong_phai_0(self):
+		"""`0` và "chưa có đơn" là HAI ca khác nhau, đừng gộp — cùng lý do
+		`so_luong_tren_don` đã trả `None` (Ruling P51). Một bảng in `0 ₫`
+		cho phiếu Chờ duyệt là nói với khoa rằng hàng của họ giá 0."""
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"ly_do_yeu_cau": "x",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 5}],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", self.nhan_vien)
+		doc.reload()
+		doc.gui_duyet()
+		frappe.set_user(self.quan_ly)
+		kq = de_xuat.de_xuat_chi_tiet(ten=doc.name)
+		dong = kq["items"][0]
+		self.assertIsNone(dong["don_gia_tren_don"])
+		self.assertIsNone(dong["thanh_tien_tren_don"])
+		self.assertIsNone(dong["da_giao_tren_don"])

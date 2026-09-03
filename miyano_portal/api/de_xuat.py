@@ -247,21 +247,36 @@ def de_xuat_chi_tiet(ten) -> dict:
 	# đã hạ về 0 lúc duyệt) — hai ca khác nhau với `0`, đừng gộp.
 	#
 	# MỘT truy vấn cho cả phiếu, cùng khuôn `boi_so` ngay trên.
-	qty_tren_don = {}
+	#
+	# 03/09/2026 (màn chi tiết GỘP) — CÙNG truy vấn này, thêm ba cột. Bảng
+	# mặt hàng của màn gộp là MỘT bảng: SL xin / SL duyệt (của phiếu) đứng
+	# cạnh Đơn giá / Đã giao (của đơn). Phép nối phải làm Ở ĐÂY chứ không ở
+	# JS — `frontend/` không có hạ tầng test nào (package.json chỉ có
+	# `build`), nên một hàm nối viết bằng JS là một hàm không ai canh.
+	#
+	# `None` cho dòng KHÔNG có trên đơn — giữ nguyên quy ước của
+	# `so_luong_tren_don` ngay dưới: `0` và "chưa có đơn" là hai ca khác
+	# nhau, và một bảng in `0 ₫` cho phiếu Chờ duyệt là nói với khoa rằng
+	# hàng của họ giá 0.
+	dong_tren_don = {}
 	if kq.get("sales_order"):
-		qty_tren_don = {
-			r.item_code: float(r.qty or 0)
+		dong_tren_don = {
+			r.item_code: r
 			for r in frappe.get_all(
 				"Sales Order Item",
 				filters={"parent": kq["sales_order"]},
-				fields=["item_code", "qty"],
+				fields=["item_code", "qty", "rate", "amount", "delivered_qty"],
 			)
 		}
 	for row in dong:
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
 		row["boi_so"] = boi_so_theo_ma.get(row.get("item_code"))
-		row["so_luong_tren_don"] = qty_tren_don.get(row.get("item_code"))
+		tren_don = dong_tren_don.get(row.get("item_code"))
+		row["so_luong_tren_don"] = float(tren_don.qty or 0) if tren_don else None
+		row["don_gia_tren_don"] = float(tren_don.rate or 0) if tren_don else None
+		row["thanh_tien_tren_don"] = float(tren_don.amount or 0) if tren_don else None
+		row["da_giao_tren_don"] = float(tren_don.delivered_qty or 0) if tren_don else None
 	return kq
 
 
