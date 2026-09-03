@@ -62,6 +62,11 @@ DA_AP_PHAM_VI: set[str] = {
 	# cùng khuôn Task 6: `la_quan_ly()` riêng CỘNG `_phieu_cua_toi(...,
 	# cho_quan_ly=True)` — không cái nào miễn phạm vi.
 	"de_xuat_xin_sua", "de_xuat_duyet_sua", "de_xuat_tu_choi_sua",
+	# 03/09/2026 — thu hồi phiếu Chờ duyệt về Nháp để sửa. Mở đầu bằng
+	# `_phieu_cua_toi(ten)` (trục khách hàng + khoa, VÀ vòng kiểm chủ sở
+	# hữu mặc định) CỘNG một chốt owner-only riêng — chặt hơn cả ba nhóm
+	# trên, không cái nào miễn phạm vi.
+	"de_xuat_thu_hoi",
 }
 
 # Endpoint CỐ Ý không lọc theo khoa — mỗi cái kèm lý do bằng chữ. Sửa tập

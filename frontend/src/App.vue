@@ -26,13 +26,16 @@ const NAV = [
   // chính mình. Hiện cho MỌI vai trò: nhân viên khoa thấy yêu cầu khoa
   // mình, quản lý thấy toàn viện; server (`portal_yeu_cau_cua_toi` +
   // `pham_vi_don()`) đã lo phạm vi, mục nav không cần v-if theo vai trò.
-  { to: '/yeu-cau', icon: '📋', label: 'Yêu cầu của tôi', short: 'Yêu cầu', key: 'yeu-cau' },
-  // Man luong duyet (Task 5) — hàng chờ của quản lý. `requireQuanLy: true`
-  // lọc ở `navItems` bên dưới, ĐÚNG khoá `me.la_quan_ly` — KHÔNG tự suy từ
-  // `vai_tro === 'Quản lý'`. Lý do: kế hoạch sau thêm uỷ quyền tạm thời,
-  // khi đó một Nhân viên khoa đang được uỷ quyền vẫn phải thấy mục này —
-  // so chuỗi vai_tro sẽ bỏ sót và gãy lặng lẽ.
-  { to: '/duyet', icon: '✅', label: 'Duyệt', short: 'Duyệt', key: 'duyet', duyet: true, requireQuanLy: true },
+  //
+  // Chủ đầu tư chốt 03/09/2026 — tên là "Danh sách đơn hàng" (trước là
+  // "Yêu cầu của tôi"). Chỉ CHỮ đổi: đường `/yeu-cau`, tên route và mọi
+  // định danh trong mã giữ nguyên — đổi đường là thêm một cặp chuyển
+  // hướng nữa cho đúng một thay đổi mà người dùng chỉ thấy ở nhãn.
+  //
+  // `duyet: true` — badge số phiếu chờ duyệt SANG mục này cùng lúc màn
+  // `/duyet` nghỉ. Nó vẫn là tín hiệu riêng của quản lý (xem
+  // `hienBadgeDuyet` bên dưới), chỉ không còn một cửa riêng để dẫn tới.
+  { to: '/yeu-cau', icon: '📋', label: 'Danh sách đơn hàng', short: 'Đơn hàng', key: 'yeu-cau', duyet: true },
   { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
   { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
   // Brief 2026-08-15 (trang thông báo) — mục nav MỚI, badge = số chưa đọc.
@@ -54,23 +57,30 @@ const NAV = [
 const BNAV = [
   { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
   { to: '/dat-hang', icon: '🛒', short: 'Đặt hàng', key: 'dat-hang' },
-  { to: '/yeu-cau', icon: '📋', short: 'Yêu cầu', key: 'yeu-cau' },
+  { to: '/yeu-cau', icon: '📋', short: 'Đơn hàng', key: 'yeu-cau' },
   { to: '/kho', icon: '🏭', short: 'Kho', key: 'kho' },
   { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile', thongBao: true },
 ]
 
 const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
 const chuaDocThongBao = computed(() => store.chuaDocThongBao)
-const choDuyetCount = computed(() => store.choDuyetCount)
 // Việc (e) — badge hiện "200+" khi hàng chờ chạm trần một lời gọi. Con số
 // trần trụi "200" là con số SAI đọc như con số đúng: quản lý duyệt hết 200
 // phiếu rồi tưởng xong việc.
 const choDuyetNhan = computed(() => `${store.choDuyetCount}${store.choDuyetBiCat ? '+' : ''}`)
 
-// Man luong duyet (Task 5) — mục "Duyệt" chỉ hiện cho `me.la_quan_ly`. Lọc
-// TẠI ĐÂY (computed, phản ứng theo `store.me`) thay vì v-if rải trong
-// template — cùng nguyên tắc "hành động là dữ liệu" của de-xuat-actions.js.
-const navItems = computed(() => NAV.filter((n) => !n.requireQuanLy || store.me?.la_quan_ly))
+// 03/09/2026 — mảng NAV không còn mục nào theo vai trò (mục "Duyệt" đã
+// nghỉ), nên `navItems` thôi lọc. CỐ Ý bỏ hẳn cờ `requireQuanLy` + bộ lọc
+// thay vì để chúng nằm lại "phòng khi cần": một bộ lọc không lọc gì, có
+// test canh, là thứ đọc như một chốt phân quyền còn sống.
+//
+// Thứ CÒN theo vai trò là BADGE số phiếu chờ duyệt — nói thẳng ở đây,
+// không dựa vào việc `capNhatChoDuyetCount()` tình cờ để `choDuyetCount`
+// bằng 0 cho nhân viên khoa. Một tín hiệu phân quyền suy ra từ "giá trị
+// mặc định tình cờ đúng" là thứ hỏng lặng lẽ vào ngày ai đó nạp con số
+// này từ một chỗ khác.
+const navItems = computed(() => NAV)
+const hienBadgeDuyet = computed(() => !!store.me?.la_quan_ly && !!store.choDuyetCount)
 
 function isActive(key) {
   const name = route.name || ''
@@ -80,19 +90,16 @@ function isActive(key) {
   // Task 11 — MỘT mục nav ôm CẢ BA route của một yêu cầu: danh sách gộp,
   // chi tiết đơn, chi tiết phiếu.
   //
-  // Việc (c) + C3 (giữ nguyên từ Task 4) — màn chi tiết phiếu là ĐÍCH
-  // CHUNG của HAI mục nav. Nó sáng ở mục nào là do NƠI ĐÃ TỚI quyết định,
-  // đọc từ `?tu=` mà danh sách nguồn ghi vào lúc điều hướng (xem
-  // `quayLaiTo` ở DeXuatDetail.vue). Thiếu vế này thì quản lý mở phiếu từ
-  // /duyet lại thấy "Yêu cầu của tôi" sáng.
+  // Việc (c) + C3 — màn chi tiết phiếu từng là ĐÍCH CHUNG của HAI mục nav,
+  // nên nó phải hỏi `?tu=` để biết sáng ở đâu. Từ 03/09/2026 chỉ còn MỘT
+  // mục, nên câu hỏi đó không còn nữa.
   if (key === 'yeu-cau') {
-    return (
-      name === 'yeu-cau'
-      || name === 'order-detail'
-      || (name === 'de-xuat-detail' && route.query.tu !== 'duyet')
-    )
+    // 03/09/2026 — vế `route.query.tu !== 'duyet'` đã bỏ cùng mục nav
+    // "Duyệt". Giữ lại thì một link CŨ mang `?tu=duyet` (thông báo đã gửi
+    // đi, tab được ghim) mở ra không có mục nav nào sáng — mục nó từng
+    // sáng thì không còn, mục còn lại thì tự loại mình.
+    return name === 'yeu-cau' || name === 'order-detail' || name === 'de-xuat-detail'
   }
-  if (key === 'duyet') return name === 'duyet' || (name === 'de-xuat-detail' && route.query.tu === 'duyet')
   if (key === 'kho') {
     return [
       'kho', 'kho-import', 'kho-nhap', 'kho-nhap-detail', 'kho-xuat', 'kho-xuat-detail',
@@ -122,17 +129,20 @@ onMounted(async () => {
     // một lần gọi thất bại.
   }
 
-  // Man luong duyet (Task 5) — nạp `me` ở SHELL (không đợi view con): mục
-  // nav "Duyệt" và badge số phiếu chờ hiện trên MỌI trang, không riêng gì
-  // `/duyet`. Hai lời gọi ("Chờ duyệt" + "Chờ duyệt sửa") và luật phát hiện
-  // bị cắt nằm ở `cho-duyet.js` — dùng chung với /duyet và màn chi tiết, để
-  // ba nơi không trôi khỏi nhau (việc (e)).
+  // Man luong duyet (Task 5) — nạp `me` ở SHELL (không đợi view con): badge
+  // số phiếu chờ duyệt hiện trên MỌI trang. Hai lời gọi ("Chờ duyệt" +
+  // "Chờ duyệt sửa") và luật phát hiện bị cắt nằm ở `cho-duyet.js` — dùng
+  // chung với màn chi tiết, để hai nơi không trôi khỏi nhau (việc (e)).
+  //
+  // 03/09/2026 — bộ hai trạng thái mà `cho-duyet.js` đếm ĐÚNG BẰNG bộ mà
+  // chip `cho_duyet` lọc ra (`_sql_giai_doan()` gom cả hai vào một khoá),
+  // nên badge và đích nó dẫn tới nói cùng một con số.
   try {
     if (!store.me) store.setMe(await api.call('portal_me'))
     await capNhatChoDuyetCount(store)
   } catch (e) {
-    // Badge/mục nav chỉ là gợi ý phụ ở tầng shell — KHÔNG chặn cả trang,
-    // view `/duyet` tự tải lại dữ liệu thật khi khách vào đó. Nhưng cũng
+    // Badge chỉ là gợi ý phụ ở tầng shell — KHÔNG chặn cả trang, danh sách
+    // đơn hàng tự tải dữ liệu thật khi khách vào đó. Nhưng cũng
     // KHÔNG rơi im lặng: `catch {}` trần ở đây từng là lý do một tên endpoint
     // gõ sai làm badge biến mất trên mọi trang mà không để lại dấu vết nào.
     console.warn('Không nạp được số phiếu chờ duyệt cho badge nav:', e)
@@ -154,7 +164,7 @@ onMounted(async () => {
         >
           <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
           <span v-if="n.thongBao && chuaDocThongBao" class="cartn">{{ chuaDocThongBao }}</span>
-          <span v-if="n.duyet && choDuyetCount" class="cartn">{{ choDuyetNhan }}</span>
+          <span v-if="n.duyet && hienBadgeDuyet" class="cartn">{{ choDuyetNhan }}</span>
         </router-link>
       </nav>
       <!-- Chủ đầu tư chốt 25/08 — dòng dưới là TÊN TÀI KHOẢN, không phải mã

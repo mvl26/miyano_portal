@@ -69,19 +69,24 @@ Menu bên trái (trên điện thoại nằm ở thanh dưới):
 |---|---|
 | 🏠 **Tổng quan** | Nhìn nhanh tình hình: đơn, công nợ, hợp đồng |
 | 🛒 **Đặt hàng** | Chọn hàng, bỏ vào giỏ và gửi đi |
-| 📋 **Yêu cầu của tôi** | Theo dõi từ lúc soạn tới lúc nhận hàng, xem chi tiết, kiểm hàng |
-| ✅ **Duyệt** | Hàng chờ duyệt *(chỉ quản lý đơn vị nhìn thấy)* |
+| 📋 **Danh sách đơn hàng** | Theo dõi từ lúc soạn tới lúc nhận hàng, xem chi tiết, duyệt, kiểm hàng |
 | 🏭 **Kho của tôi** | Quản lý kho nội bộ *(chỉ khách đã mở kho)* |
 | 🧾 **Hoá đơn & công nợ** | Hoá đơn, hạn thanh toán, hoá đơn điện tử |
 | 🔔 **Thông báo** | Việc mới, có số đỏ khi chưa đọc |
 | 🏥 **Hồ sơ đơn vị** | Thông tin đơn vị, địa chỉ, hợp đồng |
 
-**Tám mục** với quản lý đơn vị, **bảy** với nhân viên khoa (không có *Duyệt*).
+**Bảy mục** cho mọi vai trò.
 
-> **Nếu bạn quen bản cũ:** ba mục *Giỏ hàng*, *Đơn hàng của tôi* và *Đề xuất mua*
-> không còn nữa. Giỏ hàng nay là bước 2 ngay trong màn **Đặt hàng**; hai danh sách
-> kia gộp thành **Yêu cầu của tôi**. Link cũ trong thông báo và trong trình duyệt
-> vẫn bấm được — chúng tự chuyển sang màn mới.
+> **Nếu bạn quen bản cũ:** bốn mục *Giỏ hàng*, *Đơn hàng của tôi*, *Đề xuất mua*
+> và *Duyệt* không còn nữa. Giỏ hàng nay là bước 2 ngay trong màn **Đặt hàng**;
+> ba mục còn lại gộp thành **Danh sách đơn hàng** (tên cũ: *Yêu cầu của tôi*).
+> Link cũ trong thông báo và trong trình duyệt vẫn bấm được — chúng tự chuyển
+> sang màn mới.
+
+> **Quản lý duyệt ở đâu?** Mở **Danh sách đơn hàng**, bấm chip **Chờ duyệt** —
+> đó là toàn bộ hàng chờ của bạn (gồm cả đơn xin sửa số lượng), lọc thêm được
+> theo **khoa phòng**. Trên mục menu này còn một **số đỏ** đếm số đơn đang chờ
+> bạn. Bấm vào một đơn để xem chi tiết và **duyệt ngay tại đó**.
 
 > **Phân trang**: mọi danh sách đều có ô chọn **10 / 20 / 50** dòng mỗi trang ở
 > cuối bảng. Lựa chọn của bạn được nhớ lại cho lần sau.
@@ -166,7 +171,7 @@ Rồi bấm nút cuối màn. **Nút đó ghi gì là tuỳ vai của bạn:**
 | **Nhân viên khoa** | **Gửi duyệt** | Yêu cầu được cấp mã và chuyển tới quản lý đơn vị. Duyệt xong đơn mới sang Miyano |
 | **Quản lý đơn vị** | **Đặt hàng** | Đơn sang Miyano ngay trong một lần bấm — bạn vốn là người duyệt. Hệ thống vẫn tự lưu lại một yêu cầu đã duyệt đứng sau để sau này còn tra được |
 
-Nút **Lưu nháp** để soạn dở rồi quay lại sau. Bản nháp nằm ở **Yêu cầu của tôi**,
+Nút **Lưu nháp** để soạn dở rồi quay lại sau. Bản nháp nằm ở **Danh sách đơn hàng**,
 giai đoạn *Nháp*.
 
 > Bấm nút gửi hai lần (mạng chậm, lỡ tay) **không** tạo hai đơn — hệ thống nhận
@@ -200,7 +205,7 @@ cho phần *Chờ báo giá*. Hệ thống không tự tách hộ, vì tách đ�
 đồng lẫn hàng chờ báo giá.
 
 Khi Miyano báo giá xong, bạn nhận **thông báo trên cổng** (chuông 🔔) và đơn
-chuyển sang trạng thái **"Chờ bạn đồng ý"**. Ở màn **Yêu cầu của tôi** nó nằm ở
+chuyển sang trạng thái **"Chờ bạn đồng ý"**. Ở màn **Danh sách đơn hàng** nó nằm ở
 chip **Chờ quý vị đồng ý** — nghĩa là *giá đã về, đang chờ bạn trả lời*. Mở đơn, đầu
 trang có khối màu cam:
 
@@ -227,7 +232,7 @@ Bốn điều cần biết:
 
 ---
 
-## A5. Theo dõi — "Yêu cầu của tôi"
+## A5. Theo dõi — "Danh sách đơn hàng"
 
 **Một danh sách cho cả vòng đời.** Từ lúc bạn còn đang soạn tới lúc hàng về, yêu
 cầu của bạn nằm **đúng một dòng ở đúng một chỗ** — nó không nhảy sang màn khác khi
@@ -702,7 +707,7 @@ Hẹn lại nhiều lần được: **mỗi lần hẹn là một thông báo ri
 ## C1. Đơn hàng
 
 Đây là trạng thái Miyano nhìn thấy trên Desk. Khách nhìn thấy **giai đoạn** gộp
-hơn ở màn *Yêu cầu của tôi* — đối chiếu ở cột thứ tư.
+hơn ở màn *Danh sách đơn hàng* — đối chiếu ở cột thứ tư.
 
 | Trạng thái (Desk) | Ai đang giữ việc | Bước tiếp | Khách thấy |
 |---|---|---|---|

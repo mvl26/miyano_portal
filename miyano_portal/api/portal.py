@@ -1106,7 +1106,7 @@ def _sql_giai_doan(tt: str, so: str) -> str:
 
 
 @frappe.whitelist()
-def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
+def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -> dict:
     """QĐ-G11 — danh sách HỢP NHẤT phiếu đề xuất + đơn hàng, MỘT dòng cho
     mỗi yêu cầu, ở bất kỳ giai đoạn nào của dòng đời.
 
@@ -1133,8 +1133,19 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
     ĐÚNG MỘT trang đã tải chính là hồi quy đã phải vá cho `Orders.vue`
     (brief 2026-08-16).
 
-    "Duyệt" (`/duyet`) KHÔNG gộp vào đây: đó là HÀNG CHỜ VIỆC của quản lý,
-    khác mục đích với *danh sách của tôi*.
+    03/09/2026 — màn `/duyet` (hàng chờ riêng của quản lý) đã NGHỈ: việc
+    duyệt vốn nằm ở màn CHI TIẾT phiếu, `/duyet` chỉ là một danh sách thứ
+    hai của cùng bộ dữ liệu. Hàng chờ ấy nay là chính danh sách này lọc
+    `giai_doan="cho_duyet"` — cùng bộ trạng thái, vì `_sql_giai_doan()` gom
+    CẢ "Chờ duyệt" LẪN "Chờ duyệt sửa" vào khoá đó, đúng hai trạng thái mà
+    `frontend/src/cho-duyet.js` đếm cho badge nav.
+
+    `khoa_phong` sang từ màn đó cùng lúc (yêu cầu gốc chủ đầu tư ghi trong
+    `DuyetList.vue`: "quản lý sẽ filter theo khoa … để biết khoa nào đang
+    mua cái gì mà duyệt"). Nó CHỈ THU HẸP: bộ lọc phạm vi (`dk_phieu`/
+    `dk_don`) đã kẹp trước, nên một nhân viên khoa gõ tay khoa của người
+    khác nhận về RỖNG, không phải dữ liệu khoa đó. Lọc ở SQL cạnh
+    `giai_doan`, không ở client — cùng lý do đã ghi ngay trên.
     """
     # Ruling P54 — nhận KHOÁ, và nhận cả nhãn CŨ qua bí danh (link `?chip=`
     # đã gửi cho bệnh viện, script bên ngoài viết trước 26/08/2026). Chuẩn
@@ -1201,16 +1212,27 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
     """
     trong = nhanh_phieu + (f" union all {nhanh_don}" if co_nhanh_don else "")
 
-    dk_giai_doan = ""
+    # Hai bộ lọc GIAO nhau, dựng cùng một chỗ: quản lý mở chip "Chờ duyệt"
+    # rồi chọn khoa là ca dùng chính sau khi màn `/duyet` nghỉ. Áp ở lớp
+    # NGOÀI (trên `t`) chứ không nhét vào `dk_phieu`/`dk_don`: nhánh đơn
+    # lấy khoa từ một cột khác (`so.custom_khoa_phong`, có thể không tồn
+    # tại trên site chưa chạy patch v1_23 — khi đó `cot_khoa_don` là
+    # `null`), nên một điều kiện duy nhất trên cột đã hợp nhất `t.khoa_
+    # phong` là nơi duy nhất luật này không phải viết hai lần.
+    dieu_kien = []
     if giai_doan:
         tham_so["gd"] = giai_doan
-        dk_giai_doan = " where t.giai_doan = %(gd)s"
+        dieu_kien.append("t.giai_doan = %(gd)s")
+    if khoa_phong:
+        tham_so["kp"] = khoa_phong
+        dieu_kien.append("t.khoa_phong = %(kp)s")
+    dk_ngoai = (" where " + " and ".join(dieu_kien)) if dieu_kien else ""
 
     tong = frappe.db.sql(
-        f"select count(*) from ({trong}) t{dk_giai_doan}", tham_so
+        f"select count(*) from ({trong}) t{dk_ngoai}", tham_so
     )[0][0]
     rows = frappe.db.sql(
-        f"""select * from ({trong}) t{dk_giai_doan}
+        f"""select * from ({trong}) t{dk_ngoai}
             order by t.thoi_diem desc, t.khoa_sap_xep desc
             limit %(limit)s offset %(start)s""",
         {**tham_so, "limit": int(limit), "start": int(start)},

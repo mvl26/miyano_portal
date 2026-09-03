@@ -139,6 +139,32 @@ def de_xuat_gui_duyet(ten) -> dict:
 
 
 @frappe.whitelist()
+def de_xuat_thu_hoi(ten) -> dict:
+	"""Chủ đầu tư 03/09/2026 — "NV sửa được đơn ở trạng thái Chờ duyệt".
+	Đường đi: thu hồi về Nháp → sửa ở màn Đặt hàng (`de_xuat_luu_nhap`) →
+	`de_xuat_gui_duyet` lại. Lý do KHÔNG nới guard khoá cột đề xuất nằm ở
+	`PortalDeXuatMua.thu_hoi()` và `test_de_xuat_thu_hoi.py`.
+
+	CHỈ CHỦ PHIẾU — chốt owner-only viết riêng SAU `_phieu_cua_toi()`, đúng
+	khuôn `de_xuat_gui_duyet` và vì đúng lý do đó: `_phieu_cua_toi()` một
+	mình cho cả quản lý LẪN đồng nghiệp cùng khoa đi qua.
+
+	Quản lý KHÔNG thu hồi hộ được: rút một phiếu khỏi hàng chờ mà không để
+	lại lời nào chính là từ chối không ghi lý do — `de_xuat_tu_choi` đã có
+	cho việc đó và nó bắt buộc lý do. Quản lý cũng không mất khả năng nào:
+	họ sửa số lượng THẲNG lúc duyệt qua `dieu_chinh` (§5.3). Một quản lý tự
+	lập phiếu cho mình vẫn thu hồi được — họ CHÍNH LÀ chủ phiếu."""
+	doc = _phieu_cua_toi(ten)
+	if doc.owner != frappe.session.user:
+		raise frappe.PermissionError(
+			"Chỉ chủ phiếu (người tạo) mới thu hồi được. Quản lý muốn trả "
+			"phiếu về cho khoa thì dùng Từ chối, kèm lý do."
+		)
+	doc.thu_hoi()
+	return {"name": doc.name}
+
+
+@frappe.whitelist()
 def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
 	"""SỬA SAU TASK 4 — KHÔNG dùng `frappe.get_list` tràn được.
 

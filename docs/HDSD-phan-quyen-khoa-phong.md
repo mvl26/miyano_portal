@@ -1,12 +1,13 @@
 # Hướng dẫn thao tác — Phân quyền theo khoa phòng trên cổng khách hàng
 
-App `miyano_portal` · Cập nhật **26/08/2026** · Áp dụng từ bản nền (bước 1–4)
+App `miyano_portal` · Cập nhật **03/09/2026** · Áp dụng từ bản nền (bước 1–4)
 
 **Tài liệu này dành cho nhân viên Miyano** làm việc trên Desk (`/app`). Vòng
 "khoa yêu cầu → quản lý duyệt → đơn sang Miyano" nay **chạy trọn vẹn trên cổng
-khách**: nhân viên khoa tự lập yêu cầu ở màn **Đặt hàng**, quản lý duyệt ở màn
-**Duyệt**, cả hai theo dõi ở màn **Yêu cầu của tôi** — xem §4, mục "Thao tác
-trên màn hình". Màn quản lý thành viên vẫn chưa làm (§7 mục 2).
+khách**: nhân viên khoa tự lập yêu cầu ở màn **Đặt hàng**, quản lý duyệt **ngay
+trên màn chi tiết đơn**, cả hai theo dõi ở màn **Danh sách đơn hàng** — xem §4,
+mục "Thao tác trên màn hình". (Màn **Duyệt** riêng đã gỡ 03/09/2026 — hàng chờ
+nay là chip **Chờ duyệt** của chính danh sách đó.) Màn quản lý thành viên vẫn chưa làm (§7 mục 2).
 
 ---
 
@@ -238,7 +239,7 @@ ghi đúng việc đang làm: "Xoá" ở Nháp, "Huỷ phiếu" từ Chờ duy�
 ### Bệnh viện nhìn thấy vòng đời đó như thế nào
 
 Trên cổng, khách không thấy "phiếu" và "đơn" là hai thứ. Họ thấy **một** danh sách
-**Yêu cầu của tôi**, mỗi yêu cầu đúng một dòng từ lúc soạn tới lúc nhận hàng:
+**Danh sách đơn hàng**, mỗi yêu cầu đúng một dòng từ lúc soạn tới lúc nhận hàng:
 
 | Giai đoạn | Nghĩa là | Ai đang giữ việc |
 |---|---|---|
@@ -356,24 +357,25 @@ cho tới khi Miyano đặt Mã ngắn. Mã tra cứu là tiện ích đối chi
 Phần trên nói *luật*. Phần này nói *bấm ở đâu* — và **những gì màn hình chưa làm
 được**, để người triển khai không hứa nhầm với bệnh viện.
 
-**Bốn màn của luồng này trên cổng khách:**
+**Ba màn của luồng này trên cổng khách:**
 
 | Màn | Ai thấy | Làm được gì |
 |---|---|---|
 | **Đặt hàng** | mọi vai trò | Tìm hàng, bỏ vào giỏ, điền lý do yêu cầu, ngày giao mong muốn, địa chỉ giao — rồi **Gửi duyệt** (nhân viên khoa) hoặc **Đặt hàng** (quản lý). Có nút **Lưu nháp** để soạn dở |
-| **Yêu cầu của tôi** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy yêu cầu **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ quý vị đồng ý / Đã giao / Từ chối / Đã huỷ`) |
-| **Duyệt** | **chỉ quản lý** | Hàng chờ: gộp `Chờ duyệt` + `Chờ duyệt sửa`, lọc theo khoa phòng. Con số trên mục menu là số yêu cầu đang chờ |
+| **Danh sách đơn hàng** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy đơn **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ quý vị đồng ý / Đã giao / Từ chối / Đã huỷ`), quản lý lọc thêm được theo **khoa phòng**. Chip **Chờ duyệt** CHÍNH LÀ hàng chờ của quản lý (gộp `Chờ duyệt` + `Chờ duyệt sửa`); con số đỏ trên mục menu là số đơn đang chờ, **chỉ quản lý thấy** |
 | **Chi tiết yêu cầu** | ai mở được yêu cầu đó | Đầu phiếu (truy vết), bảng dòng hàng kèm nhãn giá từng dòng, và thanh nút hành động theo trạng thái + vai trò |
 
-**Toàn bộ menu của khách nay còn 8 mục** (7 với nhân viên khoa — họ không có mục
-*Duyệt*): Tổng quan · Đặt hàng · Yêu cầu của tôi · Duyệt · Kho của tôi · Hoá đơn &
-công nợ · Thông báo · Hồ sơ đơn vị. Ba mục cũ *Giỏ hàng*, *Đơn hàng của tôi*, *Đề
-xuất mua* đã biến mất; đường dẫn cũ của chúng tự chuyển sang màn mới nên link trong
-thông báo đã gửi đi và bookmark của khách vẫn dùng được.
+**Toàn bộ menu của khách nay còn 7 mục, giống nhau cho mọi vai trò**: Tổng quan ·
+Đặt hàng · Danh sách đơn hàng · Kho của tôi · Hoá đơn & công nợ · Thông báo · Hồ sơ
+đơn vị. Bốn mục cũ *Giỏ hàng*, *Đơn hàng của tôi*, *Đề xuất mua*, *Duyệt* đã biến
+mất; đường dẫn cũ của chúng tự chuyển sang màn mới nên link trong thông báo đã gửi
+đi và bookmark của khách vẫn dùng được (`/duyet` chuyển sang danh sách đơn hàng đã
+lọc sẵn chip **Chờ duyệt**).
 
 **Quản lý sửa số lượng rồi duyệt — thao tác chính, làm ở màn chi tiết:**
 
-1. Vào **Duyệt** → chọn khoa nếu muốn → bấm vào phiếu.
+1. Vào **Danh sách đơn hàng** → chip **Chờ duyệt** → chọn khoa nếu muốn → bấm
+   vào đơn.
 2. Phiếu ở trạng thái **Chờ duyệt** thì cột **SL duyệt** là **ô nhập được**, và mỗi
    dòng có thêm một ô **ghi chú của quản lý**. Cột **SL đề xuất** không sửa được —
    khoá vĩnh viễn từ lúc khoa bấm Gửi duyệt.
@@ -389,9 +391,32 @@ thông báo đã gửi đi và bookmark của khách vẫn dùng được.
 Ví dụ đúng tình huống hay gặp: khoa xin 100 hộp, quản lý chỉ đồng ý 40 → gõ `40` vào
 ô SL duyệt của dòng đó, bấm Duyệt. Đơn sang Miyano mang số **40**.
 
-**Nút "Quay lại"** đưa về đúng danh sách đã tới, giữ nguyên bộ lọc khoa (hoặc chip
-trạng thái) đang mở — duyệt liên tiếp nhiều phiếu của một khoa không phải chọn lại
+**Nút "Quay lại"** đưa về đúng danh sách đã tới, giữ nguyên bộ lọc khoa **và** chip
+trạng thái đang mở — duyệt liên tiếp nhiều phiếu của một khoa không phải chọn lại
 bộ lọc sau mỗi phiếu.
+
+### Nhân viên khoa sửa đơn đang "Chờ duyệt"
+
+Gõ nhầm số rồi mới bấm Gửi duyệt là chuyện thường. Từ 03/09/2026, **chủ đơn** (đúng
+người đã lập) mở đơn ở trạng thái **Chờ duyệt** sẽ thấy nút **Thu hồi để sửa**:
+
+1. Bấm nút → hộp xác nhận nói rõ đơn sẽ **về Nháp** và **rời hàng chờ của quản lý**.
+2. Hệ thống đưa thẳng sang màn **Đặt hàng** với đúng đơn đó, sửa thoải mái.
+3. Sửa xong bấm **Gửi duyệt** lại. **Mã đơn giữ nguyên** — quản lý và khoa vẫn gọi
+   tên nó bằng đúng mã cũ.
+
+Vì sao phải đi vòng qua Nháp thay vì sửa tại chỗ: cột **Số lượng đề xuất** khoá
+vĩnh viễn từ lúc Gửi duyệt (đó là cách hệ thống trả lời "khoa xin gì / duyệt gì").
+Thu hồi là cách mở khoá đó mà không phá phép so sánh ấy.
+
+**Ai KHÔNG có nút này:** đồng nghiệp cùng khoa, và quản lý (trên đơn của người
+khác). Quản lý muốn trả đơn về cho khoa thì dùng **Từ chối** — bắt buộc ghi lý do,
+để khoa biết vì sao. Quản lý cũng không cần nút này: họ sửa số lượng thẳng ở cột
+**SL duyệt** ngay trên màn chi tiết.
+
+**Quản lý đang mở đúng đơn vừa bị thu hồi** rồi bấm Duyệt sẽ nhận báo lỗi "không
+chuyển được phiếu từ Nháp sang Đã duyệt" — đơn đã rời hàng chờ, không có gì bị
+duyệt nhầm.
 
 **Nhân viên khoa xin sửa số lượng** (sau khi Miyano đã báo giá): mở phiếu **Đã
 duyệt** → nút **Xin sửa số lượng** → nhập số mong muốn từng dòng → gửi. Cũng đúng

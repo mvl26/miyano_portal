@@ -24,13 +24,15 @@ export const store = reactive({
   setChuaDocThongBao(n) {
     this.chuaDocThongBao = n
   },
-  // Man /duyet (Task 5) — badge số phiếu đang chờ quản lý duyệt (gộp "Chờ
-  // duyệt" + "Chờ duyệt sửa") trên mục menu. Nạp ở App.vue (mọi trang, chỉ
-  // khi `la_quan_ly`) — cùng khuôn `chuaDocThongBao` ở trên.
+  // Badge số phiếu đang chờ quản lý duyệt (gộp "Chờ duyệt" + "Chờ duyệt
+  // sửa") trên mục menu "Danh sách đơn hàng" — màn `/duyet` riêng đã nghỉ
+  // 03/09/2026. Nạp ở App.vue (mọi trang, chỉ khi `la_quan_ly`) — cùng
+  // khuôn `chuaDocThongBao` ở trên.
   choDuyetCount: 0,
   // Việc (e) — `de_xuat_danh_sach` cắt ở `limit` và KHÔNG trả tổng số. Khi
   // số dòng chạm trần, con số badge là SÀN chứ không phải sự thật; cờ này
-  // cho badge hiện "200+" thay vì "200" và cho màn /duyet nói ra một dòng.
+  // cho badge hiện "200+" thay vì "200". Danh sách thật (`portal_yeu_cau_
+  // cua_toi`) đếm `tong` chính xác trong SQL, không thừa hưởng trần này.
   choDuyetBiCat: false,
   setChoDuyetCount(n, biCat = false) {
     this.choDuyetCount = n

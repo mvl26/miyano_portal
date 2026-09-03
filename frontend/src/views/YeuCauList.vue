@@ -1,5 +1,7 @@
 <script setup>
-// Task 11 (QĐ-G11, chủ đầu tư chốt 21/08/2026) — "Yêu cầu của tôi".
+// Task 11 (QĐ-G11, chủ đầu tư chốt 21/08/2026) — "Danh sách đơn hàng"
+// (tên do chủ đầu tư chốt 03/09/2026; trước đó là "Yêu cầu của tôi" — chỉ
+// CHỮ đổi, đường `/yeu-cau` và mọi định danh trong mã giữ nguyên).
 //
 // Màn này NUỐT hai màn cũ: `Orders.vue` (`/orders`, danh sách Sales Order)
 // và `DeXuatList.vue` (`/de-xuat`, danh sách phiếu đề xuất). Lý do gộp:
@@ -12,10 +14,14 @@
 // sinh ra từ nó là MỘT dòng — server đã gộp (`portal_yeu_cau_cua_toi`), client
 // KHÔNG tự ghép hai danh sách.
 //
-// "Duyệt" (`/duyet`) KHÔNG gộp vào đây: đó là HÀNG CHỜ VIỆC của quản lý,
-// khác mục đích với *danh sách của tôi*. Gộp hai thứ khác mục đích chỉ vì
-// chúng cùng kiểu dữ liệu là lặp lại đúng lỗi task này đang sửa.
-import { ref, watch, onMounted } from 'vue'
+// 03/09/2026 — màn duyệt riêng (`/duyet`) ĐÃ NGHỈ và hàng chờ của quản lý
+// nay CHÍNH LÀ màn này lọc chip "Chờ duyệt". Task 11 từng cố ý không gộp
+// hai thứ đó ("hàng chờ việc" khác "danh sách của tôi"); điều đổi ý kiến
+// là việc DUYỆT vốn đã nằm ở màn CHI TIẾT chứ không ở màn danh sách, nên
+// `/duyet` không phải một chỗ làm việc — nó chỉ là bản sao thứ hai của
+// cùng bộ dữ liệu, kèm một bộ lọc khoa mà màn này thiếu. Bộ lọc đó đã
+// mang sang (`khoaFilter` bên dưới), nên không còn gì ở đó để mất.
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate, giaiDoanBadge, nhanGiaiDoan, khoaGiaiDoan, GIAI_DOAN } from '../format'
@@ -31,6 +37,13 @@ const loading = ref(true)
 const error = ref('')
 const rows = ref([])
 const filter = ref('') // '' = Tất cả
+// Mang sang từ `DuyetList.vue` (03/09/2026). Yêu cầu gốc chủ đầu tư ghi ở
+// đó: "quản lý sẽ filter theo khoa … cốt lõi là để quản lý biết được khoa
+// nào đang mua cái gì mà để duyệt". `'' = Tất cả các khoa`.
+//
+// CHỈ hiện cho quản lý: nhân viên khoa đã bị `pham_vi_don()` kẹp về đúng
+// khoa mình, một ô lọc chỉ có một lựa chọn là một ô hỏi câu đã trả lời rồi.
+const khoaFilter = ref('')
 const trang = ref(1)
 const soDong = ref(20)
 const tong = ref(0)
@@ -45,14 +58,20 @@ const tong = ref(0)
 // `nhanGiaiDoan()`. `''` đứng đầu = chip "Tất cả".
 const FILTERS = ['', ...GIAI_DOAN]
 
-// Khoa phòng chỉ có MÃ (`KP-00001`) trong payload — cùng khuôn
-// DeXuatList.vue/PhieuXuat.vue: nạp danh mục khoa phòng của kho rồi tự map
+// Khoa phòng chỉ có MÃ (`KP-00001`) trong payload — nạp danh mục rồi tự map
 // mã -> tên. Best-effort: một khách chưa mở kho vẫn phải xem được danh
 // sách, chỉ mất phần dịch tên khoa.
+//
+// 03/09/2026 — ĐỔI sang `kho_khoa_phong_list_khach` (Task 12b), cùng lý do
+// `ThietBiModal.vue` đã đổi: bản cũ (`kho_khoa_phong_list`) suy kho qua
+// `get_portal_kho()` và ném lỗi cho bệnh viện CHƯA MỞ KHO. Trước đây hậu
+// quả chỉ là cột khoa hiện mã thô; từ bản này danh mục còn NUÔI Ô LỌC KHOA
+// của quản lý, và một ô lọc rỗng không nói được rằng nó rỗng vì thiếu kho.
+// Endpoint mới suy khách thẳng từ phiên và tự lọc theo vai trò.
 const khoaPhongList = ref([])
 async function loadKhoaPhongList() {
   try {
-    khoaPhongList.value = await api.callKho('kho_khoa_phong_list', { ca_inactive: 1 })
+    khoaPhongList.value = await api.callKho('kho_khoa_phong_list_khach', { ca_inactive: 1 })
   } catch (e) {
     // Im lặng — cột khoa phòng rơi về hiện mã thô, không chặn cả danh sách.
   }
@@ -62,6 +81,17 @@ function tenKhoa(ma) {
   const k = khoaPhongList.value.find((x) => x.name === ma)
   return k ? k.ten_khoa_phong : ma
 }
+
+// Danh mục ĐẦY ĐỦ của bệnh viện, KHÔNG suy từ `rows`: `DuyetList.vue` dựng
+// ô lọc từ chính các phiếu đang hiện vì nó tải một phát 200 dòng. Màn này
+// phân trang 20 dòng — suy từ trang đang xem sẽ cho một ô lọc mà nội dung
+// đổi mỗi lần sang trang, và khoa nào không có dòng nào ở trang 1 thì không
+// lọc tới được.
+const khoaOptions = computed(() =>
+  khoaPhongList.value
+    .map((k) => ({ ma: k.name, ten: k.ten_khoa_phong || k.name }))
+    .sort((a, b) => a.ten.localeCompare(b.ten, 'vi'))
+)
 
 function pct(r) {
   return Math.round(Number(r.per_delivered || 0))
@@ -77,11 +107,15 @@ async function load() {
       // '' (chip "Tất cả") bị JSON.stringify loại khỏi body -> backend
       // nhận `giai_doan=None` -> không lọc.
       giai_doan: filter.value || undefined,
+      // Lọc ở SERVER, không trên trang đã tải: danh sách này phân trang, nên
+      // lọc phía client sẽ hiện 3 dòng và ngầm bảo khoa đó chỉ có 3 (đúng
+      // cái bẫy `DuyetList.vue` từng tự cảnh báo về trần `limit` của nó).
+      khoa_phong: khoaFilter.value || undefined,
     })
     rows.value = res?.rows || []
     tong.value = res?.tong || 0
   } catch (e) {
-    error.value = e.message || 'Không tải được danh sách yêu cầu.'
+    error.value = e.message || 'Không tải được danh sách đơn hàng.'
   } finally {
     loading.value = false
   }
@@ -90,11 +124,17 @@ async function load() {
 // Đổi chip -> về trang 1 (kết quả lọc mới có thể ít hơn trang đang xem).
 // Chip đang chọn sống trong URL để nút "Quay lại" của màn chi tiết dựng
 // lại được đúng nó (C3, giữ nguyên cơ chế của DeXuatList.vue).
-watch(filter, (f) => {
+watch([filter, khoaFilter], () => {
   trang.value = 1
-  router.replace({ name: 'yeu-cau', query: f ? { chip: f } : {} })
+  router.replace({
+    name: 'yeu-cau',
+    query: {
+      ...(filter.value ? { chip: filter.value } : {}),
+      ...(khoaFilter.value ? { khoa: khoaFilter.value } : {}),
+    },
+  })
 })
-watch([trang, soDong, filter], load)
+watch([trang, soDong, filter, khoaFilter], load)
 
 // SỬA được ⟺ đúng quyền `de_xuat_luu_nhap` phía server (owner HOẶC quản
 // lý). Client đoán khác server thì khách gõ xong mới ăn "Phiếu này không
@@ -126,7 +166,14 @@ function moYeuCau(r) {
     router.push({
       name: 'de-xuat-detail',
       params: { ten: r.de_xuat },
-      query: { tu: 'yeu-cau', ...(filter.value ? { chip: filter.value } : {}) },
+      query: {
+        tu: 'yeu-cau',
+        ...(filter.value ? { chip: filter.value } : {}),
+        // Nút "Quay lại" ở màn chi tiết dựng lại CẢ HAI bộ lọc — quản lý
+        // lọc khoa "Huyết học", mở phiếu, duyệt, quay lại mà rơi vào danh
+        // sách toàn viện là mất đúng chỗ họ đang đứng (bài học C3).
+        ...(khoaFilter.value ? { khoa: khoaFilter.value } : {}),
+      },
     })
     return
   }
@@ -156,6 +203,14 @@ onMounted(async () => {
     filter.value = chip
     daXepHangLoad = true
   }
+  // Cùng cơ chế cho bộ lọc khoa (`?khoa=`) — nó sống trong URL để nút "Quay
+  // lại" của màn chi tiết dựng lại đúng chỗ quản lý đang đứng, và để một
+  // link `/duyet` cũ (nay chuyển hướng kèm `?chip=cho_duyet`) vẫn ghép được
+  // với khoa nếu ai đó đã lưu cả hai.
+  if (route.query.khoa) {
+    khoaFilter.value = String(route.query.khoa)
+    daXepHangLoad = true
+  }
   if (!store.me) {
     try {
       store.setMe(await api.call('portal_me'))
@@ -171,17 +226,30 @@ onMounted(async () => {
   <div>
     <div class="topbar" v-if="!isMobile">
       <div>
-        <h2>Yêu cầu của tôi</h2>
+        <h2>Danh sách đơn hàng</h2>
         <div class="sub">
           {{ store.me?.la_quan_ly
-            ? 'Mọi yêu cầu của đơn vị — từ lúc còn là phiếu tới lúc nhận hàng'
-            : 'Mọi yêu cầu của khoa bạn — từ lúc còn là phiếu tới lúc nhận hàng' }}
+            ? 'Mọi đơn hàng của đơn vị — từ lúc còn là đề xuất tới lúc nhận hàng'
+            : 'Mọi đơn hàng của khoa bạn — từ lúc còn là đề xuất tới lúc nhận hàng' }}
         </div>
       </div>
       <router-link :to="{ name: 'dat-hang' }"><button class="btn">+ Đặt hàng</button></router-link>
     </div>
     <div v-else class="mb10">
       <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
+    </div>
+
+    <!-- Ô lọc khoa — CHỈ quản lý. Đứng TRÊN dải chip: quản lý chọn khoa
+         trước ("khoa nào đang mua gì"), rồi mới lọc giai đoạn trong khoa
+         đó. Mang từ `DuyetList.vue` sang cùng lúc màn đó nghỉ. -->
+    <div v-if="store.me?.la_quan_ly && khoaOptions.length" class="card mb10">
+      <div class="field" style="margin-bottom: 0; max-width: 320px">
+        <label>Khoa phòng</label>
+        <select v-model="khoaFilter">
+          <option value="">— Tất cả các khoa —</option>
+          <option v-for="k in khoaOptions" :key="k.ma" :value="k.ma">{{ k.ten }}</option>
+        </select>
+      </div>
     </div>
 
     <div class="chips">
@@ -203,7 +271,7 @@ onMounted(async () => {
          bảo "Khoa chưa có…" là hai câu trên cùng một màn nói hai phạm vi
          khác nhau, và câu sai là câu DUY NHẤT hiện khi màn trống. -->
     <div v-else-if="!rows.length" class="empty">
-      {{ store.me?.la_quan_ly ? 'Đơn vị chưa có yêu cầu nào.' : 'Khoa chưa có yêu cầu nào.' }}
+      {{ store.me?.la_quan_ly ? 'Đơn vị chưa có đơn hàng nào.' : 'Khoa chưa có đơn hàng nào.' }}
     </div>
 
     <!-- DESKTOP: bảng -->
@@ -211,7 +279,7 @@ onMounted(async () => {
       <table>
         <thead>
           <tr>
-            <th>Mã yêu cầu</th><th>Khoa phòng</th><th>Ngày yêu cầu</th>
+            <th>Mã đơn hàng</th><th>Khoa phòng</th><th>Ngày đặt</th>
             <th class="right">Giá trị</th><th style="min-width: 130px">Đã giao</th>
             <th>Giai đoạn</th><th></th>
           </tr>

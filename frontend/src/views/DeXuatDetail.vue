@@ -73,21 +73,36 @@ const coTheSuaNhap = computed(
   () => doc.value?.trang_thai === 'Nháp' && (doc.value?.owner === store.me?.user || store.me?.la_quan_ly)
 )
 
-// C3 — nút "Quay lại" phải quay về ĐÚNG NƠI ĐÃ TỚI. Trước bản này nó cứng
-// `/de-xuat`: quản lý mở /duyet, lọc khoa "Huyết học", duyệt phiếu, bấm Quay
-// lại → rơi vào một danh sách KHÁC, mất bộ lọc, phải đi vòng qua menu cho
-// từng phiếu trong tám phiếu.
+// C3 — nút "Quay lại" phải quay về ĐÚNG NƠI ĐÃ TỚI, kèm bộ lọc đang mở.
+// Trước bản này nó cứng `/de-xuat`: quản lý lọc khoa "Huyết học", duyệt
+// phiếu, bấm Quay lại → rơi vào một danh sách KHÁC, mất bộ lọc, phải đi
+// vòng qua menu cho từng phiếu trong tám phiếu.
 //
-// Dùng query (`?tu=`, `?khoa=`, `?chip=`) chứ KHÔNG `router.back()`: người
+// Dùng query (`?khoa=`, `?chip=`) chứ KHÔNG `router.back()`: người
 // dùng vào thẳng bằng URL (link trong thông báo, tab được ghim) không có
 // bước lịch sử nào để lùi — `back()` sẽ ném họ ra khỏi cổng. Query luôn
 // dựng lại được một đích ĐÚNG, kể cả khi lịch sử rỗng.
+//
+// 03/09/2026 — nhánh `?tu=duyet` đã bỏ cùng màn `/duyet`. Link CŨ mang
+// `?tu=duyet` (thông báo đã gửi đi, tab được ghim) KHÔNG hỏng: nó rơi vào
+// đúng nhánh còn lại và về danh sách đơn hàng. `?khoa=` vẫn được mang theo
+// — nay là bộ lọc khoa CỦA CHÍNH danh sách đó, nên một link cũ có sẵn tham
+// số này thậm chí còn dựng lại được nhiều hơn trước.
+//
+// `?tu=` (do `YeuCauList.vue`/`LapPhieu.vue` ghi) KHÔNG còn ai đọc từ bản
+// này — chỉ còn một mục nav và một danh sách để quay về. Giữ nguyên chỗ
+// ghi: nó vô hại, và bỏ đi là sửa ba nơi để đổi những URL đã phát ra ngoài.
 const quayLaiTo = computed(() => {
   const q = route.query
-  if (q.tu === 'duyet') return { name: 'duyet', query: q.khoa ? { khoa: String(q.khoa) } : {} }
-  return { name: 'yeu-cau', query: q.chip ? { chip: String(q.chip) } : {} }
+  return {
+    name: 'yeu-cau',
+    query: {
+      ...(q.chip ? { chip: String(q.chip) } : {}),
+      ...(q.khoa ? { khoa: String(q.khoa) } : {}),
+    },
+  }
 })
-const quayLaiNhan = computed(() => (route.query.tu === 'duyet' ? '← Về hàng chờ duyệt' : '← Quay lại'))
+const quayLaiNhan = computed(() => '← Quay lại')
 
 async function load() {
   loading.value = true
@@ -234,6 +249,7 @@ const TOAST_THANH_CONG = {
   de_xuat_huy: 'Đã huỷ phiếu.',
   de_xuat_duyet_sua: 'Đã đồng ý sửa số lượng — đơn hàng đã cập nhật.',
   de_xuat_tu_choi_sua: 'Đã từ chối yêu cầu xin sửa.',
+  de_xuat_thu_hoi: 'Đã thu hồi đơn về Nháp — sửa xong nhớ Gửi duyệt lại.',
 }
 
 async function chayHanhDong(action, extraArgs) {
@@ -244,8 +260,25 @@ async function chayHanhDong(action, extraArgs) {
     showToast(TOAST_THANH_CONG[action.method] || `Đã ${action.label}.`)
     // Xoá nháp thì phiếu không còn tồn tại nữa — quay lại danh sách thay vì
     // tải lại một chi tiết đã bị xoá.
-    if (action.method === 'de_xuat_xoa_nhap') {
+    // Thu hồi ĐỔI TRẠNG THÁI phiếu và rút nó khỏi hàng chờ của quản lý — nói
+  // trước hệ quả, vì "Sửa" trên các màn khác của cổng không làm điều đó.
+  if (action.method === 'de_xuat_thu_hoi') {
+    if (!window.confirm(
+      'Thu hồi đơn này về Nháp để sửa?\n\n'
+      + 'Đơn sẽ rời hàng chờ duyệt của quản lý. Mã đơn giữ nguyên; sửa xong '
+      + 'bạn phải bấm Gửi duyệt lại.'
+    )) return
+    return chayHanhDong(action)
+  }
+  if (action.method === 'de_xuat_xoa_nhap') {
       router.push(quayLaiTo.value)
+    } else if (action.method === 'de_xuat_thu_hoi') {
+      // Thu hồi KHÔNG phải một đích đến — nó là bước đầu của việc SỬA. Thả
+      // người dùng lại màn chỉ-đọc này (nơi không có ô nhập số lượng nào)
+      // là bắt họ tự tìm đường sang màn Đặt hàng, đúng thứ nút này tồn tại
+      // để làm hộ. Cùng lý do `YeuCauList.vue` đưa một dòng Nháp thẳng tới
+      // `/dat-hang/:ten` thay vì tới màn chi tiết.
+      router.push({ name: 'dat-hang', params: { ten: ten.value } })
     } else {
       argModalAction.value = null
       await load()
@@ -410,6 +443,16 @@ function onClickAction(action) {
   // toolbar này: xoá thật khỏi CSDL (khác "Huỷ phiếu" — bản ghi còn nguyên).
   // CHỈ thêm xác nhận cho method này — mọi when() khác của registry giữ
   // nguyên, đã được đối chiếu với máy trạng thái thật.
+  // Thu hồi ĐỔI TRẠNG THÁI phiếu và rút nó khỏi hàng chờ của quản lý — nói
+  // trước hệ quả, vì "Sửa" trên các màn khác của cổng không làm điều đó.
+  if (action.method === 'de_xuat_thu_hoi') {
+    if (!window.confirm(
+      'Thu hồi đơn này về Nháp để sửa?\n\n'
+      + 'Đơn sẽ rời hàng chờ duyệt của quản lý. Mã đơn giữ nguyên; sửa xong '
+      + 'bạn phải bấm Gửi duyệt lại.'
+    )) return
+    return chayHanhDong(action)
+  }
   if (action.method === 'de_xuat_xoa_nhap') {
     if (!window.confirm('Xoá phiếu này? Dữ liệu sẽ bị xoá VĨNH VIỄN khỏi hệ thống — KHÔNG thể khôi phục.')) return
     return chayHanhDong(action)

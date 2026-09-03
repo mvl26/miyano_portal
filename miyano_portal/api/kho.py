@@ -559,11 +559,17 @@ def kho_khoa_phong_list_khach(tim_kiem=None, ca_inactive=0, limit=None, start=0)
 	"""Danh mục khoa phòng theo BỆNH VIỆN — Task 12b, KHÔNG đòi hỏi kho.
 
 	`kho_khoa_phong_list` (trên) suy `kho` qua `get_portal_kho()`, ném
-	`PermissionError` khi khách chưa có `Customer Warehouse` — đúng cho tám
-	màn đang dùng nó (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/LapPhieu/
-	DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho
-	trực tiếp; `BaoCaoNXT.vue` KHÔNG gọi hàm này — tự grep xác nhận, sửa
-	Task 15 hạng mục 12b).
+	`PermissionError` khi khách chưa có `Customer Warehouse` — đúng cho sáu
+	màn còn dùng nó (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/LapPhieu/
+	DeXuatDetail/KhoaPhongList.vue, tất cả đọc kho trực tiếp; `BaoCaoNXT.
+	vue` KHÔNG gọi hàm này — tự grep xác nhận, sửa Task 15 hạng mục 12b).
+
+	03/09/2026 — danh sách rụng hai: `DuyetList.vue` nghỉ hẳn (màn duyệt
+	riêng gỡ), và `YeuCauList.vue` ĐỔI sang hàm này. Lý do đổi giống hệt
+	`ThietBiModal.vue` dưới đây: từ bản đó, danh mục khoa phòng không chỉ
+	dịch mã -> tên nữa mà còn NUÔI Ô LỌC KHOA của quản lý (mang từ
+	`DuyetList.vue` sang) — một ô lọc rỗng vì thiếu kho không nói được rằng
+	nó rỗng vì thiếu kho.
 	SAI cho ô "Khoa phòng" của `ThietBiModal.vue`: spec đề án §4.1 CỐ Ý treo
 	`Customer Equipment` vào `Customer` (không `Customer Warehouse`) CHÍNH
 	VÌ "Bệnh viện chưa mở kho trên cổng vẫn khai được máy" — nạp danh mục

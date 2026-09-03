@@ -120,7 +120,17 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 class PortalDeXuatMua(Document):
 	CHUYEN_HOP_LE = {
 		TRANG_THAI_NHAP: {TRANG_THAI_CHO_DUYET},
-		TRANG_THAI_CHO_DUYET: {TRANG_THAI_DA_DUYET, TRANG_THAI_TU_CHOI, TRANG_THAI_DA_HUY},
+		# `Chờ duyệt → Nháp` (03/09/2026) — nhân viên THU HỒI phiếu mình vừa
+		# gửi để sửa lại. Cạnh này là cách DUY NHẤT chủ đầu tư nhận được
+		# "NV sửa được đơn ở trạng thái Chờ duyệt" mà không phải nới
+		# `_chan_sua_so_luong_de_xuat()`: guard đó nằm ở `validate()` vì BỐN
+		# đường ghi dùng chung nó, và nới theo trạng thái sẽ mở luôn cho
+		# `_ap_dieu_chinh` sửa cột đề xuất — đúng thứ §5.3 cấm. Xem
+		# `thu_hoi()` và `test_de_xuat_thu_hoi.py`.
+		TRANG_THAI_CHO_DUYET: {
+			TRANG_THAI_DA_DUYET, TRANG_THAI_TU_CHOI, TRANG_THAI_DA_HUY,
+			TRANG_THAI_NHAP,
+		},
 		TRANG_THAI_TU_CHOI: {TRANG_THAI_CHO_DUYET, TRANG_THAI_DA_HUY},
 		# Task 9 (§12 Q4) — `Đã duyệt` THÔI là trạng thái kết thúc. Cạnh này
 		# là chỗ DUY NHẤT đi ra, và nó quay về đúng `Đã duyệt` sau khi quản
@@ -222,6 +232,34 @@ class PortalDeXuatMua(Document):
 		# thái "Chờ duyệt" vừa ghi thành công.
 		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
 		bao_de_xuat_gui_duyet(self)
+
+	def thu_hoi(self):
+		"""Nhân viên rút phiếu đang "Chờ duyệt" về "Nháp" để sửa lại
+		(03/09/2026). Chốt AI được gọi nằm ở endpoint (`de_xuat.
+		de_xuat_thu_hoi`, chỉ chủ phiếu) — doctype không biết ai đang gọi
+		nó, cùng lập trường `gui_duyet()`/`huy()` đã giữ.
+
+		Vì sao XOÁ `thoi_diem_gui`: màn chi tiết in thẳng field này ("Thời
+		điểm gửi: … / Chưa gửi") ngay cạnh badge trạng thái, nên một phiếu
+		Nháp còn mang giờ gửi cũ làm hai dòng trên CÙNG một khối truy vết
+		nói ngược nhau. Giá trị cũ không mất: doctype bật `track_changes`,
+		`Version` giữ lại lần gửi trước.
+
+		KHÔNG đụng `ma_de_xuat` (mã sinh đúng một lần — quản lý và khoa đã
+		gọi tên phiếu bằng nó), KHÔNG đụng `so_luong_duyet`/`don_gia`: cả
+		hai được `gui_duyet()` đóng dấu lại ở lần gửi sau, nên xoá tay ở
+		đây chỉ là một nơi thứ hai phải nhớ cập nhật khi luật đóng dấu đổi.
+
+		KHÔNG báo cho quản lý. §5.8 không có hàng nào cho việc này, và một
+		phiếu rời hàng chờ là thứ badge/danh sách của quản lý tự phản ánh ở
+		lần nạp kế tiếp. Quản lý đang mở đúng phiếu đó lúc nó bị thu hồi sẽ
+		ăn `_kiem_chuyen()` khi bấm Duyệt — chặn đúng chỗ, không phải một
+		trạng thái nửa vời.
+		"""
+		self._kiem_chuyen(TRANG_THAI_NHAP)
+		self.thoi_diem_gui = None
+		self.trang_thai = TRANG_THAI_NHAP
+		self.save(ignore_permissions=True)
 
 	def _dong_dau_so_luong_duyet(self):
 		"""C2 (review tổng 19/08) — đóng dấu `so_luong_duyet = so_luong_de_

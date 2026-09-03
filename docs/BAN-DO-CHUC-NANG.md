@@ -11,7 +11,8 @@ Kiểm kê ngày 21/08/2026, sau khi chủ đầu tư chỉ ra: *"anh thấy v�
 > (`/dat-hang`).
 >
 > **Cập nhật 25/08/2026 — Task 11 ĐÃ THI CÔNG.** Hai cửa `#4 Đơn hàng của
-> tôi` và `#6 Đề xuất mua` đã gộp thành **một** mục `Yêu cầu của tôi`
+> tôi` và `#6 Đề xuất mua` đã gộp thành **một** mục `Danh sách đơn hàng`
+> (tên chủ đầu tư chốt 03/09/2026; trước đó là `Yêu cầu của tôi`)
 > (`/yeu-cau`). **11 cửa → 7** cho nhân viên khoa, **8** cho quản lý (thêm
 > `Duyệt`) — con số cuối cùng ở mục 3 đã đạt.
 >
@@ -46,7 +47,7 @@ Kiểm kê ngày 21/08/2026, sau khi chủ đầu tư chỉ ra: *"anh thấy v�
 | 4 | Đơn hàng của tôi | `/orders` | Danh sách Sales Order | **TRÙNG NỬA với #6** |
 | 5 | Lập phiếu đề xuất | `/de-xuat/lap` | Tìm hàng ba tầng, lập phiếu | **TRÙNG với #2** |
 | 6 | Đề xuất mua | `/de-xuat` | Danh sách phiếu đề xuất | **TRÙNG NỬA với #4** |
-| 7 | Duyệt | `/duyet` | Hàng chờ của quản lý | Giữ — *quản lý mới thấy* |
+| 7 | Duyệt | `/duyet` | Hàng chờ của quản lý | ~~Giữ~~ → **gỡ 03/09/2026**, về chip `cho_duyet` của #3 |
 | 8 | Kho của tôi | `/kho` | 9 màn con: nhập, xuất, tồn, NCC, nhật ký… | Giữ — module riêng |
 | 9 | Hoá đơn & công nợ | `/invoices` | Hoá đơn điện tử, công nợ | Giữ |
 | 10 | Thông báo | `/thong-bao` | Thông báo | Giữ |
@@ -112,6 +113,17 @@ trang đã tải chính là hồi quy đã phải vá cho `Orders.vue` (brief
 lý, khác mục đích với *danh sách của tôi*. Gộp hai thứ khác mục đích chỉ vì
 chúng cùng kiểu dữ liệu là lặp lại đúng lỗi mục này tồn tại để sửa.
 
+> **Đảo lại — chủ đầu tư chốt 03/09/2026.** `/duyet` **đã nghỉ**; hàng chờ
+> nay chính là danh sách này lọc chip `cho_duyet`. Điều đổi ý kiến: việc
+> **duyệt** vốn nằm ở màn **chi tiết** (`DeXuatDetail.vue` có đủ Duyệt / Từ
+> chối / Huỷ và cả ô sửa số lượng trước khi duyệt), nên `/duyet` chưa bao
+> giờ là *chỗ làm việc* — nó chỉ là **bản sao thứ hai** của cùng bộ dữ
+> liệu, tức đúng thứ mục này tồn tại để dỡ. Chip `cho_duyet` gom **cả**
+> "Chờ duyệt" lẫn "Chờ duyệt sửa" (`_sql_giai_doan()`), đúng bộ mà màn cũ
+> gộp; bộ lọc **khoa phòng** của màn cũ đã mang sang đây (tham số
+> `khoa_phong`, lọc trong SQL cạnh `giai_doan`). Đường `/duyet` **chuyển
+> hướng** kèm `?chip=cho_duyet`, không 404.
+
 *Vì sao tên endpoint là `portal_yeu_cau_cua_toi` chứ không phải
 `portal_yeu_cau_list`:* cái tên sau đã **bị chiếm** — nó là endpoint "Yêu
 cầu hàng hoá" (`Portal Item Request`) **đã gỡ khỏi cổng** theo spec
@@ -124,7 +136,7 @@ dùng chung một tên trong lịch sử của cùng một module.
 
 Không nghiêm trọng (dashboard tóm tắt là bình thường), nhưng đáng ghi: cùng dữ liệu đó hiện ở **ba** nơi.
 
-*Sau Task 11:* còn **hai** — `Tổng quan` (bản tóm tắt) và `Yêu cầu của tôi` (danh sách đầy đủ). Khối "đơn hàng gần đây" của dashboard vẫn đọc `portal_order_history` và vẫn mở sang `/yeu-cau/don/:name`; **cố ý không đổi** sang endpoint gộp trong task này — nó là một màn tóm tắt, không phải một cửa thứ ba, và đổi nó là làm việc ngoài phạm vi task đã giao.
+*Sau Task 11:* còn **hai** — `Tổng quan` (bản tóm tắt) và `Danh sách đơn hàng` (danh sách đầy đủ). Khối "đơn hàng gần đây" của dashboard vẫn đọc `portal_order_history` và vẫn mở sang `/yeu-cau/don/:name`; **cố ý không đổi** sang endpoint gộp trong task này — nó là một màn tóm tắt, không phải một cửa thứ ba, và đổi nó là làm việc ngoài phạm vi task đã giao.
 
 ---
 
@@ -139,23 +151,23 @@ thứ ở hai vai — đọc lệch một bảng là đếm ra hai con số khá
 |---|---|---|
 | Tổng quan | `/dashboard` | giữ nguyên |
 | **Đặt hàng** | `/dat-hang` | tìm → giỏ → gửi duyệt. Nuốt #2, #3, #5 |
-| **Yêu cầu của tôi** | `/yeu-cau` | **một** dòng đời: nháp → chờ duyệt → đã duyệt → chờ báo giá → đã giao. Nuốt #4, #6 |
+| **Danh sách đơn hàng** | `/yeu-cau` | **một** dòng đời: nháp → chờ duyệt → đã duyệt → chờ báo giá → đã giao. Nuốt #4, #6, và từ 03/09 nuốt cả #7 `Duyệt` |
 | Kho của tôi | `/kho` | giữ nguyên, module riêng |
 | Hoá đơn & công nợ | `/invoices` | giữ nguyên |
 | Thông báo | `/thong-bao` | giữ nguyên |
 | Hồ sơ đơn vị | `/profile` | giữ nguyên |
 
 **Trạng thái:** Task 10 (gộp đặt hàng) **đã thi công 21/08**, Task 11 (gộp
-danh sách) **đã thi công 25/08**. Nav thật hôm nay ĐÚNG BẰNG bảng trên,
-cộng `Duyệt` cho quản lý:
+danh sách) **đã thi công 25/08**, gỡ `Duyệt` **03/09**. Nav thật hôm nay
+ĐÚNG BẰNG bảng trên — **7 mục cho mọi vai trò**, không còn mục nào theo vai
+trò:
 
 | # | Mục | Đường dẫn | Ai thấy |
 |---|---|---|---|
 | 1 | Tổng quan | `/dashboard` | mọi vai trò |
 | 2 | **Đặt hàng** | `/dat-hang` | mọi vai trò — nuốt `/catalog`, `/cart`, `/de-xuat/lap` (Task 10) |
-| 3 | **Yêu cầu của tôi** | `/yeu-cau` | mọi vai trò — nuốt `/orders`, `/de-xuat` (Task 11) |
-| 4 | Duyệt | `/duyet` | **quản lý mới thấy** |
-| 5 | Kho của tôi | `/kho` | mọi vai trò |
+| 3 | **Danh sách đơn hàng** | `/yeu-cau` | mọi vai trò — nuốt `/orders`, `/de-xuat` (Task 11) và `/duyet` (03/09). Badge số phiếu chờ duyệt trên mục này **chỉ quản lý thấy** |
+| 4 | Kho của tôi | `/kho` | mọi vai trò |
 | 6 | Hoá đơn & công nợ | `/invoices` | mọi vai trò |
 | 7 | Thông báo | `/thong-bao` | mọi vai trò |
 | 8 | Hồ sơ đơn vị | `/profile` | mọi vai trò |
@@ -210,10 +222,11 @@ hỏng lặng lẽ mà tài liệu này tồn tại để bắt.
 Hai đường có tham số nằm trong **link của các thông báo tự động đã gửi
 đi** — chúng trỏ tới MỘT chứng từ cụ thể, nên chuyển hướng về danh sách
 suông là đánh mất đúng thứ người nhận đang tìm. `tests/test_yeu_cau_list.
-py::TestDuongCuVaSoCua` canh cả bốn đường: còn khai báo, là `redirect`
-(không `component`), và hai đường có tham số vẫn truyền `params`.
+py::TestDuongCuVaSoCua` canh cả năm đường (bốn ở đây + `/duyet` từ
+03/09/2026): còn khai báo, là `redirect` (không `component`), và hai đường
+có tham số vẫn truyền `params`.
 
-Quản lý thấy thêm: **Duyệt** (`/duyet`) — đây **không** phải danh sách trùng, nó là **hàng chờ việc**, khác về mục đích.
+~~Quản lý thấy thêm: **Duyệt** (`/duyet`)~~ — gỡ 03/09/2026, xem khung ở §2.3. `/duyet` nay chuyển hướng sang `/yeu-cau?chip=cho_duyet`; `TestDuongCuVaSoCua` canh cả **năm** đường cũ.
 
 **Mọi đường cũ chuyển hướng, không xoá** — `/catalog`, `/cart`, `/orders`, `/de-xuat`, `/de-xuat/lap` đều có thể nằm trong bookmark của khách hoặc trong tài liệu đã gửi bệnh viện. Trả 404 cho một đường đang chạy là hồi quy, không phải dọn dẹp.
 

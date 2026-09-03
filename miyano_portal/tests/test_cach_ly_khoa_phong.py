@@ -1381,9 +1381,14 @@ class TestTask12bKhoaPhongKhongCanKho(_NenCachLy):
 		"""Chốt hồi quy: endpoint CŨ (`kho_khoa_phong_list`) KHÔNG bị sửa —
 		vẫn ném `PermissionError` khi khách chưa có kho. Nếu ai đó sau này
 		"tiện tay" áp fix của Task 12b lên luôn endpoint cũ, test này đỏ —
-		đó chính là thứ tám màn khác (NhatKy/BaoCaoNXT/PhieuXuat(Detail)/
-		LapPhieu/DuyetList/YeuCauList/DeXuatDetail/KhoaPhongList.vue) đang
-		trông cậy vào (đòi kho là chủ ý cho các màn đó)."""
+		đó chính là thứ sáu màn khác (NhatKy/BaoCaoThietBi/PhieuXuat(Detail)/
+		LapPhieu/DeXuatDetail/KhoaPhongList.vue) đang trông cậy vào (đòi kho
+		là chủ ý cho các màn đó).
+
+		03/09/2026 — `DuyetList.vue` nghỉ và `YeuCauList.vue` đã chuyển sang
+		`kho_khoa_phong_list_khach` (ô lọc khoa của quản lý cần danh mục kể
+		cả khi bệnh viện chưa mở kho); xem docstring `kho_khoa_phong_list_
+		khach`."""
 		frappe.set_user(self.ql.user)
 		with self.assertRaises(frappe.PermissionError):
 			kho_api.kho_khoa_phong_list()

@@ -347,8 +347,12 @@ lúc đơn thật sự sinh ra, kèm thông báo còn bao nhiêu.
 
 ### C3. Theo dõi
 
-**Yêu cầu của tôi** — một danh sách cho cả vòng đời, lọc bằng dải chip:
+**Danh sách đơn hàng** — một danh sách cho cả vòng đời, lọc bằng dải chip:
 `Nháp · Chờ duyệt · Đã duyệt · Chờ quý vị đồng ý · Đã giao · Từ chối · Đã huỷ`.
+
+> *(Màn này trước đây tên "Yêu cầu của tôi" — đổi 03/09/2026. Cùng lúc đó, màn
+> **Duyệt** riêng của quản lý được gỡ: hàng chờ duyệt nay là chính chip **Chờ
+> duyệt** ở đây, và việc duyệt làm ngay trên màn chi tiết đơn.)*
 
 > Yêu cầu **đang chờ Miyano ra giá** nằm ở **Đã duyệt**. **Chờ quý vị đồng ý** là
 > bước sau đó: **giá đã về, đang chờ đơn vị trả lời.**

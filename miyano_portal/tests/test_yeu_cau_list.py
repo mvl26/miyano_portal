@@ -642,6 +642,76 @@ class TestYeuCauList(FrappeTestCase):
 			]
 		self.assertEqual(lat, khoa)
 
+	# -- lọc theo khoa phòng (03/09/2026) -------------------------------------
+	#
+	# Bộ lọc này SANG từ màn `/duyet` đã nghỉ. Yêu cầu gốc của chủ đầu tư
+	# nằm trong chính `DuyetList.vue`: "quản lý sẽ filter theo khoa … cốt
+	# lõi là để quản lý biết được khoa nào đang mua cái gì mà để duyệt".
+	# Bỏ màn đó mà không mang bộ lọc theo là đánh rơi một yêu cầu đã chốt.
+	#
+	# Lọc ở SQL, KHÔNG ở client — cùng bài học `giai_doan` ngay trên: danh
+	# sách này phân trang ở server, nên lọc trên một trang đã tải sẽ hiện 3
+	# dòng và ngầm bảo khoa đó chỉ có 3 (đúng lỗi `DuyetList.vue` tự cảnh
+	# báo về trần `limit` của nó).
+
+	def test_quan_ly_loc_duoc_theo_khoa_phong(self):
+		khong_loc = self._goi(self.user_quan_ly, limit=100)
+		self.assertIn(self.phieu_khoa_duoc, self._ma_phieu(khong_loc))
+		self.assertIn(self.phieu_nhap, self._ma_phieu(khong_loc))
+		co_loc = self._goi(self.user_quan_ly, limit=100, khoa_phong=self.khoa_duoc)
+		self.assertIn(self.phieu_khoa_duoc, self._ma_phieu(co_loc))
+		self.assertNotIn(self.phieu_nhap, self._ma_phieu(co_loc))
+
+	def test_loc_khoa_loc_TRONG_SQL_chu_khong_phai_tren_mot_trang(self):
+		"""`tong` phải là tổng ĐÃ LỌC. Lọc phía client để nguyên `tong` cũ
+		làm thanh phân trang vẽ ra những trang rỗng — và quản lý đọc con số
+		đó như số phiếu của khoa."""
+		co_loc = self._goi(
+			self.user_quan_ly, limit=1, start=0, khoa_phong=self.khoa_duoc
+		)
+		self.assertEqual([r["de_xuat"] for r in self._dong(co_loc)],
+		                 [self.phieu_khoa_duoc])
+		self.assertEqual(co_loc["tong"], 1)
+
+	def test_loc_khoa_cong_don_voi_loc_giai_doan(self):
+		"""Hai bộ lọc phải GIAO nhau, không cái nào nuốt cái nào — quản lý
+		mở chip "Chờ duyệt" rồi chọn khoa là ca dùng chính của màn này."""
+		kq = self._goi(
+			self.user_quan_ly, limit=100,
+			khoa_phong=self.khoa_huyethoc, giai_doan="nhap",
+		)
+		ma = self._ma_phieu(kq)
+		self.assertIn(self.phieu_nhap, ma)
+		self.assertNotIn(self.phieu_khoa_duoc, ma)   # đúng giai đoạn, sai khoa
+		self.assertNotIn(self.phieu_da_duyet, ma)    # đúng khoa, sai giai đoạn
+
+	def test_nhan_vien_khoa_truyen_khoa_KHAC_khong_thay_gi_them(self):
+		"""Tham số này chỉ được phép THU HẸP. Nhân viên khoa Huyết học gõ
+		tay `khoa_phong=<khoa Dược>` phải ra RỖNG — không phải ra phiếu của
+		khoa Dược. Chốt thật nằm ở `pham_vi_don()` (đã kẹp `dk_phieu`/
+		`dk_don` trước khi bộ lọc này chạy); bài này canh rằng bộ lọc mới
+		không mở một đường vòng qua nó."""
+		kq = self._goi(
+			self.user_huyethoc, limit=100, khoa_phong=self.khoa_duoc
+		)
+		self.assertEqual(self._dong(kq), [])
+		self.assertEqual(kq["tong"], 0)
+
+	def test_nhan_vien_khoa_truyen_dung_khoa_minh_van_thay(self):
+		"""VẾ DƯƠNG — thiếu nó thì `1=0` cũng qua bài trên."""
+		kq = self._goi(
+			self.user_huyethoc, limit=100, khoa_phong=self.khoa_huyethoc
+		)
+		self.assertIn(self.phieu_nhap, self._ma_phieu(kq))
+
+	def test_khong_truyen_khoa_thi_khong_loc_gi(self):
+		"""VẾ DƯƠNG cho chính tham số — mặc định phải giữ nguyên hành vi
+		cũ, không im lặng lọc theo khoa của người gọi."""
+		kq = self._goi(self.user_quan_ly, limit=100)
+		ma = self._ma_phieu(kq)
+		self.assertIn(self.phieu_nhap, ma)
+		self.assertIn(self.phieu_khoa_duoc, ma)
+
 	def test_giai_doan_la_thi_bao_loi_chu_khong_am_tham_bo_loc(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			self._goi(self.user_huyethoc, giai_doan="Xanh lá")
@@ -674,9 +744,12 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 	ROUTER = FRONTEND_SRC / "router.js"
 	APP = FRONTEND_SRC / "App.vue"
 
-	# Bốn đường nằm trong bookmark của khách VÀ trong link của thông báo tự
+	# Năm đường nằm trong bookmark của khách VÀ trong link của thông báo tự
 	# động đã gửi đi. Trả 404 cho một đường đang chạy là hồi quy.
-	DUONG_CU = ("/orders", "/orders/:name", "/de-xuat", "/de-xuat/:ten")
+	#
+	# `/duyet` vào danh sách này 03/09/2026, khi màn duyệt riêng nghỉ — đó
+	# là đường quản lý mở HÀNG NGÀY, đúng loại đường nằm trong tab ghim.
+	DUONG_CU = ("/orders", "/orders/:name", "/de-xuat", "/de-xuat/:ten", "/duyet")
 
 	def _khoi_route(self, path: str) -> str:
 		"""Khối `{ ... }` khai báo route có `path: '<path>'`."""
@@ -718,7 +791,7 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 		self.assertIn("YeuCauList", noi_dung)
 
 	def test_khong_con_man_danh_sach_cu(self):
-		"""Hai màn danh sách cũ NGHỈ — còn file là còn đường mọc lại một
+		"""Ba màn danh sách cũ NGHỈ — còn file là còn đường mọc lại một
 		mục nav thứ hai cho cùng một thứ."""
 		self.assertFalse(
 			(FRONTEND_SRC / "views" / "Orders.vue").exists(),
@@ -727,6 +800,13 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 		self.assertFalse(
 			(FRONTEND_SRC / "views" / "DeXuatList.vue").exists(),
 			"DeXuatList.vue phải nghỉ (gộp vào YeuCauList.vue)",
+		)
+		# 03/09/2026 — hàng chờ duyệt nay là CHÍNH màn này lọc chip
+		# `cho_duyet`. Giữ file lại là giữ nguyên vẹn một màn chỉ còn thiếu
+		# một dòng trong `router.js` để sống lại.
+		self.assertFalse(
+			(FRONTEND_SRC / "views" / "DuyetList.vue").exists(),
+			"DuyetList.vue phải nghỉ (hàng chờ = YeuCauList.vue + chip cho_duyet)",
 		)
 
 	def _dong_nav(self) -> list[str]:
@@ -740,68 +820,70 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 	def _muc_nav(self) -> list[str]:
 		return [re.search(r"key:\s*'([\w-]+)'", d).group(1) for d in self._dong_nav()]
 
-	def _muc_nav_chi_quan_ly(self) -> list[str]:
-		return [
-			re.search(r"key:\s*'([\w-]+)'", d).group(1)
-			for d in self._dong_nav()
-			if "requireQuanLy" in d
-		]
-
-	def _dong_loc_vai_tro(self) -> str:
-		"""Dòng `const navItems = computed(...)` — BỘ LỌC vai trò THẬT SỰ
-		chạy lúc dựng thanh nav, khác hẳn cờ `requireQuanLy` nằm trong dòng
-		KHAI BÁO của mảng `NAV`."""
+	def _dong_badge_duyet(self) -> str:
+		"""Dòng `const hienBadgeDuyet = computed(...)` — chốt vai trò DUY
+		NHẤT còn lại trên thanh nav sau 03/09/2026."""
 		noi_dung = self.APP.read_text(encoding="utf-8")
-		moc = re.search(r"const navItems\s*=\s*computed\(.*?\)\n", noi_dung, re.S)
+		moc = re.search(r"const hienBadgeDuyet\s*=\s*computed\(.*?\)\n", noi_dung, re.S)
 		self.assertIsNotNone(
 			moc,
-			"App.vue không còn `const navItems = computed(...)` — thanh nav "
-			"không còn chỗ nào lọc theo vai trò.",
+			"App.vue không còn `const hienBadgeDuyet = computed(...)` — badge "
+			"số phiếu chờ duyệt không còn chỗ nào hỏi vai trò.",
 		)
 		return moc.group(0)
 
-	def test_nav_thuc_su_LOC_theo_vai_tro_chu_khong_chi_khai_bao_co(self):
-		"""Minor-3 (review vòng 1) — phép ĐẾM bên dưới đọc cờ `requireQuanLy`
-		trong dòng KHAI BÁO của mảng `NAV`, rồi suy ra 7 bằng `8 − 1`. Xoá
-		`.filter(...)` ở `navItems` thì MỌI nhân viên khoa nhìn thấy hàng
-		chờ "Duyệt" của quản lý — mà phép đếm đó VẪN xanh, vì dòng khai báo
-		không đổi.
+	def test_badge_cho_duyet_van_HOI_vai_tro_chu_khong_chi_hien_theo_so(self):
+		"""Thay cho `test_nav_thuc_su_LOC_theo_vai_tro...` (bỏ 03/09/2026
+		cùng mục nav "Duyệt" — mảng NAV không còn mục nào theo vai trò, nên
+		`navItems` thôi lọc).
 
-		Đây là lần thứ tám dự án dính kiểu "test trông như phủ mà chẳng
-		kiểm gì", và lần này nó gác một thứ thuộc về PHÂN QUYỀN. Bài này
-		phải đỏ ngay khi bộ lọc bị gỡ."""
-		dong = self._dong_loc_vai_tro()
-		self.assertIn(
-			".filter(", dong,
-			"`navItems` không còn lọc gì — mọi mục nav hiện cho mọi vai trò.",
-		)
-		self.assertIn(
-			"requireQuanLy", dong,
-			"`navItems` lọc bằng một tiêu chí KHÁC `requireQuanLy` — cờ trên "
-			"mảng NAV không còn tác dụng gì.",
-		)
+		Thứ CÒN theo vai trò là badge số phiếu chờ duyệt trên mục "Danh sách
+		đơn hàng". Nó PHẢI tự hỏi `la_quan_ly`, không được dựa vào việc
+		`capNhatChoDuyetCount()` tình cờ để `choDuyetCount` bằng 0 cho nhân
+		viên khoa: một tín hiệu phân quyền suy ra từ "giá trị mặc định tình
+		cờ đúng" hỏng lặng lẽ vào ngày ai đó nạp con số ấy từ chỗ khác — và
+		khi đó nhân viên khoa thấy số phiếu chờ của TOÀN VIỆN.
+
+		Đây là lần thứ tám dự án dính kiểu "test trông như phủ mà chẳng kiểm
+		gì", và lần này nó gác một thứ thuộc về PHÂN QUYỀN."""
+		dong = self._dong_badge_duyet()
 		# ĐÚNG khoá `me.la_quan_ly`, KHÔNG tự suy từ `vai_tro === 'Quản lý'`
 		# — kế hoạch uỷ quyền tạm thời sẽ làm phép so chuỗi đó bỏ sót.
 		self.assertIn(
 			"la_quan_ly", dong,
-			"`navItems` không đọc `store.me.la_quan_ly` — xem ghi chú Task 5 "
-			"ngay trên mục 'Duyệt' trong App.vue.",
+			"`hienBadgeDuyet` không đọc `store.me.la_quan_ly` — badge hàng chờ "
+			"của quản lý sẽ hiện cho mọi vai trò.",
+		)
+		# Và badge phải THẬT SỰ đi qua cờ đó trong template, không chỉ khai
+		# một computed rồi vẽ bằng biến khác.
+		noi_dung = self.APP.read_text(encoding="utf-8")
+		self.assertRegex(
+			noi_dung, r"v-if=\"n\.duyet && hienBadgeDuyet\"",
+			"Badge trên thanh nav không dùng `hienBadgeDuyet` — cờ vai trò được "
+			"khai nhưng không ai hỏi nó.",
 		)
 
-	def test_so_muc_nav_dung_8_quan_ly_va_7_nhan_vien(self):
-		"""Nghiệm thu của chủ đầu tư đếm bằng MẮT trên thanh nav. 11 cửa
-		ban đầu → 9 sau Task 10 → 8 (quản lý) / 7 (nhân viên khoa) ở đây.
+	def test_so_muc_nav_dung_7_cho_moi_vai_tro(self):
+		"""Nghiệm thu của chủ đầu tư đếm bằng MẮT trên thanh nav. 11 cửa ban
+		đầu → 9 sau Task 10 → 8/7 sau Task 11 → 7 cho MỌI vai trò từ
+		03/09/2026 (mục "Duyệt" nghỉ, hàng chờ về chung "Danh sách đơn
+		hàng").
 
-		Phép trừ `8 − 1` chỉ có nghĩa KHI bộ lọc vai trò còn sống — nên bài
-		này gọi thẳng khẳng định đó trước, thay vì để nó nằm riêng một chỗ
-		và hai bài cùng xanh vì hai lý do rời nhau."""
-		self.test_nav_thuc_su_LOC_theo_vai_tro_chu_khong_chi_khai_bao_co()
+		`requireQuanLy` phải biến mất KHỎI mảng NAV cùng lúc: một cờ không
+		còn ai đọc, nằm lại trong dòng khai báo, đọc như một chốt phân
+		quyền còn sống."""
+		self.test_badge_cho_duyet_van_HOI_vai_tro_chu_khong_chi_hien_theo_so()
 		muc = self._muc_nav()
-		chi_quan_ly = self._muc_nav_chi_quan_ly()
-		self.assertEqual(len(muc), 8, f"Nav quản lý phải còn 8 mục, đang là {muc}")
+		self.assertEqual(len(muc), 7, f"Nav phải còn 7 mục, đang là {muc}")
+		# Soát TRÊN CÁC DÒNG KHAI BÁO của mảng NAV, không trên cả file: chữ
+		# `requireQuanLy` còn được nhắc trong chú thích giải thích vì sao nó
+		# đã đi, và một chú thích lịch sử không phải một cờ còn sống.
+		con_co = [d for d in self._dong_nav() if "requireQuanLy" in d]
 		self.assertEqual(
-			len(muc) - len(chi_quan_ly), 7,
-			f"Nav nhân viên khoa phải còn 7 mục (bỏ {chi_quan_ly}), đang là {muc}",
+			con_co, [],
+			"Cờ `requireQuanLy` không còn ai đọc (navItems thôi lọc) mà vẫn "
+			f"nằm trong dòng khai báo NAV: {con_co}. Bỏ hẳn, đừng để lại — "
+			"nó đọc như một chốt phân quyền còn hiệu lực.",
 		)
 
 	def test_nav_khong_con_hai_cua_cho_cung_mot_thu(self):
@@ -809,7 +891,9 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 		self.assertIn("yeu-cau", muc)
 		self.assertNotIn("orders", muc)
 		self.assertNotIn("de-xuat", muc)
-		# "Duyệt" KHÔNG gộp vào đây — nó là HÀNG CHỜ VIỆC của quản lý, khác
-		# mục đích với "yêu cầu của tôi". Gộp hai thứ khác mục đích chỉ vì
-		# chúng cùng kiểu dữ liệu là lặp lại đúng lỗi task này đang sửa.
-		self.assertIn("duyet", muc)
+		# 03/09/2026 — "Duyệt" NAY ĐÃ gộp vào đây, đảo ngược khẳng định cũ
+		# ("hàng chờ việc khác danh sách của tôi"). Điều đổi ý kiến: việc
+		# DUYỆT nằm ở màn CHI TIẾT, nên `/duyet` chưa bao giờ là một chỗ làm
+		# việc — chỉ là bản sao thứ hai của cùng bộ dữ liệu, tức đúng thứ
+		# Task 11 dỡ ở hai mục kia.
+		self.assertNotIn("duyet", muc)

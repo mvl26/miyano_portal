@@ -5,7 +5,6 @@ import YeuCauList from './views/YeuCauList.vue'
 import OrderDetail from './views/OrderDetail.vue'
 import DeXuatDetail from './views/DeXuatDetail.vue'
 import LapPhieu from './views/LapPhieu.vue'
-import DuyetList from './views/DuyetList.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
 import ImportTonDau from './views/ImportTonDau.vue'
@@ -43,9 +42,9 @@ const routes = [
   // cầu nằm ở màn này khi còn là phiếu rồi NHẢY sang màn kia sau khi
   // duyệt, bắt nhân viên phải biết trước giai đoạn nội bộ mới tìm lại
   // được yêu cầu của chính mình.
-  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Yêu cầu của tôi' } },
-  { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
-  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
+  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Danh sách đơn hàng' } },
+  { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn hàng' } },
+  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đơn hàng' } },
   // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
   // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404
   // cho một đường đang chạy là hồi quy, không phải dọn dẹp. Hai đường có
@@ -70,11 +69,21 @@ const routes = [
     path: '/de-xuat/:ten',
     redirect: (to) => ({ name: 'de-xuat-detail', params: { ten: to.params.ten } }),
   },
-  // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +
-  // "Chờ duyệt sửa". Mục nav chỉ hiện cho `me.la_quan_ly` (App.vue), nhưng
-  // route KHÔNG khoá cứng theo vai trò: backend (`de_xuat_danh_sach` +
-  // `pham_vi_don()`) tự scope nếu một khách khác gõ thẳng URL.
-  { path: '/duyet', name: 'duyet', component: DuyetList, meta: { title: 'Duyệt' } },
+  // Chủ đầu tư chốt 03/09/2026 — màn duyệt riêng NGHỈ. Việc duyệt vốn đã
+  // nằm ở màn CHI TIẾT đơn (`DeXuatDetail.vue` có đủ Duyệt/Từ chối/Huỷ và
+  // cả ô sửa số lượng trước khi duyệt); `/duyet` chỉ là một DANH SÁCH THỨ
+  // HAI của cùng bộ dữ liệu, và nó bắt quản lý học thêm một cửa để tìm
+  // đúng thứ đã nằm sẵn trong "Danh sách đơn hàng".
+  //
+  // Đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá — cùng luật QĐ-G7/QĐ-G11 ngay trên.
+  // Đích mang theo `?chip=cho_duyet`: chip đó gom ĐÚNG hai trạng thái mà
+  // màn cũ gộp ("Chờ duyệt" + "Chờ duyệt sửa", xem `_sql_giai_doan()` ở
+  // api/portal.py), nên quản lý mở bookmark cũ vẫn rơi vào đúng hàng chờ
+  // của mình chứ không phải một danh sách suông.
+  {
+    path: '/duyet',
+    redirect: { name: 'yeu-cau', query: { chip: 'cho_duyet' } },
+  },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   // Kiểm hàng (E9) — CỐ Ý không nằm dưới /kho: màn này chạy cho MỌI khách,
   // kể cả khách chưa mở kho. Khoá theo tên PHIẾU GIAO (không phải tên biên
