@@ -357,13 +357,24 @@ cho tới khi Miyano đặt Mã ngắn. Mã tra cứu là tiện ích đối chi
 Phần trên nói *luật*. Phần này nói *bấm ở đâu* — và **những gì màn hình chưa làm
 được**, để người triển khai không hứa nhầm với bệnh viện.
 
-**Ba màn của luồng này trên cổng khách:**
+**Hai màn của luồng này trên cổng khách:**
 
 | Màn | Ai thấy | Làm được gì |
 |---|---|---|
 | **Đặt hàng** | mọi vai trò | Tìm hàng, bỏ vào giỏ, điền lý do yêu cầu, ngày giao mong muốn, địa chỉ giao — rồi **Gửi duyệt** (nhân viên khoa) hoặc **Đặt hàng** (quản lý). Có nút **Lưu nháp** để soạn dở |
 | **Danh sách đơn hàng** | mọi vai trò | Danh sách gộp — nhân viên khoa thấy đơn **khoa mình**, quản lý thấy **toàn đơn vị**. Lọc bằng dải chip giai đoạn (`Tất cả / Nháp / Chờ duyệt / Đã duyệt / Chờ quý vị đồng ý / Đã giao / Từ chối / Đã huỷ`), quản lý lọc thêm được theo **khoa phòng**. Chip **Chờ duyệt** CHÍNH LÀ hàng chờ của quản lý (gộp `Chờ duyệt` + `Chờ duyệt sửa`); con số đỏ trên mục menu là số đơn đang chờ, **chỉ quản lý thấy** |
-| **Chi tiết yêu cầu** | ai mở được yêu cầu đó | Đầu phiếu (truy vết), bảng dòng hàng kèm nhãn giá từng dòng, và thanh nút hành động theo trạng thái + vai trò |
+
+Bấm vào một dòng ở danh sách mở ra **Chi tiết đơn hàng** — từ 03/09/2026 đây là
+**một** màn duy nhất cho cả phiếu đề xuất lẫn đơn hàng sinh ra từ nó (trước đó là
+hai màn rời, phải bấm thêm một link mới sang được đơn). Khối nào không có dữ liệu
+thì không hiện, đọc từ trên xuống theo dòng thời gian của yêu cầu: đầu trang (mã,
+giai đoạn, khoa phòng, ngày) → banner **"Việc đang chờ bạn"** cùng toàn bộ nút hành
+động gộp một chỗ → thanh tiến trình (chỉ khi đã có đơn) → khối **Yêu cầu & duyệt**
+(người yêu cầu, thời điểm gửi, lý do, người duyệt, thời điểm duyệt, tư cách duyệt —
+thu gọn được, và **tự thu gọn khi đơn đã giao xong**) → một bảng mặt hàng duy nhất,
+cột SL duyệt/SL đặt/Đơn giá/Đã giao mọc thêm theo giai đoạn đơn đã tới → giao hàng,
+hoá đơn và tài liệu của đơn đó. Đường dẫn cũ `/orders/:name` và `/de-xuat/:ten` vẫn
+chuyển hướng đúng, không đổi bookmark hay link trong thông báo đã gửi.
 
 **Toàn bộ menu của khách nay còn 7 mục, giống nhau cho mọi vai trò**: Tổng quan ·
 Đặt hàng · Danh sách đơn hàng · Kho của tôi · Hoá đơn & công nợ · Thông báo · Hồ sơ
@@ -372,7 +383,10 @@ mất; đường dẫn cũ của chúng tự chuyển sang màn mới nên link 
 đi và bookmark của khách vẫn dùng được (`/duyet` chuyển sang danh sách đơn hàng đã
 lọc sẵn chip **Chờ duyệt**).
 
-**Quản lý sửa số lượng rồi duyệt — thao tác chính, làm ở màn chi tiết:**
+**Quản lý sửa số lượng rồi duyệt — thao tác chính, làm ở màn chi tiết.** Từ
+03/09/2026 bảng **SL duyệt** nằm ngay trên cùng một màn với thanh tiến trình và
+khối giao hàng — không phải bấm sang trang khác mới thấy đơn đã tới đâu sau khi
+duyệt:
 
 1. Vào **Danh sách đơn hàng** → chip **Chờ duyệt** → chọn khoa nếu muốn → bấm
    vào đơn.

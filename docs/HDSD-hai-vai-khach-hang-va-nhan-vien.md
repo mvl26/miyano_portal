@@ -260,10 +260,20 @@ Lọc bằng dải chip ở đầu danh sách:
 
 Phân trang 10/20/50 như mọi danh sách khác. Bấm vào một dòng để mở **chi tiết**.
 
+Từ 03/09/2026, chi tiết là **một** trang cho cả yêu cầu lẫn đơn hàng sinh ra từ
+nó — bấm vào là thấy **tất cả**: ai xin, ai duyệt, giá, tiến trình giao hàng, hoá
+đơn. Không còn cảnh xem xong phần "ai xin" phải bấm thêm một link nữa mới sang
+được phần "đơn tới đâu rồi".
+
 Trang chi tiết đơn gồm:
 
 **Tiến trình 5 mốc** — Đặt hàng → Xác nhận → Soạn hàng → Giao hàng → Hoá đơn.
 Mốc đã qua tô xanh.
+
+**Khối "Yêu cầu & duyệt"** — ai xin, xin lúc nào, vì sao xin; ai duyệt, duyệt lúc
+nào, duyệt nguyên số hay đã sửa số lượng. Khối này **tự thu gọn** khi đơn đã giao
+xong — đơn cũ thì không cần giương mắt đọc lại ai đã duyệt mỗi lần mở ra, bấm vào
+nhãn của khối là mở lại xem đầy đủ.
 
 **Bảng hàng hoá** — mã, tên, ĐVT, SL đặt, đã giao, đơn giá, thành tiền.
 

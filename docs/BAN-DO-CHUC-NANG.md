@@ -124,6 +124,16 @@ chúng cùng kiểu dữ liệu là lặp lại đúng lỗi mục này tồn t�
 > `khoa_phong`, lọc trong SQL cạnh `giai_doan`). Đường `/duyet` **chuyển
 > hướng** kèm `?chip=cho_duyet`, không 404.
 
+> **Gộp tiếp tầng CHI TIẾT — chủ đầu tư chốt 03/09/2026.** QĐ-G11 gộp *danh
+> sách* nhưng để nguyên hai màn *chi tiết*: bấm một dòng ra màn phiếu, rồi
+> phải bấm tiếp một link để sang màn đơn. "Khoa xin 100 / duyệt 40 / giao
+> 25" là ba con số của MỘT việc, ở HAI trang. Nay là **một màn**
+> (`ChiTietYeuCau.vue`), đọc theo dòng thời gian, khối nào không có dữ liệu
+> thì không hiện — nên nó co lại đúng bằng một trong hai màn cũ ở hai đầu
+> dòng đời. **Hai đường giữ nguyên** (`/yeu-cau/phieu/:ten`,
+> `/yeu-cau/don/:name`) vì hai doctype đặt tên khác nhau và đường đơn nằm
+> trong link của mọi thông báo đã gửi đi.
+
 *Vì sao tên endpoint là `portal_yeu_cau_cua_toi` chứ không phải
 `portal_yeu_cau_list`:* cái tên sau đã **bị chiếm** — nó là endpoint "Yêu
 cầu hàng hoá" (`Portal Item Request`) **đã gỡ khỏi cổng** theo spec

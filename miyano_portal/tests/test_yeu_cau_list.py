@@ -808,6 +808,10 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 			(FRONTEND_SRC / "views" / "DuyetList.vue").exists(),
 			"DuyetList.vue phải nghỉ (hàng chờ = YeuCauList.vue + chip cho_duyet)",
 		)
+		# Hai màn CHI TIẾT cũ (`OrderDetail.vue`/`DeXuatDetail.vue`) cũng đã
+		# nghỉ 03/09/2026, nhưng chúng được canh ở
+		# `test_chi_tiet_gop.py::test_hai_man_cu_da_nghi` — bài này chỉ nói
+		# về màn DANH SÁCH.
 
 	def _dong_nav(self) -> list[str]:
 		"""Mỗi mục nav là MỘT dòng trong mảng `const NAV = [...]` của
