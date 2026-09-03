@@ -241,6 +241,18 @@ class PortalDeXuatMua(Document):
 		self._dong_dau_so_luong_duyet()
 		self.trang_thai = TRANG_THAI_CHO_DUYET
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — CÙNG CHỖ, CÙNG LÝ DO với `bao_de_xuat_
+		# gui_duyet` ngay dưới: `nhat_ky.ghi()` không bao giờ ném lỗi (xem
+		# docstring nó), nên an toàn gọi ngay sau save() — một trục trặc ở
+		# khâu ghi sổ không được cuốn theo trạng thái "Chờ duyệt" vừa ghi
+		# thành công.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_KHOA_GUI_DUYET,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_KHOA,
+			ghi_chu=(self.ly_do_yeu_cau or "").strip() or None,
+		)
 		# Task 8 (§5.8) — CHỈ quản lý cần biết có phiếu chờ duyệt. Hàm này
 		# không bao giờ ném lỗi (xem docstring nó) nên an toàn gọi ngay sau
 		# save(): một trục trặc ở khâu thông báo không được cuốn theo trạng
@@ -282,6 +294,15 @@ class PortalDeXuatMua(Document):
 		self.thoi_diem_gui = None
 		self.trang_thai = TRANG_THAI_NHAP
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do đã nêu ở
+		# `gui_duyet()`: ngay sau save() thành công, `nhat_ky.ghi()` không
+		# bao giờ ném lỗi.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_KHOA_THU_HOI,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_KHOA,
+		)
 
 	def _dong_dau_so_luong_duyet(self):
 		"""C2 (review tổng 19/08) — đóng dấu `so_luong_duyet = so_luong_de_
@@ -421,6 +442,15 @@ class PortalDeXuatMua(Document):
 		self.uy_quyen = uy_quyen
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do với `bao_de_xuat_
+		# duyet` ngay dưới.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_QUAN_LY_DUYET,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
+			ghi_chu=f"Tư cách: {self.duyet_voi_tu_cach}",
+		)
 		# Task 8 (§5.8) — quản lý (luôn) + thành viên khác của khoa đứng
 		# tên phiếu. Không bao giờ ném lỗi — cùng lý do gọi trong gui_duyet().
 		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_duyet
@@ -435,6 +465,15 @@ class PortalDeXuatMua(Document):
 		self.ly_do_tu_choi = ly_do
 		self.trang_thai = TRANG_THAI_TU_CHOI
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do với `bao_de_xuat_
+		# tu_choi` ngay dưới.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_QUAN_LY_TU_CHOI,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
+			ghi_chu=ly_do,
+		)
 		# Task 8 (§5.8) — cùng bảng người nhận với duyệt().
 		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_tu_choi
 		bao_de_xuat_tu_choi(self)
@@ -445,6 +484,14 @@ class PortalDeXuatMua(Document):
 		self._kiem_chuyen(TRANG_THAI_DA_HUY)
 		self.trang_thai = TRANG_THAI_DA_HUY
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do đã nêu ở
+		# `gui_duyet()`.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_QUAN_LY_HUY_PHIEU,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
+		)
 
 	def xin_sua(self, dong: list[dict]):
 		"""Task 9 (§12 Q4) — nhân viên khoa xin sửa số lượng một đơn ĐÃ
@@ -506,6 +553,15 @@ class PortalDeXuatMua(Document):
 			theo_ma[ma].so_luong_xin_sua = qty
 		self.trang_thai = TRANG_THAI_CHO_DUYET_SUA
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do đã nêu ở
+		# `gui_duyet()`.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_KHOA_XIN_SUA,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_KHOA,
+			ghi_chu=f"{len(thay_doi)} dòng xin sửa",
+		)
 
 	def _kiem_don_dung_duoc_xin_sua(self):
 		"""C1 (review tổng 19/08) — đơn đứng sau có SỬA ĐƯỢC không.
@@ -796,6 +852,17 @@ class PortalDeXuatMua(Document):
 				d.so_luong_xin_sua = SO_LUONG_XIN_SUA_TRONG
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do đã nêu ở
+		# `gui_duyet()`. Dòng này VÁ khoản nợ kỹ thuật §7 mục 3b của HDSD:
+		# khối truy vết ở đầu phiếu (`nguoi_duyet`/`thoi_diem_duyet`) vẫn
+		# chỉ mang dấu của lần DUYỆT ĐẦU TIÊN (xem docstring `duyet()`),
+		# nhưng giờ vòng "duyệt sửa" có dòng nhật ký RIÊNG của chính nó.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_QUAN_LY_DUYET_SUA,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
+		)
 
 	def tu_choi_sua(self, ly_do):
 		"""Quản lý TỪ CHỐI yêu cầu xin sửa — đơn giữ NGUYÊN số đã duyệt
@@ -826,6 +893,15 @@ class PortalDeXuatMua(Document):
 				d.so_luong_xin_sua = SO_LUONG_XIN_SUA_TRONG
 		self.trang_thai = TRANG_THAI_DA_DUYET
 		self.save(ignore_permissions=True)
+		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do đã nêu ở
+		# `gui_duyet()`.
+		from miyano_portal import nhat_ky
+		nhat_ky.ghi(
+			nhat_ky.SK_QUAN_LY_TU_CHOI_SUA,
+			customer=self.customer, khoa_phong=self.khoa_phong,
+			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
+			ghi_chu=ly_do,
+		)
 
 	def on_trash(self):
 		"""§5.4b — "phiếu đã gửi duyệt thì không xoá được, dùng Huỷ phiếu để
