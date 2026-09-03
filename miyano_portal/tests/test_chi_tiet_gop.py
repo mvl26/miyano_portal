@@ -247,25 +247,30 @@ class TestManGopTrenRouter(FrappeTestCase):
 	def _router(self) -> str:
 		return (self.FRONTEND_SRC / "router.js").read_text(encoding="utf-8")
 
-	def _khoi_route(self, path: str) -> str:
-		"""Khối `{ ... }` khai báo route có `path: '<path>'`.
+	def _dong_route(self, path: str) -> str:
+		"""Dòng vật lý khai báo route có `path: '<path>'`.
 
-		Lệch khỏi mẫu regex đơn dòng ở brief Step 1: cả hai route ở đây có
-		`meta: { title: ... }` LỒNG BÊN TRONG, nên `[^{}]*\\}` (không cho
-		đi qua dấu ngoặc) không bao giờ khớp tới dấu đóng ngoài cùng — cùng
-		hố mà `test_yeu_cau_list.py::TestDuongCuVaSoCua._khoi_route` đã vá
-		bằng bước thử THỨ HAI (đa dòng, DOTALL, dừng ở dòng đóng `},`).
-		Chép nguyên cách vá đó thay vì bản đơn giản trong brief."""
-		noi_dung = self._router()
-		moc = re.search(
-			r"\{[^{}]*path:\s*'" + re.escape(path) + r"'.*?\n\s*\},?\n",
-			noi_dung, re.S,
-		)
-		if moc:
-			return moc.group(0)
-		moc = re.search(r"\{[^{}]*path:\s*'" + re.escape(path) + r"'[^{}]*\}", noi_dung)
-		self.assertIsNotNone(moc, f"router.js không còn khai báo {path}")
-		return moc.group(0)
+		Review Task 7b (reviewer, thực nghiệm) — bản trước dùng đúng
+		`_khoi_route()` hai bước của `TestDuongCuVaSoCua` (đa dòng, DOTALL,
+		dừng ở dòng đóng `},` đứng riêng). Ở ĐÂY nó cho XANH GIẢ: hai route
+		`order-detail`/`de-xuat-detail` nằm SÁT NHAU, MỖI route MỘT DÒNG,
+		không có dòng `},` riêng để dừng — `.*?\n\s*\},?\n` ăn xuyên qua CẢ
+		route hàng xóm (và cụm chú thích kế tiếp) trước khi tìm được điểm
+		dừng thật (khối `/orders/:name` phía sau). `assertIn("ChiTietYeuCau",
+		...)` khi đó khớp vào phần của HÀNG XÓM, không phải route đang kiểm
+		— reviewer đã chứng minh bằng cách đổi component của `order-detail`
+		sang sai rồi chạy lại: bài vẫn xanh.
+
+		Neo theo DÒNG thay vì tìm ngoặc đóng: một dòng vật lý không thể "ăn"
+		sang dòng khác, nên không còn kẽ hở này. Áp dụng ĐÚNG cho hai route
+		ở đây (luôn một dòng, theo quy ước Task 7b) — KHÔNG đụng
+		`TestDuongCuVaSoCua._khoi_route` (đọc route đa dòng thật, và phần
+		lớn khẳng định ở đó là `assertNotIn("component:")` nên ăn rộng sẽ tự
+		lộ thành đỏ, không có lỗ như ở đây)."""
+		for dong in self._router().splitlines():
+			if re.search(r"path:\s*'" + re.escape(path) + r"'", dong):
+				return dong
+		self.fail(f"router.js không còn khai báo {path}")
 
 	def test_hai_duong_cu_van_con_va_deu_tro_vao_man_gop(self):
 		"""Hai đường này nằm trong bookmark của khách VÀ trong link của MỌI
@@ -273,9 +278,9 @@ class TestManGopTrenRouter(FrappeTestCase):
 		bởi `test_thong_bao_endpoint.py`). Kế hoạch gộp CỐ Ý không đổi
 		đường — đổi là kéo theo một lớp tương thích mà không ai được lợi."""
 		for path in ("/yeu-cau/don/:name", "/yeu-cau/phieu/:ten"):
-			khoi = self._khoi_route(path)
+			dong = self._dong_route(path)
 			self.assertIn(
-				"ChiTietYeuCau", khoi,
+				"ChiTietYeuCau", dong,
 				f"{path} không trỏ vào màn gộp — hai cửa lại dẫn về hai phòng.",
 			)
 
@@ -300,22 +305,80 @@ class TestManGopTrenRouter(FrappeTestCase):
 		phải một chốt. `BangMatHang.vue` chỉ GHI vào `ghiChuSua`, không tự
 		gieo; quên gieo ở màn cha thì quản lý bấm Duyệt sẽ gửi chuỗi rỗng đè
 		lên ghi chú họ viết vòng trước — mất dữ liệu trong im lặng, build
-		vẫn xanh."""
+		vẫn xanh.
+
+		Review Task 7b (reviewer, IMPORTANT 2) — bản trước chỉ `assertIn(
+		"ghi_chu_quan_ly", man)`: chuỗi đó xuất hiện ít nhất BA lần trong
+		file (gieo, so sánh dirty ở `ghiChuDoi()`, ghi vào payload ở
+		`nhanDuyet()`), nên xoá ĐÚNG dòng GIEO — chính bug bài này sinh ra để
+		chặn — mà vẫn còn hai chỗ kia thì bài vẫn xanh. Neo vào ĐÚNG câu lệnh
+		gán `ghiChuSua.value = ...ghi_chu_quan_ly...` (chỉ có MỘT lần gán như
+		vậy trong toàn file — hai chỗ còn lại là ĐỌC `ghiChuSua.value[...]`,
+		không khớp `\\s*=` ngay sau `.value`)."""
 		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
-		self.assertIn(
-			"ghi_chu_quan_ly", man,
-			"ChiTietYeuCau.vue không gieo `ghiChuSua` từ `ghi_chu_quan_ly` — "
-			"bấm Duyệt sẽ xoá trắng ghi chú quản lý cũ.",
+		self.assertRegex(
+			man,
+			# Bó buộc trong CỬA SỔ 200 ký tự ngay sau lệnh gán, KHÔNG dùng
+			# `[\s\S]*?ghi_chu_quan_ly` không giới hạn: tự kiểm thấy bản đó
+			# vẫn XANH khi xoá đúng dòng gieo (thay bằng `ghiChuSua.value =
+			# {}`) — non-greedy chỉ dừng ở lần khớp ĐẦU TIÊN của
+			# `ghi_chu_quan_ly` SAU ĐÓ trong file, kể cả khi lần khớp đó nằm
+			# ở một hàm khác hẳn (`ghiChuDoi()`/payload `nhanDuyet()`).
+			# Buộc `Object.fromEntries(` đứng NGAY SAU lệnh gán, đúng hình
+			# dạng gieo thật, xong mới cho phép `ghi_chu_quan_ly` xuất hiện
+			# trong khoảng ngắn kế tiếp.
+			r"ghiChuSua\.value\s*=\s*Object\.fromEntries\([\s\S]{0,200}?ghi_chu_quan_ly",
+			"ChiTietYeuCau.vue không còn dòng GIEO `ghiChuSua.value = "
+			"Object.fromEntries(...ghi_chu_quan_ly...)` — bấm Duyệt sẽ xoá trắng ghi chú "
+			"quản lý cũ.",
 		)
 
 	def test_man_gop_KHONG_tu_suy_giai_doan(self):
 		"""Giai đoạn phải do SERVER trả (`_sql_giai_doan()` là định nghĩa duy
 		nhất). Một bản suy thứ hai ở client đã trôi khỏi bản gốc ba nhánh
 		ngay trong task đầu tiên dùng nó — trong đó có ca đơn BỊ TỪ CHỐI
-		hiện badge xanh "Đã duyệt"."""
+		hiện badge xanh "Đã duyệt".
+
+		Review Task 7b (reviewer, IMPORTANT 3) — bản trước khoá literal
+		`'cho_khach_dong_y'` (một NHÁNH của bản suy cũ), nhưng bug ví dụ
+		trong docstring sinh từ nhánh KHÁC (`d.status_vi === 'Từ chối'`). Ai
+		khôi phục đúng nhánh gây bug, hoặc chỉ đổi kiểu dấu nháy, vẫn qua
+		được `assertNotIn` đó. Đổi sang khẳng định DƯƠNG, neo đúng dòng
+		một-liner đọc `giai_doan` từ CẢ HAI nửa: một bản suy lại (bất kể
+		nhánh nào) không thể vừa giữ được form này vừa còn logic suy diễn
+		riêng, vì `computed()` chỉ còn đúng một biểu thức ngắn — thắt chặt
+		hơn hẳn việc cấm một literal đơn lẻ."""
 		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		self.assertRegex(
+			man,
+			r"giaiDoan\s*=\s*computed\(\(\)\s*=>\s*phieu\.value\?\.giai_doan\s*\|\|\s*"
+			r"don\.value\?\.giai_doan",
+			"ChiTietYeuCau.vue không còn đọc `giai_doan` thẳng từ CẢ HAI nửa "
+			"(phieu/don) do server trả — nghi ngờ đang tự suy giai đoạn ở client.",
+		)
+
+	def test_man_gop_chayHanhDong_KHONG_tu_hoi_xac_nhan(self):
+		"""Review Task 7b (reviewer, IMPORTANT 4) — biến việc đã BẤM THỬ
+		TAY (thu hồi phiếu chỉ hỏi xác nhận một lần) thành một chốt tự
+		động; thao tác tay không để lại gì, và bug này ĐÃ giao đi một lần.
+
+		Hình dạng bug gốc: một `window.confirm()` bị đặt NHẦM vào
+		`chayHanhDong()` — hàm THỰC THI hành động (gọi API, điều hướng) —
+		thay vì vào hàm GỌI TRƯỚC nó (`onClickAction()`/`nhanDuyet()`, nơi
+		đã có đúng một `window.confirm()` cho mỗi hành động cần hỏi). Nếu
+		lặp lại lỗi đó, phiếu "Thu hồi để sửa" sẽ hỏi xác nhận HAI lần (một
+		lần ở `onClickAction()`, một lần nữa khi `chayHanhDong()` thực thi
+		— hoặc hỏi xác nhận SAU KHI API đã gọi xong, vô nghĩa). Khoá đúng
+		hình dạng: trích riêng THÂN hàm `chayHanhDong()` (dừng ở dòng `}`
+		đóng đầu tiên, không thụt lề — hàm này không lồng hàm con) rồi cấm
+		`window.confirm` xuất hiện bên trong."""
+		man = (self.FRONTEND_SRC / "views" / "ChiTietYeuCau.vue").read_text(encoding="utf-8")
+		than_ham = re.search(r"async function chayHanhDong\([^)]*\)\s*\{.*?\n\}", man, re.S)
+		self.assertIsNotNone(than_ham, "Không tìm thấy hàm chayHanhDong() trong ChiTietYeuCau.vue")
 		self.assertNotIn(
-			"'cho_khach_dong_y'", man,
-			"ChiTietYeuCau.vue lại tự suy giai đoạn ở client — phải đọc "
-			"`giai_doan` do server trả.",
+			"window.confirm", than_ham.group(0),
+			"chayHanhDong() gọi window.confirm() BÊN TRONG hàm THỰC THI — đúng hình dạng "
+			"bug gốc (hỏi xác nhận hai lần, hoặc hỏi sau khi API đã gọi xong). "
+			"window.confirm() phải nằm ở hàm GỌI TRƯỚC (onClickAction()/nhanDuyet()), "
+			"không phải trong chayHanhDong().",
 		)
