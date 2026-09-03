@@ -144,13 +144,73 @@ Một hàm duy nhất ở backend trả về `{ten, dien_thoai}` cho một tài 
 
 ## 9. Hiển thị trên màn chi tiết
 
-**Giữ thanh năm chấm, thêm danh sách sự kiện bên dưới nó.**
+### 9.1 Hai tầng, không phải một
 
-Thanh năm chấm trả lời *"đang ở đâu"* trong một cái liếc; danh sách trả lời *"đã đi qua những gì, ai làm"*. Viettel Post cũng có cả hai. Thêm vào rẻ hơn và ít rủi ro hơn là thay thế.
+**Giữ thanh năm chấm ngang, thêm dòng thời gian dọc bên dưới nó.**
 
-Mỗi dòng: **thời điểm · việc · ai (tên + số) · ghi chú**. Xếp theo thời gian, việc mới nhất ở dưới cùng — vòng lặp hiện ra thành các dòng lặp lại, đọc ra ngay là đơn này đã đi tới đi lui mấy lần.
+Thanh ngang trả lời *"đang ở đâu"* trong một cái liếc. Dòng thời gian trả lời *"đã đi qua những gì, ai làm"*. Viettel Post cũng có cả hai. Thêm vào rẻ hơn và ít rủi ro hơn là thay thế.
 
-**Đơn cũ không có dòng nhật ký nào** (tạo trước khi tính năng bật): suy **hai** dòng từ dữ liệu đã ghi sẵn trên phiếu — `khoa_gui_duyet` từ `nguoi_yeu_cau`/`thoi_diem_gui`, `quan_ly_duyet` từ `nguoi_duyet`/`thoi_diem_duyet` — và **chỉ khi** không có dòng nhật ký cùng loại.
+Vị trí: ngay dưới khối **Tiến trình**, trước khối **Yêu cầu & duyệt** — nó là phần nở ra của Tiến trình, không phải một khối rời.
+
+### 9.2 Dùng lại ngôn ngữ hình ảnh đã có, không sáng tác kiểu mới
+
+`style.css` **đã có sẵn một dòng thời gian dọc**: `.vtl` / `.vst`, hiện đang dùng làm bản mobile của thanh tiến trình (chấm bên trái, đường nối dọc, nhãn bên phải). Đó đúng là hình dạng cần dựng, và nó đã qua review rồi.
+
+Quyết định: **nâng `.vtl`/`.vst` từ "bản mobile của thanh tiến trình" lên thành khối dòng thời gian dùng ở MỌI kích thước màn.** Không thêm lớp CSS mới nào cho bố cục.
+
+Lý do: một màn hình đẹp trong sản phẩm này là màn hình **không đọc ra được là ai đã làm nó** — nó phải trông như phần còn lại của cổng. Dựng một bộ lớp thứ hai làm cùng một việc là cách chắc chắn để hai bộ trôi khỏi nhau sau vài tháng.
+
+### 9.3 Màu chấm nói ba điều, không nhiều hơn
+
+Dùng đúng bảng màu sẵn có ở `:root`. **Ba màu cộng một xám** — nhiều hơn nữa là biến dòng thời gian thành một bảng mã màu phải tra:
+
+| Màu | Nghĩa | Sự kiện |
+|---|---|---|
+| `--blue` | **Bệnh viện** thao tác | `khoa_gui_duyet`, `quan_ly_duyet`, `khach_dong_y`, `khoa_xin_sua`, `quan_ly_duyet_sua`, `khach_gui_lai_bao_gia` |
+| `--green` | **Miyano** thao tác | `miyano_xac_nhan`, `miyano_bao_gia`, `giao_hang`, `hoa_don` |
+| `--red` | **Việc đi lùi** | `quan_ly_tu_choi`, `quan_ly_tu_choi_sua`, `quan_ly_huy_phieu`, `khoa_thu_hoi`, `miyano_tu_choi`, `khach_khong_dong_y`, `khach_huy_don` |
+| xám | Hệ thống | `don_tao` |
+
+Màu đỏ là thứ làm dòng thời gian **đọc được trong ba giây**: nhìn cột chấm thấy hai chấm đỏ xen giữa là biết ngay đơn này đã đi tới đi lui hai lần, không cần đọc chữ. Đó chính là thông tin thanh năm chấm không bao giờ hiện được.
+
+Một dòng chú giải nhỏ đặt dưới khối, không phải trên — người đọc hiểu ngay từ ngữ cảnh, chú giải chỉ để xác nhận.
+
+### 9.4 Mỗi dòng ba tầng chữ, theo thứ tự người ta cần
+
+```
+●  Quản lý duyệt phiếu
+│  03/09 14:22 · Nguyễn Văn A · 0912 345 678
+│  Hạ 2 dòng so với số khoa xin · Tư cách: Quản lý chính
+│
+●  Miyano xác nhận đơn
+│  03/09 15:40 · Trần Thị B · 0987 654 321
+│
+●  Miyano báo giá
+   04/09 09:15 · Trần Thị B · 0987 654 321
+   Báo giá hiệu lực đến 11/09
+```
+
+- **Tầng 1** — *việc*, chữ đậm. Người đọc quét cột này trước.
+- **Tầng 2** — *lúc nào · ai · số*, chữ nhỏ màu `--gray`. Giờ đứng đầu vì đó là thứ người ta dò khi tìm "hôm nào".
+- **Tầng 3** — *ghi chú*, chỉ hiện khi có. Không có ghi chú thì không có dòng trống.
+
+**Số điện thoại phải bấm gọi được** (`<a href="tel:">`). Điều dưỡng trưởng đọc màn này trên điện thoại; đó là khác biệt giữa "thấy số" và "gọi được người". Chi tiết nhỏ nhất nhưng đáng giá nhất của cả khối.
+
+**Thiếu số thì chỉ hiện tên** — không dấu gạch, không ô trống (§8).
+
+### 9.5 Bốn quyết định về sự tường minh
+
+**Hiện đủ, không thu gọn.** Một đơn nhiều vòng có thể 15–20 dòng. Giấu bớt là tái tạo đúng khuyết điểm của thanh năm chấm mà tính năng này sinh ra để sửa. Nếu thực tế dài tới mức khó đọc thì xử sau **bằng số liệu thật**, không đoán trước.
+
+**Mới nhất ở DƯỚI cùng, đọc từ trên xuống theo thời gian.** Khác Viettel Post (họ để mới nhất trên đầu). Lý do: ở đây người đọc thường cần dựng lại *câu chuyện* — "khoa xin gì, ai hạ xuống, vì sao báo giá lại" — chứ không phải liếc trạng thái mới nhất; trạng thái mới nhất đã nằm ở badge đầu trang và thanh năm chấm ngay trên.
+
+**Giới hạn bề rộng ~640px trên desktop.** Một dòng chữ kéo hết 1200px là một dòng không ai đọc hết.
+
+**Trạng thái rỗng nói thật.** Đơn tạo trước khi bật nhật ký, sau khi đã suy hai dòng từ phiếu mà vẫn rỗng: một dòng xám *"Nhật ký thao tác bắt đầu ghi từ <ngày bật>. Đơn này tạo trước đó."* Không để trống trơn — một khối trống làm người dùng tưởng hệ thống hỏng.
+
+### 9.6 Đơn cũ không có dòng nhật ký nào
+
+Suy **hai** dòng từ dữ liệu đã ghi sẵn trên phiếu — `khoa_gui_duyet` từ `nguoi_yeu_cau`/`thoi_diem_gui`, `quan_ly_duyet` từ `nguoi_duyet`/`thoi_diem_duyet` — và **chỉ khi** không có dòng nhật ký cùng loại.
 
 Đây **không** phải diễn giải kiểu `Version` mà §4 vừa bác: bốn trường đó là **sự kiện đã ghi tường minh, có người và có mốc giờ**, chỉ nằm trên chứng từ thay vì trong sổ. Không suy ra gì mới cả. Không backfill: dữ liệu cũ giữ nguyên trong CSDL.
 
