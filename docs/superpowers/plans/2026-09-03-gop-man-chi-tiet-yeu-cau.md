@@ -26,6 +26,7 @@ Mọi task đều phải tuân, không nhắc lại trong từng task:
 - **Chạy suite:** `cd /home/hoangvietyeuem/frappe-bench-yhct && bench --site erptest.local run-tests --app miyano_portal` (~5,5 phút, 1758 test tính đến 03/09/2026).
 - **Build frontend:** `cd frontend && yarn build` — bundle sinh ra ở `miyano_portal/public/frontend/`, **phải commit kèm** (đó là thứ site phục vụ).
 - **Ngôn ngữ:** chữ hiển thị và chú thích bằng tiếng Việt, theo văn phong sẵn có (nêu LÝ DO, không mô tả lại code).
+- **Số dòng trong kế hoạch là CHỈ DẤU, mốc nội dung mới là thẩm quyền.** Kế hoạch viết xong 03/09/2026 trên một cây làm việc đã dịch chuyển từ đó (mỗi task đều commit). Chỗ nào ghi `file.py:218-245` mà không khớp, hãy tìm bằng **mốc nội dung** kế hoạch nêu kèm (một dòng code hoặc một chú thích trích nguyên văn) và sửa ở đó. Lệch số dòng KHÔNG phải lý do để dừng, cũng không phải lý do để đoán — không tìm thấy mốc nội dung mới là chuyện phải báo.
 - **"CHÉP NGUYÊN từ `<file>` dòng A–B" là lệnh DI CHUYỂN nguyên văn**, không phải chỗ trống để tự viết lại. Những khối đó là markup đang chạy thật, đã qua nhiều vòng review, và kế hoạch cố ý KHÔNG in lại chúng — in lại là tạo bản sao thứ hai sẽ trôi khỏi bản gốc ngay trong lúc thi công. Đổi tên biến theo hướng dẫn, **không sửa class, không sửa chữ hiển thị, không "tiện tay" dọn**. Muốn sửa gì trong đó thì đó là một task khác.
 
 ---
