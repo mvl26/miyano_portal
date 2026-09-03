@@ -1395,6 +1395,12 @@ Theo đúng thứ tự khối của mục "Bố cục" ở đầu tài liệu:
 
 `ma` = `phieu?.ma_de_xuat || don?.order || phieu?.name`.
 
+> **Ruling preflight #14 (phát sinh từ Task 6) — GIEO `ghiChuSua`, nếu không quản lý duyệt là XOÁ TRẮNG ghi chú cũ.**
+> `BangMatHang.vue` chỉ GHI vào `ghiChuSua`, nó không tự gieo giá trị đang có. `DeXuatDetail.vue` gieo trong `dungLaiDieuChinh()`:
+> `ghiChuSua = Object.fromEntries(items.map((it) => [it.item_code, it.ghi_chu_quan_ly || '']))`.
+> Task 7 **phải** làm đúng như thế sau mỗi lần nạp chứng từ. Bỏ bước gieo thì `dieuChinhItems` so ô rỗng với ghi chú cũ, thấy "có đổi", và gửi chuỗi rỗng đè lên ghi chú quản lý đã viết từ vòng trước — **mất dữ liệu trong im lặng, build vẫn xanh**.
+> Ngược lại `slDuyetSua` **phải để trống** (placeholder hiện số đang có): một ô đã điền sẵn số cũ mời người ta sửa đè lên một con số trông như đã được xác nhận. Hai ô, hai luật ngược nhau — đừng gieo cả hai cho "nhất quán".
+
 - [ ] **Step 5: Đổi router**
 
 Trong `frontend/src/router.js`:
