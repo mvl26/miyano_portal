@@ -136,6 +136,23 @@ watch([filter, khoaFilter], () => {
 })
 watch([trang, soDong, filter, khoaFilter], load)
 
+// Việc 4 (review toàn nhánh 03/09/2026) — `onMounted` MỘT MÌNH không đủ.
+// Vue Router KHÔNG dựng lại component khi chỉ QUERY đổi trên cùng một
+// route, nên quản lý ĐANG ĐỨNG ở `/yeu-cau` (ca thường gặp nhất: họ vừa
+// duyệt xong một phiếu và bấm badge lần nữa) sẽ thấy URL đổi mà bộ lọc
+// đứng yên — đúng thứ mục nav mang `?chip=cho_duyet` sinh ra để tránh.
+//
+// KHÔNG có vòng lặp với watcher ghi query bên trên: nó `router.replace`
+// đúng giá trị `filter` vừa đổi, nên `route.query.chip` tới đây đã BẰNG
+// `filter.value` và phép so dưới đây tự dừng. Chuỗi lạ (hoặc thiếu) →
+// `khoaGiaiDoan()` trả rỗng → về chip "Tất cả", cùng cách `onMounted` đối
+// xử với nó.
+watch(() => route.query.chip, (moi) => {
+  const chip = khoaGiaiDoan(moi) || ''
+  if (chip === filter.value) return
+  filter.value = chip
+})
+
 // SỬA được ⟺ đúng quyền `de_xuat_luu_nhap` phía server (owner HOẶC quản
 // lý). Client đoán khác server thì khách gõ xong mới ăn "Phiếu này không
 // phải của bạn" và mất sạch công sửa — cùng điều kiện DeXuatList.vue đã

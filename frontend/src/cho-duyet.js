@@ -5,8 +5,13 @@
 // 03/09/2026 — nơi thứ ba (màn `/duyet`, bảng hàng chờ) đã nghỉ: việc duyệt
 // vốn nằm ở màn CHI TIẾT, nên bảng đó chỉ là bản sao thứ hai của cùng bộ dữ
 // liệu. Hàng chờ nay là "Danh sách đơn hàng" lọc chip `cho_duyet` — chip đó
-// gom ĐÚNG hai trạng thái file này đếm (`_sql_giai_doan()` ở api/portal.py),
-// nên badge và đích nó dẫn tới không nói hai con số khác nhau.
+// gom ĐÚNG hai trạng thái file này đếm (`_sql_giai_doan()` ở api/portal.py).
+//
+// Việc 4 (review toàn nhánh) — câu "badge và đích nó dẫn tới không nói hai
+// con số khác nhau" chỉ đúng từ khi mục nav THẬT SỰ mang `?chip=cho_duyet`
+// (`App.vue::dichNav()`) và màn danh sách chịu nghe query đổi giữa chừng
+// (`YeuCauList.vue`, watcher trên `route.query.chip`). Hai trạng thái khớp
+// nhau ở tầng dữ liệu không tự làm cho cú bấm dẫn đúng chỗ.
 //
 // Gộp ở đây thay vì chép ba lần: `de_xuat_danh_sach` chỉ nhận MỘT
 // `trang_thai` mỗi lần gọi (truyền mảng vào tham số đó vướng đúng cái bẫy

@@ -82,6 +82,27 @@ const choDuyetNhan = computed(() => `${store.choDuyetCount}${store.choDuyetBiCat
 const navItems = computed(() => NAV)
 const hienBadgeDuyet = computed(() => !!store.me?.la_quan_ly && !!store.choDuyetCount)
 
+// Việc 4 (review toàn nhánh 03/09/2026) — badge "7" phải dẫn tới ĐÚNG bảy
+// phiếu đó. Trước hàm này, mục nav là `/yeu-cau` TRẦN: quản lý bấm badge
+// rồi rơi vào danh sách toàn viện chưa lọc và phải tự biết bấm tiếp chip
+// "Chờ duyệt" — trong khi cả file này lẫn `cho-duyet.js` đều khẳng định
+// "badge và đích nó dẫn tới không nói hai con số khác nhau".
+//
+// Gắn chip CÓ ĐIỀU KIỆN, không viết cứng vào mảng NAV: đây là mục CHUNG
+// của mọi vai trò — nhân viên khoa dùng chính nó để xem yêu cầu của mình,
+// và mở sẵn một bộ lọc họ không có phiếu nào trong đó là đưa họ tới một
+// danh sách rỗng. Điều kiện dùng lại ĐÚNG cờ `hienBadgeDuyet` mà template
+// hỏi, không phải một phép suy vai trò thứ hai đặt cạnh nó: khi badge
+// không hiện thì không có con số nào để mà "dẫn tới đúng", nên đích trở
+// lại trần. `isActive()` so theo `route.name` nên query không ảnh hưởng
+// tới việc mục nào sáng.
+function dichNav(n) {
+  if (n.duyet && hienBadgeDuyet.value) {
+    return { path: n.to, query: { chip: 'cho_duyet' } }
+  }
+  return n.to
+}
+
 function isActive(key) {
   const name = route.name || ''
   // Task 10 — `/dat-hang/:ten` (mở lại một phiếu Nháp để sửa tiếp) là CÙNG
@@ -135,8 +156,10 @@ onMounted(async () => {
   // chung với màn chi tiết, để hai nơi không trôi khỏi nhau (việc (e)).
   //
   // 03/09/2026 — bộ hai trạng thái mà `cho-duyet.js` đếm ĐÚNG BẰNG bộ mà
-  // chip `cho_duyet` lọc ra (`_sql_giai_doan()` gom cả hai vào một khoá),
-  // nên badge và đích nó dẫn tới nói cùng một con số.
+  // chip `cho_duyet` lọc ra (`_sql_giai_doan()` gom cả hai vào một khoá).
+  // Điều đó MỘT MÌNH chưa đủ để "badge và đích nó dẫn tới nói cùng một con
+  // số": đích phải THẬT SỰ mang chip đó (`dichNav()` ở trên) — trước Việc 4
+  // nó là `/yeu-cau` trần và câu khẳng định này sai.
   try {
     if (!store.me) store.setMe(await api.call('portal_me'))
     await capNhatChoDuyetCount(store)
@@ -159,7 +182,7 @@ onMounted(async () => {
         <router-link
           v-for="n in navItems"
           :key="n.key"
-          :to="n.to"
+          :to="dichNav(n)"
           :class="{ on: isActive(n.key) }"
         >
           <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>

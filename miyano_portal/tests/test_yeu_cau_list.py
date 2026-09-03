@@ -779,6 +779,84 @@ class TestDuongCuVaSoCua(FrappeTestCase):
 				f"{path} vẫn trỏ vào một component — hai cửa cho cùng một thứ",
 			)
 
+	def test_duong_cu_duyet_van_mang_chip_cho_duyet(self):
+		"""Review TOÀN NHÁNH (03/09/2026) — TRƯỚC bài này, KHÔNG assert nào
+		trong cả suite nhắc `chip` hay `cho_duyet` cho đường `/duyet`. Xoá
+		`query: { chip: 'cho_duyet' }` khỏi `router.js` thì bookmark HÀNG
+		NGÀY của quản lý rơi vào một danh sách toàn viện chưa lọc, mà cả
+		suite vẫn xanh — `test_duong_cu_la_CHUYEN_HUONG...` chỉ hỏi có
+		`redirect` hay không.
+
+		`/duyet` khác bốn đường cũ còn lại ở chỗ: chúng chỉ cần TỚI ĐÚNG
+		MÀN, còn đường này mang theo cả BỘ LỌC — màn duyệt riêng đã nghỉ,
+		nên "hàng chờ của tôi" giờ chỉ tồn tại dưới dạng danh sách gộp + chip
+		`cho_duyet` (chip đó gom đúng hai trạng thái màn cũ gộp)."""
+		khoi = self._khoi_route("/duyet")
+		self.assertIn(
+			"chip", khoi,
+			"/duyet chuyển hướng mà KHÔNG mang `chip` — bookmark hàng ngày của "
+			"quản lý rơi vào danh sách toàn viện chưa lọc.",
+		)
+		self.assertIn(
+			"cho_duyet", khoi,
+			"/duyet mang một chip KHÁC `cho_duyet` — hàng chờ của quản lý là "
+			"đúng chip đó, không phải chip nào khác.",
+		)
+
+	def test_badge_cho_duyet_dan_toi_DANH_SACH_DA_LOC(self):
+		"""Review TOÀN NHÁNH (03/09/2026) — mục nav là `to: '/yeu-cau'` TRẦN.
+		Quản lý thấy badge "7", bấm vào rơi vào danh sách toàn viện chưa lọc
+		và phải tự biết bấm tiếp chip "Chờ duyệt". Cả `App.vue` lẫn
+		`cho-duyet.js` đều khẳng định "badge và đích nó dẫn tới không nói hai
+		con số khác nhau" — câu đó SAI chừng nào đích còn trần.
+
+		Đích có điều kiện, KHÔNG phải một chuỗi cứng trong mảng NAV: mục này
+		là mục CHUNG của mọi vai trò (nhân viên khoa dùng chính nó để xem yêu
+		cầu của mình). Nên phép lọc chỉ được gắn khi CHÍNH badge đang hiện —
+		cùng cờ `hienBadgeDuyet` mà template hỏi, không phải một phép suy vai
+		trò thứ hai đặt cạnh nó rồi sớm muộn lệch."""
+		noi_dung = self.APP.read_text(encoding="utf-8")
+		moc = re.search(r"function dichNav\([^)]*\)\s*\{.*?\n\}", noi_dung, re.S)
+		self.assertIsNotNone(
+			moc,
+			"App.vue không có `function dichNav(...)` — mục nav mang badge vẫn "
+			"trỏ vào một danh sách chưa lọc.",
+		)
+		than = moc.group(0)
+		self.assertIn(
+			"cho_duyet", than,
+			"`dichNav()` không gắn chip `cho_duyet` — badge dẫn tới danh sách "
+			"toàn viện, không phải bảy phiếu nó vừa đếm.",
+		)
+		self.assertIn(
+			"hienBadgeDuyet", than,
+			"`dichNav()` không hỏi `hienBadgeDuyet` — hoặc nó lọc cho CẢ nhân "
+			"viên khoa (mục nav chung, họ không có hàng chờ nào), hoặc nó suy "
+			"vai trò lần thứ hai bên cạnh cờ template đang dùng.",
+		)
+		self.assertRegex(
+			noi_dung, r':to="dichNav\(n\)"',
+			"Thanh nav không dùng `dichNav(n)` — hàm tính đích được khai nhưng "
+			"không ai hỏi nó.",
+		)
+
+	def test_man_danh_sach_NGHE_chip_doi_giua_chung(self):
+		"""Nửa còn lại của cùng một bản vá: đích mang `?chip=cho_duyet` chỉ
+		có tác dụng nếu màn CHỊU NGHE.
+
+		`YeuCauList.vue` khôi phục chip trong `onMounted` — mà Vue Router
+		KHÔNG dựng lại component khi chỉ QUERY đổi trên cùng một route. Quản
+		lý ĐANG ĐỨNG ở `/yeu-cau` (ca thường gặp nhất — vừa duyệt xong một
+		phiếu rồi bấm badge lần nữa) sẽ thấy URL đổi mà bộ lọc đứng yên. Xoá
+		watcher này thì bản vá Việc 4 im lặng trở lại thành vô tác dụng cho
+		đúng người nó phục vụ, và không bước build nào nói gì."""
+		man = (FRONTEND_SRC / "views" / "YeuCauList.vue").read_text(encoding="utf-8")
+		self.assertRegex(
+			man, r"watch\(\(\)\s*=>\s*route\.query\.chip",
+			"YeuCauList.vue không theo dõi `route.query.chip` — đích mang chip "
+			"không đổi được bộ lọc khi người dùng đã đứng sẵn trên màn này.",
+		)
+
 	def test_duong_cu_co_tham_so_GIU_NGUYEN_tham_so(self):
 		"""Link trong email thông báo trỏ tới MỘT chứng từ cụ thể. Chuyển
 		hướng về danh sách suông là đánh mất đúng thứ người nhận đang tìm."""
