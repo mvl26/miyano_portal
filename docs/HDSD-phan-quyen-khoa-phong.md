@@ -543,9 +543,13 @@ Nói rõ để không ai chờ nhầm:
    trên Desk.
 3. **Chưa có uỷ quyền tạm thời.** Quản lý đi vắng thì chưa có ai duyệt thay —
    thuộc kế hoạch C.
-3b. **Vòng "duyệt sửa" chưa ghi mốc riêng.** Khi quản lý duyệt một yêu cầu sửa số
-   lượng, phiếu không ghi thêm người duyệt và thời điểm cho vòng đó — khối truy vết
-   vẫn chỉ mang dấu của lần duyệt đầu.
+3b. ~~**Vòng "duyệt sửa" chưa ghi mốc riêng.**~~ **ĐÃ VÁ 03/09/2026.** Trước đó,
+   khi quản lý duyệt một yêu cầu sửa số lượng, phiếu không ghi thêm người duyệt và
+   thời điểm cho vòng đó — khối truy vết vẫn chỉ mang dấu của lần duyệt đầu. Nay
+   **sổ nhật ký thao tác** (§4b) ghi một dòng riêng cho mỗi vòng xin sửa / đồng ý
+   sửa / không đồng ý sửa, kèm người và mốc giờ. Bốn trường trên phiếu
+   (`nguoi_duyet`, `thoi_diem_duyet`, ...) vẫn **giữ nguyên** dấu của lần duyệt
+   đầu — cố ý, vì chúng là dữ liệu chứng từ, còn sổ mới là nơi kể chuyện nhiều vòng.
 4. **Quản lý bệnh viện chưa tự cấp tài khoản được** — và sẽ không bao giờ được.
    Tạo tài khoản là tạo tài khoản trên hệ thống Miyano. Quản lý sẽ chỉ được gán
    khoa và bật/tắt thành viên (bước 9).

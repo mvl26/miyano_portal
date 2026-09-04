@@ -270,6 +270,32 @@ Trang chi tiết đơn gồm:
 **Tiến trình 5 mốc** — Đặt hàng → Xác nhận → Soạn hàng → Giao hàng → Hoá đơn.
 Mốc đã qua tô xanh.
 
+**Dòng thời gian "Ai đã làm gì"** *(từ 04/09/2026)* — nằm ngay dưới Tiến trình.
+Mỗi việc đã xảy ra là một dòng, mới nhất ở trên, kèm **tên người thao tác, số
+điện thoại của họ, và mốc giờ**. Màu chấm đầu dòng cho biết ai làm:
+
+| Chấm | Ai | Ví dụ |
+|---|---|---|
+| 🔵 Xanh dương | Người của bệnh viện bạn | *"Khoa Dược gửi duyệt — ĐD. Nguyễn Thị B · 0912…, 14:20 03/09"* |
+| 🟢 Xanh lá | Nhân sự Miyano | *"Miyano xác nhận đơn — Trần Văn C · 0987…, 09:05 04/09"* |
+| 🔴 Đỏ | Việc bị trả lại / dừng | *"Quản lý từ chối — lý do: vượt dự trù quý"* |
+| ⚪ Xám | Hệ thống tự làm | *"Đơn hàng được tạo tự động từ phiếu"* |
+
+**Số điện thoại bấm được** — trên điện thoại, chạm vào số là gọi thẳng. Đây là
+mục đích chính của dòng thời gian: khi đơn đứng lại, bạn biết **hỏi đúng ai** mà
+không phải gọi tổng đài hỏi vòng.
+
+> **Với nhân sự Miyano, cổng hiện tên và số điện thoại — KHÔNG hiện email.** Bạn
+> có quyền biết ai chịu trách nhiệm và gọi được cho họ; hộp thư nội bộ của họ
+> không phải việc của cổng. Với người của chính bệnh viện bạn thì hiện đủ.
+
+> **Đơn cũ tạo trước 04/09/2026** chỉ có hai dòng (người gửi duyệt, người duyệt),
+> dựng lại từ chính phiếu và được đánh dấu là dòng **dựng lại**. Từ ngày bật sổ
+> trở đi mọi việc đều được ghi ngay lúc nó xảy ra.
+
+**Không ai sửa hay xoá được một dòng đã ghi** — kể cả Miyano, kể cả trên Desk.
+Sổ này chỉ ghi thêm; đó là lý do nó dùng được để đối chiếu khi hai bên nhớ khác nhau.
+
 **Khối "Yêu cầu & duyệt"** — ai xin, xin lúc nào, vì sao xin; ai duyệt, duyệt lúc
 nào, duyệt nguyên số hay đã sửa số lượng. Khối này **tự thu gọn** khi đơn đã giao
 xong — đơn cũ thì không cần giương mắt đọc lại ai đã duyệt mỗi lần mở ra, bấm vào

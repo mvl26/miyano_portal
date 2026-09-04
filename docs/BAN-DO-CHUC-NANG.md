@@ -242,6 +242,47 @@ có tham số vẫn truyền `params`.
 
 ---
 
+### Sổ nhật ký thao tác và dòng thời gian *(04/09/2026)*
+
+**Không thêm cửa nào.** Đây là một khối mới **bên trong** màn chi tiết yêu cầu
+(`/yeu-cau/phieu/:ten` và `/yeu-cau/don/:name`, cùng một trang từ 03/09), nằm
+ngay dưới khối **Tiến trình 5 mốc**. Ba câu hỏi bắt buộc của mục 4 dưới đây, trả
+lời trước khi giao việc:
+
+- *Cổng đã có màn nào làm việc này chưa?* — **Chưa.** Khối "Yêu cầu & duyệt" trả
+  lời được **hai** mốc (ai xin, ai duyệt) từ bốn trường trên phiếu; nó không kể
+  được nhiều vòng, và không hề biết gì về phía Miyano.
+- *Khối mới thay thế cái gì?* — **Không thay gì cả.** Khối "Yêu cầu & duyệt" ở
+  lại nguyên vẹn: nó hiện **số lượng đã duyệt từng dòng**, thứ dòng thời gian
+  không thay được.
+- *Cái cũ nghỉ hay ở lại?* — **Ở lại**, vì lý do trên. Hai khối trả lời hai câu
+  khác nhau: "duyệt bao nhiêu" và "ai đã làm gì, lúc nào".
+
+**Kiến trúc:**
+
+| Mảnh | Ở đâu | Việc |
+|---|---|---|
+| Doctype `Portal Nhat Ky Yeu Cau` | `miyano_portal/doctype/` | Sổ **chỉ-thêm** — `on_update`/`on_trash` tự chặn sửa và xoá, kể cả từ Desk |
+| `miyano_portal/nhat_ky.py` | module ghi | **Một** hàm `ghi()` cho cả 18 sự kiện. Nó KHÔNG BAO GIỜ ném lỗi ra ngoài: ghi sổ hỏng không được phép làm hỏng việc nghiệp vụ, lỗi đi vào `Error Log` |
+| `miyano_portal/nhat_ky_hook.py` | hook | Bắt sáu sự kiện phía Miyano/hệ thống, móc vào chuỗi `Sales Order.on_update` / `Sales Invoice.on_submit` **đã có** — không dựng điểm móc thứ hai |
+| `portal_context.lien_he_nguoi_dung()` | tra người | Tên + số điện thoại (`User.mobile_no` → `User.phone`). Cờ `cho_hien_tai_khoan` là **ranh giới quyền riêng tư**: khách thấy tên và số của nhân sự Miyano, **không** thấy email |
+| `api/portal.py::portal_nhat_ky_yeu_cau` | endpoint đọc | Hỏi **cả hai trục** như mọi endpoint cổng (khách hàng + khoa phòng) |
+| `KhoiDongThoiGian.vue` | giao diện | Dùng lại `.vtl`/`.vst` đã có, chỉ thêm bốn lớp màu chấm |
+
+**Đơn tạo trước ngày bật sổ** không có dòng nào. Endpoint **suy hai dòng** (gửi
+duyệt, duyệt) từ bốn trường vốn đã có trên phiếu và đánh dấu `suy_ra: true` để
+màn hình nói rõ đây là dòng dựng lại. Chỉ suy khi **không** có dòng thật cùng
+loại — nếu không thì mọi yêu cầu mới sẽ hiện đôi.
+
+**Số điện thoại là điều kiện để tính năng có nghĩa**, và nó nằm ở khâu **vận
+hành**, không ở mã nguồn: màn "Nhập nhân sự bệnh viện" chưa có cột số điện thoại,
+nên phải điền tay vào `User.Mobile No` ngay sau khi cấp tài khoản — xem
+`HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md` §A5b. Đây đúng là dạng "thứ
+vắng mặt" mà mục 4 dưới đây nói: mã chạy đúng, test xanh, mà người dùng vẫn
+không gọi được cho ai.
+
+---
+
 ## 4. Vì sao lọt lưới — và đổi cách làm việc thế nào
 
 **Nguyên nhân:** thi công theo kế hoạch task-by-task, mỗi task một vòng review **phạm vi hẹp theo task**. Kế hoạch ghi *"Task 8: Màn lập phiếu"* nên màn đó được dựng — không ai có nhiệm vụ hỏi *"cổng này đã có màn nào làm việc đó chưa?"*.

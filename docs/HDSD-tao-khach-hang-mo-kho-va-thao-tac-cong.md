@@ -143,6 +143,40 @@ sẽ không ai duyệt được yêu cầu của các khoa.
 
 **Bước 4 — Bấm Ghi.** Xong, màn hình hiện **bảng email kèm mật khẩu**.
 
+#### A5b. Bắt buộc điền số điện thoại sau khi tạo *(từ 04/09/2026)*
+
+Từ khi cổng có **dòng thời gian "Ai đã làm gì"**, mỗi việc trên đơn hiện tên
+người thao tác **kèm số điện thoại của họ**, và khách bấm thẳng vào số để gọi.
+Số đó lấy từ trường **Mobile No** (lui về **Phone**) trên chính bản ghi `User`.
+
+**Tài khoản không có số thì dòng thời gian chỉ hiện tên** — vẫn trả lời được
+"ai", nhưng mất đúng thứ nó sinh ra để cho: khách biết hỏi ai mà **không gọi
+được**. Đó là một màn hình nêu ra một câu hỏi rồi không trả lời.
+
+> **Màn "Nhập nhân sự bệnh viện" CHƯA có cột số điện thoại** — tệp mẫu vẫn đúng
+> năm cột như bảng trên. Nói thẳng ra ở đây để không ai đi tìm một cột không tồn
+> tại. Nên số điện thoại phải điền **sau khi Ghi**, ở bước dưới.
+
+**Việc bắt buộc, làm ngay trong cùng buổi cấp tài khoản:**
+
+1. Xin bệnh viện danh sách **số điện thoại di động** của đúng những người vừa
+   được cấp tài khoản — xin cùng lúc với tệp Excel ở Bước 2, đừng để thành một
+   lần liên hệ thứ hai.
+2. Sau Bước 4, mở Desk → **User** → từng tài khoản vừa tạo → điền **Mobile No** →
+   Ghi.
+3. Đối chiếu: số tài khoản vừa tạo phải bằng số tài khoản đã có Mobile No. Thiếu
+   ai thì hỏi lại, **đừng bàn giao khi còn thiếu**.
+
+**Người của Miyano cũng phải có số.** Cổng khách hàng hiện tên **và số điện
+thoại** của nhân sự Miyano ở các mốc xác nhận / báo giá / từ chối — đó là chốt
+trách nhiệm mà chủ đầu tư yêu cầu. Tài khoản Miyano nào thao tác trên đơn của
+bệnh viện mà chưa có Mobile No thì khách chỉ thấy tên trống số.
+
+> **Cổng KHÔNG bao giờ hiện email của nhân sự Miyano cho khách** — chỉ tên và số
+> điện thoại. Với người của chính bệnh viện đó thì hiện đủ cả tài khoản. Ranh
+> giới này nằm trong mã nguồn (`lien_he_nguoi_dung(..., cho_hien_tai_khoan=…)`)
+> và có test canh; đừng nới nó bằng cách sửa giao diện.
+
 > ### ⚠️ Mật khẩu chỉ hiện MỘT LẦN
 >
 > Chép ngay để bàn giao — rời khỏi màn này là không xem lại được. Mật khẩu
