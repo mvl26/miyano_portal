@@ -620,15 +620,55 @@ class TestNhatKySuKienMiyano(FrappeTestCase):
 
 	def test_luu_lai_khong_doi_workflow_state_khong_sinh_dong(self):
 		"""Vế bắt buộc thứ hai (brief) — lưới của cả phép so cũ/mới: thiếu
-		bài này thì mỗi lần Miyano sửa PO Number/ghi chú vặt trên đơn cũng
-		đẻ một dòng."""
+		bài này thì mỗi lần Miyano sửa ghi chú vặt trên một đơn ĐÃ Ở một
+		trạng thái CÓ MAP cũng đẻ thêm một dòng.
+
+		VÒNG SỬA 1 (review) — bản đầu resave một SO còn ở "Chờ xác nhận",
+		trạng thái đó VỐN KHÔNG nằm trong `_ANH_XA_TRANG_THAI` nên nhánh
+		`if not su_kien: return` đã chặn giùm — reviewer chứng minh bằng
+		tay: xoá hẳn `if cu == moi: return`, bài đó VẪN XANH.
+
+		VÒNG SỬA 1, LẦN HAI (tự phát hiện khi làm lại phép chứng minh đỏ)
+		— bản sửa đầu tiên dùng "Đã xác nhận" (state CÓ MAP nhưng SUBMIT,
+		docstatus=1) rồi resave. Đã ĐO: một resave draft→submitted-y-nguyên
+		(docstatus 1→1) được Frappe xếp `_action = "update_after_submit"`
+		(`Document.check_docstatus_transition`, nhánh `to_docstatus ==
+		SUBMITTED` + `docstatus.is_submitted()`), và `run_post_save_methods`
+		CHỈ gọi `on_update_after_submit` cho action đó — KHÔNG BAO GIỜ gọi
+		`on_update`. Nghĩa là `tu_sales_order_on_update` không hề chạy cho
+		lượt resave đó, có hay không có chốt `cu == moi` — bài kiểu đó vẫn
+		xanh dù xoá chốt, NHƯNG vì lý do hoàn toàn khác (hook không được
+		gọi), không phải vì chốt hoạt động đúng.
+
+		Sửa ĐÚNG: dùng "Chờ khách đồng ý" — CŨNG là trạng thái CÓ MAP
+		(`SK_MIYANO_BAO_GIA`), nhưng là trạng thái DRAFT (`doc_status="0"`,
+		xem bảng state đã đo ở `wf_probe.py` lúc viết Task 4). Một resave
+		draft→draft (docstatus 0→0) được xếp `_action = "save"`, và
+		`run_post_save_methods` GỌI `on_update` cho action đó — đường DUY
+		NHẤT còn lại giữa bài test này và một dòng log thừa chính là chốt
+		`cu == moi`."""
+		from frappe.model.workflow import apply_workflow
 		so = self._don_moi()
-		truoc = so.workflow_state
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(
+			so.workflow_state, "Chờ khách đồng ý",
+			"fixture chưa tới được trạng thái ĐÃ MAP (draft) cần đo",
+		)
+		self.assertEqual(so.docstatus, 0, "phải là trạng thái DRAFT để resave còn gọi on_update")
+		so_dong_truoc = len(self._dong_cua_don(so.name))
+		self.assertEqual(so_dong_truoc, 1, "lượt 'Gửi khách duyệt' phải tự sinh đúng 1 dòng")
+
 		so.po_no = "PO-NHATKY-TEST"
 		so.save(ignore_permissions=True)
 		so.reload()
-		self.assertEqual(so.workflow_state, truoc, "fixture phải giữ nguyên workflow_state")
-		self.assertEqual(self._dong_cua_don(so.name), [])
+
+		self.assertEqual(
+			so.workflow_state, "Chờ khách đồng ý", "fixture phải giữ nguyên workflow_state",
+		)
+		self.assertEqual(
+			len(self._dong_cua_don(so.name)), so_dong_truoc,
+			"lưu lại không đổi workflow_state không được sinh thêm dòng nhật ký",
+		)
 
 	def test_xac_nhan_ghi_dung_mot_dong(self):
 		from frappe.model.workflow import apply_workflow
