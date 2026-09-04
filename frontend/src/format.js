@@ -195,3 +195,76 @@ export function daysUntil(iso) {
   const now = new Date(todayISO() + 'T00:00:00')
   return Math.round((target - now) / 86400000)
 }
+
+// Task 7 (nhật ký thao tác + dòng thời gian, spec §6/§7/§9) — 18 khoá sự
+// kiện của sổ nhật ký. `miyano_portal/nhat_ky.py` (các hằng `SK_*`) là
+// NGUỒN DUY NHẤT của danh sách khoá — bảng dưới đây chỉ ÁNH XẠ, không định
+// nghĩa lại. Ruling P54 lặp ở đây đúng như `GIAI_DOAN`/`NHAN_GIAI_DOAN`
+// phía trên: `su_kien` LƯU xuống CSDL là khoá, và sổ này là bản ghi VĨNH
+// VIỄN — đổi một CHỮ ở bảng dưới (lý do biên tập) không được động tới một
+// khoá nào đã ghi.
+export const NHAN_SU_KIEN = {
+  khoa_gui_duyet: 'Khoa gửi duyệt',
+  khoa_thu_hoi: 'Khoa thu hồi phiếu',
+  quan_ly_duyet: 'Quản lý duyệt phiếu',
+  quan_ly_tu_choi: 'Quản lý từ chối phiếu',
+  quan_ly_huy_phieu: 'Quản lý huỷ phiếu',
+  khoa_xin_sua: 'Khoa xin sửa số lượng',
+  quan_ly_duyet_sua: 'Quản lý duyệt sửa số lượng',
+  quan_ly_tu_choi_sua: 'Quản lý từ chối sửa số lượng',
+  don_tao: 'Đơn hàng được tạo',
+  miyano_xac_nhan: 'Miyano xác nhận đơn',
+  miyano_bao_gia: 'Miyano báo giá',
+  miyano_tu_choi: 'Miyano từ chối đơn',
+  khach_dong_y: 'Đồng ý đặt hàng',
+  khach_khong_dong_y: 'Không đồng ý đặt hàng',
+  khach_gui_lai_bao_gia: 'Gửi lại để báo giá',
+  khach_huy_don: 'Huỷ đơn hàng',
+  giao_hang: 'Giao hàng',
+  hoa_don: 'Xuất hoá đơn',
+}
+
+export function nhanSuKien(su_kien) {
+  return NHAN_SU_KIEN[su_kien] || su_kien
+}
+
+// §9.3 — BA màu cộng MỘT xám, không nhiều hơn. Bảng chép NGUYÊN VĂN cột
+// "Sự kiện" của bảng §9.3 trong spec — đừng suy luận lại, chép sai một
+// khoá là đúng lớp lỗi mà bảng dưới tồn tại để tránh.
+const MAU_SU_KIEN = {
+  // --blue — BỆNH VIỆN thao tác.
+  khoa_gui_duyet: 'benh-vien',
+  quan_ly_duyet: 'benh-vien',
+  khach_dong_y: 'benh-vien',
+  khoa_xin_sua: 'benh-vien',
+  quan_ly_duyet_sua: 'benh-vien',
+  khach_gui_lai_bao_gia: 'benh-vien',
+  // --green — MIYANO thao tác.
+  miyano_xac_nhan: 'miyano',
+  miyano_bao_gia: 'miyano',
+  giao_hang: 'miyano',
+  hoa_don: 'miyano',
+  // --red — việc ĐI LÙI.
+  quan_ly_tu_choi: 'lui',
+  quan_ly_tu_choi_sua: 'lui',
+  quan_ly_huy_phieu: 'lui',
+  khoa_thu_hoi: 'lui',
+  miyano_tu_choi: 'lui',
+  khach_khong_dong_y: 'lui',
+  khach_huy_don: 'lui',
+  // xám — HỆ THỐNG.
+  don_tao: 'he-thong',
+}
+
+// `vai` có mặt trong chữ ký cho ĐỦ interface (brief Task 7), nhưng CỐ Ý
+// KHÔNG dùng để suy màu khi `su_kien` lạ (không có trong `MAU_SU_KIEN`):
+// `quan_ly_duyet` (xanh dương) và `quan_ly_tu_choi` (đỏ) mang CÙNG `vai`
+// ('quan_ly') — một fallback theo `vai` do đó KHÔNG BAO GIỜ ra được màu
+// đỏ, nên một sự kiện "đi lùi" chưa kịp thêm vào bảng trên sẽ hiện XANH
+// DƯƠNG (coi như bình thường) thay vì báo hiệu "không nhận ra". Đó đúng
+// lớp lỗi Ruling #19 đã trả giá (đơn bị TỪ CHỐI đeo badge XANH "Đã duyệt")
+// — không dựng lại nó ở một chỗ khác. Không nhận ra `su_kien` → XÁM
+// (trung tính, "không biết"), không đoán theo `vai`.
+export function mauChamSuKien(su_kien, vai) {
+  return MAU_SU_KIEN[su_kien] || 'he-thong'
+}

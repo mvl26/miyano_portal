@@ -520,6 +520,16 @@ input:focus, select:focus, textarea:focus {
 .vst.done .vlb, .vst.cur .vlb { color: var(--dark); }
 .vst .vlb b { display: block; }
 
+/* Task 7 (nhật ký thao tác + dòng thời gian, spec §9.2/§9.3) — dòng thời
+   gian của KhoiDongThoiGian.vue DÙNG LẠI nguyên `.vtl`/`.vst`/`.vdot`/
+   `.vlb` ở trên (không dựng lớp bố cục thứ hai). Bốn lớp MÀU dưới đây là
+   phần DUY NHẤT được thêm: BA màu (bệnh viện xanh dương, Miyano xanh lá,
+   việc đi lùi đỏ) cộng MỘT xám cho hệ thống — không nhiều hơn, xem §9.3. */
+.vdot.benh-vien { background: var(--blue); color: #fff; }
+.vdot.miyano { background: var(--green); color: #fff; }
+.vdot.lui { background: var(--red); color: #fff; }
+.vdot.he-thong { background: #e2e8f0; color: #64748b; }
+
 /* Desktop confirm modal (S-04) */
 .modal {
   position: fixed;
