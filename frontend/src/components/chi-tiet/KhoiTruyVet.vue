@@ -41,6 +41,17 @@ const nguoiYeuCau = computed(() => {
   const ten = d.nguoi_yeu_cau_ten || taiKhoan
   return { ten, taiKhoan: ten === taiKhoan ? '' : taiKhoan }
 })
+
+// Task 6 — số điện thoại người duyệt, vá Minor #6 review 03/09:
+// `phieu.nguoi_duyet` là EMAIL THÔ (`nguoi_duyet_ten` mới là tên hiển thị,
+// giải ở BIÊN GIỚI API — `de_xuat_chi_tiet`). Cùng khuôn `nguoiYeuCau` ở
+// trên: chỉ ghép tài khoản vào khi nó KHÁC tên hiển thị.
+const nguoiDuyet = computed(() => {
+  const d = props.phieu
+  const taiKhoan = d.nguoi_duyet || ''
+  const ten = d.nguoi_duyet_ten || taiKhoan
+  return { ten, taiKhoan: ten === taiKhoan ? '' : taiKhoan }
+})
 </script>
 
 <template>
@@ -68,6 +79,12 @@ const nguoiYeuCau = computed(() => {
         <b>Người yêu cầu:</b>
         {{ nguoiYeuCau.ten }}
         <span v-if="nguoiYeuCau.taiKhoan" class="tag">({{ nguoiYeuCau.taiKhoan }})</span>
+        <!-- §8 — thiếu số thì KHÔNG in gì (không ô trống, không dấu gạch).
+             `v-if` trên CHÍNH giá trị số, không `|| '—'`: rỗng, `None`, và
+             "—" là ba thứ khác nhau ở tầng hiển thị. -->
+        <a v-if="phieu.nguoi_yeu_cau_dien_thoai" :href="'tel:' + phieu.nguoi_yeu_cau_dien_thoai" class="tag">
+          · {{ phieu.nguoi_yeu_cau_dien_thoai }}
+        </a>
       </p>
       <p style="font-size: 13px; margin-bottom: 2px">
         <b>Thời điểm gửi:</b> {{ phieu.thoi_diem_gui ? fmtDateTime(phieu.thoi_diem_gui) : 'Chưa gửi' }}
@@ -87,7 +104,12 @@ const nguoiYeuCau = computed(() => {
           Truy vết duyệt
         </p>
         <p style="font-size: 13px; margin-bottom: 2px">
-          <b>Người duyệt:</b> {{ phieu.nguoi_duyet }}
+          <b>Người duyệt:</b>
+          {{ nguoiDuyet.ten }}
+          <span v-if="nguoiDuyet.taiKhoan" class="tag">({{ nguoiDuyet.taiKhoan }})</span>
+          <a v-if="phieu.nguoi_duyet_dien_thoai" :href="'tel:' + phieu.nguoi_duyet_dien_thoai" class="tag">
+            · {{ phieu.nguoi_duyet_dien_thoai }}
+          </a>
         </p>
         <p style="font-size: 13px; margin-bottom: 2px">
           <b>Thời điểm duyệt:</b> {{ phieu.thoi_diem_duyet ? fmtDateTime(phieu.thoi_diem_duyet) : 'Chưa có' }}

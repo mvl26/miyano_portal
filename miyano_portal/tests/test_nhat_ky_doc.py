@@ -21,6 +21,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal import nhat_ky
+from miyano_portal.api import de_xuat
 from miyano_portal.api import portal as portal_api
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
@@ -475,3 +476,111 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		su_kien = [r["su_kien"] for r in rows]
 		self.assertEqual(su_kien.count(nhat_ky.SK_KHOA_GUI_DUYET), 1)
 		self.assertFalse(any(r["suy_ra"] for r in rows))
+
+
+class TestDeXuatChiTietTruyVetDienThoai(FrappeTestCase):
+	"""Task 6 — `de_xuat_chi_tiet()` mở khối truy vết ra thêm ba khoá
+	(`nguoi_yeu_cau_dien_thoai`, `nguoi_duyet_ten`, `nguoi_duyet_dien_thoai`),
+	giải Ở BIÊN GIỚI API cạnh `nguoi_yeu_cau_ten` đã có (chốt 21/08) — vá
+	luôn Minor #6 của review 03/09: `KhoiTruyVet.vue` đang hiện thẳng
+	`phieu.nguoi_duyet` (EMAIL THÔ) ở vế "Truy vết duyệt".
+
+	Setup RIÊNG với `TestPortalNhatKyYeuCau` ở trên: hai lớp kiểm hai hàm
+	khác nhau (`de_xuat_chi_tiet` ở đây, `portal_nhat_ky_yeu_cau` ở trên) —
+	gộp chung một `setUp` nặng chỉ để mượn vài dòng fixture là trộn hai mối
+	quan tâm không liên quan tới nhau.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		f = dung_fixture(self)
+		self.kh_a = f.kh_a
+		self.item = f.item
+		self.khoa_huyethoc = f.khoa_huyethoc
+		self.quan_ly = self._thanh_vien("nky6.ql@demo.miyano", self.kh_a, "Quản lý", None)
+		# HAI nhân viên riêng — KHÔNG dùng chung một user cho bài "có số" và
+		# bài "không có số": `FrappeTestCase` không rollback giữa các bài
+		# trong CÙNG class (chỉ ở ranh giới class), và `unittest` không đảm
+		# bảo chạy theo đúng thứ tự định nghĩa (mặc định theo thứ tự tên
+		# phương thức) — nếu dùng chung một user, bài nào chạy SAU sẽ thấy
+		# `mobile_no` bài TRƯỚC vừa ghi, và một trong hai bài đỏ vì lý do
+		# SAI (thứ tự chạy), không phải vì code thiếu.
+		self.nv_a = self._thanh_vien("nky6.nv_a@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_huyethoc)
+		self.nv_b = self._thanh_vien("nky6.nv_b@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_huyethoc)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def _thanh_vien(self, email, customer, vai_tro, khoa_phong):
+		if not frappe.db.exists("User", email):
+			u = frappe.get_doc({
+				"doctype": "User", "email": email,
+				"first_name": email.split("@")[0],
+				"user_type": "Website User", "send_welcome_email": 0,
+			})
+			u.append("roles", {"role": "Customer"})
+			u.insert(ignore_permissions=True)
+		ten_tv = frappe.db.get_value("Portal Member", {"user": email}, "name")
+		gia_tri = {"customer": customer, "vai_tro": vai_tro, "khoa_phong": khoa_phong, "active": 1}
+		if ten_tv:
+			frappe.db.set_value("Portal Member", ten_tv, gia_tri)
+		else:
+			frappe.get_doc({"doctype": "Portal Member", "user": email, **gia_tri}).insert(ignore_permissions=True)
+		return email
+
+	def _dat_ten(self, email, first_name, last_name):
+		"""`full_name` là field TÍNH (`User.validate()` ghép `first_name` +
+		`last_name`) — phải đi qua `save()`, không `db.set_value` thẳng,
+		cùng khuôn `test_de_xuat_endpoint.py::_dat_ten`."""
+		u = frappe.get_doc("User", email)
+		u.first_name, u.last_name = first_name, last_name
+		u.save(ignore_permissions=True)
+
+	def _phieu(self, owner):
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 5}],
+		}).insert(ignore_permissions=True)
+		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", owner)
+		doc.reload()
+		return doc
+
+	def test_nguoi_duyet_ten_la_ten_hien_thi_khong_phai_email(self):
+		"""Step 1.1 — vá Minor #6 review 03/09."""
+		self._dat_ten(self.quan_ly, "Phạm", "Quản Lý")
+		doc = self._phieu(self.nv_a)
+		frappe.set_user(self.nv_a)
+		doc.reload()
+		doc.ly_do_yeu_cau = "Hết bông băng"
+		doc.gui_duyet()
+
+		frappe.set_user(self.quan_ly)
+		doc.reload()
+		doc.duyet(self.quan_ly, tu_cach="Quản lý chính")
+
+		kq = de_xuat.de_xuat_chi_tiet(doc.name)
+		self.assertEqual(kq["nguoi_duyet_ten"], "Phạm Quản Lý")
+		self.assertNotIn("@", kq["nguoi_duyet_ten"])
+		# Trường GỐC không đổi — cùng lý do `nguoi_yeu_cau`/`nguoi_yeu_cau_ten`
+		# đã tách: `nguoi_duyet` vẫn phải là email nguyên vẹn cho hạ tầng
+		# khác (Notification…) đọc.
+		self.assertEqual(kq["nguoi_duyet"], self.quan_ly)
+
+	def test_dien_thoai_dung_khi_tai_khoan_co_so(self):
+		"""Step 1.2 — tài khoản CÓ số."""
+		frappe.db.set_value("User", self.nv_a, "mobile_no", "0911222333")
+		doc = self._phieu(self.nv_a)
+		frappe.set_user(self.nv_a)
+		kq = de_xuat.de_xuat_chi_tiet(doc.name)
+		self.assertEqual(kq["nguoi_yeu_cau_dien_thoai"], "0911222333")
+
+	def test_dien_thoai_rong_khong_phai_None_khi_khong_co_so(self):
+		"""Step 1.3 — tài khoản KHÔNG có số: khoá phải là `""`, không `None`,
+		không `"—"` — ba giá trị khác nhau ở tầng hiển thị (brief Task 6)."""
+		doc = self._phieu(self.nv_b)
+		frappe.set_user(self.nv_b)
+		kq = de_xuat.de_xuat_chi_tiet(doc.name)
+		self.assertEqual(kq["nguoi_yeu_cau_dien_thoai"], "")
+		self.assertIsNotNone(kq["nguoi_yeu_cau_dien_thoai"])
+		self.assertNotEqual(kq["nguoi_yeu_cau_dien_thoai"], "—")

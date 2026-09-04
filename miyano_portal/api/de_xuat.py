@@ -25,6 +25,7 @@ import frappe
 from miyano_portal.portal_context import (
 	get_portal_member,
 	la_quan_ly,
+	lien_he_nguoi_dung,
 	pham_vi_don,
 	ten_nguoi_dung,
 )
@@ -229,6 +230,25 @@ def de_xuat_chi_tiet(ten) -> dict:
 	kq["nguoi_yeu_cau_ten"] = ten_nguoi_dung(
 		kq.get("nguoi_yeu_cau") or kq.get("owner")
 	)
+	# Task 6 (nhật ký thao tác, spec §8) — SỐ ĐIỆN THOẠI đi CÙNG chỗ, CÙNG lý
+	# do với tên: một hàm duy nhất (`lien_he_nguoi_dung`, đã dựng ở Task 5
+	# cho endpoint đọc sổ) tra `User.mobile_no`/`phone`, không một bản tra
+	# thứ hai viết riêng cho khối truy vết. `cho_hien_tai_khoan=True` (mặc
+	# định) — người yêu cầu LUÔN là người của CHÍNH bệnh viện đang xem màn
+	# này, không phải nhân sự Miyano, nên ranh giới §8 (giấu email Miyano)
+	# không áp ở đây.
+	kq["nguoi_yeu_cau_dien_thoai"] = lien_he_nguoi_dung(
+		kq.get("nguoi_yeu_cau") or kq.get("owner")
+	)["dien_thoai"]
+	# Vá Minor #6 (review 03/09) — `nguoi_duyet` đang hiện THẲNG email trên
+	# `KhoiTruyVet.vue`. Thêm `nguoi_duyet_ten`/`nguoi_duyet_dien_thoai` bên
+	# cạnh, KHÔNG đổi giá trị field gốc `nguoi_duyet` (vẫn email nguyên vẹn —
+	# đúng luật đã ghi ở `nguoi_yeu_cau_ten` phía trên). `lien_he_nguoi_dung`
+	# tự trả rỗng khi `nguoi_duyet` chưa có (phiếu chưa ai duyệt) — không cần
+	# tự bọc `if`.
+	lh_duyet = lien_he_nguoi_dung(kq.get("nguoi_duyet"))
+	kq["nguoi_duyet_ten"] = lh_duyet["ten"]
+	kq["nguoi_duyet_dien_thoai"] = lh_duyet["dien_thoai"]
 	dong = kq.get("items") or []
 	# Task 10 — `boi_so` (quy cách đóng gói) đi CÙNG dòng phiếu, không chỉ
 	# cùng kết quả tìm kiếm của `portal_catalog_gop`. Màn Đặt hàng chặn bội
