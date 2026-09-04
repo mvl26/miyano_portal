@@ -3590,9 +3590,13 @@ def portal_nhat_ky_yeu_cau(de_xuat=None, order=None) -> list[dict]:
     QUA CỬA — một yêu cầu có cả phiếu lẫn đơn thì nhật ký nằm rải ở cả hai
     (phiếu mang các sự kiện `khoa_*`/`quan_ly_*`, đơn mang `miyano_*`/
     `khach_*`/`giao_hang`/`hoa_don`), và bỏ sót một khoá là bỏ sót nửa câu
-    chuyện. Không cần kiểm quyền THÊM một lần cho khoá còn lại: đơn suy từ
-    phiếu qua `custom_de_xuat` (hoặc ngược lại) luôn cùng khách hàng/khoa với
-    chứng từ vừa qua cửa — tự nó không phải một chứng từ THỨ HAI cần soát.
+    chuyện. Không kiểm quyền THÊM một lần cho khoá còn lại — LẬP LUẬN (không
+    phải điều đã tự đo ở đây): đơn suy từ phiếu qua `custom_de_xuat` (hoặc
+    ngược lại) được TẠO RA từ đúng `customer`/`khoa_phong` của phiếu đó
+    (`de_xuat_duyet.duyet_va_tao_don`/`_dam_bao_phieu_tu_duyet`), nên tự nó
+    không phải một chứng từ THỨ HAI cần soát riêng — miễn là không có đường
+    nào khác (vd sửa tay trên Desk) tách `custom_de_xuat` khỏi phiếu gốc của
+    nó sau khi tạo; điều đó nằm ngoài phạm vi kiểm chứng của task này.
     """
     if de_xuat:
         doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)

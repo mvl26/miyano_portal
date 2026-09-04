@@ -328,11 +328,24 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 
 	def test_vai_miyano_khong_bao_gio_tra_email(self):
 		"""Khoá đúng ranh giới §8 — bệnh viện thấy TÊN và SỐ nhân sự Miyano
-		để gọi hỏi trách nhiệm, KHÔNG BAO GIỜ thấy email/tài khoản. Không có
-		đường mã sản phẩm nào (ở giai đoạn hiện tại) ghi `SK_MIYANO_XAC_NHAN`
-		trong app này — workflow Sales Order của Miyano chạy trên Desk — nên
-		dựng dòng này thẳng qua `nhat_ky.ghi()` là cách DUY NHẤT tạo ra một
-		dòng `vai=miyano` để kiểm."""
+		để gọi hỏi trách nhiệm, KHÔNG BAO GIỜ thấy email/tài khoản.
+
+		Dựng dòng thẳng qua `nhat_ky.ghi()` thay vì đi hết đường ghi thật
+		(`nhat_ky_hook.tu_sales_order_on_update`, móc vào `Sales Order.
+		on_update`, bắn khi `workflow_state` CHUYỂN sang "Đã xác nhận"/"Chờ
+		khách đồng ý"/"Từ chối" — đường thật CÓ tồn tại và ĐÃ được Task 1-4
+		nối dây, xem `nhat_ky_hook.py`): đường đó đòi dựng cả một workflow
+		Sales Order thật trên Desk, quá nặng cho riêng bài này. Đã ĐỌC (không
+		đoán) TOÀN BỘ năm chỗ ghi mang vai Miyano thật trong app — cả hai hàm
+		của `nhat_ky_hook.py` (`SK_MIYANO_XAC_NHAN`/`SK_MIYANO_BAO_GIA`/
+		`SK_MIYANO_TU_CHOI`/`SK_HOA_DON`) và `kho/delivery_hook.py`
+		(`SK_GIAO_HANG`) — cả năm đều truyền `vai=nhat_ky.VAI_MIYANO` tường
+		minh, không chỗ nào lách qua `vai=he_thong`/`vai=quan_ly` kèm
+		`nguoi_thao_tac` thật (nếu có thì email sẽ lọt qua endpoint mà không
+		bài nào ở đây bắt được — đã soát để loại khả năng đó). Dòng dựng tay
+		ở đây đi qua ĐÚNG một nhánh mã (`_dong()` trong `portal_nhat_ky_yeu_
+		cau`, so `vai != VAI_MIYANO`) mà cả năm chỗ ghi thật kia cũng đi qua
+		— không phải một đường vòng riêng."""
 		doc = self._phieu(self.kh_a, self.khoa_huyethoc, self.nv_huyethoc)
 
 		nhan_su_email = "_test_nky_miyano_staff@miyano-test.local"
