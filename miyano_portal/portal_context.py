@@ -463,6 +463,51 @@ def ten_nguoi_dung(email: str | None) -> str:
     return (ten or "").strip() or email
 
 
+def lien_he_nguoi_dung(email: str | None, *, cho_hien_tai_khoan: bool = True) -> dict:
+    """Task 5 (nhật ký thao tác, §8 của spec) — mở rộng `ten_nguoi_dung()`
+    ở trên thành đủ bộ ba khoá mà khối "Truy vết yêu cầu" và dòng thời gian
+    mới cần: `{"ten", "dien_thoai", "tai_khoan"}`.
+
+    DÙNG LẠI `ten_nguoi_dung()` cho phần tên — KHÔNG chép lại logic lui-về-
+    email ở đây. Một bản sao thứ hai của "lui về gì khi không tra được" là
+    đúng kiểu trôi lệch mà docstring `ten_nguoi_dung()` đã cảnh (Ruling P28:
+    `nguon_gia`/`blanket_order`).
+
+    `dien_thoai` — `User.mobile_no`, lui về `User.phone`, rỗng chuỗi (KHÔNG
+    phải `None`) khi cả hai trống: tầng hiển thị Vue in thẳng giá trị này,
+    và một `None` in ra chữ "null" trên màn hình khách xem — đúng bẫy (b)
+    đề bài đã nêu.
+
+    `tai_khoan` — ranh giới quyền riêng tư §8, ranh giới NHẠY NHẤT của cả
+    task này:
+
+    - `cho_hien_tai_khoan=False` (dùng cho `vai=miyano`, gọi từ endpoint
+      dưới đây): LUÔN rỗng. Bệnh viện được thấy TÊN và SỐ của nhân sự
+      Miyano để gọi hỏi trách nhiệm — đó là *danh tính để liên hệ*. Email
+      đăng nhập của Miyano là *định danh kỹ thuật*, không phục vụ mục đích
+      đó (nguyên văn lý lẽ đã có từ 21/08 cho nửa bệnh viện, spec §8 mở
+      rộng ra ngoài, không đặt luật mới). Tham số này là CÁCH DUY NHẤT gọi
+      hàm nói "đừng trả email" — không tự đoán từ `email` truyền vào.
+    - `cho_hien_tai_khoan=True` (mặc định — người của chính bệnh viện đó):
+      trả `email` NGUYÊN VĂN, TRỪ khi `ten` trùng chính `email` (tức
+      `ten_nguoi_dung()` đã lui về email vì không tra được `full_name`) —
+      lúc đó in thêm tài khoản chỉ là lặp lại đúng một chuỗi hai lần dưới
+      hai nhãn khác nhau. Giữ dòng email khi hai giá trị KHÁC nhau: với
+      sáu tài khoản cấp đơn vị cũ (chốt `full_name` đặt tên đơn vị), email
+      là thứ DUY NHẤT phân biệt được ai với ai — bỏ nó là mất dấu vết,
+      đúng lý do `ten_nguoi_dung()` không trả rỗng khi thiếu tên.
+    """
+    ten = ten_nguoi_dung(email)
+    if not email:
+        return {"ten": ten, "dien_thoai": "", "tai_khoan": ""}
+    hang = frappe.db.get_value(
+        "User", email, ["mobile_no", "phone"], as_dict=True
+    ) or frappe._dict()
+    dien_thoai = (hang.mobile_no or hang.phone or "").strip()
+    tai_khoan = email if (cho_hien_tai_khoan and ten != email) else ""
+    return {"ten": ten, "dien_thoai": dien_thoai, "tai_khoan": tai_khoan}
+
+
 def get_portal_customer(user: str | None = None) -> str:
     customers = get_allowed_customers(user)
     if not customers:

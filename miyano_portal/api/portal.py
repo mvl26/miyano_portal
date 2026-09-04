@@ -5,6 +5,7 @@ from miyano_portal.dat_hang import (
     _insert_so_idempotent,
     _resolve_item_warehouse,
 )
+from miyano_portal.api.de_xuat import _phieu_cua_toi
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     _cot_khoa_phong_ton_tai,
@@ -16,6 +17,7 @@ from miyano_portal.portal_context import (
     han_muc_con,
     khoa_phong_cho_don,
     la_quan_ly,
+    lien_he_nguoi_dung,
     pham_vi_don,
 )
 from miyano_portal.ma_de_xuat import sinh_ma
@@ -3564,3 +3566,106 @@ def portal_kiem_hang_gui(delivery_note, dong, ghi_chu=None) -> dict:
         "trang_thai": doc.trang_thai,
         "co_hang_hong": bool(doc.co_hang_hong),
     }
+
+
+# ------------------------------------------------- nhật ký thao tác (Task 5)
+# Thiết kế: docs/superpowers/specs/2026-09-03-nhat-ky-thao-tac-va-timeline-design.md
+
+
+@frappe.whitelist()
+def portal_nhat_ky_yeu_cau(de_xuat=None, order=None) -> list[dict]:
+    """Đọc sổ nhật ký (`miyano_portal.nhat_ky`) của MỘT yêu cầu, cho khối
+    "Truy vết yêu cầu" và dòng thời gian dọc (spec §9/§10).
+
+    KHÔNG tự chế bộ lọc — gọi lại đúng hai chốt phần còn lại của cổng đang
+    gọi: `_phieu_cua_toi(de_xuat, cho_quan_ly=True)` cho phiếu (kiểm CẢ trục
+    khách hàng LẪN trục khoa, và `cho_quan_ly=True` vì đồng nghiệp cùng khoa
+    — không riêng quản lý — cũng phải đọc được nhật ký), `dam_bao_xem_duoc()`
+    cộng `so.check_permission("read")` cho đơn — đúng khuôn `portal_order_
+    track` đã dùng: `dam_bao_xem_duoc` chỉ kiểm trục KHOA (tự no-op cho Quản
+    lý), trục KHÁCH HÀNG vẫn phải dựa vào `check_permission("read")` (đi qua
+    hook `sales_has_permission`, xem docstring `dam_bao_xem_duoc`).
+
+    Lấy dòng theo CẢ HAI khoá (`de_xuat` lẫn `sales_order`) của chứng từ ĐÃ
+    QUA CỬA — một yêu cầu có cả phiếu lẫn đơn thì nhật ký nằm rải ở cả hai
+    (phiếu mang các sự kiện `khoa_*`/`quan_ly_*`, đơn mang `miyano_*`/
+    `khach_*`/`giao_hang`/`hoa_don`), và bỏ sót một khoá là bỏ sót nửa câu
+    chuyện. Không cần kiểm quyền THÊM một lần cho khoá còn lại: đơn suy từ
+    phiếu qua `custom_de_xuat` (hoặc ngược lại) luôn cùng khách hàng/khoa với
+    chứng từ vừa qua cửa — tự nó không phải một chứng từ THỨ HAI cần soát.
+    """
+    if de_xuat:
+        doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)
+        ten_de_xuat = doc.name
+        ten_don = frappe.db.get_value(
+            "Sales Order", {"custom_de_xuat": ten_de_xuat}, "name"
+        )
+    elif order:
+        dam_bao_xem_duoc("Sales Order", order)
+        so = frappe.get_doc("Sales Order", order)
+        so.check_permission("read")
+        ten_don = so.name
+        ten_de_xuat = so.get("custom_de_xuat")
+        doc = frappe.get_doc("Portal De Xuat Mua", ten_de_xuat) if ten_de_xuat else None
+    else:
+        frappe.throw("Cần truyền de_xuat hoặc order.", frappe.ValidationError)
+
+    from miyano_portal import nhat_ky
+
+    dieu_kien = []
+    if ten_de_xuat:
+        dieu_kien.append(["de_xuat", "=", ten_de_xuat])
+    if ten_don:
+        dieu_kien.append(["sales_order", "=", ten_don])
+    hang = frappe.get_all(
+        nhat_ky.DOCTYPE,
+        or_filters=dieu_kien,
+        fields=["su_kien", "thoi_diem", "vai", "nguoi_thao_tac", "ghi_chu"],
+        order_by="thoi_diem asc",
+    )
+
+    def _dong(su_kien, thoi_diem, vai, nguoi, ghi_chu, suy_ra):
+        # `vai == miyano` KHÔNG BAO GIỜ trả email — ranh giới §8, xem
+        # docstring `lien_he_nguoi_dung`. Mọi vai khác giữ hành vi cũ (tên +
+        # email khi hai giá trị khác nhau).
+        return {
+            "su_kien": su_kien,
+            "thoi_diem": thoi_diem,
+            "vai": vai,
+            **lien_he_nguoi_dung(nguoi, cho_hien_tai_khoan=vai != nhat_ky.VAI_MIYANO),
+            "ghi_chu": ghi_chu,
+            "suy_ra": suy_ra,
+        }
+
+    ket_qua = [
+        _dong(r.su_kien, r.thoi_diem, r.vai, r.nguoi_thao_tac, r.ghi_chu, False)
+        for r in hang
+    ]
+
+    # Bước 5 (§9.6) — suy hai dòng cho chứng từ TẠO TRƯỚC khi bật nhật ký.
+    # `nguoi_yeu_cau`/`nguoi_duyet`/`thoi_diem_gui`/`thoi_diem_duyet` là BỐN
+    # trường đã ghi tường minh trên CHÍNH phiếu, có người và có mốc giờ — chỉ
+    # nằm trên chứng từ thay vì trong sổ, KHÔNG phải một suy diễn kiểu
+    # `Version` mà spec §4 đã bác. CHỈ chèn khi KHÔNG có dòng thật cùng loại
+    # — chèn cả hai vô điều kiện sẽ hiện đôi cho MỌI yêu cầu mới (xem
+    # `test_yeu_cau_MOI_khong_bi_hien_doi`).
+    if doc is not None:
+        su_kien_that = {r.su_kien for r in hang}
+        if nhat_ky.SK_KHOA_GUI_DUYET not in su_kien_that and doc.thoi_diem_gui:
+            # `nguoi_yeu_cau or owner` — CÙNG phép suy `de_xuat_chi_tiet`
+            # (`api/de_xuat.py`) đã dùng: không đường mã nào trong app ghi
+            # `nguoi_yeu_cau` cho phiếu lập qua giao diện thật, nên `owner`
+            # mới là người đề nghị thật. Chép lại đúng biểu thức đó ở đây,
+            # không tự dựng một phép suy thứ hai rồi trôi lệch.
+            ket_qua.append(_dong(
+                nhat_ky.SK_KHOA_GUI_DUYET, doc.thoi_diem_gui, nhat_ky.VAI_KHOA,
+                doc.nguoi_yeu_cau or doc.owner, None, True,
+            ))
+        if nhat_ky.SK_QUAN_LY_DUYET not in su_kien_that and doc.thoi_diem_duyet:
+            ket_qua.append(_dong(
+                nhat_ky.SK_QUAN_LY_DUYET, doc.thoi_diem_duyet, nhat_ky.VAI_QUAN_LY,
+                doc.nguoi_duyet, None, True,
+            ))
+        ket_qua.sort(key=lambda d: d["thoi_diem"])
+
+    return ket_qua

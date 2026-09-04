@@ -67,6 +67,14 @@ DA_AP_PHAM_VI: set[str] = {
 	# hữu mặc định) CỘNG một chốt owner-only riêng — chặt hơn cả ba nhóm
 	# trên, không cái nào miễn phạm vi.
 	"de_xuat_thu_hoi",
+	# Task 5 (nhật ký thao tác, 03/09/2026) — đọc sổ nhật ký của một yêu
+	# cầu. Nhánh `de_xuat` gọi `_phieu_cua_toi(de_xuat, cho_quan_ly=True)`
+	# (trục khách hàng + khoa, KHÔNG kiểm chủ sở hữu — đồng nghiệp cùng
+	# khoa cũng đọc được). Nhánh `order` gọi `dam_bao_xem_duoc("Sales
+	# Order", order)` (trục khoa) CỘNG `so.check_permission("read")` (trục
+	# khách hàng qua hook `sales_has_permission`) — đúng khuôn
+	# `portal_order_track` đã dùng. Không nhánh nào tự chế bộ lọc riêng.
+	"portal_nhat_ky_yeu_cau",
 }
 
 # Endpoint CỐ Ý không lọc theo khoa — mỗi cái kèm lý do bằng chữ. Sửa tập
