@@ -875,6 +875,48 @@ class TestNhatKySuKienMiyano(FrappeTestCase):
 			"định của chính bài test này (khách chưa mở kho)",
 		)
 
+	def test_so_dot_hong_van_ghi_dong_giao_hang_chi_mat_ghi_chu(self):
+		"""`_so_dot_cua()` hỏng thì MẤT CHỮ "Đợt N", KHÔNG mất cả dòng.
+
+		`so_dot` chỉ trang trí `ghi_chu`. Trước bản vá, nó được gọi trần
+		trong `_ghi_nhat_ky_giao_hang()`, nên một lỗi ở hàm đếm đợt — một
+		hàm của module KHO — cuốn theo cả dòng `giao_hang`. Đó đúng thứ
+		coupling vừa bị gỡ một tầng bên trên (lời gọi ghi sổ đã tách khỏi
+		đường tạo phiếu kho, nhưng vẫn còn dính hàm này).
+
+		Hỏng thật: thanh tiến trình 5 mốc phía trên vẫn sáng "Giao hàng"
+		trong khi sổ không có gì — hai khối trên CÙNG một màn nói ngược
+		nhau, và khối im lặng lại là khối được dùng để đối chiếu.
+
+		Bài này đo đúng ranh giới đó: dòng VẪN sinh, `ghi_chu` là `None`."""
+		import unittest.mock
+
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+
+		from miyano_portal.kho import delivery_hook
+
+		so = self._don_da_xac_nhan()
+		with unittest.mock.patch.object(
+			delivery_hook, "_so_dot_cua", side_effect=RuntimeError("hỏng có chủ ý")
+		):
+			dn = make_delivery_note(so.name)
+			dn.set_posting_time = 1
+			dn.posting_date = frappe.utils.today()
+			dn.insert(ignore_permissions=True)
+			dn.submit()
+		self.assertEqual(dn.docstatus, 1, "Delivery Note phải submit được")
+
+		dong = [r for r in self._dong_cua_don(so.name) if r.su_kien == nhat_ky.SK_GIAO_HANG]
+		self.assertEqual(
+			len(dong), 1,
+			"Mất cả dòng giao hàng vì hàm đếm đợt hỏng — dòng thời gian im "
+			"lặng trong khi thanh tiến trình vẫn sáng 'Giao hàng'",
+		)
+		self.assertIsNone(dong[0].ghi_chu, "Không tính được đợt thì để trống, đừng bịa")
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+
 	def test_hoa_don_ghi_dung_mot_dong(self):
 		from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 		so = self._don_da_xac_nhan()

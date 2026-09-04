@@ -32,7 +32,18 @@ from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 class TestLienHeNguoiDung(FrappeTestCase):
 	"""`lien_he_nguoi_dung()` một mình — không cần fixture phiếu/nhật ký, chỉ
-	cần một `User`."""
+	cần một `User`.
+
+	SỐ ĐIỆN THOẠI FIXTURE NẰM Ở DẢI RIÊNG `0938271xxx` — cố ý, không phải
+	ngẫu nhiên. `tabUser.mobile_no` có **UNIQUE index** (`SHOW INDEX FROM
+	tabUser` → `Non_unique = 0`), nên một fixture cầm số "đẹp" kiểu
+	`0912345678` sẽ đâm vào bất kỳ bản ghi thật/demo nào tình cờ giữ số đó và
+	làm bài ĐỎ bằng `IntegrityError` — một lỗi đọc ra như "tính năng hỏng"
+	trong khi thật ra chỉ là hai fixture giẫm chân nhau.
+	Chuyện đó đã xảy ra thật ngày 04/09/2026: lượt chạy thử toàn tuyến để lại
+	tài khoản demo giữ `0912345678`/`0987654321`, và sáu bài ở lớp này đỏ.
+	Dải `0938271xxx` dùng chung với `test_nhan_su_import.py` cho đúng mục đích
+	đó. Thêm fixture số điện thoại mới thì lấy tiếp trong dải này."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -41,12 +52,12 @@ class TestLienHeNguoiDung(FrappeTestCase):
 			frappe.get_doc({
 				"doctype": "User", "email": self.email_day_du,
 				"first_name": "Nguyễn Văn Đủ", "user_type": "Website User",
-				"send_welcome_email": 0, "mobile_no": "0912345678",
+				"send_welcome_email": 0, "mobile_no": "0938271201",
 			}).insert(ignore_permissions=True)
 		else:
 			frappe.db.set_value(
 				"User", self.email_day_du,
-				{"full_name": "Nguyễn Văn Đủ", "mobile_no": "0912345678", "phone": ""},
+				{"full_name": "Nguyễn Văn Đủ", "mobile_no": "0938271201", "phone": ""},
 			)
 
 		self.email_khong_ten = "_test_nky_lienhe_khongten@miyano-test.local"
@@ -68,7 +79,7 @@ class TestLienHeNguoiDung(FrappeTestCase):
 	def test_du_ten_dien_thoai_tai_khoan(self):
 		kq = lien_he_nguoi_dung(self.email_day_du)
 		self.assertEqual(kq["ten"], "Nguyễn Văn Đủ")
-		self.assertEqual(kq["dien_thoai"], "0912345678")
+		self.assertEqual(kq["dien_thoai"], "0938271201")
 		self.assertEqual(kq["tai_khoan"], self.email_day_du)
 
 	def test_thieu_ca_hai_so_tra_rong_khong_phai_none(self):
@@ -381,12 +392,12 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 			frappe.get_doc({
 				"doctype": "User", "email": nhan_su_email,
 				"first_name": "Trần Thị Miyano", "user_type": "System User",
-				"send_welcome_email": 0, "mobile_no": "0987654321",
+				"send_welcome_email": 0, "mobile_no": "0938271202",
 			}).insert(ignore_permissions=True)
 		else:
 			frappe.db.set_value(
 				"User", nhan_su_email,
-				{"full_name": "Trần Thị Miyano", "mobile_no": "0987654321"},
+				{"full_name": "Trần Thị Miyano", "mobile_no": "0938271202"},
 			)
 
 		nhat_ky.ghi(
@@ -639,11 +650,11 @@ class TestDeXuatChiTietTruyVetDienThoai(FrappeTestCase):
 
 	def test_dien_thoai_dung_khi_tai_khoan_co_so(self):
 		"""Step 1.2 — tài khoản CÓ số."""
-		frappe.db.set_value("User", self.nv_a, "mobile_no", "0911222333")
+		frappe.db.set_value("User", self.nv_a, "mobile_no", "0938271203")
 		doc = self._phieu(self.nv_a)
 		frappe.set_user(self.nv_a)
 		kq = de_xuat.de_xuat_chi_tiet(doc.name)
-		self.assertEqual(kq["nguoi_yeu_cau_dien_thoai"], "0911222333")
+		self.assertEqual(kq["nguoi_yeu_cau_dien_thoai"], "0938271203")
 
 	def test_dien_thoai_rong_khong_phai_None_khi_khong_co_so(self):
 		"""Step 1.3 — tài khoản KHÔNG có số: khoá phải là `""`, không `None`,

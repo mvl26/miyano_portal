@@ -219,7 +219,25 @@ def _ghi_nhat_ky_giao_hang(dn) -> None:
 	phải một lần "giao hàng" mới."""
 	if dn.get("is_return"):
 		return
-	so_dot = _so_dot_cua(dn)
+
+	# `so_dot` chỉ để trang trí `ghi_chu` ("Đợt 2"), nên nó KHÔNG được phép
+	# kéo cả dòng nhật ký xuống theo khi hỏng. Bọc riêng, và hỏng thì ghi
+	# dòng KHÔNG kèm số đợt.
+	#
+	# Đây đúng thứ coupling vừa bị gỡ một tầng bên trên — lời gọi ghi nhật ký
+	# đã tách khỏi đường tạo phiếu kho, nhưng vẫn còn dính `_so_dot_cua()`,
+	# một hàm của module KHO. Mất chữ "Đợt 2" là mất một chi tiết; mất cả
+	# dòng "Giao hàng" là dòng thời gian nói dối: thanh 5 mốc sáng "Giao
+	# hàng" mà sổ thì không có gì, hai khối trên cùng một màn nói ngược nhau.
+	#
+	# Bắt được bởi `test_e3_doi_soat::TC_E3_08` — bài đó giả lập `_so_dot_cua`
+	# hỏng và đếm số dòng Error Log; trước bản vá này nó ra HAI dòng, vì cùng
+	# một lỗi làm hỏng cả đường tạo phiếu lẫn đường ghi sổ.
+	try:
+		so_dot = _so_dot_cua(dn)
+	except Exception:
+		so_dot = None
+
 	nhat_ky.ghi(
 		nhat_ky.SK_GIAO_HANG, customer=dn.customer,
 		khoa_phong=_khoa_phong_dau_tien(dn), sales_order=_sales_order_dau_tien(dn),
