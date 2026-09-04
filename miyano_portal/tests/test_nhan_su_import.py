@@ -621,6 +621,80 @@ class TestDienThoai(_NhanSuTestBase):
 		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
 		self.assertEqual(frappe.db.get_value("User", BINH, "mobile_no"), "0912345678")
 
+	def test_bon_cach_viet_hop_le_cong_excel_int_deu_ra_cung_mot_so_chuan(self):
+		"""VÒNG SỬA 2 (coordinator, 04/09/2026): regex cũ áp THẲNG lên chuỗi
+		thô nên bốn cách viết hợp lệ dưới đây — TIỀN TỐ QUỐC TẾ, KHOẢNG TRẮNG,
+		DẤU CHẤM, GẠCH NGANG — đều bị TỪ CHỐI oan, và TỪ CHỐI kéo theo "một
+		dòng bị từ chối là không ghi gì cả" — chặn cứng cả tệp, đúng cái bẫy
+		QĐ-1 dựng ra để tránh, chỉ dịch sang QĐ-2. Cộng dạng `int` của QĐ-3 —
+		tất cả năm cách viết phải chuẩn hoá về CÙNG một `mobile_no`."""
+		cach_viet = {
+			"tien_to_quoc_te": "+84912345678",
+			"khoang_trang": "091 234 5678",
+			"dau_cham": "0912.345.678",
+			"gach_ngang": "091-234-5678",
+			"excel_int": 912345678,
+		}
+		for nhan, dien_thoai in cach_viet.items():
+			with self.subTest(nhan):
+				email = f"vs2_{nhan}{DOMAIN}"
+				f = self._upload(_xlsx_bytes([
+					_row("Người thử", email, "Huyết học", "HUYETHOC", dien_thoai=dien_thoai),
+				]), filename=f"vs2_{nhan}.xlsx")
+				ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+				dong = self._dong(ket_qua, email)
+				self.assertEqual(
+					dong["trang_thai"], "tao_moi",
+					f'{nhan} ({dien_thoai!r}) bị từ chối oan: {dong["errors"]}',
+				)
+				self.assertEqual(dong["dien_thoai"], "0912345678", f"{nhan}: {dien_thoai!r}")
+
+	def test_gia_chuoi_con_chu_van_bi_tu_choi_sau_khi_lot_dau_phan_cach(self):
+		"""Vế ÂM (coordinator yêu cầu giữ nguyên): lột dấu phân cách không
+		được biến một chuỗi THẬT SỰ KHÔNG PHẢI số điện thoại thành hợp lệ —
+		còn chữ cái sau khi lột thì vẫn phải TỪ CHỐI."""
+		# 10 chữ số đúng như một số hợp lệ NẾU chữ "X" bị lột theo — cài đặt cố
+		# ý để một phép lột "quá tay" (lột luôn cả chữ) sẽ ÂM THẦM biến chuỗi
+		# này thành "0912345678" hợp lệ, thay vì lộ ra ở bước kiểm định dạng.
+		f = self._upload(_xlsx_bytes([
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai="091X2345678"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, BINH)
+		self.assertEqual(dong["trang_thai"], "tu_choi")
+		self.assertIn("điện thoại", " ".join(dong["errors"]).lower())
+
+	def test_so_noi_dia_084_khong_bi_hieu_nham_la_tien_to_quoc_te(self):
+		"""BẪY của phép quy đổi tiền tố quốc tế (coordinator nêu đích danh):
+		đầu số Vinaphone `084...` là số NỘI ĐỊA hợp lệ (10 số, có 0 đứng
+		trước 84) — không được cắt "84" như tiền tố quốc tế. Số đó LUÔN bắt
+		đầu bằng "0" nên tự nó đã an toàn với `startswith("84")`; vế thật sự
+		cần một ĐỘ DÀI đúng hình quốc tế mới canh được (xem test kế bên)."""
+		f = self._upload(_xlsx_bytes([
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai="0842345678"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, BINH)
+		self.assertEqual(dong["trang_thai"], "tao_moi", dong["errors"])
+		self.assertEqual(
+			dong["dien_thoai"], "0842345678", "không được cắt '84' của số nội địa",
+		)
+
+	def test_chuoi_84_sai_do_dai_quoc_te_khong_bi_cat_bua_bai(self):
+		"""Vế THẬT SỰ canh điều kiện độ dài của phép quy đổi tiền tố quốc tế
+		(`len(tho) == 11`): một chuỗi 12 số bắt đầu bằng "84" KHÔNG đúng hình
+		mã nước (2 số) + số thuê bao (9 số) = 11 số — nếu cắt "84" một cách mù
+		quáng theo `startswith` một mình (không xét độ dài), "849123456789"
+		(12 số) sẽ bị biến thành "09123456789" (11 số) — TRÔNG hợp lệ nhưng là
+		một số BỊA, không liên quan gì tới chuỗi gốc. Đúng phải TỪ CHỐI."""
+		f = self._upload(_xlsx_bytes([
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai="849123456789"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, BINH)
+		self.assertEqual(dong["trang_thai"], "tu_choi")
+		self.assertNotEqual(dong["dien_thoai"], "09123456789", "không được bịa số")
+
 	def test_tai_khoan_da_co_dien_thoai_rong_thi_duoc_dien(self):
 		"""Bài 6a (QĐ-4, vế điền): tài khoản chạy TRƯỚC Task 10 chưa có số —
 		nhập lại đúng file có số của người đó phải BỔ SUNG vào chỗ trống,

@@ -134,6 +134,17 @@ lưu ô định dạng Số kiểu `0912345678` thành số `912345678` — hệ
 phục hồi số 0 bị mất trong hầu hết trường hợp, nhưng an toàn nhất vẫn là định
 dạng ô đó là Văn bản trước khi gõ (chọn cột → Format Cells → Text).
 
+**Các cách viết sau đều hợp lệ, hệ thống tự quy về cùng một số** *(từ
+04/09/2026)* — không cần tự tay xoá khoảng trắng hay đổi tiền tố:
+- Có khoảng trắng, dấu chấm hoặc gạch ngang phân cách: `091 234 5678`,
+  `0912.345.678`, `091-234-5678`.
+- Tiền tố quốc tế: `+84912345678` hoặc `84912345678` — quy về `0912345678`.
+  (Số nội địa hợp lệ bắt đầu bằng `084…`, ví dụ đầu số Vinaphone, KHÔNG bị
+  hiểu nhầm thành tiền tố quốc tế — số đó luôn có `0` đứng trước `84`.)
+
+Chỉ khi đã lột hết các cách viết trên mà vẫn còn chữ cái, thiếu số, hoặc sai
+độ dài thì mới bị coi là **sai định dạng** (xem bảng dưới).
+
 **Bước 3 — Tải tệp đã điền lên và xem trước.** Bước này **không ghi gì**, nó chỉ
 nói từng dòng sẽ ra sao:
 

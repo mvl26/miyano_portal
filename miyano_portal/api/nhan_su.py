@@ -79,6 +79,13 @@ REQUIRED_HEADER = {"ho_ten", "email", "vai_tro", "dien_thoai"}
 # báo). Bỏ trống là một lựa chọn có ý thức của người điền; gõ sai là một lỗi
 # im lặng sẽ in ra trước mặt bệnh viện và dẫn người ta gọi nhầm số. Số di
 # động Việt Nam: bắt đầu bằng 0, 10-11 chữ số.
+#
+# VÒNG SỬA 2 (coordinator, 04/09/2026): regex này áp lên chuỗi ĐÃ CHUẨN HOÁ
+# (`_chuan_hoa_dien_thoai()`), không phải chuỗi thô — trước vòng sửa này nó
+# áp thẳng lên chuỗi thô, nên "+84912345678"/"091 234 5678"/"0912.345.678"/
+# "091-234-5678" (bốn cách viết hợp lệ của CÙNG một số) đều bị TỪ CHỐI, và
+# TỪ CHỐI kéo theo "một dòng bị từ chối là không ghi gì cả" — chặn cứng cả
+# tệp, đúng cái bẫy QĐ-1 dựng ra để tránh, chỉ dịch sang QĐ-2.
 _RE_DIEN_THOAI = re.compile(r"^0\d{9,10}$")
 
 VAI_TRO_HOP_LE = (QUAN_LY, NHAN_VIEN_KHOA)
@@ -98,20 +105,53 @@ def _norm(value) -> str:
 
 
 def _chuan_hoa_dien_thoai(value) -> str:
-	"""Chuẩn hoá ô Số điện thoại — xử lý CẠM BẪY EXCEL (QĐ-3, Task 10).
+	"""Chuẩn hoá ô Số điện thoại — CHUẨN HOÁ TRƯỚC, KIỂM SAU (VÒNG SỬA 2).
 
-	Một ô được gõ/định dạng kiểu SỐ (không phải văn bản) làm Excel NUỐT MẤT số
-	0 đứng đầu: `0912345678` gõ vào ô số lưu thành số `912345678`, và
-	`openpyxl` trả `int`/`float` đó nguyên văn — `_norm()` một mình sẽ cho ra
-	chuỗi `"912345678"`, sai số điện thoại, mà KHÔNG có gì báo. Ô kiểu số ở
-	đây luôn được hiểu là "0 bị nuốt" và phục hồi lại; ô kiểu văn bản (chuỗi)
-	thì giữ nguyên, chỉ chuẩn hoá khoảng trắng qua `_norm()`.
+	Hai cạm bẫy khác nhau, xử ở đây theo đúng thứ tự vì cái thứ hai chỉ lộ ra
+	SAU khi cái thứ nhất được vá đúng cách:
+
+	1. **CẠM BẪY EXCEL (QĐ-3)**: một ô định dạng SỐ (không phải văn bản) làm
+	   Excel NUỐT MẤT số 0 đứng đầu — `0912345678` gõ vào ô số lưu thành số
+	   `912345678`, và `openpyxl` trả `int`/`float` đó nguyên văn. Ô kiểu số ở
+	   đây luôn được hiểu là "0 bị nuốt", trả về NGAY sau khi phục hồi — số
+	   này không mang dấu phân cách hay tiền tố quốc tế, không cần đi qua các
+	   bước bên dưới (giữ NGUYÊN hành vi đã có, không đụng).
+	2. **BỐN CÁCH VIẾT HỢP LỆ CÙNG MỘT SỐ (VÒNG SỬA 2)**: người gõ tay số
+	   điện thoại rất hay chèn khoảng trắng/dấu chấm/gạch ngang/ngoặc đơn
+	   (`091 234 5678`, `0912.345.678`, `091-234-5678`) hoặc viết tiền tố
+	   quốc tế (`+84912345678`, `84912345678`) — lột hết các ký tự phân cách,
+	   rồi quy tiền tố quốc tế về dạng nội địa (`0…`), TRƯỚC KHI kiểm định
+	   dạng ở `_dien_thoai_hop_le()`. Không làm vậy thì bốn cách viết đúng đó
+	   bị TỪ CHỐI oan, và TỪ CHỐI kéo theo "một dòng bị từ chối là không ghi
+	   gì cả" — chặn cứng cả tệp, đúng cái bẫy QĐ-1 dựng ra để tránh.
+
+	BẪY của bước 2: một số NỘI ĐỊA hợp lệ bắt đầu bằng `084…` (đầu số
+	Vinaphone, đúng 10 chữ số) TUYỆT ĐỐI không được hiểu nhầm là tiền tố quốc
+	gia — số đó LUÔN có `0` đứng trước `84` nên `startswith("84")` (ký tự đầu
+	phải là `8`) không bao giờ khớp nó, và vì vậy không rơi vào nhánh quy đổi
+	bên dưới. Chỉ quy đổi khi TIN CHẮC đó là tiền tố quốc tế: có dấu `+`
+	(tín hiệu không mơ hồ), hoặc không có `+` nhưng tổng độ dài khớp ĐÚNG hình
+	quốc tế (mã nước 2 số + 9 số thuê bao = 11 số, không có `0` đứng trước).
 	"""
 	if isinstance(value, bool):
 		return _norm(value)
 	if isinstance(value, (int, float)):
 		return "0" + str(int(value))
-	return _norm(value)
+
+	tho = _norm(value)
+	if not tho:
+		return tho
+
+	# Lột khoảng trắng, dấu chấm, gạch ngang, ngoặc đơn — CHỈ những ký tự
+	# phân cách, KHÔNG lột dấu "+": "+" là tín hiệu duy nhất chắc chắn báo
+	# tiền tố quốc tế, cần giữ lại để phân biệt với số nội địa `084…`.
+	tho = re.sub(r"[\s.\-()]", "", tho)
+
+	if tho.startswith("+84"):
+		tho = "0" + tho[3:]
+	elif tho.startswith("84") and len(tho) == 11 and tho.isdigit():
+		tho = "0" + tho[2:]
+	return tho
 
 
 def _dien_thoai_hop_le(so: str) -> bool:
