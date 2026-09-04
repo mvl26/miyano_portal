@@ -252,6 +252,33 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		doc.reload()
 		return doc
 
+	def _xac_nhan_don_that(self, ten_don):
+		"""Đưa Sales Order qua ĐÚNG hai chuyển tiếp workflow thật ("Gửi duyệt"
+		rồi "Xác nhận", cùng chuỗi `test_nhat_ky_su_kien.py::TestNhatKySuKien
+		Miyano` đã dùng) để `nhat_ky_hook.tu_sales_order_on_update` ghi một
+		dòng `SK_MIYANO_XAC_NHAN` THẬT.
+
+		Dòng này CHỈ mang `sales_order` (xem `nhat_ky_hook.py` —
+		`nhat_ky.ghi(su_kien, ..., sales_order=doc.name, ...)`, KHÔNG có tham
+		số `de_xuat`), khác hẳn `SK_KHOA_GUI_DUYET`/`SK_QUAN_LY_DUYET` (chỉ
+		mang `de_xuat`, không mang `sales_order` — xem `portal_de_xuat_mua.py
+		::gui_duyet/duyet`) và khác `SK_DON_TAO` (mang CẢ HAI). Đây là khoá
+		DUY NHẤT trong fixture của lớp này chỉ tìm được qua vế `sales_order`
+		của truy vấn — dùng để canh ĐÚNG phép GỘP OR hai vế, không phải phép
+		suy §9.6 (chỉ suy `khoa_gui_duyet`/`quan_ly_duyet`, không suy được
+		khoá này) và không lẫn với `SK_DON_TAO` (khớp cả hai vế nên không
+		phân biệt được AND với OR).
+
+		Chạy với `Administrator`: `self.quan_ly` (Website User, role
+		Customer) không có quyền chạy chuyển tiếp workflow Sales Order trên
+		Desk — nơi gọi phải tự đặt lại user cần đọc SAU lời gọi này."""
+		from frappe.model.workflow import apply_workflow
+		frappe.set_user("Administrator")
+		so = frappe.get_doc("Sales Order", ten_don)
+		so = apply_workflow(so, "Gửi duyệt")
+		so = apply_workflow(so, "Xác nhận")
+		return so
+
 	def _phieu_da_duyet_hai_vong(self):
 		"""Đi hết một vòng đời có thật: gửi → từ chối → gửi lại → duyệt —
 		bốn dòng nhật ký THẬT, đúng thứ tự thời gian, đúng người ở mỗi
@@ -383,25 +410,68 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		`_phieu_cua_toi`) vẫn phải thấy đủ nhật ký của PHIẾU
 		(`khoa_gui_duyet`/`quan_ly_duyet`), không chỉ những sự kiện gắn
 		thẳng vào đơn — đúng câu "một yêu cầu có cả phiếu lẫn đơn thì nhật
-		ký nằm ở cả hai" của Step 4."""
+		ký nằm ở cả hai" của Step 4.
+
+		VÒNG SỬA (Việc #2, fix-wave brief) — `khoa_gui_duyet`/`quan_ly_duyet`
+		KHÔNG đủ để canh phép GỘP: cả hai đều được phép suy §9.6 tự chèn lại
+		khi truy vấn thật không thấy gì (chèn ĐÚNG hai khoá này, không hơn),
+		nên một truy vấn CHẾT (`or_filters` bị đổi thành `filters`, tức AND —
+		đã ĐO: 18/18 bài của module này vẫn XANH với phép phá đó, kể cả hai
+		bài ở đây trước bản sửa) vẫn để lại đúng hai khoá này nhờ fallback,
+		không phải nhờ truy vấn. Thêm `SK_MIYANO_XAC_NHAN` THẬT (qua
+		`_xac_nhan_don_that`, chỉ mang `sales_order` không mang `de_xuat`) —
+		phép suy §9.6 KHÔNG suy được khoá này (nó không nằm trong bốn
+		trường phiếu §9.6 đọc), nên nó CHỈ có thể xuất hiện qua đúng vế
+		`sales_order` của `or_filters`. Dưới AND, vế `sales_order=ten_don`
+		đứng CÙNG điều kiện `de_xuat=ten_de_xuat` trên MỘT dòng — dòng
+		`SK_MIYANO_XAC_NHAN` có `de_xuat` rỗng nên KHÔNG khớp AND, bài này
+		đỏ đúng ở khẳng định mới."""
 		doc = self._phieu_da_duyet_thanh_don()
 		self.assertTrue(doc.sales_order)
+		self._xac_nhan_don_that(doc.sales_order)
 
 		frappe.set_user(self.quan_ly)
 		rows = portal_api.portal_nhat_ky_yeu_cau(order=doc.sales_order)
 		su_kien = [r["su_kien"] for r in rows]
 		self.assertIn(nhat_ky.SK_KHOA_GUI_DUYET, su_kien)
 		self.assertIn(nhat_ky.SK_QUAN_LY_DUYET, su_kien)
+		self.assertIn(
+			nhat_ky.SK_MIYANO_XAC_NHAN, su_kien,
+			"Thiếu SK_MIYANO_XAC_NHAN (chỉ mang sales_order, không mang de_xuat, "
+			"KHÔNG thể do phép suy §9.6 sinh ra) — truy vấn GỘP hai vế de_xuat/"
+			"sales_order đang chết (vd or_filters bị đổi thành filters/AND) và "
+			"chỉ còn sống sót nhờ fallback che đúng hai khoá khoa_gui_duyet/"
+			"quan_ly_duyet ở trên",
+		)
 
 	def test_order_vs_de_xuat_tra_cung_mot_bo_dong(self):
 		"""Đọc qua `de_xuat=` và qua `order=` của CÙNG một yêu cầu phải ra
 		cùng một bộ `su_kien` — hai đường vào cùng một sổ, không phải hai
-		bộ lọc lệch nhau."""
+		bộ lọc lệch nhau.
+
+		VÒNG SỬA (Việc #2) — phép so sánh HAI TẬP bằng nhau một mình KHÔNG
+		canh được phép gộp OR/AND: cả hai nhánh `de_xuat=`/`order=` của
+		`portal_nhat_ky_yeu_cau` cùng tính ra ĐÚNG một cặp `(ten_de_xuat,
+		ten_don)` một khi cả phiếu lẫn đơn đã tồn tại (xem `api/portal.py`),
+		nên chúng luôn gọi `frappe.get_all` với CÙNG một `dieu_kien` — hỏng
+		AND thì CẢ HAI nhánh hỏng GIỐNG NHAU, hai tập rỗng-như-nhau vẫn
+		`assertEqual` được. Thêm khẳng định RIÊNG rằng `SK_MIYANO_XAC_NHAN`
+		THẬT (qua `_xac_nhan_don_that`, chỉ mang `sales_order`) có mặt
+		trong CHÍNH tập trả về — khoá này không do phép suy §9.6 sinh ra,
+		nên nó chỉ sống sót khi vế OR hoạt động đúng."""
 		doc = self._phieu_da_duyet_thanh_don()
+		self._xac_nhan_don_that(doc.sales_order)
+
 		frappe.set_user(self.quan_ly)
 		qua_de_xuat = {r["su_kien"] for r in portal_api.portal_nhat_ky_yeu_cau(de_xuat=doc.name)}
 		qua_don = {r["su_kien"] for r in portal_api.portal_nhat_ky_yeu_cau(order=doc.sales_order)}
 		self.assertEqual(qua_de_xuat, qua_don)
+		self.assertIn(
+			nhat_ky.SK_MIYANO_XAC_NHAN, qua_de_xuat,
+			"Thiếu SK_MIYANO_XAC_NHAN — hai tập bằng nhau không chứng minh được "
+			"phép GỘP OR còn sống, vì cả hai nhánh cùng tính ra CÙNG dieu_kien "
+			"và hỏng GIỐNG NHAU khi or_filters bị đổi thành filters/AND",
+		)
 
 	def test_nhan_vien_khoa_khac_khong_doc_duoc_nhat_ky_qua_order(self):
 		"""VẾ ÂM của nhánh `order=` — cùng chốt trục khoa, khác cửa vào."""

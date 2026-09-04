@@ -8,6 +8,7 @@ from miyano_portal.dat_hang import (
 from miyano_portal.api.de_xuat import _phieu_cua_toi
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
+    _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
@@ -3620,18 +3621,30 @@ def portal_nhat_ky_yeu_cau(de_xuat=None, order=None) -> list[dict]:
     nào khác (vd sửa tay trên Desk) tách `custom_de_xuat` khỏi phiếu gốc của
     nó sau khi tạo; điều đó nằm ngoài phạm vi kiểm chứng của task này.
     """
+    # Việc #6a (vòng sửa sau review toàn nhánh) — CẢ HAI nhánh dưới đây
+    # chạm cột `Sales Order.custom_de_xuat` (patch v1_24) mà TRƯỚC bản vá
+    # này không hỏi qua `_cot_de_xuat_ton_tai()` — đúng "bẫy patch hoàn
+    # thành giả" mà docstring hàm đó cảnh (nguồn kiểm tra DUY NHẤT, không
+    # tự hỏi cột rời ở nơi khác). Trên site chưa chạy patch v1_24, nhánh
+    # `de_xuat` ném lỗi SQL 1054 THÔ (WHERE trên cột không tồn tại) thay vì
+    # fail-closed, và nhánh `order` (tuy `so.get()` an toàn về mặt kỹ thuật
+    # — Document.get() trả None cho field không có trong bản ghi đã nạp)
+    # sẽ ÂM THẦM coi mọi đơn là "không có phiếu đứng trước", khác NHẤT
+    # QUÁN với nhánh kia đang fail-closed.
     if de_xuat:
         doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)
         ten_de_xuat = doc.name
-        ten_don = frappe.db.get_value(
-            "Sales Order", {"custom_de_xuat": ten_de_xuat}, "name"
-        )
+        ten_don = None
+        if _cot_de_xuat_ton_tai():
+            ten_don = frappe.db.get_value(
+                "Sales Order", {"custom_de_xuat": ten_de_xuat}, "name"
+            )
     elif order:
         dam_bao_xem_duoc("Sales Order", order)
         so = frappe.get_doc("Sales Order", order)
         so.check_permission("read")
         ten_don = so.name
-        ten_de_xuat = so.get("custom_de_xuat")
+        ten_de_xuat = so.get("custom_de_xuat") if _cot_de_xuat_ton_tai() else None
         doc = frappe.get_doc("Portal De Xuat Mua", ten_de_xuat) if ten_de_xuat else None
     else:
         frappe.throw("Cần truyền de_xuat hoặc order.", frappe.ValidationError)
