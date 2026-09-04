@@ -158,6 +158,76 @@ def _dien_thoai_hop_le(so: str) -> bool:
 	return bool(_RE_DIEN_THOAI.fullmatch(so))
 
 
+def _kiem_trung_dien_thoai(
+	dong: dict, dien_thoai: str, email_dong: str, so_da_dung: dict[str, dict],
+	canh_bao_toan_tep: list[str], dang_tao_moi: bool,
+) -> str:
+	"""VÒNG SỬA 2 — `User.mobile_no` mang UNIQUE index THẬT trên CSDL (tự xác
+	minh `SHOW INDEX FROM tabUser`, `Non_unique = 0`). Không có phép kiểm này,
+	hai người trùng số nổ `pymysql.err.IntegrityError` GIỮA vòng ghi ở
+	`_ghi()`, và vì luật "một dòng bị từ chối là không ghi gì cả" của màn
+	này, MỘT số trùng chặn cứng việc cấp tài khoản cho CẢ bệnh viện. Ở bệnh
+	viện, hai điều dưỡng cùng khoa khai chung số máy bàn của khoa là chuyện
+	bình thường — không phải ca hiếm cần lường.
+
+	Đúng tinh thần QĐ-1 (chủ đầu tư đã chốt, áp dụng tiếp cho ca này): trùng
+	số KHÔNG được chặn tạo tài khoản. Trả về CHUỖI RỖNG nếu số này bị trùng
+	(gọi nơi dùng PHẢI gán đè lại `dong["dien_thoai"]` bằng giá trị trả về —
+	đây là nguồn sự thật DUY NHẤT mà `_ghi()` đọc lại lúc quyết có ghi số hay
+	không), ngược lại trả nguyên `dien_thoai` và GHI NHẬN dòng này đã "giữ"
+	số đó để các dòng sau trong tệp so.
+
+	Gọi được từ HAI nhánh khác nhau của `_phan_tich()` (tạo mới VÀ bổ sung số
+	cho tài khoản đã có) vì cả hai đều ghi vào CHÍNH một cột `User.mobile_no`
+	lúc `_ghi()` chạy — cùng một cột, cùng một rủi ro vỡ. `dang_tao_moi` PHÂN
+	BIỆT ngữ cảnh gọi (review độc lập, vòng sửa 2 — bản đầu dùng CHUNG một câu
+	"tài khoản của dòng này vẫn được tạo" cho cả hai nhánh; câu đó ĐÚNG cho
+	nhánh tạo mới nhưng SAI SỰ THẬT cho nhánh bổ sung — tài khoản ở đó ĐÃ CÓ
+	từ trước, không có gì được "tạo" cả, chỉ là số không được bổ sung).
+	"""
+	# (1) trùng với một User ĐÃ CÓ trên hệ thống, không phải người của CHÍNH
+	# dòng này (loại trừ email của dòng: tài khoản đã tồn tại giữ số của
+	# MÌNH không phải một ca trùng).
+	chu_cu = frappe.db.get_value(
+		"User", {"mobile_no": dien_thoai, "name": ["!=", email_dong]}, "name"
+	)
+	if chu_cu:
+		if dang_tao_moi:
+			ket_cuc = "tài khoản của dòng này vẫn được tạo."
+		else:
+			ket_cuc = "tài khoản ĐÃ CÓ của dòng này không bị ảnh hưởng gì khác."
+		_them_ghi_chu(dong, (
+			f'Số điện thoại "{dien_thoai}" đã thuộc tài khoản khác đang tồn tại trên hệ '
+			f'thống ("{chu_cu}") — KHÔNG gán số này để tránh trùng, {ket_cuc}'
+		))
+		canh_bao_toan_tep.append(
+			f'Dòng {dong["line"]} ({dong["ho_ten"]}): số "{dien_thoai}" đã thuộc tài khoản '
+			f'"{chu_cu}" đang tồn tại — không gán số này.'
+		)
+		dong["_trung_dien_thoai"] = True
+		return ""
+	# (2) trùng với một dòng KHÁC đã đi qua TRƯỚC nó trong CHÍNH tệp này —
+	# dòng ĐẦU TIÊN trong tệp giữ số, các dòng sau bỏ trống (người điền tệp
+	# liệt kê ai trước thường là chủ số thật, các dòng sau nhiều khả năng là
+	# copy-paste nhầm số của khoa/phòng).
+	trung = so_da_dung.get(dien_thoai)
+	if trung:
+		_them_ghi_chu(dong, (
+			f'Số điện thoại "{dien_thoai}" trùng với dòng {trung["line"]} '
+			f'({trung["ho_ten"]}) trong cùng tệp — dòng đó giữ số, dòng này bỏ trống để '
+			"tránh trùng."
+		))
+		canh_bao_toan_tep.append(
+			f'Dòng {dong["line"]} ({dong["ho_ten"]}) và dòng {trung["line"]} '
+			f'({trung["ho_ten"]}) cùng khai số "{dien_thoai}" trong tệp — chỉ dòng '
+			f'{trung["line"]} được gán số, (các) dòng sau bỏ trống.'
+		)
+		dong["_trung_dien_thoai"] = True
+		return ""
+	so_da_dung[dien_thoai] = dong
+	return dien_thoai
+
+
 # ---------------------------------------------------------------------------
 # Bước 1 — tệp mẫu
 # ---------------------------------------------------------------------------
@@ -305,6 +375,11 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 	quan_ly_trong_tep: dict | None = None
 	loi_toan_tep: list[str] = []
 	canh_bao_toan_tep: list[str] = []
+	# VÒNG SỬA 2: dòng ĐẦU TIÊN trong tệp "giữ" một số điện thoại — theo dõi ở
+	# đây (dùng chung cho cả nhánh TẠO MỚI và nhánh BỔ SUNG số cho tài khoản
+	# đã có, xem `_kiem_trung_dien_thoai`) để dòng SAU trùng số biết mà bỏ
+	# trống, không phải đợi CSDL ném `IntegrityError` giữa vòng ghi.
+	so_da_dung: dict[str, dict] = {}
 
 	for line, row_cells in enumerate(
 		ws.iter_rows(min_row=header_row + 1, max_row=ws.max_row), start=header_row + 1
@@ -412,11 +487,20 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			# hữu vẫn không có số và tính năng gần như vô dụng ngay ngày bật.
 			mobile_hien_co = _norm(frappe.db.get_value("User", email, "mobile_no"))
 			if dien_thoai and not mobile_hien_co:
-				_them_ghi_chu(dong, (
-					f'Đã có tài khoản ở bệnh viện này — bỏ qua tạo mới, nhưng số '
-					f'điện thoại "{dien_thoai}" trong tệp sẽ được BỔ SUNG vào tài '
-					"khoản (đang chưa có số)."
-				))
+				# VÒNG SỬA 2: nhánh BỔ SUNG này ghi thẳng vào `User.mobile_no`
+				# (UNIQUE) ở `_ghi()` — soi trùng TRƯỚC, cùng hàm dùng cho nhánh
+				# TẠO MỚI bên dưới, vì cả hai cùng đụng một cột.
+				dien_thoai = _kiem_trung_dien_thoai(
+					dong, dien_thoai, email, so_da_dung, canh_bao_toan_tep, dang_tao_moi=False,
+				)
+				dong["dien_thoai"] = dien_thoai
+				if dien_thoai:
+					_them_ghi_chu(dong, (
+						f'Đã có tài khoản ở bệnh viện này — bỏ qua tạo mới, nhưng số '
+						f'điện thoại "{dien_thoai}" trong tệp sẽ được BỔ SUNG vào tài '
+						"khoản (đang chưa có số)."
+					))
+				# else: `_kiem_trung_dien_thoai` đã tự ghi chú lý do không gán.
 			elif dien_thoai and mobile_hien_co and mobile_hien_co != dien_thoai:
 				# Lệch số: có thể người thật đổi số, cũng có thể gõ nhầm. Đây LÀ
 				# dữ liệu người khác đã nhập — im lặng ghi đè là mất dữ liệu, nên
@@ -491,23 +575,45 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 
 		if errors:
 			dong["trang_thai"] = TU_CHOI
-		elif not dien_thoai:
-			# VÒNG SỬA 1 (chủ đầu tư, 04/09/2026): brief gốc bảo dùng CANH_BAO cho
-			# ô trống, và CANH_BAO trong file này SẴN mang nghĩa "gắn cờ VÀ KHÔNG
-			# GHI" (`_ghi()`: `if dong["trang_thai"] != TAO_MOI: continue`) — hai
-			# chỗ dùng CANH_BAO trước đó (email thuộc bệnh viện khác; số cũ khác
-			# số mới) ĐÚNG là không nên ghi. Nhưng thiếu số điện thoại KHÔNG phải
-			# lý do để hoãn cấp tài khoản: chủ đầu tư chọn tường minh là VẪN TẠO,
-			# chỉ cảnh báo để Miyano thấy ai còn thiếu mà đi xin bổ sung. Nên
-			# GIỮ `trang_thai = TAO_MOI` (không đổi), đưa cảnh báo vào `ghi_chu`
-			# (không phải `errors` — `errors` gắn với TU_CHOI/CANH_BAO ở nơi khác
-			# trong file, dùng nó ở đây sẽ đọc nhầm là "có gì đó chặn dòng này").
-			# Mục `canh_bao_toan_tep` (sau vòng lặp) mới là nơi liệt kê TÊN những
-			# người thiếu số — không có nó, "cảnh báo" chỉ là chữ nằm im trong
-			# từng dòng, người duyệt tệp phải dò từng dòng mới thấy.
-			_them_ghi_chu(dong, (
-				"Không có số điện thoại — khách sẽ thấy tên nhưng không gọi được."
-			))
+		else:
+			# VÒNG SỬA 2: soi trùng TRƯỚC KHI GHI — dòng này sắp thành TAO_MOI,
+			# và `_ghi()` sẽ đặt thẳng `dien_thoai` vào `User.mobile_no` (UNIQUE)
+			# lúc tạo tài khoản. Chỉ soi khi dòng CÓ số — dòng trống thì rơi
+			# thẳng xuống nhánh "Không có số điện thoại" bên dưới như cũ.
+			if dien_thoai:
+				dien_thoai = _kiem_trung_dien_thoai(
+					dong, dien_thoai, email, so_da_dung, canh_bao_toan_tep, dang_tao_moi=True,
+				)
+				dong["dien_thoai"] = dien_thoai
+			if not dien_thoai:
+				# VÒNG SỬA 1 (chủ đầu tư, 04/09/2026): brief gốc bảo dùng CANH_BAO
+				# cho ô trống, và CANH_BAO trong file này SẴN mang nghĩa "gắn cờ VÀ
+				# KHÔNG GHI" (`_ghi()`: `if dong["trang_thai"] != TAO_MOI: continue`)
+				# — hai chỗ dùng CANH_BAO trước đó (email thuộc bệnh viện khác; số
+				# cũ khác số mới) ĐÚNG là không nên ghi. Nhưng thiếu số điện thoại
+				# KHÔNG phải lý do để hoãn cấp tài khoản: chủ đầu tư chọn tường
+				# minh là VẪN TẠO, chỉ cảnh báo để Miyano thấy ai còn thiếu mà đi
+				# xin bổ sung. Nên GIỮ `trang_thai = TAO_MOI` (không đổi), đưa cảnh
+				# báo vào `ghi_chu` (không phải `errors` — `errors` gắn với
+				# TU_CHOI/CANH_BAO ở nơi khác trong file, dùng nó ở đây sẽ đọc nhầm
+				# là "có gì đó chặn dòng này"). Mục `canh_bao_toan_tep` (sau vòng
+				# lặp) mới là nơi liệt kê TÊN những người thiếu số — không có nó,
+				# "cảnh báo" chỉ là chữ nằm im trong từng dòng, người duyệt tệp
+				# phải dò từng dòng mới thấy.
+				#
+				# VÒNG SỬA 2: nếu số vừa bị XOÁ vì TRÙNG (không phải vốn dĩ để
+				# trống), `_kiem_trung_dien_thoai` đã tự ghi chú lý do cụ thể rồi
+				# — không nối thêm câu "Không có số điện thoại" chung chung đè lên,
+				# tránh một dòng mang hai lời giải thích khác nhau cho cùng một sự
+				# thật. Cờ `_trung_dien_thoai` (đặt bên dưới) còn được dùng để loại
+				# dòng này khỏi mục tổng "thiếu số điện thoại" cấp tệp — dòng này
+				# KHÔNG "thiếu" theo nghĩa người điền quên, nó bị soi trùng.
+				if dong.get("_trung_dien_thoai"):
+					pass
+				else:
+					_them_ghi_chu(dong, (
+						"Không có số điện thoại — khách sẽ thấy tên nhưng không gọi được."
+					))
 
 	if not co_ma_ngan and any(
 		r["vai_tro"] == NHAN_VIEN_KHOA and r["trang_thai"] in (TAO_MOI, TU_CHOI) for r in rows
@@ -526,7 +632,15 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 	# báo" ở từng dòng (`ghi_chu`) thành việc làm được: người duyệt tệp thấy
 	# ngay ở đầu màn ai còn thiếu số mà đi xin bổ sung, không phải dò từng dòng
 	# trong bảng có thể dài 200 dòng.
-	thieu_dien_thoai = [r for r in rows if r["trang_thai"] == TAO_MOI and not r["dien_thoai"]]
+	# VÒNG SỬA 2: loại các dòng bị BỎ TRỐNG VÌ TRÙNG khỏi mục "thiếu số điện
+	# thoại" — dòng đó không "thiếu" theo nghĩa người điền quên, nó đã có số
+	# trong tệp nhưng bị soi trùng; lý do đã nằm riêng trong `canh_bao_toan_tep`
+	# ở `_kiem_trung_dien_thoai`. Gộp chung hai lý do khác nhau vào một câu
+	# chung chung sẽ đọc sai bản chất với người duyệt tệp.
+	thieu_dien_thoai = [
+		r for r in rows
+		if r["trang_thai"] == TAO_MOI and not r["dien_thoai"] and not r.get("_trung_dien_thoai")
+	]
 	if thieu_dien_thoai:
 		canh_bao_toan_tep.append(
 			f"{len(thieu_dien_thoai)} người chưa có số điện thoại trong tệp — vẫn được tạo "

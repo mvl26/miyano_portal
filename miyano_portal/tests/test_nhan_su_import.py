@@ -53,6 +53,22 @@ def _xlsx_bytes(rows, headers=None):
 	return buf.getvalue()
 
 
+# VÒNG SỬA 2 (04/09/2026): các bài kiểm CHUẨN HOÁ số điện thoại cần một số
+# CỐ ĐỊNH lặp lại nhiều lần (nhiều cách viết cùng chuẩn hoá về MỘT số) —
+# không dùng được `_sdt_gia_theo_email()` (băm theo email, mỗi email ra một
+# số khác nhau) cho các bài đó. Số CŨ của các bài này là "0912345678" —
+# TRÙNG ĐÚNG số một tài khoản demo (`quanly.demoe2e@miyano-test.vn`) để lại
+# trên site dùng chung `erptest.local` sau lượt chạy thử tay 04/09/2026. Từ
+# khi `_phan_tich()` biết soi trùng với `User` đã tồn tại (VÒNG SỬA 2, xem
+# `api/nhan_su.py::_kiem_trung_dien_thoai`), các bài dùng "0912345678" không
+# còn kiểm đúng thứ chúng viết ra để kiểm (CHUẨN HOÁ) nữa — chúng đổi hướng
+# thành bài kiểm TRÙNG SỐ (đã có lớp riêng, `TestDienThoaiTrung`, bên dưới).
+# Đổi sang một số KHÔNG nằm trong bất kỳ tệp mẫu, tài liệu demo, hay dữ liệu
+# chạy thử nào đã biết — bài test không được phụ thuộc vào việc site dùng
+# chung có đang "sạch" demo data hay không.
+SDT_CHUAN_HOA_TEST = "0938271099"
+
+
 def _sdt_gia_theo_email(email: str) -> str:
 	"""SĐT giả HỢP LỆ và DUY NHẤT theo email — `User.mobile_no` có ràng buộc
 	UNIQUE ở tầng database; một hằng số dùng chung cho mọi dòng của `_row()`
@@ -607,19 +623,22 @@ class TestDienThoai(_NhanSuTestBase):
 
 	def test_excel_nuot_so_0_dau_duoc_phuc_hoi(self):
 		"""Bài 5 (QĐ-3) — cạm bẫy lớn nhất của cả task: ô định dạng SỐ trong
-		Excel làm mất số 0 đứng đầu. Ghi `912345678` dưới dạng `int` (đúng
-		hình openpyxl trả về khi ai đó gõ số điện thoại vào một ô định dạng
-		số, không phải ô định dạng Văn bản)."""
+		Excel làm mất số 0 đứng đầu. Ghi số dưới dạng `int` (đúng hình
+		openpyxl trả về khi ai đó gõ số điện thoại vào một ô định dạng số,
+		không phải ô định dạng Văn bản)."""
 		f = self._upload(_xlsx_bytes([
-			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai=912345678),
+			_row(
+				"Trần Văn Bình", BINH, "Huyết học", "HUYETHOC",
+				dien_thoai=int(SDT_CHUAN_HOA_TEST),
+			),
 		]))
 		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
 		dong = self._dong(ket_qua, BINH)
 		self.assertEqual(dong["trang_thai"], "tao_moi", dong["errors"])
-		self.assertEqual(dong["dien_thoai"], "0912345678")
+		self.assertEqual(dong["dien_thoai"], SDT_CHUAN_HOA_TEST)
 
 		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
-		self.assertEqual(frappe.db.get_value("User", BINH, "mobile_no"), "0912345678")
+		self.assertEqual(frappe.db.get_value("User", BINH, "mobile_no"), SDT_CHUAN_HOA_TEST)
 
 	def test_bon_cach_viet_hop_le_cong_excel_int_deu_ra_cung_mot_so_chuan(self):
 		"""VÒNG SỬA 2 (coordinator, 04/09/2026): regex cũ áp THẲNG lên chuỗi
@@ -629,11 +648,11 @@ class TestDienThoai(_NhanSuTestBase):
 		QĐ-1 dựng ra để tránh, chỉ dịch sang QĐ-2. Cộng dạng `int` của QĐ-3 —
 		tất cả năm cách viết phải chuẩn hoá về CÙNG một `mobile_no`."""
 		cach_viet = {
-			"tien_to_quoc_te": "+84912345678",
-			"khoang_trang": "091 234 5678",
-			"dau_cham": "0912.345.678",
-			"gach_ngang": "091-234-5678",
-			"excel_int": 912345678,
+			"tien_to_quoc_te": f"+84{SDT_CHUAN_HOA_TEST[1:]}",
+			"khoang_trang": f"{SDT_CHUAN_HOA_TEST[:4]} {SDT_CHUAN_HOA_TEST[4:7]} {SDT_CHUAN_HOA_TEST[7:]}",
+			"dau_cham": f"{SDT_CHUAN_HOA_TEST[:4]}.{SDT_CHUAN_HOA_TEST[4:7]}.{SDT_CHUAN_HOA_TEST[7:]}",
+			"gach_ngang": f"{SDT_CHUAN_HOA_TEST[:4]}-{SDT_CHUAN_HOA_TEST[4:7]}-{SDT_CHUAN_HOA_TEST[7:]}",
+			"excel_int": int(SDT_CHUAN_HOA_TEST),
 		}
 		for nhan, dien_thoai in cach_viet.items():
 			with self.subTest(nhan):
@@ -647,7 +666,9 @@ class TestDienThoai(_NhanSuTestBase):
 					dong["trang_thai"], "tao_moi",
 					f'{nhan} ({dien_thoai!r}) bị từ chối oan: {dong["errors"]}',
 				)
-				self.assertEqual(dong["dien_thoai"], "0912345678", f"{nhan}: {dien_thoai!r}")
+				self.assertEqual(
+					dong["dien_thoai"], SDT_CHUAN_HOA_TEST, f"{nhan}: {dien_thoai!r}",
+				)
 
 	def test_gia_chuoi_con_chu_van_bi_tu_choi_sau_khi_lot_dau_phan_cach(self):
 		"""Vế ÂM (coordinator yêu cầu giữ nguyên): lột dấu phân cách không
@@ -703,7 +724,7 @@ class TestDienThoai(_NhanSuTestBase):
 		self.assertFalse(frappe.db.get_value("User", HOA, "mobile_no"))
 
 		f = self._upload(_xlsx_bytes([
-			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai="0912345678"),
+			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai=SDT_CHUAN_HOA_TEST),
 		]))
 		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
 		dong = self._dong(ket_qua, HOA)
@@ -711,7 +732,7 @@ class TestDienThoai(_NhanSuTestBase):
 		self.assertIn("bổ sung", dong["ghi_chu"].lower())
 
 		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
-		self.assertEqual(frappe.db.get_value("User", HOA, "mobile_no"), "0912345678")
+		self.assertEqual(frappe.db.get_value("User", HOA, "mobile_no"), SDT_CHUAN_HOA_TEST)
 
 	def test_tai_khoan_da_co_dien_thoai_khac_thi_giu_nguyen_va_canh_bao(self):
 		"""Bài 6b (QĐ-4, vế chống mất dữ liệu): `mobile_no` đang có giá trị
@@ -735,6 +756,141 @@ class TestDienThoai(_NhanSuTestBase):
 			frappe.db.get_value("User", HOA, "mobile_no"), "0911111111",
 			"lệch số thì giữ nguyên số cũ — không tự ý ghi đè",
 		)
+
+
+class TestDienThoaiTrung(_NhanSuTestBase):
+	"""VÒNG SỬA 2 (04/09/2026) — `User.mobile_no` mang UNIQUE index THẬT trên
+	CSDL (tự xác minh `SHOW INDEX FROM tabUser`, `Non_unique = 0`). TRƯỚC vòng
+	sửa này, hai dòng trùng số (hoặc một dòng trùng số với `User` đã tồn tại)
+	làm nổ `pymysql.err.IntegrityError` GIỮA vòng ghi ở `_ghi()` — và vì luật
+	"một dòng bị từ chối là không ghi gì cả" của màn này, MỘT số điện thoại
+	trùng chặn cứng việc cấp tài khoản cho CẢ bệnh viện. Ở bệnh viện, hai điều
+	dưỡng cùng khoa khai chung số máy bàn của khoa là chuyện bình thường,
+	không phải ca hiếm.
+
+	Đúng tinh thần QĐ-1 (chủ đầu tư đã chốt): trùng số KHÔNG được chặn tạo tài
+	khoản. Tài khoản vẫn tạo, chỉ KHÔNG gán số cho (những) dòng bị trùng."""
+
+	def test_hai_dong_trong_tep_trung_so_dong_dau_giu_so_dong_sau_bo_trong(self):
+		"""Hai điều dưỡng cùng khoa khai chung một số bàn — dòng ĐẦU TIÊN
+		trong tệp giữ số, dòng SAU bỏ trống + cảnh báo. Lưới quan trọng nhất:
+		CẢ HAI tài khoản vẫn được tạo (không phải `tu_choi`, không phải
+		`canh_bao` — CANH_BAO trong file này mang nghĩa "không ghi")."""
+		mot = f"trung_mot{DOMAIN}"
+		hai = f"trung_hai{DOMAIN}"
+		so_chung = "0938271001"
+		f = self._upload(_xlsx_bytes([
+			_row("Người Một", mot, "Huyết học", "HUYETHOC", dien_thoai=so_chung),
+			_row("Người Hai", hai, "Huyết học", "HUYETHOC", dien_thoai=so_chung),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+
+		dong_mot = self._dong(ket_qua, mot)
+		dong_hai = self._dong(ket_qua, hai)
+		self.assertEqual(dong_mot["trang_thai"], "tao_moi")
+		self.assertEqual(dong_hai["trang_thai"], "tao_moi")
+		self.assertEqual(dong_mot["dien_thoai"], so_chung, "dòng đầu trong tệp giữ số")
+		self.assertEqual(dong_hai["dien_thoai"], "", "dòng sau bỏ trống, không giữ số trùng")
+		self.assertIn("Người Một", dong_hai["ghi_chu"], "ghi chú phải nêu trùng với AI")
+		self.assertIn(so_chung, dong_hai["ghi_chu"], "ghi chú phải nêu trùng SỐ NÀO")
+		canh_bao = " ".join(ket_qua["canh_bao_toan_tep"])
+		self.assertIn(so_chung, canh_bao, "canh_bao_toan_tep phải liệt kê được ca trùng")
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertTrue(frappe.db.exists("User", mot), "trùng số KHÔNG được chặn tạo tài khoản")
+		self.assertTrue(frappe.db.exists("User", hai), "trùng số KHÔNG được chặn tạo tài khoản")
+		self.assertEqual(frappe.db.get_value("User", mot, "mobile_no"), so_chung)
+		self.assertFalse(frappe.db.get_value("User", hai, "mobile_no"))
+
+	def test_trung_voi_user_da_ton_tai_tren_he_thong_khong_gan_so_nhung_van_tao(self):
+		"""Số trong tệp đã thuộc một tài khoản KHÁC đang tồn tại (không phải
+		người của chính dòng đó) — tài khoản của dòng này vẫn được tạo, chỉ
+		không gán số, và ghi chú nêu rõ tài khoản nào đang giữ số đó."""
+		chu_cu = f"chu_cu{DOMAIN}"
+		portal_api.portal_provision(
+			CUST_B, chu_cu, first_name="Chủ Cũ", vai_tro="Quản lý", dien_thoai="0938271002",
+		)
+		self.assertEqual(frappe.db.get_value("User", chu_cu, "mobile_no"), "0938271002")
+
+		moi = f"nguoi_moi{DOMAIN}"
+		f = self._upload(_xlsx_bytes([
+			_row("Người Mới", moi, "Huyết học", "HUYETHOC", dien_thoai="0938271002"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, moi)
+		self.assertEqual(
+			dong["trang_thai"], "tao_moi", "trùng với User khác KHÔNG được chặn tạo tài khoản",
+		)
+		self.assertEqual(dong["dien_thoai"], "", "không gán số đang thuộc tài khoản khác")
+		self.assertIn(chu_cu, dong["ghi_chu"])
+		canh_bao = " ".join(ket_qua["canh_bao_toan_tep"])
+		self.assertIn(chu_cu, canh_bao)
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertTrue(frappe.db.exists("User", moi), "trùng số KHÔNG được chặn tạo tài khoản")
+		self.assertFalse(frappe.db.get_value("User", moi, "mobile_no"))
+		self.assertEqual(
+			frappe.db.get_value("User", chu_cu, "mobile_no"), "0938271002",
+			"tài khoản cũ không bị đụng vào",
+		)
+
+	def test_tai_khoan_da_co_duoc_bo_sung_so_trung_thi_khong_gan_khong_vo(self):
+		"""Nhánh BỔ SUNG số cho tài khoản ĐÃ CÓ (QĐ-4 vế điền, `trang_thai ==
+		bo_qua`) cũng ghi vào CHÍNH `User.mobile_no` — cùng UNIQUE index, cùng
+		rủi ro vỡ. Số trong tệp trùng với một User KHÁC đang tồn tại thì
+		KHÔNG được bổ sung (tránh vỡ khi ghi), dòng vẫn giữ nguyên `bo_qua`
+		như trước (đây là người ĐÃ CÓ tài khoản, không phải tạo mới)."""
+		chu_cu = f"chu_cu_bs{DOMAIN}"
+		portal_api.portal_provision(
+			CUST_B, chu_cu, first_name="Chủ Cũ BS", vai_tro="Quản lý", dien_thoai="0938271005",
+		)
+		portal_api.portal_provision(CUST_A, HOA, first_name="Nguyễn Thị Hoa", vai_tro="Quản lý")
+		self.assertFalse(frappe.db.get_value("User", HOA, "mobile_no"))
+
+		f = self._upload(_xlsx_bytes([
+			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai="0938271005"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, HOA)
+		self.assertEqual(dong["trang_thai"], "bo_qua")
+		self.assertIn(chu_cu, dong["ghi_chu"])
+		# Review độc lập (vòng sửa 2): ghi chú KHÔNG được nói tài khoản này
+		# "vẫn được tạo" — HOA đã có tài khoản TỪ TRƯỚC (dòng 847), không có
+		# gì được tạo ở đây cả. Nói "tạo" cho một tài khoản đã tồn tại là một
+		# câu SAI SỰ THẬT đưa cho Miyano đọc.
+		self.assertNotIn("được tạo", dong["ghi_chu"].lower())
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertFalse(
+			frappe.db.get_value("User", HOA, "mobile_no"),
+			"không bổ sung số đang thuộc tài khoản khác",
+		)
+
+	def test_ve_am_khong_trung_thi_khong_ai_bi_gan_co_va_moi_so_deu_duoc_gan(self):
+		"""Vế ÂM: tệp không có số nào trùng nhau và không trùng ai đã có —
+		không dòng nào bị cảnh báo vì lý do trùng, mọi số đều được gán."""
+		a = f"khong_trung_a{DOMAIN}"
+		b = f"khong_trung_b{DOMAIN}"
+		f = self._upload(_xlsx_bytes([
+			_row("Người A", a, "Huyết học", "HUYETHOC", dien_thoai="0938271003"),
+			_row("Người B", b, "Huyết học", "HUYETHOC", dien_thoai="0938271004"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong_a = self._dong(ket_qua, a)
+		dong_b = self._dong(ket_qua, b)
+		self.assertEqual(dong_a["dien_thoai"], "0938271003")
+		self.assertEqual(dong_b["dien_thoai"], "0938271004")
+		self.assertNotIn("trùng", dong_a["ghi_chu"].lower())
+		self.assertNotIn("trùng", dong_b["ghi_chu"].lower())
+		# Tệp này không có Quản lý nên vẫn còn CẢNH BÁO khác (thiếu Quản lý) —
+		# vế âm chỉ đòi hỏi không CẢNH BÁO VÌ LÝ DO TRÙNG SỐ, không đòi hỏi
+		# `canh_bao_toan_tep` rỗng tuyệt đối.
+		canh_bao = " ".join(ket_qua["canh_bao_toan_tep"]).lower()
+		self.assertNotIn("trùng", canh_bao, "không có số nào trùng thì không được cảnh báo trùng")
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertEqual(frappe.db.get_value("User", a, "mobile_no"), "0938271003")
+		self.assertEqual(frappe.db.get_value("User", b, "mobile_no"), "0938271004")
 
 
 class TestGhiHongGiuaChung(_NhanSuTestBase):

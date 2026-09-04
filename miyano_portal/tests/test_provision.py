@@ -211,9 +211,15 @@ class TestProvisionDienThoai(FrappeTestCase):
         self._tao_khach_va_user_truoc(ten_khach, email)
         self.assertFalse(frappe.db.get_value("User", email, "mobile_no"))
 
-        portal.portal_provision(ten_khach, email, dien_thoai="0912345678")
+        # VÒNG SỬA 2 (04/09/2026): số cũ "0912345678" trùng đúng số một tài
+        # khoản demo (`quanly.demoe2e@miyano-test.vn`) để lại trên site dùng
+        # chung `erptest.local` sau lượt chạy thử tay 04/09/2026 — bài này
+        # gọi thẳng `portal_provision()`, KHÔNG qua `api/nhan_su.py`, nên
+        # không được lớp soi trùng của màn nhập nhân sự bảo vệ; đổi sang một
+        # số không nằm trong bất kỳ tệp mẫu/dữ liệu demo nào đã biết.
+        portal.portal_provision(ten_khach, email, dien_thoai="0938271098")
 
-        self.assertEqual(frappe.db.get_value("User", email, "mobile_no"), "0912345678")
+        self.assertEqual(frappe.db.get_value("User", email, "mobile_no"), "0938271098")
 
     def test_user_da_co_tu_truoc_dien_thoai_khac_thi_giu_nguyen(self):
         """Vế chống mất dữ liệu — QĐ-4: số ĐÃ CÓ là dữ liệu người khác nhập,
