@@ -62,6 +62,26 @@ class NhapNhanSu {
 	}
 
 	render_body() {
+		// `page_form` (khối chứa ô "Bệnh viện") được Frappe dựng ĐÚNG MỘT LẦN
+		// trong constructor của `Page` — `$('<div class="page-form row hide">')
+		// .prependTo(this.main)`, xem `frappe/public/js/frappe/ui/page.js:143`.
+		// `add_field()` chỉ ĐỔ THÊM control vào khối có sẵn đó, không dựng lại.
+		//
+		// Nên `this.page.main.html(...)` ngay dưới đây — thay THẲNG innerHTML
+		// của `main` — gỡ luôn `page_form` ra khỏi DOM. Ô "Bệnh viện" vẫn tồn
+		// tại trong bộ nhớ JS (`page.fields_dict.customer` truy cập được) nhưng
+		// KHÔNG BAO GIỜ hiện lên màn. Bước 1 bảo "chọn ở ô trên đầu màn hình",
+		// còn màn hình thì không có ô nào — người dùng thật chặn cứng 100%,
+		// không đi tiếp được bước nào.
+		//
+		// Phát hiện ở lượt chạy thử toàn tuyến 04/09/2026; lỗi có từ commit
+		// dựng màn này (`9d84345`), tức màn Desk cấp tài khoản CHƯA TỪNG dùng
+		// được qua giao diện. Gắn `page_form` trở lại ngay sau khi vẽ thân màn.
+		//
+		// KHÔNG sửa bằng cách đảo thứ tự `make_controls()`/`render_body()`:
+		// `page_form` có TRƯỚC cả hai (dựng trong constructor của Page), nên
+		// đảo thứ tự vẫn để `html()` gỡ nó ra — chỉ khác là lúc đó field được
+		// đổ vào một khối đã lìa DOM. Phải gắn lại tường minh.
 		this.page.main.html(`
 			<div class="nhan-su-import" style="padding: 12px 0">
 				<div class="frappe-card" style="padding: 14px; margin-bottom: 12px">
@@ -97,6 +117,8 @@ class NhapNhanSu {
 				<div class="ket-qua-ghi"></div>
 			</div>
 		`);
+		this.page.page_form.prependTo(this.page.main);
+
 		this.page.main.find(".btn-tai-mau").on("click", () => this.tai_mau());
 		this.page.main.find(".btn-chon-tep").on("click", () => this.chon_tep());
 	}

@@ -924,3 +924,65 @@ class TestCacCaCon(_NhanSuTestBase):
 		with self.assertRaises(frappe.PermissionError):
 			nhan_su_api.nhan_su_import_template()
 		frappe.set_user("Administrator")
+
+
+class TestManDeskHienDuocOChonBenhVien(FrappeTestCase):
+	"""Ô "Bệnh viện" của màn Desk phải THẬT SỰ nằm trong DOM.
+
+	Không có hạ tầng test JS trong repo này (`package.json` chỉ có vite), nên
+	bất biến giao diện được canh bằng lưới Python đọc thẳng file `.js`.
+
+	VÌ SAO CÓ LỚP NÀY — lượt chạy thử toàn tuyến 04/09/2026 phát hiện màn
+	"Nhập nhân sự bệnh viện" CHẶN CỨNG 100% người dùng thật, và đã chặn như
+	vậy từ commit dựng nó (`9d84345`): Frappe dựng `page_form` đúng một lần
+	trong constructor của `Page` rồi prepend vào `main`, còn `render_body()`
+	gọi `this.page.main.html(...)` — thay thẳng innerHTML của `main`, gỡ luôn
+	`page_form` ra khỏi DOM. Ô nhập vẫn truy cập được từ JS
+	(`page.fields_dict.customer`), nên MỌI phép kiểm ở tầng dữ liệu đều xanh;
+	chỉ con mắt nhìn vào màn hình mới thấy nó biến mất.
+
+	Đó là lý do bài này canh THỨ TỰ trong file, chứ không canh sự tồn tại của
+	một chuỗi: cả `main.html(` lẫn `page_form` đều đã tồn tại suốt thời gian
+	màn hình hỏng. Thứ hỏng là cái nào chạy trước.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		from pathlib import Path
+
+		duong_dan = (
+			Path(frappe.get_app_path("miyano_portal"))
+			/ "miyano_portal"
+			/ "page"
+			/ "nhap_nhan_su"
+			/ "nhap_nhan_su.js"
+		)
+		cls.ma = duong_dan.read_text(encoding="utf-8")
+
+	def test_page_form_duoc_gan_lai_sau_khi_ve_than_man(self):
+		"""`page_form` phải được gắn lại vào `main` SAU lệnh `main.html(...)`.
+
+		Đảo thứ tự hai lệnh này (hoặc bỏ lệnh gắn lại) làm ô "Bệnh viện" biến
+		mất khỏi màn hình mà không endpoint nào đỏ — Miyano không cấp được tài
+		khoản cho bất kỳ bệnh viện nào, còn Bước 1 trên màn vẫn thản nhiên bảo
+		"chọn ở ô trên đầu màn hình".
+		"""
+		i_html = self.ma.find("this.page.main.html(")
+		self.assertNotEqual(
+			i_html, -1, "Không tìm thấy lệnh vẽ thân màn `this.page.main.html(`"
+		)
+		i_gan_lai = self.ma.find("this.page.page_form.prependTo(this.page.main)")
+		self.assertNotEqual(
+			i_gan_lai,
+			-1,
+			"Thiếu lệnh gắn `page_form` trở lại `main`. `main.html()` gỡ nó ra "
+			"khỏi DOM, nên không có lệnh này thì ô 'Bệnh viện' không bao giờ "
+			"hiện lên và màn Desk cấp tài khoản chặn cứng người dùng.",
+		)
+		self.assertLess(
+			i_html,
+			i_gan_lai,
+			"`page_form` đang được gắn lại TRƯỚC `main.html(...)` — lệnh html() "
+			"chạy sau sẽ gỡ nó ra lần nữa. Phải gắn lại SAU khi vẽ xong thân màn.",
+		)
