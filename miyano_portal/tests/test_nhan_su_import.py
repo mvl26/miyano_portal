@@ -19,14 +19,16 @@ ba, và điểm lưu (savepoint) cuốn sạch cả hai. Không có `commit` nà
 sai, và người sau sẽ tin nó.
 """
 
+import hashlib
 import io
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.password import check_password, update_password
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from miyano_portal.api import nhan_su as nhan_su_api
+from miyano_portal.api import portal as portal_api
 
 CUST_A = "ZZTEST NS Bệnh viện A"
 CUST_B = "ZZTEST NS Bệnh viện B"
@@ -40,7 +42,6 @@ DUNG = f"dung{DOMAIN}"
 
 HEADERS = [label for label, _ in nhan_su_api.COLUMNS]
 
-
 def _xlsx_bytes(rows, headers=None):
 	wb = Workbook()
 	ws = wb.active
@@ -52,8 +53,19 @@ def _xlsx_bytes(rows, headers=None):
 	return buf.getvalue()
 
 
-def _row(ho_ten, email, ten_khoa="", ma_khoa="", vai_tro="Nhân viên khoa"):
-	return [ho_ten, email, ten_khoa, ma_khoa, vai_tro]
+def _sdt_gia_theo_email(email: str) -> str:
+	"""SĐT giả HỢP LỆ và DUY NHẤT theo email — `User.mobile_no` có ràng buộc
+	UNIQUE ở tầng database; một hằng số dùng chung cho mọi dòng của `_row()`
+	sẽ vỡ ngay khi tệp có từ hai người trở lên (`test_ghi_tao_du_tai_khoan...`
+	tạo ba tài khoản trong một lần commit)."""
+	so = int(hashlib.md5(email.encode()).hexdigest(), 16) % 10**8
+	return f"09{so:08d}"
+
+
+def _row(ho_ten, email, ten_khoa="", ma_khoa="", vai_tro="Nhân viên khoa", dien_thoai=None):
+	if dien_thoai is None:
+		dien_thoai = _sdt_gia_theo_email(email)
+	return [ho_ten, email, ten_khoa, ma_khoa, vai_tro, dien_thoai]
 
 
 TEP_HOP_LE = [
@@ -506,6 +518,138 @@ class TestTepMau(_NhanSuTestBase):
 		self.assertEqual(ket_qua["loi_toan_tep"], [])
 		self.assertEqual(ket_qua["so_tu_choi"], 0, ket_qua["rows"])
 		self.assertGreaterEqual(ket_qua["total"], 1)
+
+	def test_mau_co_sau_cot_va_hai_dong_vi_du_deu_co_so(self):
+		"""Task 10, bài 1: tệp mẫu phải làm gương cho cột mới — bỏ trống ví dụ
+		sẽ dạy người điền rằng để trống Số điện thoại là bình thường."""
+		nhan_su_api.nhan_su_import_template()
+		noi_dung = frappe.local.response.filecontent
+		ws = load_workbook(io.BytesIO(noi_dung)).active
+
+		header = [c.value for c in ws[1]]
+		self.assertEqual(len(header), 6, header)
+		self.assertEqual(header[5], "Số điện thoại")
+		self.assertTrue(str(ws.cell(row=2, column=6).value or "").strip(), "dòng ví dụ 1 thiếu SĐT")
+		self.assertTrue(str(ws.cell(row=3, column=6).value or "").strip(), "dòng ví dụ 2 thiếu SĐT")
+
+		# Tải mẫu xuống rồi nạp lại ngay phải lọt xem trước KHÔNG một cảnh
+		# báo nào — nếu ví dụ nào bỏ trống SĐT, bài `so_canh_bao == 0` này đỏ.
+		f = self._upload(noi_dung, filename="mau_6_cot.xlsx")
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		self.assertEqual(ket_qua["so_tu_choi"], 0, ket_qua["rows"])
+		self.assertEqual(ket_qua["so_canh_bao"], 0, ket_qua["rows"])
+		self.assertEqual(ket_qua["so_tao_moi"], 2)
+
+
+class TestDienThoai(_NhanSuTestBase):
+	"""Task 10 — cột Số điện thoại. Bốn quyết định điều phối (QĐ-1..4) của
+	brief, một bài (lớp con) cho mỗi mảnh hành vi khác nhau."""
+
+	def test_thieu_han_cot_dien_thoai_bao_loi_header_khong_ghi_gi(self):
+		"""Bài 2: tệp 5 cột cũ (chưa có Số điện thoại) phải bị chặn ngay ở
+		bước ĐỌC HEADER — không lặng lẽ tạo cả viện không số."""
+		f = self._upload(_xlsx_bytes(
+			[["Nguyễn Thị Hoa", HOA, "", "", "Quản lý"]],
+			headers=HEADERS[:5],
+		))
+		before = self._counts()
+		with self.assertRaises(frappe.ValidationError) as cm:
+			nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		self.assertIn("Số điện thoại", str(cm.exception))
+		self.assertEqual(before, self._counts(), "báo lỗi header thì không được ghi gì")
+
+	def test_o_trong_thi_canh_bao_khong_tu_choi_dong_khac_van_tao_moi(self):
+		"""Bài 3 (QĐ-1): ô trống là một lựa chọn có ý thức, không phải lỗi
+		hình thức — TỪ CHỐI ở đây sẽ chặn cứng cả tệp."""
+		f = self._upload(_xlsx_bytes([
+			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai=""),
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC"),  # SĐT mặc định hợp lệ
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+
+		dong_hoa = self._dong(ket_qua, HOA)
+		self.assertEqual(dong_hoa["trang_thai"], "canh_bao")
+		self.assertNotEqual(dong_hoa["trang_thai"], "tu_choi")
+		self.assertIn("không gọi được", " ".join(dong_hoa["errors"]).lower())
+		self.assertEqual(self._dong(ket_qua, BINH)["trang_thai"], "tao_moi")
+		self.assertEqual(ket_qua["so_canh_bao"], 1)
+		self.assertEqual(ket_qua["so_tao_moi"], 1)
+
+		# CANH_BAO dùng ĐÚNG nghĩa "Miyano tự xét" đã có của trạng thái này ở
+		# mọi nơi khác trong file (xem `TestEmailCuaKhachKhac`): dòng CANH_BAO
+		# không được ghi ở lần này — Hoa KHÔNG có tài khoản, Bình (tao_moi)
+		# thì có. Miyano bổ sung số rồi tải lại tệp để tạo dòng của Hoa.
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertFalse(frappe.db.exists("User", HOA), "dòng CANH_BAO không được ghi")
+		self.assertTrue(frappe.db.exists("User", BINH))
+
+	def test_sai_dinh_dang_thi_tu_choi_kem_ly_do(self):
+		"""Bài 4 (QĐ-2): gõ sai (khác hẳn bỏ trống) là lỗi im lặng sẽ in ra
+		trước mặt bệnh viện — phải TỪ CHỐI, không phải cảnh báo."""
+		f = self._upload(_xlsx_bytes([
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai="abc123"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, BINH)
+		self.assertEqual(dong["trang_thai"], "tu_choi")
+		self.assertIn("điện thoại", " ".join(dong["errors"]).lower())
+
+	def test_excel_nuot_so_0_dau_duoc_phuc_hoi(self):
+		"""Bài 5 (QĐ-3) — cạm bẫy lớn nhất của cả task: ô định dạng SỐ trong
+		Excel làm mất số 0 đứng đầu. Ghi `912345678` dưới dạng `int` (đúng
+		hình openpyxl trả về khi ai đó gõ số điện thoại vào một ô định dạng
+		số, không phải ô định dạng Văn bản)."""
+		f = self._upload(_xlsx_bytes([
+			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC", dien_thoai=912345678),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, BINH)
+		self.assertEqual(dong["trang_thai"], "tao_moi", dong["errors"])
+		self.assertEqual(dong["dien_thoai"], "0912345678")
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertEqual(frappe.db.get_value("User", BINH, "mobile_no"), "0912345678")
+
+	def test_tai_khoan_da_co_dien_thoai_rong_thi_duoc_dien(self):
+		"""Bài 6a (QĐ-4, vế điền): tài khoản chạy TRƯỚC Task 10 chưa có số —
+		nhập lại đúng file có số của người đó phải BỔ SUNG vào chỗ trống,
+		không đòi phải sửa tay trên Desk như trước."""
+		portal_api.portal_provision(CUST_A, HOA, first_name="Nguyễn Thị Hoa", vai_tro="Quản lý")
+		self.assertFalse(frappe.db.get_value("User", HOA, "mobile_no"))
+
+		f = self._upload(_xlsx_bytes([
+			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai="0912345678"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, HOA)
+		self.assertEqual(dong["trang_thai"], "bo_qua")
+		self.assertIn("bổ sung", dong["ghi_chu"].lower())
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertEqual(frappe.db.get_value("User", HOA, "mobile_no"), "0912345678")
+
+	def test_tai_khoan_da_co_dien_thoai_khac_thi_giu_nguyen_va_canh_bao(self):
+		"""Bài 6b (QĐ-4, vế chống mất dữ liệu): `mobile_no` đang có giá trị
+		KHÁC là dữ liệu người khác đã nhập — im lặng ghi đè là mất dữ liệu."""
+		portal_api.portal_provision(
+			CUST_A, HOA, first_name="Nguyễn Thị Hoa", vai_tro="Quản lý", dien_thoai="0911111111",
+		)
+		self.assertEqual(frappe.db.get_value("User", HOA, "mobile_no"), "0911111111")
+
+		f = self._upload(_xlsx_bytes([
+			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai="0922222222"),
+		]))
+		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		dong = self._dong(ket_qua, HOA)
+		self.assertEqual(dong["trang_thai"], "canh_bao")
+		self.assertIn("0911111111", " ".join(dong["errors"]))
+		self.assertIn("0922222222", " ".join(dong["errors"]))
+
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertEqual(
+			frappe.db.get_value("User", HOA, "mobile_no"), "0911111111",
+			"lệch số thì giữ nguyên số cũ — không tự ý ghi đè",
+		)
 
 
 class TestGhiHongGiuaChung(_NhanSuTestBase):

@@ -2085,7 +2085,8 @@ def chan_neu_khong_phai_nhan_vien_miyano() -> None:
 
 @frappe.whitelist()
 def portal_provision(
-    customer, email, send_invite=False, first_name=None, vai_tro=None, khoa_phong=None
+    customer, email, send_invite=False, first_name=None, vai_tro=None, khoa_phong=None,
+    dien_thoai=None,
 ) -> dict:
     """Cấp tài khoản cổng cho một email của một khách hàng.
 
@@ -2101,6 +2102,19 @@ def portal_provision(
         KHÔNG chạy: hai cơ chế cùng quyết một việc là lỗi lặp lại của dự án
         này. Tài khoản cấp theo tờ khai luôn `active=1` — dùng được ngay,
         không rơi vào trạng thái chờ-gán-khoa.
+
+    Task 10 thêm tham số THỨ TƯ, giữ đúng lời hứa ở trên — bỏ trống thì hành
+    vi GIỮ NGUYÊN từng dấu phẩy như trước, `test_provision.py` không được đỏ
+    một bài nào:
+
+      * `dien_thoai` — số điện thoại nguồn cho dòng thời gian "Ai đã làm gì"
+        (`User.mobile_no`). Tài khoản MỚI thì đặt thẳng lúc tạo. Tài khoản
+        ĐÃ CÓ (nhánh `elif` dưới) chỉ được ĐIỀN VÀO CHỖ TRỐNG khi
+        `mobile_no` đang rỗng — KHÔNG BAO GIỜ đè lên số đã có, đó là dữ liệu
+        người khác đã nhập. Trường hợp lệch số (đã có số KHÁC) không xử ở
+        đây: nó là quyết định cần người xem xét, không phải hành vi tự động
+        — người gọi (`api/nhan_su.py::_phan_tich`) phải chặn/gắn cờ TRƯỚC khi
+        gọi tới đây, không phải hàm này tự âm thầm bỏ qua.
     """
     chan_neu_khong_phai_nhan_vien_miyano()
 
@@ -2126,8 +2140,16 @@ def portal_provision(
             "doctype": "User", "email": email, "first_name": first_name or customer,
             "user_type": "Website User", "send_welcome_email": int(send_invite),
         })
+        if dien_thoai:
+            u.mobile_no = dien_thoai
         u.append("roles", {"role": "Customer"})
         u.insert(ignore_permissions=True)
+    elif dien_thoai and not frappe.db.get_value("User", email, "mobile_no"):
+        # Task 10, QĐ-4 — tài khoản ĐÃ CÓ (User có sẵn nhưng đang qua nhánh
+        # tạo mới của `Portal Member`, ví dụ vừa được tạo cho một bệnh viện
+        # khác rồi mới nhập cho bệnh viện này) chỉ được ĐIỀN VÀO CHỖ TRỐNG.
+        # `mobile_no` đang có giá trị thì bỏ qua hẳn nhánh này — không đè.
+        frappe.db.set_value("User", email, "mobile_no", dien_thoai, update_modified=False)
     contact_name = f"{customer}-{email}"
     if not frappe.db.exists("Contact", contact_name):
         ct = frappe.get_doc({"doctype": "Contact", "first_name": customer, "user": email})

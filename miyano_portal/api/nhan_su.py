@@ -25,6 +25,7 @@ Bốn điều đáng nhớ trước khi sửa file này:
 """
 
 import io
+import re
 import secrets
 import unicodedata
 
@@ -48,17 +49,37 @@ from miyano_portal.miyano_portal.doctype.portal_member.portal_member import (
 
 # (nhãn cột hiển thị, tên field nội bộ) — MỘT bộ cột duy nhất cho cả ba việc:
 # sinh tệp mẫu, đọc tệp xem trước, đọc tệp lúc ghi.
+#
+# Task 10: "Số điện thoại" thêm vào ĐÂY, không phải một tệp/luồng riêng — dòng
+# thời gian "Ai đã làm gì" (Task 1-8) hiện tên NGƯỜI THAO TÁC kèm số điện
+# thoại để khách bấm gọi thẳng; tài khoản không có số thì dòng thời gian chỉ
+# hiện tên, một màn hình nêu câu hỏi "hỏi ai" rồi không cho gọi. Trước task
+# này số phải điền tay từng tài khoản trên Desk sau khi nhập — bước thủ công
+# chắc chắn có ngày bị quên.
 COLUMNS = [
 	("Họ tên", "ho_ten"),
 	("Email", "email"),
 	("Khoa", "ten_khoa"),
 	("Mã khoa", "ma_khoa"),
 	("Vai trò", "vai_tro"),
+	("Số điện thoại", "dien_thoai"),
 ]
 
 # Cột bắt buộc phải CÓ MẶT trong header. "Khoa"/"Mã khoa" không bắt buộc có
 # mặt vì một tệp toàn Quản lý là hợp lệ (Quản lý nhìn toàn viện).
-REQUIRED_HEADER = {"ho_ten", "email", "vai_tro"}
+#
+# "dien_thoai" CÓ MẶT ở đây (ai còn dùng tệp mẫu 5 cột cũ bị báo ngay ở bước
+# đọc header, không lặng lẽ tạo cả viện không số) nhưng Ô TRỐNG của nó KHÔNG
+# bị coi là lỗi hình thức như "ho_ten"/"email" — xem nhánh CANH_BAO trong
+# `_phan_tich()`. "Bắt buộc có mặt cột" và "bắt buộc có giá trị mỗi dòng" là
+# hai luật khác nhau, cố ý.
+REQUIRED_HEADER = {"ho_ten", "email", "vai_tro", "dien_thoai"}
+
+# QĐ-2 (Task 10): số SAI ĐỊNH DẠNG bị TỪ CHỐI — khác hẳn Ô TRỐNG (chỉ cảnh
+# báo). Bỏ trống là một lựa chọn có ý thức của người điền; gõ sai là một lỗi
+# im lặng sẽ in ra trước mặt bệnh viện và dẫn người ta gọi nhầm số. Số di
+# động Việt Nam: bắt đầu bằng 0, 10-11 chữ số.
+_RE_DIEN_THOAI = re.compile(r"^0\d{9,10}$")
 
 VAI_TRO_HOP_LE = (QUAN_LY, NHAN_VIEN_KHOA)
 
@@ -76,18 +97,44 @@ def _norm(value) -> str:
 	return unicodedata.normalize("NFC", str(value)).strip()
 
 
+def _chuan_hoa_dien_thoai(value) -> str:
+	"""Chuẩn hoá ô Số điện thoại — xử lý CẠM BẪY EXCEL (QĐ-3, Task 10).
+
+	Một ô được gõ/định dạng kiểu SỐ (không phải văn bản) làm Excel NUỐT MẤT số
+	0 đứng đầu: `0912345678` gõ vào ô số lưu thành số `912345678`, và
+	`openpyxl` trả `int`/`float` đó nguyên văn — `_norm()` một mình sẽ cho ra
+	chuỗi `"912345678"`, sai số điện thoại, mà KHÔNG có gì báo. Ô kiểu số ở
+	đây luôn được hiểu là "0 bị nuốt" và phục hồi lại; ô kiểu văn bản (chuỗi)
+	thì giữ nguyên, chỉ chuẩn hoá khoảng trắng qua `_norm()`.
+	"""
+	if isinstance(value, bool):
+		return _norm(value)
+	if isinstance(value, (int, float)):
+		return "0" + str(int(value))
+	return _norm(value)
+
+
+def _dien_thoai_hop_le(so: str) -> bool:
+	return bool(_RE_DIEN_THOAI.fullmatch(so))
+
+
 # ---------------------------------------------------------------------------
 # Bước 1 — tệp mẫu
 # ---------------------------------------------------------------------------
 
 
 def build_template_bytes() -> bytes:
-	"""Tệp mẫu .xlsx: đúng 5 cột theo thứ tự COLUMNS, kèm hai dòng ví dụ (một
+	"""Tệp mẫu .xlsx: đúng 6 cột theo thứ tự COLUMNS, kèm hai dòng ví dụ (một
 	cho mỗi vai trò — dòng Quản lý CỐ Ý để trống Khoa/Mã khoa để người điền
 	thấy ngay rằng đó là hợp lệ).
 
-	Tải mẫu xuống rồi nạp lại ngay (không sửa gì) phải đi lọt bước xem trước —
-	cùng cam kết như tệp mẫu của kho, xem `import_ton_dau.build_template_bytes`.
+	Cả hai dòng ví dụ ĐỀU có số điện thoại (Task 10, QĐ-1): cột này bắt buộc
+	có mặt trong header, nên tệp mẫu phải làm gương — bỏ trống ví dụ sẽ dạy
+	người điền rằng để trống là bình thường.
+
+	Tải mẫu xuống rồi nạp lại ngay (không sửa gì) phải đi lọt bước xem trước
+	KHÔNG một cảnh báo nào — cùng cam kết như tệp mẫu của kho, xem
+	`import_ton_dau.build_template_bytes`.
 	"""
 	wb = Workbook()
 	ws = wb.active
@@ -95,11 +142,12 @@ def build_template_bytes() -> bytes:
 	ws.append([label for label, _ in COLUMNS])
 	for cell in ws[1]:
 		cell.font = Font(bold=True)
-	ws.append(["Nguyễn Thị Hoa", "quanly@benhvien.example", "", "", QUAN_LY])
+	ws.append(["Nguyễn Thị Hoa", "quanly@benhvien.example", "", "", QUAN_LY, "0912345678"])
 	ws.append([
 		"Trần Văn Bình", "huyethoc@benhvien.example", "Huyết học", "HUYETHOC", NHAN_VIEN_KHOA,
+		"0987654321",
 	])
-	for i, width in enumerate([26, 32, 24, 14, 18], start=1):
+	for i, width in enumerate([26, 32, 24, 14, 18, 18], start=1):
 		ws.column_dimensions[get_column_letter(i)].width = width
 	buf = io.BytesIO()
 	wb.save(buf)
@@ -230,11 +278,13 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 		ten_khoa = _norm(raw.get("ten_khoa"))
 		ma_khoa = _norm(raw.get("ma_khoa")).upper()
 		vai_tro_raw = _norm(raw.get("vai_tro"))
+		dien_thoai = _chuan_hoa_dien_thoai(raw.get("dien_thoai"))
 
 		dong = {
 			"line": line, "ho_ten": ho_ten, "email": email, "ten_khoa": ten_khoa,
 			"ma_khoa": ma_khoa, "vai_tro": "", "khoa": None, "khoa_moi": False,
 			"khoa_key": None, "trang_thai": TAO_MOI, "errors": [], "ghi_chu": "",
+			"dien_thoai": dien_thoai,
 		}
 		rows.append(dong)
 		errors = dong["errors"]
@@ -250,6 +300,14 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			errors.append(f"Email này đã có ở dòng {email_da_gap[email]} trong tệp")
 		elif email:
 			email_da_gap[email] = line
+		if dien_thoai and not _dien_thoai_hop_le(dien_thoai):
+			# QĐ-2: SAI định dạng bị TỪ CHỐI — khác Ô TRỐNG (xem nhánh CANH_BAO
+			# ở cuối vòng lặp). Gõ sai là lỗi im lặng sẽ in ra trước mặt bệnh
+			# viện và dẫn người ta gọi nhầm số.
+			errors.append(
+				f'Số điện thoại không hợp lệ: "{dien_thoai}" — chỉ nhận số bắt đầu '
+				"bằng 0, gồm 10-11 chữ số."
+			)
 
 		vai_tro = next(
 			(v for v in VAI_TRO_HOP_LE if similarity.la_trung_tuyet_doi(vai_tro_raw, v)), None
@@ -308,11 +366,34 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			# đọc như "không có gì phải làm", và người nhập sẽ tưởng tệp vừa
 			# cập nhật xong khoa phòng cho cả viện.
 			dong["trang_thai"] = BO_QUA
-			_them_ghi_chu(dong, (
-				"Đã có tài khoản ở bệnh viện này — bỏ qua. Màn này KHÔNG sửa được "
-				"khoa phòng, vai trò hay trạng thái của tài khoản đã có: sửa trực "
-				"tiếp trên bản ghi Portal Member."
-			))
+			# QĐ-4 (Task 10): tài khoản ĐÃ CÓ chỉ được ĐIỀN VÀO CHỖ TRỐNG, KHÔNG
+			# BAO GIỜ ĐÈ. Hôm nay gần như mọi tài khoản đang chạy đều chưa có
+			# số — nếu chỉ đặt số cho tài khoản MỚI thì toàn bộ người dùng hiện
+			# hữu vẫn không có số và tính năng gần như vô dụng ngay ngày bật.
+			mobile_hien_co = _norm(frappe.db.get_value("User", email, "mobile_no"))
+			if dien_thoai and not mobile_hien_co:
+				_them_ghi_chu(dong, (
+					f'Đã có tài khoản ở bệnh viện này — bỏ qua tạo mới, nhưng số '
+					f'điện thoại "{dien_thoai}" trong tệp sẽ được BỔ SUNG vào tài '
+					"khoản (đang chưa có số)."
+				))
+			elif dien_thoai and mobile_hien_co and mobile_hien_co != dien_thoai:
+				# Lệch số: có thể người thật đổi số, cũng có thể gõ nhầm. Đây LÀ
+				# dữ liệu người khác đã nhập — im lặng ghi đè là mất dữ liệu, nên
+				# nâng thành CANH_BAO nêu cả hai số để Miyano tự xử, không tự ý
+				# chọn số nào.
+				dong["trang_thai"] = CANH_BAO
+				errors.append(
+					f'Số điện thoại trong tệp ("{dien_thoai}") khác với số đang lưu '
+					f'trên tài khoản ("{mobile_hien_co}") — không tự động ghi đè. '
+					"Kiểm tra lại rồi tự cập nhật trên Portal Member/User nếu cần."
+				)
+			else:
+				_them_ghi_chu(dong, (
+					"Đã có tài khoản ở bệnh viện này — bỏ qua. Màn này KHÔNG sửa được "
+					"khoa phòng, vai trò hay trạng thái của tài khoản đã có: sửa trực "
+					"tiếp trên bản ghi Portal Member."
+				))
 			continue
 
 		if frappe.db.get_value("User", email, "enabled") == 0:
@@ -370,6 +451,16 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 
 		if errors:
 			dong["trang_thai"] = TU_CHOI
+		elif not dien_thoai:
+			# QĐ-1: cột BẮT BUỘC có mặt trong header, nhưng Ô TRỐNG chỉ CẢNH
+			# BÁO — TỪ CHỐI ở đây sẽ chặn cứng CẢ TỆP (luật "còn một dòng bị từ
+			# chối là không ghi gì cả"), một ô quên điền không đáng giá đó.
+			# Thiếu số làm dòng thời gian "Ai đã làm gì" KÉM ĐI (chỉ hiện tên),
+			# không làm gì HỎNG.
+			dong["trang_thai"] = CANH_BAO
+			errors.append(
+				"Không có số điện thoại — khách sẽ thấy tên nhưng không gọi được."
+			)
 
 	if not co_ma_ngan and any(
 		r["vai_tro"] == NHAN_VIEN_KHOA and r["trang_thai"] in (TAO_MOI, TU_CHOI) for r in rows
@@ -569,6 +660,21 @@ def _ghi(content: bytes, customer: str, file_url: str | None = None) -> dict:
 			})
 
 		for dong in ket_qua["rows"]:
+			if dong["trang_thai"] == BO_QUA:
+				# QĐ-4 (Task 10): đọc lại TỪ ĐẦU ngay tại lúc ghi (không tin
+				# verdict của `_phan_tich()` đã tính vài dòng lệnh trước — cùng
+				# triết lý "đọc lại từ đầu trên server" của cả hàm này). Số
+				# khác đã bị `_phan_tich()` nâng thành CANH_BAO ở trên rồi nên
+				# KHÔNG rơi vào đây — tới được đây nghĩa là hoặc đang trống
+				# (điền), hoặc đã khớp sẵn (set lại giá trị y hệt, vô hại).
+				if dong["dien_thoai"] and not frappe.db.get_value(
+					"User", dong["email"], "mobile_no"
+				):
+					frappe.db.set_value(
+						"User", dong["email"], "mobile_no", dong["dien_thoai"],
+						update_modified=False,
+					)
+				continue
 			if dong["trang_thai"] != TAO_MOI:
 				continue
 			khoa = dong["khoa"] or key_to_khoa.get(dong["khoa_key"])
@@ -579,6 +685,7 @@ def _ghi(content: bytes, customer: str, file_url: str | None = None) -> dict:
 			portal_provision(
 				customer, dong["email"], send_invite=False,
 				first_name=dong["ho_ten"], vai_tro=dong["vai_tro"], khoa_phong=khoa,
+				dien_thoai=dong["dien_thoai"] or None,
 			)
 			dong["khoa"] = khoa
 			if la_nguoi_moi:

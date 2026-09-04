@@ -115,7 +115,8 @@ mở được màn này.
 tệp Excel**: một cột "tên bệnh viện" gõ tay là đường để nhập nhầm người của viện
 này sang viện khác.
 
-**Bước 2 — Tải bảng mẫu Excel** rồi gửi cho bệnh viện điền. Đúng năm cột:
+**Bước 2 — Tải bảng mẫu Excel** rồi gửi cho bệnh viện điền. Đúng sáu cột
+*(từ 04/09/2026, cột thứ sáu là mới)*:
 
 | Cột | Điền gì |
 |---|---|
@@ -124,8 +125,14 @@ này sang viện khác.
 | **Khoa** | tên khoa, ví dụ `Huyết học`. Để trống với Quản lý |
 | **Mã khoa** | viết tắt không dấu, ví dụ `HUYETHOC`. Để trống với Quản lý |
 | **Vai trò** | đúng hai giá trị: `Quản lý` (nhìn toàn viện) hoặc `Nhân viên khoa` (bắt buộc có Khoa) |
+| **Số điện thoại** | số di động của người dùng tài khoản, ví dụ `0912345678` — xem vì sao cột này quan trọng ở §A5b ngay dưới |
 
 **Không có cột mật khẩu, và đừng thêm cột đó.** Mật khẩu do hệ thống sinh ở bước 4.
+
+**Cột Số điện thoại phải điền dạng VĂN BẢN, không phải ô định dạng Số.** Excel
+lưu ô định dạng Số kiểu `0912345678` thành số `912345678` — hệ thống có tự
+phục hồi số 0 bị mất trong hầu hết trường hợp, nhưng an toàn nhất vẫn là định
+dạng ô đó là Văn bản trước khi gõ (chọn cột → Format Cells → Text).
 
 **Bước 3 — Tải tệp đã điền lên và xem trước.** Bước này **không ghi gì**, nó chỉ
 nói từng dòng sẽ ra sao:
@@ -143,7 +150,7 @@ sẽ không ai duyệt được yêu cầu của các khoa.
 
 **Bước 4 — Bấm Ghi.** Xong, màn hình hiện **bảng email kèm mật khẩu**.
 
-#### A5b. Bắt buộc điền số điện thoại sau khi tạo *(từ 04/09/2026)*
+#### A5b. Số điện thoại — vì sao quan trọng và cách hệ thống xử lý *(từ 04/09/2026)*
 
 Từ khi cổng có **dòng thời gian "Ai đã làm gì"**, mỗi việc trên đơn hiện tên
 người thao tác **kèm số điện thoại của họ**, và khách bấm thẳng vào số để gọi.
@@ -153,24 +160,31 @@ Số đó lấy từ trường **Mobile No** (lui về **Phone**) trên chính b
 "ai", nhưng mất đúng thứ nó sinh ra để cho: khách biết hỏi ai mà **không gọi
 được**. Đó là một màn hình nêu ra một câu hỏi rồi không trả lời.
 
-> **Màn "Nhập nhân sự bệnh viện" CHƯA có cột số điện thoại** — tệp mẫu vẫn đúng
-> năm cột như bảng trên. Nói thẳng ra ở đây để không ai đi tìm một cột không tồn
-> tại. Nên số điện thoại phải điền **sau khi Ghi**, ở bước dưới.
+**Từ 04/09/2026, cột Số điện thoại nằm ngay trong tệp Excel ở Bước 2** (bảng
+cột ở §A5 phía trên) — không còn phải điền tay từng tài khoản trên Desk sau
+khi Ghi như trước. Điền số ngay khi xin bệnh viện tệp danh sách nhân sự, đừng
+để thành một lần liên hệ thứ hai.
 
-**Việc bắt buộc, làm ngay trong cùng buổi cấp tài khoản:**
+**Bước xem trước (Bước 3) nói rõ hệ thống sẽ làm gì với từng ô Số điện thoại:**
 
-1. Xin bệnh viện danh sách **số điện thoại di động** của đúng những người vừa
-   được cấp tài khoản — xin cùng lúc với tệp Excel ở Bước 2, đừng để thành một
-   lần liên hệ thứ hai.
-2. Sau Bước 4, mở Desk → **User** → từng tài khoản vừa tạo → điền **Mobile No** →
-   Ghi.
-3. Đối chiếu: số tài khoản vừa tạo phải bằng số tài khoản đã có Mobile No. Thiếu
-   ai thì hỏi lại, **đừng bàn giao khi còn thiếu**.
+| Tình huống | Kết luận | Hệ thống làm gì |
+|---|---|---|
+| Có số, đúng định dạng | Sẽ tạo mới (nếu các cột khác cũng hợp lệ) | Đặt số này làm Mobile No khi tạo tài khoản |
+| **Để trống** | **Cần Miyano quyết** | KHÔNG chặn cả tệp — các dòng khác vẫn ghi bình thường, nhưng tài khoản của DÒNG NÀY sẽ không được tạo trong lần ghi này (giống mọi trường hợp "Cần Miyano quyết" khác). Điền số rồi tải lại tệp để tạo dòng đó |
+| **Sai định dạng** (chữ, quá ngắn/dài, không bắt đầu bằng 0…) | **Bị từ chối** | Chặn CẢ TỆP — cùng luật "còn một dòng bị từ chối là không ghi gì cả". Sửa lại rồi tải lên lần nữa |
+| Người này **đã có tài khoản** ở đúng bệnh viện đó, tài khoản **chưa có số** | Đã có — bỏ qua | KHÔNG tạo tài khoản mới (đúng luật cũ), nhưng số trong tệp lần này sẽ được **bổ sung** vào tài khoản đang thiếu số — đây là cách số điện thoại được điền dần cho các tài khoản đã cấp TRƯỚC 04/09/2026, không cần sửa tay |
+| Người này **đã có tài khoản**, tài khoản **đã có số KHÁC** số trong tệp | Cần Miyano quyết | KHÔNG tự động ghi đè — số cũ là dữ liệu người khác đã nhập, im lặng đè lên là mất dữ liệu. Bảng xem trước nêu cả hai số để tự đối chiếu: gõ nhầm, hay người đó đổi số thật? Cập nhật trực tiếp trên `Portal Member`/`User` nếu cần |
+
+Nói cách khác: **thiếu số hoặc lệch số của một người không làm hỏng việc cấp
+tài khoản cho cả bệnh viện** — nó chỉ làm tính năng gọi điện của RIÊNG người
+đó chưa dùng được ngay, và bảng xem trước luôn nói rõ ai còn thiếu để xử tiếp.
 
 **Người của Miyano cũng phải có số.** Cổng khách hàng hiện tên **và số điện
 thoại** của nhân sự Miyano ở các mốc xác nhận / báo giá / từ chối — đó là chốt
 trách nhiệm mà chủ đầu tư yêu cầu. Tài khoản Miyano nào thao tác trên đơn của
-bệnh viện mà chưa có Mobile No thì khách chỉ thấy tên trống số.
+bệnh viện mà chưa có Mobile No thì khách chỉ thấy tên trống số. Điền trực tiếp
+trên Desk → **User** cho tài khoản Miyano (đường nhập từ Excel ở màn này chỉ
+dành cho tài khoản của bệnh viện).
 
 > **Cổng KHÔNG bao giờ hiện email của nhân sự Miyano cho khách** — chỉ tên và số
 > điện thoại. Với người của chính bệnh viện đó thì hiện đủ cả tài khoản. Ranh
@@ -193,9 +207,10 @@ Ba điều nữa cần biết:
 - **Email nội bộ của Miyano bị từ chối.** Gắn một tài khoản nội bộ vào một khách
   hàng sẽ làm người đó mất tầm nhìn ở khắp hệ thống — hỏng theo kiểu rất khó lần
   ra nguyên nhân, nên chặn ngay ở bước xem trước.
-- **Tệp nhân sự bị xoá khỏi hệ thống sau khi ghi xong.** Nó mang họ tên và email
-  của nhân viên bệnh viện, không có lý do gì để nằm lại trên đĩa. Tệp phải ở chế
-  độ riêng tư; tải lên bằng đúng nút trên màn này thì đã đúng sẵn.
+- **Tệp nhân sự bị xoá khỏi hệ thống sau khi ghi xong.** Nó mang họ tên, email
+  và số điện thoại của nhân viên bệnh viện, không có lý do gì để nằm lại trên
+  đĩa. Tệp phải ở chế độ riêng tư; tải lên bằng đúng nút trên màn này thì đã
+  đúng sẵn.
 
 **Cấp lẻ một tài khoản** (không qua bảng nhân sự) vẫn làm được bằng chức năng cấp
 tài khoản cổng đang có, nhưng tài khoản sinh ra ở trạng thái **chưa hoạt động,

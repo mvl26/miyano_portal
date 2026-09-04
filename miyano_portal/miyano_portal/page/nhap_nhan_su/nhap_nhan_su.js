@@ -75,9 +75,12 @@ class NhapNhanSu {
 				<div class="frappe-card" style="padding: 14px; margin-bottom: 12px">
 					<b>Bước 2 · Tải bảng mẫu cho bệnh viện điền</b>
 					<p class="text-muted" style="margin: 6px 0 10px">
-						Gồm các cột: Họ tên · Email · Khoa · Mã khoa · Vai trò.
+						Gồm các cột: Họ tên · Email · Khoa · Mã khoa · Vai trò · Số điện thoại.
 						Vai trò nhận đúng hai giá trị: <b>Quản lý</b> (nhìn toàn viện, để
 						trống Khoa) hoặc <b>Nhân viên khoa</b> (bắt buộc có Khoa).
+						Số điện thoại để trống được (chỉ cảnh báo — cần điền để khách gọi
+						được người này trên dòng thời gian đơn hàng), nhưng gõ sai định
+						dạng thì bị từ chối cả tệp.
 						<b>Không điền mật khẩu vào tệp</b> — Miyano đặt mật khẩu ở bước 4.
 					</p>
 					<button class="btn btn-default btn-sm btn-tai-mau">⬇ Tải bảng mẫu Excel</button>
@@ -197,16 +200,21 @@ class NhapNhanSu {
 					<td>${o(d.email)}</td>
 					<td>${khoa}</td>
 					<td>${o(d.vai_tro)}</td>
+					<td>${o(d.dien_thoai)}</td>
 					<td><span class="indicator-pill ${nhan.color}">${nhan.text}</span></td>
 					<td class="text-muted">${o(ly_do)}</td>
 				</tr>`;
 			})
 			.join("");
+		// Ô Số điện thoại trống thì HIỆN RỖNG, không hiện "—" — `o()` đã tự làm
+		// đúng việc đó (`escape_html(s || "")`), quyết định biên tập cố ý không
+		// thuộc về backend lẫn bảng này.
 		return `<div style="overflow-x: auto">
 			<table class="table table-bordered" style="margin: 10px 0 0">
 				<thead><tr>
 					<th style="width: 52px">Dòng</th><th>Họ tên</th><th>Email</th>
-					<th>Khoa</th><th>Vai trò</th><th style="width: 130px">Kết luận</th><th>Lý do</th>
+					<th>Khoa</th><th>Vai trò</th><th>Số điện thoại</th>
+					<th style="width: 130px">Kết luận</th><th>Lý do</th>
 				</tr></thead>
 				<tbody>${tr}</tbody>
 			</table>
