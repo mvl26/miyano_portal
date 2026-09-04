@@ -239,6 +239,54 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 		self.assertNotIn("'—'", self.code)
 		self.assertNotIn('"—"', self.code)
 
+	def test_cham_trong_vong_lap_mang_class_dong_mau_cham(self):
+		"""Review vòng 1 (Important, phá thủ công) — reviewer xoá
+		`:class="mauChamSuKien(d.su_kien, d.vai)"` khỏi chấm TRONG `v-for`,
+		để trơ `<div class="vdot"></div>`. `test_dung_lai_lop_bo_cuc_co_
+		khong_tu_them_style` ở trên VẪN XANH cho phép phá đó vì nó chỉ tìm
+		literal `class="vdot"` CÓ MẶT Ở ĐÂU ĐÓ trong file — và chuỗi đó vẫn
+		sống nhờ khối chú giải màu cuối file (`class="vdot benh-vien"`…),
+		dù chấm THẬT trong vòng lặp đã mất class động. Hậu quả: MỌI chấm ra
+		một màu — đúng thứ §9.3 sinh ra để tránh.
+
+		CANH ĐÚNG CHỖ DÙNG, không lặp lại lỗi vừa bắt (khớp một chỗ khai
+		báo/dùng KHÁC thay cho chỗ cần canh): cắt riêng đoạn thân TỪ
+		`v-for="(d, i) in dong"` TỚI mốc `margin-top: 10px` (thuộc tính
+		style THẬT của khối chú giải, không phải comment — sống sót qua
+		`_bo_comment()`) — đây là đoạn DUY NHẤT chứa vòng lặp, tách biệt
+		khỏi khối chú giải tĩnh phía dưới — rồi mới regex đòi `:class=
+		"mauChamSuKien(d.su_kien, d.vai)"` đứng CẠNH `class="vdot"` BÊN
+		TRONG đoạn đó."""
+		i_vfor = self.code.find('v-for="(d, i) in dong"')
+		self.assertNotEqual(i_vfor, -1, "Không tìm thấy vòng lặp v-for=\"(d, i) in dong\"")
+		i_legend = self.code.find("margin-top: 10px")
+		self.assertNotEqual(i_legend, -1, "Không tìm thấy mốc khối chú giải màu (margin-top: 10px)")
+		self.assertLess(i_vfor, i_legend, "Vòng lặp phải đứng TRƯỚC khối chú giải trong file")
+		doan_vong_lap = self.code[i_vfor:i_legend]
+		self.assertRegex(
+			doan_vong_lap,
+			r'class="vdot"\s+:class="mauChamSuKien\(\s*d\.su_kien\s*,\s*d\.vai\s*\)"',
+			"Chấm TRONG vòng lặp không mang class ĐỘNG theo mauChamSuKien(d.su_kien, "
+			"d.vai) — mọi chấm sẽ ra MỘT màu, đúng thứ §9.3 sinh ra để tránh",
+		)
+
+	def test_nhan_su_kien_goi_qua_nhanSuKien_khong_hien_khoa_tho(self):
+		"""Review vòng 1 (Important, phá thủ công) — reviewer đổi
+		`{{ nhanSuKien(d.su_kien) }}` thành `{{ d.su_kien }}`. Hai bài
+		`TestFormatJsNhanSuKien` chỉ đọc `format.js` (đối chiếu bảng NHÃN
+		có đủ 18 khoá), KHÔNG bài nào canh CHÍNH component có GỌI
+		`nhanSuKien()` để tra bảng đó hay không — bảng nhãn đầy đủ không
+		cứu được nếu component không gọi tới nó. Hậu quả: chuỗi khoá thô
+		(`khoa_gui_duyet`) hiện thẳng trước mặt bệnh viện — đúng hậu quả
+		mà ràng buộc "đủ 18 khoá" sinh ra để chặn, xảy ra dù bảng nhãn vẫn
+		đầy đủ."""
+		self.assertRegex(
+			self.code,
+			r"<b>\{\{\s*nhanSuKien\(d\.su_kien\)\s*\}\}</b>",
+			"Tầng 1 (việc) không gọi nhanSuKien(d.su_kien) — nếu bị đổi thành "
+			"{{ d.su_kien }} thì khoá THÔ hiện thẳng trước mặt bệnh viện",
+		)
+
 
 class TestChiTietYeuCauLapNhatKy(FrappeTestCase):
 	"""Task 8 — `ChiTietYeuCau.vue` phải GỌI `portal_nhat_ky_yeu_cau` cho
@@ -311,3 +359,22 @@ class TestChiTietYeuCauLapNhatKy(FrappeTestCase):
 			"<KhoiDongThoiGian> phải render được khi đã nạp PHIẾU (kể cả chưa có đơn)",
 		)
 
+	def test_khoi_dong_thoi_gian_duoc_truyen_prop_dong(self):
+		"""Review vòng 1 (Important, phá thủ công) — reviewer xoá
+		`:dong="nhatKy"` khỏi thẻ `<KhoiDongThoiGian>`. Bài `test_goi_nhat_
+		ky_ca_hai_nhanh_phieu_va_don` canh lời GỌI API đúng, bài `test_
+		khoi_dong_thoi_gian_render_sau_tien_trinh_truoc_truy_vet`/`...
+		khong_gate_rieng_tren_don` canh VỊ TRÍ và GATE của thẻ — nhưng
+		không bài nào canh thẻ có TRUYỀN prop `dong` xuống hay không. Hậu
+		quả: API gọi đúng, component render đúng chỗ, nhưng khối RỖNG
+		VĨNH VIỄN vì component không bao giờ nhận được dữ liệu — đúng
+		kiểu "nửa-sống" note (d) đã cảnh, chỉ dịch từ "quên nhánh gọi"
+		sang "gọi đúng nhưng quên nối dây"."""
+		m = re.search(r"<KhoiDongThoiGian\b[^>]*>", self.code)
+		self.assertIsNotNone(m, "Không tìm thấy thẻ <KhoiDongThoiGian> trong template")
+		the = m.group(0)
+		self.assertIn(
+			':dong="nhatKy"', the,
+			"<KhoiDongThoiGian> không truyền prop dong=\"nhatKy\" — API gọi đúng, "
+			"render đúng chỗ, nhưng khối RỖNG VĨNH VIỄN vì không nhận dữ liệu",
+		)
