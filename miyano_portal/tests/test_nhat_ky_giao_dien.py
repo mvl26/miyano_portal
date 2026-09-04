@@ -339,6 +339,30 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 			"ở trạng thái RỖNG phía trên",
 		)
 
+	def test_tai_khoan_hien_trong_dong_thoi_gian(self):
+		"""Việc #1 (fix-wave brief, vòng sửa sau review toàn nhánh) — LẦN
+		THỨ NĂM `tai_khoan` API trả về mà không màn nào đọc. Endpoint
+		`portal_nhat_ky_yeu_cau` trả `tai_khoan` cho MỌI dòng, nhưng TRƯỚC
+		bản vá này template chỉ đọc `d.ten`/`d.dien_thoai` — sáu tài khoản
+		cấp ĐƠN VỊ (full_name = tên đơn vị) hiện dòng thời gian không phân
+		biệt được AI với AI (§8).
+
+		Canh CHỖ DÙNG THẬT bên trong `v-for` (kỹ thuật cắt-đoạn-thân đã có
+		ở `_doan_vong_lap()`, tránh khớp nhầm một dòng chú thích/docstring
+		nói VỀ `tai_khoan` mà không thật sự render nó — bài học lặp lại
+		nhiều lần của module này): đòi `v-if="d.tai_khoan"` bọc chính giá
+		trị (không `|| '—'`, cùng luật §8 các bài trên đã canh) và giá trị
+		đó được in ra trong CHÍNH nhánh `v-if` đó."""
+		doan_vong_lap = self._doan_vong_lap()
+		self.assertRegex(
+			doan_vong_lap,
+			r'v-if="d\.tai_khoan"[^>]*>\s*\(\{\{\s*d\.tai_khoan\s*\}\}\)',
+			"Không tìm thấy chỗ DÙNG THẬT của d.tai_khoan trong thân v-for — "
+			"API trả tai_khoan cho mọi dòng nhưng dòng thời gian không đọc, "
+			"đúng lỗi 'lần thứ năm' brief đã bắt (sáu tài khoản cấp đơn vị "
+			"mất dấu vết phân biệt người, §8)",
+		)
+
 	def test_nhan_su_kien_goi_qua_nhanSuKien_khong_hien_khoa_tho(self):
 		"""Review vòng 1 (Important, phá thủ công) — reviewer đổi
 		`{{ nhanSuKien(d.su_kien) }}` thành `{{ d.su_kien }}`. Hai bài

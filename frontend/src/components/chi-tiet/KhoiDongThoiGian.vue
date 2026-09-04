@@ -74,6 +74,20 @@ const coDongSuyRa = computed(() => props.dong.some((d) => d.suy_ra))
                  của mốc giờ đó đáng nói ngay tại chỗ. -->
             <span v-if="d.suy_ra" class="tag" style="border: 1px solid var(--line); border-radius: 10px; padding: 1px 7px; margin-left: 4px">Dựng lại từ phiếu</span>
             <template v-if="d.ten"> · {{ d.ten }}</template>
+            <!-- Việc #1 (vòng sửa sau review toàn nhánh) — CÙNG khuôn
+                 `KhoiTruyVet.vue` (khối "Yêu cầu & duyệt") đã dùng cho
+                 `nguoiYeuCau.taiKhoan`/`nguoiDuyet.taiKhoan`: sáu tài khoản
+                 cấp ĐƠN VỊ đang chạy trên site có `User.full_name` bằng
+                 chính TÊN ĐƠN VỊ, nên chỉ hiện `d.ten` thì dòng thời gian
+                 mất sạch dấu vết phân biệt NGƯỜI (§8). Khác `KhoiTruyVet`,
+                 KHÔNG tự tính lại phép "chỉ ghép khi khác tên" ở tầng này —
+                 `portal_nhat_ky_yeu_cau` (`_dong()`, qua `lien_he_nguoi_
+                 dung`) đã quyết ĐÚNG việc đó ở server RỒI mới trả `d.tai_
+                 khoan` (rỗng khi trùng tên, và LUÔN rỗng khi `d.vai ==
+                 'miyano'` — ranh giới §8, giữ nguyên): `v-if` ở đây chỉ đọc
+                 lại kết quả, không phải một bản sao logic suy thứ hai (Ruling
+                 P28 — hai nơi cùng quyết "khi nào ghép" sớm muộn cũng lệch). -->
+            <span v-if="d.tai_khoan" class="tag">({{ d.tai_khoan }})</span>
             <!-- §8 — thiếu số thì KHÔNG in gì (không ô trống, không dấu
                  gạch). `v-if` trên CHÍNH giá trị số, không `|| '—'`. Điều
                  dưỡng trưởng đọc màn này trên điện thoại — bấm gọi được

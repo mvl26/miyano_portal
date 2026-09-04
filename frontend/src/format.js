@@ -265,6 +265,16 @@ const MAU_SU_KIEN = {
 // lớp lỗi Ruling #19 đã trả giá (đơn bị TỪ CHỐI đeo badge XANH "Đã duyệt")
 // — không dựng lại nó ở một chỗ khác. Không nhận ra `su_kien` → XÁM
 // (trung tính, "không biết"), không đoán theo `vai`.
-export function mauChamSuKien(su_kien, vai) {
+// Việc #6b (vòng sửa sau review toàn nhánh) — tham số ĐỔI TÊN thành `_vai`
+// (gạch dưới đầu = CỐ Ý không dùng, quy ước đọc-hiểu-ngay ở JS thay vì xoá
+// hẳn tham số): chữ ký vẫn nhận đủ hai đối số cho ĐỦ interface mà mọi chỗ
+// gọi đã và đang truyền (`mauChamSuKien(d.su_kien, d.vai)`), nhưng tên cũ
+// `vai` (không gạch dưới, không dùng trong thân hàm) là ĐÚNG HÌNH DẠNG của
+// lỗi #1 (một tham số/trường được truyền vào mà không ai đọc) — chỉ khác
+// chỗ: lỗi #1 là dữ liệu API không ai RENDER, còn đây là một biến cục bộ
+// không ai ĐỌC. Không xoá hẳn tham số: xoá sẽ đòi sửa lại mọi chỗ gọi và
+// lưới regex tương ứng (`test_cham_trong_vong_lap_mang_class_dong_mau_
+// cham`) chỉ để đổi từ hai đối số xuống một, không đổi hành vi.
+export function mauChamSuKien(su_kien, _vai) {
   return MAU_SU_KIEN[su_kien] || 'he-thong'
 }
