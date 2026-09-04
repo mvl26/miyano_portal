@@ -30,6 +30,7 @@ import { capNhatChoDuyetCount } from '../cho-duyet'
 import ReasonModal from '../components/ReasonModal.vue'
 import KhoiTruyVet from '../components/chi-tiet/KhoiTruyVet.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
+import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
 import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
@@ -43,6 +44,12 @@ const loading = ref(true)
 const error = ref('')
 const phieu = ref(null)
 const don = ref(null)
+// Task 8 — dòng thời gian nhật ký (spec §9). Best-effort NGOÀI `load()`
+// (helper riêng, `try/catch` của CHÍNH nó): một lần đọc sổ hỏng chỉ được
+// làm rỗng khối này, không được kéo theo lỗi `error.value` làm trắng CẢ
+// màn — cùng luật `napDon`/`napPhieu` bên dưới.
+const nhatKy = ref([])
+const dangTaiNhatKy = ref(false)
 
 // Đầu mối = đường đã vào. `:ten` → phiếu, `:name` → đơn. Không đoán theo
 // hình dạng chuỗi id.
@@ -57,19 +64,48 @@ async function load() {
   error.value = ''
   phieu.value = null
   don.value = null
+  nhatKy.value = []
   try {
     if (tenPhieuVao.value) {
       phieu.value = await api.callDeXuat('de_xuat_chi_tiet', { ten: tenPhieuVao.value })
       dungLaiDieuChinh()
       if (phieu.value.sales_order) await napDon(phieu.value.sales_order)
+      // Task 8, note (d) — nhánh VÀO BẰNG PHIẾU: `de_xuat`, không `order`
+      // (dù đơn đã có ở dòng trên — endpoint tự gộp nhật ký của CẢ hai
+      // chứng từ khi biết `de_xuat`, xem docstring `portal_nhat_ky_yeu_
+      // cau`). `napNhatKy()` chỉ gói phần DÙNG CHUNG (cờ đang tải + bắt
+      // lỗi) — lời gọi API THẬT vẫn viết LITERAL ở từng nhánh (không dựng
+      // đối tượng `{de_xuat}`/`{order}` từ một biến tên khoá động), để
+      // lưới regex (`test_nhat_ky_giao_dien.py`) canh ĐÚNG cú pháp gọi của
+      // TỪNG nhánh (bài học Task 7b: canh chỗ DÙNG, không canh gián tiếp).
+      // KHÔNG `await` — đọc sổ là việc PHỤ, không được chặn màn chính.
+      napNhatKy(() => api.call('portal_nhat_ky_yeu_cau', { de_xuat: tenPhieuVao.value }))
     } else {
       don.value = await api.call('portal_order_track', { order: tenDonVao.value })
       if (don.value.de_xuat) await napPhieu(don.value.de_xuat)
+      // Task 8, note (d) — nhánh VÀO BẰNG ĐƠN: `order`. Thiếu nhánh này là
+      // đúng nửa-sống mà note (d) cảnh — nửa người dùng vào bằng link
+      // `/yeu-cau/don/...` (thông báo giao hàng/hoá đơn gửi từ Miyano)
+      // thấy khối dòng thời gian trống, không ai biết vì sao.
+      napNhatKy(() => api.call('portal_nhat_ky_yeu_cau', { order: tenDonVao.value }))
     }
   } catch (e) {
     error.value = e.message || 'Không tải được chi tiết yêu cầu.'
   } finally {
     loading.value = false
+  }
+}
+// Best-effort — KHÔNG `await` trong `load()` (đọc sổ nhật ký không được
+// làm CHẬM màn chính) và tự bọc lỗi của CHÍNH nó — cùng luật `napDon`/
+// `napPhieu` ngay dưới: một khối phụ hỏng không được kéo trắng cả màn.
+async function napNhatKy(goi) {
+  dangTaiNhatKy.value = true
+  try {
+    nhatKy.value = await goi()
+  } catch (e) {
+    console.warn('Không nạp được dòng thời gian nhật ký:', e)
+  } finally {
+    dangTaiNhatKy.value = false
   }
 }
 async function napDon(ten) {
@@ -641,6 +677,13 @@ onMounted(async () => {
       </div>
 
       <KhoiTienTrinh v-if="don" :milestones="don.milestones" />
+
+      <!-- §9.1 — "phần nở ra của Tiến trình": ngay dưới `KhoiTienTrinh`,
+           trước `KhoiTruyVet`. Gate `v-if="phieu || don"`, KHÔNG chỉ
+           `"don"` như `KhoiTienTrinh` phía trên — ca mắt số 1 của Task 8
+           ("Phiếu vừa gửi duyệt") CHƯA có đơn; copy nguyên gate của khối
+           kia sẽ để đúng ca đó ra một khối RỖNG TRƠN. -->
+      <KhoiDongThoiGian v-if="phieu || don" :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
 
       <KhoiTruyVet v-if="phieu" :phieu="phieu" :mo-san="giaiDoan !== 'da_giao'" />
 

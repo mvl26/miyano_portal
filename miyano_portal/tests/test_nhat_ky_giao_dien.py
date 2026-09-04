@@ -239,3 +239,75 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 		self.assertNotIn("'—'", self.code)
 		self.assertNotIn('"—"', self.code)
 
+
+class TestChiTietYeuCauLapNhatKy(FrappeTestCase):
+	"""Task 8 — `ChiTietYeuCau.vue` phải GỌI `portal_nhat_ky_yeu_cau` cho
+	CẢ HAI đường vào (`/yeu-cau/phieu/:ten` lẫn `/yeu-cau/don/:name` — note
+	(d) của brief) và RENDER `KhoiDongThoiGian` ngay sau `KhoiTienTrinh`,
+	trước `KhoiTruyVet` (§9.1).
+
+	Canh CHỖ GỌI THẬT (cú pháp `api.call('portal_nhat_ky_yeu_cau', {khoá:
+	...})` với ĐÚNG khoá `de_xuat`/`order`), không phải một `assertIn` tên
+	chuỗi suông — bài học Task 7b của phiên trước: một bài chỉ khớp dòng
+	import thì xoá sạch phần DÙNG vẫn xanh."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.raw = CHI_TIET_YEU_CAU.read_text(encoding="utf-8")
+		cls.code = _bo_comment(cls.raw)
+
+	def test_goi_nhat_ky_ca_hai_nhanh_phieu_va_don(self):
+		"""HAI khẳng định RIÊNG, không gộp một `assertRegex` chung chung —
+		một lưới gộp sẽ xanh khi CHỈ MỘT nhánh được nối dây (đúng nửa-sống
+		mà note (d) cảnh báo: quên một nhánh thì nửa số người dùng — những
+		ai vào bằng link `/yeu-cau/don/...` trong thông báo — thấy khối
+		dòng thời gian trống, không ai biết vì sao)."""
+		self.assertRegex(
+			self.code,
+			r"api\.call\(\s*'portal_nhat_ky_yeu_cau'\s*,\s*\{\s*de_xuat:",
+			"Thiếu lời gọi portal_nhat_ky_yeu_cau ở NHÁNH VÀO BẰNG PHIẾU (đối số de_xuat)",
+		)
+		self.assertRegex(
+			self.code,
+			r"api\.call\(\s*'portal_nhat_ky_yeu_cau'\s*,\s*\{\s*order:",
+			"Thiếu lời gọi portal_nhat_ky_yeu_cau ở NHÁNH VÀO BẰNG ĐƠN (đối số order)",
+		)
+
+	def test_khoi_dong_thoi_gian_render_sau_tien_trinh_truoc_truy_vet(self):
+		"""§9.1 — dòng thời gian là PHẦN NỞ RA của Tiến trình: ngay dưới
+		`KhoiTienTrinh`, trước `KhoiTruyVet` (khối "Yêu cầu & duyệt")."""
+		i_tien_trinh = self.code.find("<KhoiTienTrinh")
+		i_dong_thoi_gian = self.code.find("<KhoiDongThoiGian")
+		i_truy_vet = self.code.find("<KhoiTruyVet")
+		for ten, i in (("KhoiTienTrinh", i_tien_trinh), ("KhoiDongThoiGian", i_dong_thoi_gian), ("KhoiTruyVet", i_truy_vet)):
+			self.assertNotEqual(i, -1, f"ChiTietYeuCau.vue không render <{ten}>")
+		self.assertLess(
+			i_tien_trinh, i_dong_thoi_gian,
+			"<KhoiDongThoiGian> phải nằm SAU <KhoiTienTrinh> trong template",
+		)
+		self.assertLess(
+			i_dong_thoi_gian, i_truy_vet,
+			"<KhoiDongThoiGian> phải nằm TRƯỚC <KhoiTruyVet> trong template",
+		)
+
+	def test_khoi_dong_thoi_gian_khong_gate_rieng_tren_don(self):
+		"""VẾ ÂM của note (d) — `KhoiTienTrinh` cũ gate `v-if="don"` (đúng,
+		nó ĐỌC `don.milestones`). Copy y nguyên điều kiện đó cho `KhoiDong
+		ThoiGian` là SAI: ca mắt số 1 của Task 8 ("Phiếu vừa gửi duyệt")
+		CHƯA CÓ đơn — nếu gate theo `don`, đúng ca đầu tiên chủ đầu tư sẽ
+		mở lên để soi lại thấy khối RỖNG TRƠN, không phải một dòng xanh
+		dương "Khoa gửi duyệt"."""
+		m = re.search(r"<KhoiDongThoiGian\b[^>]*>", self.code)
+		self.assertIsNotNone(m, "Không tìm thấy thẻ <KhoiDongThoiGian> trong template")
+		the = m.group(0)
+		self.assertNotRegex(
+			the, r'v-if="don"',
+			"<KhoiDongThoiGian> gate CHỈ theo `don` — ca 'Phiếu vừa gửi duyệt' "
+			"(chưa có đơn) sẽ không render gì cả",
+		)
+		self.assertIn(
+			"phieu", the,
+			"<KhoiDongThoiGian> phải render được khi đã nạp PHIẾU (kể cả chưa có đơn)",
+		)
+
