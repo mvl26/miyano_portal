@@ -89,9 +89,23 @@ def tu_sales_invoice_on_submit(doc, method=None):
 
 	# SO đầu tiên mà dòng hoá đơn nào đó tham chiếu — `Sales Invoice Item.
 	# sales_order` có với hoá đơn lập từ Sales Order lẫn từ Delivery Note
-	# (chuỗi tham chiếu được chép lại qua `make_sales_invoice`). Hoá đơn
-	# bán lẻ không qua Sales Order nào thì để trống, cùng cách các sự kiện
-	# khác của sổ này chấp nhận `sales_order=None`.
+	# (chuỗi tham chiếu được chép lại qua `make_sales_invoice`).
+	#
+	# SỬA SAU REVIEW TOÀN NHÁNH 04/09/2026 — câu cũ ở đây nói `sales_order`
+	# "để trống thì cùng cách các sự kiện khác chấp nhận `sales_order=None`".
+	# Câu đó SAI, và mã bác bỏ nó: `PortalNhatKyYeuCau.validate()` ném lỗi
+	# cho dòng không gắn phiếu lẫn đơn ("Dòng nhật ký phải gắn vào một phiếu
+	# đề xuất hoặc một đơn hàng"). Một hoá đơn không qua Sales Order nào sẽ
+	# KHÔNG sinh dòng nhật ký, chỉ để lại một dòng Error Log.
+	#
+	# Vì sao KHÔNG nới chốt đó: chủ đầu tư xác nhận 04/09/2026 rằng Miyano
+	# LUÔN xuất hoá đơn từ một đơn hàng, không có bán lẻ và không lập thẳng
+	# từ phiếu giao không đơn (đo trên site: 15/15 hoá đơn đã submit đều có
+	# Sales Order). Nên `sales_order` rỗng ở đây nghĩa là một chuỗi tham
+	# chiếu ĐỨT — đúng thứ nên ồn ào vào Error Log, không phải thứ nên
+	# lặng lẽ ghi vào sổ như một dòng mồ côi không tra ngược được.
+	# Nếu về sau Miyano mở bán lẻ, phải nới `validate()` TRƯỚC, rồi mới
+	# sửa lại chú thích này.
 	sales_order = None
 	for row in doc.items:
 		so = row.get("sales_order")
