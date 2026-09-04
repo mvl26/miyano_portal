@@ -239,6 +239,21 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 		self.assertNotIn("'—'", self.code)
 		self.assertNotIn('"—"', self.code)
 
+	def _doan_vong_lap(self):
+		"""Cắt riêng đoạn thân TỪ `v-for="(d, i) in dong"` TỚI mốc
+		`margin-top: 10px` (thuộc tính style THẬT của khối chú giải màu,
+		không phải comment — sống sót qua `_bo_comment()`) — đây là đoạn
+		DUY NHẤT chứa vòng lặp, tách biệt khỏi khối chú giải tĩnh và câu
+		giải thích chung phía dưới. Dùng chung cho mọi bài canh CHỖ DÙNG
+		bên trong vòng lặp (bài học lặp lại ba lần ở review vòng 1: khớp
+		một chỗ khai báo/dùng KHÁC thay cho chỗ cần canh là lưới giả)."""
+		i_vfor = self.code.find('v-for="(d, i) in dong"')
+		self.assertNotEqual(i_vfor, -1, "Không tìm thấy vòng lặp v-for=\"(d, i) in dong\"")
+		i_legend = self.code.find("margin-top: 10px")
+		self.assertNotEqual(i_legend, -1, "Không tìm thấy mốc khối chú giải màu (margin-top: 10px)")
+		self.assertLess(i_vfor, i_legend, "Vòng lặp phải đứng TRƯỚC khối chú giải trong file")
+		return self.code[i_vfor:i_legend]
+
 	def test_cham_trong_vong_lap_mang_class_dong_mau_cham(self):
 		"""Review vòng 1 (Important, phá thủ công) — reviewer xoá
 		`:class="mauChamSuKien(d.su_kien, d.vai)"` khỏi chấm TRONG `v-for`,
@@ -249,25 +264,79 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 		dù chấm THẬT trong vòng lặp đã mất class động. Hậu quả: MỌI chấm ra
 		một màu — đúng thứ §9.3 sinh ra để tránh.
 
-		CANH ĐÚNG CHỖ DÙNG, không lặp lại lỗi vừa bắt (khớp một chỗ khai
-		báo/dùng KHÁC thay cho chỗ cần canh): cắt riêng đoạn thân TỪ
-		`v-for="(d, i) in dong"` TỚI mốc `margin-top: 10px` (thuộc tính
-		style THẬT của khối chú giải, không phải comment — sống sót qua
-		`_bo_comment()`) — đây là đoạn DUY NHẤT chứa vòng lặp, tách biệt
-		khỏi khối chú giải tĩnh phía dưới — rồi mới regex đòi `:class=
-		"mauChamSuKien(d.su_kien, d.vai)"` đứng CẠNH `class="vdot"` BÊN
-		TRONG đoạn đó."""
-		i_vfor = self.code.find('v-for="(d, i) in dong"')
-		self.assertNotEqual(i_vfor, -1, "Không tìm thấy vòng lặp v-for=\"(d, i) in dong\"")
-		i_legend = self.code.find("margin-top: 10px")
-		self.assertNotEqual(i_legend, -1, "Không tìm thấy mốc khối chú giải màu (margin-top: 10px)")
-		self.assertLess(i_vfor, i_legend, "Vòng lặp phải đứng TRƯỚC khối chú giải trong file")
-		doan_vong_lap = self.code[i_vfor:i_legend]
+		Regex đòi `mauChamSuKien(d.su_kien, d.vai)` xuất hiện Ở ĐÂU ĐÓ BÊN
+		TRONG chính thuộc tính `:class="..."` của `class="vdot"` (không đòi
+		nó là TOÀN BỘ giá trị) — review vòng 2 đổi cú pháp sang mảng
+		`:class="[mauChamSuKien(...), { 'suy-ra': d.suy_ra }]"` để ghép
+		thêm class `suy-ra` (xem `test_cham_suy_ra_mang_class_dong`), nên
+		lưới không còn đòi khớp NGUYÊN VĂN cả biểu thức."""
+		doan_vong_lap = self._doan_vong_lap()
 		self.assertRegex(
 			doan_vong_lap,
-			r'class="vdot"\s+:class="mauChamSuKien\(\s*d\.su_kien\s*,\s*d\.vai\s*\)"',
+			r'class="vdot"\s+:class="[^"]*mauChamSuKien\(\s*d\.su_kien\s*,\s*d\.vai\s*\)[^"]*"',
 			"Chấm TRONG vòng lặp không mang class ĐỘNG theo mauChamSuKien(d.su_kien, "
 			"d.vai) — mọi chấm sẽ ra MỘT màu, đúng thứ §9.3 sinh ra để tránh",
+		)
+
+	def test_cham_suy_ra_mang_class_dong(self):
+		"""Review vòng 2 (Important) — `d.suy_ra` do `portal_nhat_ky_yeu_
+		cau` trả về (§9.6, dòng DỰNG LẠI từ bốn trường trên phiếu cho
+		chứng từ CŨ) nhưng TRƯỚC bản vá này KHÔNG được đọc ở đâu trong
+		template — đúng lỗi "lần thứ tư" `docs/BAN-DO-CHUC-NANG.md` mục 4
+		ghi nhận (`boi_so` được API trả về nhưng không màn nào đọc): một
+		trường chỉ có người SINH ra mà không người TIÊU THỤ thì không tồn
+		tại đối với người dùng. Hậu quả cụ thể: dòng DỰNG LẠI (độ tin cậy
+		thấp hơn, không phải ghi ngay lúc việc xảy ra) hiện Y HỆT dòng ghi
+		THẬT — mời người dùng trích dẫn một suy luận như thể đó là bằng
+		chứng.
+
+		Canh CHỖ DÙNG bằng đúng kỹ thuật cắt-đoạn-thân-`v-for` đã dùng
+		thành công ở review vòng 1 (`_doan_vong_lap()`), đòi lớp `suy-ra`
+		gắn ĐỘNG theo `d.suy_ra` — KHÔNG đòi nó là toàn bộ `:class`, chỉ
+		đòi nó CÓ MẶT bên trong thuộc tính đó."""
+		doan_vong_lap = self._doan_vong_lap()
+		self.assertRegex(
+			doan_vong_lap,
+			r":class=\"[^\"]*\{\s*'suy-ra'\s*:\s*d\.suy_ra\s*\}[^\"]*\"",
+			"Chấm TRONG vòng lặp không gắn lớp `suy-ra` theo d.suy_ra — dòng DỰNG "
+			"LẠI (độ tin cậy thấp hơn) hiện y hệt dòng ghi THẬT, không ai phân biệt được",
+		)
+
+	def test_nhan_dung_lai_tu_phieu_hien_khi_suy_ra(self):
+		"""Review vòng 2 (Important) — nhãn CHỮ THẬT "Dựng lại từ phiếu"
+		phải hiện cạnh mốc giờ khi `d.suy_ra`. Chủ đầu tư/reviewer nêu rõ:
+		đừng CHỈ làm mờ đi — mờ đọc ra "ít quan trọng", không phải "độ tin
+		cậy khác"; người dùng bệnh viện không đọc chú thích kỹ thuật, nên
+		tín hiệu phải là CHỮ, không chỉ màu/độ mờ."""
+		doan_vong_lap = self._doan_vong_lap()
+		self.assertRegex(
+			doan_vong_lap,
+			r'v-if="d\.suy_ra"[^>]*>Dựng lại từ phiếu<',
+			"Thiếu nhãn CHỮ THẬT \"Dựng lại từ phiếu\" cạnh mốc giờ cho dòng suy_ra — "
+			"chỉ đổi màu/độ mờ không đủ, người dùng bệnh viện không đọc chú thích kỹ thuật",
+		)
+
+	def test_cau_giai_thich_chung_chi_hien_khi_co_dong_suy_ra(self):
+		"""Review vòng 2 (mục 2 của yêu cầu sửa, tự quyết CÓ làm) — một câu
+		giải thích chung ở cuối khối khi CÓ ít nhất một dòng suy_ra. Canh
+		HAI thứ: (a) câu ĐƯỢC GATE bằng `v-if="coDongSuyRa"` — không hiện
+		vô điều kiện; (b) câu KHÔNG nêu một ngày cụ thể kiểu "Nhật ký bắt
+		đầu ghi từ <ngày>" — cùng lý do đã từ chối câu đó ở trạng thái
+		RỖNG (component không có cách xác nhận đúng ngày nhật ký được BẬT
+		trên site khách hàng cụ thể); nêu ngày cụ thể ở đây là tái phạm
+		đúng lỗi đã tránh chỗ khác trong CÙNG file."""
+		self.assertRegex(
+			self.code,
+			r'v-if="coDongSuyRa"',
+			"Câu giải thích chung (nếu có) phải GATE bằng v-if=\"coDongSuyRa\", "
+			"không hiện vô điều kiện cho mọi yêu cầu",
+		)
+		self.assertNotRegex(
+			self.code,
+			r"bắt đầu ghi từ \d{1,2}/\d{1,2}/\d{4}",
+			"Câu giải thích nêu một NGÀY CỤ THỂ — component không có cách xác nhận "
+			"đúng ngày nhật ký được BẬT trên site khách hàng, tái phạm lỗi đã tránh "
+			"ở trạng thái RỖNG phía trên",
 		)
 
 	def test_nhan_su_kien_goi_qua_nhanSuKien_khong_hien_khoa_tho(self):

@@ -530,6 +530,19 @@ input:focus, select:focus, textarea:focus {
 .vdot.lui { background: var(--red); color: #fff; }
 .vdot.he-thong { background: #e2e8f0; color: #64748b; }
 
+/* Review vòng 2 (04/09/2026) — dòng "dựng lại" (`suy_ra`, §9.6) phải
+   trông KHÁC dòng ghi thật, không chỉ mờ đi (mờ đọc ra "ít quan trọng",
+   không phải "độ tin cậy khác" — đúng góc chủ đầu tư/reviewer nêu). Chấm
+   VIỀN RỖNG thay vì đặc: giữ nguyên MÀU của vai trò (không thêm màu thứ
+   năm, §9.3 vẫn chỉ ba màu + một xám), chỉ đổi NỀN sang trắng + viền màu.
+   Bốn luật ghép — `.vdot.<mau>.suy-ra` CÓ BA lớp nên đặc hiệu HƠN
+   `.vdot.<mau>` (hai lớp) bất kể thứ tự khai báo trong file, không cần
+   `!important`. */
+.vdot.benh-vien.suy-ra { background: #fff; border: 2px solid var(--blue); }
+.vdot.miyano.suy-ra { background: #fff; border: 2px solid var(--green); }
+.vdot.lui.suy-ra { background: #fff; border: 2px solid var(--red); }
+.vdot.he-thong.suy-ra { background: #fff; border: 2px solid #64748b; }
+
 /* Desktop confirm modal (S-04) */
 .modal {
   position: fixed;
