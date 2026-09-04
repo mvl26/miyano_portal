@@ -178,6 +178,60 @@ class TestNhatKySuKienPhieu(FrappeTestCase):
 		self.assertEqual(dong[1].nguoi_thao_tac, self.quan_ly)
 		self.assertEqual(dong[1].vai, nhat_ky.VAI_QUAN_LY)
 
+	def _ghi_chu_quan_ly_duyet(self, ten_phieu):
+		dong = frappe.get_all(
+			nhat_ky.DOCTYPE,
+			filters={"de_xuat": ten_phieu, "su_kien": nhat_ky.SK_QUAN_LY_DUYET},
+			fields=["ghi_chu"], order_by="thoi_diem desc", limit=1,
+		)
+		self.assertEqual(len(dong), 1, "phải có đúng một dòng SK_QUAN_LY_DUYET")
+		return dong[0].ghi_chu
+
+	def test_duyet_co_dieu_chinh_ghi_chu_mang_so_dong_da_ha(self):
+		"""Việc #5 (vòng sửa sau review toàn nhánh, fix-wave brief) — §6/§9.4
+		đòi `ghi_chu` của `quan_ly_duyet` mang CẢ số dòng đã điều chỉnh LẪN
+		tư cách duyệt, đúng khuôn ví dụ §9.4: "Hạ 2 dòng so với số khoa xin
+		· Tư cách: Quản lý chính". TRƯỚC bản vá này `ghi_chu` chỉ có nửa
+		sau ("Tư cách: X") — nửa đầu (mang thông tin: phiếu có bị cắt hay
+		không) chưa ship.
+
+		`_phieu_nhap()` tạo MỘT dòng `so_luong_de_xuat=5`; hạ `so_luong_
+		duyet` xuống 2 TRƯỚC khi gọi `duyet()` (cùng khuôn `test_de_xuat_
+		duyet.py::test_duyet_sinh_sales_order_chi_tu_dong_co_so_luong_
+		duyet` — sửa tay rồi `save()`, không đi qua endpoint điều chỉnh)."""
+		phieu = self._phieu_nhap()
+		frappe.set_user(self.chu_phieu)
+		phieu.reload(); phieu.gui_duyet()
+
+		frappe.set_user(self.quan_ly)
+		phieu.reload()
+		phieu.items[0].so_luong_duyet = 2
+		phieu.save(ignore_permissions=True)
+		phieu.reload()
+		phieu.duyet(self.quan_ly, tu_cach="Quản lý chính")
+
+		self.assertEqual(
+			self._ghi_chu_quan_ly_duyet(phieu.name),
+			"Hạ 1 dòng so với số khoa xin · Tư cách: Quản lý chính",
+		)
+
+	def test_duyet_nguyen_si_khong_in_menh_de_so_dong(self):
+		"""VẾ ÂM của bài trên — duyệt NGUYÊN SI (không đụng `so_luong_duyet`,
+		giữ nguyên giá trị `gui_duyet()` đã tự đóng dấu) thì `ghi_chu` KHÔNG
+		được mang mệnh đề "Hạ 0 dòng..." — §5 brief: im lặng phần đó thay
+		vì in một câu vô nghĩa."""
+		phieu = self._phieu_nhap()
+		frappe.set_user(self.chu_phieu)
+		phieu.reload(); phieu.gui_duyet()
+
+		frappe.set_user(self.quan_ly)
+		phieu.reload()
+		phieu.duyet(self.quan_ly, tu_cach="Quản lý chính")
+
+		self.assertEqual(
+			self._ghi_chu_quan_ly_duyet(phieu.name), "Tư cách: Quản lý chính"
+		)
+
 	def test_thu_hoi_ghi_mot_dong(self):
 		phieu = self._phieu_nhap()
 		frappe.set_user(self.chu_phieu)
@@ -761,6 +815,65 @@ class TestNhatKySuKienMiyano(FrappeTestCase):
 		self.assertEqual(dong[0].customer, self.kh_a)
 		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
 		self.assertEqual(dong[0].ghi_chu, "Đợt 1")
+
+	def _kho_tat(self):
+		"""Đảm bảo khách KHÔNG có `Customer Warehouse` đang hoạt động —
+		KHÔNG chỉ "không gọi `_kho_hoat_dong()`". `FrappeTestCase` không
+		rollback GIỮA các bài trong cùng lớp (xem docstring lớp), và
+		`test_giao_hang_ghi_dung_mot_dong_voi_dot` (chạy TRƯỚC bài dưới đây
+		theo thứ tự alphabet 'd' < 'v') gọi `_kho_hoat_dong()` để lại một
+		`Customer Warehouse.active = 1` cho CHÍNH `self.kh_a` — nếu bài dưới
+		chỉ đơn giản "bỏ qua" bước mở kho, nó vẫn thừa hưởng kho ACTIVE của
+		bài kia và phép phá cần lộ ra (Việc #3 — lời gọi nhật ký từng nằm
+		sâu trong `_tao_phieu()`, chỉ chạy khi có kho) sẽ KHÔNG lộ — đúng
+		bẫy "bài test tự đảm bảo điều kiện mà lỗi cần để lộ ra" brief đã
+		cảnh. Đặt tường minh `active = 0` (hoặc không tạo gì, nếu chưa có
+		hàng nào) để bài này ĐÚNG với cả hai vế brief nêu: "Customer
+		Warehouse.active = 0 (hoặc không có kho)"."""
+		ten = frappe.db.get_value("Customer Warehouse", {"customer": self.kh_a}, "name")
+		if ten:
+			frappe.db.set_value("Customer Warehouse", ten, "active", 0)
+
+	def test_giao_hang_van_ghi_khi_khach_chua_mo_kho(self):
+		"""Việc #3 (fix-wave brief) — chứng minh ĐỎ: TRƯỚC bản vá, `nhat_ky.
+		ghi(SK_GIAO_HANG)` nằm SÂU trong `_tao_phieu()`, một hàm của module
+		KHO chỉ chạy sau khi `_kho_cua_khach()` (gọi từ `_tu_delivery_note`)
+		tìm thấy kho ACTIVE. Với `Customer Warehouse.active = 0`,
+		`_tu_delivery_note()` `return None` NGAY ở dòng kiểm `kho`, nên
+		không dòng `giao_hang` nào từng được ghi — đã ĐO trước bản vá: bài
+		này đỏ với `AssertionError: 0 != 1`.
+
+		Hỏng thật (brief, đo trên site): 1/6 khách có Portal Member active
+		KHÔNG có Customer Warehouse active (`Bệnh viện Đa khoa Miyano`) —
+		bệnh viện đó đặt hàng, Miyano giao hàng, dòng thời gian không có
+		một dòng `giao_hang` nào dù thanh tiến trình phía trên vẫn sáng
+		"Giao hàng"."""
+		from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+		self._kho_tat()
+		so = self._don_da_xac_nhan()
+		dn = make_delivery_note(so.name)
+		dn.set_posting_time = 1
+		dn.posting_date = frappe.utils.today()
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+		self.assertEqual(dn.docstatus, 1)
+
+		dong = [r for r in self._dong_cua_don(so.name) if r.su_kien == nhat_ky.SK_GIAO_HANG]
+		self.assertEqual(len(dong), 1)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_MIYANO)
+		self.assertEqual(dong[0].nguoi_thao_tac, "Administrator")
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, self.khoa_a)
+		self.assertEqual(dong[0].ghi_chu, "Đợt 1")
+		# Không có Customer Warehouse active → KHÔNG được tạo phiếu nhập kho
+		# khách nào, đúng nhánh `_tu_delivery_note()` thoát sớm. Khẳng định
+		# này giữ ranh giới: nhật ký ghi ĐỘC LẬP với kho, không phải nhật ký
+		# "kéo" kho hoạt động theo.
+		self.assertFalse(
+			frappe.db.exists("Customer Stock Receipt", {"delivery_note": dn.name}),
+			"Không có kho active mà vẫn sinh Phiếu Nhập Kho Khách — sai giả "
+			"định của chính bài test này (khách chưa mở kho)",
+		)
 
 	def test_hoa_don_ghi_dung_mot_dong(self):
 		from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice

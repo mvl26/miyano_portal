@@ -445,11 +445,30 @@ class PortalDeXuatMua(Document):
 		# Task 2 (nhật ký thao tác) — cùng chỗ, cùng lý do với `bao_de_xuat_
 		# duyet` ngay dưới.
 		from miyano_portal import nhat_ky
+		# Việc #5 (vòng sửa sau review toàn nhánh) — §6/§9.4 đòi `ghi_chu`
+		# mang CẢ HAI: số dòng đã điều chỉnh LẪN tư cách duyệt, ví dụ §9.4:
+		# "Hạ 2 dòng so với số khoa xin · Tư cách: Quản lý chính". Chỉ có
+		# tư cách một mình (bản trước bản vá này) không nói cho khoa biết
+		# phiếu của họ có bị cắt hay không — đó chính là nửa mang thông tin.
+		# Đếm theo `so_luong_de_xuat` (khoa xin) so với `so_luong_duyet`
+		# (quản lý chốt) — KHÔNG dùng độ dài danh sách hay đếm dòng bị xoá:
+		# §5.3 chốt bỏ một mặt hàng = HẠ `so_luong_duyet` VỀ 0, KHÔNG xoá
+		# dòng, nên dòng bị bỏ hẳn vẫn phải nằm trong phép đếm này (nó vẫn
+		# là một dòng có `so_luong_duyet != so_luong_de_xuat`).
+		so_dong_dieu_chinh = sum(
+			1 for d in self.items
+			if float(d.so_luong_duyet or 0) != float(d.so_luong_de_xuat or 0)
+		)
+		ghi_chu = f"Tư cách: {self.duyet_voi_tu_cach}"
+		if so_dong_dieu_chinh:
+			# Duyệt NGUYÊN SI (so_dong_dieu_chinh == 0) thì KHÔNG in mệnh đề
+			# này — im lặng đúng hơn một câu "Hạ 0 dòng" vô nghĩa.
+			ghi_chu = f"Hạ {so_dong_dieu_chinh} dòng so với số khoa xin · {ghi_chu}"
 		nhat_ky.ghi(
 			nhat_ky.SK_QUAN_LY_DUYET,
 			customer=self.customer, khoa_phong=self.khoa_phong,
 			de_xuat=self.name, vai=nhat_ky.VAI_QUAN_LY,
-			ghi_chu=f"Tư cách: {self.duyet_voi_tu_cach}",
+			ghi_chu=ghi_chu,
 		)
 		# Task 8 (§5.8) — quản lý (luôn) + thành viên khác của khoa đứng
 		# tên phiếu. Không bao giờ ném lỗi — cùng lý do gọi trong gui_duyet().

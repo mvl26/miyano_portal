@@ -42,6 +42,27 @@ _MAX_DATA = 140
 # ---------------------------------------------------------------- lối vào hook
 def on_delivery_note_submit(doc, method=None):
 	_chay_an_toan(doc, _tu_delivery_note, "Kho khách: lỗi khi tạo phiếu nhập từ Delivery Note")
+	# Việc #3 (vòng sửa sau review toàn nhánh, fix-wave brief) — TÁCH HẲN
+	# khỏi `_tu_delivery_note()`. Trước bản vá này, `nhat_ky.ghi(SK_GIAO_
+	# HANG)` nằm SÂU bên trong `_tao_phieu()` — một hàm của module KHO chỉ
+	# chạy khi `_kho_cua_khach()` tìm thấy `Customer Warehouse` ACTIVE.
+	# Nhật ký thao tác là chuyện của ĐƠN HÀNG (Sales Order/Delivery Note),
+	# không phải chuyện của KHO KHÁCH — kho chỉ là một sổ phụ trợ (xem
+	# docstring đầu module). Một bệnh viện CHƯA mở kho (đã đo trên site:
+	# 1/6 khách có Portal Member active) vẫn đặt hàng và vẫn được Miyano
+	# giao hàng bình thường; trước bản vá, dòng thời gian của khách đó
+	# không bao giờ có một dòng `giao_hang` nào, trong khi thanh tiến trình
+	# phía trên vẫn sáng "Giao hàng" — hai khối trên cùng một màn nói
+	# ngược nhau. Xem chứng minh đỏ ở `test_nhat_ky_su_kien.py::
+	# TestNhatKySuKienMiyano::test_giao_hang_van_ghi_khi_khach_chua_mo_kho`.
+	#
+	# Savepoint RIÊNG, cùng lý lẽ đã áp cho lệnh gọi thông báo ngay dưới
+	# (QĐ nền 4): một trục trặc ở nhánh KHO (lệnh gọi trên) hoặc nhánh
+	# THÔNG BÁO (lệnh gọi dưới) không được kéo mất dòng nhật ký, và ngược
+	# lại một trục trặc khi ghi nhật ký (dù `nhat_ky.ghi()` tự nó không
+	# bao giờ ném lỗi — các phép tra `_so_dot_cua`/`_khoa_phong_dau_tien`
+	# quanh nó thì có thể) không được kéo mất phiếu nhập kho vừa tạo.
+	_chay_an_toan(doc, _ghi_nhat_ky_giao_hang, "Kho khách: lỗi khi ghi nhật ký giao hàng")
 	# LỆNH GỌI RIÊNG, savepoint RIÊNG (brief 2026-08-15, QĐ nền 4) — không
 	# gộp chung với lệnh trên. Nếu gộp, một lỗi ở BƯỚC GỬI THÔNG BÁO (chạy
 	# SAU khi phiếu đã insert thành công trong CÙNG savepoint) sẽ rollback
@@ -175,23 +196,36 @@ def _tao_phieu(dn, kho: str, dong: list[dict], co_canh_bao_dvt: bool = False) ->
 		"items": dong,
 	})
 	phieu.insert(ignore_permissions=True)
+	return phieu.name
 
-	# Task 4 — ghi SAU khi phiếu nhập đã insert thành công. `vai=VAI_MIYANO`:
-	# người bấm submit Delivery Note trên Desk là nhân sự Miyano thật (kho
-	# khách chỉ là sổ phụ trợ ghi lại việc đó, không phải bên tự hành động),
-	# nên `nguoi_thao_tac` để `nhat_ky.ghi()` tự suy ra `frappe.session.user`
-	# — đúng người đang submit, không phải một giá trị hệ thống vô danh.
-	# `_sales_order_dau_tien(dn)` (không phải `_sales_order_cua(dn)` đang
-	# dùng cho field `phieu.sales_order` ở trên): field đó là Small Text
-	# gộp NHIỀU SO nếu DN giao chung, còn `sales_order` của sổ nhật ký là
-	# Link — chỉ nhận MỘT tên, cùng SO mà `so_dot` bên trên đã tính.
+
+def _ghi_nhat_ky_giao_hang(dn) -> None:
+	"""Việc #3 — ghi `SK_GIAO_HANG`, TÁCH RIÊNG khỏi `_tao_phieu()`/`_tu_
+	delivery_note()` (đường tạo Phiếu Nhập Kho Khách). Gọi thẳng từ `on_
+	delivery_note_submit()`, KHÔNG đi qua `_kho_cua_khach()`: nhật ký thao
+	tác là chuyện của ĐƠN HÀNG, ghi cho MỌI Delivery Note submit của khách
+	hàng cổng — mở kho hay không, kho đang active hay đã tắt.
+
+	`vai=VAI_MIYANO`: người bấm submit Delivery Note trên Desk là nhân sự
+	Miyano thật, nên `nguoi_thao_tac` để `nhat_ky.ghi()` tự suy ra `frappe.
+	session.user`. `_sales_order_dau_tien(dn)` (không phải `_sales_order_
+	cua(dn)` dùng cho field `phieu.sales_order` của Phiếu Nhập Kho Khách):
+	field đó là Small Text gộp NHIỀU SO nếu DN giao chung, còn `sales_order`
+	của sổ nhật ký là Link — chỉ nhận MỘT tên, cùng SO mà `_so_dot_cua()`
+	tính đợt.
+
+	Trả hàng (`is_return`) không được ghi — cùng lý do `_tu_delivery_note()`
+	bỏ qua nó ở nhánh tạo phiếu kho (§4.3): hàng đi NGƯỢC về Miyano không
+	phải một lần "giao hàng" mới."""
+	if dn.get("is_return"):
+		return
+	so_dot = _so_dot_cua(dn)
 	nhat_ky.ghi(
 		nhat_ky.SK_GIAO_HANG, customer=dn.customer,
 		khoa_phong=_khoa_phong_dau_tien(dn), sales_order=_sales_order_dau_tien(dn),
 		vai=nhat_ky.VAI_MIYANO,
 		ghi_chu=f"Đợt {so_dot}" if so_dot else None,
 	)
-	return phieu.name
 
 
 def _ngay_phieu_khong_mat_hang(dn, kho: str) -> tuple[str, str]:
