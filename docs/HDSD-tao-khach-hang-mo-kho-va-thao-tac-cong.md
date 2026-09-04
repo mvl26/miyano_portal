@@ -170,14 +170,16 @@ khi Ghi như trước. Điền số ngay khi xin bệnh viện tệp danh sách 
 | Tình huống | Kết luận | Hệ thống làm gì |
 |---|---|---|
 | Có số, đúng định dạng | Sẽ tạo mới (nếu các cột khác cũng hợp lệ) | Đặt số này làm Mobile No khi tạo tài khoản |
-| **Để trống** | **Cần Miyano quyết** | KHÔNG chặn cả tệp — các dòng khác vẫn ghi bình thường, nhưng tài khoản của DÒNG NÀY sẽ không được tạo trong lần ghi này (giống mọi trường hợp "Cần Miyano quyết" khác). Điền số rồi tải lại tệp để tạo dòng đó |
+| **Để trống** | Sẽ tạo mới | Tài khoản VẪN được tạo bình thường — chủ đầu tư chọn tường minh là KHÔNG hoãn cấp tài khoản chỉ vì thiếu một ô số. Ghi chú của dòng đó nói rõ hậu quả ("khách sẽ thấy tên nhưng không gọi được"), và đầu màn xem trước liệt kê TÊN tất cả những người còn thiếu số trong tệp — để Miyano/bệnh viện xin bổ sung sau, không phải dò từng dòng trong bảng |
 | **Sai định dạng** (chữ, quá ngắn/dài, không bắt đầu bằng 0…) | **Bị từ chối** | Chặn CẢ TỆP — cùng luật "còn một dòng bị từ chối là không ghi gì cả". Sửa lại rồi tải lên lần nữa |
 | Người này **đã có tài khoản** ở đúng bệnh viện đó, tài khoản **chưa có số** | Đã có — bỏ qua | KHÔNG tạo tài khoản mới (đúng luật cũ), nhưng số trong tệp lần này sẽ được **bổ sung** vào tài khoản đang thiếu số — đây là cách số điện thoại được điền dần cho các tài khoản đã cấp TRƯỚC 04/09/2026, không cần sửa tay |
 | Người này **đã có tài khoản**, tài khoản **đã có số KHÁC** số trong tệp | Cần Miyano quyết | KHÔNG tự động ghi đè — số cũ là dữ liệu người khác đã nhập, im lặng đè lên là mất dữ liệu. Bảng xem trước nêu cả hai số để tự đối chiếu: gõ nhầm, hay người đó đổi số thật? Cập nhật trực tiếp trên `Portal Member`/`User` nếu cần |
 
-Nói cách khác: **thiếu số hoặc lệch số của một người không làm hỏng việc cấp
-tài khoản cho cả bệnh viện** — nó chỉ làm tính năng gọi điện của RIÊNG người
-đó chưa dùng được ngay, và bảng xem trước luôn nói rõ ai còn thiếu để xử tiếp.
+Nói cách khác: **thiếu số của một người không hoãn việc cấp tài khoản của
+CHÍNH người đó, và cũng không đụng tới ai khác trong tệp** — chỉ số bị LỆCH
+(tài khoản đã có số khác) mới không được ghi ngay, vì đó là nghi vấn cần
+Miyano tự xem trước khi quyết định số nào đúng. Bảng xem trước và đầu màn kết
+quả luôn nói rõ ai còn thiếu số để xin bổ sung sau.
 
 **Người của Miyano cũng phải có số.** Cổng khách hàng hiện tên **và số điện
 thoại** của nhân sự Miyano ở các mốc xác nhận / báo giá / từ chối — đó là chốt

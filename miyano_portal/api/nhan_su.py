@@ -452,15 +452,22 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 		if errors:
 			dong["trang_thai"] = TU_CHOI
 		elif not dien_thoai:
-			# QĐ-1: cột BẮT BUỘC có mặt trong header, nhưng Ô TRỐNG chỉ CẢNH
-			# BÁO — TỪ CHỐI ở đây sẽ chặn cứng CẢ TỆP (luật "còn một dòng bị từ
-			# chối là không ghi gì cả"), một ô quên điền không đáng giá đó.
-			# Thiếu số làm dòng thời gian "Ai đã làm gì" KÉM ĐI (chỉ hiện tên),
-			# không làm gì HỎNG.
-			dong["trang_thai"] = CANH_BAO
-			errors.append(
+			# VÒNG SỬA 1 (chủ đầu tư, 04/09/2026): brief gốc bảo dùng CANH_BAO cho
+			# ô trống, và CANH_BAO trong file này SẴN mang nghĩa "gắn cờ VÀ KHÔNG
+			# GHI" (`_ghi()`: `if dong["trang_thai"] != TAO_MOI: continue`) — hai
+			# chỗ dùng CANH_BAO trước đó (email thuộc bệnh viện khác; số cũ khác
+			# số mới) ĐÚNG là không nên ghi. Nhưng thiếu số điện thoại KHÔNG phải
+			# lý do để hoãn cấp tài khoản: chủ đầu tư chọn tường minh là VẪN TẠO,
+			# chỉ cảnh báo để Miyano thấy ai còn thiếu mà đi xin bổ sung. Nên
+			# GIỮ `trang_thai = TAO_MOI` (không đổi), đưa cảnh báo vào `ghi_chu`
+			# (không phải `errors` — `errors` gắn với TU_CHOI/CANH_BAO ở nơi khác
+			# trong file, dùng nó ở đây sẽ đọc nhầm là "có gì đó chặn dòng này").
+			# Mục `canh_bao_toan_tep` (sau vòng lặp) mới là nơi liệt kê TÊN những
+			# người thiếu số — không có nó, "cảnh báo" chỉ là chữ nằm im trong
+			# từng dòng, người duyệt tệp phải dò từng dòng mới thấy.
+			_them_ghi_chu(dong, (
 				"Không có số điện thoại — khách sẽ thấy tên nhưng không gọi được."
-			)
+			))
 
 	if not co_ma_ngan and any(
 		r["vai_tro"] == NHAN_VIEN_KHOA and r["trang_thai"] in (TAO_MOI, TU_CHOI) for r in rows
@@ -474,6 +481,17 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 		canh_bao_toan_tep.append(
 			"Tệp này không tạo Quản lý nào và bệnh viện cũng chưa có quản lý đang hoạt "
 			"động — sẽ không ai duyệt được phiếu Đề nghị mua của các khoa."
+		)
+	# VÒNG SỬA 1: liệt kê TÊN người thiếu số ở CẤP TỆP — đây là thứ biến "cảnh
+	# báo" ở từng dòng (`ghi_chu`) thành việc làm được: người duyệt tệp thấy
+	# ngay ở đầu màn ai còn thiếu số mà đi xin bổ sung, không phải dò từng dòng
+	# trong bảng có thể dài 200 dòng.
+	thieu_dien_thoai = [r for r in rows if r["trang_thai"] == TAO_MOI and not r["dien_thoai"]]
+	if thieu_dien_thoai:
+		canh_bao_toan_tep.append(
+			f"{len(thieu_dien_thoai)} người chưa có số điện thoại trong tệp — vẫn được tạo "
+			"tài khoản, nhưng dòng thời gian đơn hàng sẽ chỉ hiện tên, không gọi được: "
+			+ ", ".join(f'{r["ho_ten"]} ({r["email"]})' for r in thieu_dien_thoai) + "."
 		)
 
 	dem = {trang_thai: 0 for trang_thai in (TAO_MOI, BO_QUA, CANH_BAO, TU_CHOI)}

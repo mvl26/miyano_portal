@@ -558,9 +558,14 @@ class TestDienThoai(_NhanSuTestBase):
 		self.assertIn("Số điện thoại", str(cm.exception))
 		self.assertEqual(before, self._counts(), "báo lỗi header thì không được ghi gì")
 
-	def test_o_trong_thi_canh_bao_khong_tu_choi_dong_khac_van_tao_moi(self):
-		"""Bài 3 (QĐ-1): ô trống là một lựa chọn có ý thức, không phải lỗi
-		hình thức — TỪ CHỐI ở đây sẽ chặn cứng cả tệp."""
+	def test_o_trong_van_tao_tai_khoan_kem_canh_bao_o_ghi_chu_va_cap_tep(self):
+		"""Bài 3 (QĐ-1, VÒNG SỬA 1 04/09/2026): chủ đầu tư chọn tường minh — ô
+		trống chỉ CẢNH BÁO, KHÔNG hoãn cấp tài khoản. Brief gốc bảo dùng đúng
+		trạng thái `CANH_BAO` sẵn có, nhưng `CANH_BAO` trong file này mang nghĩa
+		"gắn cờ VÀ KHÔNG GHI" (`_ghi()`: `if trang_thai != TAO_MOI: continue`) —
+		sai với ý chủ đầu tư. Sửa: dòng thiếu số vẫn `TAO_MOI`, cảnh báo dồn vào
+		`ghi_chu` của dòng đó VÀ vào `canh_bao_toan_tep` cấp tệp (để người duyệt
+		thấy ngay đầu màn, không phải dò từng dòng)."""
 		f = self._upload(_xlsx_bytes([
 			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý", dien_thoai=""),
 			_row("Trần Văn Bình", BINH, "Huyết học", "HUYETHOC"),  # SĐT mặc định hợp lệ
@@ -568,20 +573,26 @@ class TestDienThoai(_NhanSuTestBase):
 		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
 
 		dong_hoa = self._dong(ket_qua, HOA)
-		self.assertEqual(dong_hoa["trang_thai"], "canh_bao")
+		self.assertEqual(dong_hoa["trang_thai"], "tao_moi", "thiếu số KHÔNG hoãn cấp tài khoản")
+		self.assertNotEqual(dong_hoa["trang_thai"], "canh_bao")
 		self.assertNotEqual(dong_hoa["trang_thai"], "tu_choi")
-		self.assertIn("không gọi được", " ".join(dong_hoa["errors"]).lower())
+		self.assertIn("không gọi được", dong_hoa["ghi_chu"].lower())
 		self.assertEqual(self._dong(ket_qua, BINH)["trang_thai"], "tao_moi")
-		self.assertEqual(ket_qua["so_canh_bao"], 1)
-		self.assertEqual(ket_qua["so_tao_moi"], 1)
+		self.assertEqual(ket_qua["so_canh_bao"], 0)
+		self.assertEqual(ket_qua["so_tao_moi"], 2)
 
-		# CANH_BAO dùng ĐÚNG nghĩa "Miyano tự xét" đã có của trạng thái này ở
-		# mọi nơi khác trong file (xem `TestEmailCuaKhachKhac`): dòng CANH_BAO
-		# không được ghi ở lần này — Hoa KHÔNG có tài khoản, Bình (tao_moi)
-		# thì có. Miyano bổ sung số rồi tải lại tệp để tạo dòng của Hoa.
+		# Cấp TỆP: liệt kê TÊN người thiếu số — đây là thứ biến "cảnh báo" từng
+		# dòng thành việc làm được, không phải chữ nằm im chờ ai đó dò ra.
+		canh_bao_tep = " ".join(ket_qua["canh_bao_toan_tep"])
+		self.assertIn("Nguyễn Thị Hoa", canh_bao_tep)
+		self.assertIn(HOA, canh_bao_tep)
+
+		# Vế QUAN TRỌNG NHẤT (suýt lọt ở vòng đầu): tài khoản THẬT SỰ được tạo,
+		# kể cả người thiếu số.
 		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
-		self.assertFalse(frappe.db.exists("User", HOA), "dòng CANH_BAO không được ghi")
+		self.assertTrue(frappe.db.exists("User", HOA), "thiếu số nhưng vẫn phải được tạo")
 		self.assertTrue(frappe.db.exists("User", BINH))
+		self.assertFalse(frappe.db.get_value("User", HOA, "mobile_no"))
 
 	def test_sai_dinh_dang_thi_tu_choi_kem_ly_do(self):
 		"""Bài 4 (QĐ-2): gõ sai (khác hẳn bỏ trống) là lỗi im lặng sẽ in ra
