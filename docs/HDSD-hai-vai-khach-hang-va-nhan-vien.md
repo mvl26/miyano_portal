@@ -271,7 +271,11 @@ Trang chi tiết đơn gồm:
 Mốc đã qua tô xanh.
 
 **Dòng thời gian "Ai đã làm gì"** *(từ 04/09/2026)* — nằm ngay dưới Tiến trình.
-Mỗi việc đã xảy ra là một dòng, mới nhất ở trên, kèm **tên người thao tác, số
+Mỗi việc đã xảy ra là một dòng, **mới nhất ở DƯỚI cùng**, đọc từ trên xuống
+theo thời gian — khác Viettel Post (họ để mới nhất trên đầu): ở đây bạn
+thường cần dựng lại *câu chuyện* ("khoa xin gì, ai hạ xuống, vì sao báo giá
+lại"), không phải liếc trạng thái mới nhất — trạng thái mới nhất đã nằm ở
+thanh Tiến trình 5 mốc ngay phía trên. Mỗi dòng kèm **tên người thao tác, số
 điện thoại của họ, và mốc giờ**. Màu chấm đầu dòng cho biết ai làm:
 
 | Chấm | Ai | Ví dụ |

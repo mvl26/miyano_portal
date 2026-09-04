@@ -274,12 +274,14 @@ duyệt, duyệt) từ bốn trường vốn đã có trên phiếu và đánh d
 màn hình nói rõ đây là dòng dựng lại. Chỉ suy khi **không** có dòng thật cùng
 loại — nếu không thì mọi yêu cầu mới sẽ hiện đôi.
 
-**Số điện thoại là điều kiện để tính năng có nghĩa**, và nó nằm ở khâu **vận
-hành**, không ở mã nguồn: màn "Nhập nhân sự bệnh viện" chưa có cột số điện thoại,
-nên phải điền tay vào `User.Mobile No` ngay sau khi cấp tài khoản — xem
-`HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md` §A5b. Đây đúng là dạng "thứ
-vắng mặt" mà mục 4 dưới đây nói: mã chạy đúng, test xanh, mà người dùng vẫn
-không gọi được cho ai.
+**Số điện thoại là điều kiện để tính năng có nghĩa.** Từ commit `f40d5e5`, màn
+"Nhập nhân sự bệnh viện" đã có cột **Số điện thoại** ngay trong tệp Excel nạp
+vào — không còn phải điền tay trên Desk sau khi cấp tài khoản. Ô trống chỉ
+**cảnh báo** (không chặn cả tệp); số **sai định dạng** thì bị **từ chối**
+đúng dòng đó; với tài khoản **đã có sẵn** số điện thoại, lượt nhập chỉ điền
+vào **chỗ còn trống**, không bao giờ đè lên số đã có (lệch số giữa tệp và số
+đang lưu thì cảnh báo, không tự ghi đè) — xem
+`HDSD-tao-khach-hang-mo-kho-va-thao-tac-cong.md` §A5b.
 
 ---
 
