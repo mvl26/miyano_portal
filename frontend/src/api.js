@@ -193,6 +193,43 @@ export async function uploadFile(file) {
   return data.message // { file_url, file_name, ... }
 }
 
+// CR-03 — tải một ảnh cho MỘT dòng "hàng chưa có trong hệ thống"
+// (`portal_dat_ngoai_tai_anh`). KHÔNG dùng `uploadFile()` ở trên: hàm đó
+// gọi endpoint UPLOAD CHUNG của Frappe (`/api/method/upload_file`), không
+// biết gì về `de_xuat`/`dong_idx` — hai tham số server dùng để kiểm SỞ HỮU
+// (phiếu của ai) và VỊ TRÍ (đính đúng dòng nào) trước khi nhận tệp. Vẫn
+// multipart tự tay (không qua `callUrl`) vì cùng lý do `uploadFile()` đã
+// ghi: trình duyệt phải tự đặt `Content-Type` kèm boundary.
+export async function taiAnhDatNgoai(file, de_xuat, dong_idx) {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('de_xuat', de_xuat)
+  body.append('dong_idx', String(dong_idx))
+  const res = await fetch(API_PREFIX + 'portal_dat_ngoai_tai_anh', {
+    method: 'POST',
+    headers: { 'X-Frappe-CSRF-Token': csrfToken() },
+    body,
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const { msg: trich, errName } = _trichLoiTuResponse(data)
+    throw new Error(_dichLoiMayChu(trich, errName, res.status) || 'Tải ảnh lên thất bại.')
+  }
+  return data.message // { file_url, anh }
+}
+
+// URL GET của `portal_dat_ngoai_xem_anh` — dùng với `fetchBlobUrl()`, không
+// gán thẳng vào `<img src>`: một `<img>` trỏ thẳng URL này khi bị từ chối
+// (ảnh vừa bị xoá ở tab khác, phiên hết hạn…) chỉ hiện icon ảnh vỡ CỦA
+// TRÌNH DUYỆT, không cách nào bắt được lỗi để xử lý — cùng lý do `fetchBlobUrl`
+// đã được dựng cho khối xem hoá đơn nháp (HĐĐT).
+export function datNgoaiXemAnhUrl(de_xuat, file_url) {
+  return (
+    API_PREFIX + 'portal_dat_ngoai_xem_anh?de_xuat=' + encodeURIComponent(de_xuat) +
+    '&file_url=' + encodeURIComponent(file_url)
+  )
+}
+
 // Tải một file qua GET rồi lưu về máy — dùng cho chứng từ có thể bị TỪ CHỐI
 // tuỳ trạng thái/quyền sở hữu (HĐĐT: BR-E4 kiểm từng lần tải). `<a href>` trỏ
 // thẳng vào endpoint GET (cách các nút [⬇ PDF] khác của cổng vẫn dùng) mở một
@@ -274,4 +311,5 @@ export async function fetchBlobUrl(url) {
 
 export default {
   call, callKho, callDeXuat, khoDownloadUrl, uploadFile, downloadFile, fetchBlobUrl, login, logout,
+  taiAnhDatNgoai, datNgoaiXemAnhUrl,
 }

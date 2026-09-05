@@ -91,9 +91,26 @@ function moGuiLai() {
   const doiItems = (props.don.items || [])
     .filter((it) => Number(soLuongMoiItems.value[it.item_code]) !== Number(it.qty))
     .map((it) => ({ item_code: it.item_code, qty: Number(soLuongMoiItems.value[it.item_code]) }))
+  // CR-03 — CHUYỂN TIẾP nguyên vẹn chín field mới của dòng đặt ngoài, không
+  // chỉ `name`/`qty`. Brief đòi: "đường sửa và gửi lại sau khi bị từ chối
+  // phải mang theo đủ chín trường — quên một trường ở đây là dữ liệu khách
+  // đã khai bị xoá lặng lẽ khi họ sửa phiếu". LƯU Ý THẬT (ghi lại thay vì
+  // giả vờ đã xong): tại thời điểm này `portal_order_track` (nguồn của
+  // `props.don.dat_ngoai`) CHƯA trả chín field này trong response — xem
+  // danh sách field tường minh ở đó — nên `d.model_ma`… ở đây LUÔN rỗng và
+  // dòng dưới đây hiện KHÔNG có tác dụng thật (server `portal_order_sua_so_
+  // luong` cũng chỉ đọc `name`/`qty`, mọi field khác "bị bỏ qua/từ chối
+  // hoàn toàn" theo đúng docstring của nó). Giữ nguyên việc CHUYỂN TIẾP ở
+  // đây là vô hại và đúng hướng cho ngày cả hai vế trả/đọc đủ field — nhưng
+  // tự nó KHÔNG sửa được rủi ro mất dữ liệu mà brief mô tả.
   const doiDatNgoai = (props.don.dat_ngoai || [])
     .filter((d) => Number(soLuongMoiDatNgoai.value[d.name]) !== Number(d.so_luong))
-    .map((d) => ({ name: d.name, qty: Number(soLuongMoiDatNgoai.value[d.name]) }))
+    .map((d) => ({
+      name: d.name, qty: Number(soLuongMoiDatNgoai.value[d.name]),
+      model_ma: d.model_ma, hang_san_xuat: d.hang_san_xuat, nuoc_san_xuat: d.nuoc_san_xuat,
+      quy_cach: d.quy_cach, ncc_hien_tai: d.ncc_hien_tai, gia_hien_tai: d.gia_hien_tai,
+      anh: d.anh, khong_co_anh: d.khong_co_anh, mo_ta_nhan_dang: d.mo_ta_nhan_dang,
+    }))
   emit('sua-so-luong', { items: doiItems, dat_ngoai: doiDatNgoai })
 }
 </script>
