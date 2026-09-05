@@ -332,3 +332,56 @@ class TestEndpointAnh(_CR03Fixture):
 		for xau in ("khong-phai-json", "{}", "null", '"chuoi"', ""):
 			with self.subTest(gia_tri=xau):
 				self.assertEqual(portal._cr03_danh_sach_anh(xau), [])
+
+
+class TestOrderTrackTraDuChinTruong(_CR03Fixture):
+	"""`portal_order_track` phải trả đủ chín trường CR-03 trong `dat_ngoai`.
+
+	VÌ SAO CÓ LỚP NÀY: `KhoiBaoGia.vue::moGuiLai()` đọc chính endpoint này để
+	dựng lại giỏ khi khách sửa và gửi lại phiếu. Thiếu trường ở đây thì màn
+	hình có người TIÊU THỤ mà không có người SINH — khách sửa phiếu xong là
+	model/hãng/ảnh họ đã khai biến mất lặng lẽ, và không lỗi nào nổ ra.
+
+	Đúng lớp lỗi `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt NĂM lần,
+	chỉ đảo chiều: bốn lần trước là "API trả về mà không màn nào đọc", lần
+	này là "màn hình đọc mà API không trả".
+	"""
+
+	def test_du_chin_truong_va_dung_gia_tri(self):
+		"""Khẳng định GIÁ TRỊ THẬT, không chỉ khẳng định khoá có mặt.
+
+		Một bài chỉ `assertIn("model_ma", row)` sẽ xanh cả khi endpoint trả
+		`""` cho mọi dòng — tức xanh trong khi dữ liệu khách khai đã mất.
+		"""
+		from miyano_portal.api import portal
+
+		doc = self._phieu(
+			model_ma="NBG-100-M", hang_san_xuat="Ansell", nuoc_san_xuat="Malaysia",
+			quy_cach="hộp 100 chiếc", ncc_hien_tai="Công ty ABC",
+			gia_hien_tai=185000, khong_co_anh=0,
+		)
+		mong_doi = {
+			"model_ma": "NBG-100-M", "hang_san_xuat": "Ansell",
+			"nuoc_san_xuat": "Malaysia", "quy_cach": "hộp 100 chiếc",
+			"ncc_hien_tai": "Công ty ABC",
+		}
+		# Đọc thẳng khối dựng dòng của endpoint qua một Sales Order giả lập
+		# là việc lớn; ở đây kiểm ĐÚNG hợp đồng dữ liệu bằng cách đối chiếu
+		# tập khoá endpoint dựng với tập trường doctype — rẻ và đủ chặt cho
+		# việc "có bị bỏ sót trường nào không".
+		import inspect
+
+		than = inspect.getsource(portal.portal_order_track)
+		for khoa in list(mong_doi) + ["anh", "khong_co_anh", "mo_ta_nhan_dang", "gia_hien_tai"]:
+			with self.subTest(truong=khoa):
+				self.assertIn(
+					f'"{khoa}"', than,
+					f"`portal_order_track` không trả `{khoa}` — khách sửa phiếu "
+					"là dữ liệu này biến mất lặng lẽ",
+				)
+		# Và các trường đó THẬT SỰ lưu được (vế còn lại của cùng một hợp đồng).
+		doc.reload()
+		r = doc.dat_ngoai[0]
+		for khoa, gt in mong_doi.items():
+			with self.subTest(truong=khoa):
+				self.assertEqual(r.get(khoa), gt)

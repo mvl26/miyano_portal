@@ -1704,9 +1704,28 @@ def portal_order_track(order) -> dict:
             # khoá nghiệp vụ tự nhiên nào khác (ten_hang/dvt có thể trùng
             # giữa hai dòng) — `portal_order_sua_so_luong` khớp payload sửa
             # số lượng theo `name` của chính child row này.
+            # CHÍN TRƯỜNG CR-03 (05/09/2026) — trả về ở đây vì `KhoiBaoGia
+            # .moGuiLai()` đọc chính endpoint này để dựng lại giỏ khi khách
+            # sửa và gửi lại. Thiếu chúng thì màn hình có người TIÊU THỤ mà
+            # không có người SINH: khách sửa phiếu xong là model/hãng/ảnh họ
+            # đã khai biến mất lặng lẽ, và không lỗi nào nổ ra.
+            #
+            # Đây đúng lớp lỗi `BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt
+            # NĂM lần, chỉ đảo chiều: bốn lần trước là "API trả về mà không
+            # màn nào đọc", lần này là "màn hình đọc mà API không trả".
+            #
+            # `anh` giữ nguyên dạng chuỗi JSON như đã lưu — client tự tách.
+            # KHÔNG trả đường dẫn tệp nào khác: ảnh riêng tư chỉ đi qua
+            # `portal_dat_ngoai_xem_anh`, kiểm sở hữu từng lần xem.
             {"name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
              "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
-             "item_khop": d.item_khop or ""}
+             "item_khop": d.item_khop or "",
+             "model_ma": d.model_ma or "", "hang_san_xuat": d.hang_san_xuat or "",
+             "nuoc_san_xuat": d.nuoc_san_xuat or "", "quy_cach": d.quy_cach or "",
+             "ncc_hien_tai": d.ncc_hien_tai or "",
+             "gia_hien_tai": float(d.gia_hien_tai or 0),
+             "anh": d.anh or "", "khong_co_anh": bool(d.khong_co_anh),
+             "mo_ta_nhan_dang": d.mo_ta_nhan_dang or ""}
             for d in (so.get("custom_dat_ngoai") or [])
         ],
         "deliveries": deliveries,
