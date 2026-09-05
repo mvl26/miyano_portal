@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "NODE_OPTIONS=--experimental-global-webcrypto vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/*.test.mjs"
   },
   "dependencies": {
     "vue": "3.4.21",

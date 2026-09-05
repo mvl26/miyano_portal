@@ -5,13 +5,40 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "ten_hang", "dvt", "so_luong", "ghi_chu", "item_khop", "da_xu_ly"
+  "ten_hang", "dvt", "so_luong", "ghi_chu",
+  "sec_nhan_dang", "anh", "khong_co_anh", "mo_ta_nhan_dang",
+  "sec_tren_hop", "model_ma", "hang_san_xuat", "col_hop", "nuoc_san_xuat", "quy_cach",
+  "sec_thuong_mai", "ncc_hien_tai", "gia_hien_tai",
+  "item_khop", "da_xu_ly"
  ],
  "fields": [
   {"fieldname": "ten_hang", "fieldtype": "Data", "label": "Tên hàng", "reqd": 1, "in_list_view": 1, "columns": 3},
   {"fieldname": "dvt", "fieldtype": "Data", "label": "ĐVT", "reqd": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "so_luong", "fieldtype": "Float", "label": "Số lượng", "precision": "3", "reqd": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú", "in_list_view": 1, "columns": 2},
+  {"fieldname": "sec_nhan_dang", "fieldtype": "Section Break", "label": "Nhận dạng hàng"},
+  {"fieldname": "anh", "fieldtype": "Small Text", "label": "Ảnh (JSON danh sách file_url)", "read_only": 1,
+   "description": "CR-03/BR-Y5 — tối đa 5 ảnh riêng tư, ≤10MB mỗi ảnh, đính vào chính phiếu đề xuất. Khách tải lên qua portal_dat_ngoai_tai_anh; KHÔNG gõ tay ở đây."},
+  {"fieldname": "khong_co_anh", "fieldtype": "Check", "label": "Không chụp được ảnh", "default": "0",
+   "description": "Lối thoát CR-03: nhãn mờ, hộp đã bỏ, hàng chưa từng mua. Bật thì 'Mô tả nhận dạng' thành bắt buộc, tối thiểu 50 ký tự."},
+  {"fieldname": "mo_ta_nhan_dang", "fieldtype": "Small Text", "label": "Mô tả nhận dạng",
+   "depends_on": "khong_co_anh",
+   "description": "Bắt buộc ≥50 ký tự khi không có ảnh — mô tả bằng lời để purchasing có manh mối tìm nguồn."},
+
+  {"fieldname": "sec_tren_hop", "fieldtype": "Section Break", "label": "Thông tin trên hộp"},
+  {"fieldname": "model_ma", "fieldtype": "Data", "label": "Model / mã catalogue", "in_list_view": 1, "columns": 2,
+   "description": "Mã in trên hộp — dữ kiện tìm nguồn giá trị nhất sau ảnh."},
+  {"fieldname": "hang_san_xuat", "fieldtype": "Data", "label": "Hãng sản xuất"},
+  {"fieldname": "col_hop", "fieldtype": "Column Break"},
+  {"fieldname": "nuoc_san_xuat", "fieldtype": "Data", "label": "Nước sản xuất"},
+  {"fieldname": "quy_cach", "fieldtype": "Data", "label": "Quy cách đóng gói",
+   "description": "VD 'hộp 100 test', 'chai 500ml'. CÙNG TÊN TRƯỜNG với Portal Item Request — hai chỗ tả cùng một thứ phải cùng một tên."},
+
+  {"fieldname": "sec_thuong_mai", "fieldtype": "Section Break", "label": "Khách đang mua ở đâu (tuỳ chọn)",
+   "description": "Thông tin thương mại của bệnh viện. Tuỳ chọn — chỉ điền khi khách sẵn sàng chia sẻ."},
+  {"fieldname": "ncc_hien_tai", "fieldtype": "Data", "label": "Nhà cung cấp hiện tại"},
+  {"fieldname": "gia_hien_tai", "fieldtype": "Currency", "label": "Giá đang mua"},
+
   {"fieldname": "item_khop", "fieldtype": "Link", "label": "Mã hàng khớp", "options": "Item", "in_list_view": 1, "columns": 2,
    "description": "Nhân viên Miyano khớp dòng khách tự nhập vào mã hàng có sẵn (hoặc mã vừa tạo) khi báo giá."},
   {"fieldname": "da_xu_ly", "fieldtype": "Check", "label": "Đã xử lý", "read_only": 1, "default": "0", "in_list_view": 1, "columns": 1,

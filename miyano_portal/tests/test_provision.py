@@ -164,3 +164,73 @@ class TestProvision(FrappeTestCase):
         self.addCleanup(frappe.set_user, "Administrator")
         with self.assertRaises(frappe.PermissionError):
             portal.portal_provision("PXN ABC", "buyer3@demo.miyano")
+
+
+# VÒNG SỬA 2 (coordinator, 04/09/2026, Task 10) — khoảng trống coverage tự
+# khai trong task-10-report.md: nhánh `elif dien_thoai and not frappe.db.
+# get_value(...)` trong `portal_provision` (User ĐÃ TỒN TẠI nhưng chưa gắn
+# khách hàng nào — khác nhánh "User hoàn toàn mới" ở `if not frappe.db.
+# exists(...)`, và cũng khác nhánh BO_QUA của `nhan_su.py` mà test 6a/6b của
+# Task 10 canh) chưa có bài nào canh. Hai bài dưới đây khớp đúng QĐ-4 ở TẦNG
+# NÀY: điền vào chỗ trống, không bao giờ đè. Dùng khách hàng HOÀN TOÀN MỚI
+# cho mỗi bài (cùng khuôn `test_provision_first_account_is_active_manager`)
+# để đi đúng nhánh "chưa có quản lý nào" — tránh phụ thuộc Mã ngắn/khoa
+# phòng, những thứ không liên quan gì tới việc test này canh.
+class TestProvisionDienThoai(FrappeTestCase):
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    def _tao_khach_va_user_truoc(self, ten_khach, email, mobile_no_ban_dau=None):
+        frappe.get_doc({
+            "doctype": "Customer", "customer_name": ten_khach,
+            "customer_type": "Company", "customer_group": "All Customer Groups",
+            "territory": "All Territories",
+        }).insert(ignore_permissions=True)
+        self.addCleanup(frappe.db.delete, "User Permission", {"user": email})
+        self.addCleanup(frappe.db.delete, "Contact", {"name": f"{ten_khach}-{email}"})
+        self.addCleanup(frappe.db.delete, "Portal Member", {"user": email})
+        self.addCleanup(frappe.db.delete, "User", {"name": email})
+        self.addCleanup(frappe.db.delete, "Customer", {"name": ten_khach})
+        # User ĐÃ TỒN TẠI TRƯỚC — chưa gắn khách hàng nào (chưa có Portal
+        # Member) — đúng hình huống nhánh `elif` đang canh: KHÁC "User hoàn
+        # toàn mới" (nhánh `if not frappe.db.exists(...)` phía trên nó).
+        u = frappe.get_doc({
+            "doctype": "User", "email": email, "first_name": "ZZTEST Provision DT",
+            "user_type": "Website User", "send_welcome_email": 0,
+        })
+        if mobile_no_ban_dau:
+            u.mobile_no = mobile_no_ban_dau
+        u.insert(ignore_permissions=True)
+
+    def test_user_da_co_tu_truoc_dien_thoai_rong_thi_duoc_dien(self):
+        ten_khach = "ZZTEST Provision DT Rong"
+        email = "zztest.provision.dt.rong@demo.miyano"
+        self._tao_khach_va_user_truoc(ten_khach, email)
+        self.assertFalse(frappe.db.get_value("User", email, "mobile_no"))
+
+        # VÒNG SỬA 2 (04/09/2026): số cũ "0912345678" trùng đúng số một tài
+        # khoản demo (`quanly.demoe2e@miyano-test.vn`) để lại trên site dùng
+        # chung `erptest.local` sau lượt chạy thử tay 04/09/2026 — bài này
+        # gọi thẳng `portal_provision()`, KHÔNG qua `api/nhan_su.py`, nên
+        # không được lớp soi trùng của màn nhập nhân sự bảo vệ; đổi sang một
+        # số không nằm trong bất kỳ tệp mẫu/dữ liệu demo nào đã biết.
+        portal.portal_provision(ten_khach, email, dien_thoai="0938271098")
+
+        self.assertEqual(frappe.db.get_value("User", email, "mobile_no"), "0938271098")
+
+    def test_user_da_co_tu_truoc_dien_thoai_khac_thi_giu_nguyen(self):
+        """Vế chống mất dữ liệu — QĐ-4: số ĐÃ CÓ là dữ liệu người khác nhập,
+        im lặng ghi đè là mất dữ liệu."""
+        ten_khach = "ZZTEST Provision DT Khac"
+        email = "zztest.provision.dt.khac@demo.miyano"
+        self._tao_khach_va_user_truoc(ten_khach, email, mobile_no_ban_dau="0911111111")
+
+        portal.portal_provision(ten_khach, email, dien_thoai="0922222222")
+
+        self.assertEqual(
+            frappe.db.get_value("User", email, "mobile_no"), "0911111111",
+            "tài khoản đã có số KHÁC thì không được đè",
+        )

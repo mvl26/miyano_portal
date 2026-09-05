@@ -1,6 +1,21 @@
 <script setup>
-// Khối "Hoá đơn nháp" dùng chung cho HAI màn hình (Hoá đơn & công nợ, Chi
-// tiết đơn hàng). Thứ tự ưu tiên dưới đây là RÀNG BUỘC nghiệp vụ, không phải
+// Khối hoá đơn CHƯA PHÁT HÀNH, dùng chung cho HAI màn hình (Hoá đơn & công
+// nợ, Chi tiết đơn hàng).
+//
+// NHÃN bỏ chữ "nháp" (chủ đầu tư chốt 05/09/2026) — khách đọc "hoá đơn nháp"
+// ở nút bấm không hiểu đó là gì. Nhưng SỰ PHÂN BIỆT thì KHÔNG bỏ, và đây là
+// chỗ dễ hiểu nhầm nhất của bản vá đó:
+//
+//   * Cảnh báo pháp lý do server trả (`einvoice.CANH_BAO_NHAP`) VẪN hiện ở
+//     đầu khối — nó nói thẳng đây chưa phải chứng từ thuế.
+//   * Chốt chặn ở server KHÔNG đổi: `co_the_tai()` vẫn loại toàn nhóm nháp,
+//     `portal_einvoice_download(loai="nhap")` vẫn là một đường RIÊNG.
+//   * Tên file tải về VẪN là `Nhap_*.pdf` — một file đã nằm trong máy khách
+//     phải tự khai nó là bản gì, không phụ thuộc vào việc người ta còn nhớ
+//     đã bấm nút nào.
+//
+// Đổi chữ ở nút là việc của tầng hiển thị; nới ba thứ trên là giao một bản
+// in thử cho bệnh viện mang đi quyết toán. Thứ tự ưu tiên dưới đây là RÀNG BUỘC nghiệp vụ, không phải
 // sở thích trình bày: thứ khách phải thấy là CHÍNH FILE PDF DO FAST DỰNG.
 // Bảng dòng hàng do cổng tự vẽ chỉ là DỰ PHÒNG cho lúc Fast chưa dựng xong
 // (trạng thái 01 — kế toán chưa bấm "Xem bản nháp") hoặc gọi Fast lỗi.
@@ -42,7 +57,7 @@ watch(
     try {
       blobUrl.value = await api.fetchBlobUrl(url)
     } catch (e) {
-      showToast(e.message || 'Không mở được hoá đơn nháp.', 'error')
+      showToast(e.message || 'Không mở được hoá đơn.', 'error')
     } finally {
       dangTai.value = false
     }
@@ -56,7 +71,7 @@ async function moTabMoi() {
     blobUrl.value = url
     window.open(url, '_blank', 'noopener')
   } catch (e) {
-    showToast(e.message || 'Không mở được hoá đơn nháp.', 'error')
+    showToast(e.message || 'Không mở được hoá đơn.', 'error')
   }
 }
 
@@ -64,7 +79,7 @@ async function taiVe() {
   try {
     await api.downloadFile(props.urlPdf, 'hoa-don-nhap.pdf')
   } catch (e) {
-    showToast(e.message || 'Không tải được hoá đơn nháp.', 'error')
+    showToast(e.message || 'Không tải được hoá đơn.', 'error')
   }
 }
 </script>
@@ -77,23 +92,23 @@ async function taiVe() {
     <div v-if="duLieu && duLieu.canh_bao" class="note">⚠ {{ duLieu.canh_bao }}</div>
 
     <template v-if="urlPdf">
-      <p v-if="dangTai" class="tag">Đang mở hoá đơn nháp…</p>
+      <p v-if="dangTai" class="tag">Đang mở hoá đơn…</p>
       <iframe
         v-else-if="blobUrl && !isMobile"
         :src="blobUrl"
-        title="Hoá đơn nháp"
+        title="Hoá đơn"
         style="width: 100%; height: 70vh; border: 1px solid var(--line); border-radius: 8px"
       ></iframe>
-      <button v-else class="btn-o btn-sm" @click="moTabMoi">📄 Mở hoá đơn nháp</button>
+      <button v-else class="btn-o btn-sm" @click="moTabMoi">📄 Xem hoá đơn</button>
       <p style="margin-top: 8px">
-        <button class="btn-o btn-sm" @click="taiVe">⬇ Tải hoá đơn nháp</button>
+        <button class="btn-o btn-sm" @click="taiVe">⬇ Tải hoá đơn</button>
       </p>
     </template>
 
     <!-- DỰ PHÒNG: Fast chưa dựng xong file. -->
     <template v-else-if="duLieu">
       <p class="tag">
-        Bản in thử PDF đang được tạo — nội dung hoá đơn nháp xem đầy đủ bên dưới.
+        Bản PDF đang được tạo — nội dung hoá đơn xem đầy đủ bên dưới.
       </p>
       <p class="tag">
         {{ duLieu.loai || 'Hoá đơn gốc' }}

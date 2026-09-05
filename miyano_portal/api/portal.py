@@ -5,16 +5,20 @@ from miyano_portal.dat_hang import (
     _insert_so_idempotent,
     _resolve_item_warehouse,
 )
+from miyano_portal.api.de_xuat import _phieu_cua_toi
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
+    _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
+    duoc_sua_don_da_duyet,
     get_portal_customer,
     get_portal_member,
     han_muc_con,
     khoa_phong_cho_don,
     la_quan_ly,
+    lien_he_nguoi_dung,
     pham_vi_don,
 )
 from miyano_portal.ma_de_xuat import sinh_ma
@@ -670,6 +674,18 @@ def _dam_bao_phieu_tu_duyet(
         "custom_de_xuat": doc.name,
         "custom_ma_tra_cuu": doc.ma_de_xuat,
     })
+
+    # Task 4 — ghi SAU `doc.insert()`: trước điểm đó `doc.name` còn rỗng
+    # (đơn tự duyệt của quản lý — hàm này SINH RA phiếu, không đi qua
+    # gui_duyet()/duyet() nên không có dòng nhật ký nào khác kể việc này).
+    # `vai=VAI_HE_THONG` (brief) — không phải hành động của MỘT người,
+    # `nguoi_thao_tac` bỏ trống đúng ngữ nghĩa `nhat_ky.ghi()` dành cho vai
+    # đó, tương tự `duyet_va_tao_don`.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_DON_TAO, customer=customer, khoa_phong=khoa_phong,
+        de_xuat=doc.name, sales_order=sales_order, vai=nhat_ky.VAI_HE_THONG,
+    )
     return doc.name
 
 
@@ -916,13 +932,21 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     rows = frappe.get_list(
         "Sales Order",
         filters=filters, or_filters=or_filters,
-        # review (Phần C báo thiếu) — custom_loai_don/workflow_state/
-        # custom_yeu_cau_goc: danh sách đơn không phân biệt được đơn "Mua
-        # lẻ" với "Theo HĐNT" (badge/icon giỏ 2 ngăn), và không biết đơn nào
-        # đang "Chờ khách đồng ý" để hiện banner ngay trên danh sách thay vì
-        # bắt khách mở từng đơn.
+        # review (Phần C báo thiếu) — workflow_state/custom_yeu_cau_goc:
+        # danh sách đơn cần biết đơn nào đang "Chờ khách đồng ý" để hiện
+        # banner ngay trên danh sách thay vì bắt khách mở từng đơn.
+        #
+        # Task 7 — `custom_loai_don` ĐÃ BỎ khỏi danh sách này. Nó từng được
+        # trả ra dưới tên `loai_don` cho một badge "Mua lẻ / Theo HĐNT" trên
+        # màn danh sách; badge đó không còn tồn tại và KHÔNG view nào đọc
+        # khoá đó từ endpoint này (`OrderDetail.vue` là nơi duy nhất đọc
+        # `loai_don`, và nó được `portal_order_track` nuôi). Giữ lại thì
+        # phải giữ đúng nghĩa MỚI của giá trị ở một chỗ thứ hai không ai
+        # dùng — thêm một bản soi gương để trôi lệch, không đổi lại được gì.
+        # Bỏ CẢ cột khỏi `fields`, không chỉ bỏ dòng đổi tên: để cột lại mà
+        # bỏ dòng đổi tên là rò thẳng tiền tố nội bộ `custom_` ra response.
         fields=["name", "transaction_date", "grand_total", "status", "per_delivered",
-                "custom_loai_don", "workflow_state", "custom_yeu_cau_goc",
+                "workflow_state", "custom_yeu_cau_goc",
                 "custom_ma_tra_cuu"],
         # tiebreak `name` — `transaction_date`/`creation` không đủ duy
         # nhất giữa hai trang (brief 2026-08-15).
@@ -931,12 +955,6 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     )
     for r in rows:
         r["status_vi"] = _so_status_vi_full(r.pop("status"), r.get("per_delivered"), r.get("workflow_state"))
-        # Đổi tên khoá `custom_loai_don` -> `loai_don`: KHÔNG rò tiền tố nội
-        # bộ `custom_` của Frappe ra response công khai, và khớp đúng tên
-        # khoá `portal_order_track` đã dùng cho CÙNG khái niệm — hai endpoint
-        # trả hai tên khác nhau cho một field là bẫy tiếp theo đang chờ xảy
-        # ra (client đọc đúng ở màn này, sai ở màn kia).
-        r["loai_don"] = r.pop("custom_loai_don") or "Theo HĐNT"
         r["yeu_cau_goc"] = r.pop("custom_yeu_cau_goc") or ""
         # Task 6, QĐ-A4 — mã của khách (`DXA-HUYETHOC-260819-01`), CẠNH
         # `name` (SAL-ORD-*, mã hệ thống), không THAY nó: khách đọc mã của
@@ -964,13 +982,36 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
 # nguồn duy nhất cho cả hàm suy nhãn chi tiết, danh sách trạng thái ghi đè,
 # và khối CASE này. Ba bản sao chuỗi là đúng cách `Từ chối` lọt lưới lần
 # đầu: nó được đặc biệt hoá ở cấp phiếu mà quên ở cấp đơn.
-GIAI_DOAN_NHAP = "Nháp"
-GIAI_DOAN_CHO_DUYET = "Chờ duyệt"
-GIAI_DOAN_DA_DUYET = "Đã duyệt"
-GIAI_DOAN_CHO_BAO_GIA = "Chờ báo giá"
-GIAI_DOAN_DA_GIAO = "Đã giao"
-GIAI_DOAN_TU_CHOI = "Từ chối"
-GIAI_DOAN_DA_HUY = "Đã huỷ"
+# Ruling P54 (chủ đầu tư, 26/08/2026) — TÁCH KHOÁ KHỎI NHÃN.
+#
+# Tới trước bản này, bảy hằng số dưới đây là CHÍNH CHỮ TIẾNG VIỆT in trên
+# chip. Cùng một chuỗi vì thế gánh BA vai: chữ hiển thị, khoá lọc
+# `giai_doan` của `portal_yeu_cau_cua_toi`, và giá trị đi trong URL
+# (`?chip=` — `YeuCauList.vue` ghi vào, `DeXuatDetail.vue` mang trả lại).
+# Hệ quả: sửa một chữ vì lý do BIÊN TẬP làm chết mọi liên kết đã gửi cho
+# bệnh viện. Đó là đúng lớp lỗi "một thứ gánh hai vai" mà cả nhánh này đang
+# sửa, chỉ là lần này nó nằm ở một chuỗi chứ không ở một cột.
+#
+# Nay: hằng số là KHOÁ NỘI BỘ, ASCII, không dấu, và KHÔNG BAO GIỜ ĐỔI THEO
+# LỜI HIỂN THỊ NỮA. Nhãn tiếng Việt ("Nháp", "Chờ quý vị đồng ý", …) sống ở
+# ĐÚNG MỘT nơi: `frontend/src/format.js::NHAN_GIAI_DOAN`.
+#
+# CỐ Ý KHÔNG đặt thêm một bảng nhãn ở đây rồi trả kèm trong response. Chip
+# phải vẽ được TRƯỚC khi có dòng nào tải về, nên giao diện buộc phải giữ
+# bảng ánh xạ của nó; thêm một bản thứ hai ở máy chủ là dựng lại đúng cái
+# ngã ba mà `_so_status_vi`/`_so_status_vi_full` đã phải gộp lại một lần
+# rồi, và mà docstring `_sql_giai_doan()` ngay dưới tự dặn phải tránh.
+#
+# `cho_khach_dong_y` đọc theo ĐÚNG `workflow_state` mà nó ánh xạ tới ("Chờ
+# khách đồng ý"), không theo tên cũ "chờ báo giá" — tên cũ nói ngược chiều
+# việc đang chờ ai.
+GIAI_DOAN_NHAP = "nhap"
+GIAI_DOAN_CHO_DUYET = "cho_duyet"
+GIAI_DOAN_DA_DUYET = "da_duyet"
+GIAI_DOAN_CHO_KHACH_DONG_Y = "cho_khach_dong_y"
+GIAI_DOAN_DA_GIAO = "da_giao"
+GIAI_DOAN_TU_CHOI = "tu_choi"
+GIAI_DOAN_DA_HUY = "da_huy"
 
 # Năm giai đoạn của QĐ-G11 + HAI ngõ cụt. Hai ngõ cụt KHÔNG phải phần thừa:
 # chúng là trạng thái THẬT mà chính người dùng đưa yêu cầu của mình vào
@@ -978,9 +1019,49 @@ GIAI_DOAN_DA_HUY = "Đã huỷ"
 # tìm lại nó ngay sau đó — đúng bài học "Việc (d)" của `DeXuatList.vue`.
 GIAI_DOAN_HOP_LE = (
     GIAI_DOAN_NHAP, GIAI_DOAN_CHO_DUYET, GIAI_DOAN_DA_DUYET,
-    GIAI_DOAN_CHO_BAO_GIA, GIAI_DOAN_DA_GIAO,
+    GIAI_DOAN_CHO_KHACH_DONG_Y, GIAI_DOAN_DA_GIAO,
     GIAI_DOAN_TU_CHOI, GIAI_DOAN_DA_HUY,
 )
+
+# BÍ DANH — bộ nhãn CŨ đã từng vừa là chữ hiển thị vừa là khoá, tức chính
+# những chuỗi đã đi ra ngoài trong `?chip=` và trong mọi lời gọi API viết
+# trước 26/08/2026. Một liên kết hợp lệ ngày hôm qua không được ném lỗi,
+# cũng không được rơi lặng lẽ về "Tất cả".
+#
+# ĐÓNG BĂNG. Không thêm nhãn MỚI vào đây — thêm là buộc lại nhãn vào định
+# danh, đúng thứ P54 vừa gỡ ra. Bảng này chỉ được PHÉP co lại (khi đã chắc
+# không còn liên kết cũ nào ngoài đời), không được phép nở ra.
+BI_DANH_GIAI_DOAN_CU = {
+    "Nháp": GIAI_DOAN_NHAP,
+    "Chờ duyệt": GIAI_DOAN_CHO_DUYET,
+    "Đã duyệt": GIAI_DOAN_DA_DUYET,
+    "Chờ báo giá": GIAI_DOAN_CHO_KHACH_DONG_Y,
+    "Đã giao": GIAI_DOAN_DA_GIAO,
+    "Từ chối": GIAI_DOAN_TU_CHOI,
+    "Đã huỷ": GIAI_DOAN_DA_HUY,
+}
+
+
+def _khoa_giai_doan(giai_doan: str) -> str:
+    """Chuẩn hoá tham số `giai_doan` của client về KHOÁ nội bộ.
+
+    Nhận khoá mới, HOẶC một nhãn cũ trong `BI_DANH_GIAI_DOAN_CU`. Mọi thứ
+    khác vẫn NÉM y như trước — bí danh là một lối vào có DANH SÁCH, không
+    phải một cái cống.
+
+    KHÔNG viết thành `return BI_DANH_GIAI_DOAN_CU.get(gd, gd)`: dạng đó cho
+    MỌI chuỗi lạ đi thẳng qua, biến phép lọc thành im lặng trả rỗng thay vì
+    báo lỗi — đúng thứ `test_giai_doan_la_thi_bao_loi_chu_khong_am_tham_bo_
+    loc` canh từ Task 11.
+    """
+    if giai_doan in GIAI_DOAN_HOP_LE:
+        return giai_doan
+    khoa = BI_DANH_GIAI_DOAN_CU.get(giai_doan)
+    if khoa:
+        return khoa
+    frappe.throw(
+        f"Giai đoạn không hợp lệ: {giai_doan}", frappe.ValidationError
+    )
 
 
 def _sql_giai_doan(tt: str, so: str) -> str:
@@ -1010,10 +1091,12 @@ def _sql_giai_doan(tt: str, so: str) -> str:
     đã nói đủ phần còn lại; đổi lại, đơn giao gần đủ nằm ở "Đã duyệt" lâu
     hơn, chấp nhận được.
 
-    "Chờ báo giá" = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` — báo
-    giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin lại
-    giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
+    `cho_khach_dong_y` = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` —
+    báo giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin
+    lại giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
     lúc giao hàng, nên chip này TỚI ĐƯỢC chứ không phải một chip luôn rỗng.
+    Ruling P54 — khối CASE này sinh KHOÁ chứ không sinh nhãn tiếng Việt, nên
+    nó cũng thôi phải nhét chữ có dấu vào chuỗi SQL.
     `null` trên `{tt}` (nhánh đơn) làm mọi phép so sánh trạng thái phiếu ra
     NULL — falsy trong SQL — nên nhánh đó rơi thẳng xuống các luật đơn hàng
     mà không cần một biểu thức riêng.
@@ -1032,13 +1115,13 @@ def _sql_giai_doan(tt: str, so: str) -> str:
         when {so}.status in ('Completed', 'Closed') or {so}.per_delivered >= 100
             then '{GIAI_DOAN_DA_GIAO}'
         when {so}.workflow_state in ('{TRANG_THAI_CHO_KHACH}', '{WF_BAO_GIA_HET_HAN}')
-            then '{GIAI_DOAN_CHO_BAO_GIA}'
+            then '{GIAI_DOAN_CHO_KHACH_DONG_Y}'
         else '{GIAI_DOAN_DA_DUYET}'
     end"""
 
 
 @frappe.whitelist()
-def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
+def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -> dict:
     """QĐ-G11 — danh sách HỢP NHẤT phiếu đề xuất + đơn hàng, MỘT dòng cho
     mỗi yêu cầu, ở bất kỳ giai đoạn nào của dòng đời.
 
@@ -1065,13 +1148,25 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
     ĐÚNG MỘT trang đã tải chính là hồi quy đã phải vá cho `Orders.vue`
     (brief 2026-08-16).
 
-    "Duyệt" (`/duyet`) KHÔNG gộp vào đây: đó là HÀNG CHỜ VIỆC của quản lý,
-    khác mục đích với *danh sách của tôi*.
+    03/09/2026 — màn `/duyet` (hàng chờ riêng của quản lý) đã NGHỈ: việc
+    duyệt vốn nằm ở màn CHI TIẾT phiếu, `/duyet` chỉ là một danh sách thứ
+    hai của cùng bộ dữ liệu. Hàng chờ ấy nay là chính danh sách này lọc
+    `giai_doan="cho_duyet"` — cùng bộ trạng thái, vì `_sql_giai_doan()` gom
+    CẢ "Chờ duyệt" LẪN "Chờ duyệt sửa" vào khoá đó, đúng hai trạng thái mà
+    `frontend/src/cho-duyet.js` đếm cho badge nav.
+
+    `khoa_phong` sang từ màn đó cùng lúc (yêu cầu gốc chủ đầu tư ghi trong
+    `DuyetList.vue`: "quản lý sẽ filter theo khoa … để biết khoa nào đang
+    mua cái gì mà duyệt"). Nó CHỈ THU HẸP: bộ lọc phạm vi (`dk_phieu`/
+    `dk_don`) đã kẹp trước, nên một nhân viên khoa gõ tay khoa của người
+    khác nhận về RỖNG, không phải dữ liệu khoa đó. Lọc ở SQL cạnh
+    `giai_doan`, không ở client — cùng lý do đã ghi ngay trên.
     """
-    if giai_doan and giai_doan not in GIAI_DOAN_HOP_LE:
-        frappe.throw(
-            f"Giai đoạn không hợp lệ: {giai_doan}", frappe.ValidationError
-        )
+    # Ruling P54 — nhận KHOÁ, và nhận cả nhãn CŨ qua bí danh (link `?chip=`
+    # đã gửi cho bệnh viện, script bên ngoài viết trước 26/08/2026). Chuẩn
+    # hoá NGAY ĐÂY, một lần, để phần dưới chỉ còn làm việc với khoá.
+    if giai_doan:
+        giai_doan = _khoa_giai_doan(giai_doan)
 
     tv = get_portal_member()
     tham_so = {"kh": tv.customer}
@@ -1132,16 +1227,27 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None) -> dict:
     """
     trong = nhanh_phieu + (f" union all {nhanh_don}" if co_nhanh_don else "")
 
-    dk_giai_doan = ""
+    # Hai bộ lọc GIAO nhau, dựng cùng một chỗ: quản lý mở chip "Chờ duyệt"
+    # rồi chọn khoa là ca dùng chính sau khi màn `/duyet` nghỉ. Áp ở lớp
+    # NGOÀI (trên `t`) chứ không nhét vào `dk_phieu`/`dk_don`: nhánh đơn
+    # lấy khoa từ một cột khác (`so.custom_khoa_phong`, có thể không tồn
+    # tại trên site chưa chạy patch v1_23 — khi đó `cot_khoa_don` là
+    # `null`), nên một điều kiện duy nhất trên cột đã hợp nhất `t.khoa_
+    # phong` là nơi duy nhất luật này không phải viết hai lần.
+    dieu_kien = []
     if giai_doan:
         tham_so["gd"] = giai_doan
-        dk_giai_doan = " where t.giai_doan = %(gd)s"
+        dieu_kien.append("t.giai_doan = %(gd)s")
+    if khoa_phong:
+        tham_so["kp"] = khoa_phong
+        dieu_kien.append("t.khoa_phong = %(kp)s")
+    dk_ngoai = (" where " + " and ".join(dieu_kien)) if dieu_kien else ""
 
     tong = frappe.db.sql(
-        f"select count(*) from ({trong}) t{dk_giai_doan}", tham_so
+        f"select count(*) from ({trong}) t{dk_ngoai}", tham_so
     )[0][0]
     rows = frappe.db.sql(
-        f"""select * from ({trong}) t{dk_giai_doan}
+        f"""select * from ({trong}) t{dk_ngoai}
             order by t.thoi_diem desc, t.khoa_sap_xep desc
             limit %(limit)s offset %(start)s""",
         {**tham_so, "limit": int(limit), "start": int(start)},
@@ -1224,7 +1330,7 @@ def _kiem_hang_tom_tat(r) -> dict | None:
     }
 
 
-def _hoa_don_cua_don(order: str) -> list:
+def _hoa_don_cua_don(order: str, customer: str) -> list:
     """Hoá đơn phát sinh từ CHÍNH đơn hàng này.
 
     Khoảng trống đã nêu trong đối chiếu 2026-08-16: cổng có mốc "Hoá đơn"
@@ -1251,6 +1357,50 @@ def _hoa_don_cua_don(order: str) -> list:
                 "grand_total", "outstanding_amount"],
         order_by="posting_date asc",
     )
+    # BA KHOÁ HĐĐT (chủ đầu tư chốt 05/09/2026) — trước bản này khối "Hoá
+    # đơn của đơn này" trên màn chi tiết tải BẢN IN CỦA ERP
+    # (`portal_document_download`), trong khi trang "Hoá đơn & công nợ" tải
+    # BẢN THỂ HIỆN HOÁ ĐƠN ĐIỆN TỬ của Fast. Hai màn cùng một nút "PDF" giao
+    # hai tờ giấy khác nhau cho cùng một hoá đơn, và tờ ở đây không phải
+    # chứng từ thuế.
+    #
+    # KHÔNG viết lại logic HĐĐT ở đây: gọi đúng `einvoice.block_for()` mà
+    # `portal_invoices` đang gọi. Một chốt "tải được hay chưa" thứ hai là hai
+    # nơi lệch nhau, và nơi lệch sẽ hoặc giấu mất hoá đơn thật, hoặc hiện một
+    # nút bấm vào là lỗi.
+    #
+    # Chỉ lấy BA khoá, không bê nguyên khối: hình dạng đầy đủ của `block_for`
+    # là hợp đồng API của `portal_invoices` (bản chính + mọi bản điều chỉnh/
+    # thay thế + cảnh báo pháp lý), và màn chi tiết đơn KHÔNG dựng lại giao
+    # diện đó — nó chỉ cần biết "tải được chưa", "đang ở trạng thái gì" và
+    # "số hoá đơn nào", rồi trỏ khách sang trang Hoá đơn để xem đủ.
+    #
+    # Bọc try/except cùng lý do (và cùng khuôn) với `dn_co_hoa_don_nhap` ở
+    # `portal_order_track`: module HĐĐT là của team khác — nó hỏng thì mất
+    # BA KHOÁ, không được mất cả trang chi tiết đơn hàng. Bọc NGOÀI vòng lặp
+    # nên một lần hỏng ghi đúng MỘT log, không N log.
+    khoi_hddt = {}
+    try:
+        for r in rows:
+            khoi_hddt[r.name] = einvoice.block_for(r.name, customer)["chinh"]
+    except Exception:
+        frappe.log_error(title=f"HĐĐT: không đọc được khối hoá đơn cho đơn {order}")
+        khoi_hddt = {}
+
+    def _hddt(ten: str) -> dict:
+        chinh = khoi_hddt.get(ten) or {}
+        return {
+            # `tai_duoc` là cờ boolean của chính adapter — KHÔNG BAO GIỜ đưa
+            # đường dẫn file ra SPA (BR-E4, xem docstring `block_for`).
+            "hddt_tai_duoc": bool(chinh.get("tai_duoc")),
+            # Nhãn để hiện THAY CHO nút khi chưa tải được: "hide, don't
+            # disable" — một nút chắc chắn báo lỗi lúc bấm dạy người dùng sợ
+            # thanh công cụ. Rỗng khi module HĐĐT hỏng; giao diện tự lùi về
+            # câu mặc định của nó.
+            "hddt_nhan": chinh.get("nhan") or "",
+            "hddt_so": chinh.get("so") or "",
+        }
+
     return [
         {
             "name": r.name,
@@ -1259,6 +1409,7 @@ def _hoa_don_cua_don(order: str) -> list:
             "trang_thai": r.status,
             "tong_tien": float(r.grand_total or 0),
             "con_no": float(r.outstanding_amount or 0),
+            **_hddt(r.name),
         }
         for r in rows
     ]
@@ -1467,9 +1618,36 @@ def portal_order_track(order) -> dict:
     # CHUNG với `portal_order_history`, không viết tay điều kiện này hai lần.
     status_vi = _so_status_vi_full(so.status, so.per_delivered, so.get("workflow_state"))
 
+    # Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()`, KHÔNG
+    # một bản suy lại ở client (`ChiTietYeuCau.vue` từng có một bản như vậy,
+    # thiếu ba nhánh: 'Miyano đã từ chối', 'Closed', 'Báo giá hết hạn' — ba
+    # nhãn SAI trạng thái trên cùng một tài liệu đứng cạnh danh sách đọc
+    # đúng). MỘT định nghĩa, dùng lại chính biểu thức lọc/đếm/hiển thị của
+    # danh sách — `tt` truyền `null` vì hàm này KHÔNG có phiếu đứng trước để
+    # hỏi (đường vào là chính Sales Order, xem `_sql_giai_doan()` docstring
+    # về nhánh "đơn-không-qua-đề-xuất").
+    giai_doan = frappe.db.sql(
+        f"select {_sql_giai_doan('null', 'so')} from `tabSales Order` so where so.name = %s",
+        so.name,
+    )[0][0]
+
     return {
         "order": so.name,
         "status_vi": status_vi,
+        "giai_doan": giai_doan,
+        # Ruling P49 — `docstatus` để màn chi tiết TẮT nhãn "Có hàng chờ báo
+        # giá" khi đơn đã được xác nhận. Trên một đơn đã giao xong, nhãn đó
+        # không phải một phân loại sai — nó là một lời nói SAI VỀ HIỆN TẠI:
+        # vòng báo giá diễn ra lúc đơn còn nháp (`docstatus == 0`), nên
+        # `docstatus == 1` là đúng lằn ranh. `custom_loai_don` KHÔNG được tự
+        # tắt theo (nó là DẤU ghi lại đường đơn đã đi, xem `di_vong_bao_gia`)
+        # — cái tắt là NHÃN, không phải dấu.
+        "docstatus": so.docstatus,
+        # Task 7 — CÂU TRẢ LỜI của guard vai trò (`portal_context.
+        # duoc_sua_don_da_duyet`), để `OrderDetail.vue` ẨN khối sửa số lượng
+        # thay vì hiện một nút server luôn từ chối. Xem docstring hàm đó về
+        # lý do không để client tự suy từ `ma_tra_cuu`.
+        "duoc_sua_da_duyet": duoc_sua_don_da_duyet(so),
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
@@ -1479,6 +1657,23 @@ def portal_order_track(order) -> dict:
         # Task 6, QĐ-A4 — cùng khoá `ma_tra_cuu` với `portal_order_history`,
         # xem chú thích ở đó. Đơn cũ không có phiếu đề xuất đứng sau: rỗng.
         "ma_tra_cuu": so.get("custom_ma_tra_cuu") or "",
+        # 03/09/2026 (màn chi tiết GỘP) — phiếu đề xuất đứng sau đơn này.
+        # Vào màn bằng đường `/yeu-cau/don/<name>` (link trong mọi thông báo
+        # đã gửi đi, xem `_lien_ket_thong_bao`) thì đây là đường DUY NHẤT tìm
+        # ngược ra phiếu: `Sales Order.name` và `Portal De Xuat Mua.name`
+        # là hai naming khác nhau, không suy ra nhau được.
+        #
+        # `""` (không phải thiếu khoá) cho ~102 đơn cũ có TRƯỚC luồng duyệt:
+        # màn gộp đọc khoá này để quyết định có nạp nửa phiếu hay không, và
+        # một khoá vắng mặt buộc client phải đoán.
+        "de_xuat": so.get("custom_de_xuat") or "",
+        # Ruling P42 — giai đoạn "Đã giao" đòi `>= 100`, KHÔNG phải `> 0`.
+        # Payload đã có `milestones[delivering].done` nhưng cờ đó là `> 0`
+        # (giao một thùng cũng bật), nên nó KHÔNG thay được con số này. Màn
+        # gộp đọc `per_delivered` để suy giai đoạn — cùng luật với
+        # `_sql_giai_doan()` mà danh sách đang dùng, không phải một luật
+        # thứ hai viết riêng cho màn chi tiết.
+        "per_delivered": float(so.per_delivered or 0),
         # review (Phần C báo thiếu)
         "loai_don": so.get("custom_loai_don") or "Theo HĐNT",
         "workflow_state": so.get("workflow_state") or "",
@@ -1509,16 +1704,35 @@ def portal_order_track(order) -> dict:
             # khoá nghiệp vụ tự nhiên nào khác (ten_hang/dvt có thể trùng
             # giữa hai dòng) — `portal_order_sua_so_luong` khớp payload sửa
             # số lượng theo `name` của chính child row này.
+            # CHÍN TRƯỜNG CR-03 (05/09/2026) — trả về ở đây vì `KhoiBaoGia
+            # .moGuiLai()` đọc chính endpoint này để dựng lại giỏ khi khách
+            # sửa và gửi lại. Thiếu chúng thì màn hình có người TIÊU THỤ mà
+            # không có người SINH: khách sửa phiếu xong là model/hãng/ảnh họ
+            # đã khai biến mất lặng lẽ, và không lỗi nào nổ ra.
+            #
+            # Đây đúng lớp lỗi `BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt
+            # NĂM lần, chỉ đảo chiều: bốn lần trước là "API trả về mà không
+            # màn nào đọc", lần này là "màn hình đọc mà API không trả".
+            #
+            # `anh` giữ nguyên dạng chuỗi JSON như đã lưu — client tự tách.
+            # KHÔNG trả đường dẫn tệp nào khác: ảnh riêng tư chỉ đi qua
+            # `portal_dat_ngoai_xem_anh`, kiểm sở hữu từng lần xem.
             {"name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
              "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
-             "item_khop": d.item_khop or ""}
+             "item_khop": d.item_khop or "",
+             "model_ma": d.model_ma or "", "hang_san_xuat": d.hang_san_xuat or "",
+             "nuoc_san_xuat": d.nuoc_san_xuat or "", "quy_cach": d.quy_cach or "",
+             "ncc_hien_tai": d.ncc_hien_tai or "",
+             "gia_hien_tai": float(d.gia_hien_tai or 0),
+             "anh": d.anh or "", "khong_co_anh": bool(d.khong_co_anh),
+             "mo_ta_nhan_dang": d.mo_ta_nhan_dang or ""}
             for d in (so.get("custom_dat_ngoai") or [])
         ],
         "deliveries": deliveries,
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
-        "hoa_don": _hoa_don_cua_don(so.name),
+        "hoa_don": _hoa_don_cua_don(so.name, so.customer),
         # Miyano hẹn lại lịch giao (2026-08-16, vai nhân viên). `None` khi
         # chưa có lời hẹn nào — client ẩn hẳn khối, không hiện một khung rỗng.
         "hen_giao": hen_giao_cua_don(so),
@@ -1609,7 +1823,7 @@ def portal_deliveries(limit=20, start=0) -> list:
 
 
 @frappe.whitelist()
-def portal_invoices(limit=20, start=0) -> dict:
+def portal_invoices(limit=20, start=0, ten=None) -> dict:
     """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
     `{"rows": [...], "tong": N, "qua_han_thanh_toan": ..., "sap_den_han_
     so_luong": ...}`, LUÔN LUÔN (endpoint này không nuôi dropdown nào). Đã
@@ -1623,7 +1837,28 @@ def portal_invoices(limit=20, start=0) -> dict:
     lặng đúng kiểu brief cảnh báo. Cùng công thức `daysUntil()`
     (frontend/src/format.js): quá hạn = hạn TT đã qua hôm nay; sắp đến hạn
     = còn 0-7 ngày VÀ còn nợ.
+
+    `ten` (chủ đầu tư chốt 05/09/2026) — LỌC danh sách về ĐÚNG MỘT hoá đơn.
+    Thêm vào để số hoá đơn trên màn chi tiết đơn bấm được: không có nó, liên
+    kết chỉ mở đúng dòng khi hoá đơn tình cờ nằm ở TRANG ĐANG XEM, còn một
+    hoá đơn cũ của bệnh viện nhiều năm giao dịch thì bấm vào không thấy gì —
+    một liên kết chạy lúc được lúc không còn tệ hơn không có liên kết.
+
+    THÊM VÀO, không đổi hợp đồng: bỏ trống thì hành vi giữ nguyên từng dấu
+    phẩy, và hình dạng trả về không đổi ở cả hai nhánh.
+
+    `ten` KHÔNG phải chốt an ninh và không được coi là chốt: nó chỉ CỘNG
+    THÊM vào `pham_vi_hd` — bộ lọc phạm vi (khách hàng + khoa phòng) vẫn
+    chạy nguyên vẹn, nên gõ tên hoá đơn của bệnh viện khác vẫn trả rỗng.
+
+    Hai con số KPI (`qua_han_thanh_toan`/`sap_den_han_so_luong`) CỐ Ý KHÔNG
+    lọc theo `ten`: chúng nói về TỔNG CÔNG NỢ của đơn vị, không phải về dòng
+    đang xem. Lọc chúng theo một hoá đơn là biến thẻ "công nợ quá hạn" thành
+    một con số khác hẳn tuỳ khách vừa bấm vào đâu — đúng dạng hồi quy im
+    lặng mà đoạn trên đang cảnh báo. `tong` thì CÓ lọc, vì nó là tổng số
+    dòng của chính danh sách này (phân trang đọc nó).
     """
+    loc_ten = [["name", "=", ten]] if ten else []
     # Bước 8 — CẢ BA truy vấn dưới đây phải cùng một bộ lọc khoa phòng: đây
     # là đúng bẫy "hồi quy im lặng" mà docstring hàm này đang cảnh báo (phân
     # trang) áp cho một trục khác — lọc mỗi `rows` mà bỏ sót `tong`/
@@ -1633,7 +1868,7 @@ def portal_invoices(limit=20, start=0) -> dict:
     pham_vi_hd = _loc_qua_don_cha("Sales Invoice Item", "sales_order")
 
     tong = frappe.get_list(
-        "Sales Invoice", filters=pham_vi_hd,
+        "Sales Invoice", filters=loc_ten + pham_vi_hd,
         # `count(distinct name)`, KHÔNG `distinct=True` + `count(name)`: một
         # hoá đơn khớp NHIỀU dòng của cùng một đơn (nhiều mặt hàng) sẽ bị
         # phép nối bảng dòng ở `_loc_qua_don_cha` đếm lặp nếu chỉ đếm `name`.
@@ -1658,7 +1893,7 @@ def portal_invoices(limit=20, start=0) -> dict:
 
     rows = frappe.get_list(
         "Sales Invoice",
-        filters=pham_vi_hd,
+        filters=loc_ten + pham_vi_hd,
         distinct=True,
         # `customer` chỉ dùng NỘI BỘ để đối chiếu sở hữu bản ghi HĐĐT
         # (`einvoice.block_for` — F-08/E7), bị `pop` trước khi trả về, KHÔNG
@@ -1782,6 +2017,172 @@ def _phuc_vu_file(fei_row, field, ten_file, method):
     frappe.local.response.filename = ten_file
     frappe.local.response.filecontent = content
     frappe.local.response.type = "pdf"
+
+
+# --------------------------------------------------------------------------
+# CR-03 — ảnh cho dòng "hàng chưa có trong hệ thống"
+# --------------------------------------------------------------------------
+
+# BR-Y5, dùng lại nguyên văn giới hạn tài liệu BA đã đặt cho đính kèm.
+CR03_TOI_DA_ANH = 5
+CR03_TOI_DA_BYTE = 10 * 1024 * 1024
+CR03_LOAI_ANH = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
+CR03_DUOI_ANH = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
+
+
+def _cr03_danh_sach_anh(gia_tri) -> list:
+    """Đọc field `anh` (chuỗi JSON) thành list. Hỏng thì trả rỗng.
+
+    KHÔNG để lỗi parse ném ra ngoài: field này do hệ thống ghi, nhưng một
+    bản ghi cũ/nhập tay hỏng không được phép làm chết cả màn đặt hàng.
+    """
+    if not gia_tri:
+        return []
+    try:
+        ds = frappe.parse_json(gia_tri)
+    except Exception:
+        return []
+    return [x for x in ds if isinstance(x, str) and x] if isinstance(ds, list) else []
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_tai_anh(de_xuat, dong_idx) -> dict:
+    """CR-03 — khách tải một ảnh cho MỘT dòng "hàng chưa có trong hệ thống".
+
+    Ảnh đính vào chính `Portal De Xuat Mua`, KHÔNG đính vào dòng con: mỗi lần
+    khách sửa giỏ, `de_xuat_luu_nhap` thay TOÀN BỘ bảng `dat_ngoai`
+    (`doc.set("dat_ngoai", …)`), nên một tệp đính theo tên dòng con thành mồ
+    côi ngay lần lưu kế tiếp. Dòng con chỉ giữ danh sách `file_url`.
+
+    Chốt quyền qua `_phieu_cua_toi()` — ĐÚNG chốt mà mọi endpoint phiếu khác
+    dùng (kiểm cả trục khách hàng lẫn trục khoa phòng). Không tự chế bộ lọc.
+
+    Chỉ cho tải khi phiếu còn **Nháp**: sau khi gửi duyệt, nội dung phiếu là
+    thứ quản lý đang đọc để quyết định — thêm ảnh vào lúc đó là đổi hồ sơ
+    dưới chân người đang duyệt.
+    """
+    doc = _phieu_cua_toi(de_xuat)
+    if doc.trang_thai != "Nháp":
+        frappe.throw(
+            "Chỉ thêm ảnh được khi phiếu còn ở trạng thái Nháp.",
+            frappe.ValidationError,
+        )
+
+    try:
+        i = int(dong_idx)
+    except (TypeError, ValueError):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    dong = doc.get("dat_ngoai") or []
+    if not (0 <= i < len(dong)):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    r = dong[i]
+
+    tep = (frappe.request.files or {}).get("file") if frappe.request else None
+    if tep is None:
+        frappe.throw("Không nhận được tệp ảnh.", frappe.ValidationError)
+
+    noi_dung = tep.stream.read()
+    if len(noi_dung) > CR03_TOI_DA_BYTE:
+        frappe.throw(
+            f"Ảnh nặng quá {CR03_TOI_DA_BYTE // (1024 * 1024)}MB. Chụp lại ở "
+            "độ phân giải thấp hơn giúp Miyano.",
+            frappe.ValidationError,
+        )
+
+    ten_goc = tep.filename or "anh.jpg"
+    # Kiểm CẢ mime CLIENT KHAI lẫn đuôi tệp, và cả hai đều phải qua. Mime do
+    # trình duyệt gửi nên không tin được một mình; đuôi tệp cũng vậy. Đây
+    # KHÔNG phải chốt an ninh chống tệp độc — nó chỉ chặn khách vô tình tải
+    # nhầm một PDF hay .docx rồi tưởng đã có ảnh.
+    duoi_ok = any(ten_goc.lower().endswith(d) for d in CR03_DUOI_ANH)
+    mime_ok = (tep.mimetype or "") in CR03_LOAI_ANH
+    if not (duoi_ok and mime_ok):
+        frappe.throw(
+            "Chỉ nhận ảnh (JPG, PNG, WEBP, HEIC). Nếu đang có bản PDF, hãy "
+            "chụp màn hình rồi tải ảnh lên.",
+            frappe.ValidationError,
+        )
+
+    hien_co = _cr03_danh_sach_anh(r.anh)
+    if len(hien_co) >= CR03_TOI_DA_ANH:
+        frappe.throw(
+            f"Mỗi mặt hàng tối đa {CR03_TOI_DA_ANH} ảnh. Xoá bớt một ảnh cũ "
+            "rồi thử lại.",
+            frappe.ValidationError,
+        )
+
+    from frappe.utils.file_manager import save_file
+
+    f = save_file(
+        f"CR03_{doc.name}_{i}_{frappe.generate_hash(length=6)}_{ten_goc}",
+        noi_dung,
+        "Portal De Xuat Mua",
+        doc.name,
+        is_private=1,
+    )
+    hien_co.append(f.file_url)
+    r.anh = frappe.as_json(hien_co)
+    doc.save(ignore_permissions=True)
+    return {"file_url": f.file_url, "anh": hien_co}
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_xoa_anh(de_xuat, dong_idx, file_url) -> dict:
+    """Gỡ một ảnh khỏi dòng. Chỉ gỡ khỏi DANH SÁCH của dòng, KHÔNG xoá
+    `File`: cùng một tệp có thể đang được dòng khác dùng (khách tải lại đúng
+    ảnh đó), và xoá tệp thật là mất dữ liệu để đổi lấy vài KB."""
+    doc = _phieu_cua_toi(de_xuat)
+    if doc.trang_thai != "Nháp":
+        frappe.throw(
+            "Chỉ sửa ảnh được khi phiếu còn ở trạng thái Nháp.", frappe.ValidationError
+        )
+    try:
+        i = int(dong_idx)
+    except (TypeError, ValueError):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    dong = doc.get("dat_ngoai") or []
+    if not (0 <= i < len(dong)):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    r = dong[i]
+    con_lai = [u for u in _cr03_danh_sach_anh(r.anh) if u != file_url]
+    r.anh = frappe.as_json(con_lai)
+    doc.save(ignore_permissions=True)
+    return {"anh": con_lai}
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_xem_anh(de_xuat, file_url) -> None:
+    """Phục vụ một ảnh riêng tư của phiếu.
+
+    VÌ SAO CẦN ENDPOINT NÀY thay vì để trình duyệt gọi thẳng
+    `/private/files/…`: role `Customer` có ZERO DocPerm trên
+    `Portal De Xuat Mua`, nên đường tệp mặc định của Frappe kiểm quyền theo
+    document đính kèm sẽ **403 với chính người vừa tải ảnh lên**. Đường sống
+    của cổng là endpoint whitelist, đúng như mọi chỗ khác.
+
+    Kiểm TỪNG LẦN xem (không tin danh sách đã trả lúc dựng màn): phiếu thuộc
+    người gọi, VÀ `file_url` thật sự đính vào ĐÚNG phiếu đó. Thiếu vế thứ
+    hai thì một `file_url` đoán được của bệnh viện khác vẫn đi qua — Frappe
+    gộp tệp trùng nội dung theo hash nên `file_url` KHÔNG phải một khoá bí
+    mật (cùng bài học đã ghi ở `_phuc_vu_file`).
+    """
+    doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)
+    ten_file = frappe.db.get_value(
+        "File",
+        {
+            "file_url": file_url,
+            "attached_to_doctype": "Portal De Xuat Mua",
+            "attached_to_name": doc.name,
+        },
+        "name",
+    )
+    if not ten_file:
+        raise frappe.PermissionError("Ảnh không thuộc phiếu này.")
+
+    tep = frappe.get_doc("File", ten_file)
+    frappe.local.response.filename = tep.file_name
+    frappe.local.response.filecontent = tep.get_content()
+    frappe.local.response.type = "download"
 
 
 @frappe.whitelist()
@@ -1922,11 +2323,52 @@ def portal_request_cancel(order, reason) -> dict:
     return {"ok": True}
 
 
-@frappe.whitelist()
-def portal_provision(customer, email, send_invite=False) -> dict:
-    # Caller-role guard: only staff (not portal customers) may provision accounts.
+def chan_neu_khong_phai_nhan_vien_miyano() -> None:
+    """Caller-role guard: only staff (not portal customers) may provision accounts.
+
+    Tách thành hàm riêng (Task 15) để đường nhập nhân sự hàng loạt từ Desk
+    (`api/nhan_su.py`) chốt vai trò bằng ĐÚNG MỘT phép so với `portal_provision`
+    — hai bản sao của cùng một danh sách role là kiểu lệch mà dự án này đã trả
+    giá nhiều lần.
+    """
     if not (set(frappe.get_roles()) & {"System Manager", "Sales Manager", "Sales User"}):
         frappe.throw("Không có quyền", frappe.PermissionError)
+
+
+@frappe.whitelist()
+def portal_provision(
+    customer, email, send_invite=False, first_name=None, vai_tro=None, khoa_phong=None,
+    dien_thoai=None,
+) -> dict:
+    """Cấp tài khoản cổng cho một email của một khách hàng.
+
+    Task 15 (QĐ-G21) thêm BA tham số tuỳ chọn cho đường nhập nhân sự từ tệp
+    Excel — bỏ trống cả ba thì hành vi GIỮ NGUYÊN từng dấu phẩy như trước
+    (xem `test_provision.py`, không đổi một dòng nào):
+
+      * `first_name` — tên NGƯỜI. Bỏ trống thì vẫn rơi về `customer` như cũ;
+        đó chính là chỗ khiến tên hiển thị của mọi tài khoản cổng là tên bệnh
+        viện (gốc của lỗi truy vết đã phải vá ở tầng hiển thị, `97fd6e2`).
+      * `vai_tro` + `khoa_phong` — TỜ KHAI THẮNG. Khi người gọi nói rõ vai trò,
+        luật ngầm "tài khoản đầu tiên của một bệnh viện là Quản lý" ở dưới
+        KHÔNG chạy: hai cơ chế cùng quyết một việc là lỗi lặp lại của dự án
+        này. Tài khoản cấp theo tờ khai luôn `active=1` — dùng được ngay,
+        không rơi vào trạng thái chờ-gán-khoa.
+
+    Task 10 thêm tham số THỨ TƯ, giữ đúng lời hứa ở trên — bỏ trống thì hành
+    vi GIỮ NGUYÊN từng dấu phẩy như trước, `test_provision.py` không được đỏ
+    một bài nào:
+
+      * `dien_thoai` — số điện thoại nguồn cho dòng thời gian "Ai đã làm gì"
+        (`User.mobile_no`). Tài khoản MỚI thì đặt thẳng lúc tạo. Tài khoản
+        ĐÃ CÓ (nhánh `elif` dưới) chỉ được ĐIỀN VÀO CHỖ TRỐNG khi
+        `mobile_no` đang rỗng — KHÔNG BAO GIỜ đè lên số đã có, đó là dữ liệu
+        người khác đã nhập. Trường hợp lệch số (đã có số KHÁC) không xử ở
+        đây: nó là quyết định cần người xem xét, không phải hành vi tự động
+        — người gọi (`api/nhan_su.py::_phan_tich`) phải chặn/gắn cờ TRƯỚC khi
+        gọi tới đây, không phải hàm này tự âm thầm bỏ qua.
+    """
+    chan_neu_khong_phai_nhan_vien_miyano()
 
     if not frappe.db.exists("Customer", customer):
         frappe.throw("Không tìm thấy khách hàng.")
@@ -1947,11 +2389,19 @@ def portal_provision(customer, email, send_invite=False) -> dict:
         )
     if not frappe.db.exists("User", email):
         u = frappe.get_doc({
-            "doctype": "User", "email": email, "first_name": customer,
+            "doctype": "User", "email": email, "first_name": first_name or customer,
             "user_type": "Website User", "send_welcome_email": int(send_invite),
         })
+        if dien_thoai:
+            u.mobile_no = dien_thoai
         u.append("roles", {"role": "Customer"})
         u.insert(ignore_permissions=True)
+    elif dien_thoai and not frappe.db.get_value("User", email, "mobile_no"):
+        # Task 10, QĐ-4 — tài khoản ĐÃ CÓ (User có sẵn nhưng đang qua nhánh
+        # tạo mới của `Portal Member`, ví dụ vừa được tạo cho một bệnh viện
+        # khác rồi mới nhập cho bệnh viện này) chỉ được ĐIỀN VÀO CHỖ TRỐNG.
+        # `mobile_no` đang có giá trị thì bỏ qua hẳn nhánh này — không đè.
+        frappe.db.set_value("User", email, "mobile_no", dien_thoai, update_modified=False)
     contact_name = f"{customer}-{email}"
     if not frappe.db.exists("Contact", contact_name):
         ct = frappe.get_doc({"doctype": "Contact", "first_name": customer, "user": email})
@@ -1987,6 +2437,18 @@ def portal_provision(customer, email, send_invite=False) -> dict:
     # hai đường cố ý khác hình nhau, không phải một sai lệch cần hợp nhất.
     if frappe.db.exists("Portal Member", {"user": email}):
         cho_gan_khoa = frappe.db.get_value("Portal Member", {"user": email}, "active") == 0
+    elif vai_tro:
+        # TỜ KHAI THẮNG (Task 15, QĐ-G21) — vai trò và khoa phòng do người
+        # nhập khai trên bảng Excel, không suy từ luật ngầm bên dưới. Vẫn đi
+        # qua `doc.insert()` (không `db.set_value`): toàn bộ phép cách ly
+        # "khoa này có thuộc đúng bệnh viện không" nằm trong
+        # `PortalMember.validate()` — xem giới hạn đã biết của
+        # `_chan_hai_quan_ly` trong portal_member.py.
+        frappe.get_doc({
+            "doctype": "Portal Member", "user": email, "customer": customer,
+            "vai_tro": vai_tro, "khoa_phong": khoa_phong or None, "active": 1,
+        }).insert(ignore_permissions=True)
+        cho_gan_khoa = False
     else:
         da_co_quan_ly = frappe.db.exists(
             "Portal Member", {"customer": customer, "vai_tro": "Quản lý", "active": 1}
@@ -2480,13 +2942,67 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
                 f"[Portal] Khách không đồng ý báo giá {so.name} — lý do: {ghi_chu}",
             )
 
+    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() (và mọi cập nhật
+    # phụ trợ phía trên) đã chạy XONG: ghi trước một việc mà transaction có
+    # thể còn ném lỗi ở dưới sẽ để lại một dòng kể một việc chưa từng xảy
+    # ra. `vai` cố định VAI_QUAN_LY — sổ này không phân biệt người bấm là
+    # quản lý hay nhân viên khoa, chỉ ghi nhận đây là quyết định phía
+    # khách hàng trên đơn (đối lập với quyết định phía Miyano).
+    #
+    # review vòng 2 — `elif action == "khong_dong_y"`, KHÔNG `else` trần.
+    # `action` chỉ có hai giá trị hợp lệ tới được đây (giá trị thứ ba đã bị
+    # `frappe.throw` chặn từ đầu hàm), nên hôm nay hai nhánh tương đương —
+    # nhưng một `else` trần sẽ ÂM THẦM ghi "khách không đồng ý" cho bất kỳ
+    # action hợp lệ THỨ BA nào thêm sau này mà quên sửa khối này. Sổ không
+    # sửa được: thà hỏng ồn ào (không khớp nhánh nào, không ghi gì) còn hơn
+    # ghi sai vĩnh viễn một việc khách chưa từng làm.
+    from miyano_portal import nhat_ky
+    if action == "dong_y":
+        nhat_ky.ghi(
+            nhat_ky.SK_KHACH_DONG_Y,
+            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
+        )
+    elif action == "khong_dong_y":
+        nhat_ky.ghi(
+            nhat_ky.SK_KHACH_KHONG_DONG_Y,
+            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ghi_chu,
+        )
+
     return {"trang_thai_moi": so.get("workflow_state")}
 
 
 @frappe.whitelist()
 def portal_order_sua_so_luong(order, dong) -> dict:
     """Việc 1 / brief 2026-08-15 (bao-gia-hai-chieu) — khách SỬA SỐ LƯỢNG
-    trên một đơn Mua lẻ đang "Chờ khách đồng ý".
+    trên một đơn ĐANG TRONG VÒNG BÁO GIÁ ở bước "Chờ khách đồng ý".
+
+    Task 7 — câu mở trước đây viết "trên một đơn Mua lẻ", mô tả một phép so
+    chuỗi mà mã bên dưới KHÔNG còn thực hiện. Từ Task 4 đơn TRỘN (chín dòng
+    hợp đồng + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3), nên
+    nó cũng sửa được số lượng — đó chính là gốc của lỗi Critical C1 ngày
+    19/08 và là thứ mô hình gộp gỡ ra. Chốt hỏi `portal_mua_le.
+    di_vong_bao_gia(so)`, không hỏi "có phải đơn mua lẻ không".
+
+    NĂM CHỐT, đúng thứ tự hỏi (bản SOI GƯƠNG là `Portal De Xuat Mua.
+    _kiem_don_dung_duoc_xin_sua()` + `_kiem_thay_doi_ap_duoc_len_don()`;
+    hai bên phải kể ra CÙNG danh sách này):
+
+      1. `workflow_state == "Chờ khách đồng ý"`
+      2. `di_vong_bao_gia(so)` — đơn có đi vòng báo giá không
+      3. báo giá còn hiệu lực (BR-R5)
+      4. mọi mã trong payload phải CÒN trên đơn
+      5. đơn còn ít nhất một dòng sau khi sửa
+      (+) phải có thay đổi THẬT (chỉ ở lõi; bản soi gương có chốt tương
+          đương riêng `_loc_thay_doi_that`)
+
+    Ngoài năm chốt trên còn HAI cổng đứng TRƯỚC, KHÔNG thuộc bộ năm và
+    KHÔNG được soi gương ở phiếu đề xuất: quyền xem/sở hữu đơn, và guard
+    VAI TRÒ `dam_bao_duoc_sua_don_da_duyet` (Task 9). Guard vai trò không
+    có bản soi gương vì bản soi gương CHÍNH LÀ đường thay thế của nhân
+    viên khoa (`de_xuat.de_xuat_xin_sua`) — soi nó ở đó sẽ chặn đúng
+    người mà nó tồn tại để phục vụ.
 
     Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
     báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc
@@ -2751,6 +3267,27 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     if de_xuat_ten and doi_items_ap_dung:
         _dong_bo_so_luong_duyet_ve_phieu(de_xuat_ten, doi_items_ap_dung)
 
+    # Task 3 (nhật ký thao tác) — SAU khi đơn đã lưu + chuyển trạng thái +
+    # đồng bộ phiếu đứng sau (nếu có) đều thành công, TRƯỚC return, cùng
+    # lý do/khuôn với `portal_order_accept`. `ghi_chu` đếm SỐ DÒNG
+    # (`len(thay_doi)`), không chép lại nội dung `thay_doi` — sổ chỉ cần
+    # nói "khách gửi lại báo giá cho mấy dòng", chi tiết từng dòng đã có
+    # sẵn trong Comment `so.add_comment()` phía trên.
+    #
+    # review vòng 2 — chữ "dòng THAY ĐỔI", không phải "dòng ĐỔI SỐ LƯỢNG":
+    # `thay_doi` (dựng ở vòng lặp phía trên) gộp CẢ dòng bị BỎ HẲN
+    # (`qty → 0`, xoá khỏi đơn) LẪN dòng `dat_ngoai`, không chỉ dòng thuần
+    # tuý đổi số lượng một hàng thật còn giữ lại. Chữ "đổi số lượng" nói
+    # hẹp hơn thứ con số này thật sự đếm — trên một chứng từ không sửa
+    # được, tên gọi phải khớp đúng phạm vi đang đếm.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA,
+        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
+        ghi_chu=f"{len(thay_doi)} dòng thay đổi",
+    )
+
     return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
 
 
@@ -2834,6 +3371,17 @@ def portal_order_huy(order, ly_do) -> dict:
 
     gui_email_khach_huy(so, ly_do)
 
+    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() + cập nhật yêu
+    # cầu gốc + gửi email đều đã chạy XONG, TRƯỚC return; cùng lý do/khuôn
+    # với hai endpoint phía trên. `ghi_chu` mang đúng lý do huỷ khách nhập
+    # — chứng từ huỷ mất lý do thì không còn gì để tra sau này.
+    from miyano_portal import nhat_ky
+    nhat_ky.ghi(
+        nhat_ky.SK_KHACH_HUY_DON,
+        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
+        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ly_do,
+    )
+
     return {"trang_thai_moi": so.get("workflow_state")}
 
 
@@ -2869,6 +3417,20 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
             # QĐ-G11) nên thông báo CŨ không gãy — nhưng thông báo MỚI phải
             # mang đường mới, không phải một đường sống nhờ lớp tương thích.
             return f"/yeu-cau/don/{document_name}"
+
+        if document_type == "Portal De Xuat Mua":
+            if frappe.db.get_value("Portal De Xuat Mua", document_name, "customer") != customer:
+                return None
+            # 03/09/2026 — trước bản này doctype này KHÔNG có nhánh nào ở
+            # đây, nên mọi thông báo §5.8 về phiếu (gửi duyệt / duyệt / từ
+            # chối / xin sửa) hiện ra KHÔNG có nút đi tới chứng từ: quản lý
+            # đọc "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" rồi phải tự mở
+            # danh sách và tìm lại X bằng mắt.
+            #
+            # Vá được ĐÚNG LÚC NÀY vì chi tiết một yêu cầu vừa có MỘT màn
+            # chính tắc — trước đó, trỏ vào đường phiếu là bỏ nửa đơn, trỏ
+            # vào đường đơn thì phiếu Chờ duyệt chưa có đơn nào để trỏ.
+            return f"/yeu-cau/phieu/{document_name}"
 
         if document_type == "Sales Invoice":
             if frappe.db.get_value("Sales Invoice", document_name, "customer") != customer:
@@ -3278,3 +3840,122 @@ def portal_kiem_hang_gui(delivery_note, dong, ghi_chu=None) -> dict:
         "trang_thai": doc.trang_thai,
         "co_hang_hong": bool(doc.co_hang_hong),
     }
+
+
+# ------------------------------------------------- nhật ký thao tác (Task 5)
+# Thiết kế: docs/superpowers/specs/2026-09-03-nhat-ky-thao-tac-va-timeline-design.md
+
+
+@frappe.whitelist()
+def portal_nhat_ky_yeu_cau(de_xuat=None, order=None) -> list[dict]:
+    """Đọc sổ nhật ký (`miyano_portal.nhat_ky`) của MỘT yêu cầu, cho khối
+    "Truy vết yêu cầu" và dòng thời gian dọc (spec §9/§10).
+
+    KHÔNG tự chế bộ lọc — gọi lại đúng hai chốt phần còn lại của cổng đang
+    gọi: `_phieu_cua_toi(de_xuat, cho_quan_ly=True)` cho phiếu (kiểm CẢ trục
+    khách hàng LẪN trục khoa, và `cho_quan_ly=True` vì đồng nghiệp cùng khoa
+    — không riêng quản lý — cũng phải đọc được nhật ký), `dam_bao_xem_duoc()`
+    cộng `so.check_permission("read")` cho đơn — đúng khuôn `portal_order_
+    track` đã dùng: `dam_bao_xem_duoc` chỉ kiểm trục KHOA (tự no-op cho Quản
+    lý), trục KHÁCH HÀNG vẫn phải dựa vào `check_permission("read")` (đi qua
+    hook `sales_has_permission`, xem docstring `dam_bao_xem_duoc`).
+
+    Lấy dòng theo CẢ HAI khoá (`de_xuat` lẫn `sales_order`) của chứng từ ĐÃ
+    QUA CỬA — một yêu cầu có cả phiếu lẫn đơn thì nhật ký nằm rải ở cả hai
+    (phiếu mang các sự kiện `khoa_*`/`quan_ly_*`, đơn mang `miyano_*`/
+    `khach_*`/`giao_hang`/`hoa_don`), và bỏ sót một khoá là bỏ sót nửa câu
+    chuyện. Không kiểm quyền THÊM một lần cho khoá còn lại — LẬP LUẬN (không
+    phải điều đã tự đo ở đây): đơn suy từ phiếu qua `custom_de_xuat` (hoặc
+    ngược lại) được TẠO RA từ đúng `customer`/`khoa_phong` của phiếu đó
+    (`de_xuat_duyet.duyet_va_tao_don`/`_dam_bao_phieu_tu_duyet`), nên tự nó
+    không phải một chứng từ THỨ HAI cần soát riêng — miễn là không có đường
+    nào khác (vd sửa tay trên Desk) tách `custom_de_xuat` khỏi phiếu gốc của
+    nó sau khi tạo; điều đó nằm ngoài phạm vi kiểm chứng của task này.
+    """
+    # Việc #6a (vòng sửa sau review toàn nhánh) — CẢ HAI nhánh dưới đây
+    # chạm cột `Sales Order.custom_de_xuat` (patch v1_24) mà TRƯỚC bản vá
+    # này không hỏi qua `_cot_de_xuat_ton_tai()` — đúng "bẫy patch hoàn
+    # thành giả" mà docstring hàm đó cảnh (nguồn kiểm tra DUY NHẤT, không
+    # tự hỏi cột rời ở nơi khác). Trên site chưa chạy patch v1_24, nhánh
+    # `de_xuat` ném lỗi SQL 1054 THÔ (WHERE trên cột không tồn tại) thay vì
+    # fail-closed, và nhánh `order` (tuy `so.get()` an toàn về mặt kỹ thuật
+    # — Document.get() trả None cho field không có trong bản ghi đã nạp)
+    # sẽ ÂM THẦM coi mọi đơn là "không có phiếu đứng trước", khác NHẤT
+    # QUÁN với nhánh kia đang fail-closed.
+    if de_xuat:
+        doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)
+        ten_de_xuat = doc.name
+        ten_don = None
+        if _cot_de_xuat_ton_tai():
+            ten_don = frappe.db.get_value(
+                "Sales Order", {"custom_de_xuat": ten_de_xuat}, "name"
+            )
+    elif order:
+        dam_bao_xem_duoc("Sales Order", order)
+        so = frappe.get_doc("Sales Order", order)
+        so.check_permission("read")
+        ten_don = so.name
+        ten_de_xuat = so.get("custom_de_xuat") if _cot_de_xuat_ton_tai() else None
+        doc = frappe.get_doc("Portal De Xuat Mua", ten_de_xuat) if ten_de_xuat else None
+    else:
+        frappe.throw("Cần truyền de_xuat hoặc order.", frappe.ValidationError)
+
+    from miyano_portal import nhat_ky
+
+    dieu_kien = []
+    if ten_de_xuat:
+        dieu_kien.append(["de_xuat", "=", ten_de_xuat])
+    if ten_don:
+        dieu_kien.append(["sales_order", "=", ten_don])
+    hang = frappe.get_all(
+        nhat_ky.DOCTYPE,
+        or_filters=dieu_kien,
+        fields=["su_kien", "thoi_diem", "vai", "nguoi_thao_tac", "ghi_chu"],
+        order_by="thoi_diem asc",
+    )
+
+    def _dong(su_kien, thoi_diem, vai, nguoi, ghi_chu, suy_ra):
+        # `vai == miyano` KHÔNG BAO GIỜ trả email — ranh giới §8, xem
+        # docstring `lien_he_nguoi_dung`. Mọi vai khác giữ hành vi cũ (tên +
+        # email khi hai giá trị khác nhau).
+        return {
+            "su_kien": su_kien,
+            "thoi_diem": thoi_diem,
+            "vai": vai,
+            **lien_he_nguoi_dung(nguoi, cho_hien_tai_khoan=vai != nhat_ky.VAI_MIYANO),
+            "ghi_chu": ghi_chu,
+            "suy_ra": suy_ra,
+        }
+
+    ket_qua = [
+        _dong(r.su_kien, r.thoi_diem, r.vai, r.nguoi_thao_tac, r.ghi_chu, False)
+        for r in hang
+    ]
+
+    # Bước 5 (§9.6) — suy hai dòng cho chứng từ TẠO TRƯỚC khi bật nhật ký.
+    # `nguoi_yeu_cau`/`nguoi_duyet`/`thoi_diem_gui`/`thoi_diem_duyet` là BỐN
+    # trường đã ghi tường minh trên CHÍNH phiếu, có người và có mốc giờ — chỉ
+    # nằm trên chứng từ thay vì trong sổ, KHÔNG phải một suy diễn kiểu
+    # `Version` mà spec §4 đã bác. CHỈ chèn khi KHÔNG có dòng thật cùng loại
+    # — chèn cả hai vô điều kiện sẽ hiện đôi cho MỌI yêu cầu mới (xem
+    # `test_yeu_cau_MOI_khong_bi_hien_doi`).
+    if doc is not None:
+        su_kien_that = {r.su_kien for r in hang}
+        if nhat_ky.SK_KHOA_GUI_DUYET not in su_kien_that and doc.thoi_diem_gui:
+            # `nguoi_yeu_cau or owner` — CÙNG phép suy `de_xuat_chi_tiet`
+            # (`api/de_xuat.py`) đã dùng: không đường mã nào trong app ghi
+            # `nguoi_yeu_cau` cho phiếu lập qua giao diện thật, nên `owner`
+            # mới là người đề nghị thật. Chép lại đúng biểu thức đó ở đây,
+            # không tự dựng một phép suy thứ hai rồi trôi lệch.
+            ket_qua.append(_dong(
+                nhat_ky.SK_KHOA_GUI_DUYET, doc.thoi_diem_gui, nhat_ky.VAI_KHOA,
+                doc.nguoi_yeu_cau or doc.owner, None, True,
+            ))
+        if nhat_ky.SK_QUAN_LY_DUYET not in su_kien_that and doc.thoi_diem_duyet:
+            ket_qua.append(_dong(
+                nhat_ky.SK_QUAN_LY_DUYET, doc.thoi_diem_duyet, nhat_ky.VAI_QUAN_LY,
+                doc.nguoi_duyet, None, True,
+            ))
+        ket_qua.sort(key=lambda d: d["thoi_diem"])
+
+    return ket_qua

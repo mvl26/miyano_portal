@@ -1,7 +1,7 @@
 # Hướng dẫn vận hành: tạo khách hàng · mở kho · thao tác trên cổng
 
 Áp dụng cho app `miyano_portal` (supplycore v2) trên site **erptest.local**.
-Cập nhật: 10/08/2026.
+Cập nhật: 26/08/2026.
 
 Tài liệu này có ba phần cho ba việc khác nhau, làm bởi hai loại người khác nhau:
 
@@ -38,7 +38,7 @@ lỗi gì.
 | 1 | Khách hàng | mọi thứ | `Customer` |
 | 2 | Địa chỉ giao hàng | chọn nơi giao khi đặt hàng | `Address` |
 | 3 | Bảng giá + giá từng mặt hàng | đặt hàng (thiếu giá → chặn đặt) | `Price List` + `Item Price` |
-| 4 | Hợp đồng nguyên tắc | danh mục hàng khách được đặt + hạn mức | `Blanket Order` (Selling) |
+| 4 | Hợp đồng nguyên tắc | giá đã ký + hạn mức cho những mặt hàng trong hợp đồng | `Blanket Order` (Selling) |
 | 5 | Tài khoản đăng nhập | đăng nhập cổng | `User` (Website User) |
 | 6 | Liên kết tài khoản ↔ khách hàng | cổng biết "tôi là ai" | `Contact` + `User Permission` |
 
@@ -78,8 +78,12 @@ cơ sở) — cổng liệt kê hết và chỉ nhận địa chỉ thuộc chí
 
 ### A4. Hợp đồng nguyên tắc (HĐNT)
 
-Trên cổng, **hợp đồng quyết định khách được đặt những mặt hàng nào và tối đa bao
-nhiêu**. Không có hợp đồng còn hiệu lực → màn hình Đặt hàng của khách trống.
+Trên cổng, **hợp đồng quyết định mặt hàng nào có sẵn giá và tối đa bao nhiêu**.
+
+Không có hợp đồng thì màn Đặt hàng của khách **không trống**: khách vẫn tìm được
+toàn bộ danh mục của Miyano, chỉ là mọi dòng đều mang nhãn *Chờ báo giá* và mỗi
+đơn phải đi một vòng báo giá trước khi giao. Có hợp đồng thì hàng thuộc hợp đồng
+đứng đầu danh sách, hiện đơn giá đã ký kèm mã hợp đồng và hạn mức còn lại.
 
 `/app/blanket-order/new`:
 
@@ -98,42 +102,152 @@ hiển thị "còn lại" = hạn mức − đã đặt, và **chặn cứng** �
 
 ### A5. Cấp tài khoản đăng nhập cổng
 
-Ba bản ghi phải khớp nhau, nên **không tạo tay từng cái** mà dùng endpoint có
-sẵn — nó tạo đủ và đúng thứ tự:
+Dùng màn Desk **Nhập nhân sự bệnh viện** — workspace **Kho khách hàng** → shortcut
+cùng tên. Một lần nhập tạo đủ cho cả bệnh viện: tài khoản đăng nhập, khoa phòng
+còn thiếu, vai trò và phân quyền.
 
-```
-bench --site erptest.local execute miyano_portal.api.portal.portal_provision \
-  --kwargs '{"customer": "<Tên khách hàng>", "email": "<email đăng nhập>", "send_invite": false}'
-```
+Chỉ nhân viên Miyano (**System Manager**, **Sales Manager** hoặc **Sales User**)
+mở được màn này.
 
-`portal_provision` tạo:
+**Bốn bước trên màn hình:**
+
+**Bước 1 — Chọn bệnh viện** ở ô trên đầu màn. Bệnh viện **cố ý không có cột trong
+tệp Excel**: một cột "tên bệnh viện" gõ tay là đường để nhập nhầm người của viện
+này sang viện khác.
+
+**Bước 2 — Tải bảng mẫu Excel** rồi gửi cho bệnh viện điền. Đúng sáu cột
+*(từ 04/09/2026, cột thứ sáu là mới)*:
+
+| Cột | Điền gì |
+|---|---|
+| **Họ tên** | tên người dùng tài khoản |
+| **Email** | email đăng nhập — mỗi người một email, không trùng trong tệp |
+| **Khoa** | tên khoa, ví dụ `Huyết học`. Để trống với Quản lý |
+| **Mã khoa** | viết tắt không dấu, ví dụ `HUYETHOC`. Để trống với Quản lý |
+| **Vai trò** | đúng hai giá trị: `Quản lý` (nhìn toàn viện) hoặc `Nhân viên khoa` (bắt buộc có Khoa) |
+| **Số điện thoại** | số di động của người dùng tài khoản, ví dụ `0912345678` — xem vì sao cột này quan trọng ở §A5b ngay dưới |
+
+**Không có cột mật khẩu, và đừng thêm cột đó.** Mật khẩu do hệ thống sinh ở bước 4.
+
+**Cột Số điện thoại phải điền dạng VĂN BẢN, không phải ô định dạng Số.** Excel
+lưu ô định dạng Số kiểu `0912345678` thành số `912345678` — hệ thống có tự
+phục hồi số 0 bị mất trong hầu hết trường hợp, nhưng an toàn nhất vẫn là định
+dạng ô đó là Văn bản trước khi gõ (chọn cột → Format Cells → Text).
+
+**Các cách viết sau đều hợp lệ, hệ thống tự quy về cùng một số** *(từ
+04/09/2026)* — không cần tự tay xoá khoảng trắng hay đổi tiền tố:
+- Có khoảng trắng, dấu chấm hoặc gạch ngang phân cách: `091 234 5678`,
+  `0912.345.678`, `091-234-5678`.
+- Tiền tố quốc tế: `+84912345678` hoặc `84912345678` — quy về `0912345678`.
+  (Số nội địa hợp lệ bắt đầu bằng `084…`, ví dụ đầu số Vinaphone, KHÔNG bị
+  hiểu nhầm thành tiền tố quốc tế — số đó luôn có `0` đứng trước `84`.)
+
+Chỉ khi đã lột hết các cách viết trên mà vẫn còn chữ cái, thiếu số, hoặc sai
+độ dài thì mới bị coi là **sai định dạng** (xem bảng dưới).
+
+**Bước 3 — Tải tệp đã điền lên và xem trước.** Bước này **không ghi gì**, nó chỉ
+nói từng dòng sẽ ra sao:
+
+| Nhãn | Nghĩa |
+|---|---|
+| **Sẽ tạo mới** | Dòng hợp lệ, sẽ tạo tài khoản |
+| **Đã có — bỏ qua** | Người này đã là thành viên của chính bệnh viện đó |
+| **Cần Miyano quyết** | Ví dụ email đã thuộc bệnh viện khác. Không tạo lại, không đổi mật khẩu của họ — bạn tự xét là gõ nhầm hay đúng là một người làm hai nơi. **Cảnh báo không chặn các dòng khác** |
+| **Bị từ chối** | Có lỗi phải sửa. **Còn một dòng bị từ chối là không ghi gì cả** — hoặc ghi hết tệp, hoặc không ghi gì |
+
+Bản xem trước cũng nói rõ **những khoa nào sẽ được tạo mới**, và cảnh báo nếu tệp
+không có ai làm Quản lý mà bệnh viện cũng chưa có quản lý đang hoạt động — khi đó
+sẽ không ai duyệt được yêu cầu của các khoa.
+
+**Bước 4 — Bấm Ghi.** Xong, màn hình hiện **bảng email kèm mật khẩu**.
+
+#### A5b. Số điện thoại — vì sao quan trọng và cách hệ thống xử lý *(từ 04/09/2026)*
+
+Từ khi cổng có **dòng thời gian "Ai đã làm gì"**, mỗi việc trên đơn hiện tên
+người thao tác **kèm số điện thoại của họ**, và khách bấm thẳng vào số để gọi.
+Số đó lấy từ trường **Mobile No** (lui về **Phone**) trên chính bản ghi `User`.
+
+**Tài khoản không có số thì dòng thời gian chỉ hiện tên** — vẫn trả lời được
+"ai", nhưng mất đúng thứ nó sinh ra để cho: khách biết hỏi ai mà **không gọi
+được**. Đó là một màn hình nêu ra một câu hỏi rồi không trả lời.
+
+**Từ 04/09/2026, cột Số điện thoại nằm ngay trong tệp Excel ở Bước 2** (bảng
+cột ở §A5 phía trên) — không còn phải điền tay từng tài khoản trên Desk sau
+khi Ghi như trước. Điền số ngay khi xin bệnh viện tệp danh sách nhân sự, đừng
+để thành một lần liên hệ thứ hai.
+
+**Bước xem trước (Bước 3) nói rõ hệ thống sẽ làm gì với từng ô Số điện thoại:**
+
+| Tình huống | Kết luận | Hệ thống làm gì |
+|---|---|---|
+| Có số, đúng định dạng | Sẽ tạo mới (nếu các cột khác cũng hợp lệ) | Đặt số này làm Mobile No khi tạo tài khoản |
+| **Để trống** | Sẽ tạo mới | Tài khoản VẪN được tạo bình thường — chủ đầu tư chọn tường minh là KHÔNG hoãn cấp tài khoản chỉ vì thiếu một ô số. Ghi chú của dòng đó nói rõ hậu quả ("khách sẽ thấy tên nhưng không gọi được"), và đầu màn xem trước liệt kê TÊN tất cả những người còn thiếu số trong tệp — để Miyano/bệnh viện xin bổ sung sau, không phải dò từng dòng trong bảng |
+| **Sai định dạng** (chữ, quá ngắn/dài, không bắt đầu bằng 0…) | **Bị từ chối** | Chặn CẢ TỆP — cùng luật "còn một dòng bị từ chối là không ghi gì cả". Sửa lại rồi tải lên lần nữa |
+| Người này **đã có tài khoản** ở đúng bệnh viện đó, tài khoản **chưa có số** | Đã có — bỏ qua | KHÔNG tạo tài khoản mới (đúng luật cũ), nhưng số trong tệp lần này sẽ được **bổ sung** vào tài khoản đang thiếu số — đây là cách số điện thoại được điền dần cho các tài khoản đã cấp TRƯỚC 04/09/2026, không cần sửa tay |
+| Người này **đã có tài khoản**, tài khoản **đã có số KHÁC** số trong tệp | Cần Miyano quyết | KHÔNG tự động ghi đè — số cũ là dữ liệu người khác đã nhập, im lặng đè lên là mất dữ liệu. Bảng xem trước nêu cả hai số để tự đối chiếu: gõ nhầm, hay người đó đổi số thật? Cập nhật trực tiếp trên `Portal Member`/`User` nếu cần |
+
+Nói cách khác: **thiếu số của một người không hoãn việc cấp tài khoản của
+CHÍNH người đó, và cũng không đụng tới ai khác trong tệp** — chỉ số bị LỆCH
+(tài khoản đã có số khác) mới không được ghi ngay, vì đó là nghi vấn cần
+Miyano tự xem trước khi quyết định số nào đúng. Bảng xem trước và đầu màn kết
+quả luôn nói rõ ai còn thiếu số để xin bổ sung sau.
+
+**Người của Miyano cũng phải có số.** Cổng khách hàng hiện tên **và số điện
+thoại** của nhân sự Miyano ở các mốc xác nhận / báo giá / từ chối — đó là chốt
+trách nhiệm mà chủ đầu tư yêu cầu. Tài khoản Miyano nào thao tác trên đơn của
+bệnh viện mà chưa có Mobile No thì khách chỉ thấy tên trống số. Điền trực tiếp
+trên Desk → **User** cho tài khoản Miyano (đường nhập từ Excel ở màn này chỉ
+dành cho tài khoản của bệnh viện).
+
+> **Cổng KHÔNG bao giờ hiện email của nhân sự Miyano cho khách** — chỉ tên và số
+> điện thoại. Với người của chính bệnh viện đó thì hiện đủ cả tài khoản. Ranh
+> giới này nằm trong mã nguồn (`lien_he_nguoi_dung(..., cho_hien_tai_khoan=…)`)
+> và có test canh; đừng nới nó bằng cách sửa giao diện.
+
+> ### ⚠️ Mật khẩu chỉ hiện MỘT LẦN
+>
+> Chép ngay để bàn giao — rời khỏi màn này là không xem lại được. Mật khẩu
+> **không nằm trong tệp Excel**, **không gửi qua email**, không ghi vào bất kỳ
+> nhật ký nào. Nhắc người nhận đổi mật khẩu ngay lần đăng nhập đầu.
+>
+> Có nút **Chép danh sách** để lấy cả bảng một lần.
+
+Ba điều nữa cần biết:
+
+- **Tài khoản đã tồn tại từ trước** (người đó đã có tài khoản nhưng chưa thuộc
+  bệnh viện nào) chỉ được **gắn vào bệnh viện này**, hệ thống **không đặt lại mật
+  khẩu** của họ. Bảng kết quả ghi rõ dòng nào rơi vào trường hợp đó.
+- **Email nội bộ của Miyano bị từ chối.** Gắn một tài khoản nội bộ vào một khách
+  hàng sẽ làm người đó mất tầm nhìn ở khắp hệ thống — hỏng theo kiểu rất khó lần
+  ra nguyên nhân, nên chặn ngay ở bước xem trước.
+- **Tệp nhân sự bị xoá khỏi hệ thống sau khi ghi xong.** Nó mang họ tên, email
+  và số điện thoại của nhân viên bệnh viện, không có lý do gì để nằm lại trên
+  đĩa. Tệp phải ở chế độ riêng tư; tải lên bằng đúng nút trên màn này thì đã
+  đúng sẵn.
+
+**Cấp lẻ một tài khoản** (không qua bảng nhân sự) vẫn làm được bằng chức năng cấp
+tài khoản cổng đang có, nhưng tài khoản sinh ra ở trạng thái **chưa hoạt động,
+chưa gán khoa** và phải mở `Portal Member` gán khoa rồi bật thủ công. Chi tiết ở
+tài liệu *phân quyền theo khoa phòng*, mục 2 bước 4.
+
+**Tài khoản được cấp gồm ba mảnh khớp nhau**, hệ thống tạo đủ và đúng thứ tự:
 
 1. `User` — kiểu **Website User**, có role **Customer**.
 2. `Contact` — có `user = <email>` và một dòng liên kết tới `Customer`.
    **Đây là thứ cổng dùng để biết người đăng nhập thuộc khách hàng nào**, và cũng
-   là thứ lọc danh sách đơn hàng / giao hàng / hoá đơn của tài khoản
-   (`portal_context.get_allowed_customers` → hook `permission_query_conditions`).
+   là thứ lọc danh sách đơn hàng / giao hàng / hoá đơn của tài khoản.
 3. `User Permission` — `allow = Customer`, `for_value = <khách hàng>`. Đây là
    lớp chặn **bổ sung** của framework (áp cho ô tìm kiếm liên kết và các truy vấn
    phía desk). Nó không phải thứ quyết định khách thấy gì trên cổng — thứ đó là
    `Contact` ở trên — nhưng vẫn phải có, đừng bỏ.
-
-Chỉ tài khoản có role **System Manager**, **Sales Manager** hoặc **Sales User**
-mới gọi được endpoint này (khách hàng gọi sẽ bị từ chối).
-
-**Mật khẩu:** endpoint này không đặt mật khẩu. Đặt tay tại `/app/user/<email>` →
-**Đặt mật khẩu mới** rồi báo cho khách đổi khi đăng nhập lần đầu.
-
-> `send_invite: true` sẽ gửi thư mời để khách tự đặt mật khẩu — **chỉ dùng khi
-> site đã cấu hình một `Email Account` bật gửi đi**. Trên `erptest.local` hiện
-> **chưa có** tài khoản email gửi đi nào, nên hãy để `false` và đặt mật khẩu tay.
 
 ### A6. Kiểm tra nhanh (làm trước khi bàn giao cho khách)
 
 1. Mở cửa sổ ẩn danh → <http://192.168.61.129:8003/portal/login> → đăng nhập bằng
    tài khoản vừa cấp.
 2. Màn **Tổng quan** phải hiện đúng tên đơn vị.
-3. Màn **Đặt hàng** phải liệt kê được các mặt hàng của hợp đồng kèm cột "còn lại".
+3. Màn **Đặt hàng** phải liệt kê các mặt hàng của hợp đồng **ở đầu danh sách**,
+   kèm đơn giá hợp đồng và hạn mức còn lại.
 4. Màn **Hồ sơ đơn vị** phải hiện đúng địa chỉ giao hàng.
 
 ### A7. Thiếu thứ gì thì lỗi ra sao
@@ -141,9 +255,9 @@ mới gọi được endpoint này (khách hàng gọi sẽ bị từ chối).
 | Hiện tượng trên cổng | Nguyên nhân |
 |---|---|
 | *"Tài khoản chưa gắn với khách hàng nào."* | Thiếu `Contact`, hoặc `Contact` không có dòng liên kết tới `Customer`, hoặc `Contact.user` để trống |
-| Màn Đặt hàng không có hợp đồng nào | Chưa có `Blanket Order`, hoặc còn nháp, hoặc `Đến ngày` đã qua |
+| Màn Đặt hàng chỉ hiện *Chờ báo giá*, không mặt hàng nào có giá hợp đồng | Chưa có `Blanket Order`, hoặc còn nháp, hoặc `Đến ngày` đã qua |
 | *"Không tìm thấy giá bán cho mặt hàng …"* | Thiếu `Item Price` trong bảng giá mặc định của khách |
-| Đặt hàng báo *"vượt hạn mức (còn …)"* | Số lượng đặt > hạn mức còn lại của dòng hợp đồng |
+| Màn Đặt hàng cảnh báo *"Vượt hạn mức HĐ — còn …"* | Số lượng đặt > hạn mức còn lại của dòng hợp đồng. Lúc soạn giỏ đây **chỉ là cảnh báo**; nhân viên khoa vẫn gửi duyệt được và người duyệt sẽ hạ số thật. Nhưng **lúc thật sự sinh đơn** — quản lý bấm Đặt hàng, hoặc quản lý duyệt một yêu cầu — thì hạn mức là **chốt cứng**, hệ thống báo còn bao nhiêu và không tạo đơn |
 | Đăng nhập được nhưng danh sách đơn hàng trống dù đã có đơn | Đơn không thuộc đúng `Customer` mà `Contact` của tài khoản trỏ tới — danh sách được lọc theo `Contact`, không theo `User Permission` |
 
 ---
@@ -258,37 +372,69 @@ Workspace desk **Kho khách hàng** (tìm trong danh sách workspace bên trái 
 ### C1. Đăng nhập
 
 <http://192.168.61.129:8003/portal/login> — email và mật khẩu do Miyano cấp.
-Sau khi đăng nhập, thanh điều hướng gồm: **Tổng quan · Đặt hàng · Giỏ hàng ·
-Đơn hàng của tôi · Kho của tôi · Hoá đơn & công nợ · Hồ sơ đơn vị**.
+Sau khi đăng nhập, thanh điều hướng gồm **8 mục**: **Tổng quan · Đặt hàng · Yêu
+cầu của tôi · Duyệt · Kho của tôi · Hoá đơn & công nợ · Thông báo · Hồ sơ đơn
+vị**. Nhân viên khoa thấy **7** — họ không có mục **Duyệt**.
 
 ### C2. Đặt hàng
 
-1. Vào **Đặt hàng** → chọn hợp đồng (nếu đơn vị có nhiều hợp đồng).
-2. Danh sách hiện: mặt hàng · đơn giá theo hợp đồng · **hạn mức còn lại**.
-3. Nhập số lượng → **Thêm vào giỏ**.
-4. Vào **Giỏ hàng**, điền:
+Một màn, hai bước.
+
+**Bước 1 · Chọn hàng**
+
+1. Vào **Đặt hàng** → gõ mã hoặc tên mặt hàng vào ô tìm.
+2. Danh sách hiện 10 dòng mỗi trang, **hàng thuộc hợp đồng của đơn vị đứng
+   trước**. Mỗi dòng có tình trạng hàng (**Còn hàng** / **Liên hệ**) và tầng giá
+   (**Giá HĐ** kèm số tiền và mã hợp đồng, hoặc **Chờ báo giá**).
+3. Nhập số lượng → **+ Giỏ**.
+4. Hàng Miyano chưa có trong hệ thống: bấm **“+ Thêm dòng — hàng chưa có trong hệ
+   thống”** rồi tự gõ tên hàng, ĐVT, số lượng, ghi chú.
+
+**Bước 2 · Giỏ hàng**
+
+5. Bấm **2 · Giỏ hàng**. Một giỏ duy nhất, mọi mặt hàng chung một bảng. Điền:
+   - **Lý do yêu cầu** (bắt buộc, người duyệt của đơn vị sẽ đọc);
    - **Ngày giao mong muốn**;
    - **Địa chỉ giao hàng**;
-   - **Số dự trù / PO của đơn vị** (nếu có) — in lên chứng từ, dùng để đối chiếu sau này;
    - **Ghi chú / Yêu cầu** (ví dụ: hàng cần giữ lạnh 2–8 °C).
-5. Bấm **Xác nhận đặt hàng →**, đọc hộp xác nhận rồi bấm **Xác nhận đặt hàng**.
-   Đơn về trạng thái **Chờ xác nhận** và Miyano nhận thông báo.
+6. Bấm nút cuối màn: **Gửi duyệt** (nhân viên khoa) hoặc **Đặt hàng** (quản lý
+   đơn vị — đơn sang Miyano ngay). Có **Lưu nháp** nếu muốn soạn dở.
 
-Số lượng vượt hạn mức còn lại của hợp đồng sẽ bị chặn ngay khi gửi, kèm thông báo
-còn bao nhiêu.
+**Giỏ có hàng chờ báo giá thì cả đơn chờ Miyano báo giá rồi mới giao**, kể cả phần
+hàng hợp đồng vốn giao được ngay — màn hình báo rõ điều này ngay trên nút gửi. Cần
+hàng hợp đồng gấp thì đặt riêng một yêu cầu chỉ gồm hàng có giá hợp đồng.
 
-### C3. Theo dõi đơn hàng
+Số lượng vượt hạn mức hợp đồng chỉ là **cảnh báo** lúc soạn giỏ, nhưng **chặn cứng**
+lúc đơn thật sự sinh ra, kèm thông báo còn bao nhiêu.
 
-**Đơn hàng của tôi** → bấm vào một đơn để xem tiến trình:
+### C3. Theo dõi
 
+**Danh sách đơn hàng** — một danh sách cho cả vòng đời, lọc bằng dải chip:
+`Nháp · Chờ duyệt · Đã duyệt · Chờ quý vị đồng ý · Đã giao · Từ chối · Đã huỷ`.
+
+> *(Màn này trước đây tên "Yêu cầu của tôi" — đổi 03/09/2026. Cùng lúc đó, màn
+> **Duyệt** riêng của quản lý được gỡ: hàng chờ duyệt nay là chính chip **Chờ
+> duyệt** ở đây, và việc duyệt làm ngay trên màn chi tiết đơn.)*
+
+> Yêu cầu **đang chờ Miyano ra giá** nằm ở **Đã duyệt**. **Chờ quý vị đồng ý** là
+> bước sau đó: **giá đã về, đang chờ đơn vị trả lời.**
+>
+> *(Giai đoạn này trước đây tên "Chờ báo giá" — đọc như đang chờ Miyano, ngược
+> chiều việc. Đổi tên 26/08/2026; link cũ mang tên cũ vẫn mở đúng chip.)*
+
+Bấm vào một dòng để xem tiến trình:
 `Chờ xác nhận → Đang xử lý → Đang giao → Hoàn thành`
 
 Trong màn chi tiết đơn:
 
 - Danh sách các lần giao hàng và hoá đơn đã phát sinh của đơn đó.
-- **Tải PDF** xác nhận đơn hàng / phiếu giao hàng / hoá đơn (mẫu song ngữ).
+- **PDF** xác nhận đơn hàng / hoá đơn (mẫu song ngữ), và **phiếu giao hàng** —
+  phiếu giao là tờ *Phiếu xuất kho kiêm biên bản bàn giao* hai bên ký, mở ngay
+  trong trình duyệt. Miyano đã đính bản quét có chữ ký thì cổng phát đúng bản đó.
 - **Yêu cầu huỷ** — chỉ hiện khi đơn còn **Chờ xác nhận**. Bấm vào và nhập lý do;
   yêu cầu được ghi lại và chuyển tới nhân viên Miyano, đơn **không tự huỷ**.
+- **Đặt lại đơn này** — dựng sẵn một yêu cầu **Nháp** mang đúng các mặt hàng của
+  đơn cũ rồi mở màn Đặt hàng để sửa tiếp.
 
 ### C4. Hoá đơn & công nợ
 
@@ -515,6 +661,19 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 | MYN-ALT | Hoá chất sinh hoá ALT (GPT) – hộp 4×50ml | Hộp | có |
 | **MD-BONG-01** | Bông y tế cuộn 500g (bệnh viện tự mua) | Cuộn | **không — mã riêng** |
 
+`MYN-ALT` khai **"Máy sử dụng"** gồm cả hai máy ở bảng dưới — ví dụ thật cho
+"một vật tư dùng được nhiều máy", xem *HDSD-quan-ly-vat-tu-theo-may.md*.
+
+### Danh mục thiết bị (Task 15)
+
+| Mã máy | Tên máy | Khoa phòng | Hãng · Model |
+|---|---|---|---|
+| MAY-SH-01 | Máy sinh hoá tự động XN-550 (chính) | Dùng chung | Sysmex · XN-550 |
+| MAY-SH-02 | Máy sinh hoá tự động XN-550 (dự phòng) | Dùng chung | Sysmex · XN-550 |
+
+Hai máy cùng model, một chính một dự phòng — cả hai đều khai trong "Máy sử
+dụng" của `MYN-ALT` vì cùng chạy chung một hoá chất.
+
 ### Chứng từ đã sinh
 
 | Chứng từ | Số | Trạng thái / ý nghĩa demo |
@@ -531,6 +690,7 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 | Phiếu xuất sử dụng | `PX-MD-2026-00001` | 12 Hộp bơm tiêm cho Khoa Xét nghiệm, lô do FEFO chọn |
 | Phiếu xuất huỷ | `PX-MD-2026-00002` | 2 Hộp ALT **đã quá hạn**, có tick xác nhận |
 | Phiếu nhập tay + phiếu đảo | `PN-MD-2026-00004` (Đã huỷ) → `PN-MD-2026-00005` (Phiếu đảo) | để demo cơ chế huỷ ở mục C10 |
+| Phiếu xuất theo máy (Task 15) | `PX-MD-2026-00005` | 2 dòng cùng ALT — 2 Hộp cho MAY-SH-01, 2 Hộp cho MAY-SH-02, để báo cáo thiết bị có số liệu tách theo máy ở CẢ HAI máy |
 
 ### Tồn hiện tại (thời điểm dựng dữ liệu)
 
@@ -538,10 +698,17 @@ chạy tiếp được từ chỗ dở nếu lần trước bị đứt. Mã ngu
 |---|---|---|---|
 | Găng tay khám nitrile size M | 218 Hộp | 15.964.000 ₫ | 4 |
 | Bơm tiêm 10ml G21 | 133 Hộp | 9.052.000 ₫ | 3 |
-| Hoá chất ALT (GPT) | 13 Hộp | 12.340.000 ₫ | 2 |
+| Hoá chất ALT (GPT) | 9 Hộp | 8.540.000 ₫ | 2 |
 | Bông y tế cuộn 500g | 50 Cuộn | 2.250.000 ₫ | 1 |
 
 Báo cáo **Cảnh báo hạn dùng** (90 ngày) trả 7 dòng, trong đó 2 lô đã quá hạn còn tồn.
+
+> Bảng trên là con số sinh ra bởi ĐÚNG kịch bản trong `demo_kho_flow.py`, chạy
+> một lần trên một site sạch. `erptest.local` là site phát triển dùng chung —
+> nếu ai đó từng lập tay thêm lô/phiếu cho chính kho demo này lúc kiểm thử màn
+> hình (không đi qua script), số tồn thật trên site có thể lệch bảng này. Kiểm
+> lại bằng màn **Kho của tôi** hoặc báo cáo **Nhập - Xuất - Tồn** nếu nghi ngờ
+> — script không tự dọn dữ liệu người khác đã thêm.
 
 ### Dựng thêm một khách hàng demo khác
 
@@ -555,7 +722,7 @@ số PO chính là khoá chống trùng của từng đơn hàng.
 
 | Thông báo | Nguyên nhân | Xử lý |
 |---|---|---|
-| *"Tài khoản chưa gắn với khách hàng nào."* | `Contact` thiếu, hoặc thiếu liên kết tới `Customer` | Chạy lại `portal_provision` (mục A5) |
+| *"Tài khoản chưa gắn với khách hàng nào."* | `Contact` thiếu, hoặc thiếu liên kết tới `Customer` | Cấp lại tài khoản đó bằng màn **Nhập nhân sự bệnh viện** (mục A5) |
 | *"Đơn vị của bạn chưa được mở kho trên cổng…"* | Chưa có `Customer Warehouse`, hoặc kho đã bỏ tick **Đang hoạt động** | Mục B2 / B5 |
 | *"Ngày phiếu … không được trước Ngày bắt đầu quản lý của kho …"* | Ngày phiếu quá sớm | Sửa ngày phiếu, hoặc cân nhắc lại mốc *Ngày bắt đầu quản lý* |
 | *"Lô … chỉ còn n …"* khi ghi sổ phiếu xuất | Xuất quá tồn của lô | Giảm số lượng hoặc chọn lô khác |

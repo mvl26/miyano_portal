@@ -29,6 +29,10 @@ from miyano_portal.api import portal as portal_api
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 REGISTRY = FRONTEND_SRC / "de-xuat-actions.js"
+# Task 3 (màn chi tiết GỘP) — registry THỨ HAI, riêng cho hành động của Sales
+# Order (`don-actions.js`), đối chiếu với `api/portal.py` chứ không phải
+# `api/de_xuat.py`. Xem class TestActionRegistry ở dưới.
+REGISTRY_DON = FRONTEND_SRC / "don-actions.js"
 
 # C4 (review tổng 19/08) — quét TOÀN BỘ `frontend/src`, không riêng `views/`.
 #
@@ -60,6 +64,20 @@ _CALL_DE_XUAT_RE = re.compile(r"callDeXuat\(\s*['\"](\w+)['\"]")
 # `api/de_xuat.py`). `api\.call\(` không khớp `api.callDeXuat(`/`api.callKho(`
 # — ký tự ngay sau "call" trong hai lời gọi đó là "D"/"K", không phải "(".
 _API_CALL_RE = re.compile(r"api\.call\(\s*['\"](\w+)['\"]")
+
+# Review Task 3 (03/09/2026) — cả hai phép đo trên `don-actions.js` (đếm
+# `method:` và đếm `nhom: 'don'`) là chuỗi thô trên TOÀN VĂN file, và một
+# comment tình cờ gõ liền đúng chuỗi đang đếm sẽ bị tính là mã thật. Ca xấu
+# nhất KHÔNG phải đỏ giả (tốn thời gian, tự lộ) mà là XANH GIẢ: một comment
+# thừa VÀ một mục thật thiếu khoá `nhom: 'don'` triệt tiêu nhau về số đếm,
+# lưới báo khớp trên một registry sai — mục thiếu khoá gọi sai module và 404
+# lúc người dùng bấm. Lọc bỏ dòng comment trước khi đếm/regex-tìm để hai phép
+# đo chỉ còn nhìn mã thật. Chỉ dùng cho hai bài của `don-actions.js` — không
+# đụng các bài cũ canh `de-xuat-actions.js` (ngoài phạm vi rà soát này).
+def _bo_chu_thich(noi_dung: str) -> str:
+	return "\n".join(
+		dong for dong in noi_dung.splitlines() if not dong.strip().startswith("//")
+	)
 
 
 class TestActionRegistry(FrappeTestCase):
@@ -123,7 +141,11 @@ class TestActionRegistry(FrappeTestCase):
 		self.assertIn("App.vue", duong_dan)
 		self.assertIn("cho-duyet.js", duong_dan)
 		self.assertIn("de-xuat-actions.js", duong_dan)
-		self.assertIn("views/DeXuatDetail.vue", duong_dan)
+		# Task 7b (03/09/2026) — `DeXuatDetail.vue` đã nghỉ, gộp vào màn
+		# `ChiTietYeuCau.vue`; đổi mốc chứng minh "quét cả views/" sang file
+		# thay thế, KHÔNG xoá bài — ý nghĩa của bài (vùng quét thật sự chạm
+		# tới views/) không đổi.
+		self.assertIn("views/ChiTietYeuCau.vue", duong_dan)
 		# Và lưới phải thật sự BẮT ĐƯỢC tên từ những file đó — không chỉ mở
 		# file rồi bỏ qua nội dung.
 		self.assertIn("de_xuat_danh_sach", self._methods_goi_tu_frontend())
@@ -201,3 +223,62 @@ class TestActionRegistry(FrappeTestCase):
 		tim_thay = set(_API_CALL_RE.findall(mau))
 		self.assertEqual(tim_thay, {"portal_me", ten_bia})
 		self.assertNotIn(ten_bia, self._endpoint_that_portal())
+
+	# 03/09/2026 (màn chi tiết GỘP) — registry THỨ HAI, cho hành động của Sales
+	# Order. Lưới cũ đối chiếu `de-xuat-actions.js` với `api/de_xuat.py`; file
+	# mới phải đối chiếu với `api/portal.py`. Không mở rộng lưới cũ để nó quét
+	# cả hai: khi đó nó mất khả năng nói "tên này không tồn tại" — một tên sai
+	# trong file này sẽ được coi là hợp lệ chỉ vì file kia có một tên trùng.
+	# -- 03/09/2026, màn chi tiết GỘP: registry THỨ HAI -----------------------
+
+	def _noi_dung_registry_don(self) -> str:
+		"""Nội dung `don-actions.js` đã lọc bỏ dòng comment (`_bo_chu_thich`)
+		— dùng chung cho mọi phép đo chuỗi thô bên dưới, để một comment gõ
+		liền `method:`/`nhom: 'don'` không bị tính là mã thật."""
+		return _bo_chu_thich(REGISTRY_DON.read_text(encoding="utf-8"))
+
+	def _methods_registry_don(self) -> set[str]:
+		return set(_METHOD_RE.findall(self._noi_dung_registry_don()))
+
+	def test_file_registry_don_ton_tai(self):
+		self.assertTrue(REGISTRY_DON.exists(), f"Không thấy {REGISTRY_DON}")
+
+	def test_registry_don_khong_rong(self):
+		"""Vế dương — thiếu nó thì một registry rỗng cũng qua bài.
+
+		Đếm SỐ MỤC (`_METHOD_RE.findall` có lặp), không phải số tên method
+		DUY NHẤT: `portal_order_accept` xuất hiện ở 2 mục (đồng ý / không
+		đồng ý), nên đếm theo tập hợp cho ra 4 trên 5 mục thật — bài "không
+		rỗng" mà đo nhầm sang "có đủ tên khác nhau" là đo một thứ khác tên
+		nó, và đứng sát ngưỡng không còn biên an toàn."""
+		self.assertGreaterEqual(len(_METHOD_RE.findall(self._noi_dung_registry_don())), 5)
+
+	def test_moi_method_cua_registry_don_la_endpoint_that_cua_portal(self):
+		"""Đối chiếu với `api/portal.py`, KHÔNG phải `api/de_xuat.py`. Đó
+		là lý do đây là file registry thứ hai chứ không phải thêm mục vào
+		file cũ: trộn hai họ tên vào một mảng làm lưới mất khả năng nói
+		'tên này không tồn tại' — nó không biết phải hỏi module nào."""
+		thua = self._methods_registry_don() - self._endpoint_that_portal()
+		self.assertEqual(
+			thua, set(),
+			f"don-actions.js khai method KHÔNG tồn tại (whitelist) ở "
+			f"api/portal.py: {thua}. Đây là nút sẽ 404 lúc người dùng bấm.",
+		)
+
+	def test_moi_muc_registry_don_deu_mang_nhom_don(self):
+		"""Màn gộp nối HAI registry rồi mới render; `nhom: 'don'` là thứ
+		DUY NHẤT cho nó biết gọi `api.call` thay vì `api.callDeXuat`. Một
+		mục quên khoá này sẽ được gọi sai module và 404 lúc bấm.
+
+		Đếm trên nội dung ĐÃ LỌC COMMENT (`_noi_dung_registry_don`), không
+		phải toàn văn file: một comment tình cờ gõ liền `nhom: 'don'` VÀ một
+		mục thật thiếu khoá đó sẽ triệt tiêu nhau về số đếm trên toàn văn —
+		bài XANH trên một registry sai (mục thiếu khoá 404 lúc bấm). Đây là
+		ca XANH GIẢ, nguy hiểm hơn đỏ giả vì không ai phát hiện."""
+		noi_dung = self._noi_dung_registry_don()
+		so_muc = len(_METHOD_RE.findall(noi_dung))
+		so_nhom = noi_dung.count("nhom: 'don'")
+		self.assertEqual(
+			so_nhom, so_muc,
+			f"{so_muc} mục nhưng chỉ {so_nhom} mục khai `nhom: 'don'`.",
+		)

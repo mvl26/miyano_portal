@@ -90,6 +90,52 @@ export const CAP_PHAT_THANG_COLUMNS = [
   { label: 'Số phiếu', field: 'so_phieu' },
 ]
 
+// Task 14 — bộ cột PHẲNG (Excel) của báo cáo "Vật tư · Máy · Khoa phòng",
+// PHẢI khớp reports.THIET_BI_COLUMNS (task 9/10 dựng hàm tính + nối Excel,
+// task 14 mới dựng UI để có nhãn màn hình đối chiếu — xem docstring
+// reports.bao_cao_thiet_bi_flat_rows()). KHÔNG PHẢI bộ cột của bảng NGOÀI
+// (9 cột, gộp theo vật tư) hay bảng CON mở rộng (5 cột, theo máy) của màn
+// BaoCaoThietBi.vue — hai bộ đó có tên riêng ngay dưới, không dùng chung
+// tên này dù cùng chủ đề, để không phá quy ước "một export = một mảng
+// COLUMNS Python cụ thể" mà test_kho_reports.py dựa vào.
+export const THIET_BI_COLUMNS = [
+  { label: 'Vật tư', field: 'vat_tu' },
+  { label: 'Mã vật tư', field: 'ma_vat_tu' },
+  { label: 'ĐVT', field: 'dvt' },
+  { label: 'Máy', field: 'ten_may' },
+  { label: 'Khoa phòng', field: 'ten_khoa' },
+  { label: 'SL cấp phát', field: 'sl' },
+  { label: 'Giá trị', field: 'gia_tri' },
+]
+
+// Bảng NGOÀI của màn BaoCaoThietBi.vue (task 14) — mỗi dòng một vật tư
+// (backend: kho_bao_cao_thiet_bi → reports.bao_cao_thiet_bi_rows().dong).
+// Không đối chiếu với cột Python nào (đây là bảng MÀN HÌNH, không phải
+// Excel) — field 'ma_vat_tu'/'vat_tu'/'dvt' vẫn khớp tên khoá backend để
+// component đọc thẳng, nhưng 'may_su_dung' là cột TỰ TÍNH ở client (đếm
+// theo_may), không phải khoá trả về từ server.
+export const BAO_CAO_THIET_BI_COLUMNS = [
+  { label: 'Mã VT', field: 'ma_vat_tu' },
+  { label: 'Tên vật tư', field: 'vat_tu' },
+  { label: 'ĐVT', field: 'dvt' },
+  { label: 'Tồn đầu', field: 'ton_dau' },
+  { label: 'Đã nhập', field: 'nhap' },
+  { label: 'Đã cấp phát', field: 'cap_phat' },
+  { label: 'Xuất khác', field: 'xuat_khac' },
+  { label: 'Tồn cuối', field: 'ton_cuoi' },
+  { label: 'Máy sử dụng', field: 'may_su_dung' },
+]
+
+// Bảng CON (mở rộng một dòng vật tư của bảng trên) — theo máy, khoá đúng
+// `theo_may[*]` mà backend trả.
+export const BAO_CAO_THIET_BI_MAY_COLUMNS = [
+  { label: 'Máy', field: 'ten_may' },
+  { label: 'Khoa phòng', field: 'ten_khoa' },
+  { label: 'SL xuất', field: 'sl' },
+  { label: 'Giá trị', field: 'gia_tri' },
+  { label: '%', field: 'pct' },
+]
+
 export const DOT_COLUMNS = [
   { label: 'Đợt (phiếu nhập)', field: 'dot' },
   { label: 'Ngày nhận', field: 'ngay_nhan' },

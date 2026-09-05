@@ -25,6 +25,7 @@ from miyano_portal.portal_dat_hang import (
 )
 from miyano_portal.portal_mua_le import (
     ITEM_GIU_CHO,
+    LOAI_DON_BAO_GIA,
     can_chen_giu_cho,
     la_dong_giu_cho,
     resolve_ban_le_company,
@@ -542,7 +543,7 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
     # từng DÒNG, `Sales Order Item.blanket_order`). `contract` chỉ còn là
     # đường lui cho người gọi CŨ truyền tường minh.
     so.custom_hdnt = bo_tren_don[0] if len(bo_tren_don) == 1 else contract
-    so.custom_loai_don = "Mua lẻ" if con_dong_chua_co_gia else "Theo HĐNT"
+    so.custom_loai_don = LOAI_DON_BAO_GIA if con_dong_chua_co_gia else "Theo HĐNT"
     so.custom_request_id = request_id
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note

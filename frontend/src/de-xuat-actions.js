@@ -31,8 +31,33 @@ export const ACTIONS_DE_XUAT = [
   { method: 'de_xuat_gui_duyet', label: 'Gửi duyệt', variant: 'primary',
     when: (d, me) => d.trang_thai === 'Nháp' && d.owner === me.user },
 
+  // `!d.ma_de_xuat` (review toàn nhánh 03/09/2026) — SOI GƯƠNG chốt server
+  // sau khi nó đổi từ TRẠNG THÁI sang MÃ. `thu_hoi()` đưa một phiếu ĐÃ gửi
+  // duyệt về lại Nháp mà vẫn giữ mã, nên "đang ở Nháp" thôi không còn nghĩa
+  // là "xoá được": `on_trash`/`de_xuat_xoa_nhap` chắc chắn từ chối. Giữ
+  // điều kiện cũ là hiện một nút chỉ biết ném lỗi — đúng thứ đầu file này
+  // cấm. Phiếu đó đi ra bằng "Huỷ phiếu" (giữ dấu vết, §5.4b).
   { method: 'de_xuat_xoa_nhap', label: 'Xoá', variant: 'danger',
-    when: (d, me) => d.trang_thai === 'Nháp' && (d.owner === me.user || me.la_quan_ly) },
+    when: (d, me) => d.trang_thai === 'Nháp' && !d.ma_de_xuat
+      && (d.owner === me.user || me.la_quan_ly) },
+
+  // Chủ đầu tư chốt 03/09/2026 — "NV sửa được đơn ở trạng thái Chờ duyệt".
+  // Cột "Số lượng đề xuất" khoá vĩnh viễn từ lúc Gửi duyệt (§5.3), nên
+  // "sửa" ở đây là THU HỒI về Nháp rồi sửa ở màn Đặt hàng và gửi lại — xem
+  // `PortalDeXuatMua.thu_hoi()` để biết vì sao không nới cái khoá đó.
+  //
+  // CHỈ chủ phiếu (`d.owner === me.user`), ĐÚNG chốt owner-only của
+  // `de_xuat_thu_hoi` phía server — registry chỉ quyết định HIỆN GÌ, nhưng
+  // hiện một nút chắc chắn 403 lúc bấm là dạy người dùng sợ thanh công cụ.
+  // Quản lý KHÔNG có nút này trên phiếu người khác: họ sửa thẳng ở cột "SL
+  // duyệt" ngay trên màn, và muốn trả phiếu về cho khoa thì dùng Từ chối
+  // (có ghi lý do).
+  //
+  // KHÔNG `variant: 'danger'`: thu hồi đảo ngược được bằng đúng một cú bấm
+  // Gửi duyệt, và mã phiếu giữ nguyên. Đỏ để dành cho việc không quay lại
+  // được (Xoá, Huỷ phiếu).
+  { method: 'de_xuat_thu_hoi', label: 'Thu hồi để sửa', variant: 'secondary',
+    when: (d, me) => d.trang_thai === 'Chờ duyệt' && d.owner === me.user },
 
   { method: 'de_xuat_duyet_phieu', label: 'Duyệt', variant: 'success',
     when: (d, me) => d.trang_thai === 'Chờ duyệt' && me.la_quan_ly },
@@ -41,8 +66,21 @@ export const ACTIONS_DE_XUAT = [
     when: (d, me) => d.trang_thai === 'Chờ duyệt' && me.la_quan_ly,
     args: [{ key: 'ly_do', label: 'Lý do từ chối', type: 'textarea', required: true }] },
 
+  // Nhánh `Nháp` + CÓ MÃ (review toàn nhánh 03/09/2026) = phiếu VỪA BỊ THU
+  // HỒI. Cạnh `Nháp → Đã huỷ` mở ở doctype cùng lúc `on_trash` khoá đường
+  // xoá cho phiếu đã từng gửi; không có nhánh này thì phiếu đó nằm lại vĩnh
+  // viễn — xoá bị server cấm, huỷ không có nút. Phiếu Nháp CHƯA có mã cố ý
+  // KHÔNG hiện nút này: với nó "Xoá" mới là việc đúng, và hai nút đỏ cạnh
+  // nhau cho hai việc khác nhau là chỗ để bấm nhầm.
+  //
+  // Vẫn CHỈ quản lý — `de_xuat_huy` là quản lý-only từ §5.4b và bản vá này
+  // không đụng tới quyền đó. Nhân viên vừa thu hồi phiếu của mình thì sửa
+  // rồi gửi lại (đường chính), hoặc nhờ quản lý huỷ.
   { method: 'de_xuat_huy', label: 'Huỷ phiếu', variant: 'danger',
-    when: (d, me) => ['Chờ duyệt', 'Từ chối'].includes(d.trang_thai) && me.la_quan_ly },
+    when: (d, me) => (
+      ['Chờ duyệt', 'Từ chối'].includes(d.trang_thai)
+      || (d.trang_thai === 'Nháp' && !!d.ma_de_xuat)
+    ) && me.la_quan_ly },
 
   { method: 'de_xuat_duyet_sua', label: 'Đồng ý sửa', variant: 'success',
     when: (d, me) => d.trang_thai === 'Chờ duyệt sửa' && me.la_quan_ly },

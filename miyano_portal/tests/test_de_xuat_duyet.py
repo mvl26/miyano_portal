@@ -736,6 +736,31 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 		r = next(x for x in rows if x["name"] == self.don_cu_khong_co_de_xuat)
 		self.assertFalse(r.get("ma_tra_cuu"))
 
+	def test_phong_bi_lich_su_don_KHONG_mang_loai_don_va_khong_ro_tien_to(self):
+		"""Task 7 (review B4) — `portal_order_history` là HỢP ĐỒNG CÔNG KHAI
+		và việc bỏ `loai_don` khỏi nó là một thay đổi hợp đồng. Ghim lại,
+		nếu không thì cả việc bỏ lẫn việc ai đó thêm lại đều diễn ra không
+		ai thấy.
+
+		Vì sao bỏ: `loai_don` ở đây từng nuôi một badge "Mua lẻ / Theo HĐNT"
+		trên màn danh sách. Badge đó không còn, và `OrderDetail.vue` — nơi
+		duy nhất còn đọc `loai_don` — được `portal_order_track` nuôi. Giữ
+		lại nghĩa là phải giữ đúng NGHĨA MỚI của giá trị đó ở một chỗ thứ
+		hai không ai dùng: thêm một bản soi gương để trôi lệch.
+
+		Khẳng định thứ hai canh cái bẫy của chính lần sửa này: bỏ dòng đổi
+		tên mà quên bỏ cột khỏi `fields` sẽ rò thẳng `custom_loai_don` ra
+		phong bì — tệ hơn trước khi sửa."""
+		frappe.set_user(self.user_quan_ly)
+		rows = portal.portal_order_history()["rows"]
+		r = next(x for x in rows if x["name"] == self.don_da_duyet)
+		self.assertNotIn("loai_don", r)
+		ro = [k for k in r if k.startswith("custom_")]
+		self.assertEqual(
+			ro, [],
+			f"phong bì công khai không được mang tiền tố nội bộ `custom_`: {ro}",
+		)
+
 
 class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 	"""Task 7, §5.5 — quản lý đặt hàng trực tiếp qua giỏ hàng vẫn sinh một

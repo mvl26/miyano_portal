@@ -2,10 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import Dashboard from './views/Dashboard.vue'
 import YeuCauList from './views/YeuCauList.vue'
-import OrderDetail from './views/OrderDetail.vue'
-import DeXuatDetail from './views/DeXuatDetail.vue'
+import ChiTietYeuCau from './views/ChiTietYeuCau.vue'
 import LapPhieu from './views/LapPhieu.vue'
-import DuyetList from './views/DuyetList.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
 import ImportTonDau from './views/ImportTonDau.vue'
@@ -16,8 +14,10 @@ import PhieuNhapDetail from './views/PhieuNhapDetail.vue'
 import PhieuXuat from './views/PhieuXuat.vue'
 import PhieuXuatDetail from './views/PhieuXuatDetail.vue'
 import BaoCaoNXT from './views/BaoCaoNXT.vue'
+import BaoCaoThietBi from './views/BaoCaoThietBi.vue'
 import NccList from './views/NccList.vue'
 import KhoaPhongList from './views/KhoaPhongList.vue'
+import ThietBiList from './views/ThietBiList.vue'
 import NhatKy from './views/NhatKy.vue'
 import Profile from './views/Profile.vue'
 import ThongBao from './views/ThongBao.vue'
@@ -41,9 +41,15 @@ const routes = [
   // cầu nằm ở màn này khi còn là phiếu rồi NHẢY sang màn kia sau khi
   // duyệt, bắt nhân viên phải biết trước giai đoạn nội bộ mới tìm lại
   // được yêu cầu của chính mình.
-  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Yêu cầu của tôi' } },
-  { path: '/yeu-cau/don/:name', name: 'order-detail', component: OrderDetail, meta: { title: 'Chi tiết đơn' } },
-  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: DeXuatDetail, meta: { title: 'Chi tiết đề xuất' } },
+  { path: '/yeu-cau', name: 'yeu-cau', component: YeuCauList, meta: { title: 'Danh sách đơn hàng' } },
+  // Task 7b (03/09/2026) — HAI đường, MỘT màn. Chi tiết một yêu cầu là MỘT
+  // trang; hai đường chỉ là hai ĐẦU MỐI khác nhau (docname phiếu / docname
+  // đơn) vì hai doctype đặt tên khác nhau. Cố ý KHÔNG gộp thành một đường:
+  // đường đơn nằm trong link của MỌI thông báo tự động đã gửi đi
+  // (`_link_chung_tu`, xem `api/portal.py`), nên đổi đường là kéo theo một
+  // lớp tương thích mà không ai được lợi.
+  { path: '/yeu-cau/don/:name', name: 'order-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
+  { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
   // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
   // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404
   // cho một đường đang chạy là hồi quy, không phải dọn dẹp. Hai đường có
@@ -68,11 +74,21 @@ const routes = [
     path: '/de-xuat/:ten',
     redirect: (to) => ({ name: 'de-xuat-detail', params: { ten: to.params.ten } }),
   },
-  // Man luong duyet (Task 5) — hàng chờ của quản lý, gộp "Chờ duyệt" +
-  // "Chờ duyệt sửa". Mục nav chỉ hiện cho `me.la_quan_ly` (App.vue), nhưng
-  // route KHÔNG khoá cứng theo vai trò: backend (`de_xuat_danh_sach` +
-  // `pham_vi_don()`) tự scope nếu một khách khác gõ thẳng URL.
-  { path: '/duyet', name: 'duyet', component: DuyetList, meta: { title: 'Duyệt' } },
+  // Chủ đầu tư chốt 03/09/2026 — màn duyệt riêng NGHỈ. Việc duyệt vốn đã
+  // nằm ở màn CHI TIẾT đơn (`DeXuatDetail.vue` có đủ Duyệt/Từ chối/Huỷ và
+  // cả ô sửa số lượng trước khi duyệt); `/duyet` chỉ là một DANH SÁCH THỨ
+  // HAI của cùng bộ dữ liệu, và nó bắt quản lý học thêm một cửa để tìm
+  // đúng thứ đã nằm sẵn trong "Danh sách đơn hàng".
+  //
+  // Đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá — cùng luật QĐ-G7/QĐ-G11 ngay trên.
+  // Đích mang theo `?chip=cho_duyet`: chip đó gom ĐÚNG hai trạng thái mà
+  // màn cũ gộp ("Chờ duyệt" + "Chờ duyệt sửa", xem `_sql_giai_doan()` ở
+  // api/portal.py), nên quản lý mở bookmark cũ vẫn rơi vào đúng hàng chờ
+  // của mình chứ không phải một danh sách suông.
+  {
+    path: '/duyet',
+    redirect: { name: 'yeu-cau', query: { chip: 'cho_duyet' } },
+  },
   { path: '/invoices', name: 'invoices', component: Invoices, meta: { title: 'Hoá đơn & công nợ' } },
   // Kiểm hàng (E9) — CỐ Ý không nằm dưới /kho: màn này chạy cho MỌI khách,
   // kể cả khách chưa mở kho. Khoá theo tên PHIẾU GIAO (không phải tên biên
@@ -88,8 +104,18 @@ const routes = [
   { path: '/kho/xuat', name: 'kho-xuat', component: PhieuXuat, meta: { title: 'Phiếu xuất kho' } },
   { path: '/kho/xuat/:name', name: 'kho-xuat-detail', component: PhieuXuatDetail, meta: { title: 'Chi tiết phiếu xuất' } },
   { path: '/kho/bao-cao', name: 'kho-bao-cao', component: BaoCaoNXT, meta: { title: 'Báo cáo kho' } },
+  // Task 14 — báo cáo "vật tư · máy · khoa phòng" (câu hỏi trung tâm của
+  // epic thiết bị/vật tư khoa phòng). Màn RIÊNG, không phải một tab của
+  // BaoCaoNXT.vue (bộ lọc/bảng khác hẳn: có Máy, có bảng con theo máy).
+  {
+    path: '/kho/bao-cao-thiet-bi', name: 'kho-bao-cao-thiet-bi', component: BaoCaoThietBi,
+    meta: { title: 'Báo cáo vật tư · máy · khoa phòng' },
+  },
   { path: '/kho/ncc', name: 'kho-ncc', component: NccList, meta: { title: 'NCC của tôi' } },
   { path: '/kho/khoa-phong', name: 'kho-khoa-phong', component: KhoaPhongList, meta: { title: 'Danh mục khoa phòng' } },
+  // Task 12 — màn danh mục Thiết bị (SPA đầu tiên của epic thiết bị/vật tư
+  // khoa phòng). Đặt cạnh /kho/khoa-phong, cùng khuôn route/nav.
+  { path: '/kho/thiet-bi', name: 'kho-thiet-bi', component: ThietBiList, meta: { title: 'Danh mục thiết bị' } },
   { path: '/kho/nhat-ky', name: 'kho-nhat-ky', component: NhatKy, meta: { title: 'Nhật ký vật tư' } },
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Hồ sơ đơn vị' } },
   { path: '/thong-bao', name: 'thong-bao', component: ThongBao, meta: { title: 'Thông báo' } },

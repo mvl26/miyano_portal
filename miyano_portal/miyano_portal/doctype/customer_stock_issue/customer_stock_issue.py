@@ -20,20 +20,120 @@ class CustomerStockIssue(Document):
 		self._lay_gia_va_han_tu_lo()
 		self._kiem_do_dai_nguoi_nhan()
 		self._validate_khoa_phong_thuoc_kho()
+		self._validate_thiet_bi()
+
+	def _validate_thiet_bi(self):
+		"""BR-TB-1/2/4/5. Chạy trên MỌI đường ghi (endpoint cổng lẫn Desk),
+		cùng lý do đã ghi ở `_validate_khoa_phong_thuoc_kho`.
+
+		Cảnh báo mềm gom vào `flags.canh_bao_thiet_bi` chứ không `msgprint`
+		thẳng: endpoint cổng đọc lại flag này rồi trả về cho SPA để hiện
+		đúng nút "Gắn máy này vào vật tư" — `msgprint` không đi qua được
+		lớp fetch của cổng (SPA không phải Desk).
+		"""
+		self.flags.canh_bao_thiet_bi = []
+		# Phiếu đảo do on_cancel tự sinh (_tao_phieu_dao): máy trên dòng đã
+		# được kiểm đủ ở phiếu GỐC lúc ghi sổ, copy nguyên xuống dòng đảo chỉ
+		# để báo cáo sau này cấn trừ đúng theo máy qua chung_tu_row — không
+		# phải một lựa chọn mới của người dùng. Kiểm lại ở đây sẽ làm sập
+		# chính thao tác huỷ nếu máy bị tắt GIỮA lúc xuất và lúc huỷ, đúng
+		# ràng buộc "on_cancel không được phép ném lỗi" (xem docstring
+		# on_cancel) — cùng lý do _lay_gia_va_han_tu_lo() bỏ qua đọc lại giá
+		# khi dang_tao_dao.
+		if self.flags.dang_tao_dao:
+			return
+		may_tren_phieu = {r.thiet_bi for r in self.items if r.thiet_bi}
+		if self.thiet_bi_mac_dinh:
+			may_tren_phieu.add(self.thiet_bi_mac_dinh)
+		if not may_tren_phieu:
+			return
+
+		customer = frappe.db.get_value("Customer Warehouse", self.kho, "customer")
+		thong_tin = {
+			r["name"]: r for r in frappe.get_all(
+				"Customer Equipment", filters={"name": ["in", list(may_tren_phieu)]},
+				fields=["name", "customer", "active", "ten_thiet_bi", "khoa_phong"],
+			)
+		}
+
+		for may in may_tren_phieu:
+			info = thong_tin.get(may)
+			# BR-TB-1 — kể cả máy không tồn tại cũng rơi vào đây: thông điệp
+			# GIỐNG HỆT trường hợp máy của bệnh viện khác, để không lộ ra
+			# rằng một docname có thật hay không. Ném ValidationError (KHÔNG
+			# PermissionError như bản nháp đầu của quyết định này — hai lớp
+			# đó không cùng gốc trong frappe.exceptions của bản Frappe này,
+			# assertRaises(ValidationError) sẽ không bắt được PermissionError
+			# và để lỗi thoát ra như một ERROR thay vì một FAIL đúng nghĩa)
+			# cho nhất quán với các chốt chặn cách ly liên khách hàng khác
+			# trong cùng file này (_validate_khoa_phong_thuoc_kho) và ở
+			# Customer Equipment (_chan_khoa_khac_benh_vien).
+			if not info or info["customer"] != customer:
+				frappe.throw(
+					"Máy được chọn không thuộc đơn vị bạn.", frappe.ValidationError
+				)
+
+		if self.is_new() or self.docstatus == 0:
+			for may in may_tren_phieu:  # BR-TB-5
+				if not thong_tin[may]["active"]:
+					frappe.throw(
+						f'Máy "{thong_tin[may]["ten_thiet_bi"]}" đã ngừng hoạt động, '
+						"không chọn cho phiếu mới được.",
+						frappe.ValidationError,
+					)
+
+		for row in self.items:  # BR-TB-2
+			if not row.thiet_bi:
+				continue
+			danh_muc = {
+				r[0] for r in frappe.db.sql(
+					"""select thiet_bi from `tabCustomer Warehouse Item Equipment`
+					   where parent=%s""", (row.vat_tu,)
+				)
+			}
+			if danh_muc and row.thiet_bi not in danh_muc:
+				self.flags.canh_bao_thiet_bi.append(
+					f'Dòng {row.idx}: máy "{thong_tin[row.thiet_bi]["ten_thiet_bi"]}" '
+					f"chưa có trong danh mục máy của vật tư {row.ten_vat_tu or row.vat_tu}."
+				)
+
+		if self.khoa_phong:  # BR-TB-4
+			for may in may_tren_phieu:
+				kp_may = thong_tin[may]["khoa_phong"]
+				if kp_may and kp_may != self.khoa_phong:
+					self.flags.canh_bao_thiet_bi.append(
+						f'Máy "{thong_tin[may]["ten_thiet_bi"]}" đang đặt ở khoa khác '
+						"với khoa nhận trên phiếu."
+					)
 
 	def _validate_khoa_phong_thuoc_kho(self):
 		"""E8/BR-CP2 — cùng khuôn voucher.validate_vat_tu_thuoc_kho(): chặn
-		phiếu trỏ tới khoa phòng của một kho khác. Đây vừa là kiểm tra dữ
-		liệu vừa là hàng rào cách ly, chạy ở TẦNG CONTROLLER nên áp dụng cho
-		MỌI đường ghi (kho_phieu_xuat_save lẫn Desk) — endpoint cố tình
-		KHÔNG lặp lại kiểm tra này (xem comment trong api/kho.py).
+		phiếu trỏ tới khoa phòng của một BỆNH VIỆN khác. Đây vừa là kiểm tra
+		dữ liệu vừa là hàng rào cách ly, chạy ở TẦNG CONTROLLER nên áp dụng
+		cho MỌI đường ghi (kho_phieu_xuat_save lẫn Desk) — endpoint cũng tự
+		guard bằng `_khoa_cua_kho()` (api/kho.py) TRƯỚC khi giá trị chạm
+		insert()/save(), đóng oracle phân biệt lỗi; chốt chặn ở đây vẫn là
+		hàng rào bắt buộc vì nó là chốt DUY NHẤT trên đường Desk.
+
+		SỬA (đợt sửa cuối, C-2 — bản trước so `Customer Department.kho ==
+		self.kho`, mô hình CŨ). Từ 18/08 khoa phòng thuộc BỆNH VIỆN, không
+		thuộc kho (`Customer Department.kho` nay là Tuỳ chọn) —
+		`api/nhan_su.py::nhan_su_import_commit` (đường onboarding chính
+		thức) tạo khoa KHÔNG gắn `kho`, và `docs/HDSD-phan-quyen-khoa-
+		phong.md:75` dạy chính nhân viên Miyano để trống ô Kho. So `kho` làm
+		MỌI khoa không gắn kho — tức mọi khoa tạo qua đường onboarding thật
+		— bị chặn nhầm dù nó thuộc đúng bệnh viện của kho. Đổi sang so
+		`customer` (suy từ `Customer Warehouse.customer` của `self.kho`),
+		đúng khuôn `_khoa_cua_kho()` (api/kho.py, sửa cùng lý do ngày
+		18/08) — không còn đòi hỏi CHÍNH khoa đó phải gắn kho.
 		"""
 		if not self.khoa_phong:
 			return
-		kho_cua_khoa = frappe.db.get_value("Customer Department", self.khoa_phong, "kho")
-		if kho_cua_khoa != self.kho:
+		customer_cua_kho = frappe.db.get_value("Customer Warehouse", self.kho, "customer")
+		customer_cua_khoa = frappe.db.get_value("Customer Department", self.khoa_phong, "customer")
+		if customer_cua_khoa != customer_cua_kho:
 			frappe.throw(
-				f"Khoa phòng {self.khoa_phong} không thuộc kho {self.kho}.",
+				f"Khoa phòng {self.khoa_phong} không thuộc bệnh viện của kho {self.kho}.",
 				frappe.ValidationError,
 			)
 
@@ -113,6 +213,7 @@ class CustomerStockIssue(Document):
 			if self.loai_xuat == "Xuất sử dụng":
 				self._chan_lo_het_han_chua_xac_nhan()
 				self._chan_thieu_khoa_phong()
+				self._chan_thieu_thiet_bi()
 			# NL-4.12: khoa phòng đã tắt (active=0) còn nằm trên phiếu nháp —
 			# kiểm ở MỌI loại xuất (không chỉ "Xuất sử dụng") vì field không bị
 			# ràng buộc chỉ dùng cho loại đó; kiểm khi GHI SỔ, không phải khi
@@ -173,6 +274,39 @@ class CustomerStockIssue(Document):
 				"Kho đã bật \"Bắt buộc chọn khoa phòng\" cho phiếu Xuất sử "
 				"dụng tạo sau thời điểm đó. Hãy chọn Khoa phòng nhận trước "
 				"khi ghi sổ.",
+				frappe.ValidationError,
+			)
+
+	def _chan_thieu_thiet_bi(self):
+		"""BR-TB-3 — sao y `_chan_thieu_khoa_phong()` ở trên, KỂ CẢ phần tự
+		lành khi cờ bật mà mốc rỗng: chỉ áp cho loại "Xuất sử dụng", chỉ cho
+		phiếu TẠO SAU thời điểm kho bật cờ `bat_buoc_thiet_bi` (so với
+		`self.creation`, KHÔNG phải thời điểm hàm này chạy). "Cờ bật, mốc
+		rỗng" chỉ xảy ra khi cờ được bật qua đường bỏ qua
+		`CustomerWarehouse.validate()` (patch rollout hàng loạt, Data
+		Import, `frappe.db.set_value` trực tiếp) — TỰ LÀNH bằng cách coi
+		thời điểm PHÁT HIỆN (bây giờ) là mốc, ghi luôn xuống `Customer
+		Warehouse`, ân hạn mọi phiếu nháp đang tồn. Fail-closed ở đây sẽ
+		ĐÓNG BĂNG NGAY LẬP TỨC mọi phiếu nháp đang mở ở MỌI kho — đúng cái
+		NL-4.11/E8 sinh ra để tránh, xem docstring
+		`_ghi_moc_bat_buoc_thiet_bi()` và `_chan_thieu_khoa_phong()`."""
+		bat, moc = frappe.db.get_value(
+			"Customer Warehouse", self.kho,
+			["bat_buoc_thiet_bi", "bat_buoc_thiet_bi_tu"],
+		)
+		if not frappe.utils.cint(bat):
+			return
+		if not moc:
+			moc = frappe.utils.now_datetime()
+			frappe.db.set_value("Customer Warehouse", self.kho, "bat_buoc_thiet_bi_tu", moc)
+		tao_luc = frappe.utils.get_datetime(self.creation or frappe.utils.now_datetime())
+		if tao_luc <= frappe.utils.get_datetime(moc):
+			return
+		thieu = [r.idx for r in self.items if not r.thiet_bi]
+		if thieu:
+			frappe.throw(
+				"Kho đã bật \"Bắt buộc chọn máy\" cho phiếu Xuất sử dụng tạo "
+				f"sau thời điểm đó. Còn thiếu máy ở dòng: {', '.join(map(str, thieu))}.",
 				frappe.ValidationError,
 			)
 
@@ -278,6 +412,15 @@ class CustomerStockIssue(Document):
 				"vat_tu": r.vat_tu, "so_lo": r.so_lo,
 				"so_luong": r.so_luong, "don_gia": r.don_gia,
 				"han_su_dung": r.han_su_dung, "xac_nhan_het_han": 1,
+				# Copy nguyên `thiet_bi` xuống dòng đảo — không phải một lựa
+				# chọn mới của người dùng, chỉ để báo cáo sau này (join qua
+				# chung_tu_row) cấn trừ đúng theo máy: nếu để trống, dòng sổ
+				# +2 của phiếu đảo sẽ neo vào "không máy" trong khi dòng sổ
+				# -2 gốc neo đúng máy, số theo máy sai vĩnh viễn dù tổng vẫn
+				# khớp. _validate_thiet_bi() bỏ qua kiểm tra active/liên kết
+				# cho phiếu đảo (self.flags.dang_tao_dao) nên copy máy đã
+				# ngừng hoạt động xuống đây không bị chặn.
+				"thiet_bi": r.thiet_bi,
 			})
 		# Giữ ĐÚNG một hình thức bỏ qua phân quyền, giống hệt phiếu nhập
 		# (customer_stock_receipt.py): kwarg của insert(). Bản trước còn đặt

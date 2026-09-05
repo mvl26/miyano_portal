@@ -9,6 +9,8 @@ import { useIsMobile } from '../useMobile'
 import { useDongPhieu } from '../useDongPhieu'
 import VatTuModal from '../components/VatTuModal.vue'
 import KhoaPhongModal from '../components/KhoaPhongModal.vue'
+import ThietBiPicker from '../components/ThietBiPicker.vue'
+import ThietBiQuickCreate from '../components/ThietBiQuickCreate.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,6 +49,10 @@ const doc = reactive({
   ngay: new Date().toISOString().slice(0, 10),
   loai_xuat: 'Xuất sử dụng',
   khoa_phong: '',
+  // Task 13 — máy mặc định đầu phiếu (Customer Equipment). Đổi ô này chỉ
+  // điền xuống các DÒNG ĐANG TRỐNG (xem onThietBiMacDinhChange), không ghi
+  // đè dòng người dùng đã tự chọn máy khác.
+  thiet_bi_mac_dinh: '',
   noi_nhan: '',
   nguoi_nhan: '',
   dien_giai: '',
@@ -132,6 +138,7 @@ function blankRow() {
   return {
     vat_tu: '', so_lo: '', so_luong: 1, xac_nhan_het_han: false, ghi_chu: '',
     han_su_dung: null, don_gia: 0, // chỉ để xem trước — server luôn tính lại từ lô
+    thiet_bi: '', // Task 13 — Customer Equipment của dòng này (không bắt buộc)
     _lots: [], _lotsLoading: false, _hetHan: false,
   }
 }
@@ -337,6 +344,7 @@ const {
   DOCTYPE,
   extraRowFields: () => ({
     xac_nhan_het_han: false,
+    thiet_bi: '', // Task 13 — file import không mang máy, để trống là hợp lệ
     _lots: [],
     _lotsLoading: false,
     _hetHan: false,
@@ -381,6 +389,86 @@ function rowThanhTien(row) {
 }
 const tongTienPreview = computed(() => doc.items.reduce((s, r) => s + rowThanhTien(r), 0))
 
+// --- Task 13: máy mặc định đầu phiếu + cảnh báo BR-TB-2 sau khi lưu --------
+
+// Đổi "Máy mặc định": cập nhật ô đó VÀ điền xuống MỌI dòng đang trống
+// (r.thiet_bi rỗng) — KHÔNG ghi đè dòng người dùng đã tự chọn máy khác, kể cả
+// khi máy đó khác máy mặc định mới. `val` có thể là '' (mục "— Không chọn
+// máy —" trong ThietBiPicker) — vẫn hợp lệ, chỉ là "không có máy mặc định".
+function onThietBiMacDinhChange(val) {
+  doc.thiet_bi_mac_dinh = val || ''
+  if (!doc.thiet_bi_mac_dinh) return
+  for (const r of doc.items) {
+    if (!r.thiet_bi) r.thiet_bi = doc.thiet_bi_mac_dinh
+  }
+}
+
+// Modal "Tạo nhanh máy" dùng CHUNG cho cả ô "Máy mặc định" lẫn mọi dòng bảng
+// — `quickCreateOnDone` giữ đúng "đích" (hàm gán kết quả vào đúng chỗ đã mở
+// modal) để không cần một biến cờ "đang mở từ đâu" riêng.
+const quickCreateOpen = ref(false)
+const quickCreateGoiY = ref('')
+let quickCreateOnDone = null
+function openQuickCreate(search, onDone) {
+  quickCreateGoiY.value = search || ''
+  quickCreateOnDone = onDone
+  quickCreateOpen.value = true
+}
+function onQuickCreateCreated(tb) {
+  quickCreateOpen.value = false
+  const cb = quickCreateOnDone
+  quickCreateOnDone = null
+  if (cb) cb(tb.name)
+}
+function onQuickCreateClose() {
+  quickCreateOpen.value = false
+  quickCreateOnDone = null
+}
+
+// Cảnh báo mềm BR-TB-2/4 (`canh_bao_thiet_bi`, LUÔN có mặt trong response,
+// rỗng thì []) — server chỉ trả CHUỖI ĐÃ ĐỊNH DẠNG tiếng Việt, không kèm
+// docname vat_tu/thiet_bi (xem GHI NHẬN trong task-13-report.md). Với cảnh
+// báo BR-TB-2 (bắt đầu bằng "Dòng N:"), suy ngược lại đúng dòng qua `idx` của
+// item (KHÔNG dùng vị trí mảng — canh_bao_thiet_bi bỏ qua các dòng không có
+// thiet_bi nên vị trí trong mảng KHÔNG khớp vị trí dòng) để lấy vat_tu/
+// thiet_bi cho nút "Gắn máy này vào vật tư". Cảnh báo BR-TB-4 (khoa khác,
+// không có tiền tố "Dòng N:") không có hành động nào đi kèm — chỉ hiện chữ.
+const canhBaoThietBi = ref([])
+function parseCanhBaoThietBi(list, items) {
+  return (list || []).map((text) => {
+    const m = text.match(/^Dòng (\d+):/)
+    if (m) {
+      const idx = Number(m[1])
+      const row = (items || []).find((it) => Number(it.idx) === idx)
+      if (row && row.vat_tu && row.thiet_bi) {
+        return { text, vatTu: row.vat_tu, thietBi: row.thiet_bi }
+      }
+    }
+    return { text, vatTu: null, thietBi: null }
+  })
+}
+function applyCanhBaoThietBi(out) {
+  canhBaoThietBi.value = parseCanhBaoThietBi(out.canh_bao_thiet_bi, out.items)
+}
+
+const dangGanMay = ref(-1)
+async function ganMayVaoVatTu(canhBao, idx) {
+  dangGanMay.value = idx
+  try {
+    await api.callKho('kho_vat_tu_gan_thiet_bi', { vat_tu: canhBao.vatTu, thiet_bi: canhBao.thietBi })
+    // Tắt NGAY cảnh báo này (lạc quan — người dùng vừa xử lý xong việc nó
+    // yêu cầu). Bản thân phiếu chưa được validate() lại nên nếu người dùng
+    // không Lưu tiếp, câu cảnh báo gốc vẫn đúng cho tới lần lưu kế — toast dưới
+    // đây nói rõ việc còn lại.
+    canhBaoThietBi.value = canhBaoThietBi.value.filter((_, i) => i !== idx)
+    showToast('Đã gắn máy vào danh mục tương thích của vật tư — lưu lại phiếu để cảnh báo hết hẳn.')
+  } catch (e) {
+    showToast(e.message || 'Không gắn được máy vào vật tư.', 'error')
+  } finally {
+    dangGanMay.value = -1
+  }
+}
+
 async function loadVatTu() {
   try {
     vatTuList.value = await api.callKho('kho_vat_tu_list')
@@ -403,6 +491,10 @@ async function load() {
     doc.items = (out.items || []).map((r) => ({
       ...r, _lots: [], _lotsLoading: false, _hetHan: false,
     }))
+    // Task 13 — get_doc() không chạy validate() nên canh_bao_thiet_bi luôn về
+    // [] ở đây (xem docstring _phieu_to_dict); vẫn gán qua applyCanhBaoThietBi
+    // để không phải nhớ hai đường đọc khác nhau.
+    applyCanhBaoThietBi(out)
     // Nháp đã có dòng sẵn (ví dụ do Delivery Note sinh, hoặc lưu dở lần
     // trước): nạp lại danh sách lô cho từng dòng để select không trống —
     // loadLotsForRow() tự giữ nguyên so_lo hiện tại nếu nó còn trong tồn.
@@ -456,12 +548,16 @@ function payload() {
     // server dù cả hai đầu (DB field + endpoint) đều đã sẵn sàng — đúng lỗ
     // đã trả giá ở E5 (xem brief E8).
     khoa_phong: doc.khoa_phong || null,
+    // Task 13 — Customer Equipment mặc định đầu phiếu (kho_phieu_xuat_save
+    // tự kiểm sở hữu qua _thiet_bi_cua_khach() ở tầng endpoint).
+    thiet_bi_mac_dinh: doc.thiet_bi_mac_dinh || null,
     noi_nhan: doc.noi_nhan,
     nguoi_nhan: doc.nguoi_nhan,
     dien_giai: doc.dien_giai,
     items: doc.items.map((r) => ({
       vat_tu: r.vat_tu, so_lo: r.so_lo, so_luong: r.so_luong,
       xac_nhan_het_han: r.xac_nhan_het_han ? 1 : 0, ghi_chu: r.ghi_chu,
+      thiet_bi: r.thiet_bi || null, // Task 13
     })),
   }
   if (!isNew.value) p.name = doc.name
@@ -480,6 +576,10 @@ async function save({ silent } = {}) {
     const out = await api.callKho('kho_phieu_xuat_save', { payload: payload() })
     const savedItems = out.items
     Object.assign(doc, out)
+    // Task 13 — validate() vừa chạy THẬT trên lần lưu này, canh_bao_thiet_bi
+    // là dữ liệu tươi. Đọc từ `out` (chưa bị hàm merge _lots bên dưới đổi
+    // hình dạng items) để idx/vat_tu/thiet_bi còn nguyên cho ganMayVaoVatTu().
+    applyCanhBaoThietBi(out)
     // Giữ lại danh sách lô (_lots) đã tải của mỗi dòng theo (vat_tu, so_lo) —
     // tránh gọi lại kho_lo_goi_y() cho những dòng không đổi, chỉ nạp thêm
     // cho dòng thật sự thiếu (dòng mới, hoặc lô vừa đổi).
@@ -520,6 +620,7 @@ async function doSubmit() {
   try {
     const out = await api.callKho('kho_phieu_submit', { doctype: DOCTYPE, name: saved.name })
     Object.assign(doc, out)
+    applyCanhBaoThietBi(out) // submit() có chạy validate() lại — cảnh báo có thể còn
     showToast(`Đã ghi sổ phiếu ${out.name}.`)
   } catch (e) {
     showToast(e.message || 'Không ghi sổ được phiếu.', 'error')
@@ -598,6 +699,28 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
     <div v-else-if="error" class="empty">{{ error }}</div>
 
     <template v-else>
+      <!-- Task 13 — cảnh báo mềm BR-TB-2/4: phiếu ĐÃ LƯU THÀNH CÔNG, đây
+           không phải lỗi chặn (màu vàng .note, không phải .warn đỏ). -->
+      <div v-if="canhBaoThietBi.length" class="note mb10">
+        <b>⚠ Cảnh báo máy (không chặn lưu/ghi sổ):</b>
+        <div
+          v-for="(c, i) in canhBaoThietBi"
+          :key="i"
+          class="flex"
+          style="justify-content: space-between; margin-top: 6px; flex-wrap: wrap; gap: 8px"
+        >
+          <span>{{ c.text }}</span>
+          <button
+            v-if="c.vatTu && c.thietBi"
+            class="btn-o btn-sm"
+            :disabled="dangGanMay === i"
+            @click="ganMayVaoVatTu(c, i)"
+          >
+            {{ dangGanMay === i ? 'Đang gắn…' : 'Gắn máy này vào vật tư' }}
+          </button>
+        </div>
+      </div>
+
       <div class="card mb10">
         <div class="grid2">
           <div class="field">
@@ -626,6 +749,17 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
             <p v-if="batBuocKhoaPhong && doc.loai_xuat === 'Xuất sử dụng'" class="tag" style="margin-top: 4px">
               Kho đang bật bắt buộc chọn khoa phòng cho phiếu Xuất sử dụng (chỉ áp phiếu tạo sau khi bật — BR-CP2).
             </p>
+          </div>
+          <div class="field">
+            <label>Máy mặc định</label>
+            <ThietBiPicker
+              :model-value="doc.thiet_bi_mac_dinh || null"
+              :vat-tu="null"
+              :disabled="!editable"
+              @update:model-value="onThietBiMacDinhChange"
+              @create-new="({ search }) => openQuickCreate(search, onThietBiMacDinhChange)"
+            />
+            <p class="tag" style="margin-top: 4px">Điền xuống các dòng CHƯA chọn máy — không ghi đè dòng đã chọn tay.</p>
           </div>
           <div class="field">
             <label>Nơi nhận</label>
@@ -666,6 +800,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
           <thead>
             <tr>
               <th style="min-width: 180px">Vật tư</th>
+              <th style="min-width: 200px">Máy</th>
               <th style="min-width: 220px">Lô (FEFO)</th>
               <th>Hạn dùng</th>
               <th class="right">Tồn lô</th>
@@ -703,6 +838,16 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
                 <div v-if="r._loi && r._loi.length" class="tag" style="color: #cf1322; margin-top: 4px">
                   ✗ Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
                 </div>
+              </td>
+              <td>
+                <ThietBiPicker
+                  v-if="editable"
+                  :model-value="r.thiet_bi || null"
+                  :vat-tu="r.vat_tu || null"
+                  @update:model-value="(val) => { r.thiet_bi = val || '' }"
+                  @create-new="({ search }) => openQuickCreate(search, (name) => { r.thiet_bi = name })"
+                />
+                <ThietBiPicker v-else :model-value="r.thiet_bi || null" disabled />
               </td>
               <td>
                 <template v-if="editable">
@@ -769,7 +914,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="6" style="text-align: right"><b>Tổng cộng</b></td>
+              <td colspan="7" style="text-align: right"><b>Tổng cộng</b></td>
               <td class="right"><b>{{ fmtVND(editable ? tongTienPreview : doc.tong_tien) }}</b></td>
               <td v-if="editable"></td>
             </tr>
@@ -809,6 +954,12 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
         mode="tao"
         @saved="onKhoaPhongSaved"
         @close="khoaModalOpen = false"
+      />
+      <ThietBiQuickCreate
+        :open="quickCreateOpen"
+        :goi-y="quickCreateGoiY"
+        @created="onQuickCreateCreated"
+        @close="onQuickCreateClose"
       />
     </template>
   </div>

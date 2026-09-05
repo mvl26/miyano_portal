@@ -10,7 +10,8 @@
   "kho", "ma_vat_tu", "ten_vat_tu", "dvt", "active",
   "col_1", "item_code", "quy_cach", "nhom", "ghi_chu",
   "sec_du_tru", "ton_toi_thieu", "diem_dat_lai", "ton_toi_da",
-  "col_du_tru", "lead_time_ngay", "boi_so_dat"
+  "col_du_tru", "lead_time_ngay", "boi_so_dat",
+  "sec_may", "may_su_dung"
  ],
  "fields": [
   {"fieldname": "kho", "fieldtype": "Link", "label": "Kho", "options": "Customer Warehouse", "reqd": 1, "search_index": 1},
@@ -29,7 +30,9 @@
   {"fieldname": "ton_toi_da", "fieldtype": "Float", "label": "Tồn tối đa (max)"},
   {"fieldname": "col_du_tru", "fieldtype": "Column Break"},
   {"fieldname": "lead_time_ngay", "fieldtype": "Int", "label": "Lead time (ngày)", "default": "3"},
-  {"fieldname": "boi_so_dat", "fieldtype": "Int", "label": "Bội số đặt"}
+  {"fieldname": "boi_so_dat", "fieldtype": "Int", "label": "Bội số đặt"},
+  {"fieldname": "sec_may", "fieldtype": "Section Break", "label": "Máy sử dụng"},
+  {"fieldname": "may_su_dung", "fieldtype": "Table", "label": "Máy sử dụng", "options": "Customer Warehouse Item Equipment", "description": "Danh mục máy chạy được vật tư này. Dùng để lọc dropdown lúc xuất và tra ngược — KHÔNG dùng để cộng số lượng. Để trống = vật tư dùng chung."}
  ],
  "index_web_pages_for_search": 0,
  "links": [],

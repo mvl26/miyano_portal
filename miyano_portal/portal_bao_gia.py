@@ -15,6 +15,7 @@ import frappe
 from frappe.utils import format_date, getdate, nowdate
 
 from miyano_portal.portal_mua_le import (
+    LOAI_DON_BAO_GIA,
     TRANG_THAI_CHO_KHACH,
     cap_nhat_yeu_cau_goc,
     han_hieu_luc_bao_gia,
@@ -132,7 +133,7 @@ def quet_bao_gia_het_han(moc=None) -> int:
         # CÙNG một đơn. Đổi vị ngữ kia mà quên đây là làm hai bên lệch nhau.
         filters={
             "workflow_state": TRANG_THAI_CHO_KHACH, "docstatus": 0,
-            "custom_loai_don": "Mua lẻ",
+            "custom_loai_don": LOAI_DON_BAO_GIA,
         },
         # review I-2(a) round 2 — thêm custom_ngay_gui_khach_duyet: mốc tính
         # hạn hiệu lực giờ là ngày GỬI khách duyệt, không phải transaction_date.

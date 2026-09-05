@@ -56,6 +56,14 @@ _CONG_KHACH_REPORTS = [
 	("Đơn chậm xử lý", "orange"),
 ]
 
+# Task 15 (26/08/2026) — màn Desk nhập nhân sự bệnh viện bằng Excel. Vào
+# workspace ngay từ đầu vì đây là ĐƯỜNG VÀO DUY NHẤT của việc gán khoa phòng
+# cho tài khoản cổng: trước task này, cách duy nhất là mở Desk sửa tay từng
+# bản ghi `Portal Member`, tức là không ai ngoài người viết code biết lối.
+_PAGE_SHORTCUTS = [
+	("Nhập nhân sự bệnh viện", "nhap-nhan-su", "purple"),
+]
+
 # (doctype thật, nhãn tiếng Việt hiển thị — đúng tên trong thiết kế gốc §3)
 _DOCTYPE_SHORTCUTS = [
 	("Customer Warehouse", "Kho Khách Hàng"),
@@ -96,6 +104,13 @@ def _build_content_and_shortcuts():
 	for idx, (label, color) in enumerate(_REPORT_SHORTCUTS):
 		content.append(_block(f"sc-report-{idx}", "shortcut", {"shortcut_name": label, "col": 4}))
 		shortcuts.append({"type": "Report", "label": label, "link_to": label, "color": color})
+
+	content.append(_block("hdr-nhan-su", "header", {
+		"text": '<span class="h5">Tài khoản &amp; phân quyền</span>', "col": 12,
+	}))
+	for idx, (label, page_name, color) in enumerate(_PAGE_SHORTCUTS):
+		content.append(_block(f"sc-page-{idx}", "shortcut", {"shortcut_name": label, "col": 4}))
+		shortcuts.append({"type": "Page", "label": label, "link_to": page_name, "color": color})
 
 	content.append(_block("hdr-danh-muc", "header", {
 		"text": '<span class="h5">Danh mục</span>', "col": 12,

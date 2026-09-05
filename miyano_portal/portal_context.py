@@ -181,19 +181,54 @@ def dam_bao_duoc_sua_don_da_duyet(so, user=None) -> None:
     tệ hơn sự cố cũ, vốn ít ra còn nổ thành lỗi 1054 nhìn thấy được. Nên
     kiểm cột tồn tại TRƯỚC, và thiếu cột thì CHẶN nhân viên khoa chứ không
     thả.
+
+    Task 7 — thân hàm chuyển sang `_ly_do_khong_sua_don_da_duyet()`, để
+    `duoc_sua_don_da_duyet()` (ngay dưới) trả LỜI cùng câu hỏi mà không
+    ném. Xem docstring hàm đó.
     """
+    ly_do = _ly_do_khong_sua_don_da_duyet(so, user)
+    if ly_do:
+        raise frappe.PermissionError(ly_do)
+
+
+def _ly_do_khong_sua_don_da_duyet(so, user=None) -> str | None:
+    """`None` = được sửa. Ngược lại: câu tiếng Việt nói vì sao không."""
     if la_quan_ly(user):
-        return
+        return None
     if not _cot_de_xuat_ton_tai():
-        raise frappe.PermissionError(
-            "Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
-        )
+        return "Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
     if not so.get("custom_de_xuat"):
-        return
-    raise frappe.PermissionError(
+        return None
+    return (
         "Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng để "
         "gửi lại cho quản lý xem."
     )
+
+
+def duoc_sua_don_da_duyet(so, user=None) -> bool:
+    """Task 7 — CÙNG CÂU HỎI với `dam_bao_duoc_sua_don_da_duyet`, dạng
+    trả lời thay vì dạng ném. `portal_order_track` trả nó ra
+    (`duoc_sua_da_duyet`) để `OrderDetail.vue` ẨN khối "Số lượng chưa
+    đúng?" thay vì hiện một nút mà server LUÔN LUÔN từ chối.
+
+    Khiếm khuyết đang sửa (có trước Task 6, không phải hồi quy của nó):
+    màn chi tiết chỉ soi chốt loại đơn, trong khi lõi `portal_order_sua_so_
+    luong` hỏi guard này TRƯỚC. Nhân viên khoa mở một đơn TRỘN đi qua
+    đường đề xuất → thấy nút → bấm → "Đơn này đã được quản lý duyệt…",
+    mọi lần, không có đường nào thành công. Quy ước dự án: ẨN, không phải
+    hiện-rồi-báo-lỗi.
+
+    Vì sao trả CÂU TRẢ LỜI chứ không để client tự suy từ dữ kiện: không có
+    dữ kiện nào phía client đủ. `custom_ma_tra_cuu` không phải bản sao của
+    `custom_de_xuat` — `api/portal.py` (quản lý đặt thẳng cho khách chưa
+    khai `Customer.custom_ma_ngan`) ghi `custom_de_xuat` NHƯNG để
+    `custom_ma_tra_cuu` rỗng vì `sinh_ma()` ném; và nhánh THIẾU CỘT làm mọi
+    dữ kiện phía client nói "được sửa" trong khi server chặn. Đây là hình
+    dạng `portal_mua_le.di_vong_bao_gia` đã dựng ở Task 6: MỘT vị ngữ, mọi
+    bên cùng hỏi — bản soi gương tự dựng lại điều kiện là chỗ trôi lệch
+    tiếp theo đang chờ xảy ra.
+    """
+    return _ly_do_khong_sua_don_da_duyet(so, user) is None
 
 
 # VÒNG SỬA 2 (C3 — CRITICAL), CHUYỂN VÀO ĐÂY Ở VÒNG SỬA 3 (V2, Important).
@@ -426,6 +461,51 @@ def ten_nguoi_dung(email: str | None) -> str:
         return ""
     ten = frappe.db.get_value("User", email, "full_name")
     return (ten or "").strip() or email
+
+
+def lien_he_nguoi_dung(email: str | None, *, cho_hien_tai_khoan: bool = True) -> dict:
+    """Task 5 (nhật ký thao tác, §8 của spec) — mở rộng `ten_nguoi_dung()`
+    ở trên thành đủ bộ ba khoá mà khối "Truy vết yêu cầu" và dòng thời gian
+    mới cần: `{"ten", "dien_thoai", "tai_khoan"}`.
+
+    DÙNG LẠI `ten_nguoi_dung()` cho phần tên — KHÔNG chép lại logic lui-về-
+    email ở đây. Một bản sao thứ hai của "lui về gì khi không tra được" là
+    đúng kiểu trôi lệch mà docstring `ten_nguoi_dung()` đã cảnh (Ruling P28:
+    `nguon_gia`/`blanket_order`).
+
+    `dien_thoai` — `User.mobile_no`, lui về `User.phone`, rỗng chuỗi (KHÔNG
+    phải `None`) khi cả hai trống: tầng hiển thị Vue in thẳng giá trị này,
+    và một `None` in ra chữ "null" trên màn hình khách xem — đúng bẫy (b)
+    đề bài đã nêu.
+
+    `tai_khoan` — ranh giới quyền riêng tư §8, ranh giới NHẠY NHẤT của cả
+    task này:
+
+    - `cho_hien_tai_khoan=False` (dùng cho `vai=miyano`, gọi từ endpoint
+      dưới đây): LUÔN rỗng. Bệnh viện được thấy TÊN và SỐ của nhân sự
+      Miyano để gọi hỏi trách nhiệm — đó là *danh tính để liên hệ*. Email
+      đăng nhập của Miyano là *định danh kỹ thuật*, không phục vụ mục đích
+      đó (nguyên văn lý lẽ đã có từ 21/08 cho nửa bệnh viện, spec §8 mở
+      rộng ra ngoài, không đặt luật mới). Tham số này là CÁCH DUY NHẤT gọi
+      hàm nói "đừng trả email" — không tự đoán từ `email` truyền vào.
+    - `cho_hien_tai_khoan=True` (mặc định — người của chính bệnh viện đó):
+      trả `email` NGUYÊN VĂN, TRỪ khi `ten` trùng chính `email` (tức
+      `ten_nguoi_dung()` đã lui về email vì không tra được `full_name`) —
+      lúc đó in thêm tài khoản chỉ là lặp lại đúng một chuỗi hai lần dưới
+      hai nhãn khác nhau. Giữ dòng email khi hai giá trị KHÁC nhau: với
+      sáu tài khoản cấp đơn vị cũ (chốt `full_name` đặt tên đơn vị), email
+      là thứ DUY NHẤT phân biệt được ai với ai — bỏ nó là mất dấu vết,
+      đúng lý do `ten_nguoi_dung()` không trả rỗng khi thiếu tên.
+    """
+    ten = ten_nguoi_dung(email)
+    if not email:
+        return {"ten": ten, "dien_thoai": "", "tai_khoan": ""}
+    hang = frappe.db.get_value(
+        "User", email, ["mobile_no", "phone"], as_dict=True
+    ) or frappe._dict()
+    dien_thoai = (hang.mobile_no or hang.phone or "").strip()
+    tai_khoan = email if (cho_hien_tai_khoan and ten != email) else ""
+    return {"ten": ten, "dien_thoai": dien_thoai, "tai_khoan": tai_khoan}
 
 
 def get_portal_customer(user: str | None = None) -> str:

@@ -1,6 +1,6 @@
 # Hướng dẫn sử dụng — Cổng khách hàng & Desk nhân viên Miyano
 
-App `miyano_portal` · Cập nhật **16/08/2026**
+App `miyano_portal` · Cập nhật **26/08/2026**
 
 Tài liệu này mô tả **toàn bộ luồng nghiệp vụ và thao tác trên màn hình** cho hai
 vai:
@@ -32,7 +32,7 @@ KHÁCH                                        MIYANO (Desk)
 ─────                                        ─────────────
 Đặt hàng ─────────────────────────────────►  Đơn về "Chờ xác nhận"
    │                                              │
-   │  (mua lẻ)                                    ├─ điền đơn giá
+   │  (đơn có dòng chưa có giá)                   ├─ điền đơn giá
    │                                              ├─ khớp mã hàng khách gõ tay
    │  ◄──────── báo giá ──────────────────────────┘  bấm "Gửi khách duyệt"
    │
@@ -68,13 +68,25 @@ Menu bên trái (trên điện thoại nằm ở thanh dưới):
 | Mục | Dùng để |
 |---|---|
 | 🏠 **Tổng quan** | Nhìn nhanh tình hình: đơn, công nợ, hợp đồng |
-| 🛒 **Đặt hàng** | Chọn hàng, hai chế độ |
-| 📦 **Giỏ hàng** | Xem lại và gửi đơn |
-| 📋 **Đơn hàng của tôi** | Theo dõi, xem chi tiết, kiểm hàng |
+| 🛒 **Đặt hàng** | Chọn hàng, bỏ vào giỏ và gửi đi |
+| 📋 **Danh sách đơn hàng** | Theo dõi từ lúc soạn tới lúc nhận hàng, xem chi tiết, duyệt, kiểm hàng |
 | 🏭 **Kho của tôi** | Quản lý kho nội bộ *(chỉ khách đã mở kho)* |
 | 🧾 **Hoá đơn & công nợ** | Hoá đơn, hạn thanh toán, hoá đơn điện tử |
 | 🔔 **Thông báo** | Việc mới, có số đỏ khi chưa đọc |
 | 🏥 **Hồ sơ đơn vị** | Thông tin đơn vị, địa chỉ, hợp đồng |
+
+**Bảy mục** cho mọi vai trò.
+
+> **Nếu bạn quen bản cũ:** bốn mục *Giỏ hàng*, *Đơn hàng của tôi*, *Đề xuất mua*
+> và *Duyệt* không còn nữa. Giỏ hàng nay là bước 2 ngay trong màn **Đặt hàng**;
+> ba mục còn lại gộp thành **Danh sách đơn hàng** (tên cũ: *Yêu cầu của tôi*).
+> Link cũ trong thông báo và trong trình duyệt vẫn bấm được — chúng tự chuyển
+> sang màn mới.
+
+> **Quản lý duyệt ở đâu?** Mở **Danh sách đơn hàng**, bấm chip **Chờ duyệt** —
+> đó là toàn bộ hàng chờ của bạn (gồm cả đơn xin sửa số lượng), lọc thêm được
+> theo **khoa phòng**. Trên mục menu này còn một **số đỏ** đếm số đơn đang chờ
+> bạn. Bấm vào một đơn để xem chi tiết và **duyệt ngay tại đó**.
 
 > **Phân trang**: mọi danh sách đều có ô chọn **10 / 20 / 50** dòng mỗi trang ở
 > cuối bảng. Lựa chọn của bạn được nhớ lại cho lần sau.
@@ -90,43 +102,42 @@ Bốn ô số ở đầu trang:
 - **Hoá đơn chưa thanh toán**
 - **Tổng công nợ**
 
-Bên dưới: **5 đơn gần nhất** (bấm vào dòng để mở chi tiết) và danh sách **hợp
-đồng khung còn hiệu lực** kèm % hạn mức đã dùng. Bấm *"Đặt hàng theo hợp đồng
-này →"* để nhảy thẳng sang màn Đặt hàng với hợp đồng đó được chọn sẵn.
+Bên dưới: **5 đơn gần nhất** (bấm vào dòng để mở chi tiết) và **hợp đồng khung còn
+hiệu lực** kèm % hạn mức đã dùng. Bấm *"Đặt hàng →"* để sang thẳng màn Đặt hàng.
 
 ---
 
-## A2. Đặt hàng — hai chế độ
+## A2. Đặt hàng — bước 1: chọn hàng
 
-Đầu trang có bộ chuyển hai ngăn:
+**Một màn, một ô tìm kiếm, một danh sách.** Không còn chọn "chế độ" nào trước khi
+tìm hàng: bạn gõ tên hoặc mã mặt hàng, hệ thống tìm trong toàn bộ danh mục của
+Miyano và tự nói cho bạn biết từng dòng có giá hợp đồng hay chưa.
 
-### A2.1 Ngăn "Theo hợp đồng khung"
+Danh sách hiện **10 mặt hàng mỗi trang**. **Hàng thuộc hợp đồng của đơn vị bạn
+đứng trước**, hết rồi mới tới các mặt hàng khác.
 
-Dùng khi mặt hàng **nằm trong hợp đồng đã ký**.
+Mỗi dòng cho bạn bốn thông tin:
 
-1. Chọn hợp đồng (nếu có nhiều).
-2. Bảng hiện các mặt hàng **thuộc hợp đồng đó**, kèm **đơn giá đã ký** và **hạn
-   mức còn lại**.
-3. Gõ số lượng → **Thêm vào giỏ**.
+| Cột | Nghĩa |
+|---|---|
+| **Tình trạng** | **Còn hàng** — Miyano đang có sẵn. **Liên hệ** — hết hoặc chưa nhập, gọi nhân viên kinh doanh để biết ngày về |
+| **Tầng giá** | **Giá HĐ** kèm số tiền và mã hợp đồng — đây là hàng trong hợp đồng đã ký. **Chờ báo giá** — Miyano sẽ báo giá sau |
+| **Hạn mức** | Còn lại bao nhiêu trên hợp đồng, hoặc *Không giới hạn* |
+| **Số lượng** | Gõ số rồi bấm **+ Giỏ** |
 
-Ràng buộc:
-- Vượt hạn mức còn lại → chặn ngay, kèm số còn lại cụ thể.
-- Một số mặt hàng có **bội số đặt hàng** (ví dụ chỉ đặt theo bội của 10) — sai
-  bội số sẽ bị chặn kèm gợi ý số hợp lệ.
-- Mặt hàng **ngoài hợp đồng không hiện ở ngăn này** — đó là mục đích của ngăn
-  Mua lẻ.
+Hai điều màn hình sẽ nhắc ngay tại dòng:
 
-### A2.2 Ngăn "Mua lẻ"
+- **Vượt hạn mức hợp đồng là cảnh báo, không phải hàng rào.** Nhân viên khoa vẫn
+  xin được 100 hộp khi hợp đồng còn 40 — người duyệt của đơn vị sẽ quyết số thật.
+  Nhưng **đến lúc đơn thật sự sinh ra** (quản lý bấm Đặt hàng, hoặc quản lý duyệt)
+  thì hạn mức chặn cứng, kèm câu báo còn lại bao nhiêu.
+- Một số mặt hàng có **bội số đặt hàng** (ví dụ chỉ đặt theo bội của 10). Gõ sai
+  bội số thì màn hình báo ngay và gợi ý số hợp lệ gần nhất.
 
-Dùng khi cần mặt hàng **ngoài hợp đồng**.
+### Hàng Miyano chưa có trong hệ thống
 
-1. Gõ từ khoá vào thanh tìm kiếm → hệ thống tìm trong **toàn bộ danh mục vật tư
-   của Miyano**.
-2. **Không hiển thị giá** ở bước này — giá do Miyano báo sau (mục A4).
-3. Bấm **Thêm vào giỏ**.
-
-**Nếu không tìm thấy mặt hàng cần:** cuộn xuống khối *"Hàng chưa có trong danh
-mục"* và tự gõ:
+Bấm nút **“+ Thêm dòng — hàng chưa có trong hệ thống”** ngay dưới ô tìm kiếm. Nút
+này **luôn hiện**, không phải tìm không ra mới có. Tự gõ:
 
 | Ô | Ví dụ |
 |---|---|
@@ -138,44 +149,65 @@ mục"* và tự gõ:
 Miyano có trách nhiệm tìm nguồn và báo lại. **Bạn không cần biết Miyano đang có
 gì trong kho.**
 
-Hai lưu ý:
-- Ngăn Mua lẻ chỉ hiện khi đơn vị bạn **đã được Miyano bật chế độ mua lẻ**. Chưa
-  thấy ngăn này → liên hệ nhân viên kinh doanh.
-- Mặt hàng **đang nằm trong hợp đồng khung còn hiệu lực** sẽ báo *"Có trong hợp
-  đồng khung — đặt ở chế độ Theo hợp đồng khung"* và không cho mua lẻ. Đây là
-  chốt chống lách hạn mức hợp đồng.
-
 ---
 
-## A3. Giỏ hàng và gửi đơn
+## A3. Đặt hàng — bước 2: giỏ hàng và gửi đi
 
-Giỏ có **hai ngăn riêng biệt** vì hai chế độ đi thành **hai đơn khác nhau**:
-
-| | Theo hợp đồng khung | Mua lẻ |
-|---|---|---|
-| Hiện giá, thành tiền, VAT | ✔ | ✘ (chưa có giá) |
-| Nút gửi | *Xác nhận đặt hàng →* | *Xác nhận đặt đơn MUA LẺ →* |
-| Sau khi gửi | Chờ Miyano xác nhận | Chờ Miyano **báo giá** |
-
-Trong mỗi ngăn: sửa số lượng trực tiếp, **Xoá dòng**, chọn **địa chỉ giao** và
-**ngày giao mong muốn**.
+Bấm **2 · Giỏ hàng** ở đầu màn. **Một giỏ duy nhất**, mọi mặt hàng nằm chung một
+bảng, mỗi dòng mang nhãn giá của nó (*Giá HĐ …* hoặc *Chờ báo giá*). Sửa số lượng
+ngay trong bảng, **Xoá** dòng không cần nữa.
 
 Trước khi gửi cần điền:
-- **Địa chỉ giao hàng** (chọn từ danh sách địa chỉ của đơn vị)
-- **Ngày giao mong muốn** — hệ thống chặn ngày quá gần / quá khứ
-- **Số PO của bên bạn** (không bắt buộc)
 
-Gửi xong màn hình hiện mã đơn và nút **Xem đơn hàng**.
+- **Lý do yêu cầu** — bắt buộc, người duyệt của đơn vị sẽ đọc dòng này
+- **Ngày giao mong muốn** — hệ thống chặn ngày quá gần / quá khứ
+- **Địa chỉ giao hàng** (chọn từ danh sách địa chỉ của đơn vị)
+- **Ghi chú** (không bắt buộc) — ví dụ *hàng cần giữ lạnh 2–8 °C*
+
+Rồi bấm nút cuối màn. **Nút đó ghi gì là tuỳ vai của bạn:**
+
+| Bạn là | Nút | Chuyện gì xảy ra |
+|---|---|---|
+| **Nhân viên khoa** | **Gửi duyệt** | Yêu cầu được cấp mã và chuyển tới quản lý đơn vị. Duyệt xong đơn mới sang Miyano |
+| **Quản lý đơn vị** | **Đặt hàng** | Đơn sang Miyano ngay trong một lần bấm — bạn vốn là người duyệt. Hệ thống vẫn tự lưu lại một yêu cầu đã duyệt đứng sau để sau này còn tra được |
+
+Nút **Lưu nháp** để soạn dở rồi quay lại sau. Bản nháp nằm ở **Danh sách đơn hàng**,
+giai đoạn *Nháp*.
 
 > Bấm nút gửi hai lần (mạng chậm, lỡ tay) **không** tạo hai đơn — hệ thống nhận
 > ra và trả về đúng đơn đã tạo.
 
+### ⚠️ Đơn có hàng chờ báo giá thì CẢ ĐƠN chờ
+
+Đây là điều hay được hỏi nhất, nên nói thẳng.
+
+Nếu trong giỏ có **bất kỳ** mặt hàng nào mang nhãn *Chờ báo giá*, màn hình sẽ báo:
+
+> Đơn có hàng chờ báo giá — cả đơn sẽ chờ Miyano báo giá trước khi giao.
+
+Nghĩa là **hàng trong hợp đồng của bạn cũng nằm chờ**, dù giá của nó đã có sẵn.
+Trước đây phần hàng hợp đồng giao được ngay; nay nếu nó đứng chung đơn với hàng
+chưa có giá thì nó chờ cùng.
+
+**Vì sao:** một đơn hàng là **một** chứng từ, có **một** ngày giao và **một** hoá
+đơn. Miyano báo giá cho cả đơn, bạn đồng ý cho cả đơn, rồi hàng đi một lượt.
+
+**Cần hàng hợp đồng gấp thì làm gì:** **đặt thành hai lần**. Một yêu cầu chỉ gồm
+các mặt hàng có *Giá HĐ* — nó đi thẳng, không phải chờ báo giá. Một yêu cầu riêng
+cho phần *Chờ báo giá*. Hệ thống không tự tách hộ, vì tách đơn của bạn là việc chỉ
+đơn vị bạn mới quyết được.
+
 ---
 
-## A4. Xem báo giá và trả lời (đơn mua lẻ)
+## A4. Xem báo giá và trả lời
+
+Áp dụng cho **mọi đơn có dòng chưa có giá lúc đặt** — kể cả đơn trộn cả hàng hợp
+đồng lẫn hàng chờ báo giá.
 
 Khi Miyano báo giá xong, bạn nhận **thông báo trên cổng** (chuông 🔔) và đơn
-chuyển sang trạng thái **"Chờ bạn đồng ý"**. Mở đơn, đầu trang có khối màu cam:
+chuyển sang trạng thái **"Chờ bạn đồng ý"**. Ở màn **Danh sách đơn hàng** nó nằm ở
+chip **Chờ quý vị đồng ý** — nghĩa là *giá đã về, đang chờ bạn trả lời*. Mở đơn, đầu
+trang có khối màu cam:
 
 > ⏳ **Báo giá hiệu lực đến 23/08/2026.**
 
@@ -187,7 +219,10 @@ Bảng hàng lúc này **đã có đơn giá và thành tiền**. Ba lựa chọ
 | **Sửa số lượng…** | Bạn nhập số lượng mới từng dòng → **Gửi lại để báo giá**. Miyano báo giá lại từ đầu |
 | **Huỷ đơn…** | **Huỷ thật**, cần nêu lý do. Đơn đóng lại; email báo hai bên nếu site đã cấu hình tài khoản gửi thư |
 
-Ba điều cần biết:
+Bốn điều cần biết:
+- **Nhân viên khoa đổi số lượng thì phải qua quản lý một lần nữa.** Nút của họ ghi
+  **Xin sửa số lượng**: yêu cầu quay về *Chờ duyệt*, quản lý duyệt rồi đơn mới đổi.
+  Còn **đồng ý** với báo giá thì nhân viên khoa tự làm xong, không cần duyệt lại.
 - **"Gửi lại để báo giá" xoá sạch đơn giá cũ** — đơn quay về chờ Miyano báo lại.
   Vì vậy nút này có bước xác nhận, không bấm nhầm được.
 - Quá **hạn hiệu lực** mà chưa trả lời → đơn tự chuyển "Báo giá hết hạn". Muốn
@@ -197,15 +232,78 @@ Ba điều cần biết:
 
 ---
 
-## A5. Theo dõi đơn hàng
+## A5. Theo dõi — "Danh sách đơn hàng"
 
-**Đơn hàng của tôi** → danh sách, lọc theo trạng thái, phân trang 10/20/50 →
-**Chi tiết**.
+**Một danh sách cho cả vòng đời.** Từ lúc bạn còn đang soạn tới lúc hàng về, yêu
+cầu của bạn nằm **đúng một dòng ở đúng một chỗ** — nó không nhảy sang màn khác khi
+quản lý duyệt.
 
-Trang chi tiết gồm:
+Lọc bằng dải chip ở đầu danh sách:
+
+| Chip | Nghĩa | Ai đang giữ việc |
+|---|---|---|
+| **Nháp** | Bạn đang soạn, chưa gửi. Bấm vào để mở lại màn Đặt hàng và sửa tiếp | Bạn |
+| **Chờ duyệt** | Đã gửi, quản lý đơn vị chưa duyệt | Quản lý đơn vị |
+| **Đã duyệt** | Đơn đã sang Miyano và đang chạy — kể cả khi Miyano còn đang gom giá, hoặc đã giao được một phần | Miyano |
+| **Chờ quý vị đồng ý** | **Miyano đã báo giá xong, đang chờ bạn trả lời** (hoặc báo giá đã quá hạn) | Bạn |
+| **Đã giao** | Đã giao đủ, hoặc đơn đã đóng | — |
+| **Từ chối** · **Đã huỷ** | Yêu cầu dừng lại, vẫn giữ để tra sau | — |
+
+> **Đọc kỹ hai chip giữa.** Đơn **đang chờ Miyano ra giá** nằm ở *Đã duyệt* —
+> cùng chỗ với đơn đã có giá và đang chạy. *Chờ quý vị đồng ý* là bước SAU đó:
+> **báo giá đã về, và việc đang nằm ở phía bạn.** Đơn mới giao được một phần
+> cũng nằm ở *Đã duyệt*, thanh tiến độ trên dòng cho biết đã giao bao nhiêu
+> phần trăm.
+>
+> *(Chip này trước đây tên "Chờ báo giá" — cái tên đó đọc như đang chờ Miyano,
+> đúng ngược chiều việc. Link cũ có kèm tên cũ vẫn mở đúng chip.)*
+
+Phân trang 10/20/50 như mọi danh sách khác. Bấm vào một dòng để mở **chi tiết**.
+
+Từ 03/09/2026, chi tiết là **một** trang cho cả yêu cầu lẫn đơn hàng sinh ra từ
+nó — bấm vào là thấy **tất cả**: ai xin, ai duyệt, giá, tiến trình giao hàng, hoá
+đơn. Không còn cảnh xem xong phần "ai xin" phải bấm thêm một link nữa mới sang
+được phần "đơn tới đâu rồi".
+
+Trang chi tiết đơn gồm:
 
 **Tiến trình 5 mốc** — Đặt hàng → Xác nhận → Soạn hàng → Giao hàng → Hoá đơn.
 Mốc đã qua tô xanh.
+
+**Dòng thời gian "Ai đã làm gì"** *(từ 04/09/2026)* — nằm ngay dưới Tiến trình.
+Mỗi việc đã xảy ra là một dòng, **mới nhất ở DƯỚI cùng**, đọc từ trên xuống
+theo thời gian — khác Viettel Post (họ để mới nhất trên đầu): ở đây bạn
+thường cần dựng lại *câu chuyện* ("khoa xin gì, ai hạ xuống, vì sao báo giá
+lại"), không phải liếc trạng thái mới nhất — trạng thái mới nhất đã nằm ở
+thanh Tiến trình 5 mốc ngay phía trên. Mỗi dòng kèm **tên người thao tác, số
+điện thoại của họ, và mốc giờ**. Màu chấm đầu dòng cho biết ai làm:
+
+| Chấm | Ai | Ví dụ |
+|---|---|---|
+| 🔵 Xanh dương | Người của bệnh viện bạn | *"Khoa Dược gửi duyệt — ĐD. Nguyễn Thị B · 0912…, 14:20 03/09"* |
+| 🟢 Xanh lá | Nhân sự Miyano | *"Miyano xác nhận đơn — Trần Văn C · 0987…, 09:05 04/09"* |
+| 🔴 Đỏ | Việc bị trả lại / dừng | *"Quản lý từ chối — lý do: vượt dự trù quý"* |
+| ⚪ Xám | Hệ thống tự làm | *"Đơn hàng được tạo tự động từ phiếu"* |
+
+**Số điện thoại bấm được** — trên điện thoại, chạm vào số là gọi thẳng. Đây là
+mục đích chính của dòng thời gian: khi đơn đứng lại, bạn biết **hỏi đúng ai** mà
+không phải gọi tổng đài hỏi vòng.
+
+> **Với nhân sự Miyano, cổng hiện tên và số điện thoại — KHÔNG hiện email.** Bạn
+> có quyền biết ai chịu trách nhiệm và gọi được cho họ; hộp thư nội bộ của họ
+> không phải việc của cổng. Với người của chính bệnh viện bạn thì hiện đủ.
+
+> **Đơn cũ tạo trước 04/09/2026** chỉ có hai dòng (người gửi duyệt, người duyệt),
+> dựng lại từ chính phiếu và được đánh dấu là dòng **dựng lại**. Từ ngày bật sổ
+> trở đi mọi việc đều được ghi ngay lúc nó xảy ra.
+
+**Không ai sửa hay xoá được một dòng đã ghi** — kể cả Miyano, kể cả trên Desk.
+Sổ này chỉ ghi thêm; đó là lý do nó dùng được để đối chiếu khi hai bên nhớ khác nhau.
+
+**Khối "Yêu cầu & duyệt"** — ai xin, xin lúc nào, vì sao xin; ai duyệt, duyệt lúc
+nào, duyệt nguyên số hay đã sửa số lượng. Khối này **tự thu gọn** khi đơn đã giao
+xong — đơn cũ thì không cần giương mắt đọc lại ai đã duyệt mỗi lần mở ra, bấm vào
+nhãn của khối là mở lại xem đầy đủ.
 
 **Bảng hàng hoá** — mã, tên, ĐVT, SL đặt, đã giao, đơn giá, thành tiền.
 
@@ -215,10 +313,13 @@ chưa tìm được mã hàng tương ứng.
 **Khối Giao hàng** — mỗi đợt giao là một mục:
 
 - Số phiếu giao, ngày, % của đơn, hãng vận chuyển, số vận đơn
-- Nút ⬇ **Phiếu giao đợt n**
+- Nút **Phiếu giao đợt n** — xem mục A5b ngay dưới
 - **Kiểm hàng đợt này** (hoặc badge trạng thái nếu đã kiểm) — xem A6
 - *Phiếu nhập kho* — chỉ hiện nếu đơn vị bạn đã mở kho
-- *Hoá đơn nháp* — bấm ▸ để xem nội dung hoá đơn điện tử trước khi phát hành
+- *Hoá đơn* (huy hiệu **Chưa phát hành**) — bấm ▸ để xem nội dung hoá đơn
+  điện tử trước khi Miyano phát hành. Xem được, tải được, nhưng **chưa phải
+  chứng từ thuế** — cổng nói rõ điều đó ngay trên khối, và tệp tải về mang
+  tên `Nhap_*.pdf` để một file đã lưu vẫn tự khai nó là bản gì
 
 **Khối "Miyano đã hẹn lại"** *(nếu có)* — hiện khi Miyano báo chưa đủ hàng:
 
@@ -228,17 +329,55 @@ chưa tìm được mã hàng tương ứng.
 Khối này **tự biến mất** khi Miyano đã giao đợt tiếp theo.
 
 **Khối "Hoá đơn của đơn này"** — danh sách hoá đơn phát sinh từ chính đơn này,
-kèm số tiền, còn nợ, hạn thanh toán và nút ⬇ PDF.
+kèm số tiền, còn nợ, hạn thanh toán.
 
-Cuối trang: ⬇ **PDF đơn hàng** · 🔁 **Đặt lại đơn này** (chép toàn bộ dòng hàng
-sang giỏ mới).
+**Bấm vào số hoá đơn** để mở trang *Hoá đơn & công nợ* với đúng hoá đơn đó đã
+xổ sẵn — thấy được trạng thái hoá đơn điện tử, bản chính, các bản điều chỉnh
+hoặc thay thế, và nút yêu cầu hỗ trợ. Bấm **Xem tất cả hoá đơn** để quay lại
+danh sách đầy đủ.
+
+Nút ⬇ **PDF** giao **bản thể hiện hoá đơn điện tử do Fast phát hành** — đúng
+tờ có giá trị tra cứu, không phải bản in nội bộ của hệ thống. Hoá đơn chưa
+phát hành thì **không có nút** này; chỗ đó hiện trạng thái hiện tại, để bạn
+biết hoá đơn đang ở đâu thay vì bấm vào một nút chỉ báo lỗi.
+
+Riêng nút ⬇ **PDF đơn hàng** phía dưới vẫn là bản in đơn hàng — đơn hàng là
+chứng từ nội bộ, không phải hoá đơn.
+
+Cuối trang: ⬇ **PDF đơn hàng** · 🔁 **Đặt lại đơn này**.
+
+**Đặt lại đơn này** dựng sẵn một yêu cầu **Nháp** mang đúng các mặt hàng của đơn
+cũ rồi mở màn **Đặt hàng** cho bạn sửa tiếp. Mặt hàng nào không còn đặt lại được
+(ngừng kinh doanh, hết hạn mức…) sẽ được nêu tên kèm lý do, không bị bỏ đi lặng lẽ.
+
+---
+
+## A5b. Phiếu giao hàng — tờ giấy hai bên ký
+
+Nút **Phiếu giao đợt n** phát đúng tờ **Phiếu xuất kho kiêm biên bản bàn giao**
+(mẫu 02-VT theo Thông tư 99/2025/TT-BTC) — **cùng một tờ mà lái xe đưa bạn ký lúc
+nhận hàng**, cùng bố cục, có cột Số lô và Hạn dùng, có ô ký của cả hai bên.
+
+Trước bản này nút đó phát một tờ khác — bản giao hàng thương mại. Hai tờ giấy nói
+về cùng một lần giao mà khác hình thức là thứ không giải thích được lúc đối soát
+công nợ hay lúc thanh tra hỏi.
+
+Hai điều cần biết:
+
+- **Có bản đã ký thì bạn nhận đúng bản đã ký.** Khi Miyano quét tờ hai bên đã ký
+  và đính vào phiếu giao, nút này phát thẳng bản quét đó thay cho bản in lại. Nếu
+  vì lý do kỹ thuật cổng không phát được bản quét, bạn vẫn nhận được bản in nhưng
+  **trên đầu tờ có dòng chữ đỏ báo đây là bản in lại chưa có chữ ký** kèm số điện
+  thoại của Miyano — không bao giờ có chuyện đưa bạn tờ chưa ký mà không nói gì.
+- **Phiếu mở ngay trong trình duyệt**, không tải về máy. Muốn giữ lại thì lưu hoặc
+  in từ chính trang đang mở. Riêng bản quét ở định dạng ảnh TIF thì trình duyệt
+  không dựng được, nên nó tải về như một tệp.
 
 ---
 
 ## A6. Kiểm hàng khi nhận — nhận một phần, trả lại phần hỏng
 
-**Áp dụng cho mọi đơn** (hợp đồng khung lẫn mua lẻ) và **mọi khách hàng**, kể cả
-đơn vị chưa mở kho.
+**Áp dụng cho mọi đơn** và **mọi khách hàng**, kể cả đơn vị chưa mở kho.
 
 Vào chi tiết đơn → khối Giao hàng → **Kiểm hàng đợt này**.
 
@@ -365,8 +504,20 @@ bằng cột **Loại đơn**:
 
 | Loại đơn | Nghĩa | Việc phải làm |
 |---|---|---|
-| **Theo HĐNT** | Trong hợp đồng khung, **đã có giá** | Kiểm rồi xác nhận |
-| **Mua lẻ** | Ngoài hợp đồng, **chưa có giá** | Báo giá trước (B2) |
+| **Theo HĐNT** | Mọi dòng đều có giá hợp đồng | Kiểm rồi xác nhận |
+| **Mua lẻ** | **Đơn có ít nhất một dòng chưa có giá** | Báo giá trước (B2) |
+
+> **Chữ "Mua lẻ" ở cột này KHÔNG còn nghĩa "đơn ngoài hợp đồng".** Khách nay đặt
+> hàng hợp đồng và hàng chưa có giá **chung một đơn**, nên một đơn ghi "Mua lẻ" có
+> thể chứa cả hai loại dòng: vài dòng đã có giá hợp đồng sẵn, vài dòng để trống chờ
+> bạn điền. Dấu này được đóng **một lần lúc lập đơn** và **không đổi** sau khi bạn
+> điền xong giá — đơn vẫn ghi "Mua lẻ" cho tới hết vòng báo giá, đó là chủ ý để
+> cả thông báo tự động lẫn báo cáo cùng nhìn thấy một sự thật.
+>
+> **Hệ quả với khách:** cả đơn nằm chờ, kể cả phần hàng hợp đồng vốn giao được
+> ngay. Nếu bệnh viện gọi hỏi, câu trả lời đúng là: đơn này có dòng chưa có giá
+> nên đi trọn một vòng báo giá; lần sau cần hàng hợp đồng gấp thì đặt riêng một
+> đơn chỉ gồm hàng hợp đồng.
 
 Báo cáo hỗ trợ: **Đơn chậm xử lý** (quá SLA) và **Demand pipeline yêu cầu hàng
 hoá**.
@@ -378,38 +529,42 @@ hoá**.
 
 ---
 
-## B2. Báo giá đơn mua lẻ
+## B2. Báo giá một đơn có dòng chưa có giá
 
-> Đây là câu trả lời cho *"báo giá cho khách hàng khi khách mua lẻ vật tư không
-> có trong hợp đồng"*.
+> Đây là câu trả lời cho *"báo giá cho khách hàng khi khách mua vật tư không có
+> trong hợp đồng"*.
 
-Mở đơn Mua lẻ, làm ba việc rồi bấm một nút:
+Mở đơn, làm hai việc rồi bấm một nút:
 
-**1. Điền đơn giá** cho từng dòng trong bảng `Items`.
+**1. Xử lý bảng "Dòng đặt ngoài (chưa có trong danh mục)"** — đây là những mặt
+hàng khách **tự gõ tay** vì hệ thống chưa có mã:
 
-**2. Xử lý bảng "Dòng đặt ngoài (chưa có trong danh mục)"** — đây là những mặt
-hàng khách **tự gõ tay** vì không tìm thấy trong danh mục:
-
-- Tìm được mã hàng tương ứng → điền vào cột **Mã hàng khớp**, rồi **tự thêm một
-  dòng `Items`** tương ứng kèm đơn giá. Hệ thống *không* tự thêm hộ.
+- Tìm được mã hàng tương ứng → điền vào cột **Mã hàng khớp** rồi **Lưu**. Hệ thống
+  **tự dựng một dòng hàng thật** cho nó ngay trong bảng `Items`. Nếu mã đó nằm
+  trong hợp đồng còn hiệu lực của khách thì dòng mang luôn giá hợp đồng; **nếu
+  không thì đơn giá về `0` và bạn phải điền lại** — để nguyên `0` sẽ ăn chốt
+  *"Thiếu giá"* lúc gửi khách duyệt. Dòng giữ chỗ `HANG-DAT-NGOAI` (nếu có) được
+  gỡ luôn trong cùng lần lưu đó.
+  *Trước đây bạn phải tự thêm dòng — nay đừng thêm tay nữa, sẽ thành hai dòng.*
 - Không đáp ứng được → vẫn phải đánh dấu đã xử lý, và nên ghi chú lý do.
 
-**3. Gỡ dòng giữ chỗ `HANG-DAT-NGOAI`** nếu còn. Dòng này chỉ để giữ đơn đứng
-được khi khách đặt toàn hàng chưa có mã; khách không bao giờ nhìn thấy nó.
+**2. Điền đơn giá** cho những dòng đang là `0` trong bảng `Items`.
 
-**4. Bấm nút workflow "Gửi khách duyệt"** (góc trên bên phải).
+**3. Bấm nút workflow "Gửi khách duyệt"** (góc trên bên phải).
 
 Đơn chuyển sang **"Chờ khách đồng ý"**, khách nhận **thông báo trên cổng** và tự
 tải được **PDF báo giá** ở đó. PDF **cố ý không đính kèm email** — xem [D](#d--sự-cố-thường-gặp).
 
-Bốn chốt chặn sẽ báo lỗi nếu bỏ sót:
+Ba chốt chặn sẽ báo lỗi nếu bỏ sót:
 
 | Lỗi báo ra | Nghĩa |
 |---|---|
 | Còn dòng đặt ngoài chưa xử lý | Chưa khớp mã hoặc chưa đánh dấu |
-| Còn dòng `HANG-DAT-NGOAI` | Chưa gỡ dòng giữ chỗ |
+| Còn dòng `HANG-DAT-NGOAI` | Dòng giữ chỗ còn sót lại trong bảng hàng — gỡ đi |
 | Thiếu giá | Có dòng đơn giá = 0 |
-| Khách chưa được bật mua lẻ | Đơn vị chưa bật cờ Mua lẻ |
+
+> Đơn trộn thì **những dòng đã có giá hợp đồng giữ nguyên giá đó**, bạn chỉ điền
+> phần còn trống. Đừng sửa giá dòng hợp đồng — khách đã nhìn thấy giá ấy lúc đặt.
 
 ### Khách trả lời thế nào
 
@@ -431,10 +586,21 @@ khách thấy mốc "Xác nhận" sáng lên.
 (nếu vật tư quản lý theo lô), hãng vận chuyển, số vận đơn → **Submit**.
 
 Ngay khi Submit:
-- Khách thấy đợt giao mới trên chi tiết đơn, có nút tải phiếu giao và nút **Kiểm
+- Khách thấy đợt giao mới trên chi tiết đơn, có nút mở phiếu giao và nút **Kiểm
   hàng đợt này**
 - Nếu khách **đã mở kho**: hệ thống tự sinh **Phiếu nhập kho nháp** trong kho của
   khách và gửi thông báo
+
+**In phiếu giao cho lái xe mang đi ký**: mẫu mặc định của phiếu giao là **Phiếu
+xuất kho kiêm biên bản bàn giao** (mẫu 02-VT theo Thông tư 99/2025/TT-BTC) — tờ có
+ô ký của cả hai bên. Đây cũng chính là tờ khách tải về trên cổng, nên hai bên luôn
+cầm cùng một hình thức giấy.
+
+**Ký xong thì scan và đính lại vào phiếu giao**: ô **"Biên bản bàn giao đã ký (bản
+scan)"** trên chính phiếu giao đó (đính được cả khi phiếu đã Submit). Từ lúc đính,
+khách bấm nút phiếu giao trên cổng sẽ nhận **đúng bản có chữ ký** thay cho bản in
+lại. Nhận PDF hoặc ảnh JPG/PNG chụp từ điện thoại đều được; **đừng đính ảnh HEIC**
+— máy Windows của bệnh viện phần lớn không mở được, và cổng sẽ không phát nó.
 
 **Hoá đơn**: từ đơn → *Create → Sales Invoice* → Submit. Nếu bật module hoá đơn
 điện tử, chứng từ HĐĐT được lập tự động và khách xem được bản nháp trước khi phát
@@ -596,15 +762,18 @@ Hẹn lại nhiều lần được: **mỗi lần hẹn là một thông báo ri
 
 ## C1. Đơn hàng
 
-| Trạng thái | Ai đang giữ việc | Bước tiếp |
-|---|---|---|
-| Chờ xác nhận | Miyano | Báo giá (mua lẻ) hoặc gửi duyệt |
-| Chờ khách đồng ý | **Khách** | Khách đồng ý / sửa SL / huỷ |
-| Chờ Miyano xác nhận | Miyano | Bấm Xác nhận |
-| Đã xác nhận | Miyano | Lập phiếu giao |
-| Từ chối | — | Đơn đóng |
-| Khách huỷ | — | Mở lại được |
-| Báo giá hết hạn | — | Mở lại được |
+Đây là trạng thái Miyano nhìn thấy trên Desk. Khách nhìn thấy **giai đoạn** gộp
+hơn ở màn *Danh sách đơn hàng* — đối chiếu ở cột thứ tư.
+
+| Trạng thái (Desk) | Ai đang giữ việc | Bước tiếp | Khách thấy |
+|---|---|---|---|
+| Chờ xác nhận | Miyano | Báo giá (nếu đơn có dòng chưa có giá) hoặc gửi duyệt | Đã duyệt |
+| Chờ khách đồng ý | **Khách** | Khách đồng ý / sửa SL / huỷ | **Chờ quý vị đồng ý** |
+| Chờ Miyano xác nhận | Miyano | Bấm Xác nhận | Đã duyệt |
+| Đã xác nhận | Miyano | Lập phiếu giao | Đã duyệt, rồi **Đã giao** khi giao đủ |
+| Từ chối | — | Đơn đóng | Từ chối |
+| Khách huỷ | — | Mở lại được | Đã huỷ |
+| Báo giá hết hạn | — | Mở lại được | **Chờ quý vị đồng ý** |
 
 ## C2. Biên bản kiểm hàng
 
@@ -626,9 +795,13 @@ hỏng) và *Sẽ giao bù* (hàng thiếu).
 
 | Hiện tượng | Nguyên nhân | Xử lý |
 |---|---|---|
-| Khách không thấy ngăn **Mua lẻ** | Chưa bật cờ mua lẻ cho khách | Desk → Customer → bật "Cho phép mua lẻ" |
-| *"Có trong hợp đồng khung"* khi mua lẻ | Chống lách hạn mức hợp đồng | Đặt ở ngăn Theo hợp đồng khung |
+| Khách hỏi *"sao hàng hợp đồng của tôi không giao ngay"* | Đơn đó có ít nhất một dòng chưa có giá nên cả đơn đi một vòng báo giá | Giải thích theo A3, và hướng dẫn lần sau đặt riêng một đơn chỉ gồm hàng hợp đồng |
+| Khách hỏi *"đơn của tôi đang chờ Miyano ra giá, sao không thấy chip nào tên vậy"* | Đơn chờ Miyano ra giá nằm ở **Đã duyệt**. Chip **Chờ quý vị đồng ý** là bước sau: giá đã về, việc đang ở phía bệnh viện | Bảo khách mở đơn và bấm Đồng ý / Sửa số lượng |
+| Khách mở link cũ có `?chip=Chờ báo giá` | Tên chip đã đổi thành **Chờ quý vị đồng ý** | Không phải làm gì — link cũ vẫn mở đúng chip đó |
+| Khách mở link cũ **Giỏ hàng / Đơn hàng của tôi / Đề xuất mua** | Ba màn đó đã gộp | Không phải làm gì — link tự chuyển sang màn mới |
 | Không xác nhận được đơn | Còn dòng đặt ngoài chưa xử lý, hoặc còn dòng `HANG-DAT-NGOAI` | Xem B2 |
+| Khớp mã xong mà bảng hàng có **hai dòng trùng nhau** | Có người thêm tay một dòng nữa, trong khi hệ thống đã tự dựng dòng đó | Xoá dòng thêm tay đi. Xem B2 |
+| Khách bấm phiếu giao, mở ra bản in kèm **dòng chữ đỏ "chưa có chữ ký"** | Phiếu đã có bản scan nhưng cổng không phát được (sai định dạng tệp, hoặc tệp đã mất) | Đính lại bản scan bằng tệp PDF hoặc ảnh JPG/PNG. Không dùng ảnh HEIC |
 | Khách bấm Kiểm hàng báo *"chưa ghi sổ hoặc đã huỷ"* | Phiếu giao chưa Submit | Submit phiếu giao |
 | *"Phiếu giao này đã có biên bản… đã gửi"* | Đã kiểm rồi | Muốn khách gửi lại → **Từ chối** biên bản cũ |
 | Không duyệt trả hàng được | Biên bản không có dòng hàng hỏng | Dùng nhóm **Hàng thiếu** |
@@ -647,8 +820,9 @@ Những giới hạn dưới đây là **quyết định thiết kế**, không 
 
 1. **Không tự Submit phiếu trả hàng.** Tồn kho chỉ được cộng lại khi hàng về tay
    kho thật.
-2. **Không tự thêm dòng `Items`** cho dòng khách gõ tay. Sales phải tự quyết mã
-   hàng và đơn giá.
+2. **Không tự đoán mã hàng** cho dòng khách gõ tay. Sales phải tự quyết mã hàng.
+   Khớp mã xong thì hệ thống mới dựng dòng hàng thật (B2) — nó làm phần cơ học,
+   không làm phần phải quyết.
 3. **Phiếu nhập kho của khách và Biên bản kiểm hàng không đồng bộ số liệu cho
    nhau.** Hai chứng từ, hai mục đích.
 4. **Khách không sửa được biên bản đã gửi.** Đường lùi duy nhất là Miyano từ chối.
@@ -658,13 +832,20 @@ Những giới hạn dưới đây là **quyết định thiết kế**, không 
 7. **Chỉ Sales Manager / System Manager được duyệt hoặc từ chối biên bản kiểm
    hàng.** `Sales User` xem và ghi chú được, không quyết được — đó là cam kết
    thương mại.
+8. **Không tách một đơn theo tình trạng giá.** Đơn có dòng chưa có giá thì cả đơn
+   đi một vòng báo giá (A3). Muốn phần có giá đi trước thì khách tự đặt hai lần —
+   cắt đơn của bệnh viện là quyết định thương mại, hệ thống không làm thay.
+9. **Màn Đặt hàng không hiện tổng tiền.** Từng dòng có đơn giá, nhưng không có
+   "tạm tính" hay "tổng cộng" ở bất cứ đâu, kể cả hộp xác nhận — để khoa không nhớ
+   một con số rồi đem so với hoá đơn cuối, trong khi Miyano còn báo giá phần
+   chưa có giá ở bước sau.
 
 ---
 
-*Tài liệu này mô tả hệ thống tại thời điểm 16/08/2026.*
+*Tài liệu này mô tả hệ thống tại thời điểm 26/08/2026.*
 
 *Phạm vi đã kiểm chứng: toàn bộ **luồng nghiệp vụ** của cả hai vai đã được kiểm
-thử tự động (988 test) và chạy thử trên dữ liệu thật; **màn hình cổng khách
-hàng** đã được soát bằng mắt trên trình duyệt. **Giao diện Desk** (ba nhóm nút
-mô tả ở B4–B7) chưa được soát bằng mắt tại thời điểm phát hành tài liệu — nếu
-thấy khác mô tả, báo lại để cập nhật.*
+thử tự động và chạy thử trên dữ liệu thật; **màn hình cổng khách hàng** đã được
+soát bằng mắt trên trình duyệt. **Giao diện Desk** (ba nhóm nút mô tả ở B4–B7)
+chưa được soát bằng mắt tại thời điểm phát hành tài liệu — nếu thấy khác mô tả,
+báo lại để cập nhật.*

@@ -25,6 +25,7 @@ import frappe
 from miyano_portal.portal_context import (
 	get_portal_member,
 	la_quan_ly,
+	lien_he_nguoi_dung,
 	pham_vi_don,
 	ten_nguoi_dung,
 )
@@ -110,11 +111,25 @@ def de_xuat_luu_nhap(ten, items=None, dat_ngoai=None, ngay_can=None,
 
 @frappe.whitelist()
 def de_xuat_xoa_nhap(ten) -> dict:
-	"""§5.4b — XOÁ THẬT, chỉ ở trạng thái Nháp. `on_trash` của doctype là
-	chốt cuối; kiểm ở đây chỉ để báo lỗi dễ hiểu hơn. Owner HOẶC quản lý
-	(`_phieu_cua_toi()` mặc định `cho_quan_ly=False` đã cho cả hai đi
-	qua)."""
+	"""§5.4b — XOÁ THẬT, chỉ phiếu CHƯA TỪNG gửi duyệt. `on_trash` của
+	doctype là chốt cuối; kiểm ở đây chỉ để báo lỗi dễ hiểu hơn. Owner HOẶC
+	quản lý (`_phieu_cua_toi()` mặc định `cho_quan_ly=False` đã cho cả hai
+	đi qua).
+
+	Review toàn nhánh (03/09/2026) — hỏi `ma_de_xuat`, KHÔNG hỏi trạng
+	thái: `thu_hoi()` đưa phiếu ĐÃ gửi duyệt về lại Nháp, nên "đang ở Nháp"
+	thôi không còn nghĩa là "chưa ai thấy phiếu này". Lý do đầy đủ (và cái
+	mất khi xoá nhầm: `Version`, `Notification Log`, một số trong dãy mã)
+	nằm ở `PortalDeXuatMua.on_trash()`. Hai tầng phải hỏi CÙNG một câu —
+	tầng này lệch một chữ là người dùng nhận thông điệp của tầng kia, viết
+	cho một hoàn cảnh khác."""
 	doc = _phieu_cua_toi(ten)
+	if doc.ma_de_xuat:
+		frappe.throw(
+			f'Phiếu {doc.ma_de_xuat} đã từng gửi duyệt nên không xoá được, kể '
+			"cả sau khi thu hồi về Nháp. Dùng Huỷ phiếu để giữ lại dấu vết.",
+			frappe.ValidationError,
+		)
 	frappe.delete_doc(DOCTYPE, doc.name, ignore_permissions=True)
 	return {"ok": True}
 
@@ -136,6 +151,32 @@ def de_xuat_gui_duyet(ten) -> dict:
 		raise frappe.PermissionError("Chỉ chủ phiếu (người tạo) mới gửi duyệt được.")
 	doc.gui_duyet()
 	return {"name": doc.name, "ma_de_xuat": doc.ma_de_xuat}
+
+
+@frappe.whitelist()
+def de_xuat_thu_hoi(ten) -> dict:
+	"""Chủ đầu tư 03/09/2026 — "NV sửa được đơn ở trạng thái Chờ duyệt".
+	Đường đi: thu hồi về Nháp → sửa ở màn Đặt hàng (`de_xuat_luu_nhap`) →
+	`de_xuat_gui_duyet` lại. Lý do KHÔNG nới guard khoá cột đề xuất nằm ở
+	`PortalDeXuatMua.thu_hoi()` và `test_de_xuat_thu_hoi.py`.
+
+	CHỈ CHỦ PHIẾU — chốt owner-only viết riêng SAU `_phieu_cua_toi()`, đúng
+	khuôn `de_xuat_gui_duyet` và vì đúng lý do đó: `_phieu_cua_toi()` một
+	mình cho cả quản lý LẪN đồng nghiệp cùng khoa đi qua.
+
+	Quản lý KHÔNG thu hồi hộ được: rút một phiếu khỏi hàng chờ mà không để
+	lại lời nào chính là từ chối không ghi lý do — `de_xuat_tu_choi` đã có
+	cho việc đó và nó bắt buộc lý do. Quản lý cũng không mất khả năng nào:
+	họ sửa số lượng THẲNG lúc duyệt qua `dieu_chinh` (§5.3). Một quản lý tự
+	lập phiếu cho mình vẫn thu hồi được — họ CHÍNH LÀ chủ phiếu."""
+	doc = _phieu_cua_toi(ten)
+	if doc.owner != frappe.session.user:
+		raise frappe.PermissionError(
+			"Chỉ chủ phiếu (người tạo) mới thu hồi được. Quản lý muốn trả "
+			"phiếu về cho khoa thì dùng Từ chối, kèm lý do."
+		)
+	doc.thu_hoi()
+	return {"name": doc.name}
 
 
 @frappe.whitelist()
@@ -189,6 +230,25 @@ def de_xuat_chi_tiet(ten) -> dict:
 	kq["nguoi_yeu_cau_ten"] = ten_nguoi_dung(
 		kq.get("nguoi_yeu_cau") or kq.get("owner")
 	)
+	# Task 6 (nhật ký thao tác, spec §8) — SỐ ĐIỆN THOẠI đi CÙNG chỗ, CÙNG lý
+	# do với tên: một hàm duy nhất (`lien_he_nguoi_dung`, đã dựng ở Task 5
+	# cho endpoint đọc sổ) tra `User.mobile_no`/`phone`, không một bản tra
+	# thứ hai viết riêng cho khối truy vết. `cho_hien_tai_khoan=True` (mặc
+	# định) — người yêu cầu LUÔN là người của CHÍNH bệnh viện đang xem màn
+	# này, không phải nhân sự Miyano, nên ranh giới §8 (giấu email Miyano)
+	# không áp ở đây.
+	kq["nguoi_yeu_cau_dien_thoai"] = lien_he_nguoi_dung(
+		kq.get("nguoi_yeu_cau") or kq.get("owner")
+	)["dien_thoai"]
+	# Vá Minor #6 (review 03/09) — `nguoi_duyet` đang hiện THẲNG email trên
+	# `KhoiTruyVet.vue`. Thêm `nguoi_duyet_ten`/`nguoi_duyet_dien_thoai` bên
+	# cạnh, KHÔNG đổi giá trị field gốc `nguoi_duyet` (vẫn email nguyên vẹn —
+	# đúng luật đã ghi ở `nguoi_yeu_cau_ten` phía trên). `lien_he_nguoi_dung`
+	# tự trả rỗng khi `nguoi_duyet` chưa có (phiếu chưa ai duyệt) — không cần
+	# tự bọc `if`.
+	lh_duyet = lien_he_nguoi_dung(kq.get("nguoi_duyet"))
+	kq["nguoi_duyet_ten"] = lh_duyet["ten"]
+	kq["nguoi_duyet_dien_thoai"] = lh_duyet["dien_thoai"]
 	dong = kq.get("items") or []
 	# Task 10 — `boi_so` (quy cách đóng gói) đi CÙNG dòng phiếu, không chỉ
 	# cùng kết quả tìm kiếm của `portal_catalog_gop`. Màn Đặt hàng chặn bội
@@ -207,10 +267,71 @@ def de_xuat_chi_tiet(ten) -> dict:
 			fields=["name", "custom_boi_so_dat"],
 		)
 	}
+	# Ruling P51 — SỐ ĐANG CÓ TRÊN ĐƠN, cạnh `so_luong_duyet`, không thay
+	# nó. Ô "xin sửa số lượng" điền sẵn từ `so_luong_duyet` sẽ cho khoa nhìn
+	# một con số CŨ: đường khớp mã dòng gõ tay (`portal_mua_le._gop_hoac_
+	# them_dong_hang`, hook `validate` của Sales Order — QĐ-G13) cộng thẳng
+	# vào `Sales Order Item.qty` mà không bao giờ đụng `so_luong_duyet`. Khoa
+	# đọc 15 trên màn đơn, thấy ô điền sẵn 10, gõ 15 — và đó đúng là cách
+	# ngõ cụt "Chờ duyệt sửa" bắt đầu (xem docstring `_loc_thay_doi_that`).
+	#
+	# Chốt "+" của phiếu nay so với CHÍNH con số này, nên trả nó ra là để
+	# màn hình hỏi cùng một câu với server, không phải để thêm một cột nữa.
+	# `None` = phiếu chưa có đơn, hoặc dòng không có mặt trên đơn (quản lý
+	# đã hạ về 0 lúc duyệt) — hai ca khác nhau với `0`, đừng gộp.
+	#
+	# MỘT truy vấn cho cả phiếu, cùng khuôn `boi_so` ngay trên.
+	#
+	# 03/09/2026 (màn chi tiết GỘP) — CÙNG truy vấn này, thêm ba cột. Bảng
+	# mặt hàng của màn gộp là MỘT bảng: SL xin / SL duyệt (của phiếu) đứng
+	# cạnh Đơn giá / Đã giao (của đơn). Phép nối phải làm Ở ĐÂY chứ không ở
+	# JS — `frontend/` không có hạ tầng test nào (package.json chỉ có
+	# `build`), nên một hàm nối viết bằng JS là một hàm không ai canh.
+	#
+	# `None` cho dòng KHÔNG có trên đơn — giữ nguyên quy ước của
+	# `so_luong_tren_don` ngay dưới: `0` và "chưa có đơn" là hai ca khác
+	# nhau, và một bảng in `0 ₫` cho phiếu Chờ duyệt là nói với khoa rằng
+	# hàng của họ giá 0.
+	dong_tren_don = {}
+	if kq.get("sales_order"):
+		dong_tren_don = {
+			r.item_code: r
+			for r in frappe.get_all(
+				"Sales Order Item",
+				filters={"parent": kq["sales_order"]},
+				fields=["item_code", "qty", "rate", "amount", "delivered_qty"],
+			)
+		}
 	for row in dong:
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
 		row["boi_so"] = boi_so_theo_ma.get(row.get("item_code"))
+		tren_don = dong_tren_don.get(row.get("item_code"))
+		row["so_luong_tren_don"] = float(tren_don.qty or 0) if tren_don else None
+		row["don_gia_tren_don"] = float(tren_don.rate or 0) if tren_don else None
+		row["thanh_tien_tren_don"] = float(tren_don.amount or 0) if tren_don else None
+		row["da_giao_tren_don"] = float(tren_don.delivered_qty or 0) if tren_don else None
+
+	# Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()` của danh
+	# sách (`api/portal.py`), KHÔNG một bản suy lại ở client. Bản suy ở
+	# `ChiTietYeuCau.vue` (trước bản vá này) thiếu ba nhánh — đơn Miyano đã
+	# từ chối, đơn đóng sớm (`status = 'Closed'`), báo giá hết hạn — cả ba
+	# đọc ra "Đã duyệt" sai sự thật, lệch với chính danh sách đứng cạnh nó.
+	# Nhập hàm PRIVATE (`_sql_giai_doan`, có gạch dưới) từ `api/portal.py`
+	# CÓ CHỦ Ý, không đổi tên công khai: hàm chỉ có ĐÚNG một khách ngoài
+	# module là đây, và `api/portal.py` đã có tiền lệ nhập chéo tương tự
+	# (`de_xuat_xin_sua` nhập cả module `portal` để gọi
+	# `portal_order_sua_so_luong`) — đổi tên công khai cho một khách duy
+	# nhất chỉ thêm diện tích đổi mà không thêm rào chắn nào.
+	from miyano_portal.api.portal import _sql_giai_doan
+
+	kq["giai_doan"] = frappe.db.sql(
+		f"""select {_sql_giai_doan("p.trang_thai", "so")}
+			from `tabPortal De Xuat Mua` p
+			left join `tabSales Order` so on so.name = p.sales_order
+			where p.name = %s""",
+		doc.name,
+	)[0][0]
 	return kq
 
 

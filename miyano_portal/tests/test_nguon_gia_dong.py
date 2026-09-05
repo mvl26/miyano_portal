@@ -466,6 +466,116 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
 		self.assertEqual(doc.items[0].blanket_order, bo)
 
+	def _phieu_da_gui_roi_hop_dong_het_han(self):
+		"""Dựng ĐÚNG ca của review toàn nhánh: dòng đang là `Hợp đồng`, hợp
+		đồng HẾT HẠN trong lúc phiếu nằm chờ duyệt. Trả `(doc, item, bo)`."""
+		item = self._tao_item("_TEST DX ITEM THU HOI DONG BANG")
+		bo = self._bo(
+			self.kh_a, [{"item_code": item, "qty": 5, "rate": 100}], to_date_offset=10
+		)
+		doc = self._phieu(items=[{"item_code": item, "so_luong_de_xuat": 1}])
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		doc.reload()
+		self.assertEqual(doc.items[0].blanket_order, bo)
+		self.assertEqual(float(doc.items[0].don_gia), 100.0)
+		# Thời gian trôi qua trong lúc phiếu nằm trong hàng chờ của quản lý.
+		frappe.db.set_value(
+			"Blanket Order", bo, "to_date",
+			frappe.utils.add_days(frappe.utils.today(), -1),
+		)
+		return doc, item, bo
+
+	def test_thu_hoi_KHONG_mo_bang_nguon_gia_cua_dong_cu(self):
+		"""Review TOÀN NHÁNH (Important) — `thu_hoi()` đặt `trang_thai =
+		"Nháp"` TRƯỚC `save()`, nên `validate()` của chính lần lưu đó chạy với
+		cờ đóng băng = False và `_suy_nguon_gia()` tính lại nguồn giá cho MỌI
+		dòng — đúng thứ gate "con dấu chỉ đi lên" được dựng ra để ngăn.
+
+		Bất biến phải giữ: một phiếu ĐÃ TỪNG gửi duyệt thì nguồn giá / hợp
+		đồng của các dòng CŨ giữ nguyên, kể cả sau khi thu hồi về Nháp. Nên
+		gate hỏi `ma_de_xuat` (dấu "đã từng gửi" duy nhất còn sống sau thu
+		hồi), không hỏi trạng thái — cùng câu hỏi `on_trash` đã chuyển sang.
+		"""
+		doc, item, bo = self._phieu_da_gui_roi_hop_dong_het_han()
+		doc.thu_hoi()
+		doc.reload()
+		self.assertEqual(doc.trang_thai, TRANG_THAI_NHAP)
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		self.assertEqual(doc.items[0].blanket_order, bo)
+
+	def test_thu_hoi_roi_gui_lai_VAN_canh_bao_hop_dong_da_chet(self):
+		"""HẬU QUẢ THẬT của bài trên, và là lý do nó đáng một bản vá riêng.
+
+		Khi `thu_hoi()` lật dòng sang "Chờ báo giá" + `blanket_order = None`:
+		lần `gui_duyet()` sau, `_dong_dau_gia` BỎ QUA dòng chờ báo giá nên
+		`don_gia` cũ (100, của một hợp đồng đã chết) sống nguyên; rồi
+		`_kiem_gia_doi` im HOÀN TOÀN — `hop_dong_doi` False vì hai vế cùng
+		`None`, `gia_doi` False vì `gia_moi` là `None`. Quản lý bấm Duyệt trên
+		một dòng "chờ báo giá" mang giá của một hợp đồng hết hạn, không một
+		dòng cảnh báo nào.
+
+		Đóng băng theo `ma_de_xuat` trả lại tín hiệu: dòng giữ `blanket_order`
+		cũ, `_kiem_gia_doi` so nó với hợp đồng thắng cuộc HIỆN TẠI (`None` —
+		đã hết hạn) và báo `hop_dong_doi`. Đường "Từ chối → sửa → gửi lại"
+		chưa bao giờ có lỗi này; bài này khoá để `thu_hoi` không mở lại đúng
+		cửa sau mà bản vá I3 đã đóng."""
+		doc, item, bo = self._phieu_da_gui_roi_hop_dong_het_han()
+		doc.thu_hoi()
+		doc.reload()
+		doc.gui_duyet()
+		doc.reload()
+
+		canh_bao = de_xuat_duyet._kiem_gia_doi(doc)
+		khop = [c for c in canh_bao if c["item_code"] == item]
+		self.assertEqual(
+			len(khop), 1,
+			"Không có cảnh báo nào cho dòng có hợp đồng đã hết hạn — quản lý sẽ "
+			"duyệt một dòng mang giá của một hợp đồng đã chết trong im lặng.",
+		)
+		self.assertEqual(khop[0]["ly_do"], "hop_dong_doi")
+		self.assertEqual(khop[0]["hop_dong_cu"], bo)
+		self.assertIsNone(khop[0]["hop_dong_moi"])
+
+	def test_thu_hoi_canh_bao_hop_dong_chet_TOI_DUOC_duong_duyet_that(self):
+		"""Bài trên gọi THẲNG `_kiem_gia_doi()` — một hàm nội bộ. Điều người
+		dùng thật nhận được là kết quả của `duyet_va_tao_don()`, và giữa hai
+		thứ đó còn `_kiem_han_muc()` chạy TRƯỚC: một dòng mang `blanket_order`
+		ĐÃ ĐÓNG BĂNG (hợp đồng hết hạn) đi qua phép kiểm hạn mức khác hẳn một
+		dòng "Chờ báo giá" trước bản vá. Nếu nó ném lỗi ở đó thì cảnh báo
+		không bao giờ tới tay quản lý, và bài trên vẫn xanh."""
+		doc, item, bo = self._phieu_da_gui_roi_hop_dong_het_han()
+		doc.thu_hoi()
+		doc.reload()
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		khop = [c for c in kq["canh_bao_gia"] if c["item_code"] == item]
+		self.assertEqual(len(khop), 1)
+		self.assertEqual(khop[0]["ly_do"], "hop_dong_doi")
+		self.assertTrue(kq["sales_order"])
+
+	def test_thu_hoi_roi_them_dong_MOI_van_duoc_suy_dung(self):
+		"""VẾ DƯƠNG — bản vá không được biến thành "phiếu có mã thì đóng băng
+		CẢ TẬP DÒNG". Thu hồi tồn tại để nhân viên SỬA phiếu; một dòng thêm
+		vào sau khi thu hồi chưa từng được ai đóng dấu, nên nó phải được suy
+		bình thường — nếu không nó giữ default Select "Hợp đồng" (lựa chọn
+		ĐẦU trong `options`) dù mã hàng không thuộc hợp đồng nào, đúng bẫy
+		false-green mà `test_dong_moi_them_sau_gui_duyet_...` đã canh cho
+		đường "Từ chối"."""
+		doc, item, bo = self._phieu_da_gui_roi_hop_dong_het_han()
+		doc.thu_hoi()
+		doc.reload()
+		doc.append("items", {
+			"item_code": self.item_ngoai, "so_luong_de_xuat": 2,
+			"nguon_gia": NGUON_GIA_HOP_DONG,   # gán SAI để không ăn may
+		})
+		doc.save(ignore_permissions=True)
+		doc.reload()
+		self.assertEqual(doc.items[1].item_code, self.item_ngoai)
+		self.assertEqual(doc.items[1].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
+		self.assertFalse(doc.items[1].blanket_order)
+
 	def test_dong_moi_them_sau_gui_duyet_van_duoc_suy_dung_khong_an_theo_mac_dinh(self):
 		"""I3 — VẾ THỨ HAI cần thiết: chốt đóng băng ở `_suy_nguon_gia()`
 		KHÔNG được `return` sớm mù quáng cho CẢ PHIẾU — `_chan_sua_so_luong_

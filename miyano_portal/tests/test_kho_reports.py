@@ -476,6 +476,72 @@ class TestKhoBaoCaoExcel(_KhoBmTestCase):
 			self._js_array("CAP_PHAT_THANG_COLUMNS"),
 		)
 
+	def test_thiet_bi_excel_columns_match_js_labels(self):
+		"""Task 14 — màn SPA BaoCaoThietBi.vue giờ tồn tại và
+		kho-bao-cao-columns.js có `THIET_BI_COLUMNS` (bộ cột PHẲNG/Excel,
+		khác bộ cột của bảng ngoài/bảng con trên màn hình) — đóng nốt lời
+		hứa "chờ UI" mà test_thiet_bi_excel_matches_flat_rows (bên dưới) để
+		lại từ task 10, cùng khuôn năm test `..._excel_columns_match_js_
+		labels` phía trên."""
+		self.assertEqual(
+			[label for label, _ in reports.THIET_BI_COLUMNS],
+			self._js_array("THIET_BI_COLUMNS"),
+		)
+
+	def test_thiet_bi_excel_matches_flat_rows(self):
+		"""Task 10, bước 4 — nối dây `loai="thiet_bi"` vào `kho_bao_cao_excel`.
+
+		Bài test này khẳng định điều đã hứa: file .xlsx PHẢI khớp đúng
+		`reports.bao_cao_thiet_bi_flat_rows()`, cùng khuôn đối chiếu Excel
+		với JSON đã dùng cho "dot"/"nxt" ở trên. (Task 14 thêm test khớp
+		nhãn JS riêng, ngay phía trên — file .xlsx không tự đối chiếu nhãn
+		màn hình vì nó dùng bộ cột PHẲNG khác bộ cột màn hình.)"""
+		today = _today()
+		tu_ngay, den_ngay = _iso(frappe.utils.add_days(today, -10)), _iso(today)
+		_nhap(self.K, self.VT, 20, 15000, frappe.utils.add_days(today, -5))
+		customer = frappe.db.get_value("Customer Warehouse", self.K, "customer")
+		may = frappe.get_doc({
+			"doctype": "Customer Equipment", "customer": customer,
+			"ma_thiet_bi": "ZZTKE-EXCEL1", "ten_thiet_bi": "May Test Excel Task10",
+		}).insert(ignore_permissions=True)
+		doc = frappe.get_doc({
+			"doctype": "Customer Stock Issue", "kho": self.K,
+			"ngay": _iso(frappe.utils.add_days(today, -2)), "loai_xuat": "Xuất sử dụng",
+			"nguoi_nhan": "Test",
+			"items": [{
+				"vat_tu": self.VT, "so_lo": "LO-A", "so_luong": 5, "thiet_bi": may.name,
+			}],
+		})
+		doc.insert(ignore_permissions=True)
+		doc.submit()
+		self.addCleanup(lambda: frappe.db.delete("Customer Equipment", {"name": may.name}))
+
+		screen_rows = reports.bao_cao_thiet_bi_flat_rows(self.K, tu_ngay, den_ngay)
+		self.assertTrue(screen_rows)
+
+		frappe.set_user(BM_USER)
+		try:
+			kho_api.kho_bao_cao_excel(loai="thiet_bi", tu_ngay=tu_ngay, den_ngay=den_ngay)
+			content = frappe.local.response.filecontent
+			self.assertEqual(
+				frappe.local.response.content_type,
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			)
+		finally:
+			frappe.local.response.clear()
+			frappe.set_user("Administrator")
+
+		wb = load_workbook(io.BytesIO(content))
+		ws = wb.active
+		header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+		self.assertEqual(header, [label for label, _ in reports.THIET_BI_COLUMNS])
+		data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+		self.assertEqual(len(data_rows), len(screen_rows))
+		field_order = [field for _, field in reports.THIET_BI_COLUMNS]
+		for excel_row, screen_row in zip(data_rows, screen_rows):
+			for col_idx, field in enumerate(field_order):
+				self.assertEqual(_norm_cell(excel_row[col_idx]), screen_row[field])
+
 	def test_nhat_ky_excel_exports_beyond_the_fifty_row_screen_page(self):
 		"""Excel KHÔNG được cắt theo trang 50 dòng như màn hình — NL-8.3 chỉ
 		bắt buộc chọn kỳ, không giới hạn số dòng xuất. Dựng 55 dòng nhật ký

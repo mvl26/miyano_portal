@@ -71,6 +71,10 @@ class TestKhoWorkspaceInstall(FrappeTestCase):
 			"Customer Stock Issue", "Customer Stock Ledger Entry", "Customer Stock Lot Balance",
 		):
 			self.assertIn(("DocType", doctype), shortcut_types)
+		# Task 15 — màn Desk nhập nhân sự phải CÓ LỐI VÀO. Đường duy nhất
+		# trước đó là gõ tay tên trang vào thanh tìm kiếm, tức là không ai
+		# ngoài người viết code biết nó tồn tại.
+		self.assertIn(("Page", "nhap-nhan-su"), shortcut_types)
 
 		roles = {r.role for r in ws.roles}
 		self.assertEqual(roles, {"System Manager", "Sales Manager", "Sales User"})

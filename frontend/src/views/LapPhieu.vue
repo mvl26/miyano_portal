@@ -103,6 +103,28 @@ const tenKhoa = computed(() => {
   return k ? k.ten_khoa_phong : ma
 })
 
+// D1 (chủ đầu tư chốt 26/08/2026) — khoa phòng quản lý ĐẶT HỘ. `''` =
+// "Toàn viện", mặc định và luôn còn đó.
+//
+// Đây KHÔNG phải một ô nhập cho đẹp: `portal_yeu_cau_cua_toi` lọc yêu cầu
+// của nhân viên khoa bằng `khoa_phong` đóng trên phiếu/đơn, nên một đơn
+// đặt hộ Huyết học mà để trống khoa là một đơn CHÍNH HUYẾT HỌC không bao
+// giờ tìm lại được — kèm cả phiếu giao và hoá đơn của nó.
+//
+// Chỉ NHÂN VIÊN KHOA mới không có ô này (xem `v-if="dangDatThang"` ở
+// template): server tự suy khoa của họ (`portal_context.khoa_phong_cho_don`)
+// và BỎ QUA giá trị client gửi, nên bày ra một lựa chọn ở đó là mời họ ra
+// một quyết định không tồn tại.
+const khoaPhongChon = ref('')
+
+// CHỈ khoa đang `active`. `kho_khoa_phong_list` được gọi với `ca_inactive: 1`
+// (để `tenKhoa` còn dịch được tên khoa đã tắt của chính người dùng), nhưng
+// `khoa_phong_cho_don()` TỪ CHỐI khoa đã tắt — bày một lựa chọn mà server
+// chắc chắn ném `PermissionError` là dựng sẵn một ngõ cụt.
+const khoaPhongChonDuoc = computed(() =>
+  khoaPhongList.value.filter((k) => Number(k.active) === 1)
+)
+
 // --- Bước hiện tại -------------------------------------------------------
 // `'chon'` = danh sách hàng hoá; `'gio'` = giỏ hàng + thông tin giao hàng.
 // Trạng thái CỤC BỘ, không phải route: giỏ là một BƯỚC của việc đặt hàng,
@@ -120,6 +142,17 @@ const phieuError = ref('')
 // khác. Rỗng nghĩa "chưa biết/phiếu còn mới" — coi là CỦA MÌNH (đúng: một
 // phiếu chưa từng lưu luôn thuộc về người đang tạo).
 const phieuOwner = ref('')
+
+// Mã đề xuất của phiếu đang mở, RỖNG nếu phiếu chưa từng gửi duyệt (review
+// toàn nhánh 03/09/2026). Nó ở đây vì MỘT lý do: từ Việc 1, chốt xoá phía
+// server hỏi `ma_de_xuat` chứ không hỏi trạng thái — `thu_hoi()` đưa một
+// phiếu ĐÃ gửi duyệt về lại Nháp mà vẫn giữ mã, và `on_trash` từ chối xoá
+// nó vĩnh viễn để không cuốn theo `Version`/`Notification Log`/một số trong
+// dãy mã của bệnh viện. Màn này nằm ĐÚNG trên đường đi của luồng đó
+// (`ChiTietYeuCau.vue` đẩy thẳng sang đây sau khi thu hồi), nên nút "Xoá
+// phiếu" bên dưới phải hỏi cùng câu hỏi — nếu không nó hứa xoá vĩnh viễn
+// rồi trả về một toast lỗi.
+const maDeXuat = ref('')
 
 // Kết quả đơn hàng của nhánh QUẢN LÝ (một lần bấm ra đơn) — giữ lại để hiện
 // màn xác nhận sau khi giỏ đã bị dọn.
@@ -261,8 +294,40 @@ function giaTrongGio(row) {
 }
 
 // --- Dòng đặt ngoài (tầng 3, khách gõ tay, KHÔNG có mã) -------------------
-// Cùng hình dạng `Sales Order Dat Ngoai Item`: { ten_hang, dvt, so_luong,
-// ghi_chu }.
+// Cùng hình dạng `Sales Order Dat Ngoai Item` — bốn field gốc CỘNG chín
+// field CR-03 (thiết kế §3/§7): bốn ô mô tả (model/hãng/nước/quy cách), hai
+// ô thương mại (NCC/giá đang mua), và bộ ba ảnh (`anh`/`khong_co_anh`/
+// `mo_ta_nhan_dang`). MỘT hàm dựng dòng DUY NHẤT (`dongDatNgoaiMoi`) — hai
+// nơi đẩy dòng mới (`moDatNgoai`/`themDongDatNgoai`) trước đây tự gõ tay
+// từng field, và một field mới thêm vào sau này rất dễ chỉ được thêm ở một
+// trong hai chỗ, để lại dòng kia thiếu field (`undefined`) mà không ai để ý
+// tới khi gõ dở.
+// Soi gương `portal._cr03_danh_sach_anh()` phía server: field `anh` sống
+// trên CSDL dạng CHUỖI JSON (Small Text), client cần một MẢNG để lặp
+// `v-for`. Hỏng/rỗng/khác mảng → trả rỗng, KHÔNG ném lỗi — một bản ghi cũ
+// hoặc field bị sửa tay không được phép làm chết cả màn Đặt hàng.
+function parseAnhTho(giaTri) {
+  if (!giaTri) return []
+  try {
+    const ds = typeof giaTri === 'string' ? JSON.parse(giaTri) : giaTri
+    return Array.isArray(ds) ? ds.filter((x) => typeof x === 'string' && x) : []
+  } catch {
+    return []
+  }
+}
+function dongDatNgoaiMoi(tenGoiY) {
+  return {
+    ten_hang: tenGoiY || '', dvt: '', so_luong: '', ghi_chu: '',
+    model_ma: '', hang_san_xuat: '', nuoc_san_xuat: '', quy_cach: '',
+    ncc_hien_tai: '', gia_hien_tai: '',
+    // `anh` là MẢNG file_url ở client (khác server: server lưu chuỗi JSON
+    // trong field Small Text `anh`) — `datNgoaiPayload` tự chuyển đổi lúc
+    // gửi đi (xem `JSON.stringify(d.anh)`), và `napTuPhieu`/`parseAnhTho` tự
+    // chuyển ngược lúc nạp. Giữ mảng ở client vì template lặp `v-for` trên
+    // từng ảnh để hiện thu nhỏ + nút xoá.
+    anh: [], khong_co_anh: false, mo_ta_nhan_dang: '',
+  }
+}
 const datNgoai = ref([])
 const dnMoRong = ref(false)
 // Nút "+ Thêm dòng" LUÔN HIỆN (brief Task 10), không chỉ khi tìm không ra:
@@ -273,15 +338,13 @@ const dnMoRong = ref(false)
 function moDatNgoai(tenGoiY) {
   dnMoRong.value = true
   const cuoi = datNgoai.value[datNgoai.value.length - 1]
-  const cuoiCoNoiDung =
-    !!cuoi &&
-    !!((cuoi.ten_hang || '').trim() || (cuoi.dvt || '').trim() || String(cuoi.so_luong || '').trim() || (cuoi.ghi_chu || '').trim())
+  const cuoiCoNoiDung = !!cuoi && dongDaDongTay(cuoi)
   if (!datNgoai.value.length || cuoiCoNoiDung || tenGoiY) {
-    datNgoai.value.push({ ten_hang: tenGoiY || '', dvt: '', so_luong: '', ghi_chu: '' })
+    datNgoai.value.push(dongDatNgoaiMoi(tenGoiY))
   }
 }
 function themDongDatNgoai() {
-  datNgoai.value.push({ ten_hang: '', dvt: '', so_luong: '', ghi_chu: '' })
+  datNgoai.value.push(dongDatNgoaiMoi())
 }
 function xoaDongDatNgoai(i) {
   datNgoai.value.splice(i, 1)
@@ -371,6 +434,11 @@ const diaChiOptions = computed(() => store.me?.addresses || [])
 function resetState() {
   tenPhieu.value = ''
   phieuOwner.value = ''
+  // PHẢI dọn: màn này tái dùng cùng một instance khi chỉ `route.params.ten`
+  // đổi (xem `watch` bên dưới). Mã của phiếu TRƯỚC ở lại sẽ giấu nút "Xoá
+  // phiếu" khỏi một phiếu nháp hoàn toàn xoá được — hỏng theo chiều ngược
+  // lại, và cũng lặng lẽ y như vậy.
+  maDeXuat.value = ''
   // `phieuError` PHẢI được dọn ở đây: mở `/dat-hang/DXM-xxx` gặp lỗi → bấm
   // "Đặt hàng" ở nav (route về `/dat-hang`, không `:ten`) → nếu để nguyên,
   // template ưu tiên nhánh lỗi và form KHÔNG BAO GIỜ hiện. Đó là trạng thái
@@ -398,6 +466,11 @@ function resetState() {
 function napTuPhieu(d) {
   tenPhieu.value = d.name
   phieuOwner.value = d.owner || ''
+  // `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên field có sẵn — thứ
+  // duy nhất cần là giữ nó lại. Không giữ thì `v-if` bên dưới đọc một ref
+  // rỗng vĩnh viễn và luôn cho nút "Xoá phiếu" hiện, đúng bẫy false-green
+  // mà lưới `test_de_xuat_thu_hoi.py::TestNutXoaTrenManDatHang` canh.
+  maDeXuat.value = d.ma_de_xuat || ''
   items.value = (d.items || []).map((it) => ({
     item_code: it.item_code,
     item_name: it.item_name,
@@ -413,11 +486,31 @@ function napTuPhieu(d) {
     // kiếm sẽ có ngay hạn mức mới nhất (xem `themDong`).
     total: null, used: null, remaining: null, khong_gioi_han: false,
   }))
+  // CR-03 — MANG ĐỦ CHÍN FIELD MỚI khi nạp lại một phiếu Nháp đã lưu, không
+  // chỉ bốn field gốc. `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên cả
+  // chín field đều CÓ SẴN trong `dn` — bỏ sót một field ở ĐÂY (khác bỏ sót ở
+  // `datNgoaiPayload`, vốn làm mất khi GHI) là mất NGAY LÚC ĐỌC: form hiện
+  // ra thiếu field, khách không biết mình từng khai gì, rồi lần Lưu/Gửi kế
+  // tiếp GHI ĐÈ bản thiếu đó xuống CSDL — kể cả khi khách không chạm gì tới
+  // dòng đặt ngoài trong phiên làm việc này. Đây CHÍNH LÀ đường "dữ liệu
+  // khách đã khai bị xoá lặng lẽ khi họ sửa phiếu" mà đặc tả §7 cảnh báo,
+  // xảy ra ở đúng thao tác bình thường nhất: mở lại một phiếu Nháp đã lưu dở
+  // (gõ nửa chừng buổi sáng, quay lại buổi chiều) hoặc thu hồi một phiếu bị
+  // từ chối rồi sửa tiếp.
   datNgoai.value = (d.dat_ngoai || []).map((dn) => ({
     ten_hang: dn.ten_hang,
     dvt: dn.dvt,
     so_luong: dn.so_luong,
     ghi_chu: dn.ghi_chu || '',
+    model_ma: dn.model_ma || '',
+    hang_san_xuat: dn.hang_san_xuat || '',
+    nuoc_san_xuat: dn.nuoc_san_xuat || '',
+    quy_cach: dn.quy_cach || '',
+    ncc_hien_tai: dn.ncc_hien_tai || '',
+    gia_hien_tai: dn.gia_hien_tai ?? '',
+    anh: parseAnhTho(dn.anh),
+    khong_co_anh: !!dn.khong_co_anh,
+    mo_ta_nhan_dang: dn.mo_ta_nhan_dang || '',
   }))
   dnMoRong.value = datNgoai.value.length > 0
   lyDoYeuCau.value = d.ly_do_yeu_cau || ''
@@ -489,6 +582,27 @@ watch(() => route.params.ten, taiHoacKhoiTao, { immediate: true })
 // Bội số kiểm ở ĐÂY nữa, không chỉ ở ô số lượng của danh sách: khách gõ
 // thẳng 7 vào ô số lượng TRONG GIỎ thì chốt ở bước thêm dòng không nhìn
 // thấy, và con số sai lại đi tới tận màn duyệt của quản lý.
+// Dùng CHUNG cho HAI nơi cần biết "dòng này khách đã động tới chưa":
+// `moDatNgoai()` (quyết định có đẩy dòng mới hay ghi tiếp vào dòng cuối) và
+// `kiemTraSoLuong()` (quyết định có chặn dòng gõ dở hay bỏ qua dòng trống).
+// Phải kể ĐỦ 13 field (4 gốc + 9 CR-03) — thiếu một field ở đây thì một
+// dòng khách chỉ mới điền field đó (vd. gõ NCC hiện tại trước, tính điền tên
+// hàng sau) bị coi là "dòng trống", `datNgoaiHopLe` lặng lẽ lọc nó khỏi
+// payload lúc lưu, và những gì khách vừa gõ biến mất mà không một thông báo
+// nào — cùng lớp lỗi mà chú thích gốc của `kiemTraSoLuong()` đã cảnh cho ba
+// field cũ, giờ áp lại cho chín field mới.
+function dongDaDongTay(d) {
+  return !!(
+    (d.ten_hang || '').trim() || (d.dvt || '').trim() ||
+    String(d.so_luong ?? '').trim() || (d.ghi_chu || '').trim() ||
+    (d.model_ma || '').trim() || (d.hang_san_xuat || '').trim() ||
+    (d.nuoc_san_xuat || '').trim() || (d.quy_cach || '').trim() ||
+    (d.ncc_hien_tai || '').trim() || String(d.gia_hien_tai ?? '').trim() ||
+    (d.anh || []).length || d.khong_co_anh ||
+    (d.mo_ta_nhan_dang || '').trim()
+  )
+}
+
 function kiemTraSoLuong() {
   for (const r of items.value) {
     const n = Number(r.so_luong_de_xuat)
@@ -508,9 +622,7 @@ function kiemTraSoLuong() {
     const tenHang = (d.ten_hang || '').trim()
     const dvt = (d.dvt || '').trim()
     const soLuongChuoi = (d.so_luong === null || d.so_luong === undefined) ? '' : String(d.so_luong).trim()
-    const ghiChuDong = (d.ghi_chu || '').trim()
-    const daDongTay = tenHang || dvt || soLuongChuoi || ghiChuDong
-    if (!daDongTay) continue
+    if (!dongDaDongTay(d)) continue
     const con = Number(soLuongChuoi)
     const thieu = []
     if (!tenHang) thieu.push('tên hàng')
@@ -533,12 +645,32 @@ const itemsPayload = computed(() =>
 )
 // Ép kiểu số TRƯỚC khi gửi — `d.so_luong` sống trong ô nhập không `.number`
 // (giữ chuỗi thô, để một ô đang gõ dở không lặng lẽ hoá thành 0).
+//
+// CR-03 — MANG ĐỦ CHÍN FIELD MỚI, không chỉ bốn field gốc. Đây là chỗ DUY
+// NHẤT dịch dòng client (`datNgoai.value`, mảng JS) sang dòng server
+// (`Sales Order Dat Ngoai Item`, `doc.set("dat_ngoai", …)` THAY TOÀN BỘ
+// bảng — xem `de_xuat_luu_nhap`) — bỏ sót một field ở đây là field đó biến
+// mất khỏi CSDL ngay lần lưu kế tiếp, dù khách đã gõ đủ trên màn hình.
+// `anh` phải gửi dưới dạng CHUỖI JSON (không phải mảng thô): field server
+// là Small Text, và endpoint tải/xoá ảnh (`portal_dat_ngoai_tai_anh`/`_xoa_
+// anh`) tự đọc/ghi field này bằng `frappe.as_json`/`frappe.parse_json` —
+// gửi một mảng JS trần xuống sẽ lệch kiểu với đúng field đó.
 const datNgoaiPayload = computed(() =>
   datNgoaiHopLe.value.map((d) => ({
     ten_hang: d.ten_hang,
     dvt: d.dvt,
     so_luong: Number(d.so_luong) || 0,
     ghi_chu: d.ghi_chu || '',
+    model_ma: d.model_ma || '',
+    hang_san_xuat: d.hang_san_xuat || '',
+    nuoc_san_xuat: d.nuoc_san_xuat || '',
+    quy_cach: d.quy_cach || '',
+    ncc_hien_tai: d.ncc_hien_tai || '',
+    gia_hien_tai: (d.gia_hien_tai === '' || d.gia_hien_tai === null || d.gia_hien_tai === undefined)
+      ? null : (Number(d.gia_hien_tai) || 0),
+    anh: JSON.stringify(d.anh || []),
+    khong_co_anh: d.khong_co_anh ? 1 : 0,
+    mo_ta_nhan_dang: d.mo_ta_nhan_dang || '',
   }))
 )
 
@@ -556,6 +688,96 @@ async function ghiPhieu(ten) {
     ly_do_yeu_cau: lyDoYeuCau.value ?? '',
   })
 }
+
+// --- Ảnh cho dòng đặt ngoài (CR-03, BR-Y5) --------------------------------
+// Ràng buộc #1 của brief: "Ảnh chỉ tải được khi phiếu đã có tên"
+// (`portal_dat_ngoai_tai_anh` đính tệp vào CHÍNH `Portal De Xuat Mua`, cần
+// một bản ghi có tên — xem thiết kế §5/§6). Ở màn này `tenPhieu` RỖNG cho
+// tới lần Lưu/Gửi ĐẦU TIÊN (TẠO LƯỜI, xem `damBaoCoTen()`), nên một dòng
+// đặt ngoài vừa gõ xong CÓ THỂ chưa có phiếu đứng sau nó — nút "Chọn ảnh"
+// không được ném thẳng lỗi "phiếu không tồn tại" xuống một khách không hiểu
+// vì sao. `chuanBiAnh()` xử lý TƯỜNG MINH: đảm bảo có tên, LƯU NHÁP ngay
+// (để mảng `dat_ngoai` trên server khớp đúng với client), rồi mới trả toạ
+// độ `dong_idx` cho lời gọi API ảnh.
+//
+// `dong_idx` KHÔNG PHẢI chỉ số trong `datNgoai` (mảng client, có thể còn
+// dòng gõ dở/trống ở cuối) — nó là chỉ số trong `datNgoaiHopLe` (đúng những
+// dòng THẬT SỰ được gửi lên server, cùng thứ tự `datNgoaiPayload` dùng để
+// dựng bảng `dat_ngoai` phía server). Trộn hai không gian chỉ số này là gắn
+// nhầm ảnh vào MỘT DÒNG KHÁC.
+const CR03_TOI_DA_ANH = 5 // BR-Y5 — cùng con số với `portal.CR03_TOI_DA_ANH`
+function dongDuDieuKienDatTen(d) {
+  return !!((d.ten_hang || '').trim() && (d.dvt || '').trim() && Number(d.so_luong) > 0)
+}
+async function chuanBiAnh(d) {
+  const ten = await damBaoCoTen()
+  await ghiPhieu(ten) // đồng bộ TRƯỚC MỖI thao tác ảnh — xem chú thích trên
+  const idx = datNgoaiHopLe.value.indexOf(d)
+  if (idx < 0) {
+    // Không nên xảy ra (đã chặn ở `chonAnh`/`xoaAnh` trước khi gọi hàm này),
+    // nhưng giữ lại làm lưới an toàn cuối — ném lỗi CÓ CÂU, không phải một
+    // exception kỹ thuật (`indexOf` âm) trồi lên tận toast của khách.
+    throw new Error('Điền đủ tên hàng, ĐVT và số lượng cho dòng này trước khi thêm ảnh.')
+  }
+  return { ten, idx }
+}
+
+const dangTaiAnh = ref(null) // giữ THAM CHIẾU dòng `d` đang tải, không phải index
+async function chonAnh(d, fileList) {
+  const file = fileList && fileList[0]
+  if (!file) return
+  if (!dongDuDieuKienDatTen(d)) {
+    return showToast('Điền tên hàng, ĐVT và số lượng cho dòng này trước khi thêm ảnh.', 'error')
+  }
+  if ((d.anh || []).length >= CR03_TOI_DA_ANH) {
+    return showToast(`Mỗi mặt hàng tối đa ${CR03_TOI_DA_ANH} ảnh — xoá bớt một ảnh cũ rồi thử lại.`, 'error')
+  }
+  dangTaiAnh.value = d
+  try {
+    const { ten, idx } = await chuanBiAnh(d)
+    const res = await api.taiAnhDatNgoai(file, ten, idx)
+    d.anh = res.anh
+  } catch (e) {
+    showToast(e.message || 'Không tải được ảnh lên.', 'error')
+  } finally {
+    dangTaiAnh.value = null
+  }
+}
+async function xoaAnh(d, fileUrl) {
+  if (dangTaiAnh.value) return
+  dangTaiAnh.value = d
+  try {
+    const { ten, idx } = await chuanBiAnh(d)
+    const res = await api.call('portal_dat_ngoai_xoa_anh', { de_xuat: ten, dong_idx: idx, file_url: fileUrl })
+    d.anh = res.anh
+  } catch (e) {
+    showToast(e.message || 'Không xoá được ảnh.', 'error')
+  } finally {
+    dangTaiAnh.value = null
+  }
+}
+
+// Ảnh riêng tư (BR-Y5 §6) — KHÔNG BAO GIỜ trỏ `<img>` thẳng vào
+// `/private/files/…`: role Customer có ZERO DocPerm trên `Portal De Xuat
+// Mua` nên đường mặc định của Frappe 403 với chính người vừa tải ảnh lên
+// (xem docstring `portal_dat_ngoai_xem_anh`). Phải đi qua endpoint whitelist
+// rồi tự dựng blob URL — `anhCache` nhớ lại theo `file_url` để không tải lại
+// cùng một ảnh mỗi lần Vue render lại danh sách.
+const anhCache = reactive({})
+async function napAnhCache(fileUrl) {
+  if (!fileUrl || anhCache[fileUrl] || !tenPhieu.value) return
+  try {
+    anhCache[fileUrl] = await api.fetchBlobUrl(api.datNgoaiXemAnhUrl(tenPhieu.value, fileUrl))
+  } catch {
+    // Ảnh lỗi tải (đã bị xoá ở tab khác, hết quyền…) — bỏ qua, `<img>` tự
+    // hiện icon vỡ thay vì làm chết cả màn Đặt hàng.
+  }
+}
+watch(
+  datNgoai,
+  (ds) => ds.forEach((d) => (d.anh || []).forEach(napAnhCache)),
+  { deep: true, immediate: true }
+)
 
 // --- Hành động ------------------------------------------------------------
 const dangLuu = ref(false)
@@ -645,6 +867,10 @@ async function datHang() {
       note: ghiChu.value || null,
       address: diaChiGiao.value || null,
       request_id: store.requestId,
+      // D1 — `''` ("Toàn viện") gửi `null`, KHÔNG gửi chuỗi rỗng: server
+      // coi rỗng/`None` là Toàn viện như nhau, nhưng `null` mới nói đúng ý
+      // "không quy về khoa nào" ở tầng giao thức.
+      khoa_phong: khoaPhongChon.value || null,
     })
     if (res.da_ton_tai) showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
     donDaDat.value = res
@@ -840,6 +1066,64 @@ onMounted(async () => {
                 <label>Tên hàng <span class="req">*</span></label>
                 <input v-model="d.ten_hang" placeholder="VD: Găng tay nitrile không bột size M" />
               </div>
+
+              <!-- CR-03 §7 — khối ẢNH đặt NGAY DƯỚI tên hàng, TRÊN cả các ô
+                   mô tả: đây là dữ kiện tìm nguồn giá trị nhất (một tấm ảnh
+                   nhãn hộp thay được cả bốn ô model/hãng/nước/quy cách bên
+                   dưới) và là thứ BR-Y5 bắt buộc phải có. -->
+              <div class="field">
+                <label>Ảnh nhãn hộp <span class="req">*</span></label>
+                <div class="flex" style="flex-wrap: wrap; gap: 6px">
+                  <div v-for="u in d.anh" :key="u" style="position: relative">
+                    <img
+                      v-if="anhCache[u]" :src="anhCache[u]" alt="Ảnh hàng chưa có trong hệ thống"
+                      style="width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line)"
+                    />
+                    <button
+                      class="btn-o btn-sm btn-danger" :disabled="!!dangTaiAnh"
+                      style="position: absolute; top: -8px; right: -8px; padding: 0 6px; line-height: 18px; border-radius: 50%"
+                      @click="xoaAnh(d, u)"
+                    >×</button>
+                  </div>
+                </div>
+                <label
+                  class="btn-o btn-sm" style="display: inline-block; margin-top: 6px; cursor: pointer"
+                  :class="{ muted: d.anh.length >= CR03_TOI_DA_ANH || dangTaiAnh === d }"
+                >
+                  {{ dangTaiAnh === d ? 'Đang tải…' : '+ Chọn ảnh' }}
+                  <input
+                    type="file" accept="image/*" style="display: none"
+                    :disabled="d.anh.length >= CR03_TOI_DA_ANH || dangTaiAnh === d"
+                    @change="chonAnh(d, $event.target.files); $event.target.value = ''"
+                  />
+                </label>
+                <div class="tag" style="margin-top: 4px">
+                  {{ d.anh.length }}/{{ CR03_TOI_DA_ANH }} ảnh — Miyano dùng ảnh để tìm đúng hàng.
+                </div>
+              </div>
+
+              <!-- Lối thoát khi không chụp được ảnh — bật cờ này thì mô tả
+                   nhận dạng trở thành thứ THAY THẾ duy nhất cho ảnh, nên
+                   phải đủ dài mới có tác dụng (chốt 50 ký tự nằm ở SERVER,
+                   lúc gửi duyệt — xem `PortalDeXuatMua.gui_duyet()`). -->
+              <div class="field">
+                <label style="display: flex; align-items: center; gap: 6px; font-weight: normal">
+                  <input type="checkbox" v-model="d.khong_co_anh" style="width: auto" />
+                  Tôi không chụp được ảnh
+                </label>
+                <template v-if="d.khong_co_anh">
+                  <textarea
+                    v-model="d.mo_ta_nhan_dang" rows="2"
+                    placeholder="Mô tả bằng lời để Miyano nhận diện đúng hàng (màu hộp, chữ in, hình vẽ...)"
+                  ></textarea>
+                  <div class="tag" :class="{ warn: (d.mo_ta_nhan_dang || '').trim().length < 50 }">
+                    {{ (d.mo_ta_nhan_dang || '').trim().length >= 50
+                      ? 'Đã đủ mô tả.'
+                      : `Còn thiếu ${50 - (d.mo_ta_nhan_dang || '').trim().length} ký tự (tối thiểu 50).` }}
+                  </div>
+                </template>
+              </div>
+
               <div class="sb" style="gap: 8px">
                 <div class="field" style="flex: 1">
                   <label>ĐVT <span class="req">*</span></label>
@@ -857,6 +1141,48 @@ onMounted(async () => {
                 <label>Ghi chú</label>
                 <input v-model="d.ghi_chu" placeholder="Quy cách, hãng mong muốn..." />
               </div>
+
+              <!-- CR-03 §7 — bốn ô MÔ TẢ KỸ THUẬT, gọn trong một `<details>`.
+                   Mở sẵn khi dòng CHƯA có ảnh nào (khách cần một lối khai
+                   thay thế), thu lại khi đã có ảnh (ảnh đã đủ, đỡ rợp mắt). -->
+              <details :open="!d.anh.length" style="margin-bottom: 12px">
+                <summary style="cursor: pointer">Thông tin trên hộp (giúp Miyano tìm đúng hàng)</summary>
+                <div class="field" style="margin-top: 8px">
+                  <label>Model / mã catalogue</label>
+                  <input v-model="d.model_ma" placeholder="VD: NBG-100-M" />
+                </div>
+                <div class="sb" style="gap: 8px">
+                  <div class="field" style="flex: 1">
+                    <label>Hãng sản xuất</label>
+                    <input v-model="d.hang_san_xuat" placeholder="VD: Ansell" />
+                  </div>
+                  <div class="field" style="flex: 1">
+                    <label>Nước sản xuất</label>
+                    <input v-model="d.nuoc_san_xuat" placeholder="VD: Malaysia" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Quy cách đóng gói</label>
+                  <input v-model="d.quy_cach" placeholder="VD: hộp 100 chiếc" />
+                </div>
+              </details>
+
+              <!-- Hai ô THƯƠNG MẠI tách RIÊNG khỏi khối mô tả kỹ thuật ở
+                   trên — đây là thông tin nhà cung cấp/giá hiện tại của
+                   BỆNH VIỆN, gộp chung với mô tả kỹ thuật sẽ làm khách khai
+                   ra mà không nhận thấy mình vừa khai một thứ nhạy cảm. -->
+              <details style="margin-bottom: 12px">
+                <summary style="cursor: pointer">Tuỳ chọn — giúp Miyano báo giá cạnh tranh hơn</summary>
+                <div class="field" style="margin-top: 8px">
+                  <label>Nhà cung cấp hiện tại</label>
+                  <input v-model="d.ncc_hien_tai" placeholder="VD: Công ty ABC" />
+                </div>
+                <div class="field">
+                  <label>Giá đang mua</label>
+                  <input v-model="d.gia_hien_tai" inputmode="decimal" placeholder="VNĐ" />
+                </div>
+              </details>
+
               <button class="btn-o btn-sm" @click="xoaDongDatNgoai(i)">Xoá dòng</button>
             </div>
             <button class="btn-o" style="width: 100%" @click="themDongDatNgoai">+ Thêm dòng</button>
@@ -971,6 +1297,25 @@ onMounted(async () => {
             <label>Lý do yêu cầu <span class="req">*</span></label>
             <textarea rows="2" v-model="lyDoYeuCau" placeholder="VD: Khoa cần bổ sung vật tư tiêu hao cho quý này..."></textarea>
           </div>
+          <!-- D1 — ô chọn khoa CHỈ ở nhánh quản lý đặt thẳng (`dangDatThang`
+               = quản lý VÀ màn chưa gắn phiếu nào). Nhân viên khoa bị server
+               ép về khoa của chính họ; quản lý đang SỬA một phiếu thì khoa đã
+               chốt từ lúc phiếu được lập. Cùng cổng với ô "Lý do yêu cầu"
+               ngay trên — một câu hỏi, một cổng. -->
+          <div v-if="dangDatThang" class="field">
+            <label>Đặt cho khoa phòng</label>
+            <select v-model="khoaPhongChon">
+              <option value="">Toàn viện (không quy về khoa nào)</option>
+              <option v-for="k in khoaPhongChonDuoc" :key="k.name" :value="k.name">
+                {{ k.ten_khoa_phong }}
+              </option>
+            </select>
+            <div class="tag">
+              Chọn khoa để chính khoa đó theo dõi được đơn, phiếu giao và hoá
+              đơn của yêu cầu này. Để <b>Toàn viện</b> nếu đơn không thuộc
+              khoa nào — khi đó chỉ quản lý xem được.
+            </div>
+          </div>
           <div class="sb" style="gap: 8px">
             <div class="field" style="flex: 1">
               <label>Ngày giao mong muốn</label>
@@ -1012,8 +1357,11 @@ onMounted(async () => {
             >
               {{ dangGui ? 'Đang gửi…' : nhanNutChinh }}
             </button>
+            <!-- `!maDeXuat` — soi gương chốt server (xem ref `maDeXuat`).
+                 Phiếu đã từng gửi duyệt đi ra bằng "Huỷ phiếu" của quản lý
+                 (§5.4b, giữ dấu vết), không phải bằng nút này. -->
             <button
-              v-if="tenPhieu"
+              v-if="tenPhieu && !maDeXuat"
               class="btn-o btn-danger"
               style="margin-left: auto"
               :disabled="dangLuu || dangGui || dangXoa"

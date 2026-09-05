@@ -1,6 +1,17 @@
-// Hàng chờ duyệt của quản lý — MỘT nguồn sự thật cho cả ba nơi cần nó:
-// shell `App.vue` (badge trên mục nav), màn `/duyet` (bảng), và
-// `DeXuatDetail.vue` (nạp lại badge sau khi duyệt/từ chối xong).
+// Hàng chờ duyệt của quản lý — MỘT nguồn sự thật cho hai nơi cần nó: shell
+// `App.vue` (badge trên mục "Danh sách đơn hàng") và `DeXuatDetail.vue`
+// (nạp lại badge sau khi duyệt/từ chối/thu hồi xong).
+//
+// 03/09/2026 — nơi thứ ba (màn `/duyet`, bảng hàng chờ) đã nghỉ: việc duyệt
+// vốn nằm ở màn CHI TIẾT, nên bảng đó chỉ là bản sao thứ hai của cùng bộ dữ
+// liệu. Hàng chờ nay là "Danh sách đơn hàng" lọc chip `cho_duyet` — chip đó
+// gom ĐÚNG hai trạng thái file này đếm (`_sql_giai_doan()` ở api/portal.py).
+//
+// Việc 4 (review toàn nhánh) — câu "badge và đích nó dẫn tới không nói hai
+// con số khác nhau" chỉ đúng từ khi mục nav THẬT SỰ mang `?chip=cho_duyet`
+// (`App.vue::dichNav()`) và màn danh sách chịu nghe query đổi giữa chừng
+// (`YeuCauList.vue`, watcher trên `route.query.chip`). Hai trạng thái khớp
+// nhau ở tầng dữ liệu không tự làm cho cú bấm dẫn đúng chỗ.
 //
 // Gộp ở đây thay vì chép ba lần: `de_xuat_danh_sach` chỉ nhận MỘT
 // `trang_thai` mỗi lần gọi (truyền mảng vào tham số đó vướng đúng cái bẫy
@@ -19,6 +30,10 @@ import api from './api'
 // thể đọc được rằng danh sách còn nữa. Nó có thể báo nhầm khi tổng đúng
 // bằng 200 (hiếm, và chỉ tốn một dòng nhắc), nhưng chiều ngược lại — im
 // lặng cắt mất phiếu của một khoa — là chiều làm phiếu nằm đó không ai duyệt.
+//
+// Trần này chỉ còn ảnh hưởng tới BADGE (hiện "200+" thay vì một con số sai
+// đọc như con số đúng). Danh sách thật đếm `tong` chính xác trong SQL, nên
+// không thừa hưởng giới hạn này.
 export const GIOI_HAN_CHO_DUYET = 200
 
 export const TRANG_THAI_CHO_DUYET = ['Chờ duyệt', 'Chờ duyệt sửa']

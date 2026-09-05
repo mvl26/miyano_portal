@@ -111,12 +111,21 @@ HTML_BG = """
 {% set cho_nguon = doc.get("custom_dat_ngoai") | selectattr("da_xu_ly", "equalto", 0) | list %}
 {% if cho_nguon %}
 <h4>Hàng đang tìm nguồn / Items being sourced</h4>
+<!-- CR-03 — thêm Model/Hãng SX/Quy cách: TỜ GIẤY NÀY chính là thứ purchasing
+     cầm đi hỏi nhà cung cấp (thiết kế §8), nên ba field khách đã khai trên
+     màn Đặt hàng phải đi TIẾP xuống đây thay vì dừng lại ở màn hình Desk. -->
 <table class="table table-bordered">
-  <thead><tr><th>Tên hàng / Item</th><th>ĐVT / UoM</th><th>SL / Qty</th></tr></thead>
+  <thead><tr>
+    <th>Tên hàng / Item</th><th>ĐVT / UoM</th><th>SL / Qty</th>
+    <th>Model</th><th>Hãng SX / Brand</th><th>Quy cách / Packing</th>
+  </tr></thead>
   <tbody>
   {% for d in cho_nguon %}
     <tr><td>{{ d.ten_hang }}</td><td>{{ d.dvt }}</td>
-        <td class="text-right">{{ d.so_luong }}</td></tr>
+        <td class="text-right">{{ d.so_luong }}</td>
+        <td>{{ d.model_ma or "" }}</td>
+        <td>{{ d.hang_san_xuat or "" }}</td>
+        <td>{{ d.quy_cach or "" }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

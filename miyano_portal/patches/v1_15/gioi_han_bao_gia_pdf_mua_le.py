@@ -19,12 +19,16 @@ Idempotent: `frappe.db.set_value` ghi cùng giá trị nhiều lần vô hại;
 
 import frappe
 
+from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
 from miyano_portal.setup.install_notifications import install_portal_notifications
 
 NOTI = "Portal - Báo giá sẵn sàng"
+# Task 7 — patch này KHÔNG chạy lại trên site đã áp, nhưng nó VẪN chạy trên
+# mọi site MỚI (`patches.txt` đọc từ đầu), nên chuỗi ở đây không phải mã
+# chết. Nội suy `LOAI_DON_BAO_GIA` để nó không thể lệch khỏi vị ngữ.
 CONDITION = (
     "doc.custom_nguon_don == 'Client Portal' and "
-    "doc.custom_loai_don == 'Mua lẻ' and "
+    f"doc.custom_loai_don == '{LOAI_DON_BAO_GIA}' and "
     "doc.workflow_state == 'Chờ khách đồng ý'"
 )
 

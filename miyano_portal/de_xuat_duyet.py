@@ -28,7 +28,7 @@ module này) tự quyết cách báo và có bắt xác nhận hay không.
 
 import frappe
 
-from miyano_portal import dat_hang, gia_hdnt
+from miyano_portal import dat_hang, gia_hdnt, nhat_ky
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	nguon_gia_theo_ma_cho_khach,
 )
@@ -136,6 +136,19 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		"custom_de_xuat": doc.name,
 		"custom_ma_tra_cuu": doc.ma_de_xuat,
 	})
+
+	# Task 4 — ghi SAU khi `doc.duyet()` (Task 3) đã thật sự chuyển trạng
+	# thái và Sales Order đã tồn tại với tên thật (`kq["sales_order"]` được
+	# cấp bên trong `dat_hang.tao_sales_order`, TRƯỚC lời gọi này) — ghi
+	# trước điểm này sẽ ăn may nếu `doc.duyet()` ném lỗi phía trên. `vai=
+	# VAI_HE_THONG` (brief): việc DUYỆT đã có dòng riêng của nó
+	# (`SK_QUAN_LY_DUYET`, ghi bên trong `doc.duyet()`) mang tên người
+	# duyệt; dòng này chỉ kể lại HỆ QUẢ "đơn đã sinh ra", không phải một
+	# hành động của ai đó.
+	nhat_ky.ghi(
+		nhat_ky.SK_DON_TAO, customer=doc.customer, khoa_phong=doc.khoa_phong,
+		de_xuat=doc.name, sales_order=kq["sales_order"], vai=nhat_ky.VAI_HE_THONG,
+	)
 	return {
 		"sales_order": kq["sales_order"], "de_xuat": doc.name,
 		"canh_bao_gia": canh_bao_gia,

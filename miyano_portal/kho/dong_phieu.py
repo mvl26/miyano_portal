@@ -45,6 +45,7 @@ COLUMNS = {
 		("Quy cách", "quy_cach"),
 		("Nhóm", "nhom"),
 		("Ghi chú", "ghi_chu"),
+		("Mã máy", "ma_thiet_bi"),
 	],
 }
 
@@ -104,6 +105,22 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 	ws = mo_workbook(content)
 	header_row, col_index = read_header(ws, COLUMNS[loai], REQUIRED[loai])
 	co_don_gia = loai == "nhap"
+
+	# Chỉ phiếu xuất mới có cột máy. Tra MỘT LẦN cho cả file (không phải mỗi
+	# dòng một truy vấn — file nhập hàng loạt có thể vài trăm dòng), khoá
+	# theo mã đã chuẩn hoá (viết hoa) đúng như Customer Equipment.validate()
+	# lưu. `Customer Equipment` treo vào `customer`, không có field `kho` —
+	# suy customer từ kho của phiếu.
+	may_theo_ma: dict[str, str] = {}
+	if loai == "xuat":
+		customer = frappe.db.get_value("Customer Warehouse", kho, "customer")
+		may_theo_ma = {
+			r["ma_thiet_bi"]: r["name"] for r in frappe.get_all(
+				"Customer Equipment",
+				filters={"customer": customer},
+				fields=["name", "ma_thiet_bi"],
+			)
+		}
 
 	rows: list[dict] = []
 	for line, row_cells in enumerate(
@@ -169,6 +186,15 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 				if not dvt:
 					loi.append("Mã chưa có trong kho — cần ĐVT để tạo mới")
 
+		thiet_bi = ""
+		ma_may = _norm(raw.get("ma_thiet_bi")).upper()
+		if ma_may:
+			thiet_bi = may_theo_ma.get(ma_may, "")
+			if not thiet_bi:
+				# Thông điệp GIỐNG HỆT cho "mã bịa" và "mã của bệnh viện khác"
+				# — chênh nhau một chữ là một kênh dò dữ liệu khách khác.
+				loi.append(f'Không tìm thấy máy có mã "{ma_may}" trong đơn vị này')
+
 		trang_thai_cuoi = "loi" if loi else trang_thai
 		row = {
 			"line": line,
@@ -180,6 +206,10 @@ def doc_file(content: bytes, kho: str, loai: str) -> dict:
 			# một consumer sau này rẽ nhánh theo "có vat_tu hay không" thay vì
 			# theo trang_thai sẽ âm thầm coi dòng lỗi là dòng đã khớp.
 			"vat_tu": vat_tu_name if trang_thai_cuoi == "khop" else "",
+			# Cùng bất biến: `thiet_bi` CHỈ khác rỗng khi dòng thật sự "khop" —
+			# một dòng "loi" (kể cả lỗi không liên quan tới máy, ví dụ Số
+			# lượng sai) không bao giờ mang định danh thiết bị thật.
+			"thiet_bi": thiet_bi if trang_thai_cuoi == "khop" else "",
 			"ma_vat_tu": ma,
 			"ten_vat_tu": ten,
 			"dvt": dvt,
@@ -224,6 +254,14 @@ def export_rows(doctype: str, name: str) -> list[dict]:
 		if loai == "nhap":
 			row["han_su_dung"] = r.han_su_dung
 			row["don_gia"] = float(r.don_gia or 0)
+		if loai == "xuat":
+			# COLUMNS["xuat"] có "Mã máy" (Task 11) — không điền lại cột này
+			# khi xuất tệp sẽ khiến một vòng xuất-rồi-nạp-lại âm thầm đánh
+			# rơi mọi gán máy đã lưu trên phiếu.
+			row["ma_thiet_bi"] = (
+				frappe.db.get_value("Customer Equipment", r.thiet_bi, "ma_thiet_bi")
+				if r.thiet_bi else ""
+			) or ""
 		out.append(row)
 	return out
 

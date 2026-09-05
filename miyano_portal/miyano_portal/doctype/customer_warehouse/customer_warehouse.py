@@ -7,6 +7,7 @@ class CustomerWarehouse(Document):
 		self._one_per_customer()
 		self._ma_kho_duy_nhat()
 		self._ghi_moc_bat_buoc_khoa_phong()
+		self._ghi_moc_bat_buoc_thiet_bi()
 		if not self.ten_don_vi_in:
 			self.ten_don_vi_in = frappe.db.get_value(
 				"Customer", self.customer, "customer_name"
@@ -102,3 +103,21 @@ class CustomerWarehouse(Document):
 			)
 		if bat and not truoc:
 			self.bat_buoc_khoa_phong_tu = frappe.utils.now_datetime()
+
+	def _ghi_moc_bat_buoc_thiet_bi(self):
+		"""BR-TB-3 — sao y `_ghi_moc_bat_buoc_khoa_phong()` ở trên, cùng lý do
+		và cùng ca biên (xem docstring hàm đó). NƠI DUY NHẤT ghi vào
+		`bat_buoc_thiet_bi_tu`. Bắt cả hai ca: kho cũ bật cờ lần đầu, và kho
+		mới tạo với cờ đã bật sẵn. Phía kiểm tra tương ứng là
+		`CustomerStockIssue._chan_thieu_thiet_bi()`, tự lành khi cờ bật mà
+		mốc rỗng (bật qua db.set_value / Data Import / patch rollout)."""
+		bat = frappe.utils.cint(self.bat_buoc_thiet_bi)
+		truoc = 0
+		if not self.is_new():
+			truoc = frappe.utils.cint(
+				frappe.db.get_value(
+					"Customer Warehouse", self.name, "bat_buoc_thiet_bi"
+				)
+			)
+		if bat and not truoc:
+			self.bat_buoc_thiet_bi_tu = frappe.utils.now_datetime()
