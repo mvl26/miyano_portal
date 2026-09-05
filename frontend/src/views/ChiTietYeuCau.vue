@@ -29,6 +29,7 @@ import { hanhDongDonChoPhep } from '../don-actions'
 import { capNhatChoDuyetCount } from '../cho-duyet'
 import ReasonModal from '../components/ReasonModal.vue'
 import KhoiTruyVet from '../components/chi-tiet/KhoiTruyVet.vue'
+import KhoiHangMoi from '../components/chi-tiet/KhoiHangMoi.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
 import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
@@ -702,6 +703,12 @@ onMounted(async () => {
       <KhoiTruyVet v-if="phieu" :phieu="phieu" :mo-san="giaiDoan !== 'da_giao'" />
 
       <div class="grid2">
+        <!-- Hàng chưa có mã — HIỆN RIÊNG, TRƯỚC bảng mặt hàng (chủ đầu tư
+             chốt 05/09/2026). Đọc từ `phieu`, KHÔNG từ `don`: đơn hàng chỉ
+             tồn tại SAU khi duyệt, nên đọc từ đơn là đúng lúc quản lý cần
+             nhìn nhất thì không thấy gì — chính lỗi khối này sinh ra để vá. -->
+        <KhoiHangMoi :dong="phieu?.dat_ngoai || []" :de-xuat="phieu?.name || ''" />
+
         <BangMatHang
           :phieu="phieu" :don="don"
           :quan-ly-dang-duyet="quanLyDangDuyet"
