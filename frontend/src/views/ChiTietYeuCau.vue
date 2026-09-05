@@ -719,24 +719,33 @@ onMounted(async () => {
            nhau để đọc cùng một đơn hàng. -->
       <KhoiHangMoi :dong="phieu?.dat_ngoai || []" :de-xuat="phieu?.name || ''" />
 
-      <div class="grid2">
-        <BangMatHang
-          :phieu="phieu" :don="don"
-          :quan-ly-dang-duyet="quanLyDangDuyet"
-          :sl-duyet-sua="slDuyetSua" :ghi-chu-sua="ghiChuSua"
-          :can-cu-kho="phieu?.can_cu_kho || don?.can_cu_kho || {}"
-        />
-        <!-- `KhoiGiaoHang`/`KhoiHoaDonTaiLieu` là template NHIỀU GỐC (không
-             bọc div riêng, xem chú thích trong hai file đó) — MỘT `.card`
-             chung đúng như `OrderDetail.vue` đã giữ, không phải một wrapper
-             trơn: mất class này là mất nền/viền/padding của cả khối. `v-if`
-             trên chính wrapper (không chỉ trên hai con) — một phiếu chưa có
-             đơn (Nháp/Chờ duyệt) không được để lại một khung `.card` RỖNG
-             cạnh bảng mặt hàng. -->
-        <div v-if="don" class="card">
-          <KhoiGiaoHang :don="don" />
-          <KhoiHoaDonTaiLieu :don="don" :dang-dat-lai="dangDatLai" @dat-lai="datLai" />
-        </div>
+      <!-- BẢNG MẶT HÀNG CHIẾM HẾT BỀ NGANG (chủ đầu tư 05/09/2026: "bảng
+           mặt hàng có trong hệ thống ngắn quá, cho rộng ra").
+           Trước bản này nó là con của `.grid2` (`2fr 1fr`, style.css) nên chỉ
+           được 2/3 bề ngang — trong khi đây là bảng RỘNG NHẤT trang: mặt
+           hàng, ĐVT, năm cột căn cứ tồn kho (CR-04), SL đề xuất, SL duyệt,
+           đã giao, và ô ghi chú vừa nới lên 16rem. Nhồi ngần ấy vào 2/3 màn
+           thì cột nào cũng chật và bảng cuộn ngang ngay cả trên màn rộng.
+
+           `.grid2` bị GỠ HẲN ở đây, không phải đổi tỉ lệ: khối giao hàng /
+           hoá đơn xuống nằm dưới, cũng chiếm hết bề ngang. Xếp DỌC nhất quán
+           với hai khối phía trên — chủ đầu tư đã chốt hướng đó ở `4da55df`. -->
+      <BangMatHang
+        :phieu="phieu" :don="don"
+        :quan-ly-dang-duyet="quanLyDangDuyet"
+        :sl-duyet-sua="slDuyetSua" :ghi-chu-sua="ghiChuSua"
+        :can-cu-kho="phieu?.can_cu_kho || don?.can_cu_kho || {}"
+      />
+
+      <!-- `KhoiGiaoHang`/`KhoiHoaDonTaiLieu` là template NHIỀU GỐC (không
+           bọc div riêng, xem chú thích trong hai file đó) — MỘT `.card`
+           chung đúng như `OrderDetail.vue` đã giữ, không phải một wrapper
+           trơn: mất class này là mất nền/viền/padding của cả khối. `v-if`
+           trên chính wrapper (không chỉ trên hai con) — một phiếu chưa có
+           đơn (Nháp/Chờ duyệt) không được để lại một khung `.card` RỖNG. -->
+      <div v-if="don" class="card" style="margin-top: 0.875rem">
+        <KhoiGiaoHang :don="don" />
+        <KhoiHoaDonTaiLieu :don="don" :dang-dat-lai="dangDatLai" @dat-lai="datLai" />
       </div>
 
       <div v-if="phieu?.ghi_chu" class="card mb10" style="margin-top: 14px">

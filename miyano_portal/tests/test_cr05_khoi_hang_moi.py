@@ -162,36 +162,43 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 			"`KhoiHangMoi` không nhận dòng từ `phieu.dat_ngoai`",
 		)
 
-	def test_khoi_nam_NGOAI_luoi_hai_cot_hai_bang_xep_DOC(self):
-		"""`KhoiHangMoi` phải nằm NGOÀI `.grid2`, không phải con của nó.
+	def test_man_chi_tiet_KHONG_CON_luoi_hai_cot_moi_khoi_xep_DOC(self):
+		"""Màn chi tiết KHÔNG còn `.grid2` — mọi khối xếp DỌC, hết bề ngang.
 
-		Chủ đầu tư báo 05/09/2026: *"hiển thị 2 bảng dọc chứ không phải
-		ngang"*. `.grid2` là lưới HAI CỘT `2fr 1fr` (style.css). Đặt khối này
-		làm con đầu tiên của lưới khiến nó chiếm cột RỘNG, đẩy `BangMatHang`
-		sang cột HẸP 1fr, và làm khối giao hàng/hoá đơn rớt xuống hàng sau.
+		Hai lần chủ đầu tư phải nhắc, cùng một gốc:
+		  * 05/09 "hiển thị 2 bảng dọc chứ không phải ngang" — khối hàng mới
+		    bị tôi đặt làm con của lưới, chiếm cột rộng và bóp bảng mặt hàng
+		    sang cột hẹp 1fr.
+		  * 05/09 "bảng mặt hàng có trong hệ thống ngắn quá, cho rộng ra" —
+		    bảng vẫn là con của lưới nên chỉ được 2/3 bề ngang.
 
-		Cả hai đều là bảng nhiều cột: đặt cạnh nhau thì cột nào cũng chật và
-		mắt phải nhảy ngang giữa hai lưới khác nhau để đọc cùng một đơn.
+		`.grid2` là `2fr 1fr` (style.css). Bảng mặt hàng là bảng RỘNG NHẤT
+		trang: mặt hàng, ĐVT, năm cột căn cứ tồn kho, SL đề xuất, SL duyệt,
+		đã giao, ghi chú 16rem. Nhồi ngần ấy vào 2/3 màn thì cột nào cũng
+		chật và bảng cuộn ngang ngay cả trên màn rộng.
 
-		Bài này canh THỨ TỰ VỊ TRÍ trong file — `KhoiHangMoi` phải xuất hiện
-		TRƯỚC thẻ mở `<div class="grid2">`. Canh sự tồn tại của chuỗi thì
-		không phát hiện được gì: cả hai đều đã tồn tại suốt lúc bố cục hỏng.
+		Bài này canh SỰ VẮNG MẶT của lưới, không canh thứ tự: chừng nào
+		`.grid2` còn ở đây thì còn có khối bị đẩy vào cột hẹp, và lần sau
+		người ta lại phải nhắc lần thứ ba.
 		"""
-		i_khoi = self.man.find("<KhoiHangMoi")
-		i_luoi = self.man.find('<div class="grid2">')
-		self.assertNotEqual(i_khoi, -1, "Không tìm thấy `<KhoiHangMoi>`")
-		self.assertNotEqual(i_luoi, -1, "Không tìm thấy `<div class=\"grid2\">`")
-		self.assertLess(
-			i_khoi, i_luoi,
-			"`KhoiHangMoi` đang nằm TRONG `.grid2` — hai bảng sẽ hiện NGANG "
-			"cạnh nhau và bảng mặt hàng bị bóp vào cột hẹp 1fr",
+		self.assertNotIn(
+			'class="grid2"', self.man,
+			"Màn chi tiết còn `.grid2` — lưới HAI CỘT `2fr 1fr` sẽ bóp một "
+			"khối vào cột hẹp. Mọi khối ở màn này xếp DỌC, chiếm hết bề ngang.",
 		)
 
-	def test_hien_du_chin_truong_cr03(self):
-		for truong in ("model_ma", "hang_san_xuat", "nuoc_san_xuat", "quy_cach",
-		               "ncc_hien_tai", "gia_hien_tai", "mo_ta_nhan_dang"):
-			with self.subTest(truong=truong):
-				self.assertIn(truong, self.khoi, f"Khối không hiện `{truong}`")
+	def test_bang_mat_hang_va_khoi_hang_moi_deu_o_cap_ngoai_cung(self):
+		"""Cả hai khối phải là con TRỰC TIẾP của thân trang, không lồng trong
+		một wrapper bố cục nào — đó là điều làm chúng chiếm hết bề ngang."""
+		i_khoi = self.man.find("<KhoiHangMoi")
+		i_bang = self.man.find("<BangMatHang")
+		self.assertNotEqual(i_khoi, -1, "Không tìm thấy `<KhoiHangMoi>`")
+		self.assertNotEqual(i_bang, -1, "Không tìm thấy `<BangMatHang>`")
+		self.assertLess(
+			i_khoi, i_bang,
+			"Hàng chưa có mã phải đứng TRƯỚC bảng mặt hàng — đó là thứ quản "
+			"lý cần xem kỹ nhất trước khi duyệt",
+		)
 
 	def test_truong_xep_theo_LUOI_nhan_gia_tri_khong_phai_day_chip(self):
 		"""Bốn trường "thông tin trên hộp" xếp thành LƯỚI nhãn/giá trị.
