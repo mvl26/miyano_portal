@@ -139,3 +139,80 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 		khác: đủ ba vế.
 		"""
 		self.assertIn("escape_html", self.ma, "Không escape dữ liệu khách gõ")
+
+
+class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
+	"""Bảng "Đã khớp mã" trên cổng phải có cột ĐƠN GIÁ.
+
+	Chủ đầu tư 05/09/2026. Trước bản này bảng đó nối được món khách xin với
+	mã Miyano tìm ra, nhưng KHÔNG có giá — khách phải nhìn sang bảng mặt hàng
+	chính mới biết được báo bao nhiêu. Câu đơn giản nhất của họ, *"món tôi
+	xin, Miyano báo bao nhiêu?"*, bắt phải ghép hai chỗ.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		import re
+
+		tho = (_goc().parent / "frontend" / "src" / "components" / "chi-tiet"
+		       / "BangMatHang.vue").read_text(encoding="utf-8")
+		# Lột chú thích HTML lẫn JS: chú thích giải thích tính năng này chứa
+		# đúng những chuỗi bài dưới tìm. Lỗi "khớp chỗ nói thay cho chỗ dùng"
+		# đã xảy ra BỐN lần trong phiên.
+		tho2 = re.sub(r"<!--.*?-->", "", tho, flags=re.S)
+		cls.ma = "\n".join(
+			d for d in tho2.splitlines() if not d.strip().startswith("//")
+		)
+
+	def _doan_bang_da_khop(self) -> str:
+		"""Cắt riêng bảng "Đã khớp mã".
+
+		Cắt trước khi soi: ngay dưới nó là bảng "Đang chờ Miyano xác nhận
+		nguồn" — bảng đó CỐ Ý không có giá (chưa khớp mã thì chưa có dòng
+		hàng nào để mà có giá). Soi cả file sẽ không phân biệt được hai bảng.
+		"""
+		i = self.ma.find("Đã khớp mã (từ yêu cầu đặt ngoài)")
+		self.assertNotEqual(i, -1, "Không tìm thấy bảng 'Đã khớp mã'")
+		j = self.ma.find("Đang chờ Miyano xác nhận nguồn", i)
+		self.assertNotEqual(j, -1, "Không tìm thấy mốc cắt (bảng kế tiếp)")
+		return self.ma[i:j]
+
+	def test_bang_da_khop_co_cot_don_gia(self):
+		doan = self._doan_bang_da_khop()
+		self.assertIn("Đơn giá", doan, "Bảng 'Đã khớp mã' không có cột Đơn giá")
+		self.assertIn("giaDaKhop(d)", doan, "Cột giá không gọi `giaDaKhop(d)`")
+
+	def test_gia_tra_theo_DONG_HANG_khong_theo_dong_dat_ngoai(self):
+		"""Giá KHÔNG nằm trên dòng đặt ngoài.
+
+		Khi khớp mã, `chuyen_dong_dat_ngoai_thanh_hang` dựng (hoặc gộp vào)
+		một dòng hàng THẬT trong `items`, và giá sống ở đó. Đọc `d.rate` hay
+		`d.don_gia` của dòng đặt ngoài sẽ luôn ra rỗng — một cột trống vĩnh
+		viễn mà không ai đỏ.
+		"""
+		self.assertRegex(
+			self.ma,
+			r"function\s+giaDaKhop[\s\S]{0,400}?don\?\.items[\s\S]{0,200}?item_khop",
+			"`giaDaKhop` không tra đơn giá từ `don.items` theo `item_khop`",
+		)
+
+	def test_gia_0_hien_CHO_BAO_GIA_khong_hien_so_0(self):
+		"""Giá 0 nghĩa là MIYANO CHƯA BÁO GIÁ, không phải "miễn phí".
+
+		Khớp được mã CHƯA CHẮC đã có giá: `_gop_hoac_them_dong_hang` chỉ tự
+		lấy đơn giá khi mặt hàng thuộc một hợp đồng khung còn hiệu lực; ngoài
+		ra để 0 và chờ Miyano điền.
+
+		In "0 ₫" là nói với khoa một con số SAI — cùng luật với "—" của CR-04:
+		chưa biết thì đừng in một con số.
+		"""
+		doan = self._doan_bang_da_khop()
+		self.assertIn(
+			"Chờ Miyano báo giá", doan,
+			"Giá 0 không được in thành số — phải nói rõ là chưa báo giá",
+		)
+		self.assertRegex(
+			doan, r"v-if\s*=\s*\"giaDaKhop\(d\)\"",
+			"Không có nhánh phân biệt đã-có-giá với chưa-báo-giá",
+		)

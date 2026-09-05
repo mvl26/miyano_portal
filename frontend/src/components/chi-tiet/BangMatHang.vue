@@ -190,6 +190,23 @@ async function toggleSoKho(row) {
 // khớp mã KHÔNG được đọc như đang chờ, nhét chung một tiêu đề "đang chờ"
 // là lỗi đã phải sửa một lần rồi.
 const datNgoaiDaKhop = computed(() => (props.don?.dat_ngoai || []).filter((d) => d.da_xu_ly))
+
+// Đơn giá của dòng ĐÃ KHỚP MÃ (chủ đầu tư 05/09/2026).
+//
+// Bảng "Đã khớp mã" trước đây không có cột giá, nên khách nối được món mình
+// xin với mã Miyano tìm ra, nhưng phải nhìn sang BẢNG KHÁC mới biết được báo
+// bao nhiêu. Câu đơn giản nhất — "món tôi xin, Miyano báo bao nhiêu?" — bắt
+// họ ghép hai chỗ.
+//
+// Giá KHÔNG nằm trên dòng đặt ngoài: khi khớp mã, `chuyen_dong_dat_ngoai_
+// thanh_hang` dựng (hoặc gộp vào) một dòng hàng THẬT trong `items`, và giá
+// sống ở đó. Nên tra theo `item_khop` — cũng đúng cách server gộp: nhiều
+// dòng đặt ngoài cùng một mã gộp về MỘT dòng hàng, một đơn giá.
+function giaDaKhop(d) {
+  if (!d?.item_khop) return null
+  const hang = (props.don?.items || []).find((h) => h.item_code === d.item_khop)
+  return hang ? Number(hang.rate) || 0 : null
+}
 const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) => !d.da_xu_ly))
 </script>
 
@@ -439,7 +456,10 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
       <h4 style="margin: 14px 12px 6px">Đã khớp mã (từ yêu cầu đặt ngoài)</h4>
       <table>
         <thead>
-          <tr><th>Mã đã khớp</th><th>Yêu cầu của bạn</th><th>ĐVT</th><th class="right">SL</th></tr>
+          <tr>
+            <th>Mã đã khớp</th><th>Yêu cầu của bạn</th><th>ĐVT</th>
+            <th class="right">SL</th><th class="right">Đơn giá</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="(d, i) in datNgoaiDaKhop" :key="'khop-' + i">
@@ -450,6 +470,16 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
             </td>
             <td>{{ d.dvt }}</td>
             <td class="right">{{ d.so_luong }}</td>
+            <!-- Giá 0 nghĩa là MIYANO CHƯA BÁO GIÁ, không phải "miễn phí".
+                 Khớp được mã chưa chắc đã có giá: `_gop_hoac_them_dong_hang`
+                 chỉ tự lấy đơn giá khi mặt hàng thuộc một hợp đồng khung còn
+                 hiệu lực; ngoài ra để 0 và chờ Miyano điền. In "0 ₫" ở đây là
+                 nói với khoa một con số sai — cùng luật với "—" của CR-04:
+                 chưa biết thì đừng in một con số. -->
+            <td class="right">
+              <template v-if="giaDaKhop(d)">{{ fmtVND(giaDaKhop(d)) }}</template>
+              <span v-else class="tag">Chờ Miyano báo giá</span>
+            </td>
           </tr>
         </tbody>
       </table>
