@@ -1330,7 +1330,7 @@ def _kiem_hang_tom_tat(r) -> dict | None:
     }
 
 
-def _hoa_don_cua_don(order: str) -> list:
+def _hoa_don_cua_don(order: str, customer: str) -> list:
     """Hoá đơn phát sinh từ CHÍNH đơn hàng này.
 
     Khoảng trống đã nêu trong đối chiếu 2026-08-16: cổng có mốc "Hoá đơn"
@@ -1357,6 +1357,50 @@ def _hoa_don_cua_don(order: str) -> list:
                 "grand_total", "outstanding_amount"],
         order_by="posting_date asc",
     )
+    # BA KHOÁ HĐĐT (chủ đầu tư chốt 05/09/2026) — trước bản này khối "Hoá
+    # đơn của đơn này" trên màn chi tiết tải BẢN IN CỦA ERP
+    # (`portal_document_download`), trong khi trang "Hoá đơn & công nợ" tải
+    # BẢN THỂ HIỆN HOÁ ĐƠN ĐIỆN TỬ của Fast. Hai màn cùng một nút "PDF" giao
+    # hai tờ giấy khác nhau cho cùng một hoá đơn, và tờ ở đây không phải
+    # chứng từ thuế.
+    #
+    # KHÔNG viết lại logic HĐĐT ở đây: gọi đúng `einvoice.block_for()` mà
+    # `portal_invoices` đang gọi. Một chốt "tải được hay chưa" thứ hai là hai
+    # nơi lệch nhau, và nơi lệch sẽ hoặc giấu mất hoá đơn thật, hoặc hiện một
+    # nút bấm vào là lỗi.
+    #
+    # Chỉ lấy BA khoá, không bê nguyên khối: hình dạng đầy đủ của `block_for`
+    # là hợp đồng API của `portal_invoices` (bản chính + mọi bản điều chỉnh/
+    # thay thế + cảnh báo pháp lý), và màn chi tiết đơn KHÔNG dựng lại giao
+    # diện đó — nó chỉ cần biết "tải được chưa", "đang ở trạng thái gì" và
+    # "số hoá đơn nào", rồi trỏ khách sang trang Hoá đơn để xem đủ.
+    #
+    # Bọc try/except cùng lý do (và cùng khuôn) với `dn_co_hoa_don_nhap` ở
+    # `portal_order_track`: module HĐĐT là của team khác — nó hỏng thì mất
+    # BA KHOÁ, không được mất cả trang chi tiết đơn hàng. Bọc NGOÀI vòng lặp
+    # nên một lần hỏng ghi đúng MỘT log, không N log.
+    khoi_hddt = {}
+    try:
+        for r in rows:
+            khoi_hddt[r.name] = einvoice.block_for(r.name, customer)["chinh"]
+    except Exception:
+        frappe.log_error(title=f"HĐĐT: không đọc được khối hoá đơn cho đơn {order}")
+        khoi_hddt = {}
+
+    def _hddt(ten: str) -> dict:
+        chinh = khoi_hddt.get(ten) or {}
+        return {
+            # `tai_duoc` là cờ boolean của chính adapter — KHÔNG BAO GIỜ đưa
+            # đường dẫn file ra SPA (BR-E4, xem docstring `block_for`).
+            "hddt_tai_duoc": bool(chinh.get("tai_duoc")),
+            # Nhãn để hiện THAY CHO nút khi chưa tải được: "hide, don't
+            # disable" — một nút chắc chắn báo lỗi lúc bấm dạy người dùng sợ
+            # thanh công cụ. Rỗng khi module HĐĐT hỏng; giao diện tự lùi về
+            # câu mặc định của nó.
+            "hddt_nhan": chinh.get("nhan") or "",
+            "hddt_so": chinh.get("so") or "",
+        }
+
     return [
         {
             "name": r.name,
@@ -1365,6 +1409,7 @@ def _hoa_don_cua_don(order: str) -> list:
             "trang_thai": r.status,
             "tong_tien": float(r.grand_total or 0),
             "con_no": float(r.outstanding_amount or 0),
+            **_hddt(r.name),
         }
         for r in rows
     ]
@@ -1668,7 +1713,7 @@ def portal_order_track(order) -> dict:
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
-        "hoa_don": _hoa_don_cua_don(so.name),
+        "hoa_don": _hoa_don_cua_don(so.name, so.customer),
         # Miyano hẹn lại lịch giao (2026-08-16, vai nhân viên). `None` khi
         # chưa có lời hẹn nào — client ẩn hẳn khối, không hiện một khung rỗng.
         "hen_giao": hen_giao_cua_don(so),
@@ -1759,7 +1804,7 @@ def portal_deliveries(limit=20, start=0) -> list:
 
 
 @frappe.whitelist()
-def portal_invoices(limit=20, start=0) -> dict:
+def portal_invoices(limit=20, start=0, ten=None) -> dict:
     """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
     `{"rows": [...], "tong": N, "qua_han_thanh_toan": ..., "sap_den_han_
     so_luong": ...}`, LUÔN LUÔN (endpoint này không nuôi dropdown nào). Đã
@@ -1773,7 +1818,28 @@ def portal_invoices(limit=20, start=0) -> dict:
     lặng đúng kiểu brief cảnh báo. Cùng công thức `daysUntil()`
     (frontend/src/format.js): quá hạn = hạn TT đã qua hôm nay; sắp đến hạn
     = còn 0-7 ngày VÀ còn nợ.
+
+    `ten` (chủ đầu tư chốt 05/09/2026) — LỌC danh sách về ĐÚNG MỘT hoá đơn.
+    Thêm vào để số hoá đơn trên màn chi tiết đơn bấm được: không có nó, liên
+    kết chỉ mở đúng dòng khi hoá đơn tình cờ nằm ở TRANG ĐANG XEM, còn một
+    hoá đơn cũ của bệnh viện nhiều năm giao dịch thì bấm vào không thấy gì —
+    một liên kết chạy lúc được lúc không còn tệ hơn không có liên kết.
+
+    THÊM VÀO, không đổi hợp đồng: bỏ trống thì hành vi giữ nguyên từng dấu
+    phẩy, và hình dạng trả về không đổi ở cả hai nhánh.
+
+    `ten` KHÔNG phải chốt an ninh và không được coi là chốt: nó chỉ CỘNG
+    THÊM vào `pham_vi_hd` — bộ lọc phạm vi (khách hàng + khoa phòng) vẫn
+    chạy nguyên vẹn, nên gõ tên hoá đơn của bệnh viện khác vẫn trả rỗng.
+
+    Hai con số KPI (`qua_han_thanh_toan`/`sap_den_han_so_luong`) CỐ Ý KHÔNG
+    lọc theo `ten`: chúng nói về TỔNG CÔNG NỢ của đơn vị, không phải về dòng
+    đang xem. Lọc chúng theo một hoá đơn là biến thẻ "công nợ quá hạn" thành
+    một con số khác hẳn tuỳ khách vừa bấm vào đâu — đúng dạng hồi quy im
+    lặng mà đoạn trên đang cảnh báo. `tong` thì CÓ lọc, vì nó là tổng số
+    dòng của chính danh sách này (phân trang đọc nó).
     """
+    loc_ten = [["name", "=", ten]] if ten else []
     # Bước 8 — CẢ BA truy vấn dưới đây phải cùng một bộ lọc khoa phòng: đây
     # là đúng bẫy "hồi quy im lặng" mà docstring hàm này đang cảnh báo (phân
     # trang) áp cho một trục khác — lọc mỗi `rows` mà bỏ sót `tong`/
@@ -1783,7 +1849,7 @@ def portal_invoices(limit=20, start=0) -> dict:
     pham_vi_hd = _loc_qua_don_cha("Sales Invoice Item", "sales_order")
 
     tong = frappe.get_list(
-        "Sales Invoice", filters=pham_vi_hd,
+        "Sales Invoice", filters=loc_ten + pham_vi_hd,
         # `count(distinct name)`, KHÔNG `distinct=True` + `count(name)`: một
         # hoá đơn khớp NHIỀU dòng của cùng một đơn (nhiều mặt hàng) sẽ bị
         # phép nối bảng dòng ở `_loc_qua_don_cha` đếm lặp nếu chỉ đếm `name`.
@@ -1808,7 +1874,7 @@ def portal_invoices(limit=20, start=0) -> dict:
 
     rows = frappe.get_list(
         "Sales Invoice",
-        filters=pham_vi_hd,
+        filters=loc_ten + pham_vi_hd,
         distinct=True,
         # `customer` chỉ dùng NỘI BỘ để đối chiếu sở hữu bản ghi HĐĐT
         # (`einvoice.block_for` — F-08/E7), bị `pop` trước khi trả về, KHÔNG

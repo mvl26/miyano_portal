@@ -29,6 +29,26 @@ function pdfUrl(doctype, docname) {
     encodeURIComponent(docname)
   )
 }
+
+// Chủ đầu tư chốt 05/09/2026 — nút PDF của HOÁ ĐƠN phải giao BẢN THỂ HIỆN
+// HOÁ ĐƠN ĐIỆN TỬ của Fast, không phải bản in của ERP. Trước bản này khối
+// dưới dùng `pdfUrl('Sales Invoice', …)`, tức `portal_document_download` —
+// cùng một nút "PDF" trên hai màn hình giao hai tờ giấy khác nhau cho cùng
+// một hoá đơn, và tờ ở đây không phải chứng từ thuế.
+//
+// ĐÚNG endpoint mà trang "Hoá đơn & công nợ" (`Invoices.vue`) đang dùng —
+// không dựng đường tải thứ hai. KHÔNG truyền `fei`: bỏ trống thì server tự
+// chọn bản ghi chính qua `chon_ban_ghi_chinh()`, đúng bản mà `hddt_tai_duoc`
+// vừa tính cờ cho. Truyền tay một tên ở đây là mở chỗ cho hai bên lệch nhau.
+//
+// `pdfUrl('Sales Order', …)` bên dưới GIỮ NGUYÊN bản in ERP — đơn hàng vốn
+// là chứng từ của ERP, không phải hoá đơn.
+function hddtUrl(invoiceName) {
+  return (
+    '/api/method/miyano_portal.api.portal.portal_einvoice_download?invoice=' +
+    encodeURIComponent(invoiceName)
+  )
+}
 </script>
 
 <template>
@@ -41,16 +61,35 @@ function pdfUrl(doctype, docname) {
     <div class="h3">Hoá đơn của đơn này</div>
     <div v-for="h in don.hoa_don" :key="h.name" class="rowline">
       <span>
-        <b>{{ h.name }}</b> · {{ fmtDate(h.ngay) }}<br />
+        <!-- Số hoá đơn BẤM ĐƯỢC (chủ đầu tư chốt 05/09/2026) — mở trang Hoá
+             đơn & công nợ với đúng dòng này đã xổ sẵn. KHÔNG dựng màn chi
+             tiết hoá đơn riêng: trang đó đã có đủ trạng thái HĐĐT, bản
+             chính, mọi bản điều chỉnh/thay thế và nút yêu cầu hỗ trợ —
+             dựng màn thứ hai làm cùng một việc đúng là lỗi mà
+             `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt bốn lần. -->
+        <router-link :to="{ name: 'invoices', query: { 'hoa-don': h.name } }">
+          <b>{{ h.name }}</b>
+        </router-link>
+        · {{ fmtDate(h.ngay) }}<br />
         <span class="tag">
           {{ fmtVND(h.tong_tien) }}
           <template v-if="h.con_no > 0"> · còn nợ {{ fmtVND(h.con_no) }}</template>
           <template v-if="h.han_thanh_toan"> · hạn {{ fmtDate(h.han_thanh_toan) }}</template>
+          <template v-if="h.hddt_so"> · số {{ h.hddt_so }}</template>
         </span>
       </span>
-      <a :href="pdfUrl('Sales Invoice', h.name)" target="_blank" rel="noopener">
+      <!-- Chưa phát hành thì KHÔNG hiện nút, hiện trạng thái — "hide, don't
+           disable" (xem đầu `de-xuat-actions.js`): một nút bấm vào là lỗi
+           dạy người dùng sợ thanh công cụ. -->
+      <a
+        v-if="h.hddt_tai_duoc"
+        :href="hddtUrl(h.name)"
+        target="_blank"
+        rel="noopener"
+      >
         <button class="btn-o btn-sm">⬇ PDF</button>
       </a>
+      <span v-else class="tag">{{ h.hddt_nhan || 'Miyano đang xử lý hoá đơn điện tử' }}</span>
     </div>
   </template>
 

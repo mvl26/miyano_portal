@@ -316,7 +316,10 @@ chưa tìm được mã hàng tương ứng.
 - Nút **Phiếu giao đợt n** — xem mục A5b ngay dưới
 - **Kiểm hàng đợt này** (hoặc badge trạng thái nếu đã kiểm) — xem A6
 - *Phiếu nhập kho* — chỉ hiện nếu đơn vị bạn đã mở kho
-- *Hoá đơn nháp* — bấm ▸ để xem nội dung hoá đơn điện tử trước khi phát hành
+- *Hoá đơn* (huy hiệu **Chưa phát hành**) — bấm ▸ để xem nội dung hoá đơn
+  điện tử trước khi Miyano phát hành. Xem được, tải được, nhưng **chưa phải
+  chứng từ thuế** — cổng nói rõ điều đó ngay trên khối, và tệp tải về mang
+  tên `Nhap_*.pdf` để một file đã lưu vẫn tự khai nó là bản gì
 
 **Khối "Miyano đã hẹn lại"** *(nếu có)* — hiện khi Miyano báo chưa đủ hàng:
 
@@ -326,7 +329,20 @@ chưa tìm được mã hàng tương ứng.
 Khối này **tự biến mất** khi Miyano đã giao đợt tiếp theo.
 
 **Khối "Hoá đơn của đơn này"** — danh sách hoá đơn phát sinh từ chính đơn này,
-kèm số tiền, còn nợ, hạn thanh toán và nút ⬇ PDF.
+kèm số tiền, còn nợ, hạn thanh toán.
+
+**Bấm vào số hoá đơn** để mở trang *Hoá đơn & công nợ* với đúng hoá đơn đó đã
+xổ sẵn — thấy được trạng thái hoá đơn điện tử, bản chính, các bản điều chỉnh
+hoặc thay thế, và nút yêu cầu hỗ trợ. Bấm **Xem tất cả hoá đơn** để quay lại
+danh sách đầy đủ.
+
+Nút ⬇ **PDF** giao **bản thể hiện hoá đơn điện tử do Fast phát hành** — đúng
+tờ có giá trị tra cứu, không phải bản in nội bộ của hệ thống. Hoá đơn chưa
+phát hành thì **không có nút** này; chỗ đó hiện trạng thái hiện tại, để bạn
+biết hoá đơn đang ở đâu thay vì bấm vào một nút chỉ báo lỗi.
+
+Riêng nút ⬇ **PDF đơn hàng** phía dưới vẫn là bản in đơn hàng — đơn hàng là
+chứng từ nội bộ, không phải hoá đơn.
 
 Cuối trang: ⬇ **PDF đơn hàng** · 🔁 **Đặt lại đơn này**.
 

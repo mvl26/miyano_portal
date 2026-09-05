@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
 import { showToast } from '../toast'
@@ -23,6 +24,26 @@ const tong = ref(0)
 // `inv.einvoice` từ `portal_invoices` (Câu 1), bấm dòng KHÔNG gọi thêm API.
 const einvOpen = ref(null)
 const hoTroDangGui = ref(null)
+
+// Chủ đầu tư chốt 05/09/2026 — mở thẳng MỘT hoá đơn từ màn chi tiết đơn
+// hàng (`/invoices?hoa-don=ACC-SINV-…`). Không dựng màn chi tiết hoá đơn
+// riêng: dòng xổ ở đây đã có đủ trạng thái HĐĐT, bản chính, mọi bản điều
+// chỉnh/thay thế và nút yêu cầu hỗ trợ.
+//
+// LỌC Ở SERVER (`portal_invoices({ ten })`), không lọc trên trang đang tải:
+// một bệnh viện giao dịch nhiều năm có hàng trăm hoá đơn, và một liên kết
+// chỉ mở được khi hoá đơn tình cờ nằm ở trang đầu là thứ chạy lúc được lúc
+// không — tệ hơn không có liên kết.
+const route = useRoute()
+const router = useRouter()
+const locHoaDon = ref(route.query['hoa-don'] || '')
+
+function xemTatCa() {
+  locHoaDon.value = ''
+  einvOpen.value = null
+  trang.value = 1
+  router.replace({ name: 'invoices' })
+}
 
 function toggleEinv(name) {
   einvOpen.value = einvOpen.value === name ? null : name
@@ -125,8 +146,18 @@ async function loadInvoices() {
     const res = await api.call('portal_invoices', {
       start: (trang.value - 1) * soDong.value,
       limit: soDong.value,
+      ten: locHoaDon.value || undefined,
     })
     invoices.value = res?.rows || []
+    // Đang lọc về một hoá đơn thì xổ sẵn khối HĐĐT của nó — khách bấm từ
+    // màn đơn hàng sang là để XEM hoá đơn đó, không phải để bấm thêm lần
+    // nữa. Không tìm thấy (hoá đơn đã huỷ, link cũ) thì để nguyên trạng
+    // thái đóng; khối cảnh báo trên đầu danh sách nói rõ đang lọc gì.
+    if (locHoaDon.value) {
+      einvOpen.value = invoices.value.some((r) => r.name === locHoaDon.value)
+        ? locHoaDon.value
+        : null
+    }
     tong.value = res?.tong || 0
     overdueTotal.value = res?.qua_han_thanh_toan || 0
     dueSoonCount.value = res?.sap_den_han_so_luong || 0
@@ -135,7 +166,7 @@ async function loadInvoices() {
   }
 }
 
-watch([trang, soDong], loadInvoices)
+watch([trang, soDong, locHoaDon], loadInvoices)
 
 onMounted(async () => {
   try {
@@ -165,6 +196,21 @@ onMounted(async () => {
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
     <template v-else>
+      <!-- Đang lọc về một hoá đơn (đến từ liên kết trên màn chi tiết đơn) —
+           NÓI RÕ đang xem gì và cho đường quay lại. Không có dải này thì
+           khách thấy một danh sách một dòng và tưởng mình mất hết hoá đơn
+           cũ. Hai thẻ KPI phía dưới CỐ Ý vẫn là tổng công nợ TOÀN đơn vị,
+           không phải của riêng dòng này. -->
+      <div v-if="locHoaDon" class="card" style="padding: 10px 12px; margin-bottom: 12px">
+        <span class="tag">Đang xem hoá đơn <b>{{ locHoaDon }}</b></span>
+        <button class="btn-o btn-sm" style="margin-left: 8px" @click="xemTatCa">
+          Xem tất cả hoá đơn
+        </button>
+        <div v-if="!invoices.length" class="tag" style="margin-top: 6px">
+          Không tìm thấy hoá đơn này — có thể nó đã bị huỷ, hoặc liên kết đã cũ.
+        </div>
+      </div>
+
       <div class="kpis">
         <div class="card kpi"><div class="n" style="color: var(--red)">{{ fmtVND(outstanding) }}</div><div class="t">Tổng công nợ hiện tại</div></div>
         <div class="card kpi"><div class="n" style="color: var(--orange)">{{ fmtVND(overdueTotal) }}</div><div class="t">Quá hạn thanh toán</div></div>

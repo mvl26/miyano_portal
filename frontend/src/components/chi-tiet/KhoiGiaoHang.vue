@@ -53,7 +53,7 @@ async function toggleNhap(dnName) {
     const khoi = await api.call('portal_einvoice_nhap', { delivery_note: dnName })
     nhapData.value = { ...nhapData.value, [dnName]: khoi }
   } catch (e) {
-    showToast(e.message || 'Không xem được hoá đơn nháp.', 'error')
+    showToast(e.message || 'Không xem được hoá đơn.', 'error')
     nhapMo.value = null
   } finally {
     nhapDangTai.value = null
@@ -161,22 +161,26 @@ function pdfUrl(doctype, docname) {
            có thể chưa có Sales Invoice nào để bám vào. -->
       <template v-if="d.co_hoa_don_nhap">
         <p class="tag" style="margin-top: 4px">
-          <span class="badge b-gray">Hoá đơn nháp</span>
+          <!-- Nhãn bỏ chữ "nháp" (chủ đầu tư chốt 05/09/2026), nhưng HUY
+               HIỆU vẫn nói rõ hoá đơn CHƯA PHÁT HÀNH — đó là chỗ giữ lại sự
+               phân biệt sau khi nút bấm thôi mang chữ đó. Bỏ luôn cả huy
+               hiệu là để khách tưởng mình đang cầm chứng từ thuế. -->
+          <span class="badge b-gray">Chưa phát hành</span>
           <button class="btn-o btn-sm" style="margin-left: 8px" @click="toggleNhap(d.name)">
-            {{ nhapMo === d.name ? '▾ Ẩn hoá đơn nháp' : '▸ Xem hoá đơn nháp' }}
+            {{ nhapMo === d.name ? '▾ Ẩn hoá đơn' : '▸ Xem hoá đơn' }}
           </button>
         </p>
         <div
           v-if="nhapMo === d.name"
           style="border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 6px"
         >
-          <p v-if="nhapDangTai === d.name" class="tag">Đang tải hoá đơn nháp…</p>
+          <p v-if="nhapDangTai === d.name" class="tag">Đang tải hoá đơn…</p>
           <HoaDonNhap
             v-else-if="nhapData[d.name]"
             :du-lieu="nhapData[d.name]"
             :url-pdf="urlPdfNhap(d.name)"
           />
-          <p v-else class="tag">Phiếu giao này chưa có hoá đơn nháp.</p>
+          <p v-else class="tag">Phiếu giao này chưa có hoá đơn.</p>
         </div>
       </template>
       <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
