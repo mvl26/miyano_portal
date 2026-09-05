@@ -332,6 +332,18 @@ def de_xuat_chi_tiet(ten) -> dict:
 			where p.name = %s""",
 		doc.name,
 	)[0][0]
+
+	# CR-04 (05/09/2026) — căn cứ tồn kho ĐÚNG NƠI cần nó. `Sales Order` chỉ
+	# được TẠO tại thời điểm duyệt (`de_xuat_duyet_phieu` → `duyet_va_tao_
+	# don`), tức là màn duyệt (`trang_thai == 'Chờ duyệt'`) luôn chạy TRƯỚC
+	# khi có Sales Order — `portal_order_track` (nơi CR-04 gắn `can_cu_kho`
+	# lần đầu) không bao giờ được gọi ở đúng khoảnh khắc quản lý cần căn cứ
+	# để duyệt. Gọi thẳng `can_cu_cho_don(doc)` VỚI CHÍNH DOC PHIẾU — hàm đó
+	# chỉ đọc `.customer`/`.name`/`.get("items")[].item_code`, phiếu có đủ
+	# cả ba, không cần đợi Sales Order tồn tại.
+	from miyano_portal.kho import can_cu_duyet
+
+	kq["can_cu_kho"] = can_cu_duyet.can_cu_cho_don(doc)
 	return kq
 
 

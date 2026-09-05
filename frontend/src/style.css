@@ -434,6 +434,16 @@ input:focus, select:focus, textarea:focus {
 .qty { width: 74px; text-align: center; }
 .warn { color: var(--red); font-size: 12px; font-weight: 600; }
 
+/* CR-04 (05/09/2026) — chấm màu mức tồn trữ ("Còn dùng được") ở
+   BangMatHang.vue. Lớp RIÊNG, không tái dùng `.vdot` của dòng thời gian:
+   `.vdot` mang kích thước/kiểu chữ cho MỘT MỐC (28px, chứa icon), còn chấm
+   ở đây chỉ là một dấu tròn nhỏ cạnh một con số trong bảng — dùng chung sẽ
+   kéo theo padding/font không hợp bảng. */
+.muc-cham { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.muc-cham.do { background: var(--red); }
+.muc-cham.vang { background: #ca8a04; }
+.muc-cham.xanh { background: var(--green); }
+
 /* Row line (mobile list rows) */
 .rowline {
   display: flex;

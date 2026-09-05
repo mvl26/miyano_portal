@@ -706,6 +706,7 @@ onMounted(async () => {
           :phieu="phieu" :don="don"
           :quan-ly-dang-duyet="quanLyDangDuyet"
           :sl-duyet-sua="slDuyetSua" :ghi-chu-sua="ghiChuSua"
+          :can-cu-kho="phieu?.can_cu_kho || don?.can_cu_kho || {}"
         />
         <!-- `KhoiGiaoHang`/`KhoiHoaDonTaiLieu` là template NHIỀU GỐC (không
              bọc div riêng, xem chú thích trong hai file đó) — MỘT `.card`

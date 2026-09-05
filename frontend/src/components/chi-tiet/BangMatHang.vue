@@ -13,8 +13,10 @@
 // Giá và số đã giao đi CÙNG dòng phiếu, do server nối
 // (`de_xuat_chi_tiet`) — không nối ở đây: `frontend/` không có test nào,
 // còn phía Python thì `tests/test_chi_tiet_gop.py` canh được.
-import { computed } from 'vue'
-import { fmtVND } from '../../format'
+import { ref, computed } from 'vue'
+import api from '../../api'
+import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
+import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -22,6 +24,12 @@ const props = defineProps({
   quanLyDangDuyet: { type: Boolean, default: false },
   slDuyetSua: { type: Object, default: () => ({}) },
   ghiChuSua: { type: Object, default: () => ({}) },
+  // CR-04 (05/09/2026) — căn cứ tồn kho theo item_code, `{item_code: {ton,
+  // dang_ve, adu, con_dung_duoc, muc, vat_tu}}`. Item KHÔNG có mặt trong
+  // dict = không tra được (khách chưa mở kho / vật tư chưa nối item_code /
+  // hàng không có trong danh mục kho) — xem `canCu()` bên dưới, đây là NƠI
+  // DUY NHẤT phân biệt "không tra được" với "tồn 0".
+  canCuKho: { type: Object, default: () => ({}) },
 })
 
 // Đơn cũ không có phiếu (~102 đơn trước luồng duyệt) — dòng lấy từ đơn, và
@@ -93,8 +101,89 @@ const soCotTong = computed(() => {
   if (coDon.value) n += 3 // SL đặt, Đơn giá, Thành tiền
   if (coCotDaGiao.value) n += 1
   if (coPhieu.value) n += 1 // Ghi chú quản lý
+  if (coCanCuKho.value) n += 4 // Tồn hiện có, Đang về, Dùng TB/ngày, Còn dùng được
   return n
 })
+
+// --- CR-04 — căn cứ tồn kho ngay cạnh dòng hàng khi duyệt -------------
+//
+// Gate theo ĐIỀU KIỆN MÀN DUYỆT (`quanLyDangDuyet`), KHÔNG theo việc
+// `canCuKho` có dữ liệu hay không: khách CHƯA MỞ KHO (1/6 khách hiện tại,
+// spec §2/§4) chính là nhóm PHẢI thấy gạch ngang + dòng giải thích — ẩn cả
+// cột đi vì `canCuKho` rỗng sẽ xoá mất đúng thông tin CR-04 sinh ra để hiện.
+const coCanCuKho = computed(() => props.quanLyDangDuyet)
+
+// `undefined` khi item KHÔNG có mặt trong dict — "không tra được", khác hẳn
+// một object mang `ton: 0` ("hết hàng"). Mọi nơi đọc căn cứ tồn kho của MỘT
+// dòng phải đi qua đúng hàm này, không tự với thẳng `canCuKho[...]` rải rác.
+function canCu(row) {
+  return props.canCuKho[row.item_code]
+}
+
+// Định dạng SL/ngày cho bốn cột mới — kiểm `null`/`undefined` TƯỜNG MINH.
+// KHÔNG `Number(v || 0)` (bẫy `fmtVND` đã né ở "Ruling preflight #1" của
+// chính file này): `0` là một giá trị THẬT ("hết hàng"/"còn dùng được 0
+// ngày"), chỉ null/undefined ("không tra được") mới ra gạch ngang.
+function fmtSl(v) {
+  if (v === null || v === undefined) return '—'
+  return Number(v).toLocaleString('vi-VN', { maximumFractionDigits: 1 })
+}
+function fmtNgay(v) {
+  if (v === null || v === undefined) return '—'
+  return Math.round(Number(v)).toLocaleString('vi-VN') + ' ngày'
+}
+
+// Ít nhất một dòng đang hiện KHÔNG tra được → hiện dòng giải thích BA lý do
+// (§4) thay vì để quản lý tự đoán vì sao cột trống.
+const coDongKhongTraDuoc = computed(
+  () => coCanCuKho.value && dong.value.some((r) => !canCu(r))
+)
+
+// Ngưỡng ⚠ CHÉP TỪ `kho/can_cu_duyet.py::NGUONG_DAT_KHI_CHUA_CAN` (spec §5).
+// KHÔNG tính được ở server: `co_canh_bao()` cần `nv_dat`, một trường sống
+// trên PHIẾU (`so_luong_de_xuat`) mà module `kho/` không biết tới. Đặt ở
+// MỘT hằng số có tên (Ruling #19) — `test_cr04_giao_dien.py` đối chiếu số
+// này với hằng Python để một lần đổi ngưỡng ở backend không lặng lẽ để JS
+// lệch theo.
+const NGUONG_DAT_KHI_CHUA_CAN_JS = 30
+function coCanhBaoDatKhiChuaCan(row) {
+  const cc = canCu(row)
+  if (!cc || cc.con_dung_duoc === null || cc.con_dung_duoc === undefined) return false
+  return cc.con_dung_duoc >= NGUONG_DAT_KHI_CHUA_CAN_JS && Number(row.so_luong_de_xuat) > 0
+}
+
+// --- Sổ kho xổ NGAY TẠI DÒNG (§6) — không rời màn duyệt ---------------
+//
+// `dongMoRong`/`soKhoTheo` khoá theo `item_code`, cùng khuôn `slDuyetSua`/
+// `ghiChuSua` (gán trực tiếp qua bracket vào object của `ref()`, Vue 3 theo
+// dõi được thuộc tính MỚI thêm vào một object phản ứng).
+const dongMoRong = ref({})
+const soKhoTheo = ref({})
+
+// Dòng KHÔNG tra được (canCu(row) rỗng) thì KHÔNG có `vat_tu` để gọi sổ kho
+// — "đừng hiện nút chết" (§6): mọi nơi quyết định HIỆN/ẨN nút xổ sổ kho
+// phải đi qua đúng hàm này.
+function coTheXoSo(row) {
+  return coCanCuKho.value && !!canCu(row)?.vat_tu
+}
+
+async function toggleSoKho(row) {
+  if (!coTheXoSo(row)) return
+  const ma = row.item_code
+  dongMoRong.value[ma] = !dongMoRong.value[ma]
+  if (!dongMoRong.value[ma] || soKhoTheo.value[ma]) return // đóng lại, hoặc đã tải rồi
+  soKhoTheo.value[ma] = { loading: true, error: '', rows: [] }
+  try {
+    // Dùng lại `kho_the_kho` đã có (đọc riêng, tự kiểm vật tư thuộc kho
+    // người gọi) — KHÔNG dựng đường đọc thứ hai, xem docstring module kho.
+    const res = await api.callKho('kho_the_kho', {
+      vat_tu: canCu(row).vat_tu, tu_ngay: addDaysISO(-90), den_ngay: todayISO(),
+    })
+    soKhoTheo.value[ma] = { loading: false, error: '', rows: Array.isArray(res) ? res : (res?.rows || []) }
+  } catch (e) {
+    soKhoTheo.value[ma] = { loading: false, error: e.message || 'Không tải được thẻ kho.', rows: [] }
+  }
+}
 
 // Dòng đặt ngoài sống trên ĐƠN (`don.dat_ngoai`), không trên phiếu — tách
 // theo `da_xu_ly` đúng cách OrderDetail.vue đang làm (review I-4): dòng đã
@@ -106,11 +195,33 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
 
 <template>
   <div class="card" style="padding: 0; overflow-x: auto">
+    <!-- CR-04 §4 — dòng giải thích BA lý do, chỉ hiện khi có ít nhất một
+         dòng không tra được. Đừng để quản lý tự đoán vì sao cột trống. -->
+    <p v-if="coDongKhongTraDuoc" class="tag" style="margin: 10px 12px 0">
+      Một số dòng hiện "—" (không tra được) vì: bệnh viện chưa mở kho trên cổng,
+      vật tư kho chưa nối mã hàng, hoặc hàng này không có trong danh mục kho.
+      "—" khác hẳn "0" — "0" nghĩa là hết hàng.
+    </p>
     <table>
       <thead>
         <tr>
           <th>Mặt hàng</th>
           <th>ĐVT</th>
+          <!-- CR-04 §3 — bốn cột căn cứ tồn kho, BÊN TRÁI "SL đề xuất". Gate
+               theo `coCanCuKho` (điều kiện MÀN DUYỆT), không theo dữ liệu:
+               xem lý do ở khai báo `coCanCuKho` trong <script setup>. -->
+          <th v-if="coCanCuKho" class="right">Tồn hiện có</th>
+          <th v-if="coCanCuKho" class="right">Đang về</th>
+          <th v-if="coCanCuKho" class="right">Dùng TB/ngày</th>
+          <th v-if="coCanCuKho" class="right">Còn dùng được</th>
+          <!-- "NV đặt" (spec §3) CHÍNH LÀ cột "SL đề xuất" đã có — GIỮ
+               NGUYÊN nhãn, không đổi tên: banner "Việc đang chờ bạn" phía
+               trên (ChiTietYeuCau.vue) nói thẳng "Cột SL đề xuất khoá vĩnh
+               viễn", và `title` ngay dưới nhắc lại đúng câu đó — đổi nhãn ở
+               đây mà không đổi hai chỗ kia sẽ làm ba chỗ nói về CÙNG một
+               cột bằng BA tên khác nhau. Dựng thêm một cột thứ SÁU song
+               song thì in `so_luong_de_xuat` hai lần — không cột nào trong
+               hai lựa chọn đó tốt hơn giữ nguyên. -->
           <th v-if="coPhieu" class="right">SL đề xuất</th>
           <th v-if="coCotDuyet" class="right">SL duyệt</th>
           <th v-if="coCotXinSua" class="right">SL xin sửa</th>
@@ -132,10 +243,13 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
         <!-- `dong` (không phải `phieu.items`/`don.items` trực tiếp) — nguồn
              dòng đã được quyết định ở computed `dong` phía trên: PHIẾU khi
              có phiếu, đơn khi không, để mỗi `<tr>` dưới đây không phải tự
-             hỏi lại câu đó. -->
+             hỏi lại câu đó.
+
+             CR-04 §6 — bọc trong `<template v-for>` (thay vì `<tr v-for>`
+             thẳng) để chèn được một `<tr>` XỔ SỔ KHO ngay dưới, KHÔNG rời
+             màn duyệt: quản lý đang cân nhắc cả đơn, rời màn là mất mạch. -->
+        <template v-for="row in dong" :key="row.item_code">
         <tr
-          v-for="row in dong"
-          :key="row.item_code"
           :style="khongDuyet(row) ? 'text-decoration: line-through; color: var(--gray)' : ''"
         >
           <td>
@@ -146,7 +260,46 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
             <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
           </td>
           <td>{{ row.dvt }}</td>
-          <td v-if="coPhieu" class="right" title="Khoá vĩnh viễn từ lúc gửi duyệt">{{ row.so_luong_de_xuat }}</td>
+          <!-- CR-04 §3/§4 — bốn ô này đọc QUA `canCu(row)` (KHÔNG với thẳng
+               `canCuKho[row.item_code]` rải rác), và dùng `fmtSl`/`fmtNgay`
+               (KHÔNG `|| 0`) để phân biệt "không tra được" (—) với "0" (hết
+               hàng). Chấm màu (§5) mang class ĐỘNG theo `canCu(row).muc` do
+               SERVER trả, KHÔNG suy lại màu ở đây. -->
+          <td v-if="coCanCuKho" class="right">
+            <!-- Review (advisor) — KHÔNG `class="tag"` ở đây: `.tag` (style.
+                 css) là 11px/xám, tức RA CHỮ NHỎ HƠN đúng con số CR-04 dựng
+                 cột này để làm nổi bật, trong khi dòng KHÔNG tra được (nhánh
+                 v-else, không có nút) lại in "—" ở cỡ chữ thường — nghịch
+                 đảo đúng thứ tự quan trọng. Chỉ giữ style cục bộ báo hiệu
+                 "bấm được" (con trỏ + gạch dưới), không đổi cỡ/màu chữ. -->
+            <button
+              v-if="coTheXoSo(row)"
+              type="button"
+              style="cursor: pointer; background: none; border: none; padding: 0; text-decoration: underline; font: inherit; color: inherit"
+              :aria-label="`Xem sổ kho cho ${row.item_code}`"
+              @click="toggleSoKho(row)"
+            >{{ dongMoRong[row.item_code] ? '▾' : '▸' }} {{ fmtSl(canCu(row)?.ton) }}</button>
+            <template v-else>{{ fmtSl(canCu(row)?.ton) }}</template>
+          </td>
+          <td v-if="coCanCuKho" class="right">{{ fmtSl(canCu(row)?.dang_ve) }}</td>
+          <td v-if="coCanCuKho" class="right">{{ fmtSl(canCu(row)?.adu) }}</td>
+          <td v-if="coCanCuKho" class="right">
+            <span
+              v-if="canCu(row)?.muc"
+              class="muc-cham"
+              :class="canCu(row).muc"
+              :title="`Mức tồn trữ: ${canCu(row).muc}`"
+            ></span>
+            {{ fmtNgay(canCu(row)?.con_dung_duoc) }}
+          </td>
+          <td v-if="coPhieu" class="right" title="Khoá vĩnh viễn từ lúc gửi duyệt">
+            {{ row.so_luong_de_xuat }}
+            <span
+              v-if="coCanCuKho && coCanhBaoDatKhiChuaCan(row)"
+              title="Còn dùng được lâu mà vẫn đặt — xem kỹ"
+              style="color: var(--orange)"
+            > ⚠</span>
+          </td>
           <!-- C1 (chép từ DeXuatDetail.vue) — nửa NHẬP LIỆU của thao tác mà
                nửa HIỂN THỊ (gạch ngang, badge "Không duyệt") đã render sẵn
                ở cột "Mặt hàng". KHÔNG `.number` trên v-model: xem
@@ -217,6 +370,49 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
             </template>
           </td>
         </tr>
+        <!-- CR-04 §6 — thẻ kho (nhập/xuất/tồn luỹ kế) xổ NGAY DƯỚI dòng
+             hàng, không rời màn duyệt. Chỉ tải khi mở LẦN ĐẦU
+             (`toggleSoKho` giữ cache theo item_code); dùng lại
+             `THE_KHO_COLUMNS`/cách render của BaoCaoNXT.vue tab "Thẻ kho" —
+             không tự khai một bảng cột thứ hai. Khung `overflow-x: auto`
+             RIÊNG cho bảng con này — bảng cha đã cuộn ngang trong khung của
+             chính nó, một bảng con rộng hơn không được kéo cả trang cuộn
+             theo trên điện thoại. -->
+        <tr v-if="coCanCuKho && dongMoRong[row.item_code]">
+          <td :colspan="soCotTong" style="background: #f8fafc">
+            <div v-if="soKhoTheo[row.item_code]?.loading" class="loading">Đang tải sổ kho…</div>
+            <div v-else-if="soKhoTheo[row.item_code]?.error" class="empty">{{ soKhoTheo[row.item_code].error }}</div>
+            <div v-else-if="!soKhoTheo[row.item_code]?.rows?.length" class="empty">
+              Không có phát sinh trong 90 ngày gần đây.
+            </div>
+            <div v-else style="overflow-x: auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th
+                      v-for="c in THE_KHO_COLUMNS" :key="c.field"
+                      :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }"
+                    >{{ c.label }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(r, idx) in soKhoTheo[row.item_code].rows" :key="idx">
+                    <td
+                      v-for="c in THE_KHO_COLUMNS" :key="c.field"
+                      :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }"
+                    >
+                      <template v-if="c.field === 'ngay'">{{ fmtDate(r.ngay) }}</template>
+                      <template v-else-if="c.field === 'chung_tu'"><b>{{ r.chung_tu }}</b></template>
+                      <template v-else-if="['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field)">{{ fmtSl(r[c.field]) }}</template>
+                      <template v-else>{{ r[c.field] || '—' }}</template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        </template>
         <tr v-if="!dong.length">
           <td :colspan="soCotTong" class="tag">Chưa có dòng hàng nào.</td>
         </tr>
