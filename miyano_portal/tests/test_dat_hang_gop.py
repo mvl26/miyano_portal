@@ -170,7 +170,20 @@ class TestDatHangGop(FrappeTestCase):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"hdnt": hdnt, "items": items, "dat_ngoai": dat_ngoai or [],
+			"hdnt": hdnt, "items": items,
+			# CR-03 (05/09/2026) — `gui_duyet()` nay đòi mỗi dòng đặt ngoài
+			# có ít nhất một ảnh. Các bài trong file này KHÔNG nói về ảnh
+			# (chúng nói về phép gộp giỏ), nên fixture tự bơm một ảnh giả để
+			# đi qua cửa — vá Ở ĐÂY, một chỗ, thay vì rải vào từng bài. KHÔNG
+			# nới chốt cho môi trường test: chốt đó chính là điểm của CR-03.
+			#
+			# Đường dẫn không cần trỏ tới tệp thật: chốt lúc GỬI chỉ đếm danh
+			# sách có rỗng không; phép kiểm tệp thật sự đọc được nằm ở
+			# `portal_dat_ngoai_xem_anh`, lúc XEM.
+			"dat_ngoai": [
+				{"anh": '["/private/files/_test_cr03_fixture.jpg"]', **d}
+				for d in (dat_ngoai or [])
+			],
 		})
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần hàng"

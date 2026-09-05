@@ -404,7 +404,10 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
 			"items": [{"item_code": self.item, "so_luong_de_xuat": 10}],
+			# CR-03 — `gui_duyet()` đòi mỗi dòng đặt ngoài có ảnh. Bài này
+			# nói về "xin sửa số lượng sau khi duyệt", không nói về ảnh.
 			"dat_ngoai": [{
+				"anh": '["/private/files/_test_cr03_fixture.jpg"]',
 				"ten_hang": "Kim luồn 24G (khoa gõ tay)", "dvt": "Cái",
 				"so_luong": 5,
 			}],
