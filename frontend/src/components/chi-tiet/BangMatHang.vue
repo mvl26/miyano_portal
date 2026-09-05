@@ -236,7 +236,11 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
           <th v-if="coDon" class="right">Đơn giá</th>
           <th v-if="coDon" class="right">Thành tiền</th>
           <th v-if="coCotDaGiao" class="right">Đã giao</th>
-          <th v-if="coPhieu">Ghi chú quản lý</th>
+          <!-- `min-width` bằng `rem` (không phải `px`) — co giãn theo cỡ
+               chữ người dùng đặt trong trình duyệt, và là cột NÊN rộng khi
+               còn chỗ. Bảng đã nằm trong khung `overflow-x: auto` nên đòi
+               chỗ ở đây không đẩy cả trang cuộn ngang. -->
+          <th v-if="coPhieu" style="min-width: 16rem">Ghi chú quản lý</th>
         </tr>
       </thead>
       <tbody>
@@ -357,13 +361,20 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                đã có `<th>Ghi chú quản lý</th>` của riêng nó. -->
           <td v-if="coPhieu">
             <template v-if="quanLyDangDuyet">
-              <input
-                type="text"
+              <!-- `textarea` hai dòng thay cho `input` một dòng, và BỎ
+                   `max-width: 340px` (chủ đầu tư 05/09/2026: "cho to ra").
+                   Ghi chú duyệt là chỗ quản lý giải thích VÌ SAO cắt số —
+                   một ô một dòng cắt cụt câu ở ký tự thứ 40 khiến người ta
+                   viết cụt theo, và lý do cắt số là thứ khoa sẽ đọc lại.
+                   `width: 100%` + `min-width` trên `<th>` cho cột tự co giãn
+                   theo bề ngang thật thay vì bị ghim ở một con số px. -->
+              <textarea
+                rows="2"
                 v-model="ghiChuSua[row.item_code]"
                 placeholder="Ghi chú của quản lý (tuỳ chọn)"
                 :aria-label="`Ghi chú quản lý cho ${row.item_code}`"
-                style="width: 100%; max-width: 340px; margin-top: 6px"
-              />
+                style="width: 100%; margin-top: 6px; resize: vertical"
+              ></textarea>
             </template>
             <template v-else-if="row.ghi_chu_quan_ly">
               <span class="tag">Ghi chú quản lý: {{ row.ghi_chu_quan_ly }}</span>

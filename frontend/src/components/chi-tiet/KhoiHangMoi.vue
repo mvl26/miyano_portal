@@ -34,6 +34,13 @@ function anhUrl(fileUrl) {
   )
 }
 
+// Có ít nhất một trong bốn trường "thông tin trên hộp"? Không có thì KHÔNG
+// dựng lưới rỗng — một khối chỉ có khoảng trắng làm người đọc tưởng dữ liệu
+// bị mất, trong khi thật ra nhân viên không khai (cả bốn đều tuỳ chọn).
+function coThongTinHop(d) {
+  return !!(d?.model_ma || d?.hang_san_xuat || d?.nuoc_san_xuat || d?.quy_cach)
+}
+
 function danhSachAnh(d) {
   if (!d?.anh) return []
   try {
@@ -56,23 +63,21 @@ function danhSachAnh(d) {
         mục. Miyano sẽ tìm nguồn và báo giá sau khi được duyệt.
       </p>
 
-      <div
-        v-for="(d, i) in dong"
-        :key="d.name || i"
-        class="card"
-        style="margin-bottom: 10px"
-      >
-        <div class="sb">
+      <div v-for="(d, i) in dong" :key="d.name || i" class="hm-the">
+        <!-- Đầu thẻ: tên hàng + số lượng. `gap` + `flex-wrap` để trên màn
+             hẹp số lượng xuống dòng thay vì bóp tên hàng. -->
+        <div class="hm-dau">
           <b>{{ d.ten_hang }}</b>
-          <span class="tag">{{ d.so_luong }} {{ d.dvt }}</span>
+          <span class="tag hm-sl">{{ d.so_luong }} {{ d.dvt }}</span>
         </div>
 
-        <!-- Ảnh ĐẶT TRÊN các ô mô tả: một tấm ảnh nhãn hộp nói được nhiều hơn
-             cả bốn trường chữ, và nó là thứ CR-03 bắt buộc phải có. -->
-        <div
-          v-if="danhSachAnh(d).length"
-          style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px"
-        >
+        <!-- ẢNH TRƯỚC MỌI THỨ: một tấm ảnh nhãn hộp nói được nhiều hơn cả
+             bốn trường chữ, và nó là thứ CR-03 bắt buộc phải có.
+             Lưới `auto-fill` + `minmax(min(100%, 7rem), 1fr)`: một ảnh trên
+             màn rất hẹp chiếm trọn bề ngang, nhiều ảnh thì tự xếp thành
+             hàng — KHÔNG ghim 96px như bản trước, vốn tràn trên điện thoại
+             nhỏ và phí chỗ trên màn rộng. -->
+        <div v-if="danhSachAnh(d).length" class="hm-anh">
           <a
             v-for="(u, k) in danhSachAnh(d)"
             :key="k"
@@ -80,48 +85,133 @@ function danhSachAnh(d) {
             target="_blank"
             rel="noopener"
           >
-            <img
-              :src="anhUrl(u)"
-              alt="Ảnh mặt hàng"
-              style="width: 96px; height: 96px; object-fit: cover; border: 1px solid var(--line); border-radius: 6px"
-            />
+            <img :src="anhUrl(u)" alt="Ảnh mặt hàng" />
           </a>
         </div>
-        <p v-else-if="d.khong_co_anh" class="tag" style="margin-top: 8px">
-          ⚠ Không có ảnh — nhân viên mô tả bằng lời:
+        <p v-else-if="d.khong_co_anh" class="tag hm-khong-anh">
+          ⚠ Nhân viên không chụp được ảnh — mô tả bằng lời:
         </p>
-        <p v-if="d.khong_co_anh && d.mo_ta_nhan_dang" style="margin: 4px 0 0">
+        <p v-if="d.khong_co_anh && d.mo_ta_nhan_dang" class="hm-mo-ta">
           {{ d.mo_ta_nhan_dang }}
         </p>
 
-        <!-- Bốn ô "thông tin trên hộp". Chỉ hiện ô CÓ giá trị: một hàng nhãn
-             với ô trống bên cạnh làm quản lý phải đọc qua chỗ trống để tìm
-             chỗ có chữ. -->
-        <div class="sb" style="flex-wrap: wrap; gap: 4px 18px; margin-top: 10px">
-          <span v-if="d.model_ma" class="tag">Model / mã: <b>{{ d.model_ma }}</b></span>
-          <span v-if="d.hang_san_xuat" class="tag">Hãng: <b>{{ d.hang_san_xuat }}</b></span>
-          <span v-if="d.nuoc_san_xuat" class="tag">Nước SX: <b>{{ d.nuoc_san_xuat }}</b></span>
-          <span v-if="d.quy_cach" class="tag">Quy cách: <b>{{ d.quy_cach }}</b></span>
-        </div>
+        <!-- LƯỚI NHÃN / GIÁ TRỊ thay cho dãy chip dính nhau (chủ đầu tư
+             05/09/2026: "sắp xếp lại cách hiển thị các trường").
+             Bản trước xếp bốn trường thành `<span class="tag">Model: X</span>`
+             cạnh nhau — mọi trường cùng một sức nặng thị giác, nhãn và giá
+             trị cùng cỡ cùng màu, nên mắt phải đọc từng chữ mới tách được
+             đâu là nhãn đâu là dữ liệu.
+             Ở đây nhãn nhỏ/nhạt/viết hoa nằm TRÊN, giá trị đậm nằm DƯỚI —
+             quét dọc một cột là đọc được hết giá trị.
+             `auto-fit` + `minmax`: 1 cột trên điện thoại, 2-3 cột trên màn
+             rộng, tự quyết theo bề ngang thật chứ không theo breakpoint
+             đoán trước. -->
+        <dl v-if="coThongTinHop(d)" class="hm-luoi">
+          <div v-if="d.model_ma">
+            <dt>Model / mã catalogue</dt>
+            <dd>{{ d.model_ma }}</dd>
+          </div>
+          <div v-if="d.hang_san_xuat">
+            <dt>Hãng sản xuất</dt>
+            <dd>{{ d.hang_san_xuat }}</dd>
+          </div>
+          <div v-if="d.nuoc_san_xuat">
+            <dt>Nước sản xuất</dt>
+            <dd>{{ d.nuoc_san_xuat }}</dd>
+          </div>
+          <div v-if="d.quy_cach">
+            <dt>Quy cách đóng gói</dt>
+            <dd>{{ d.quy_cach }}</dd>
+          </div>
+        </dl>
 
-        <!-- Hai ô thương mại tách riêng, có nhãn nói rõ nguồn: đây là thông
-             tin bệnh viện tự khai về nhà cung cấp hiện tại, không phải giá
-             Miyano báo. Trộn chung là để quản lý đọc nhầm thành báo giá. -->
-        <div
-          v-if="d.ncc_hien_tai || d.gia_hien_tai"
-          class="sb"
-          style="flex-wrap: wrap; gap: 4px 18px; margin-top: 6px"
-        >
-          <span v-if="d.ncc_hien_tai" class="tag">
-            Khoa đang mua của: <b>{{ d.ncc_hien_tai }}</b>
-          </span>
-          <span v-if="d.gia_hien_tai" class="tag">
-            Giá đang mua: <b>{{ fmtVND(d.gia_hien_tai) }}</b>
-          </span>
-        </div>
+        <!-- Hai ô thương mại TÁCH KHỐI RIÊNG, có nhãn nói rõ nguồn: đây là
+             giá bệnh viện ĐANG MUA của nhà cung cấp khác, KHÔNG phải giá
+             Miyano báo. Trộn chung lưới trên là để quản lý đọc nhầm thành
+             báo giá — và một con số tiền đọc nhầm nguồn thì hỏng nặng. -->
+        <dl v-if="d.ncc_hien_tai || d.gia_hien_tai" class="hm-luoi hm-thuong-mai">
+          <div v-if="d.ncc_hien_tai">
+            <dt>Khoa đang mua của</dt>
+            <dd>{{ d.ncc_hien_tai }}</dd>
+          </div>
+          <div v-if="d.gia_hien_tai">
+            <dt>Giá đang mua</dt>
+            <dd>{{ fmtVND(d.gia_hien_tai) }}</dd>
+          </div>
+        </dl>
 
-        <p v-if="d.ghi_chu" class="tag" style="margin: 6px 0 0">{{ d.ghi_chu }}</p>
+        <p v-if="d.ghi_chu" class="tag hm-ghi-chu">{{ d.ghi_chu }}</p>
       </div>
     </div>
   </template>
 </template>
+
+<style scoped>
+/* MỌI kích thước dưới đây dùng `rem`/`%`/`clamp()`, KHÔNG dùng `px` cứng —
+   chủ đầu tư 05/09/2026: "tất cả những gì hiển thị đều phải scale theo màn
+   hình". `rem` còn co giãn theo cỡ chữ người dùng đặt trong trình duyệt,
+   thứ `px` bỏ qua hoàn toàn. */
+.hm-the {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: clamp(0.6rem, 2vw, 1rem);
+  margin-bottom: 0.75rem;
+}
+.hm-the:last-child { margin-bottom: 0; }
+
+.hm-dau {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+.hm-dau b { font-size: clamp(0.95rem, 2.4vw, 1.05rem); }
+.hm-sl { white-space: nowrap; }
+
+.hm-anh {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.hm-anh img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  display: block;
+}
+
+.hm-khong-anh { margin: 0.6rem 0 0; }
+.hm-mo-ta { margin: 0.25rem 0 0; }
+
+.hm-luoi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0.5rem 1.25rem;
+  margin: 0.75rem 0 0;
+}
+.hm-luoi dt {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #6b7280);
+  margin: 0;
+}
+.hm-luoi dd {
+  margin: 0.1rem 0 0;
+  font-weight: 500;
+  overflow-wrap: anywhere; /* mã catalogue dài không đẩy vỡ lưới */
+}
+
+/* Khối thương mại tách bằng một đường kẻ mảnh — đủ để mắt biết đây là nhóm
+   khác, không cần thêm một khung viền thứ hai lồng trong thẻ. */
+.hm-thuong-mai {
+  border-top: 1px dashed var(--line);
+  padding-top: 0.6rem;
+}
+
+.hm-ghi-chu { margin: 0.6rem 0 0; }
+</style>

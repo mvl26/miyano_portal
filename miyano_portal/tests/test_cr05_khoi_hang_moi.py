@@ -193,6 +193,52 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 			with self.subTest(truong=truong):
 				self.assertIn(truong, self.khoi, f"Khối không hiện `{truong}`")
 
+	def test_truong_xep_theo_LUOI_nhan_gia_tri_khong_phai_day_chip(self):
+		"""Bốn trường "thông tin trên hộp" xếp thành LƯỚI nhãn/giá trị.
+
+		Bản trước xếp chúng thành `<span class="tag">Model: X</span>` cạnh
+		nhau — mọi trường cùng một sức nặng thị giác, nhãn và giá trị cùng cỡ
+		cùng màu, nên mắt phải đọc từng chữ mới tách được đâu là nhãn đâu là
+		dữ liệu. Chủ đầu tư yêu cầu sắp xếp lại 05/09/2026.
+
+		`<dl>/<dt>/<dd>` không chỉ là trình bày: nó nói với trình đọc màn hình
+		rằng đây là cặp nhãn-giá trị, thứ một dãy `<span>` không nói được.
+		"""
+		self.assertIn("<dl", self.khoi, "Các trường không xếp thành lưới nhãn/giá trị")
+		self.assertIn("<dt>", self.khoi)
+		self.assertIn("<dd>", self.khoi)
+
+	def test_moi_kich_thuoc_deu_CO_GIAN_khong_ghim_px(self):
+		"""Chủ đầu tư 05/09/2026: *"tất cả những gì hiển thị đều phải scale
+		theo màn hình"*.
+
+		Bài này canh khối `<style scoped>` KHÔNG còn kích thước ghim bằng
+		`px`. Lý do không chỉ là màn hẹp: `rem` co giãn theo cỡ chữ người
+		dùng đặt trong trình duyệt, thứ `px` bỏ qua hoàn toàn — một điều
+		dưỡng để cỡ chữ lớn vì mắt kém sẽ thấy chữ to ra mà khung ảnh thì
+		không, và bố cục vỡ.
+
+		Ảnh trước đây ghim `96px`: tràn trên điện thoại nhỏ, phí chỗ trên màn
+		rộng. Nay `minmax(min(100%, 7rem), 1fr)` + `aspect-ratio`.
+		"""
+		import re
+
+		i = self.khoi_tho.find("<style")
+		self.assertNotEqual(i, -1, "Component không có khối <style> riêng")
+		style = self.khoi_tho[i:]
+		# `1px`/`2px` cho ĐƯỜNG VIỀN được phép: viền không phải kích thước bố
+		# cục, và một đường kẻ nửa rem thì mờ nhoè. Chỉ cấm px ở các thuộc
+		# tính CHIẾM CHỖ.
+		xau = re.findall(
+			r"(?:width|height|min-width|max-width|padding|margin|gap|font-size)\s*:[^;]*?\d+px",
+			style,
+		)
+		self.assertEqual(
+			xau, [],
+			f"Còn kích thước ghim bằng px trong <style>: {xau}. Dùng rem/%/clamp() "
+			"để bố cục co giãn theo cả bề ngang màn hình LẪN cỡ chữ người dùng đặt.",
+		)
+
 	def test_anh_xem_qua_endpoint_rieng_khong_tro_thang_private_files(self):
 		"""Role `Customer` có ZERO DocPerm — đường `/private/files/…` mặc định
 		của Frappe sẽ 403 với chính người vừa tải ảnh lên."""
