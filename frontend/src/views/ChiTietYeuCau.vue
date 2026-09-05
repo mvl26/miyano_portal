@@ -629,6 +629,20 @@ onMounted(async () => {
           <b style="font-size: 16px">{{ ma }}</b>
           <span class="badge" :class="giaiDoanBadge(giaiDoan)">{{ nhanGiaiDoan(giaiDoan) }}</span>
         </div>
+        <!-- Huy hiệu "Có hàng chờ báo giá" (chủ đầu tư yêu cầu thêm lại
+             05/09/2026 — nó có trên `OrderDetail.vue` cũ và rơi mất lúc gộp
+             hai màn chi tiết).
+             Đặt DƯỚI badge giai đoạn, không cạnh: hai badge cùng hàng là
+             đúng thứ chú thích ngay trên đang cấm (người đọc phải tự ghép
+             hai từ điển trạng thái). Đây là một GHI CHÚ THÊM về đơn, không
+             phải một trạng thái thứ hai.
+             `don.co_dong_cho_bao_gia` do SERVER trả (`portal_order_track`),
+             KHÔNG suy lại từ `loai_don` — bản cũ suy vậy nên vẫn hiện nhãn
+             này sau khi Miyano đã điền đủ giá, tức nhãn nói sai về chính
+             đơn nó gắn vào (Ruling #19: đừng dựng bản sao logic ở client). -->
+        <p v-if="don?.co_dong_cho_bao_gia" style="margin-top: 6px">
+          <span class="badge b-purple">Có hàng chờ báo giá</span>
+        </p>
         <p class="tag" style="margin-top: 4px">
           <template v-if="tenKhoa">{{ tenKhoa }}</template>
           <template v-if="don?.order_date"> · Đặt ngày {{ fmtDate(don.order_date) }}</template>

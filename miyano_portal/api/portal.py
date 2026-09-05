@@ -1330,6 +1330,52 @@ def _kiem_hang_tom_tat(r) -> dict | None:
     }
 
 
+def _co_dong_cho_bao_gia(so) -> bool:
+    """Đơn này còn dòng nào CHƯA CÓ GIÁ không?
+
+    Nuôi huy hiệu "Có hàng chờ báo giá" trên màn chi tiết đơn (chủ đầu tư
+    yêu cầu thêm lại 05/09/2026, sau khi nó rơi mất lúc gộp hai màn chi
+    tiết).
+
+    KHÁC `portal_mua_le.di_vong_bao_gia()` — và khác CỐ Ý, đừng gộp hai hàm:
+
+      * `di_vong_bao_gia()` đọc DẤU `custom_loai_don`, tức ghi lại ĐƯỜNG đơn
+        đã đi. Nó phải ổn định suốt vòng đời đơn, vì các CHỐT dựa vào nó
+        (sửa số lượng, PDF báo giá, hạn hiệu lực). Docstring của nó nói rõ:
+        suy lại từ dòng sẽ lật giữa vòng và làm đơn rơi khỏi vòng báo giá
+        đúng lúc Miyano đang điền giá.
+      * Hàm NÀY đọc TÌNH TRẠNG GIÁ LÚC NÀY, và nó ĐƯỢC PHÉP lật — vì nó chỉ
+        nuôi một cái nhãn, không nuôi chốt nào.
+
+    Bản cũ trên `OrderDetail.vue` của `main` bật huy hiệu theo
+    `loai_don === "Mua lẻ"`, nên vẫn hiện "Có hàng chờ báo giá" SAU KHI
+    Miyano đã điền đủ giá — một cái nhãn nói sai về chính đơn nó gắn vào.
+    Trớ trêu là commit đưa nó lên `main` tên là *"nhãn thôi nói dối 'Mua
+    lẻ'"*: nó đổi chữ trên nhãn nhưng giữ nguyên vị ngữ, nên chỉ đổi lời nói
+    dối chứ chưa hết dối.
+
+    HAI vế, cả hai đều cần:
+      * dòng hàng thật còn `rate == 0` — Miyano chưa điền giá.
+      * dòng `custom_dat_ngoai` chưa `da_xu_ly` — khách gõ tay, Miyano chưa
+        tìm ra mã. Bỏ vế này thì một đơn TOÀN hàng gõ tay không bao giờ sáng
+        huy hiệu, đúng lúc nó cần sáng nhất.
+
+    `ITEM_GIU_CHO` bị loại: đó là dòng giữ chỗ kỹ thuật, luôn giá 0 và không
+    bao giờ là hàng thật — tính nó vào là huy hiệu sáng vĩnh viễn trên mọi
+    đơn có dòng đặt ngoài.
+    """
+    from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+
+    for i in so.get("items") or []:
+        if i.get("item_code") == ITEM_GIU_CHO:
+            continue
+        if not float(i.get("rate") or 0):
+            return True
+    return any(
+        not d.get("da_xu_ly") for d in (so.get("custom_dat_ngoai") or [])
+    )
+
+
 def _hoa_don_cua_don(order: str, customer: str) -> list:
     """Hoá đơn phát sinh từ CHÍNH đơn hàng này.
 
@@ -1732,6 +1778,11 @@ def portal_order_track(order) -> dict:
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
+        # Huy hiệu "Có hàng chờ báo giá" — SERVER trả lời, client chỉ đọc.
+        # Ruling #19: một bản sao logic ở client đã từng lệch khỏi server và
+        # làm đơn BỊ TỪ CHỐI hiện badge xanh "Đã duyệt". Không dựng bản sao
+        # thứ hai của phép suy này ở tầng giao diện.
+        "co_dong_cho_bao_gia": _co_dong_cho_bao_gia(so),
         "hoa_don": _hoa_don_cua_don(so.name, so.customer),
         # Miyano hẹn lại lịch giao (2026-08-16, vai nhân viên). `None` khi
         # chưa có lời hẹn nào — client ẩn hẳn khối, không hiện một khung rỗng.
