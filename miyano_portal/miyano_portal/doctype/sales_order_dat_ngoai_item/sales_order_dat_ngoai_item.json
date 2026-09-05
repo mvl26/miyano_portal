@@ -15,7 +15,8 @@
   {"fieldname": "ten_hang", "fieldtype": "Data", "label": "Tên hàng", "reqd": 1, "in_list_view": 1, "columns": 3},
   {"fieldname": "dvt", "fieldtype": "Data", "label": "ĐVT", "reqd": 1, "in_list_view": 1, "columns": 1},
   {"fieldname": "so_luong", "fieldtype": "Float", "label": "Số lượng", "precision": "3", "reqd": 1, "in_list_view": 1, "columns": 1},
-  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú", "in_list_view": 1, "columns": 2},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú",
+   "description": "BỎ khỏi lưới 05/09/2026 — xem chú thích ngân sách cột ở `model_ma`. Vẫn đọc/sửa được khi bung dòng."},
   {"fieldname": "sec_nhan_dang", "fieldtype": "Section Break", "label": "Nhận dạng hàng"},
   {"fieldname": "anh", "fieldtype": "Small Text", "label": "Ảnh (JSON danh sách file_url)", "read_only": 1,
    "description": "CR-03/BR-Y5 — tối đa 5 ảnh riêng tư, ≤10MB mỗi ảnh, đính vào chính phiếu đề xuất. Khách tải lên qua portal_dat_ngoai_tai_anh; KHÔNG gõ tay ở đây."},
@@ -27,7 +28,7 @@
 
   {"fieldname": "sec_tren_hop", "fieldtype": "Section Break", "label": "Thông tin trên hộp"},
   {"fieldname": "model_ma", "fieldtype": "Data", "label": "Model / mã catalogue", "in_list_view": 1, "columns": 2,
-   "description": "Mã in trên hộp — dữ kiện tìm nguồn giá trị nhất sau ảnh."},
+   "description": "Mã in trên hộp — dữ kiện tìm nguồn giá trị nhất sau ảnh. NGÂN SÁCH CỘT LƯỚI: Frappe dừng dựng cột khi tổng `columns` của các field `in_list_view` VƯỢT 11 (`grid.js`: `total_colsize += df.colsize; if (total_colsize > 11) return false;`) — nó bỏ dở NGẦM, không báo lỗi. Thêm field này lúc đầu đẩy tổng lên 12 và làm rơi mất cột 'Đã xử lý', khiến nhân viên Miyano không thấy dòng nào đã khớp mã. Tổng hiện tại: ten_hang 3 + model_ma 2 + dvt 1 + so_luong 1 + item_khop 2 + da_xu_ly 1 = 10. Thêm field vào lưới thì phải bỏ bớt field khác."},
   {"fieldname": "hang_san_xuat", "fieldtype": "Data", "label": "Hãng sản xuất"},
   {"fieldname": "col_hop", "fieldtype": "Column Break"},
   {"fieldname": "nuoc_san_xuat", "fieldtype": "Data", "label": "Nước sản xuất"},

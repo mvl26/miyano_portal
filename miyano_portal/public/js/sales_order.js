@@ -18,8 +18,83 @@ frappe.ui.form.on("Sales Order", {
 				sales_order: frm.doc.name,
 			});
 		}, __("Miyano"));
+
+		hien_thong_tin_hang_moi(frm);
 	},
 });
+
+// CR-03 trên Desk — hiện THỨ KHÁCH ĐÃ KHAI cho hàng chưa có mã.
+//
+// Chủ đầu tư báo 05/09/2026: *"sao không hiển thị các thông tin mà khách
+// hàng đã nhập cho hàng mới trên phần back của Miyano"*. Đúng, và đây là
+// lỗi của chính bản CR-03: chín trường được thêm vào doctype nhưng bảy
+// trong số đó để `in_list_view: 0`, tức chỉ hiện khi bung TỪNG dòng lưới —
+// và ô `anh` là Small Text chứa JSON THÔ, nên người khớp hàng nhìn thấy
+// chuỗi `["/private/files/CR03_....jpg"]` chứ không thấy ảnh.
+//
+// Khách bỏ công chụp nhãn hộp và gõ model/hãng/quy cách CHÍNH LÀ để Miyano
+// tìm được nguồn. Để nó nằm sau hai cú bấm và một chuỗi JSON là vứt bỏ đúng
+// thứ CR-03 sinh ra để lấy.
+//
+// Dựng MỘT khối đọc-được ngay trên form, không sửa lưới: lưới đã kín ngân
+// sách cột (xem `description` của `model_ma`), và nhồi thêm vào đó sẽ lại
+// đẩy rơi cột khớp mã như lần trước.
+function hien_thong_tin_hang_moi(frm) {
+	const dong = (frm.doc.custom_dat_ngoai || []).filter(
+		(d) => d.model_ma || d.hang_san_xuat || d.nuoc_san_xuat || d.quy_cach
+			|| d.ncc_hien_tai || d.gia_hien_tai || d.anh || d.mo_ta_nhan_dang
+	);
+	if (!dong.length) return;
+
+	const esc = frappe.utils.escape_html;
+	const o = (v) => (v ? esc(String(v)) : "");
+
+	const the = dong.map((d) => {
+		let anh = [];
+		try {
+			const ds = JSON.parse(d.anh || "[]");
+			if (Array.isArray(ds)) anh = ds.filter((x) => typeof x === "string" && x);
+		} catch (e) {
+			// Field hỏng không được làm chết cả khối — người khớp hàng vẫn
+			// phải đọc được các trường chữ để mà làm việc.
+			anh = [];
+		}
+		const hinh = anh.length
+			? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,7rem),1fr));gap:.5rem;margin:.5rem 0">
+			     ${anh.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">
+			       <img src="${esc(u)}" style="width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--border-color);border-radius:.375rem">
+			     </a>`).join("")}
+			   </div>`
+			: (d.khong_co_anh
+				? `<p style="margin:.4rem 0 0"><b>⚠ Khách không chụp được ảnh.</b> Mô tả nhận dạng:<br>${o(d.mo_ta_nhan_dang)}</p>`
+				: "");
+
+		const o_muc = (nhan, gt) => gt
+			? `<div><div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">${nhan}</div>
+			     <div style="font-weight:500">${o(gt)}</div></div>`
+			: "";
+
+		return `<div style="border:1px solid var(--border-color);border-radius:.5rem;padding:.75rem;margin-bottom:.6rem">
+			<b>${o(d.ten_hang)}</b> — ${o(d.so_luong)} ${o(d.dvt)}
+			${d.item_khop ? `<span style="color:var(--green-600)">· đã khớp ${o(d.item_khop)}</span>` : ""}
+			${hinh}
+			<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:.5rem 1.25rem;margin-top:.6rem">
+				${o_muc("Model / mã catalogue", d.model_ma)}
+				${o_muc("Hãng sản xuất", d.hang_san_xuat)}
+				${o_muc("Nước sản xuất", d.nuoc_san_xuat)}
+				${o_muc("Quy cách", d.quy_cach)}
+				${o_muc("Khoa đang mua của", d.ncc_hien_tai)}
+				${o_muc("Giá khoa đang mua", d.gia_hien_tai ? format_currency(d.gia_hien_tai) : "")}
+			</div>
+			${d.ghi_chu ? `<p style="margin:.5rem 0 0">${o(d.ghi_chu)}</p>` : ""}
+		</div>`;
+	}).join("");
+
+	frm.dashboard.add_section(
+		`<div style="padding:.5rem 0">${the}</div>`,
+		__("Hàng chưa có mã — thông tin khách khai")
+	);
+}
 
 function hen_lich_giao(frm) {
 	frappe.prompt(
