@@ -1,4 +1,6 @@
 import frappe
+
+from miyano_portal.kho import can_cu_duyet
 from miyano_portal import dat_hang, einvoice, gia_hdnt
 from miyano_portal.dat_hang import (
     _customer_addresses,
@@ -1778,6 +1780,16 @@ def portal_order_track(order) -> dict:
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
         # đặc tả yêu cầu (xem ghi chú ngay phía trên vòng lặp).
         "dot_giao": dot_giao,
+        # CR-04 — căn cứ tồn kho cho từng dòng hàng, để quản lý duyệt bằng
+        # con số chứ không bằng kinh nghiệm. Phép tính sống ở `kho/
+        # can_cu_duyet.py` (đó là việc của kho, và file này đã quá dài); ở
+        # đây chỉ gắn kết quả vào đúng dòng.
+        #
+        # Item KHÔNG có mặt trong dict = không tra được (khách chưa mở kho,
+        # vật tư chưa nối `item_code`, hàng không có trong danh mục kho).
+        # Client hiện GẠCH NGANG, không hiện 0 — "tồn 0" nghĩa là hết hàng,
+        # "không biết" là chuyện khác hẳn.
+        "can_cu_kho": can_cu_duyet.can_cu_cho_don(so),
         # Huy hiệu "Có hàng chờ báo giá" — SERVER trả lời, client chỉ đọc.
         # Ruling #19: một bản sao logic ở client đã từng lệch khỏi server và
         # làm đơn BỊ TỪ CHỐI hiện badge xanh "Đã duyệt". Không dựng bản sao
