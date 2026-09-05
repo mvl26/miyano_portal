@@ -17,10 +17,6 @@ import { ref, computed } from 'vue'
 import api from '../../api'
 import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
-// CR-05 gộp bảng (05/09/2026) — nội dung xổ của MỘT dòng "hàng mới" (chưa
-// có mã). Xem chú thích trong chính file đó về việc ĐỔI VAI từ "khối đứng
-// riêng" sang "nội dung xổ tại dòng".
-import KhoiHangMoi from './KhoiHangMoi.vue'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -38,17 +34,9 @@ const props = defineProps({
 
 // Đơn cũ không có phiếu (~102 đơn trước luồng duyệt) — dòng lấy từ đơn, và
 // hai cột của phiếu tự vắng mặt theo `coPhieu` bên dưới.
-//
-// `_khoa` — khoá HIỂN THỊ dùng cho `:key` của `v-for` bên dưới. Dòng có mã
-// dùng CHÍNH `item_code` của nó (không đổi hành vi cũ); dòng "hàng mới"
-// (`dongHangMoi` bên dưới) không có `item_code` nên tự mang một khoá khác —
-// gộp cả hai loại vào MỘT mảng mà vẫn dùng `row.item_code` làm `:key` sẽ
-// khiến MỌI dòng hàng mới cùng mang khoá `undefined`, tức Vue coi chúng là
-// MỘT phần tử và render sai.
-const dongCoMa = computed(() => {
-  if (props.phieu) return (props.phieu.items || []).map((it) => ({ ...it, _khoa: it.item_code }))
+const dong = computed(() => {
+  if (props.phieu) return props.phieu.items || []
   return (props.don?.items || []).map((it) => ({
-    _khoa: it.item_code,
     item_code: it.item_code,
     item_name: it.item_name,
     dvt: it.uom,
@@ -58,53 +46,6 @@ const dongCoMa = computed(() => {
     da_giao_tren_don: it.delivered_qty,
   }))
 })
-
-// CR-05 gộp bảng (05/09/2026, chủ đầu tư: *"anh chưa ưng hiển thị 2 bảng xem
-// hàng sau khi tạo phiếu"*) — dòng "hàng mới" (khách gõ tay, chưa có mã)
-// nằm CHUNG bảng, không còn đứng khối riêng (`KhoiHangMoi.vue` đã ĐỔI VAI,
-// xem chú thích trong chính file đó).
-//
-// NGUỒN là `props.phieu.dat_ngoai` — KHÔNG `props.don.dat_ngoai` (đó là một
-// trường KHÁC, trên MỘT DOCTYPE KHÁC — theo dõi tình trạng Miyano tìm nguồn
-// SAU khi duyệt, đọc ở `datNgoaiDaKhop`/`datNgoaiChoXuLy` phía dưới, KHÔNG
-// đụng tới ở đây). Đơn hàng chỉ tồn tại SAU khi duyệt; đọc "hàng mới" từ
-// đơn là đúng lỗi `b4d3325` vừa vá — đúng lúc quản lý cần nhìn nhất (phiếu
-// "Chờ duyệt") thì không thấy gì.
-//
-// CỐ Ý KHÔNG gán `item_code`: bốn cột CR-04 (`canCu(row)` tra
-// `canCuKho[row.item_code]`) phải nhận `undefined` để tự động ra gạch ngang
-// "—" (§ "chốt quan trọng nhất" của CR-04 — "0" nghĩa hết hàng, "—" nghĩa
-// không tra được, hàng mới đúng nghĩa thứ hai). Gán bất kỳ chuỗi nào cho
-// `item_code` — kể cả rỗng — có nguy cơ vô tình khớp một khoá thật/rỗng nào
-// đó lỡ có trong `canCuKho` và làm hỏng đúng gạch ngang này.
-const dongHangMoi = computed(() => {
-  if (!props.phieu) return []
-  return (props.phieu.dat_ngoai || []).map((d, i) => ({
-    // `d.name` là khoá tự nhiên (child row đã lưu); `i` chỉ là lưới an toàn
-    // cho một dòng lý thuyết chưa từng được lưu (chưa có `name`).
-    _khoa: 'hang-moi:' + (d.name || i),
-    _la_hang_moi: true,
-    // Nguyên bản dòng dat_ngoai — truyền thẳng cho KhoiHangMoi.
-    _dat_ngoai: d,
-    item_name: d.ten_hang,
-    dvt: d.dvt,
-    so_luong_de_xuat: d.so_luong,
-  }))
-})
-
-// Hàng mới đứng TRƯỚC hàng đã có mã — giữ đúng thứ tự ưu tiên mà chủ đầu tư
-// đã chốt một lần (b4d3325: khối hàng mới hiện TRƯỚC bảng mặt hàng), gộp
-// bảng không có nghĩa gộp luôn thứ tự đọc.
-const dong = computed(() => [...dongHangMoi.value, ...dongCoMa.value])
-
-// `KhoiHangMoi` cần `deXuat` (tên phiếu) để dựng URL ảnh. Đi qua MỘT
-// computed thay vì viết `props.phieu?.name || ''` thẳng trong template —
-// mọi chỗ khác trong file này đọc `props.phieu` qua một computed
-// (`coPhieu`, `coCotDuyet`, …), không truy cập trực tiếp trong template;
-// giữ đúng khuôn đó để không có một biểu thức lẻ loi nào có thể ném lỗi mà
-// build (`yarn build`) không bắt được (biểu thức trong template chỉ được
-// Vue phân giải LÚC CHẠY, không phải lúc build).
-const tenPhieu = computed(() => props.phieu?.name || '')
 
 const coPhieu = computed(() => !!props.phieu)
 const coDon = computed(() => !!props.don)
@@ -194,16 +135,8 @@ function fmtNgay(v) {
 
 // Ít nhất một dòng đang hiện KHÔNG tra được → hiện dòng giải thích BA lý do
 // (§4) thay vì để quản lý tự đoán vì sao cột trống.
-//
-// Soi `dongCoMa` (KHÔNG `dong` gộp): dòng "hàng mới" LUÔN không tra được
-// (cố ý, xem `dongHangMoi` ở trên) vì một lý do KHÁC hẳn ba lý do dòng giải
-// thích liệt kê (chưa mở kho/chưa nối mã/không có trong danh mục — cả ba
-// đều nói về hàng ĐÃ CÓ MÃ nhưng tra không ra). Soi cả `dong` sẽ bật dòng
-// giải thích này ở MỌI phiếu có hàng mới, kể cả khi mọi hàng có mã đều tra
-// được đầy đủ — sai thông điệp, không phải sai nghiêm trọng nhưng vẫn là
-// thông tin gây nhiễu ngay phía trên bảng.
 const coDongKhongTraDuoc = computed(
-  () => coCanCuKho.value && dongCoMa.value.some((r) => !canCu(r))
+  () => coCanCuKho.value && dong.value.some((r) => !canCu(r))
 )
 
 // Ngưỡng ⚠ CHÉP TỪ `kho/can_cu_duyet.py::NGUONG_DAT_KHI_CHUA_CAN` (spec §5).
@@ -250,33 +183,6 @@ async function toggleSoKho(row) {
   } catch (e) {
     soKhoTheo.value[ma] = { loading: false, error: e.message || 'Không tải được thẻ kho.', rows: [] }
   }
-}
-
-// --- Hàng mới xổ NGAY TẠI DÒNG (CR-05 gộp bảng) ------------------------
-//
-// KHOÁ RIÊNG (`dongMoRongHangMoi`, một `ref` KHÁC hẳn `dongMoRong` ở trên),
-// KHÔNG dùng chung — "Cạm bẫy khoá" đã nêu ở đầu việc: dòng hàng mới không
-// có `item_code`, nên nếu tái dùng `dongMoRong` với một khoá tự chế (ví dụ
-// khoá rỗng/`undefined`) thì MỌI dòng hàng mới sẽ đọc/ghi CHUNG một ô nhớ —
-// bấm xổ dòng hàng mới A sẽ xổ/thu luôn dòng hàng mới B. Tách hẳn sang một
-// object `ref` riêng, khoá theo `row._khoa` (duy nhất cho từng dòng, xem
-// `dongHangMoi`), loại bỏ khả năng đụng độ bằng CẤU TRÚC chứ không chỉ bằng
-// quy ước đặt tên khoá.
-const dongMoRongHangMoi = ref({})
-
-// §2 việc — dòng hàng mới XỔ SẴN khi phiếu "Chờ duyệt" (đúng lúc quản lý
-// phải xét), THU LẠI ở trạng thái khác — quản lý không bị bắt bấm thêm một
-// lần mới thấy thứ mình phải duyệt. Một khi người dùng đã TỰ bấm (giá trị
-// tường minh true/false trong `dongMoRongHangMoi`), lựa chọn thủ công đó
-// thắng mặc định — đây là lý do dùng `!== undefined` thay vì `||`/`??` đơn
-// giản: `false` tường minh (đã bấm thu lại) không được lộn về mặc định.
-function moRongHangMoi(row) {
-  const tuongMinh = dongMoRongHangMoi.value[row._khoa]
-  if (tuongMinh !== undefined) return tuongMinh
-  return props.phieu?.trang_thai === 'Chờ duyệt'
-}
-function toggleHangMoi(row) {
-  dongMoRongHangMoi.value[row._khoa] = !moRongHangMoi(row)
 }
 
 // Dòng đặt ngoài sống trên ĐƠN (`don.dat_ngoai`), không trên phiếu — tách
@@ -342,38 +248,16 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
              CR-04 §6 — bọc trong `<template v-for>` (thay vì `<tr v-for>`
              thẳng) để chèn được một `<tr>` XỔ SỔ KHO ngay dưới, KHÔNG rời
              màn duyệt: quản lý đang cân nhắc cả đơn, rời màn là mất mạch. -->
-        <template v-for="row in dong" :key="row._khoa">
+        <template v-for="row in dong" :key="row.item_code">
         <tr
           :style="khongDuyet(row) ? 'text-decoration: line-through; color: var(--gray)' : ''"
         >
           <td>
-            <!-- Nhãn "hàng mới" phải NỔI — đây là dòng quản lý cần xem kỹ
-                 NHẤT trong cả bảng (chín trường CR-03 vừa khai), không được
-                 lẫn vào một dòng bình thường. `.badge.b-orange` (một màu
-                 CHƯA dùng ở bảng này) + emoji + IN HOA, khác hẳn màu tím
-                 của badge "Quản lý thêm" phía dưới — hai loại dòng khác hẳn
-                 nhau phải phân biệt được bằng mắt, không chỉ bằng chữ. Cả ô
-                 là một nút bấm — xổ/thu ngay tại dòng, không điều hướng. -->
-            <button
-              v-if="row._la_hang_moi"
-              type="button"
-              style="cursor: pointer; background: none; border: none; padding: 0; text-align: left; font: inherit; color: inherit; width: 100%"
-              :aria-label="`Xem chi tiết hàng mới ${row.item_name}`"
-              @click="toggleHangMoi(row)"
-            >
-              <span class="badge b-orange" style="font-weight: 800">
-                {{ moRongHangMoi(row) ? '▾' : '▸' }} 🆕 HÀNG MỚI
-              </span>
-              <br />
-              <b>{{ row.item_name }}</b>
-            </button>
-            <template v-else>
-              <b>{{ row.item_code }}</b>
-              <template v-if="row.item_name"> — {{ row.item_name }}</template>
-              <br />
-              <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
-              <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
-            </template>
+            <b>{{ row.item_code }}</b>
+            <template v-if="row.item_name"> — {{ row.item_name }}</template>
+            <br />
+            <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
+            <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
           </td>
           <td>{{ row.dvt }}</td>
           <!-- CR-04 §3/§4 — bốn ô này đọc QUA `canCu(row)` (KHÔNG với thẳng
@@ -421,14 +305,7 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                ở cột "Mặt hàng". KHÔNG `.number` trên v-model: xem
                `soDuyetMoi` ở trên (ô trống = "không đổi"). -->
           <td v-if="coCotDuyet" class="right">
-            <!-- Dòng hàng mới KHÔNG có khái niệm "SL duyệt" (chưa có mã thì
-                 chưa có gì để phiếu duyệt số lượng theo dòng phiếu) — và
-                 quan trọng hơn: input dưới đây khoá theo `row.item_code`,
-                 dòng hàng mới không có `item_code` nên MỌI dòng hàng mới sẽ
-                 đọc/ghi CHUNG một ô `slDuyetSua[undefined]` nếu không chặn
-                 ở đây — gõ số ở dòng A sẽ hiện lại y hệt ở dòng B. -->
-            <span v-if="row._la_hang_moi" class="tag">—</span>
-            <template v-else-if="quanLyDangDuyet">
+            <template v-if="quanLyDangDuyet">
               <input
                 type="number" min="0" step="any"
                 v-model="slDuyetSua[row.item_code]"
@@ -479,15 +356,7 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                nằm lồng trong cột "Mặt hàng" như bản gốc, vì header ở đây
                đã có `<th>Ghi chú quản lý</th>` của riêng nó. -->
           <td v-if="coPhieu">
-            <!-- Dòng hàng mới không có `ghi_chu_quan_ly` (trường đó sống
-                 trên DÒNG PHIẾU có mã) — và cùng lý do cột "SL duyệt": input
-                 dưới khoá theo `row.item_code` nên phải chặn ở đây, không để
-                 mọi dòng hàng mới ghi chung một ô. Ghi chú CỦA NHÂN VIÊN cho
-                 dòng hàng mới (field `ghi_chu` trên chính dat_ngoai) đã hiện
-                 trong nội dung xổ (`KhoiHangMoi`), không lặp lại ở đây dưới
-                 một nhãn "quản lý" sai chủ. -->
-            <template v-if="row._la_hang_moi"></template>
-            <template v-else-if="quanLyDangDuyet">
+            <template v-if="quanLyDangDuyet">
               <input
                 type="text"
                 v-model="ghiChuSua[row.item_code]"
@@ -509,15 +378,8 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
              RIÊNG cho bảng con này — bảng cha đã cuộn ngang trong khung của
              chính nó, một bảng con rộng hơn không được kéo cả trang cuộn
              theo trên điện thoại. -->
-        <!-- CR-05 gộp bảng — dòng xổ MỘT trong hai nội dung tuỳ loại dòng:
-             hàng mới xổ CHÍN TRƯỜNG CR-03 (`KhoiHangMoi`, điều kiện
-             `moRongHangMoi`, khoá RIÊNG `dongMoRongHangMoi`); hàng có mã xổ
-             sổ kho CR-04 y NGUYÊN như cũ (điều kiện `coCanCuKho &&
-             dongMoRong[...]`, khoá `dongMoRong` — KHÔNG đụng vào nửa này). -->
-        <tr v-if="row._la_hang_moi ? moRongHangMoi(row) : (coCanCuKho && dongMoRong[row.item_code])">
+        <tr v-if="coCanCuKho && dongMoRong[row.item_code]">
           <td :colspan="soCotTong" style="background: #f8fafc">
-            <KhoiHangMoi v-if="row._la_hang_moi" :dong="row._dat_ngoai" :de-xuat="tenPhieu" />
-            <template v-else>
             <div v-if="soKhoTheo[row.item_code]?.loading" class="loading">Đang tải sổ kho…</div>
             <div v-else-if="soKhoTheo[row.item_code]?.error" class="empty">{{ soKhoTheo[row.item_code].error }}</div>
             <div v-else-if="!soKhoTheo[row.item_code]?.rows?.length" class="empty">
@@ -548,7 +410,6 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                 </tbody>
               </table>
             </div>
-            </template>
           </td>
         </tr>
         </template>
