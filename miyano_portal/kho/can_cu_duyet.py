@@ -233,7 +233,22 @@ def can_cu_cho_don(so) -> dict:
             if r.get("vat_tu") in set(ten_vat_tu)
         }
         adu = _adu_theo_vat_tu(kho, ten_vat_tu)
-        dang_ve = _dang_ve_theo_item(so.customer, so.name, list(theo_item))
+        # ĐƠN CẦN LOẠI TRỪ — hàm này được gọi từ HAI nơi với HAI loại doc:
+        #
+        #   * `portal_order_track` truyền một `Sales Order`. Doctype đó không
+        #     có field `sales_order`, nên rơi về `so.name` = chính nó. Đúng.
+        #   * `de_xuat_chi_tiet` truyền một `Portal De Xuat Mua`. `so.name` ở
+        #     đây là MÃ PHIẾU, không bao giờ khớp tên một Sales Order — nên
+        #     đơn do chính phiếu đó sinh ra KHÔNG bị loại và số lượng của nó
+        #     CỘNG TRÙNG vào "Đang về". Quản lý mở một phiếu đã duyệt sẽ thấy
+        #     "đang về" gấp đôi thực tế và kết luận ngược hẳn: "hàng đang về
+        #     nhiều rồi, lần sau bớt đặt".
+        #
+        # Hỏi `sales_order` TRƯỚC rồi mới rơi về `name` — một biểu thức phục
+        # vụ đúng cả hai người gọi, thay vì bắt mỗi nơi tự nhớ truyền gì.
+        dang_ve = _dang_ve_theo_item(
+            so.customer, so.get("sales_order") or so.name, list(theo_item)
+        )
 
         ket_qua = {}
         for ma, vt in theo_item.items():

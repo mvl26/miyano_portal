@@ -173,3 +173,63 @@ class TestEndpointTraCanCu(FrappeTestCase):
 		import inspect
 
 		self.assertIn('"vat_tu": vt', inspect.getsource(cc.can_cu_cho_don))
+
+
+class TestTruDungDonCuaChinhPhieu(FrappeTestCase):
+	"""Đơn của CHÍNH phiếu đang xem không được tính vào "Đang về".
+
+	Phát hiện ở vòng làm giao diện 05/09/2026. `can_cu_cho_don` loại trừ theo
+	`so.name`, nhưng nó được gọi từ HAI nơi với HAI loại doc khác nhau:
+
+	  * `portal_order_track` truyền một `Sales Order` -> `so.name` LÀ tên đơn,
+	    loại trừ đúng.
+	  * `de_xuat_chi_tiet` truyền một `Portal De Xuat Mua` -> `so.name` là MÃ
+	    PHIẾU, không bao giờ khớp tên một Sales Order. Đơn do chính phiếu đó
+	    sinh ra KHÔNG bị loại, và số lượng của nó cộng trùng vào "Đang về".
+
+	Hậu quả: quản lý mở một phiếu ĐÃ DUYỆT thấy "đang về" gấp đôi thực tế, và
+	kết luận ngược hẳn — "hàng đang về nhiều rồi, lần sau bớt đặt".
+
+	Ở "Chờ duyệt" chưa có đơn nên chưa lộ; nhưng payload đã sai từ lúc phiếu
+	có đơn, và một con số sai đang nằm sẵn trong API là thứ chỉ chờ ai đó
+	hiển thị nó ra.
+	"""
+
+	def test_loai_tru_theo_sales_order_cua_phieu_khong_theo_ma_phieu(self):
+		import inspect
+
+		than = inspect.getsource(cc.can_cu_cho_don)
+		self.assertIn(
+			'get("sales_order")', than,
+			"`can_cu_cho_don` vẫn loại trừ theo `so.name` — với doc PHIẾU thì "
+			"đó là mã phiếu, không khớp đơn nào, nên đơn của chính phiếu bị "
+			"cộng trùng vào 'Đang về'",
+		)
+
+	def test_doc_phieu_co_don_thi_tru_dung_don_do(self):
+		"""Kiểm bằng hành vi, không chỉ bằng chữ trong mã."""
+		ghi = {}
+
+		def _bat(customer, tru_don, item_codes):
+			ghi["tru_don"] = tru_don
+			return {}
+
+		from unittest.mock import patch
+
+		phieu = frappe._dict(
+			doctype="Portal De Xuat Mua", name="DXM-2026-99999",
+			customer="X", sales_order="SO-THAT-2026-0001",
+			items=[frappe._dict(item_code="ITEM-A")],
+		)
+		with patch.object(cc, "_kho_cua_khach", return_value="KHO-X"), \
+		     patch.object(cc, "_dang_ve_theo_item", side_effect=_bat), \
+		     patch.object(cc.frappe, "get_all", return_value=[
+		         frappe._dict(name="VT-1", item_code="ITEM-A")]), \
+		     patch.object(cc.reports, "ton_hien_tai_rows", return_value=[]), \
+		     patch.object(cc, "_adu_theo_vat_tu", return_value={}):
+			cc.can_cu_cho_don(phieu)
+
+		self.assertEqual(
+			ghi.get("tru_don"), "SO-THAT-2026-0001",
+			"Phải loại trừ ĐƠN của phiếu, không phải mã phiếu",
+		)
