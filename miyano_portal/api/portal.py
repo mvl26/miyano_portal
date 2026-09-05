@@ -2000,6 +2000,172 @@ def _phuc_vu_file(fei_row, field, ten_file, method):
     frappe.local.response.type = "pdf"
 
 
+# --------------------------------------------------------------------------
+# CR-03 — ảnh cho dòng "hàng chưa có trong hệ thống"
+# --------------------------------------------------------------------------
+
+# BR-Y5, dùng lại nguyên văn giới hạn tài liệu BA đã đặt cho đính kèm.
+CR03_TOI_DA_ANH = 5
+CR03_TOI_DA_BYTE = 10 * 1024 * 1024
+CR03_LOAI_ANH = ("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
+CR03_DUOI_ANH = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
+
+
+def _cr03_danh_sach_anh(gia_tri) -> list:
+    """Đọc field `anh` (chuỗi JSON) thành list. Hỏng thì trả rỗng.
+
+    KHÔNG để lỗi parse ném ra ngoài: field này do hệ thống ghi, nhưng một
+    bản ghi cũ/nhập tay hỏng không được phép làm chết cả màn đặt hàng.
+    """
+    if not gia_tri:
+        return []
+    try:
+        ds = frappe.parse_json(gia_tri)
+    except Exception:
+        return []
+    return [x for x in ds if isinstance(x, str) and x] if isinstance(ds, list) else []
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_tai_anh(de_xuat, dong_idx) -> dict:
+    """CR-03 — khách tải một ảnh cho MỘT dòng "hàng chưa có trong hệ thống".
+
+    Ảnh đính vào chính `Portal De Xuat Mua`, KHÔNG đính vào dòng con: mỗi lần
+    khách sửa giỏ, `de_xuat_luu_nhap` thay TOÀN BỘ bảng `dat_ngoai`
+    (`doc.set("dat_ngoai", …)`), nên một tệp đính theo tên dòng con thành mồ
+    côi ngay lần lưu kế tiếp. Dòng con chỉ giữ danh sách `file_url`.
+
+    Chốt quyền qua `_phieu_cua_toi()` — ĐÚNG chốt mà mọi endpoint phiếu khác
+    dùng (kiểm cả trục khách hàng lẫn trục khoa phòng). Không tự chế bộ lọc.
+
+    Chỉ cho tải khi phiếu còn **Nháp**: sau khi gửi duyệt, nội dung phiếu là
+    thứ quản lý đang đọc để quyết định — thêm ảnh vào lúc đó là đổi hồ sơ
+    dưới chân người đang duyệt.
+    """
+    doc = _phieu_cua_toi(de_xuat)
+    if doc.trang_thai != "Nháp":
+        frappe.throw(
+            "Chỉ thêm ảnh được khi phiếu còn ở trạng thái Nháp.",
+            frappe.ValidationError,
+        )
+
+    try:
+        i = int(dong_idx)
+    except (TypeError, ValueError):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    dong = doc.get("dat_ngoai") or []
+    if not (0 <= i < len(dong)):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    r = dong[i]
+
+    tep = (frappe.request.files or {}).get("file") if frappe.request else None
+    if tep is None:
+        frappe.throw("Không nhận được tệp ảnh.", frappe.ValidationError)
+
+    noi_dung = tep.stream.read()
+    if len(noi_dung) > CR03_TOI_DA_BYTE:
+        frappe.throw(
+            f"Ảnh nặng quá {CR03_TOI_DA_BYTE // (1024 * 1024)}MB. Chụp lại ở "
+            "độ phân giải thấp hơn giúp Miyano.",
+            frappe.ValidationError,
+        )
+
+    ten_goc = tep.filename or "anh.jpg"
+    # Kiểm CẢ mime CLIENT KHAI lẫn đuôi tệp, và cả hai đều phải qua. Mime do
+    # trình duyệt gửi nên không tin được một mình; đuôi tệp cũng vậy. Đây
+    # KHÔNG phải chốt an ninh chống tệp độc — nó chỉ chặn khách vô tình tải
+    # nhầm một PDF hay .docx rồi tưởng đã có ảnh.
+    duoi_ok = any(ten_goc.lower().endswith(d) for d in CR03_DUOI_ANH)
+    mime_ok = (tep.mimetype or "") in CR03_LOAI_ANH
+    if not (duoi_ok and mime_ok):
+        frappe.throw(
+            "Chỉ nhận ảnh (JPG, PNG, WEBP, HEIC). Nếu đang có bản PDF, hãy "
+            "chụp màn hình rồi tải ảnh lên.",
+            frappe.ValidationError,
+        )
+
+    hien_co = _cr03_danh_sach_anh(r.anh)
+    if len(hien_co) >= CR03_TOI_DA_ANH:
+        frappe.throw(
+            f"Mỗi mặt hàng tối đa {CR03_TOI_DA_ANH} ảnh. Xoá bớt một ảnh cũ "
+            "rồi thử lại.",
+            frappe.ValidationError,
+        )
+
+    from frappe.utils.file_manager import save_file
+
+    f = save_file(
+        f"CR03_{doc.name}_{i}_{frappe.generate_hash(length=6)}_{ten_goc}",
+        noi_dung,
+        "Portal De Xuat Mua",
+        doc.name,
+        is_private=1,
+    )
+    hien_co.append(f.file_url)
+    r.anh = frappe.as_json(hien_co)
+    doc.save(ignore_permissions=True)
+    return {"file_url": f.file_url, "anh": hien_co}
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_xoa_anh(de_xuat, dong_idx, file_url) -> dict:
+    """Gỡ một ảnh khỏi dòng. Chỉ gỡ khỏi DANH SÁCH của dòng, KHÔNG xoá
+    `File`: cùng một tệp có thể đang được dòng khác dùng (khách tải lại đúng
+    ảnh đó), và xoá tệp thật là mất dữ liệu để đổi lấy vài KB."""
+    doc = _phieu_cua_toi(de_xuat)
+    if doc.trang_thai != "Nháp":
+        frappe.throw(
+            "Chỉ sửa ảnh được khi phiếu còn ở trạng thái Nháp.", frappe.ValidationError
+        )
+    try:
+        i = int(dong_idx)
+    except (TypeError, ValueError):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    dong = doc.get("dat_ngoai") or []
+    if not (0 <= i < len(dong)):
+        raise frappe.PermissionError("Dòng không hợp lệ.")
+    r = dong[i]
+    con_lai = [u for u in _cr03_danh_sach_anh(r.anh) if u != file_url]
+    r.anh = frappe.as_json(con_lai)
+    doc.save(ignore_permissions=True)
+    return {"anh": con_lai}
+
+
+@frappe.whitelist()
+def portal_dat_ngoai_xem_anh(de_xuat, file_url) -> None:
+    """Phục vụ một ảnh riêng tư của phiếu.
+
+    VÌ SAO CẦN ENDPOINT NÀY thay vì để trình duyệt gọi thẳng
+    `/private/files/…`: role `Customer` có ZERO DocPerm trên
+    `Portal De Xuat Mua`, nên đường tệp mặc định của Frappe kiểm quyền theo
+    document đính kèm sẽ **403 với chính người vừa tải ảnh lên**. Đường sống
+    của cổng là endpoint whitelist, đúng như mọi chỗ khác.
+
+    Kiểm TỪNG LẦN xem (không tin danh sách đã trả lúc dựng màn): phiếu thuộc
+    người gọi, VÀ `file_url` thật sự đính vào ĐÚNG phiếu đó. Thiếu vế thứ
+    hai thì một `file_url` đoán được của bệnh viện khác vẫn đi qua — Frappe
+    gộp tệp trùng nội dung theo hash nên `file_url` KHÔNG phải một khoá bí
+    mật (cùng bài học đã ghi ở `_phuc_vu_file`).
+    """
+    doc = _phieu_cua_toi(de_xuat, cho_quan_ly=True)
+    ten_file = frappe.db.get_value(
+        "File",
+        {
+            "file_url": file_url,
+            "attached_to_doctype": "Portal De Xuat Mua",
+            "attached_to_name": doc.name,
+        },
+        "name",
+    )
+    if not ten_file:
+        raise frappe.PermissionError("Ảnh không thuộc phiếu này.")
+
+    tep = frappe.get_doc("File", ten_file)
+    frappe.local.response.filename = tep.file_name
+    frappe.local.response.filecontent = tep.get_content()
+    frappe.local.response.type = "download"
+
+
 @frappe.whitelist()
 def portal_einvoice_download(invoice, loai="pdf", fei=None) -> None:
     """US-E7.2/BR-E4 — tải file HĐĐT của một hoá đơn. `loai`:

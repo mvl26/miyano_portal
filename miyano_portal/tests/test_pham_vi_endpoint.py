@@ -48,6 +48,14 @@ DA_AP_PHAM_VI: set[str] = {
 	"portal_request_cancel", "portal_bao_gia_pdf", "portal_document_download",
 	"portal_kiem_hang_get", "portal_kiem_hang_luu", "portal_kiem_hang_gui",
 	"portal_einvoice_download", "portal_einvoice_nhap",
+	# CR-03 (05/09/2026) — ảnh cho dòng "hàng chưa có trong hệ thống". CẢ BA
+	# đi qua `_phieu_cua_toi()`, đúng chốt hai trục mà mọi endpoint phiếu
+	# khác dùng; không endpoint nào tự chế bộ lọc. `xem_anh` còn kiểm thêm
+	# `File.attached_to_name == phiếu` mỗi lần xem: `file_url` KHÔNG phải
+	# khoá bí mật (Frappe gộp tệp trùng nội dung theo hash), nên chỉ kiểm
+	# quyền trên phiếu là chưa đủ.
+	"portal_dat_ngoai_tai_anh", "portal_dat_ngoai_xoa_anh",
+	"portal_dat_ngoai_xem_anh",
 	"portal_einvoice_nhap_pdf", "portal_einvoice_ho_tro",
 	"portal_thong_bao_list", "portal_thong_bao_doc",
 	"de_xuat_tao_nhap", "de_xuat_luu_nhap", "de_xuat_xoa_nhap",

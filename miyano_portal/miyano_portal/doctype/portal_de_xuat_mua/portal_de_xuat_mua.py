@@ -226,12 +226,73 @@ class PortalDeXuatMua(Document):
 				frappe.ValidationError,
 			)
 
+	MO_TA_NHAN_DANG_TOI_THIEU = 50
+
+	def _kiem_dat_ngoai_du_nhan_dang(self):
+		"""CR-03/BR-Y5 — mỗi dòng hàng chưa có trong hệ thống phải có ÍT NHẤT
+		MỘT ẢNH, hoặc một mô tả nhận dạng đủ dài.
+
+		VÌ SAO Ở `gui_duyet()`, KHÔNG Ở `validate()`: khách gõ nửa chừng rồi
+		lưu lại làm tiếp buổi chiều là việc bình thường. Đặt chốt ở
+		`validate()` là biến nút Lưu thành một cái bẫy — mỗi lần lưu nháp
+		lại đòi đủ ảnh cho MỌI dòng, kể cả dòng vừa mở ra chưa gõ gì.
+		`gui_duyet()` là đúng chỗ: nó là ranh giới "phiếu đã đủ điều kiện đi
+		tiếp", cùng chỗ chốt `ly_do_yeu_cau` đang đứng.
+
+		VÌ SAO Ở CHA, KHÔNG Ở BẢNG CON: Frappe KHÔNG gọi `validate()` của
+		controller bảng con khi cha lưu — `SalesOrderDatNgoaiItem` có nguyên
+		một docstring nói điều đó. Một chốt viết ở đó sẽ không bao giờ chạy,
+		và người đọc sau tưởng chốt đã có.
+
+		Ảnh là dữ kiện tìm nguồn giá trị nhất: một tấm ảnh nhãn hộp thay được
+		cả bốn ô mô tả. Lối thoát `khong_co_anh` có thật (nhãn mờ, hộp đã bỏ,
+		hàng chưa từng mua) nên không chặn cứng — nhưng đổi lại phải có mô tả
+		bằng lời đủ để purchasing có manh mối.
+
+		Ngưỡng 50 ký tự là phép đo thô CỐ Ý: nó chặn "không có ảnh", "như
+		cũ", "gọi cho tôi". Nó KHÔNG chặn được 50 ký tự vô nghĩa, và chốt này
+		không giả vờ là có — phần còn lại là việc của người đọc phiếu.
+		"""
+		for i, r in enumerate(self.get("dat_ngoai") or [], start=1):
+			ten = (r.ten_hang or f"dòng {i}").strip()
+
+			# `anh` là chuỗi JSON. `"[]"` KHÁC RỖNG nên một phép kiểm
+			# `if not r.anh` sẽ cho nó đi qua — đó là "đã có trường, chưa có
+			# ảnh", ca dễ lọt nhất của chốt này.
+			try:
+				danh_sach = frappe.parse_json(r.anh) if r.anh else []
+			except Exception:
+				danh_sach = []
+			co_anh = bool(danh_sach)
+
+			if co_anh:
+				continue
+
+			if not r.khong_co_anh:
+				frappe.throw(
+					f'Mặt hàng "{ten}" chưa có ảnh. Miyano cần ảnh để tìm đúng '
+					"hàng — chụp nhãn trên hộp là đủ. Nếu thật sự không chụp "
+					'được, tích "Tôi không chụp được ảnh" rồi mô tả bằng lời.',
+					frappe.ValidationError,
+				)
+
+			mo_ta = (r.mo_ta_nhan_dang or "").strip()
+			if len(mo_ta) < self.MO_TA_NHAN_DANG_TOI_THIEU:
+				frappe.throw(
+					f'Mặt hàng "{ten}" không có ảnh nên cần mô tả nhận dạng ít '
+					f"nhất {self.MO_TA_NHAN_DANG_TOI_THIEU} ký tự "
+					f"(hiện {len(mo_ta)}). Hình dáng hộp, màu sắc, chữ in trên "
+					"nhãn — càng cụ thể Miyano càng tìm đúng hàng.",
+					frappe.ValidationError,
+				)
+
 	def gui_duyet(self):
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET)
 		if not (self.ly_do_yeu_cau or "").strip():
 			frappe.throw(
 				"Lý do yêu cầu là bắt buộc khi gửi duyệt.", frappe.ValidationError
 			)
+		self._kiem_dat_ngoai_du_nhan_dang()
 		if not self.ma_de_xuat:
 			# Sinh ĐÚNG MỘT LẦN. Phiếu bị từ chối rồi gửi lại giữ nguyên mã cũ:
 			# quản lý và khoa đã gọi tên nó bằng mã đó trong lúc trao đổi.
