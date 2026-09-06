@@ -63,6 +63,41 @@ class TestNganSachCotLuoi(FrappeTestCase):
 			"không cảnh báo. Muốn thêm field vào lưới thì phải bỏ bớt field khác.",
 		)
 
+	def test_description_la_LOI_CHO_NGUOI_DUNG_khong_phai_ghi_chu_ky_thuat(self):
+		"""`description` hiện NGAY DƯỚI Ô NHẬP trên màn của nhân viên Miyano.
+
+		Chủ đầu tư yêu cầu bỏ 06/09/2026. Tôi từng nhét vào đó cả một đoạn về
+		ngân sách cột lưới của Frappe kèm trích mã `grid.js` — 533 ký tự lý lẽ
+		kỹ thuật đặt ngay chỗ người ta đang cố điền một mã hàng.
+
+		Lý lẽ kỹ thuật thuộc về chú thích trong mã và docstring của test (ngân
+		sách cột được giải thích đầy đủ ở `TestNganSachCotLuoi` ngay trên đây,
+		kèm bài canh thật). `description` chỉ để nói với người điền: ô này
+		điền gì.
+
+		Bài này canh HAI thứ: độ dài vừa phải, và KHÔNG chứa định danh mã
+		nguồn — tên file, tên hàm, đường dẫn module. Chỉ canh độ dài thì một
+		câu ngắn nhưng đầy `grid.js` vẫn lọt.
+		"""
+		import re
+
+		xau = []
+		for f in self.dt["fields"]:
+			m = (f.get("description") or "").strip()
+			if not m:
+				continue
+			if len(m) > 140:
+				xau.append((f["fieldname"], f"dài {len(m)} ký tự"))
+			# `.js` / `.py` / `module.ham` / `snake_case_dai` — dấu hiệu của
+			# một câu viết cho lập trình viên, không cho người điền form.
+			if re.search(r"\.(js|py)\b|\b\w+\.\w+\.\w+", m):
+				xau.append((f["fieldname"], "có định danh mã nguồn"))
+		self.assertEqual(
+			xau, [],
+			f"`description` sau đây đang nói với lập trình viên thay vì với "
+			f"người điền form: {xau}",
+		)
+
 	def test_hai_cot_lam_viec_cua_MIYANO_phai_con_trong_luoi(self):
 		"""`item_khop` và `da_xu_ly` là CÔNG CỤ LÀM VIỆC, không phải trang trí.
 
