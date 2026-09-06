@@ -4010,14 +4010,27 @@ def portal_nhat_ky_yeu_cau(de_xuat=None, order=None) -> list[dict]:
             # `nguoi_yeu_cau` cho phiếu lập qua giao diện thật, nên `owner`
             # mới là người đề nghị thật. Chép lại đúng biểu thức đó ở đây,
             # không tự dựng một phép suy thứ hai rồi trôi lệch.
+            #
+            # `ghi_chu` = LÝ DO YÊU CẦU (06/09/2026). Trước bản này hai dòng
+            # suy ra truyền `None`, và điều đó chấp nhận được chừng nào khối
+            # "Yêu cầu & duyệt" còn đứng cạnh để hiện lý do. Khối đó nay đã
+            # bỏ (dòng thời gian đảm đương hết), nên nếu vẫn để `None` thì
+            # ĐƠN CŨ mất hẳn lý do yêu cầu — không chỗ nào khác trên màn
+            # còn hiện nó.
             ket_qua.append(_dong(
                 nhat_ky.SK_KHOA_GUI_DUYET, doc.thoi_diem_gui, nhat_ky.VAI_KHOA,
-                doc.nguoi_yeu_cau or doc.owner, None, True,
+                doc.nguoi_yeu_cau or doc.owner,
+                (doc.get("ly_do_yeu_cau") or "").strip() or None, True,
             ))
         if nhat_ky.SK_QUAN_LY_DUYET not in su_kien_that and doc.thoi_diem_duyet:
+            # `ghi_chu` = TƯ CÁCH DUYỆT, cùng lý do trên. Khuôn chữ giữ
+            # ĐÚNG như dòng thật (`PortalDeXuatMua.duyet`) ghi ra, để hai
+            # loại dòng đọc giống nhau — người xem không phải học hai cách
+            # diễn đạt cho cùng một sự việc.
+            tu_cach = (doc.get("duyet_voi_tu_cach") or "").strip()
             ket_qua.append(_dong(
                 nhat_ky.SK_QUAN_LY_DUYET, doc.thoi_diem_duyet, nhat_ky.VAI_QUAN_LY,
-                doc.nguoi_duyet, None, True,
+                doc.nguoi_duyet, f"Tư cách: {tu_cach}" if tu_cach else None, True,
             ))
         ket_qua.sort(key=lambda d: d["thoi_diem"])
 

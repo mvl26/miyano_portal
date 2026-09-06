@@ -37,7 +37,6 @@ from frappe.tests.utils import FrappeTestCase
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 FORMAT_JS = FRONTEND_SRC / "format.js"
-KHOI_TRUY_VET = FRONTEND_SRC / "components" / "chi-tiet" / "KhoiTruyVet.vue"
 KHOI_DONG_THOI_GIAN = FRONTEND_SRC / "components" / "chi-tiet" / "KhoiDongThoiGian.vue"
 CHI_TIET_YEU_CAU = FRONTEND_SRC / "views" / "ChiTietYeuCau.vue"
 STYLE_CSS = FRONTEND_SRC / "style.css"
@@ -59,40 +58,6 @@ def _bo_comment(text: str) -> str:
 	text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
 	text = re.sub(r"(?<!:)//.*$", "", text, flags=re.M)
 	return text
-
-
-class TestKhoiTruyVetDienThoai(FrappeTestCase):
-	"""Task 6, Step 5 — `KhoiTruyVet.vue` phải hiện số điện thoại (người yêu
-	cầu LẪN người duyệt) bằng liên kết `tel:`, và KHÔNG bao giờ dùng dấu
-	gạch `'—'` làm giá trị thế chỗ cho một số bị thiếu (§8: thiếu số thì
-	không in gì, không ô trống, không dấu gạch)."""
-
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		cls.raw = KHOI_TRUY_VET.read_text(encoding="utf-8")
-		cls.code = _bo_comment(cls.raw)
-
-	def test_nguoi_yeu_cau_va_nguoi_duyet_deu_hien_tel(self):
-		"""Canh chỗ DÙNG — cú pháp `href="'tel:' + <khoá số điện thoại>"` cho
-		ĐÚNG cả hai khoá `nguoi_yeu_cau_dien_thoai` và `nguoi_duyet_dien_
-		thoai` (brief Task 6, Interfaces). Thiếu MỘT trong hai là một nửa
-		khối truy vết mất nút bấm-gọi mà không ai biết."""
-		self.assertRegex(
-			self.code, r"href=\"'tel:'\s*\+\s*phieu\.nguoi_yeu_cau_dien_thoai\"",
-			"Thiếu liên kết tel: cho số điện thoại người YÊU CẦU",
-		)
-		self.assertRegex(
-			self.code, r"href=\"'tel:'\s*\+\s*phieu\.nguoi_duyet_dien_thoai\"",
-			"Thiếu liên kết tel: cho số điện thoại người DUYỆT",
-		)
-
-	def test_khong_dung_gach_ngang_lam_gia_tri_the_cho_so_dien_thoai(self):
-		"""§8 + brief ràng buộc #5 — KHÔNG `|| '—'`. Sau khi đã bóc chú thích
-		(dòng chỉ MÔ TẢ luật này, xem docstring module), mọi chuỗi `'—'` còn
-		lại trong CODE THẬT là một giá trị thế chỗ đang được gán."""
-		self.assertNotIn("'—'", self.code)
-		self.assertNotIn('"—"', self.code)
 
 
 def _than_object(js_text: str, ten_bang: str) -> str:
@@ -150,6 +115,14 @@ MAU_MONG_DOI = {
 }
 
 
+# Lớp `TestKhoiTruyVetDienThoai` ĐÃ BỎ 06/09/2026 cùng với chính khối
+# "Yêu cầu & duyệt" (`KhoiTruyVet.vue`) mà nó canh — chủ đầu tư chốt: dòng
+# thời gian đảm đương hết.
+#
+# Chốt §8 nó canh (số điện thoại đi cùng tên) KHÔNG mất: `TestKhoiDongThoi
+# GianGiaoDien::test_hien_tel_khong_dung_gach_ngang` canh đúng luật đó cho
+# khối thay thế. Xoá một lớp test mà không kiểm điều nó canh còn ai canh
+# không là cách lặng lẽ nhất để đánh mất một ràng buộc.
 class TestFormatJsNhanSuKien(FrappeTestCase):
 	"""Task 7, Step 1(a) — `format.js` phải có đủ 18 khoá sự kiện (nguồn:
 	`nhat_ky.py`) trong CẢ HAI bảng: `NHAN_SU_KIEN` (khoá → nhãn tiếng
@@ -415,23 +388,41 @@ class TestChiTietYeuCauLapNhatKy(FrappeTestCase):
 			"Thiếu lời gọi portal_nhat_ky_yeu_cau ở NHÁNH VÀO BẰNG ĐƠN (đối số order)",
 		)
 
-	def test_khoi_dong_thoi_gian_render_sau_tien_trinh_truoc_truy_vet(self):
+	def test_khoi_dong_thoi_gian_render_ngay_sau_tien_trinh(self):
 		"""§9.1 — dòng thời gian là PHẦN NỞ RA của Tiến trình: ngay dưới
-		`KhoiTienTrinh`, trước `KhoiTruyVet` (khối "Yêu cầu & duyệt")."""
+		`KhoiTienTrinh`.
+
+		Bản trước còn kẹp thêm "trước `KhoiTruyVet`". Khối đó (Yêu cầu &
+		duyệt) đã BỎ ngày 06/09/2026 theo chốt chủ đầu tư — dòng thời gian
+		đảm đương hết: người yêu cầu, thời điểm gửi, lý do, người duyệt,
+		thời điểm duyệt, tư cách duyệt, cộng cả các bước phía Miyano và số
+		điện thoại. Giữ vế so với một khối không còn tồn tại là bài tự đỏ.
+		"""
 		i_tien_trinh = self.code.find("<KhoiTienTrinh")
 		i_dong_thoi_gian = self.code.find("<KhoiDongThoiGian")
-		i_truy_vet = self.code.find("<KhoiTruyVet")
-		for ten, i in (("KhoiTienTrinh", i_tien_trinh), ("KhoiDongThoiGian", i_dong_thoi_gian), ("KhoiTruyVet", i_truy_vet)):
+		for ten, i in (("KhoiTienTrinh", i_tien_trinh),
+		               ("KhoiDongThoiGian", i_dong_thoi_gian)):
 			self.assertNotEqual(i, -1, f"ChiTietYeuCau.vue không render <{ten}>")
 		self.assertLess(
 			i_tien_trinh, i_dong_thoi_gian,
 			"<KhoiDongThoiGian> phải nằm SAU <KhoiTienTrinh> trong template",
 		)
-		self.assertLess(
-			i_dong_thoi_gian, i_truy_vet,
-			"<KhoiDongThoiGian> phải nằm TRƯỚC <KhoiTruyVet> trong template",
-		)
 
+	def test_khoi_truy_vet_da_BO_HAN(self):
+		"""Khối "Yêu cầu & duyệt" đã bỏ — dòng thời gian đảm đương hết.
+
+		Canh cả hai vế: màn không còn render nó, VÀ file component không còn
+		tồn tại. Chỉ bỏ thẻ render mà để file lại là để một component chết
+		nằm trong kho, và người sau đọc thấy sẽ tưởng nó đang chạy.
+		"""
+		from pathlib import Path
+
+		self.assertNotIn("<KhoiTruyVet", self.code)
+		self.assertNotIn("KhoiTruyVet.vue", self.code)
+		self.assertFalse(
+			(FRONTEND_SRC / "components" / "chi-tiet" / "KhoiTruyVet.vue").exists(),
+			"File `KhoiTruyVet.vue` vẫn còn — component chết nằm lại trong kho",
+		)
 	def test_khoi_dong_thoi_gian_khong_gate_rieng_tren_don(self):
 		"""VẾ ÂM của note (d) — `KhoiTienTrinh` cũ gate `v-if="don"` (đúng,
 		nó ĐỌC `don.milestones`). Copy y nguyên điều kiện đó cho `KhoiDong

@@ -539,6 +539,38 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 			"là dòng suy (suy_ra=True), không dòng nào suy_ra=False",
 		)
 
+	def test_dong_suy_MANG_ly_do_va_tu_cach(self):
+		"""Dòng suy phải mang LÝ DO YÊU CẦU và TƯ CÁCH DUYỆT.
+
+		Trước 06/09/2026 hai dòng suy truyền `ghi_chu = None`, và điều đó
+		chấp nhận được chừng nào khối "Yêu cầu & duyệt" còn đứng cạnh để hiện
+		hai thứ đó. Khối ấy nay đã BỎ (chủ đầu tư chốt: dòng thời gian đảm
+		đương hết) — nên nếu vẫn để `None` thì ĐƠN CŨ mất hẳn lý do yêu cầu
+		và tư cách duyệt, không chỗ nào khác trên màn còn hiện chúng.
+
+		Đây đúng dạng mất mát mà một lần dọn giao diện dễ gây ra nhất: khối
+		bị bỏ là khối AI CŨNG THẤY, còn thứ chỉ nó hiện thì không ai kiểm.
+		"""
+		doc = self._phieu_da_duyet_hai_vong()
+		frappe.db.sql(
+			"delete from `tabPortal Nhat Ky Yeu Cau` where de_xuat = %s", doc.name
+		)
+		frappe.set_user(self.quan_ly)
+		rows = portal_api.portal_nhat_ky_yeu_cau(de_xuat=doc.name)
+
+		gui = next(r for r in rows if r["su_kien"] == nhat_ky.SK_KHOA_GUI_DUYET)
+		duyet = next(r for r in rows if r["su_kien"] == nhat_ky.SK_QUAN_LY_DUYET)
+
+		self.assertEqual(
+			gui["ghi_chu"], doc.ly_do_yeu_cau,
+			"Dòng suy 'khoa gửi duyệt' không mang lý do yêu cầu — đơn cũ mất "
+			"hẳn thông tin này sau khi bỏ khối 'Yêu cầu & duyệt'",
+		)
+		self.assertIn(
+			(doc.duyet_voi_tu_cach or ""), (duyet["ghi_chu"] or ""),
+			"Dòng suy 'quản lý duyệt' không mang tư cách duyệt",
+		)
+
 	def test_yeu_cau_MOI_khong_bi_hien_doi(self):
 		"""VẾ ÂM của bài trên. Thiếu bài này thì phép suy ở Step 5 chèn thêm
 		một bản sao cho MỌI yêu cầu MỚI — mỗi lần gửi duyệt sẽ hiện hai dòng

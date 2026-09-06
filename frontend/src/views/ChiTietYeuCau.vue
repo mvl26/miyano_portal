@@ -28,7 +28,6 @@ import { hanhDongChoPhep } from '../de-xuat-actions'
 import { hanhDongDonChoPhep } from '../don-actions'
 import { capNhatChoDuyetCount } from '../cho-duyet'
 import ReasonModal from '../components/ReasonModal.vue'
-import KhoiTruyVet from '../components/chi-tiet/KhoiTruyVet.vue'
 import KhoiHangMoi from '../components/chi-tiet/KhoiHangMoi.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
@@ -694,13 +693,12 @@ onMounted(async () => {
       <KhoiTienTrinh v-if="don" :milestones="don.milestones" />
 
       <!-- §9.1 — "phần nở ra của Tiến trình": ngay dưới `KhoiTienTrinh`,
-           trước `KhoiTruyVet`. Gate `v-if="phieu || don"`, KHÔNG chỉ
+           Gate `v-if="phieu || don"`, KHÔNG chỉ
            `"don"` như `KhoiTienTrinh` phía trên — ca mắt số 1 của Task 8
            ("Phiếu vừa gửi duyệt") CHƯA có đơn; copy nguyên gate của khối
            kia sẽ để đúng ca đó ra một khối RỖNG TRƠN. -->
       <KhoiDongThoiGian v-if="phieu || don" :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
 
-      <KhoiTruyVet v-if="phieu" :phieu="phieu" :mo-san="giaiDoan !== 'da_giao'" />
 
       <!-- Hàng chưa có mã — HIỆN RIÊNG, TRƯỚC bảng mặt hàng (chủ đầu tư chốt
            05/09/2026). Đọc từ `phieu`, KHÔNG từ `don`: đơn hàng chỉ tồn tại
