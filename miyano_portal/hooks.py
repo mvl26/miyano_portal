@@ -51,7 +51,12 @@ required_apps = ["frappe/frappe", "erpnext"]
 # không có hai file dưới đây, nhân viên đứng ở đơn hoặc phiếu giao không có
 # đường nào sang biên bản kiểm hàng của khách.
 doctype_js = {
-	"Sales Order": "public/js/sales_order.js",
+	# `dat_ngoai_anh.js` đăng ký theo BẢNG CON `Sales Order Dat Ngoai Item`,
+	# mà bảng đó sống trên CẢ `Sales Order` LẪN `Portal De Xuat Mua` — nên
+	# phải nạp ở CẢ HAI form, nếu không ô ảnh chỉ vẽ ở một màn và không ai
+	# biết màn kia vẫn hiện chuỗi JSON thô.
+	"Sales Order": ["public/js/sales_order.js", "public/js/dat_ngoai_anh.js"],
+	"Portal De Xuat Mua": "public/js/dat_ngoai_anh.js",
 	"Delivery Note": "public/js/delivery_note.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}

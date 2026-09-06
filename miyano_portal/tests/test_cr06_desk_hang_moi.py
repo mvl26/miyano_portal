@@ -216,3 +216,83 @@ class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
 			doan, r"v-if\s*=\s*\"giaDaKhop\(d\)\"",
 			"Không có nhánh phân biệt đã-có-giá với chưa-báo-giá",
 		)
+
+
+class TestOAnhVeHinhTrongDongLuoi(FrappeTestCase):
+	"""Ô ảnh trong dòng lưới phải VẼ HÌNH, không in chuỗi JSON.
+
+	Chủ đầu tư báo 06/09/2026, dán nguyên thứ họ nhìn thấy:
+	`["/private/files/CR03_DXM-2026-00038_0_99fb6d_Chụp màn hình….png"]`
+
+	`anh` là `Small Text` chứa JSON — Frappe in ra y nguyên thứ nó lưu. Khối
+	tóm tắt ở đầu form (`sales_order.js`) CÓ vẽ ảnh, nhưng người khớp hàng làm
+	việc TRONG dòng lưới, và ở đó họ vẫn thấy chuỗi thô. Sửa một chỗ mà bỏ
+	quên chỗ người ta thật sự đứng là chưa sửa.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		import re
+
+		cls.js = (_goc() / "public" / "js" / "dat_ngoai_anh.js").read_text(encoding="utf-8")
+		cls.ma = "\n".join(
+			d for d in cls.js.splitlines() if not d.strip().startswith("//")
+		)
+		cls.dt = json.loads(
+			(_goc() / "miyano_portal" / "doctype" / "sales_order_dat_ngoai_item"
+			 / "sales_order_dat_ngoai_item.json").read_text(encoding="utf-8")
+		)
+		cls.hooks = (_goc() / "hooks.py").read_text(encoding="utf-8")
+
+	def _field(self, ten):
+		return next((f for f in self.dt["fields"] if f["fieldname"] == ten), None)
+
+	def test_co_o_HTML_rieng_de_ve_anh(self):
+		f = self._field("anh_xem")
+		self.assertIsNotNone(f, "Chưa có ô `anh_xem` để vẽ ảnh")
+		self.assertEqual(f["fieldtype"], "HTML")
+
+	def test_o_JSON_tho_bi_AN(self):
+		"""`anh` giữ nguyên dữ liệu nhưng KHÔNG hiện — nếu không thì cạnh ô
+		ảnh vẫn còn nguyên chuỗi JSON, tức chưa sửa được gì cho người đọc."""
+		f = self._field("anh")
+		self.assertTrue(f.get("hidden"), "Ô `anh` (JSON thô) vẫn hiện trên form")
+
+	def test_ve_the_img_khong_in_chuoi(self):
+		self.assertIn("JSON.parse", self.ma, "Không tách danh sách ảnh khỏi JSON")
+		self.assertIn("<img", self.ma, "Không vẽ ảnh thành thẻ <img>")
+
+	def test_doc_parentfield_TU_DONG_khong_go_cung(self):
+		"""Bảng con này sống trên CẢ `Sales Order` (`custom_dat_ngoai`) LẪN
+		`Portal De Xuat Mua` (`dat_ngoai`).
+
+		Gõ cứng một tên là ô ảnh chỉ chạy ở MỘT màn, và màn kia vẫn hiện chuỗi
+		JSON mà không ai biết — đúng kiểu hỏng vừa phải sửa.
+		"""
+		self.assertIn("row.parentfield", self.ma,
+		              "Không đọc `parentfield` từ chính dòng")
+		self.assertNotIn('"custom_dat_ngoai"', self.ma,
+		                 "Gõ cứng tên bảng con của Sales Order")
+
+	def test_nap_o_CA_HAI_form(self):
+		"""Handler đăng ký theo BẢNG CON, nên phải nạp ở cả hai doctype cha —
+		nếu không thì màn không nạp vẫn hiện chuỗi thô."""
+		# Tìm KHỐI KHAI THẬT, không phải dòng chú thích `# doctype_js = ...`
+		# ở ngay trên nó — bản đầu của bài này cắt trúng dòng chú thích và
+		# đỏ dù hooks hoàn toàn đúng. Cắt tới dấu `}` đóng khối để không phụ
+		# thuộc vào độ dài chú thích bên trong.
+		i = self.hooks.find("\ndoctype_js = {")
+		self.assertNotEqual(i, -1, "Không tìm thấy khối khai `doctype_js`")
+		khoi = self.hooks[i:self.hooks.index("\n}", i)]
+		self.assertIn("dat_ngoai_anh.js", khoi)
+		self.assertIn('"Portal De Xuat Mua"', khoi,
+		              "Chưa nạp cho form phiếu — màn đó vẫn hiện JSON thô")
+
+	def test_escape_duong_dan_tep(self):
+		"""Tên tệp do khách đặt (ảnh họ tải lên) và được nhồi vào HTML."""
+		self.assertIn("escape_html", self.ma)
+
+	def test_json_hong_khong_lam_chet_dong(self):
+		self.assertIn("catch", self.ma,
+		              "Field `anh` hỏng sẽ ném lỗi và làm chết cả dòng lưới")

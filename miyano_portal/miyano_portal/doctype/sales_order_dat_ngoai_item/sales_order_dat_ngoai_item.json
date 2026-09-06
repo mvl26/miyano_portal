@@ -6,7 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "ten_hang", "dvt", "so_luong", "ghi_chu",
-  "sec_nhan_dang", "anh", "khong_co_anh", "mo_ta_nhan_dang",
+  "sec_nhan_dang", "anh_xem", "anh", "khong_co_anh", "mo_ta_nhan_dang",
   "sec_tren_hop", "model_ma", "hang_san_xuat", "col_hop", "nuoc_san_xuat", "quy_cach",
   "sec_thuong_mai", "ncc_hien_tai", "gia_hien_tai",
   "item_khop", "da_xu_ly"
@@ -18,7 +18,9 @@
   {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú",
    "description": "BỎ khỏi lưới 05/09/2026 — xem chú thích ngân sách cột ở `model_ma`. Vẫn đọc/sửa được khi bung dòng."},
   {"fieldname": "sec_nhan_dang", "fieldtype": "Section Break", "label": "Nhận dạng hàng"},
-  {"fieldname": "anh", "fieldtype": "Small Text", "label": "Ảnh (JSON danh sách file_url)", "read_only": 1,
+  {"fieldname": "anh_xem", "fieldtype": "HTML", "label": "Ảnh mặt hàng",
+   "description": "Ô HIỂN THỊ — `public/js/dat_ngoai_anh.js` vẽ ảnh vào đây khi bung dòng. Dữ liệu thật nằm ở `anh` (ẩn)."},
+  {"fieldname": "anh", "fieldtype": "Small Text", "label": "Ảnh (JSON danh sách file_url)", "read_only": 1, "hidden": 1,
    "description": "CR-03/BR-Y5 — tối đa 5 ảnh riêng tư, ≤10MB mỗi ảnh, đính vào chính phiếu đề xuất. Khách tải lên qua portal_dat_ngoai_tai_anh; KHÔNG gõ tay ở đây."},
   {"fieldname": "khong_co_anh", "fieldtype": "Check", "label": "Không chụp được ảnh", "default": "0",
    "description": "Lối thoát CR-03: nhãn mờ, hộp đã bỏ, hàng chưa từng mua. Bật thì 'Mô tả nhận dạng' thành bắt buộc, tối thiểu 50 ký tự."},
