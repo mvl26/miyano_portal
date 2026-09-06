@@ -385,3 +385,115 @@ class TestOrderTrackTraDuChinTruong(_CR03Fixture):
 		for khoa, gt in mong_doi.items():
 			with self.subTest(truong=khoa):
 				self.assertEqual(r.get(khoa), gt)
+
+
+class TestChinTruongDiSangDonHang(_CR03Fixture):
+	"""Chín trường CR-03 phải ĐI THEO dòng hàng từ PHIẾU sang ĐƠN HÀNG.
+
+	Chủ đầu tư báo 06/09/2026: *"anh vẫn chưa nhìn thấy những thông tin mà
+	khách hàng đưa cho hàng chưa có trong hệ thống ở phần back Miyano, không
+	thấy ví dụ như trường ảnh mặt hàng"*.
+
+	GỐC THẬT (lần ra bằng cách đọc `dat_hang._xay_don`, không suy đoán):
+	phép chép dòng gõ tay sang đơn dùng một DANH SÁCH TRẮNG bốn trường —
+	`ten_hang`, `dvt`, `so_luong`, `ghi_chu`. Cả chín trường CR-03 bị bỏ lại
+	ở phiếu và KHÔNG BAO GIỜ tới đơn hàng.
+
+	Nên phía Miyano không có gì để hiện, và khối thông tin tôi thêm vào
+	`sales_order.js` hôm 05/09 lọc theo đúng những trường đó — tất cả rỗng
+	nên nó thoát sớm, không vẽ gì. Test của khối đó đọc MÃ NGUỒN JS nên vẫn
+	xanh, trong khi trên dữ liệu thật nó không bao giờ chạy được: một bài
+	test xanh cho một tính năng chưa từng hoạt động.
+
+	Đây là lần thứ TÁM dự án vấp lớp lỗi mà `docs/BAN-DO-CHUC-NANG.md` mục 4
+	ghi nhận — lần này ở dạng khó thấy nhất: dữ liệu CÓ ở đầu này, người tiêu
+	thụ CÓ ở đầu kia, và cây cầu giữa hai đầu lặng lẽ đánh rơi.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		# `dung_fixture()` xoá phiếu nhưng KHÔNG xoá Sales Order, còn
+		# `FrappeTestCase` chỉ rollback MỘT LẦN cho cả lớp. Mã yêu cầu sinh
+		# theo chuỗi customer+khoa+ngày, nên bài thứ hai sinh lại ĐÚNG mã bài
+		# đầu và đâm vào chốt chống-duyệt-hai-lần
+		# (`_dam_bao_phieu_tu_duyet`). Dọn tường minh ở đây thay vì để ba bài
+		# dưới cùng đỏ vì một lý do KHÔNG liên quan tới thứ chúng canh.
+		for r in frappe.get_all(
+			"Sales Order",
+			filters={"customer": self.kh, "docstatus": ["<", 2]},
+			pluck="name",
+		):
+			frappe.delete_doc("Sales Order", r, force=True, ignore_permissions=True)
+
+	def test_chin_truong_theo_dong_sang_don(self):
+		from miyano_portal import de_xuat_duyet
+
+		doc = self._phieu(
+			model_ma="GLU-500", hang_san_xuat="Roche", nuoc_san_xuat="Đức",
+			quy_cach="hộp 100 test", ncc_hien_tai="Công ty ABC",
+			gia_hien_tai=1250000,
+		)
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		dong = [d for d in (so.get("custom_dat_ngoai") or [])
+		        if d.ten_hang == "Găng tay nitrile không bột size M"]
+		self.assertEqual(len(dong), 1, "Dòng gõ tay không sang được đơn hàng")
+		r = dong[0]
+
+		# Khẳng định GIÁ TRỊ THẬT chứ không chỉ khoá có mặt: một bài
+		# `assertIn("model_ma", r)` vẫn xanh khi mọi giá trị là rỗng — đúng
+		# tình trạng đang hỏng.
+		for truong, mong_doi in (
+			("model_ma", "GLU-500"),
+			("hang_san_xuat", "Roche"),
+			("nuoc_san_xuat", "Đức"),
+			("quy_cach", "hộp 100 test"),
+			("ncc_hien_tai", "Công ty ABC"),
+		):
+			with self.subTest(truong=truong):
+				self.assertEqual(
+					r.get(truong), mong_doi,
+					f"`{truong}` bị đánh rơi ở cầu phiếu→đơn; Miyano không "
+					"nhìn thấy thứ khách đã khai",
+				)
+		self.assertEqual(float(r.get("gia_hien_tai") or 0), 1250000.0)
+
+	def test_ANH_theo_dong_sang_don(self):
+		"""Ảnh là dữ kiện tìm nguồn giá trị nhất, và là thứ chủ đầu tư nêu
+		đích danh. Tách thành bài riêng để khi nó rơi thì tên bài nói đúng
+		cái đã rơi."""
+		from miyano_portal import de_xuat_duyet
+
+		doc = self._phieu()
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		r = (so.get("custom_dat_ngoai") or [])[0]
+		self.assertEqual(
+			r.get("anh"), '["/private/files/_test_cr03.jpg"]',
+			"Trường ẢNH bị đánh rơi ở cầu phiếu→đơn — Miyano không xem được "
+			"nhãn hộp khách chụp, đúng thứ CR-03 sinh ra để lấy",
+		)
+
+	def test_loi_thoat_khong_co_anh_cung_theo_sang(self):
+		"""`khong_co_anh` + `mo_ta_nhan_dang` là CẶP: mất một nửa thì nửa kia
+		vô nghĩa. Rơi cặp này nghĩa là Miyano thấy một dòng không ảnh mà
+		không biết vì sao, và mất luôn mô tả bằng lời thay thế."""
+		from miyano_portal import de_xuat_duyet
+
+		mo_ta = ("Hộp giấy trắng viền xanh dương, chữ in màu đen mặt trước, "
+		         "nắp mở kiểu lật, đã bỏ vỏ nên không chụp lại được.")
+		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang=mo_ta)
+		doc.gui_duyet()
+		doc.reload()
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		r = (so.get("custom_dat_ngoai") or [])[0]
+		self.assertTrue(r.get("khong_co_anh"), "Cờ `khong_co_anh` bị đánh rơi")
+		self.assertEqual(r.get("mo_ta_nhan_dang"), mo_ta)

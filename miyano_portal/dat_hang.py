@@ -12,6 +12,7 @@ Hai đường tính giá và kiểm hạn mức là hai đường sẽ lệch nh
 
 import frappe
 from frappe.model.naming import validate_name
+from frappe.utils import flt
 
 from miyano_portal import gia_hdnt
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
@@ -432,9 +433,37 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
                 "thong_diep": f"{ten_hang}: số lượng phải > 0.",
             })
             continue
+        # CHÍN TRƯỜNG CR-03 PHẢI ĐI THEO (chủ đầu tư báo 06/09/2026: "vẫn
+        # chưa nhìn thấy thông tin khách đưa cho hàng chưa có trong hệ thống
+        # ở phần back Miyano, không thấy ví dụ như trường ảnh mặt hàng").
+        #
+        # Trước bản này danh sách trắng chỉ có BỐN trường, nên model, hãng,
+        # nước SX, quy cách, NCC, giá đang mua, ẢNH, cờ không-có-ảnh và mô tả
+        # nhận dạng đều bị bỏ lại ở phiếu và KHÔNG BAO GIỜ tới đơn hàng.
+        # Miyano — người phải đi tìm nguồn — không có gì để đọc, đúng thứ
+        # CR-03 sinh ra để đưa cho họ.
+        #
+        # Hỏng KIỂU KHÓ THẤY NHẤT: dữ liệu CÓ ở phiếu, người tiêu thụ CÓ ở
+        # Desk (`sales_order.js`), chỉ cây cầu giữa hai đầu lặng lẽ đánh rơi.
+        # Không lỗi, không cảnh báo — khối bên Desk lọc theo chính những
+        # trường này, thấy rỗng hết nên thoát sớm và không vẽ gì.
+        #
+        # DÙNG DANH SÁCH TƯỜNG MINH, không `dn.copy()`: `dn` là dict client
+        # gửi lên, chép cả cụm là mở đường cho client tự đặt `item_khop` /
+        # `da_xu_ly` — hai field QUYẾT ĐỊNH việc đơn có xác nhận được không
+        # (`kiem_dat_ngoai_da_xu_ly`). Thêm trường mới thì thêm vào đây.
         dong_dat_ngoai.append({
             "ten_hang": ten_hang, "dvt": dvt, "so_luong": so_luong,
             "ghi_chu": (dn.get("ghi_chu") or "").strip(),
+            "model_ma": (dn.get("model_ma") or "").strip(),
+            "hang_san_xuat": (dn.get("hang_san_xuat") or "").strip(),
+            "nuoc_san_xuat": (dn.get("nuoc_san_xuat") or "").strip(),
+            "quy_cach": (dn.get("quy_cach") or "").strip(),
+            "ncc_hien_tai": (dn.get("ncc_hien_tai") or "").strip(),
+            "gia_hien_tai": flt(dn.get("gia_hien_tai")),
+            "anh": dn.get("anh") or None,
+            "khong_co_anh": 1 if dn.get("khong_co_anh") else 0,
+            "mo_ta_nhan_dang": (dn.get("mo_ta_nhan_dang") or "").strip(),
         })
 
     if loi:
