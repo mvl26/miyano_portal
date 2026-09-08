@@ -388,24 +388,63 @@ class TestChiTietYeuCauLapNhatKy(FrappeTestCase):
 			"Thiếu lời gọi portal_nhat_ky_yeu_cau ở NHÁNH VÀO BẰNG ĐƠN (đối số order)",
 		)
 
-	def test_khoi_dong_thoi_gian_render_ngay_sau_tien_trinh(self):
-		"""§9.1 — dòng thời gian là PHẦN NỞ RA của Tiến trình: ngay dưới
-		`KhoiTienTrinh`.
+	def test_khoi_dong_thoi_gian_o_DUOI_CUNG_man(self):
+		"""Chủ đầu tư 08/09/2026: *"phần dòng thời gian em cho xuống phần
+		dưới cùng"*.
 
-		Bản trước còn kẹp thêm "trước `KhoiTruyVet`". Khối đó (Yêu cầu &
-		duyệt) đã BỎ ngày 06/09/2026 theo chốt chủ đầu tư — dòng thời gian
-		đảm đương hết: người yêu cầu, thời điểm gửi, lý do, người duyệt,
-		thời điểm duyệt, tư cách duyệt, cộng cả các bước phía Miyano và số
-		điện thoại. Giữ vế so với một khối không còn tồn tại là bài tự đỏ.
+		§9.1 gốc đặt nó ngay dưới `KhoiTienTrinh` ("phần nở ra của Tiến
+		trình"). Chốt mới thắng đặc tả, và lý do đứng vững: từ 06/09 khối này
+		đảm đương cả phần "Yêu cầu & duyệt" nên dài hẳn ra, và một sổ ĐỐI
+		CHIẾU nằm giữa trang đẩy bảng mặt hàng — thứ người ta vào màn này để
+		xem — xuống dưới màn đầu tiên.
+
+		Canh nó đứng SAU mọi khối nội dung khác, không phải chỉ sau một khối:
+		"dưới cùng" mà chỉ so với một mốc thì lần thêm khối sau này nó lại
+		nằm giữa mà không ai đỏ.
 		"""
-		i_tien_trinh = self.code.find("<KhoiTienTrinh")
 		i_dong_thoi_gian = self.code.find("<KhoiDongThoiGian")
-		for ten, i in (("KhoiTienTrinh", i_tien_trinh),
-		               ("KhoiDongThoiGian", i_dong_thoi_gian)):
-			self.assertNotEqual(i, -1, f"ChiTietYeuCau.vue không render <{ten}>")
-		self.assertLess(
-			i_tien_trinh, i_dong_thoi_gian,
-			"<KhoiDongThoiGian> phải nằm SAU <KhoiTienTrinh> trong template",
+		self.assertNotEqual(
+			i_dong_thoi_gian, -1, "ChiTietYeuCau.vue không render <KhoiDongThoiGian>"
+		)
+		for ten in ("<KhoiTienTrinh", "<KhoiHangMoi", "<BangMatHang",
+		            "<KhoiGiaoHang", "<KhoiHoaDonTaiLieu"):
+			i = self.code.find(ten)
+			self.assertNotEqual(i, -1, f"ChiTietYeuCau.vue không render {ten}>")
+			self.assertLess(
+				i, i_dong_thoi_gian,
+				f"<KhoiDongThoiGian> phải nằm SAU {ten}> — chủ đầu tư chốt "
+				"08/09/2026 đưa nó xuống dưới cùng",
+			)
+
+	def test_khoi_dong_thoi_gian_THU_GON_san_mo_ra_moi_xem(self):
+		"""Chủ đầu tư 08/09/2026: *"thu gọn lại và mở ra để xem"*.
+
+		HAI vế, và vế thứ hai là vế dễ mất: `<details>` KHÔNG có thuộc tính
+		`open` thì mới đóng sẵn. Thêm `open` vào là khối lại bung hết ở đáy
+		trang trong mọi lần xem đơn — đúng thứ việc thu gọn định dẹp, mà
+		không lỗi nào nổ ra.
+
+		Dùng thẻ chuẩn thay vì tự dựng `ref` + `v-if`: `<details>` cho sẵn
+		phím Enter/Space, trạng thái đóng/mở cho trình đọc màn hình, và mũi
+		tên chỉ báo — một bản tự viết phải chép lại cả ba và thường quên hai.
+		"""
+		# `_bo_comment()` của chính module này, KHÔNG tự lột lại: chú thích
+		# ngay trên thẻ giải thích vì sao dùng `<details>`/`<summary>`, nên
+		# soi bản THÔ làm `re.search(r"<details\b…")` khớp trúng LỜI GIẢI
+		# THÍCH — đo được: bài vẫn xanh cả khi thẻ thật bị đổi thành `<div>`
+		# hoặc bị thêm `open`. Đúng lớp lỗi docstring module đã ghi.
+		khoi = _bo_comment(KHOI_DONG_THOI_GIAN.read_text(encoding="utf-8"))
+		self.assertRegex(
+			khoi, r"<details\b",
+			"Khối dòng thời gian không thu gọn được — phải dùng <details>/<summary>",
+		)
+		self.assertIn("<summary", khoi, "Không có dòng tiêu đề bấm để mở")
+		m = re.search(r"<details\b([^>]*)>", khoi)
+		self.assertIsNotNone(m)
+		self.assertNotRegex(
+			m.group(1), r"\bopen\b",
+			"`<details open>` là MỞ SẴN — chủ đầu tư yêu cầu thu gọn lại, "
+			"mở ra mới xem",
 		)
 
 	def test_khoi_truy_vet_da_BO_HAN(self):

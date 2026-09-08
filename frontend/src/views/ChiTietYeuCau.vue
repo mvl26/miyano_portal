@@ -712,13 +712,6 @@ onMounted(async () => {
 
       <KhoiTienTrinh v-if="don" :milestones="don.milestones" />
 
-      <!-- §9.1 — "phần nở ra của Tiến trình": ngay dưới `KhoiTienTrinh`,
-           Gate `v-if="phieu || don"`, KHÔNG chỉ
-           `"don"` như `KhoiTienTrinh` phía trên — ca mắt số 1 của Task 8
-           ("Phiếu vừa gửi duyệt") CHƯA có đơn; copy nguyên gate của khối
-           kia sẽ để đúng ca đó ra một khối RỖNG TRƠN. -->
-      <KhoiDongThoiGian v-if="phieu || don" :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
-
 
       <!-- Hàng chưa có mã — HIỆN RIÊNG, TRƯỚC bảng mặt hàng (chủ đầu tư chốt
            05/09/2026). Đọc từ `phieu`, KHÔNG từ `don`: đơn hàng chỉ tồn tại
@@ -773,6 +766,18 @@ onMounted(async () => {
         <div class="h3">Ghi chú</div>
         <p style="font-size: 13px; white-space: pre-wrap">{{ phieu.ghi_chu }}</p>
       </div>
+
+      <!-- DƯỚI CÙNG và ĐÓNG SẴN (chủ đầu tư 08/09/2026).
+           Trước đó khối này nằm ngay dưới `KhoiTienTrinh` theo §9.1 ("phần
+           nở ra của Tiến trình"). Chốt mới thắng đặc tả: từ 06/09 nó đảm
+           đương cả phần "Yêu cầu & duyệt" nên dài ra hẳn, và một sổ ĐỐI
+           CHIẾU mở sẵn ở giữa trang đẩy bảng mặt hàng — thứ người ta vào
+           màn này để xem — xuống dưới màn đầu tiên.
+
+           Gate `v-if="phieu || don"`, KHÔNG chỉ `"don"` như `KhoiTienTrinh`:
+           ca mắt số 1 của Task 8 ("Phiếu vừa gửi duyệt") CHƯA có đơn; copy
+           nguyên gate của khối kia sẽ để đúng ca đó ra một khối RỖNG TRƠN. -->
+      <KhoiDongThoiGian v-if="phieu || don" :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
     </template>
 
     <!-- Ruling coordinator (1) — hỏi lý do yêu cầu khi bấm Gửi duyệt mà

@@ -5,7 +5,9 @@
 // thước màn (§9.2) — CỐ Ý không rẽ nhánh desktop/mobile như khối kia:
 // dòng thời gian DỌC là hình dạng ĐÚNG cho cả hai, không chỉ cho di động.
 // Không thêm `<style>` riêng ở đây — mọi màu SỐNG ở bốn lớp `.vdot.*` mới
-// thêm vào `style.css`, dùng CHUNG với phần còn lại của cổng.
+// thêm vào `style.css`, dùng CHUNG với phần còn lại của cổng. Hai lớp
+// `.kdtg-dau`/`.kdtg[open]` của dòng tiêu đề bấm-để-mở (08/09/2026) cũng ở
+// đó, cùng lý do.
 import { computed } from 'vue'
 import { fmtDateTime, mauChamSuKien, nhanSuKien } from '../../format'
 
@@ -30,11 +32,31 @@ const props = defineProps({
 // khác nhau — im lặng coi chúng như nhau là mời người ta trích dẫn một
 // suy luận như thể đó là bằng chứng.
 const coDongSuyRa = computed(() => props.dong.some((d) => d.suy_ra))
+
+// Số mốc, để dòng tiêu đề nói được có gì bên trong khi đang ĐÓNG (chủ đầu
+// tư 08/09/2026: "thu gọn lại và mở ra để xem"). Một cái tiêu đề đóng mà
+// không nói số thì người ta phải mở ra mới biết có đáng mở không — đúng thứ
+// việc thu gọn định tiết kiệm.
+const soMoc = computed(() => props.dong.length)
 </script>
 
 <template>
-  <div class="card mb10" style="margin-bottom: 14px">
-    <div class="h3">Dòng thời gian</div>
+  <!-- `<details>`/`<summary>` — CỐ Ý không tự dựng cơ chế đóng/mở bằng
+       `ref` + `v-if`: thẻ chuẩn cho sẵn phím Enter/Space, trạng thái
+       `aria-expanded`, và trình đọc màn hình đọc đúng "đang đóng/đang mở".
+       Một bản tự viết phải chép lại cả ba thứ đó và thường quên hai.
+
+       ĐÓNG SẴN (không có `open`) — chủ đầu tư 08/09/2026: "thu gọn lại và
+       mở ra để xem". Đây là sổ ĐỐI CHIẾU, chỉ mở khi hai bên nhớ khác nhau;
+       để nó mở sẵn ở đáy trang là bắt mọi người cuộn qua 20 dòng lịch sử
+       trong mọi lần xem đơn. -->
+  <details class="card mb10 kdtg" style="margin-bottom: 14px">
+    <summary class="kdtg-dau">
+      <span class="h3" style="margin: 0">Dòng thời gian</span>
+      <!-- Số mốc hiện NGAY Ở DÒNG ĐÓNG: người đọc quyết định có mở hay
+           không mà không phải mở ra mới biết. -->
+      <span v-if="!dangTai && soMoc" class="tag">{{ soMoc }} mốc</span>
+    </summary>
 
     <!-- `dangTai` đứng TRƯỚC nhánh rỗng — thiếu bước này thì MỖI lần mở
          màn đều nháy qua dòng "Chưa có thao tác nào" trước khi dữ liệu về,
@@ -123,5 +145,5 @@ const coDongSuyRa = computed(() => props.dong.some((d) => d.suy_ra))
         Dòng có nhãn "Dựng lại từ phiếu" được suy ra từ dữ liệu đã ghi sẵn trên phiếu (ai gửi, ai duyệt), không phải ghi trực tiếp lúc thao tác xảy ra.
       </p>
     </template>
-  </div>
+  </details>
 </template>

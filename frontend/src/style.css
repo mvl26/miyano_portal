@@ -649,3 +649,29 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 }
 .muted { color: var(--gray); }
 .sm { font-size: 11px; }
+
+/* Dòng tiêu đề bấm-để-mở của khối "Dòng thời gian" (`KhoiDongThoiGian.vue`,
+   chủ đầu tư 08/09/2026: "thu gọn lại và mở ra để xem").
+
+   Ở ĐÂY chứ không phải `<style scoped>` trong component: khối đó theo quy
+   ước §9.2 KHÔNG giữ CSS cục bộ nào — mọi lớp của dòng thời gian (`.vtl`,
+   `.vst`, `.vdot`, `.vlb` và bốn lớp màu chấm) sống chung ở tệp này, để
+   không có hai chỗ cùng tả một khối. `test_dung_lai_lop_bo_cuc_co_khong_tu_
+   them_style` canh đúng quy ước đó.
+
+   Kích thước bằng `rem` — co giãn theo cả bề ngang màn hình LẪN cỡ chữ
+   người dùng đặt trong trình duyệt. */
+.kdtg-dau {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  cursor: pointer;
+  /* Vùng bấm rộng hết bề ngang thẻ, không chỉ mấy chữ tiêu đề — trên điện
+     thoại một mục tiêu bấm hẹp là một mục tiêu bấm trượt. Mũi tên mặc định
+     của trình duyệt giữ nguyên: đó là chỉ báo đóng/mở người dùng đã quen. */
+  list-style-position: outside;
+}
+/* Chỉ khi ĐANG MỞ mới cần khoảng cách xuống phần thân; lúc đóng thẻ gọn
+   đúng một dòng. */
+.kdtg[open] .kdtg-dau { margin-bottom: 0.625rem; }
