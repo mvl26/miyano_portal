@@ -139,18 +139,23 @@ class TestBangMatHangCanCuKho(FrappeTestCase):
 
 	def _than_v_for(self) -> str:
 		"""Cắt thân `v-for="row in dong"` — cùng kỹ thuật `_doan_vong_lap()`
-		của `test_nhat_ky_giao_dien.py`, mốc kết thúc là dòng đặt ngoài
-		(`datNgoaiDaKhop`) — vòng lặp dòng hàng CHÍNH luôn đứng trước khối
-		đó trong file."""
+		của `test_nhat_ky_giao_dien.py`.
+
+		Mốc kết thúc là dòng RỖNG (`v-if="!dong.length"`) đứng ngay sau
+		`</template>` đóng vòng lặp. Mốc cũ là `datNgoaiDaKhop` — computed
+		của bảng phụ "Đã khớp mã", đã bỏ hẳn ngày 08/09/2026 khi chủ đầu tư
+		chốt "khớp mã xong chỉ hiển thị đúng 1 bảng". Mốc mới nằm TRONG cùng
+		một bảng và mô tả đúng thứ nó đánh dấu (chỗ vòng lặp hết), nên không
+		chết theo một khối khác bị dỡ lần sau.
+		"""
 		i_mo = self.code.find('v-for="row in dong"')
 		self.assertNotEqual(i_mo, -1, 'Không tìm thấy v-for="row in dong"')
-		# `datNgoaiDaKhop` xuất hiện LẦN ĐẦU trong <script setup> (khai báo
-		# computed), TRƯỚC cả <template> — tìm mốc kết thúc bắt đầu TỪ SAU
-		# `i_mo`, đúng lần xuất hiện trong template (khối "Đã khớp mã").
-		i_dong_ngoai = self.code.find("datNgoaiDaKhop", i_mo)
-		self.assertNotEqual(i_dong_ngoai, -1, "Không tìm thấy mốc kết thúc (datNgoaiDaKhop)")
-		self.assertLess(i_mo, i_dong_ngoai)
-		return self.code[i_mo:i_dong_ngoai]
+		i_ket = self.code.find('v-if="!dong.length"', i_mo)
+		self.assertNotEqual(
+			i_ket, -1, 'Không tìm thấy mốc kết thúc (dòng rỗng `v-if="!dong.length"`)'
+		)
+		self.assertLess(i_mo, i_ket)
+		return self.code[i_mo:i_ket]
 
 	def test_ham_dinh_dang_so_luong_phan_biet_null_voi_0(self):
 		"""Hàm định dạng SL/ngày cho bốn cột mới phải kiểm `null`/`undefined`

@@ -17,6 +17,7 @@ import { ref, computed } from 'vue'
 import api from '../../api'
 import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
+import TheHangMoi from './TheHangMoi.vue'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -30,21 +31,86 @@ const props = defineProps({
   // hàng không có trong danh mục kho) — xem `canCu()` bên dưới, đây là NƠI
   // DUY NHẤT phân biệt "không tra được" với "tồn 0".
   canCuKho: { type: Object, default: () => ({}) },
+  // Tên PHIẾU — chỉ để dựng đường ảnh riêng tư của khối "Xem chi tiết"
+  // (`portal_dat_ngoai_xem_anh` kiểm sở hữu theo đề xuất). Rỗng với ~102 đơn
+  // cũ không có phiếu; những đơn đó cũng không có ảnh CR-03 nào.
+  deXuat: { type: String, default: '' },
 })
 
 // Đơn cũ không có phiếu (~102 đơn trước luồng duyệt) — dòng lấy từ đơn, và
 // hai cột của phiếu tự vắng mặt theo `coPhieu` bên dưới.
+// Dòng gõ tay ĐÃ KHỚP MÃ, gom theo mã Miyano gán — nhiều yêu cầu về CÙNG
+// một mã là ca thường, không phải ngoại lệ: `_gop_hoac_them_dong_hang` cộng
+// thẳng số lượng vào MỘT dòng `Sales Order Item`. Dựng bản đồ 1-nhiều ở đây
+// để chỗ nào cũng đọc cùng một phép gom, thay vì `find()` rải rác (bản
+// trước `find()` một dòng và mất phần còn lại).
+const yeuCauKhopTheoMa = computed(() => {
+  const nhom = {}
+  for (const d of props.don?.dat_ngoai || []) {
+    if (!d.da_xu_ly || !d.item_khop) continue
+    if (!nhom[d.item_khop]) nhom[d.item_khop] = []
+    nhom[d.item_khop].push(d)
+  }
+  return nhom
+})
+
 const dong = computed(() => {
-  if (props.phieu) return props.phieu.items || []
-  return (props.don?.items || []).map((it) => ({
-    item_code: it.item_code,
-    item_name: it.item_name,
-    dvt: it.uom,
-    so_luong_tren_don: it.qty,   // Ruling preflight #2 — nuôi cột "SL đặt"
-    don_gia_tren_don: it.rate,
-    thanh_tien_tren_don: it.amount,
-    da_giao_tren_don: it.delivered_qty,
-  }))
+  const co_ban = props.phieu
+    ? (props.phieu.items || []).map((r) => ({ ...r }))
+    : (props.don?.items || []).map((it) => ({
+        item_code: it.item_code,
+        item_name: it.item_name,
+        dvt: it.uom,
+        so_luong_tren_don: it.qty,   // Ruling preflight #2 — nuôi cột "SL đặt"
+        don_gia_tren_don: it.rate,
+        thanh_tien_tren_don: it.amount,
+        da_giao_tren_don: it.delivered_qty,
+      }))
+
+  // MỘT BẢNG, KHÔNG BA (chủ đầu tư 08/09/2026: "sau khi đã khớp mã hàng từ
+  // Miyano thì chỉ hiển thị đúng 1 bảng"). Trước bản này dòng đã khớp KHÔNG
+  // BAO GIỜ vào được bảng chính, và lý do là cấu trúc chứ không phải sót:
+  // khớp mã dựng dòng hàng trên ĐƠN, còn bảng chính lấy dòng từ PHIẾU. Nên
+  // phải nối lại ở đây — đó chính là việc hai bảng phụ cũ đang làm thay.
+  const nhom = yeuCauKhopTheoMa.value
+  const da_gan = new Set()
+  for (const r of co_ban) {
+    if (!nhom[r.item_code]) continue
+    r.yeu_cau_khop = nhom[r.item_code]
+    da_gan.add(r.item_code)
+  }
+  // Mã CHƯA từng có trên phiếu (ca thường: khoa gõ tay "dây truyền dịch",
+  // Miyano khớp ra một mã khoa không hề xin) — dựng dòng tổng hợp. Bỏ qua
+  // nhánh này là để đúng nhóm hàng CR-03 rơi khỏi bảng, tức tái lập nguyên
+  // con lỗi "quản lý duyệt thứ mình không nhìn thấy".
+  for (const ma of Object.keys(nhom)) {
+    if (da_gan.has(ma)) continue
+    const hang = (props.don?.items || []).find((h) => h.item_code === ma)
+    const ycs = nhom[ma]
+    co_ban.push({
+      item_code: ma,
+      item_name: hang?.item_name || '',
+      dvt: hang?.uom || ycs[0].dvt || '',
+      // Tổng SL của MỌI yêu cầu gộp vào mã này — không phải của yêu cầu đầu.
+      so_luong_de_xuat: ycs.reduce((t, y) => t + (Number(y.so_luong) || 0), 0),
+      // `null`, KHÔNG chép `so_luong_de_xuat`: dòng gõ tay không đi qua
+      // `_dong_dau_so_luong_duyet` (hàm đó đóng dấu dòng của PHIẾU), nên ở
+      // đây KHÔNG CÓ con số duyệt nào cả. Chép cột đề xuất sang là in ra một
+      // con số duyệt chưa ai duyệt — cùng luật "—" của CR-04.
+      so_luong_duyet: null,
+      so_luong_xin_sua: null,
+      so_luong_tren_don: hang ? Number(hang.qty) : null,
+      don_gia_tren_don: hang ? Number(hang.rate) : null,
+      thanh_tien_tren_don: hang ? Number(hang.amount) : null,
+      da_giao_tren_don: hang ? Number(hang.delivered_qty) : null,
+      ghi_chu_quan_ly: '',
+      yeu_cau_khop: ycs,
+      // Dòng KHÔNG có mặt trên phiếu — quản lý không được sửa SL duyệt của
+      // nó (không có gì để sửa), xem ô nhập ở template.
+      chi_tu_yeu_cau: true,
+    })
+  }
+  return co_ban
 })
 
 const coPhieu = computed(() => !!props.phieu)
@@ -68,6 +134,10 @@ const daDieuChinh = computed(
   () => ['Đã duyệt', 'Chờ duyệt sửa'].includes(props.phieu?.trang_thai)
 )
 function khongDuyet(row) {
+  // `Number(null) === 0` — bẫy thật, không phải phòng xa: dòng đã khớp mã có
+  // `so_luong_duyet === null` ("không có số duyệt"), và thiếu chốt này thì
+  // MỌI dòng như vậy bị gạch ngang kèm badge "Không duyệt" trên đơn đã duyệt.
+  if (row.so_luong_duyet === null || row.so_luong_duyet === undefined) return false
   return daDieuChinh.value && Number(row.so_luong_duyet) === 0
 }
 
@@ -185,29 +255,20 @@ async function toggleSoKho(row) {
   }
 }
 
-// Dòng đặt ngoài sống trên ĐƠN (`don.dat_ngoai`), không trên phiếu — tách
-// theo `da_xu_ly` đúng cách OrderDetail.vue đang làm (review I-4): dòng đã
-// khớp mã KHÔNG được đọc như đang chờ, nhét chung một tiêu đề "đang chờ"
-// là lỗi đã phải sửa một lần rồi.
-const datNgoaiDaKhop = computed(() => (props.don?.dat_ngoai || []).filter((d) => d.da_xu_ly))
-
-// Đơn giá của dòng ĐÃ KHỚP MÃ (chủ đầu tư 05/09/2026).
+// --- "Xem chi tiết" — dòng này khớp với yêu cầu NÀO (08/09/2026) -------
 //
-// Bảng "Đã khớp mã" trước đây không có cột giá, nên khách nối được món mình
-// xin với mã Miyano tìm ra, nhưng phải nhìn sang BẢNG KHÁC mới biết được báo
-// bao nhiêu. Câu đơn giản nhất — "món tôi xin, Miyano báo bao nhiêu?" — bắt
-// họ ghép hai chỗ.
+// Thay hai bảng phụ cũ ("Đã khớp mã" + "Đang chờ Miyano xác nhận nguồn"). Hai
+// bảng đó tồn tại vì dòng đã khớp không vào được bảng chính; nay `dong` đã
+// nối chúng vào, giữ lại là in cùng một dòng hàng hai lần ở hai chỗ.
 //
-// Giá KHÔNG nằm trên dòng đặt ngoài: khi khớp mã, `chuyen_dong_dat_ngoai_
-// thanh_hang` dựng (hoặc gộp vào) một dòng hàng THẬT trong `items`, và giá
-// sống ở đó. Nên tra theo `item_khop` — cũng đúng cách server gộp: nhiều
-// dòng đặt ngoài cùng một mã gộp về MỘT dòng hàng, một đơn giá.
-function giaDaKhop(d) {
-  if (!d?.item_khop) return null
-  const hang = (props.don?.items || []).find((h) => h.item_code === d.item_khop)
-  return hang ? Number(hang.rate) || 0 : null
+// Khoá theo `item_code`, cùng khuôn `dongMoRong` của sổ kho — nhưng là ref
+// RIÊNG: hai thứ xổ ra ở cùng một dòng vì hai lý do khác nhau (sổ kho để
+// quyết định số lượng, chi tiết yêu cầu để đối chiếu hàng), dùng chung một
+// cờ thì mở cái này tắt cái kia.
+const chiTietMoRong = ref({})
+function toggleChiTietKhop(row) {
+  chiTietMoRong.value[row.item_code] = !chiTietMoRong.value[row.item_code]
 }
-const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) => !d.da_xu_ly))
 </script>
 
 <template>
@@ -279,6 +340,21 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
             <br />
             <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
             <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
+            <!-- Nhãn + lối vào chi tiết cho dòng Miyano khớp từ hàng gõ tay
+                 (chủ đầu tư 08/09/2026). Nhãn một mình chưa đủ: khoa gõ tên
+                 hàng theo cách của họ, Miyano trả về một MÃ — không nói rõ
+                 mã này khớp với yêu cầu nào thì khoa không nối lại được, mà
+                 nối lại chính là việc bảng này sinh ra để làm. -->
+            <template v-if="row.yeu_cau_khop">
+              <span class="badge b-green" style="margin-top: 4px">Đã khớp với yêu cầu</span>
+              <button
+                type="button"
+                class="nut-chi-tiet"
+                :aria-expanded="chiTietMoRong[row.item_code] ? 'true' : 'false'"
+                :aria-label="`Xem chi tiết yêu cầu đã khớp với ${row.item_code}`"
+                @click="toggleChiTietKhop(row)"
+              >{{ chiTietMoRong[row.item_code] ? '▾' : '▸' }} Xem chi tiết</button>
+            </template>
           </td>
           <td>{{ row.dvt }}</td>
           <!-- CR-04 §3/§4 — bốn ô này đọc QUA `canCu(row)` (KHÔNG với thẳng
@@ -326,7 +402,12 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                ở cột "Mặt hàng". KHÔNG `.number` trên v-model: xem
                `soDuyetMoi` ở trên (ô trống = "không đổi"). -->
           <td v-if="coCotDuyet" class="right">
-            <template v-if="quanLyDangDuyet">
+            <!-- `!row.chi_tu_yeu_cau` — dòng Miyano khớp từ hàng gõ tay KHÔNG
+                 có dòng tương ứng trên phiếu, nên không có `so_luong_duyet`
+                 để sửa; `de_xuat_duyet` khớp payload theo `item_code` của
+                 dòng PHIẾU và sẽ bỏ qua nó trong im lặng. Đưa ra một ô nhập
+                 gõ vào không ăn thua là hứa suông với quản lý. -->
+            <template v-if="quanLyDangDuyet && !row.chi_tu_yeu_cau">
               <input
                 type="number" min="0" step="any"
                 v-model="slDuyetSua[row.item_code]"
@@ -342,7 +423,8 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                 Sẽ duyệt {{ soDuyetMoi(row) }} / xin {{ row.so_luong_de_xuat }}
               </span>
             </template>
-            <template v-else>{{ row.so_luong_duyet }}</template>
+            <template v-else-if="row.so_luong_duyet !== null && row.so_luong_duyet !== undefined">{{ row.so_luong_duyet }}</template>
+            <span v-else class="tag" title="Dòng này Miyano khớp từ yêu cầu gõ tay của khoa — không đi qua bước đóng dấu SL duyệt">—</span>
           </td>
           <td v-if="coCotXinSua" class="right">
             <span v-if="row.so_luong_xin_sua !== null && row.so_luong_xin_sua !== undefined">{{ row.so_luong_xin_sua }}</span>
@@ -362,7 +444,17 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                `format.js`: `Number(v || 0)`) nên PHẢI chặn ở đây, gọi thẳng
                `fmtVND` sẽ nói với khoa rằng hàng của họ giá 0. -->
           <td v-if="coDon" class="right">
-            <template v-if="row.don_gia_tren_don !== null && row.don_gia_tren_don !== undefined">{{ fmtVND(row.don_gia_tren_don) }}</template>
+            <!-- Giá 0 trên một dòng ĐÃ KHỚP MÃ nghĩa là MIYANO CHƯA BÁO GIÁ,
+                 không phải "miễn phí": `_gop_hoac_them_dong_hang` chỉ tự lấy
+                 đơn giá khi mặt hàng thuộc một hợp đồng khung còn hiệu lực,
+                 ngoài ra để 0 và chờ Miyano điền. Câu này chuyển nguyên từ
+                 bảng "Đã khớp mã" cũ — bỏ nó lúc gộp bảng là nói với khoa
+                 rằng hàng của họ giá 0. Chỉ áp cho dòng khớp: một dòng hàng
+                 thường giá 0 là chuyện khác (hàng tặng kèm), không đoán hộ. -->
+            <template v-if="row.yeu_cau_khop && !row.don_gia_tren_don">
+              <span class="tag">Chờ Miyano báo giá</span>
+            </template>
+            <template v-else-if="row.don_gia_tren_don !== null && row.don_gia_tren_don !== undefined">{{ fmtVND(row.don_gia_tren_don) }}</template>
             <template v-else>—</template>
           </td>
           <td v-if="coDon" class="right">
@@ -377,7 +469,14 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
                nằm lồng trong cột "Mặt hàng" như bản gốc, vì header ở đây
                đã có `<th>Ghi chú quản lý</th>` của riêng nó. -->
           <td v-if="coPhieu">
-            <template v-if="quanLyDangDuyet">
+            <!-- Cùng chốt `!row.chi_tu_yeu_cau` của ô SL duyệt: `de_xuat_duyet`
+                 khớp payload theo `item_code` của dòng PHIẾU, nên ghi chú gõ
+                 vào một dòng chỉ có trên đơn sẽ rơi im lặng. Hôm nay hai thứ
+                 loại trừ nhau (`quanLyDangDuyet` chỉ bật ở "Chờ duyệt", lúc đó
+                 chưa có đơn nên chưa có dòng khớp nào) — chốt đứng đây để một
+                 lần mở màn duyệt cho trạng thái khác không lặng lẽ dựng ra ô
+                 nhập gõ vào không ăn thua. -->
+            <template v-if="quanLyDangDuyet && !row.chi_tu_yeu_cau">
               <!-- `textarea` hai dòng thay cho `input` một dòng, và BỎ
                    `max-width: 340px` (chủ đầu tư 05/09/2026: "cho to ra").
                    Ghi chú duyệt là chỗ quản lý giải thích VÌ SAO cắt số —
@@ -396,6 +495,26 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
             <template v-else-if="row.ghi_chu_quan_ly">
               <span class="tag">Ghi chú quản lý: {{ row.ghi_chu_quan_ly }}</span>
             </template>
+          </td>
+        </tr>
+        <!-- Chi tiết "khớp với yêu cầu nào" — xổ NGAY DƯỚI dòng hàng, cùng
+             kiểu sổ kho của CR-04: câu hỏi sinh ra khi mắt đang ở dòng đó,
+             trả lời ở một bảng khác dưới trang là bắt người ta cuộn đi rồi
+             cuộn về. Vẽ bằng `TheHangMoi` — ĐÚNG component khối "hàng chưa
+             có trong hệ thống" đang dùng, nên chín trường và ảnh hiện y hệt
+             ở cả trước lẫn sau khi khớp mã. -->
+        <tr v-if="row.yeu_cau_khop && chiTietMoRong[row.item_code]">
+          <td :colspan="soCotTong" style="background: #f8fafc">
+            <p class="tag" style="margin: 0 0 0.5rem">
+              Dòng hàng này Miyano khớp từ {{ row.yeu_cau_khop.length }} yêu cầu
+              hàng chưa có mã của khoa:
+            </p>
+            <TheHangMoi
+              v-for="(y, k) in row.yeu_cau_khop"
+              :key="y.name || k"
+              :d="y"
+              :de-xuat="deXuat"
+            />
           </td>
         </tr>
         <!-- CR-04 §6 — thẻ kho (nhập/xuất/tồn luỹ kế) xổ NGAY DƯỚI dòng
@@ -447,59 +566,24 @@ const datNgoaiChoXuLy = computed(() => (props.don?.dat_ngoai || []).filter((d) =
       </tbody>
     </table>
 
-    <!-- Dòng đặt ngoài: hàng khách gõ tay chưa có mã, sống trên ĐƠN chứ
-         không trên phiếu. Bảng con RIÊNG, không gộp vào bảng trên — chúng
-         là một loại dòng khác ("Miyano đang tìm nguồn"), nhét chung sẽ nói
-         sai về chúng. Tách tiếp theo `da_xu_ly` như OrderDetail.vue đã
-         làm (review I-4): dòng đã khớp mã KHÔNG được đọc như đang chờ. -->
-    <template v-if="datNgoaiDaKhop.length">
-      <h4 style="margin: 14px 12px 6px">Đã khớp mã (từ yêu cầu đặt ngoài)</h4>
-      <table>
-        <thead>
-          <tr>
-            <th>Mã đã khớp</th><th>Yêu cầu của bạn</th><th>ĐVT</th>
-            <th class="right">SL</th><th class="right">Đơn giá</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(d, i) in datNgoaiDaKhop" :key="'khop-' + i">
-            <td><b>{{ d.item_khop }}</b> <span class="badge b-green">Đã tìm được nguồn</span></td>
-            <td>
-              <span class="tag">(từ yêu cầu: {{ d.ten_hang }})</span>
-              <template v-if="d.ghi_chu"><br /><span class="tag">{{ d.ghi_chu }}</span></template>
-            </td>
-            <td>{{ d.dvt }}</td>
-            <td class="right">{{ d.so_luong }}</td>
-            <!-- Giá 0 nghĩa là MIYANO CHƯA BÁO GIÁ, không phải "miễn phí".
-                 Khớp được mã chưa chắc đã có giá: `_gop_hoac_them_dong_hang`
-                 chỉ tự lấy đơn giá khi mặt hàng thuộc một hợp đồng khung còn
-                 hiệu lực; ngoài ra để 0 và chờ Miyano điền. In "0 ₫" ở đây là
-                 nói với khoa một con số sai — cùng luật với "—" của CR-04:
-                 chưa biết thì đừng in một con số. -->
-            <td class="right">
-              <template v-if="giaDaKhop(d)">{{ fmtVND(giaDaKhop(d)) }}</template>
-              <span v-else class="tag">Chờ Miyano báo giá</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </template>
-
-    <template v-if="datNgoaiChoXuLy.length">
-      <h4 style="margin: 14px 12px 6px">Đang chờ Miyano xác nhận nguồn</h4>
-      <table>
-        <thead>
-          <tr><th>Tên hàng</th><th>ĐVT</th><th class="right">SL</th><th>Tình trạng</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(d, i) in datNgoaiChoXuLy" :key="i">
-            <td>{{ d.ten_hang }}<br /><span v-if="d.ghi_chu" class="tag">{{ d.ghi_chu }}</span></td>
-            <td>{{ d.dvt }}</td>
-            <td class="right">{{ d.so_luong }}</td>
-            <td><span class="badge b-gray">Miyano đang tìm nguồn</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </template>
   </div>
 </template>
+
+<style scoped>
+/* Nút chữ, không phải nút khối: nó nằm trong ô "Mặt hàng" cạnh tên hàng và
+   nhãn — một nút có nền/viền ở đó sẽ nặng hơn chính tên hàng. Kích thước
+   theo `rem` để co giãn theo cỡ chữ trình duyệt (chủ đầu tư 05/09/2026). */
+.nut-chi-tiet {
+  display: inline-block;
+  margin-top: 0.25rem;
+  margin-left: 0.375rem;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--blue, #2563eb);
+  text-decoration: underline;
+  cursor: pointer;
+}
+</style>

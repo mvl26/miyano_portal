@@ -176,13 +176,18 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 		self.assertIn("escape_html", self.ma, "Không escape dữ liệu khách gõ")
 
 
-class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
-	"""Bảng "Đã khớp mã" trên cổng phải có cột ĐƠN GIÁ.
+class TestCotDonGiaChoDongDaKhopMa(FrappeTestCase):
+	"""Khách phải thấy ĐƠN GIÁ của đúng món mình xin, ngay tại dòng đó.
 
-	Chủ đầu tư 05/09/2026. Trước bản này bảng đó nối được món khách xin với
-	mã Miyano tìm ra, nhưng KHÔNG có giá — khách phải nhìn sang bảng mặt hàng
-	chính mới biết được báo bao nhiêu. Câu đơn giản nhất của họ, *"món tôi
-	xin, Miyano báo bao nhiêu?"*, bắt phải ghép hai chỗ.
+	Chủ đầu tư 05/09/2026. Trước bản đó bảng "Đã khớp mã" nối được món khách
+	xin với mã Miyano tìm ra, nhưng KHÔNG có giá — khách phải nhìn sang bảng
+	mặt hàng chính mới biết được báo bao nhiêu. Câu đơn giản nhất của họ,
+	*"món tôi xin, Miyano báo bao nhiêu?"*, bắt phải ghép hai chỗ.
+
+	Chủ đầu tư 08/09/2026 dỡ nốt cái ghép đó: *"sau khi đã khớp mã hàng từ
+	Miyano thì chỉ hiển thị đúng 1 bảng"*. Bảng phụ "Đã khớp mã" bỏ hẳn, dòng
+	đã khớp vào THẲNG bảng chính. Bất biến giữ nguyên, chỉ đổi chỗ canh — và
+	giữ nó là điều ngăn việc gộp bảng lặng lẽ đánh rơi câu "chưa báo giá".
 	"""
 
 	@classmethod
@@ -200,23 +205,78 @@ class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
 			d for d in tho2.splitlines() if not d.strip().startswith("//")
 		)
 
-	def _doan_bang_da_khop(self) -> str:
-		"""Cắt riêng bảng "Đã khớp mã".
+	def test_MOT_bang_duy_nhat_hai_bang_phu_da_BO_HAN(self):
+		"""Chủ đầu tư 08/09/2026: khớp mã xong chỉ còn ĐÚNG MỘT bảng.
 
-		Cắt trước khi soi: ngay dưới nó là bảng "Đang chờ Miyano xác nhận
-		nguồn" — bảng đó CỐ Ý không có giá (chưa khớp mã thì chưa có dòng
-		hàng nào để mà có giá). Soi cả file sẽ không phân biệt được hai bảng.
+		Canh SỰ VẮNG MẶT, không canh cái mới: chừng nào hai bảng phụ còn đây
+		thì cùng một dòng hàng còn được in ở hai chỗ với hai bộ cột khác nhau,
+		và người đọc lại phải tự ghép — đúng thứ vừa dỡ.
 		"""
-		i = self.ma.find("Đã khớp mã (từ yêu cầu đặt ngoài)")
-		self.assertNotEqual(i, -1, "Không tìm thấy bảng 'Đã khớp mã'")
-		j = self.ma.find("Đang chờ Miyano xác nhận nguồn", i)
-		self.assertNotEqual(j, -1, "Không tìm thấy mốc cắt (bảng kế tiếp)")
-		return self.ma[i:j]
+		for dau_vet in ("Đã khớp mã (từ yêu cầu đặt ngoài)",
+		                "Đang chờ Miyano xác nhận nguồn",
+		                "datNgoaiDaKhop", "datNgoaiChoXuLy"):
+			self.assertNotIn(
+				dau_vet, self.ma,
+				f"Bảng phụ cũ còn dấu vết `{dau_vet}` — màn lại có nhiều hơn một "
+				"bảng nói về cùng một dòng hàng",
+			)
 
-	def test_bang_da_khop_co_cot_don_gia(self):
-		doan = self._doan_bang_da_khop()
-		self.assertIn("Đơn giá", doan, "Bảng 'Đã khớp mã' không có cột Đơn giá")
-		self.assertIn("giaDaKhop(d)", doan, "Cột giá không gọi `giaDaKhop(d)`")
+	def test_dong_da_khop_VAO_bang_chinh_gom_theo_ma(self):
+		"""Dòng đã khớp phải được nối vào nguồn dòng của bảng chính.
+
+		Không tự nhiên mà có: khớp mã dựng dòng hàng trên ĐƠN, còn bảng chính
+		lấy dòng từ PHIẾU — bỏ phép nối này thì bỏ hai bảng phụ đi là làm hàng
+		CR-03 BIẾN MẤT khỏi màn, nặng hơn hẳn cái đang sửa.
+		"""
+		self.assertRegex(
+			self.ma,
+			r"yeuCauKhopTheoMa\s*=\s*computed\([\s\S]{0,600}?da_xu_ly[\s\S]{0,200}?item_khop",
+			"Không có phép gom dòng đã khớp theo `item_khop`",
+		)
+		self.assertRegex(
+			self.ma, r"const dong = computed\([\s\S]{0,3000}?yeuCauKhopTheoMa",
+			"`dong` (nguồn dòng bảng chính) không nối dòng đã khớp vào",
+		)
+
+	def test_NHIEU_yeu_cau_ve_MOT_ma_thi_cong_don_khong_lay_dong_dau(self):
+		"""`_gop_hoac_them_dong_hang` cộng số lượng của NHIỀU dòng gõ tay vào
+		MỘT `Sales Order Item`. Lấy `so_luong` của dòng đầu là in thiếu hàng
+		khoa đã xin, mà không lỗi nào nổ ra."""
+		self.assertRegex(
+			self.ma,
+			r"so_luong_de_xuat:\s*ycs\.reduce\(",
+			"SL đề xuất của dòng khớp không phải TỔNG của mọi yêu cầu gộp vào mã đó",
+		)
+
+	def test_dong_da_khop_MANG_thuoc_tinh_ma_template_doc(self):
+		"""Chỗ GẮN và chỗ ĐỌC phải là CÙNG một tên.
+
+		Đo được: đổi `r.yeu_cau_khop = …` thành một tên khác trong `dong` làm
+		nhãn "Đã khớp với yêu cầu" và nút Xem chi tiết biến mất khỏi MỌI dòng
+		— trong khi bảng vẫn dựng, giá vẫn đúng, không lỗi nào nổ ra và không
+		bài nào đỏ. Đúng lớp lỗi "hai đầu trôi lệch" mà nhánh này đã trả giá
+		nhiều lần.
+		"""
+		m = __import__("re").search(
+			r"const dong = computed\(([\s\S]*?)\n\}\)", self.ma
+		)
+		self.assertIsNotNone(m, "Không tìm thấy computed `dong`")
+		than = m.group(1)
+		self.assertIn(
+			"yeu_cau_khop", than,
+			"`dong` không gắn `yeu_cau_khop` lên dòng — template gate theo tên "
+			"đó, nên nhãn và nút Xem chi tiết sẽ không bao giờ hiện",
+		)
+		# Cả HAI nhánh: dòng có sẵn trên phiếu (gắn thêm) lẫn dòng chỉ có trên
+		# đơn (dựng mới). Thiếu nhánh nào thì đúng nhóm dòng đó mất nút.
+		self.assertRegex(
+			than, r"\.yeu_cau_khop\s*=",
+			"Nhánh dòng CÓ SẴN trên phiếu không được gắn `yeu_cau_khop`",
+		)
+		self.assertRegex(
+			than, r"yeu_cau_khop:\s*ycs",
+			"Nhánh dòng CHỈ CÓ trên đơn không mang `yeu_cau_khop`",
+		)
 
 	def test_gia_tra_theo_DONG_HANG_khong_theo_dong_dat_ngoai(self):
 		"""Giá KHÔNG nằm trên dòng đặt ngoài.
@@ -228,9 +288,14 @@ class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
 		"""
 		self.assertRegex(
 			self.ma,
-			r"function\s+giaDaKhop[\s\S]{0,400}?don\?\.items[\s\S]{0,200}?item_khop",
-			"`giaDaKhop` không tra đơn giá từ `don.items` theo `item_khop`",
+			r"const dong = computed\([\s\S]{0,3000}?don_gia_tren_don:\s*hang\s*\?\s*Number\(hang\.rate\)",
+			"Đơn giá của dòng đã khớp không lấy từ dòng hàng thật trên đơn",
 		)
+		for sai in ("d.rate", "y.rate", "d.don_gia", "y.don_gia"):
+			self.assertNotIn(
+				sai, self.ma,
+				f"Đọc `{sai}` — dòng đặt ngoài KHÔNG mang giá, cột sẽ trống vĩnh viễn",
+			)
 
 	def test_gia_0_hien_CHO_BAO_GIA_khong_hien_so_0(self):
 		"""Giá 0 nghĩa là MIYANO CHƯA BÁO GIÁ, không phải "miễn phí".
@@ -242,14 +307,68 @@ class TestCotDonGiaBangDaKhopMa(FrappeTestCase):
 		In "0 ₫" là nói với khoa một con số SAI — cùng luật với "—" của CR-04:
 		chưa biết thì đừng in một con số.
 		"""
-		doan = self._doan_bang_da_khop()
 		self.assertIn(
-			"Chờ Miyano báo giá", doan,
+			"Chờ Miyano báo giá", self.ma,
 			"Giá 0 không được in thành số — phải nói rõ là chưa báo giá",
 		)
 		self.assertRegex(
-			doan, r"v-if\s*=\s*\"giaDaKhop\(d\)\"",
-			"Không có nhánh phân biệt đã-có-giá với chưa-báo-giá",
+			self.ma,
+			r'v-if="row\.yeu_cau_khop && !row\.don_gia_tren_don"',
+			"Không có nhánh phân biệt đã-có-giá với chưa-báo-giá cho dòng đã khớp",
+		)
+
+	def test_dong_khop_KHONG_bia_ra_so_luong_duyet(self):
+		"""Dòng gõ tay không đi qua `_dong_dau_so_luong_duyet` (hàm đó đóng dấu
+		dòng của PHIẾU), nên nó KHÔNG CÓ số duyệt nào cả. Chép cột đề xuất sang
+		là in ra một con số duyệt chưa ai duyệt."""
+		self.assertRegex(
+			self.ma, r"so_luong_duyet:\s*null",
+			"Dòng đã khớp phải mang `so_luong_duyet: null`, không phải một con số bịa",
+		)
+
+	def test_null_khong_bi_doc_thanh_KHONG_DUYET(self):
+		"""`Number(null) === 0` — thiếu chốt này thì MỌI dòng đã khớp bị gạch
+		ngang kèm badge "Không duyệt" trên đơn đã duyệt."""
+		m = __import__("re").search(
+			r"function khongDuyet\(row\)\s*\{([\s\S]*?)\n\}", self.ma
+		)
+		self.assertIsNotNone(m, "Không tìm thấy hàm `khongDuyet`")
+		self.assertIn(
+			"=== null", m.group(1),
+			"`khongDuyet` không loại `null` trước khi so 0 — dòng đã khớp sẽ bị "
+			"gạch ngang oan",
+		)
+
+	def test_co_nhan_va_nut_xem_chi_tiet_trong_vong_lap_dong_hang(self):
+		"""Chủ đầu tư 08/09/2026: *"đối với hàng nào đã khớp thì bên cạnh có
+		ghi là hàng đã khớp với yêu cầu và nút xem chi tiết"*.
+
+		Canh trong THÂN VÒNG LẶP: một cái nhãn nằm đâu đó ngoài `v-for` thì
+		không đứng cạnh dòng hàng nào cả.
+		"""
+		i = self.ma.find('v-for="row in dong"')
+		self.assertNotEqual(i, -1, 'Không tìm thấy v-for="row in dong"')
+		j = self.ma.find('v-if="!dong.length"', i)
+		self.assertNotEqual(j, -1, "Không tìm thấy mốc kết thúc vòng lặp")
+		than = self.ma[i:j]
+		self.assertIn("Đã khớp với yêu cầu", than, "Thiếu nhãn cạnh dòng đã khớp")
+		self.assertIn("Xem chi tiết", than, "Thiếu nút Xem chi tiết")
+		self.assertIn(
+			"toggleChiTietKhop", than, "Nút Xem chi tiết không nối vào hàm mở khối chi tiết"
+		)
+
+	def test_khoi_chi_tiet_ve_bang_component_dung_chung_va_co_duong_anh(self):
+		"""Khối xổ ra phải trả lời "khớp với yêu cầu NÀO" bằng đúng chín trường
+		+ ảnh, vẽ bằng CÙNG component với khối hàng chưa khớp.
+
+		`de-xuat` là bắt buộc: `portal_dat_ngoai_xem_anh` kiểm sở hữu theo đề
+		xuất, thiếu nó thì mọi ảnh trong khối này 403 — đúng triệu chứng chủ
+		đầu tư đã báo một lần ("không thấy ví dụ như trường ảnh mặt hàng").
+		"""
+		self.assertIn("<TheHangMoi", self.ma, "Khối chi tiết không dùng `TheHangMoi`")
+		self.assertRegex(
+			self.ma, r"<TheHangMoi[\s\S]{0,200}?:de-xuat=",
+			"`TheHangMoi` không nhận `de-xuat` — ảnh sẽ 403",
 		)
 
 

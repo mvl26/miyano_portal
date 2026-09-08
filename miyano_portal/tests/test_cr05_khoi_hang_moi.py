@@ -16,6 +16,8 @@ các dòng đó vô hình.
 mục 4 ghi nhận: dữ liệu có, người tiêu thụ có, nhưng hai bên không gặp nhau.
 """
 
+import re
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -140,6 +142,14 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 		p = goc / "components" / "chi-tiet" / "KhoiHangMoi.vue"
 		cls.khoi_tho = p.read_text(encoding="utf-8") if p.exists() else ""
 		cls.khoi = _bo_chu_thich(cls.khoi_tho)
+		# Phần VẼ chín trường + ảnh dọn sang `TheHangMoi.vue` ngày 08/09/2026:
+		# từ bản gộp bảng, nó phải hiện ở HAI chỗ (khối riêng cho dòng chưa
+		# khớp, và khối xổ "Xem chi tiết" của dòng đã khớp trong bảng chính).
+		# Các bài dưới canh CÁCH VẼ nên đọc đúng file đang vẽ; bài
+		# `test_khoi_dung_lai_the_hang_moi` giữ hai file dính vào nhau.
+		pt = goc / "components" / "chi-tiet" / "TheHangMoi.vue"
+		cls.the_tho = pt.read_text(encoding="utf-8") if pt.exists() else ""
+		cls.the = _bo_chu_thich(cls.the_tho)
 
 	def test_co_component_rieng_khong_nhet_vao_bang_mat_hang(self):
 		"""Chủ đầu tư chốt: hiện RIÊNG, không nhét vào bảng.
@@ -151,15 +161,114 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 		"""
 		self.assertTrue(self.khoi, "Chưa có `components/chi-tiet/KhoiHangMoi.vue`")
 
-	def test_khoi_doc_tu_PHIEU_khong_doc_tu_DON(self):
-		"""Gốc của lỗi: đọc `don.dat_ngoai` thì ở "Chờ duyệt" không có gì.
+	def test_khoi_doc_tu_PHIEU_khi_CHUA_co_don(self):
+		"""Gốc của lỗi ban đầu: đọc `don.dat_ngoai` thì ở "Chờ duyệt" không
+		có gì — đơn chỉ tồn tại SAU khi duyệt, nên đúng lúc quản lý cần nhìn
+		nhất thì không thấy gì.
 
-		Đơn hàng chỉ tồn tại SAU khi duyệt. Đọc từ đơn là đúng lúc quản lý
-		cần nhìn nhất thì không thấy gì.
+		Từ 08/09/2026 luật là HAI NHÁNH, không phải một: chưa có đơn thì đọc
+		phiếu (nguồn duy nhất có); CÓ đơn thì đọc đơn, vì cờ `da_xu_ly` chỉ
+		sống trên đơn — xem bài kế. Bài này canh nửa PHIẾU không bị đánh rơi
+		khi thêm nửa kia.
 		"""
+		m = re.search(r"const dongHangMoiChuaKhop = computed\(([\s\S]{0,400}?)\n\}\)", self.man)
+		self.assertIsNotNone(
+			m, "Không tìm thấy computed `dongHangMoiChuaKhop` ở màn chi tiết"
+		)
+		self.assertIn(
+			"phieu.value?.dat_ngoai", m.group(1),
+			"Nhánh CHƯA CÓ ĐƠN không đọc `phieu.dat_ngoai` — ở 'Chờ duyệt' "
+			"quản lý sẽ không thấy dòng hàng gõ tay nào, đúng lỗi gốc",
+		)
+
+	def test_khoi_doc_tu_DON_khi_DA_co_don_vi_co_da_xu_ly_o_do(self):
+		"""Cờ `da_xu_ly`/`item_khop` CHỈ SỐNG TRÊN ĐƠN.
+
+		Khớp mã chạy trên `Sales Order.custom_dat_ngoai` và KHÔNG đụng tới
+		`dat_ngoai` của phiếu. Đọc từ phiếu khi đã có đơn thì mọi dòng trông
+		như chưa khớp VĨNH VIỄN, khối riêng không bao giờ biến mất, và yêu
+		cầu "khớp xong chỉ còn một bảng" (chủ đầu tư 08/09/2026) hỏng lặng lẽ.
+		"""
+		m = re.search(r"const dongHangMoiChuaKhop = computed\(([\s\S]{0,400}?)\n\}\)", self.man)
+		self.assertIsNotNone(m, "Không tìm thấy computed `dongHangMoiChuaKhop`")
+		than = m.group(1)
+		self.assertIn(
+			"don.value", than,
+			"Không có nhánh đọc từ ĐƠN — dòng đã khớp mã sẽ nằm lại khối "
+			"riêng mãi mãi và màn có hai bảng nói về cùng một dòng hàng",
+		)
 		self.assertRegex(
-			self.man, r"<KhoiHangMoi[^>]*:dong\s*=\s*\"phieu\??\.dat_ngoai",
-			"`KhoiHangMoi` không nhận dòng từ `phieu.dat_ngoai`",
+			than, r"filter\(\s*\(d\)\s*=>\s*!d\.da_xu_ly\s*\)",
+			"Không lọc theo `!da_xu_ly` — khối riêng sẽ in cả dòng đã khớp",
+		)
+
+	def test_khoi_hang_moi_nhan_dong_DA_LOC_khong_nhan_ca_bang(self):
+		"""Việc lọc nằm ở màn cha, và `<KhoiHangMoi>` phải nhận đúng cái đã
+		lọc — truyền thẳng `phieu.dat_ngoai` như bản cũ là bỏ qua toàn bộ
+		luật trên."""
+		self.assertRegex(
+			self.man, r"<KhoiHangMoi[^>]*:dong\s*=\s*\"dongHangMoiChuaKhop\"",
+			"`KhoiHangMoi` không nhận `dongHangMoiChuaKhop`",
+		)
+
+	def test_sau_khi_co_don_khoi_doi_sang_TRANG_THAI_khong_noi_chuyen_duyet(self):
+		"""Khối này kể HAI chuyện khác nhau tuỳ giai đoạn.
+
+		Trước duyệt: thứ quản lý phải xem kỹ để mà duyệt.
+		Sau duyệt: đơn đã chạy, dòng còn ở đây là hàng MIYANO ĐANG TÌM NGUỒN,
+		chưa báo giá — và người đọc lúc này thường là KHÁCH.
+
+		Suýt mất khi gộp bảng 08/09/2026: bảng phụ "Đang chờ Miyano xác nhận
+		nguồn" bị bỏ mang theo cả tiêu đề lẫn nhãn "Miyano đang tìm nguồn",
+		và khối còn lại thì nói cứng "cần xem kỹ trước khi duyệt" — một đơn ĐÃ
+		DUYỆT còn dòng chưa khớp (đúng ca thiết kế theo-từng-dòng sinh ra để
+		đỡ) sẽ báo sai giai đoạn cho khách và mất hẳn trạng thái. Không lưới
+		regex nào ở `BangMatHang.vue` thấy được: hai chuỗi đó vắng mặt ở đó là
+		ĐÚNG.
+		"""
+		# Canh TỪNG chỗ một, không phải "chuỗi có xuất hiện đâu đó": đã đo —
+		# một bài chỉ `assertIn("daCoDon")` + `assertIn("Miyano đang tìm
+		# nguồn")` vẫn XANH khi xoá tiêu đề theo giai đoạn (nhãn dòng còn giữ
+		# cả hai chuỗi) và cũng vẫn xanh khi xoá nhãn dòng (tiêu đề còn giữ).
+		# Hai bất biến khác nhau thì phải có hai phép canh khác nhau.
+		self.assertRegex(
+			self.khoi, r'<div v-if="daCoDon" class="h3">',
+			"Tiêu đề khối không đổi theo giai đoạn — một đơn ĐÃ DUYỆT còn dòng "
+			"chưa khớp sẽ nói với khách 'cần xem kỹ trước khi duyệt'",
+		)
+		self.assertRegex(
+			self.khoi, r':nhan="daCoDon\s*\?',
+			"Dòng chưa khớp không mang nhãn trạng thái theo giai đoạn — mất "
+			"'Miyano đang tìm nguồn' mà bảng phụ cũ vẫn nói",
+		)
+		self.assertIn(
+			"Miyano đang tìm nguồn", self.khoi,
+			"Mất trạng thái 'Miyano đang tìm nguồn' của dòng chưa khớp",
+		)
+		self.assertRegex(
+			self.man, r"<KhoiHangMoi[\s\S]{0,200}?:da-co-don=",
+			"Màn chi tiết không truyền `da-co-don` — cờ có mà không ai bật",
+		)
+
+	def test_khoi_dung_lai_the_hang_moi_khong_chep_doi_cach_ve(self):
+		"""Khối riêng và khối xổ "Xem chi tiết" trong bảng chính phải vẽ bằng
+		CÙNG một component.
+
+		Chép đôi phần vẽ là chép đôi `danhSachAnh` (bắt JSON hỏng) lẫn
+		`anhUrl` (đường ảnh riêng tư) — hai chỗ dễ trôi lệch nhất, và lệch
+		thì một trong hai màn lặng lẽ mất ảnh.
+		"""
+		self.assertTrue(self.the, "Chưa có `components/chi-tiet/TheHangMoi.vue`")
+		# Canh DÒNG IMPORT + chỗ DÙNG, không phải một chuỗi con: `assertIn(
+		# "TheHangMoi")` trần vẫn xanh khi tên bị đổi thành `TheHangMoiX`
+		# (chuỗi cũ nằm trong chuỗi mới) — đã đo, bài tự mất tác dụng.
+		self.assertRegex(
+			self.khoi, r"import TheHangMoi from '\./TheHangMoi\.vue'",
+			"`KhoiHangMoi` không nhập `TheHangMoi` — cách vẽ bị chép đôi",
+		)
+		self.assertRegex(
+			self.khoi, r"<TheHangMoi[\s>]",
+			"`KhoiHangMoi` nhập `TheHangMoi` nhưng không vẽ bằng nó",
 		)
 
 	def test_man_chi_tiet_KHONG_CON_luoi_hai_cot_moi_khoi_xep_DOC(self):
@@ -211,9 +320,9 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 		`<dl>/<dt>/<dd>` không chỉ là trình bày: nó nói với trình đọc màn hình
 		rằng đây là cặp nhãn-giá trị, thứ một dãy `<span>` không nói được.
 		"""
-		self.assertIn("<dl", self.khoi, "Các trường không xếp thành lưới nhãn/giá trị")
-		self.assertIn("<dt>", self.khoi)
-		self.assertIn("<dd>", self.khoi)
+		self.assertIn("<dl", self.the, "Các trường không xếp thành lưới nhãn/giá trị")
+		self.assertIn("<dt>", self.the)
+		self.assertIn("<dd>", self.the)
 
 	def test_moi_kich_thuoc_deu_CO_GIAN_khong_ghim_px(self):
 		"""Chủ đầu tư 05/09/2026: *"tất cả những gì hiển thị đều phải scale
@@ -230,9 +339,9 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 		"""
 		import re
 
-		i = self.khoi_tho.find("<style")
+		i = self.the_tho.find("<style")
 		self.assertNotEqual(i, -1, "Component không có khối <style> riêng")
-		style = self.khoi_tho[i:]
+		style = self.the_tho[i:]
 		# `1px`/`2px` cho ĐƯỜNG VIỀN được phép: viền không phải kích thước bố
 		# cục, và một đường kẻ nửa rem thì mờ nhoè. Chỉ cấm px ở các thuộc
 		# tính CHIẾM CHỖ.
@@ -249,5 +358,5 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 	def test_anh_xem_qua_endpoint_rieng_khong_tro_thang_private_files(self):
 		"""Role `Customer` có ZERO DocPerm — đường `/private/files/…` mặc định
 		của Frappe sẽ 403 với chính người vừa tải ảnh lên."""
-		self.assertIn("portal_dat_ngoai_xem_anh", self.khoi)
-		self.assertNotIn("/private/files/", self.khoi)
+		self.assertIn("portal_dat_ngoai_xem_anh", self.the)
+		self.assertNotIn("/private/files/", self.the)

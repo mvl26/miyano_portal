@@ -51,6 +51,26 @@ const don = ref(null)
 const nhatKy = ref([])
 const dangTaiNhatKy = ref(false)
 
+// Dòng "hàng chưa có trong hệ thống" CÒN CHỜ Miyano khớp mã.
+//
+// NGUỒN ĐỔI THEO CHỨNG TỪ ĐANG CÓ, và đây là điểm dễ sai nhất của việc gộp
+// bảng (chủ đầu tư 08/09/2026): cờ `da_xu_ly`/`item_khop` CHỈ SỐNG TRÊN ĐƠN
+// — thao tác khớp mã của Miyano chạy trên `Sales Order.custom_dat_ngoai` và
+// KHÔNG đụng tới dòng `dat_ngoai` của phiếu. Đọc từ phiếu khi đã có đơn thì
+// mọi dòng trông như chưa khớp vĩnh viễn, và khối này không bao giờ biến
+// mất — hỏng đúng yêu cầu "khớp xong chỉ còn một bảng".
+// Chưa có đơn (Nháp/Chờ duyệt) thì mọi dòng đều chưa khớp theo định nghĩa,
+// đọc từ phiếu là nguồn DUY NHẤT có.
+const dongHangMoiChuaKhop = computed(() => {
+  const nguon = don.value ? don.value.dat_ngoai || [] : phieu.value?.dat_ngoai || []
+  return nguon.filter((d) => !d.da_xu_ly)
+})
+
+// Tên PHIẾU — `portal_dat_ngoai_xem_anh` kiểm sở hữu ảnh theo đề xuất, nên
+// đường ảnh cần tên phiếu kể cả khi vào màn bằng đường ĐƠN. `don.de_xuat` là
+// lối về khi nửa phiếu chưa nạp xong (hoặc nạp lỗi — `napPhieu` best-effort).
+const tenPhieuChoAnh = computed(() => phieu.value?.name || don.value?.de_xuat || '')
+
 // Đầu mối = đường đã vào. `:ten` → phiếu, `:name` → đơn. Không đoán theo
 // hình dạng chuỗi id.
 const tenPhieuVao = computed(() => route.params.ten || '')
@@ -715,7 +735,9 @@ onMounted(async () => {
            Hai bảng CỐ Ý xếp DỌC: cả hai đều là bảng nhiều cột, đặt cạnh nhau
            thì cột nào cũng chật và mắt phải nhảy ngang giữa hai lưới khác
            nhau để đọc cùng một đơn hàng. -->
-      <KhoiHangMoi :dong="phieu?.dat_ngoai || []" :de-xuat="phieu?.name || ''" />
+      <KhoiHangMoi
+        :dong="dongHangMoiChuaKhop" :de-xuat="tenPhieuChoAnh" :da-co-don="!!don"
+      />
 
       <!-- BẢNG MẶT HÀNG CHIẾM HẾT BỀ NGANG (chủ đầu tư 05/09/2026: "bảng
            mặt hàng có trong hệ thống ngắn quá, cho rộng ra").
@@ -733,6 +755,7 @@ onMounted(async () => {
         :quan-ly-dang-duyet="quanLyDangDuyet"
         :sl-duyet-sua="slDuyetSua" :ghi-chu-sua="ghiChuSua"
         :can-cu-kho="phieu?.can_cu_kho || don?.can_cu_kho || {}"
+        :de-xuat="tenPhieuChoAnh"
       />
 
       <!-- `KhoiGiaoHang`/`KhoiHoaDonTaiLieu` là template NHIỀU GỐC (không
