@@ -12,6 +12,7 @@ from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
+    cot_ten_don_hang_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
     duoc_sua_don_da_duyet,
@@ -507,7 +508,7 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
 @frappe.whitelist()
 def portal_order_place(
     contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
-    request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None,
+    request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None, ten_don_hang=None,
 ) -> dict:
     """API Spec §1.1 — `mode`: `"hdnt"` (mặc định, [Hiện có]) | `"ban_le"`
     (E6 phần B, [MỚI]). Tham số vẫn tên `contract` (không phải `hdnt` như
@@ -577,7 +578,7 @@ def portal_order_place(
     kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
         customer=customer, khoa_phong=khoa, mode=mode, contract=contract,
         dat_ngoai=dat_ngoai, delivery_date=delivery_date, address=address,
-        note=note, request_id=request_id,
+        note=note, request_id=request_id, ten_don_hang=ten_don_hang,
         sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
     )
     return kq
@@ -585,7 +586,7 @@ def portal_order_place(
 
 def _dam_bao_phieu_tu_duyet(
     customer, khoa_phong, mode, contract, dat_ngoai, delivery_date, address,
-    note, request_id, sales_order, da_ton_tai,
+    note, request_id, sales_order, da_ton_tai, ten_don_hang=None,
 ) -> str | None:
     """§5.5 — một `Portal De Xuat Mua` "Đã duyệt" đứng sau MỌI đơn quản lý
     đặt trực tiếp, `nguoi_duyet` là chính họ, `tu_duyet = 1`.
@@ -649,6 +650,7 @@ def _dam_bao_phieu_tu_duyet(
             dat_ngoai, str
         ) else (dat_ngoai or []),
         "ghi_chu": note,
+        "ten_don_hang": ten_don_hang or "",
         "ly_do_yeu_cau": "Đặt hàng trực tiếp qua giỏ hàng quản lý (tự động duyệt).",
         "trang_thai": TRANG_THAI_DA_DUYET,
         "thoi_diem_gui": gio, "thoi_diem_duyet": gio,
@@ -672,10 +674,17 @@ def _dam_bao_phieu_tu_duyet(
         doc.ma_de_xuat = None
     doc.insert(ignore_permissions=True)
 
-    frappe.db.set_value("Sales Order", sales_order, {
+    gia_tri_don = {
         "custom_de_xuat": doc.name,
         "custom_ma_tra_cuu": doc.ma_de_xuat,
-    })
+    }
+    if cot_ten_don_hang_ton_tai():
+        # Nhánh QUẢN LÝ ĐẶT THẲNG — đường thứ hai từ CÙNG một giỏ hàng
+        # (`portal_order_place`), song song với `de_xuat_duyet.duyet_va_tao_
+        # don` của nhân viên khoa. Sửa một nhánh mà quên nhánh kia là đúng
+        # một nửa người dùng gõ tên xong không thấy tên đâu.
+        gia_tri_don["custom_ten_don_hang"] = doc.get("ten_don_hang") or ""
+    frappe.db.set_value("Sales Order", sales_order, gia_tri_don)
 
     # Task 4 — ghi SAU `doc.insert()`: trước điểm đó `doc.name` còn rỗng
     # (đơn tự duyệt của quản lý — hàm này SINH RA phiếu, không đi qua
@@ -1191,6 +1200,13 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
     # người — câm đúng chỗ, không câm cả màn.
     co_cot_khoa = _cot_khoa_phong_ton_tai()
     cot_khoa_don = "so.custom_khoa_phong" if co_cot_khoa else "null"
+    # Cột TÊN của nhánh đơn — `null` khi site chưa chạy patch v1_34. Không
+    # fail-closed như `cot_khoa_don`: thiếu tên chỉ là một ô trống, không
+    # phải một lỗ quyền.
+    cot_ten_don = (
+        "coalesce(so.custom_ten_don_hang, '')"
+        if cot_ten_don_hang_ton_tai() else "''"
+    )
     co_nhanh_don = co_cot_khoa or not khoa
 
     nhanh_phieu = f"""
@@ -1201,6 +1217,11 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
                -- duyệt) → rỗng, và tầng hiển thị nói thẳng "(chưa gửi
                -- duyệt)" — đúng cách `DeXuatList.vue` đã làm trước khi gộp.
                coalesce(nullif(p.ma_de_xuat, ''), '') as ma,
+               -- TÊN ĐƠN HÀNG do nhân viên gõ ở giỏ (08/09/2026). Đọc từ
+               -- PHIẾU ở nhánh này (`p`), từ `so.custom_ten_don_hang` ở
+               -- nhánh đơn bên dưới — hai nhánh, hai nguồn, cùng một cột
+               -- kết quả.
+               coalesce(p.ten_don_hang, '') as ten_don_hang,
                p.khoa_phong as khoa_phong, p.creation as thoi_diem,
                p.trang_thai as trang_thai_phieu, p.owner as owner,
                so.status as so_status, so.per_delivered as per_delivered,
@@ -1217,7 +1238,7 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
     # `custom_de_xuat` trỏ vào một phiếu đã bị xoá.
     nhanh_don = f"""
         select 'don', null, so.name, so.name,
-               {cot_khoa_don}, so.creation, null, null,
+               {cot_ten_don}, {cot_khoa_don}, so.creation, null, null,
                so.status, so.per_delivered, so.workflow_state, so.grand_total,
                so.name, {_sql_giai_doan("null", "so")}
         from `tabSales Order` so
@@ -1705,6 +1726,10 @@ def portal_order_track(order) -> dict:
         # Task 6, QĐ-A4 — cùng khoá `ma_tra_cuu` với `portal_order_history`,
         # xem chú thích ở đó. Đơn cũ không có phiếu đề xuất đứng sau: rỗng.
         "ma_tra_cuu": so.get("custom_ma_tra_cuu") or "",
+        # Nhánh vào màn chi tiết bằng đường ĐƠN (~102 đơn cũ, và mọi link
+        # trong thông báo giao hàng/hoá đơn) không nạp được nửa phiếu khi
+        # phiếu không tồn tại — tên phải đọc được từ chính đơn.
+        "ten_don_hang": so.get("custom_ten_don_hang") or "",
         # 03/09/2026 (màn chi tiết GỘP) — phiếu đề xuất đứng sau đơn này.
         # Vào màn bằng đường `/yeu-cau/don/<name>` (link trong mọi thông báo
         # đã gửi đi, xem `_lien_ket_thong_bao`) thì đây là đường DUY NHẤT tìm

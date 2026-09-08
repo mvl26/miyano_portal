@@ -71,6 +71,14 @@ const dongHangMoiChuaKhop = computed(() => {
 // lối về khi nửa phiếu chưa nạp xong (hoặc nạp lỗi — `napPhieu` best-effort).
 const tenPhieuChoAnh = computed(() => phieu.value?.name || don.value?.de_xuat || '')
 
+// Tên do nhân viên gõ ở giỏ hàng (08/09/2026). Ưu tiên PHIẾU — đó là nơi
+// người ta gõ, và là nơi sửa được; `don.ten_don_hang` (bản chép lên đơn) là
+// lối về cho ~102 đơn cũ và mọi link vào bằng đường ĐƠN khi nửa phiếu không
+// nạp được. Đặt tên xong mở đơn ra không thấy tên đâu thì đọc như hỏng.
+const tenDonHang = computed(
+  () => (phieu.value?.ten_don_hang || don.value?.ten_don_hang || '').trim()
+)
+
 // Đầu mối = đường đã vào. `:ten` → phiếu, `:name` → đơn. Không đoán theo
 // hình dạng chuỗi id.
 const tenPhieuVao = computed(() => route.params.ten || '')
@@ -649,6 +657,11 @@ onMounted(async () => {
           <b style="font-size: 16px">{{ ma }}</b>
           <span class="badge" :class="giaiDoanBadge(giaiDoan)">{{ nhanGiaiDoan(giaiDoan) }}</span>
         </div>
+        <!-- Tên đơn hàng ngay dưới mã. KHÔNG thay thế mã: mã là khoá đối
+             chiếu với Miyano, tên là cách khoa tự gọi đơn của mình — hai
+             thứ khác nhau, cần cả hai. Cho xuống dòng thoải mái, không cắt
+             ("tên đơn hàng có thể dài"). -->
+        <div v-if="tenDonHang" class="ten-don-ct">{{ tenDonHang }}</div>
         <!-- Huy hiệu "Có hàng chờ báo giá" (chủ đầu tư yêu cầu thêm lại
              05/09/2026 — nó có trên `OrderDetail.vue` cũ và rơi mất lúc gộp
              hai màn chi tiết).
@@ -863,3 +876,15 @@ onMounted(async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Tên đơn do người gõ — dưới mã, nhạt hơn mã (mã mới là khoá đối chiếu).
+   `overflow-wrap: anywhere` cho một cái tên dài liền mạch xuống dòng thay vì
+   đẩy vỡ khung. `rem` để co giãn theo cỡ chữ trình duyệt. */
+.ten-don-ct {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+</style>

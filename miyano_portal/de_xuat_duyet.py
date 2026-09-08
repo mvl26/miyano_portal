@@ -32,7 +32,11 @@ from miyano_portal import dat_hang, gia_hdnt, nhat_ky
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	nguon_gia_theo_ma_cho_khach,
 )
-from miyano_portal.portal_context import han_muc_con, ten_khoa_da_tieu
+from miyano_portal.portal_context import (
+	cot_ten_don_hang_ton_tai,
+	han_muc_con,
+	ten_khoa_da_tieu,
+)
 
 
 def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
@@ -132,10 +136,23 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	doc.sales_order = kq["sales_order"]
 	doc.duyet(nguoi_duyet, tu_cach=tu_cach, uy_quyen=uy_quyen)
 
-	frappe.db.set_value("Sales Order", kq["sales_order"], {
+	gia_tri_don = {
 		"custom_de_xuat": doc.name,
 		"custom_ma_tra_cuu": doc.ma_de_xuat,
-	})
+	}
+	if cot_ten_don_hang_ton_tai():
+		# Tên do nhân viên gõ ở giỏ hàng (08/09/2026). CHÉP LÊN ĐƠN, không
+		# để mỗi trên phiếu: danh sách yêu cầu ở cổng là UNION hai nhánh và
+		# nhánh thứ hai đọc THẲNG `Sales Order` — thiếu chỗ này thì đúng
+		# nhánh đó không bao giờ hiện được tên. Đây cũng là cây cầu đã đánh
+		# rơi chín trường CR-03 một lần trong phiên (`999b39d`).
+		#
+		# Rào theo cột THẬT: ghi vào một cột không tồn tại (site quên `bench
+		# migrate`) thì MariaDB ném, và lời ném đó rơi giữa `duyet_va_tao_don`
+		# — tức không bệnh viện nào duyệt được đơn nào. Một trường hiển thị
+		# không được phép chặn việc mua hàng.
+		gia_tri_don["custom_ten_don_hang"] = doc.get("ten_don_hang") or ""
+	frappe.db.set_value("Sales Order", kq["sales_order"], gia_tri_don)
 
 	# Task 4 — ghi SAU khi `doc.duyet()` (Task 3) đã thật sự chuyển trạng
 	# thái và Sales Order đã tồn tại với tên thật (`kq["sales_order"]` được

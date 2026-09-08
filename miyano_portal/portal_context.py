@@ -308,6 +308,38 @@ def _cot_khoa_phong_ton_tai() -> bool:
     return _cot_khoa_ton_tai
 
 
+_cot_ten_don_hang_cache: bool | None = None
+
+
+def cot_ten_don_hang_ton_tai() -> bool:
+    """Có cột `Sales Order.custom_ten_don_hang` THẬT trong CSDL không (patch
+    v1_34).
+
+    CÙNG KHUÔN hai helper cột custom ở trên, và cùng MỘT lý do đã đo được
+    trên chính dự án này: `install_app` từng ghi Patch Log mà không thực sự
+    chạy DDL (memory `miyano-portal-install-patch-trap`). Một dòng trong
+    `patches.txt` không phải bằng chứng cột đã tồn tại.
+
+    KHÁC hai helper kia ở HẬU QUẢ, nên khác ở cả cách dùng: `custom_khoa_
+    phong` là cột PHÂN QUYỀN (thiếu thì fail-closed, thà câm còn hơn rò dữ
+    liệu). Cột này chỉ mang một cái TÊN để hiển thị — thiếu thì đơn không có
+    tên, thế thôi. Điều PHẢI tránh là để nó làm hỏng việc khác: hai đường
+    tạo đơn `frappe.db.set_value(...)` cột này, và ghi vào một cột không tồn
+    tại thì MariaDB ném — tức một site quên `bench migrate` sẽ KHÔNG DUYỆT
+    ĐƯỢC ĐƠN NÀO. Một trường hiển thị không bao giờ được phép chặn việc mua
+    hàng của bệnh viện, nên cả hai chỗ ghi đều hỏi hàm này trước.
+
+    Không `log_error` như helper phân quyền: ở đó im lặng che mất một lỗ
+    quyền, còn ở đây thiếu cột chỉ làm một ô trống trên màn — ghi log mỗi
+    tiến trình cho một ô trống là gây nhiễu đúng nơi cần yên tĩnh."""
+    global _cot_ten_don_hang_cache
+    if _cot_ten_don_hang_cache is None:
+        _cot_ten_don_hang_cache = bool(
+            frappe.db.has_column("Sales Order", "custom_ten_don_hang")
+        )
+    return _cot_ten_don_hang_cache
+
+
 # Task 9 (§12 Q4) — CÙNG KHUÔN `_cot_khoa_ton_tai`/`_cot_khoa_phong_ton_tai`
 # ở trên: cache CẤP TIẾN TRÌNH cho cột `Sales Order.custom_de_xuat` (patch
 # v1_24), dùng bởi `dam_bao_duoc_sua_don_da_duyet()`. Tách biến RIÊNG với

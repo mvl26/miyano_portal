@@ -423,6 +423,10 @@ watch([searchTrang, searchSoDong], timKiem)
 onBeforeUnmount(() => clearTimeout(searchTimer))
 
 // --- Thông tin đơn hàng + giao hàng --------------------------------------
+// TÊN ĐƠN HÀNG do nhân viên tự đặt (chủ đầu tư 08/09/2026) — tuỳ chọn.
+// Không bắt buộc: một đơn không tên vẫn tra được bằng mã, ép nhập là dựng
+// thêm một cửa chặn giữa khoa và việc mua hàng.
+const tenDonHang = ref('')
 const lyDoYeuCau = ref('')
 const ghiChu = ref('')
 const ngayCan = ref(addWorkDaysISO(2)) // gợi ý hợp lý, không bắt buộc
@@ -447,6 +451,7 @@ function resetState() {
   items.value = []
   datNgoai.value = []
   dnMoRong.value = false
+  tenDonHang.value = ''
   lyDoYeuCau.value = ''
   ghiChu.value = ''
   ngayCan.value = addWorkDaysISO(2)
@@ -513,6 +518,7 @@ function napTuPhieu(d) {
     mo_ta_nhan_dang: dn.mo_ta_nhan_dang || '',
   }))
   dnMoRong.value = datNgoai.value.length > 0
+  tenDonHang.value = d.ten_don_hang || ''
   lyDoYeuCau.value = d.ly_do_yeu_cau || ''
   ghiChu.value = d.ghi_chu || ''
   ngayCan.value = d.ngay_can || ''
@@ -686,6 +692,9 @@ async function ghiPhieu(ten) {
     dia_chi_giao: diaChiGiao.value ?? '',
     ghi_chu: ghiChu.value ?? '',
     ly_do_yeu_cau: lyDoYeuCau.value ?? '',
+    // `?? ''` như bốn field trên — xem chú thích ngay phía trên: gửi
+    // `null` cho một ô VỪA BỊ XOÁ TRẮNG sẽ làm tên cũ SỐNG LẠI sau khi lưu.
+    ten_don_hang: tenDonHang.value ?? '',
   })
 }
 
@@ -865,6 +874,9 @@ async function datHang() {
       dat_ngoai: JSON.stringify(datNgoaiPayload.value),
       delivery_date: ngayCan.value || null,
       note: ghiChu.value || null,
+      // Đường thứ HAI từ cùng giỏ hàng này (quản lý đặt thẳng). Quên
+      // nhánh này là đúng một nửa người dùng gõ tên xong mất tên.
+      ten_don_hang: tenDonHang.value || null,
       address: diaChiGiao.value || null,
       request_id: store.requestId,
       // D1 — `''` ("Toàn viện") gửi `null`, KHÔNG gửi chuỗi rỗng: server
@@ -1314,6 +1326,24 @@ onMounted(async () => {
               Chọn khoa để chính khoa đó theo dõi được đơn, phiếu giao và hoá
               đơn của yêu cầu này. Để <b>Toàn viện</b> nếu đơn không thuộc
               khoa nào — khi đó chỉ quản lý xem được.
+            </div>
+          </div>
+          <!-- TÊN ĐƠN HÀNG (chủ đầu tư 08/09/2026) — đứng ĐẦU khối, chiếm
+               trọn bề ngang: đây là thứ khoa dùng để nhận ra đơn của mình
+               trong danh sách, nên nó là nhãn của cả phiếu chứ không phải
+               một thuộc tính ngang hàng với ngày giao. Ô rộng hết dòng vì
+               chủ đầu tư nói rõ *"tên đơn hàng có thể dài"* — một ô hẹp mời
+               người ta viết cụt. -->
+          <div class="field">
+            <label>Tên đơn hàng</label>
+            <input
+              v-model="tenDonHang"
+              maxlength="140"
+              placeholder="Ví dụ: Bổ sung vật tư tiêu hao khoa Dược tháng 9"
+            />
+            <div class="tag">
+              Tên gọi để khoa tự nhận ra đơn này trong danh sách. Không bắt
+              buộc — bỏ trống thì đơn vẫn tra được bằng mã.
             </div>
           </div>
           <div class="sb" style="gap: 8px">

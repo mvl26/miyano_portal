@@ -299,9 +299,18 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.khoa_sap_xep" class="clickable" @click="moYeuCau(r)">
-            <td>
+            <!-- Tên đơn hàng nằm TRONG cột đầu, dưới mã (chủ đầu tư
+                 08/09/2026). Không dựng cột thứ tám: bảng này đã bảy cột và
+                 tên là NHÃN của dòng, không phải một thuộc tính ngang hàng
+                 với ngày đặt hay giá trị.
+                 Hiện cả khi `r.ma` rỗng (phiếu Nháp) — đó chính là lúc tên
+                 hữu ích nhất, vì chưa có mã nào để mà nhận ra phiếu.
+                 KHÔNG cắt bớt: chủ đầu tư nói "tên đơn hàng có thể dài", ô
+                 cho xuống dòng thoải mái. -->
+            <td style="min-width: 14rem">
               <b v-if="r.ma">{{ r.ma }}</b>
               <span v-else class="tag">(chưa gửi duyệt)</span>
+              <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
             </td>
             <td>{{ tenKhoa(r.khoa_phong) }}</td>
             <td>{{ fmtDate(r.thoi_diem) }}</td>
@@ -343,6 +352,10 @@ onMounted(async () => {
           <span v-else class="tag">(chưa gửi duyệt)</span>
           <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ nhanGiaiDoan(r.giai_doan) }}</span>
         </div>
+        <!-- Cùng chỗ, cùng lý do với bảng desktop: ngay dưới mã, TRÊN dòng
+             dữ liệu phụ. Sửa một trong hai nhánh mà quên nhánh kia là đúng
+             một nửa người dùng (điện thoại) không thấy tên. -->
+        <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
         <p class="tag" style="margin-top: 4px">
           {{ tenKhoa(r.khoa_phong) }} · {{ fmtDate(r.thoi_diem) }}
           <template v-if="r.sales_order"> · {{ fmtVND(r.grand_total) }}</template>
@@ -361,3 +374,18 @@ onMounted(async () => {
     <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
   </div>
 </template>
+
+<style scoped>
+/* Tên do người gõ — đậm hơn dòng dữ liệu phụ (`.tag`) nhưng nhạt hơn mã, vì
+   mã mới là khoá đối chiếu với Miyano. `overflow-wrap: anywhere` để một cái
+   tên dài liền mạch (hoặc dán từ chỗ khác) xuống dòng thay vì đẩy vỡ bảng —
+   chủ đầu tư 08/09/2026: "tên đơn hàng có thể dài".
+   Kích thước bằng `rem`: co giãn theo cỡ chữ người dùng đặt trong trình
+   duyệt, thứ `px` bỏ qua hoàn toàn. */
+.ten-don {
+  margin-top: 0.125rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+</style>

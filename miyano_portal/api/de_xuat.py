@@ -91,7 +91,8 @@ def de_xuat_tao_nhap(hdnt=None, **_bo_qua) -> dict:
 
 @frappe.whitelist()
 def de_xuat_luu_nhap(ten, items=None, dat_ngoai=None, ngay_can=None,
-                     dia_chi_giao=None, ghi_chu=None, ly_do_yeu_cau=None) -> dict:
+                     dia_chi_giao=None, ghi_chu=None, ly_do_yeu_cau=None,
+                     ten_don_hang=None) -> dict:
 	doc = _phieu_cua_toi(ten)
 	if doc.trang_thai != "Nháp":
 		frappe.throw("Chỉ sửa được phiếu đang ở trạng thái Nháp.",
@@ -102,7 +103,8 @@ def de_xuat_luu_nhap(ten, items=None, dat_ngoai=None, ngay_can=None,
 		doc.set("dat_ngoai",
 		        frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else dat_ngoai)
 	for f, v in (("ngay_can", ngay_can), ("dia_chi_giao", dia_chi_giao),
-	             ("ghi_chu", ghi_chu), ("ly_do_yeu_cau", ly_do_yeu_cau)):
+	             ("ghi_chu", ghi_chu), ("ly_do_yeu_cau", ly_do_yeu_cau),
+	             ("ten_don_hang", ten_don_hang)):
 		if v is not None:
 			doc.set(f, v)
 	doc.save(ignore_permissions=True)
