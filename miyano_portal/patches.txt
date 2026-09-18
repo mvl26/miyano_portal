@@ -74,3 +74,4 @@ miyano_portal.patches.v1_31.install_bao_cao_tieu_thu_theo_may
 miyano_portal.patches.v1_32.dong_bo_mau_bao_gia_cr03
 miyano_portal.patches.v1_33.chep_nguoc_cr03_sang_don_cu
 miyano_portal.patches.v1_34.them_ten_don_hang_vao_don
+miyano_portal.patches.v1_35.cap_nhat_mau_phieu_dat_hang
