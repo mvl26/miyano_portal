@@ -317,7 +317,10 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
 
 
 @frappe.whitelist()
-def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
+def portal_catalog_gop(
+    tu_khoa=None, contract=None, start=0, limit=50, nhom_vat_tu=None, nha_cung_cap=None,
+    may_su_dung=None,
+) -> dict:
     """Task 3 (gộp luồng đặt hàng, 21/08/2026) — MỘT endpoint tìm kiếm gộp
     BA TẦNG cho màn Lập phiếu (`LapPhieu.vue`, Task 8, chạy song song).
     Hình dạng trả về ĐÃ ĐÓNG BĂNG (`hop-dong-endpoint-tim-kiem.md`, Task 8
@@ -381,6 +384,23 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
       thức sẽ bị từ chối) và KHÔNG kéo cả danh mục về Python để sắp xếp.
       `tong` là tổng hai nửa — hai nửa là một PHÂN HOẠCH của đúng bộ lọc cũ
       nên con số không đổi so với bản một truy vấn.
+
+    Nhóm vật tư (28/09/2026, patch v1_36) — BỔ SUNG, không đổi khoá cũ:
+    tham số `nhom_vat_tu` lọc theo `Item.custom_nhom_vat_tu`; mỗi dòng mang
+    thêm khoá `nhom_vat_tu` (`None` khi hàng chưa phân nhóm), và kết quả
+    mang thêm `nhom_vat_tu_ds` — danh sách nhóm đọc từ meta, để cổng dựng
+    nút lọc từ ĐÚNG nguồn mà phép kiểm tham số dùng.
+
+    Nhà cung cấp (28/09/2026, patch v1_37) — cùng khuôn: tham số
+    `nha_cung_cap` (tên `Supplier`) lọc theo bảng `Item.supplier_items`; kết
+    quả mang thêm `nha_cung_cap_ds` = `[{value, label}]`, CHỈ gồm NCC đang
+    gắn với ít nhất một mặt hàng khách thấy được (không phải mọi Supplier —
+    chọn một NCC không có hàng nào là một ngõ cụt).
+
+    Máy sử dụng (28/09/2026, patch v1_38) — cùng khuôn NCC: tham số
+    `may_su_dung` (tên `Dong May`) lọc theo bảng `Item.custom_may_su_dung`;
+    kết quả mang thêm `may_su_dung_ds` = `[{value, label}]`, chỉ gồm máy
+    đang gắn với ít nhất một mặt hàng.
     """
     customer = get_portal_customer()
     start = max(0, int(start or 0))
@@ -398,6 +418,40 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
             ["item_code", "like", f"%{tu_khoa}%"],
             ["item_name", "like", f"%{tu_khoa}%"],
         ]
+
+    ds_nhom = _nhom_vat_tu_ds()
+    if nhom_vat_tu:
+        # Giá trị lạ không được lặng lẽ thành "không lọc" (khách thấy cả
+        # danh mục mà tưởng đã lọc) — từ chối rõ ràng.
+        if nhom_vat_tu not in ds_nhom:
+            frappe.throw(f"Nhóm vật tư không hợp lệ: {nhom_vat_tu}")
+        filters.append(["custom_nhom_vat_tu", "=", nhom_vat_tu])
+
+    ds_ncc = _nha_cung_cap_ds()
+    if nha_cung_cap:
+        if nha_cung_cap not in {x["value"] for x in ds_ncc}:
+            frappe.throw(f"Nhà cung cấp không hợp lệ: {nha_cung_cap}")
+        # Tách thành tập mã rồi `name in` — cùng khuôn nhánh `contract`; KHÔNG
+        # lọc thẳng qua bảng con trong `get_all` (join bảng con nhân dòng khi
+        # một item khai trùng NCC, `tong` và phân trang sẽ lệch).
+        ma_cua_ncc = frappe.get_all(
+            "Item Supplier",
+            filters={"parenttype": "Item", "supplier": nha_cung_cap},
+            pluck="parent", distinct=True,
+        )
+        filters.append(["name", "in", ma_cua_ncc or [""]])
+
+    ds_may = _may_su_dung_ds()
+    if may_su_dung:
+        if may_su_dung not in {x["value"] for x in ds_may}:
+            frappe.throw(f"Máy sử dụng không hợp lệ: {may_su_dung}")
+        # Cùng lý do nhánh NCC ở trên: tập mã rồi `name in`, không join bảng con.
+        ma_cua_may = frappe.get_all(
+            "Item May Su Dung",
+            filters={"parenttype": "Item", "may": may_su_dung},
+            pluck="parent", distinct=True,
+        )
+        filters.append(["name", "in", ma_cua_may or [""]])
 
     if contract:
         # Isolation — cùng chốt `portal_catalog`: hợp đồng truyền vào phải
@@ -421,6 +475,10 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
     ma_hop_dong = sorted(thang_cuoc)
 
     COT = ["item_code", "item_name", "stock_uom", "custom_boi_so_dat"]
+    # Site chưa chạy patch v1_36 chưa có cột này — chọn nó sẽ làm SẬP cả màn
+    # Đặt hàng chứ không chỉ mất bộ lọc.
+    if ds_nhom:
+        COT.append("custom_nhom_vat_tu")
     # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
     # TẤT ĐỊNH giữa hai trang, cùng lý do `portal_catalog_ban_le`.
     THU_TU = "item_name asc, name asc"
@@ -473,6 +531,7 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
         dong = {
             "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
             "boi_so": boi_so,
+            "nhom_vat_tu": r.get("custom_nhom_vat_tu") or None,
             "trang_thai_hang": trang_thai_hang(r.item_code),
         }
         if bo:
@@ -502,7 +561,60 @@ def portal_catalog_gop(tu_khoa=None, contract=None, start=0, limit=50) -> dict:
                 "khong_gioi_han": False,
             })
         out.append(dong)
-    return {"rows": out, "tong": tong}
+    return {
+        "rows": out, "tong": tong,
+        "nhom_vat_tu_ds": ds_nhom, "nha_cung_cap_ds": ds_ncc, "may_su_dung_ds": ds_may,
+    }
+
+
+def _may_su_dung_ds() -> list:
+    """Dòng máy gắn với ít nhất một mặt hàng đang bật trong `Item.
+    custom_may_su_dung` — nguồn của ô lọc máy ở màn Đặt hàng. Site chưa chạy
+    patch v1_38 chưa có bảng → rỗng (màn Đặt hàng vẫn chạy, chỉ không có ô
+    lọc)."""
+    if not frappe.db.table_exists("Item May Su Dung"):
+        return []
+    rows = frappe.db.sql(
+        """
+        select distinct m.name as value,
+            concat_ws(' · ', m.name, nullif(m.hang_san_xuat, '')) as label
+        from `tabItem May Su Dung` ims
+        join `tabItem` i on i.name = ims.parent and ims.parenttype = 'Item'
+        join `tabDong May` m on m.name = ims.may
+        where i.disabled = 0 and i.name != %s
+        order by m.name asc
+        """,
+        (ITEM_GIU_CHO,), as_dict=True,
+    )
+    return [{"value": r.value, "label": r.label} for r in rows]
+
+
+def _nha_cung_cap_ds() -> list:
+    """NCC (đang bật) gắn với ít nhất một mặt hàng đang bật trong
+    `Item.supplier_items` — nguồn của ô lọc NCC ở màn Đặt hàng. `frappe.db.
+    sql` vì role `Customer` không có DocPerm trên `Supplier`/`Item`."""
+    rows = frappe.db.sql(
+        """
+        select distinct s.name as value, coalesce(nullif(s.supplier_name, ''), s.name) as label
+        from `tabItem Supplier` isp
+        join `tabItem` i on i.name = isp.parent and isp.parenttype = 'Item'
+        join `tabSupplier` s on s.name = isp.supplier
+        where i.disabled = 0 and i.name != %s and s.disabled = 0
+        order by label asc
+        """,
+        (ITEM_GIU_CHO,), as_dict=True,
+    )
+    return [{"value": r.value, "label": r.label} for r in rows]
+
+
+def _nhom_vat_tu_ds() -> list:
+    """Các nhóm vật tư hợp lệ — ĐÚNG danh sách tuỳ chọn của
+    `Item.custom_nhom_vat_tu` (patch v1_36), đọc từ meta nên thêm nhóm ở
+    Customize Form là cổng thấy ngay. Site chưa chạy patch → rỗng."""
+    field = frappe.get_meta("Item").get_field("custom_nhom_vat_tu")
+    if not field:
+        return []
+    return [x.strip() for x in (field.options or "").split("\n") if x.strip()]
 
 
 @frappe.whitelist()

@@ -75,6 +75,7 @@ import { fmtVND, addWorkDaysISO, todayISO } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
+import LocChon from '../components/LocChon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -377,6 +378,18 @@ const searchTrang = ref(1)
 // lựa chọn đã lưu của chính khách ở màn khác — đó là hợp đồng dùng chung của
 // component phân trang toàn cổng, không phải chỗ để phá lệ.
 const searchSoDong = ref(10)
+// Lọc theo `Item.custom_nhom_vat_tu` — '' = tất cả. Danh sách nhóm do chính
+// `portal_catalog_gop` trả về (đọc từ meta), KHÔNG chép cứng ở đây: server
+// kiểm tham số theo đúng danh sách đó, hai bản sẽ lệch khi thêm nhóm mới.
+const nhomVatTu = ref('')
+const nhomVatTuDs = ref([])
+// Lọc theo `Item.supplier_items` — cùng khuôn nhóm vật tư, danh sách
+// `[{value, label}]` do server trả.
+const nhaCungCap = ref('')
+const nhaCungCapDs = ref([])
+// Lọc theo `Item.custom_may_su_dung` (danh mục `Dong May`) — cùng khuôn.
+const maySuDung = ref('')
+const maySuDungDs = ref([])
 let searchTimer = null
 
 async function timKiem() {
@@ -388,11 +401,17 @@ async function timKiem() {
     // đường gọi này (Ruling P13).
     const res = await api.call('portal_catalog_gop', {
       tu_khoa: search.value.trim() || undefined,
+      nhom_vat_tu: nhomVatTu.value || undefined,
+      nha_cung_cap: nhaCungCap.value || undefined,
+      may_su_dung: maySuDung.value || undefined,
       start: (searchTrang.value - 1) * searchSoDong.value,
       limit: searchSoDong.value,
     })
     searchResults.value = res.rows || []
     searchTong.value = res.tong || 0
+    nhomVatTuDs.value = res.nhom_vat_tu_ds || []
+    nhaCungCapDs.value = res.nha_cung_cap_ds || []
+    maySuDungDs.value = res.may_su_dung_ds || []
     // Gieo sẵn số lượng mặc định = ĐÚNG MỘT LÔ (bội số), không phải 1 —
     // thiếu dòng này, "mặc định" trở thành một quy ước VÔ HÌNH chỉ đúng
     // trong code (`soHienTai()`), không đúng trên màn hình.
@@ -418,6 +437,12 @@ watch(search, () => {
   clearTimeout(searchTimer)
   searchTrang.value = 1
   searchTimer = setTimeout(timKiem, 300)
+})
+watch([nhomVatTu, nhaCungCap, maySuDung], () => {
+  // Đổi bộ lọc → về trang 1; nếu đang ở trang 1 thì watcher trang không chạy,
+  // phải tự gọi.
+  if (searchTrang.value !== 1) searchTrang.value = 1
+  else timKiem()
 })
 watch([searchTrang, searchSoDong], timKiem)
 onBeforeUnmount(() => clearTimeout(searchTimer))
@@ -966,6 +991,20 @@ onMounted(async () => {
           <label>Tìm vật tư</label>
           <input v-model="search" placeholder="Nhập mã hoặc tên mặt hàng..." />
         </div>
+        <div v-if="nhomVatTuDs.length || nhaCungCapDs.length || maySuDungDs.length" class="bo-loc">
+          <div v-if="nhomVatTuDs.length" class="field">
+            <label>Nhóm vật tư</label>
+            <LocChon v-model="nhomVatTu" :options="nhomVatTuDs" placeholder="Tất cả nhóm" />
+          </div>
+          <div v-if="nhaCungCapDs.length" class="field">
+            <label>Nhà cung cấp</label>
+            <LocChon v-model="nhaCungCap" :options="nhaCungCapDs" placeholder="Tất cả nhà cung cấp" />
+          </div>
+          <div v-if="maySuDungDs.length" class="field">
+            <label>Máy sử dụng</label>
+            <LocChon v-model="maySuDung" :options="maySuDungDs" placeholder="Tất cả máy" />
+          </div>
+        </div>
         <!-- LUÔN HIỆN (brief Task 10): khách biết trước hàng mình cần chưa
              có mã thì không phải gõ một từ khoá vô vọng để mở được lối này. -->
         <button class="btn-o btn-sm" @click="moDatNgoai(search.trim())">
@@ -983,7 +1022,7 @@ onMounted(async () => {
           <table>
             <thead>
               <tr>
-                <th>Mã</th><th>Tên mặt hàng</th><th>ĐVT</th>
+                <th>Mã</th><th>Tên mặt hàng</th><th>Nhóm</th><th>ĐVT</th>
                 <th>Tình trạng</th><th>Tầng giá</th><th style="min-width: 130px">Hạn mức</th>
                 <th style="width: 130px">Số lượng</th><th></th>
               </tr>
@@ -992,6 +1031,7 @@ onMounted(async () => {
               <tr v-for="r in searchResults" :key="r.item_code">
                 <td><b>{{ r.item_code }}</b></td>
                 <td>{{ r.item_name }}</td>
+                <td><span class="tag">{{ r.nhom_vat_tu || '—' }}</span></td>
                 <td>{{ r.dvt }}</td>
                 <td>
                   <span class="badge" :class="r.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">
@@ -1030,7 +1070,9 @@ onMounted(async () => {
         <template v-else>
           <div v-for="r in searchResults" :key="r.item_code" class="card item mb10">
             <div class="nm">{{ r.item_code }} · {{ r.item_name }}</div>
-            <div class="tag" style="margin: 2px 0 6px">{{ r.dvt }}</div>
+            <div class="tag" style="margin: 2px 0 6px">
+              {{ r.dvt }}<template v-if="r.nhom_vat_tu"> · {{ r.nhom_vat_tu }}</template>
+            </div>
             <div class="sb" style="flex-wrap: wrap; gap: 6px">
               <span class="badge" :class="r.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">
                 {{ r.trang_thai_hang }}
@@ -1059,7 +1101,11 @@ onMounted(async () => {
       </template>
 
       <div v-if="timKhongRa && !searchError" class="card mb10 tag">
-        Không có mặt hàng khớp tìm kiếm trong hệ thống — dùng nút
+        <template v-if="nhomVatTu || nhaCungCap || maySuDung">
+          Không có mặt hàng khớp bộ lọc đang chọn — bỏ lọc (nút <b>×</b>) để tìm
+          trong toàn bộ danh mục, hoặc dùng nút
+        </template>
+        <template v-else>Không có mặt hàng khớp tìm kiếm trong hệ thống — dùng nút</template>
         <b>“+ Thêm dòng”</b> ở trên để Miyano tìm nguồn và báo giá.
       </div>
 

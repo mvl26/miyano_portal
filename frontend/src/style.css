@@ -675,3 +675,7 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 /* Chỉ khi ĐANG MỞ mới cần khoảng cách xuống phần thân; lúc đóng thẻ gọn
    đúng một dòng. */
 .kdtg[open] .kdtg-dau { margin-bottom: 0.625rem; }
+
+/* Bộ lọc Nhóm vật tư / Nhà cung cấp ở màn Đặt hàng (`LapPhieu.vue`) — hai
+   ô cạnh nhau, xuống một cột trên điện thoại. */
+.bo-loc { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }

@@ -468,3 +468,149 @@ class TestPortalCatalogGop(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError) as ctx:
 			portal_api.portal_catalog_gop(contract=self.bo_b)
 		self.assertIn("không thuộc", str(ctx.exception))
+
+	# -- Nhóm vật tư (28/09/2026, patch v1_36) --------------------------------
+
+	def test_loc_theo_nhom_vat_tu(self):
+		"""Chọn một nhóm → CHỈ hàng thuộc nhóm đó; hàng chưa phân nhóm và hàng
+		nhóm khác biến mất, `tong` đếm theo đúng bộ lọc."""
+		frappe.db.set_value("Item", self.item_ngoai, "custom_nhom_vat_tu", "Huyết học")
+		frappe.db.set_value("Item", self.item_co_dau, "custom_nhom_vat_tu", "Vi sinh")
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", nhom_vat_tu="Huyết học", limit=50)
+		self.assertEqual([r["item_code"] for r in out["rows"]], [self.item_ngoai])
+		self.assertEqual(out["tong"], 1)
+		self.assertEqual(out["rows"][0]["nhom_vat_tu"], "Huyết học")
+
+	def test_khong_chon_nhom_thi_ra_ca_hang_chua_phan_nhom(self):
+		frappe.db.set_value("Item", self.item_ngoai, "custom_nhom_vat_tu", "Huyết học")
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=50)
+		row = self._row(out["rows"], self.item_boi_so)
+		self.assertIsNone(row["nhom_vat_tu"])
+		self._row(out["rows"], self.item_ngoai)
+
+	def test_tra_ve_danh_sach_nhom_de_dung_nut_loc(self):
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=1)
+		self.assertEqual(
+			out["nhom_vat_tu_ds"],
+			["Hóa sinh", "Vi sinh", "Huyết học", "Test nhanh", "Sinh học phân tử", "Vật tư"],
+		)
+
+	def test_nhom_la_bi_tu_choi_khong_lang_le_bo_loc(self):
+		frappe.set_user(self.user_a)
+		with self.assertRaises(frappe.ValidationError):
+			portal_api.portal_catalog_gop(nhom_vat_tu="Không có nhóm này")
+
+	# -- Nhà cung cấp (28/09/2026, patch v1_37 — `Item.supplier_items`) ------
+
+	def _tao_ncc(self, ten):
+		if not frappe.db.exists("Supplier", ten):
+			frappe.get_doc({
+				"doctype": "Supplier", "supplier_name": ten,
+				"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}, "name"),
+			}).insert(ignore_permissions=True)
+		return frappe.db.get_value("Supplier", {"supplier_name": ten}, "name")
+
+	def _gan_ncc(self, item_code, *ds_ncc):
+		item = frappe.get_doc("Item", item_code)
+		for ncc in ds_ncc:
+			item.append("supplier_items", {"supplier": ncc})
+		item.save(ignore_permissions=True)
+
+	def test_loc_theo_nha_cung_cap(self):
+		"""Một item nhiều NCC ra ở bộ lọc của MỖI NCC; item không gắn NCC đó
+		không ra."""
+		ncc_x = self._tao_ncc("_TEST GOP NCC X")
+		ncc_y = self._tao_ncc("_TEST GOP NCC Y")
+		self._gan_ncc(self.item_ngoai, ncc_x, ncc_y)
+		self._gan_ncc(self.item_co_dau, ncc_y)
+		frappe.set_user(self.user_a)
+		out_x = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", nha_cung_cap=ncc_x, limit=50)
+		self.assertEqual([r["item_code"] for r in out_x["rows"]], [self.item_ngoai])
+		self.assertEqual(out_x["tong"], 1)
+		out_y = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", nha_cung_cap=ncc_y, limit=50)
+		self.assertEqual(
+			sorted(r["item_code"] for r in out_y["rows"]), sorted([self.item_ngoai, self.item_co_dau])
+		)
+		self.assertEqual(out_y["tong"], 2)
+
+	def test_ket_hop_nha_cung_cap_va_nhom(self):
+		ncc_y = self._tao_ncc("_TEST GOP NCC Y")
+		self._gan_ncc(self.item_ngoai, ncc_y)
+		self._gan_ncc(self.item_co_dau, ncc_y)
+		frappe.db.set_value("Item", self.item_co_dau, "custom_nhom_vat_tu", "Vi sinh")
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(
+			tu_khoa="GOPTEST", nha_cung_cap=ncc_y, nhom_vat_tu="Vi sinh", limit=50
+		)
+		self.assertEqual([r["item_code"] for r in out["rows"]], [self.item_co_dau])
+
+	def test_danh_sach_ncc_chi_gom_ncc_co_hang(self):
+		ncc_x = self._tao_ncc("_TEST GOP NCC X")
+		ncc_trong = self._tao_ncc("_TEST GOP NCC KHONG HANG")
+		self._gan_ncc(self.item_ngoai, ncc_x)
+		frappe.set_user(self.user_a)
+		ds = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=1)["nha_cung_cap_ds"]
+		gia_tri = [x["value"] for x in ds]
+		self.assertIn(ncc_x, gia_tri)
+		self.assertNotIn(ncc_trong, gia_tri)
+		self.assertEqual(next(x for x in ds if x["value"] == ncc_x)["label"], "_TEST GOP NCC X")
+
+	def test_ncc_la_bi_tu_choi(self):
+		frappe.set_user(self.user_a)
+		with self.assertRaises(frappe.ValidationError):
+			portal_api.portal_catalog_gop(nha_cung_cap="_KHONG CO NCC NAY")
+
+	# -- Máy sử dụng (28/09/2026, patch v1_38 — `Item.custom_may_su_dung`) ---
+
+	def _tao_may(self, ten, hang=None):
+		if not frappe.db.exists("Dong May", ten):
+			frappe.get_doc({"doctype": "Dong May", "ten_may": ten, "hang_san_xuat": hang}).insert(
+				ignore_permissions=True
+			)
+		return ten
+
+	def _gan_may(self, item_code, *ds_may):
+		item = frappe.get_doc("Item", item_code)
+		for may in ds_may:
+			item.append("custom_may_su_dung", {"may": may})
+		item.save(ignore_permissions=True)
+
+	def test_loc_theo_may_su_dung(self):
+		may_a = self._tao_may("_TEST GOP MAY A", "Beckman")
+		may_b = self._tao_may("_TEST GOP MAY B")
+		self._gan_may(self.item_ngoai, may_a, may_b)
+		self._gan_may(self.item_co_dau, may_b)
+		frappe.set_user(self.user_a)
+		out_a = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", may_su_dung=may_a, limit=50)
+		self.assertEqual([r["item_code"] for r in out_a["rows"]], [self.item_ngoai])
+		self.assertEqual(out_a["tong"], 1)
+		out_b = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", may_su_dung=may_b, limit=50)
+		self.assertEqual(out_b["tong"], 2)
+
+	def test_ket_hop_may_va_nhom(self):
+		may_b = self._tao_may("_TEST GOP MAY B")
+		self._gan_may(self.item_ngoai, may_b)
+		self._gan_may(self.item_co_dau, may_b)
+		frappe.db.set_value("Item", self.item_ngoai, "custom_nhom_vat_tu", "Hóa sinh")
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(
+			tu_khoa="GOPTEST", may_su_dung=may_b, nhom_vat_tu="Hóa sinh", limit=50
+		)
+		self.assertEqual([r["item_code"] for r in out["rows"]], [self.item_ngoai])
+
+	def test_danh_sach_may_chi_gom_may_co_hang(self):
+		may_a = self._tao_may("_TEST GOP MAY A", "Beckman")
+		may_trong = self._tao_may("_TEST GOP MAY KHONG HANG")
+		self._gan_may(self.item_ngoai, may_a)
+		frappe.set_user(self.user_a)
+		ds = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=1)["may_su_dung_ds"]
+		self.assertIn({"value": may_a, "label": "_TEST GOP MAY A · Beckman"}, ds)
+		self.assertNotIn(may_trong, [x["value"] for x in ds])
+
+	def test_may_la_bi_tu_choi(self):
+		frappe.set_user(self.user_a)
+		with self.assertRaises(frappe.ValidationError):
+			portal_api.portal_catalog_gop(may_su_dung="_KHONG CO MAY NAY")

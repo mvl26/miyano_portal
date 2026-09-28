@@ -1,0 +1,38 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:ten_may",
+ "creation": "2026-09-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["ten_may", "hang_san_xuat", "col_1", "model", "sec_1", "ghi_chu"],
+ "fields": [
+  {"fieldname": "ten_may", "fieldtype": "Data", "label": "Tên máy", "reqd": 1, "unique": 1, "in_list_view": 1},
+  {"fieldname": "hang_san_xuat", "fieldtype": "Data", "label": "Hãng sản xuất", "in_list_view": 1, "in_standard_filter": 1},
+  {"fieldname": "col_1", "fieldtype": "Column Break"},
+  {"fieldname": "model", "fieldtype": "Data", "label": "Model", "in_list_view": 1},
+  {"fieldname": "sec_1", "fieldtype": "Section Break"},
+  {"fieldname": "ghi_chu", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Miyano Portal",
+ "name": "Dong May",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Item Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1},
+  {"role": "Stock Manager", "read": 1, "write": 1, "create": 1, "report": 1},
+  {"role": "Stock User", "read": 1, "report": 1},
+  {"role": "Sales User", "read": 1, "report": 1},
+  {"role": "Purchase User", "read": 1, "report": 1}
+ ],
+ "search_fields": "hang_san_xuat,model",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
