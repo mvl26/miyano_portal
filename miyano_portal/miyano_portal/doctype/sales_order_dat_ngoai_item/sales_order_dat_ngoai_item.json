@@ -24,7 +24,7 @@
    "description": "Nhãn mờ, hộp đã bỏ, hàng chưa từng mua. Bật thì 'Mô tả nhận dạng' thành bắt buộc, tối thiểu 50 ký tự."},
   {"fieldname": "mo_ta_nhan_dang", "fieldtype": "Small Text", "label": "Mô tả nhận dạng",
    "depends_on": "khong_co_anh",
-   "description": "Bắt buộc ≥50 ký tự khi không có ảnh — mô tả bằng lời để purchasing có manh mối tìm nguồn."},
+   "description": "Không bắt buộc — mô tả bằng lời khi không có ảnh để purchasing có manh mối tìm nguồn."},
 
   {"fieldname": "sec_tren_hop", "fieldtype": "Section Break", "label": "Thông tin trên hộp"},
   {"fieldname": "model_ma", "fieldtype": "Data", "label": "Model / mã catalogue", "in_list_view": 1, "columns": 2,
@@ -48,7 +48,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-08-14 00:00:00.000000",
+ "modified": "2026-09-29 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
  "name": "Sales Order Dat Ngoai Item",

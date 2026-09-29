@@ -1160,10 +1160,10 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- Lối thoát khi không chụp được ảnh — bật cờ này thì mô tả
-                   nhận dạng trở thành thứ THAY THẾ duy nhất cho ảnh, nên
-                   phải đủ dài mới có tác dụng (chốt 50 ký tự nằm ở SERVER,
-                   lúc gửi duyệt — xem `PortalDeXuatMua.gui_duyet()`). -->
+              <!-- Lối thoát khi không chụp được ảnh. Mô tả nhận dạng là TUỲ
+                   CHỌN (chủ đầu tư bỏ ngưỡng 50 ký tự 29/09/2026) — server chỉ
+                   đòi tích cờ này khi dòng không có ảnh, xem
+                   `PortalDeXuatMua._kiem_dat_ngoai_du_nhan_dang()`. -->
               <div class="field">
                 <label style="display: flex; align-items: center; gap: 6px; font-weight: normal">
                   <input type="checkbox" v-model="d.khong_co_anh" style="width: auto" />
@@ -1172,13 +1172,8 @@ onMounted(async () => {
                 <template v-if="d.khong_co_anh">
                   <textarea
                     v-model="d.mo_ta_nhan_dang" rows="2"
-                    placeholder="Mô tả bằng lời để Miyano nhận diện đúng hàng (màu hộp, chữ in, hình vẽ...)"
+                    placeholder="Không bắt buộc — mô tả bằng lời để Miyano nhận diện đúng hàng (màu hộp, chữ in, hình vẽ...)"
                   ></textarea>
-                  <div class="tag" :class="{ warn: (d.mo_ta_nhan_dang || '').trim().length < 50 }">
-                    {{ (d.mo_ta_nhan_dang || '').trim().length >= 50
-                      ? 'Đã đủ mô tả.'
-                      : `Còn thiếu ${50 - (d.mo_ta_nhan_dang || '').trim().length} ký tự (tối thiểu 50).` }}
-                  </div>
                 </template>
               </div>
 

@@ -2,8 +2,8 @@
 
 Chủ đầu tư chốt 05/09/2026. Khách gõ tay một mặt hàng không có trong danh
 mục thì khai thêm được model/hãng/nước/quy cách/NCC/giá, và **bắt buộc ít
-nhất một ảnh** (BR-Y5) — có lối thoát `khong_co_anh`, khi đó
-`mo_ta_nhan_dang` thành bắt buộc tối thiểu 50 ký tự.
+nhất một ảnh** (BR-Y5) — có lối thoát `khong_co_anh`. `mo_ta_nhan_dang` là
+TUỲ CHỌN (ngưỡng 50 ký tự bị bỏ 29/09/2026).
 
 HAI ĐIỀU ĐỊNH HÌNH TOÀN BỘ BỘ TEST NÀY:
 
@@ -131,42 +131,22 @@ class TestBatBuocAnh(_CR03Fixture):
 
 
 class TestLoiThoatKhongCoAnh(_CR03Fixture):
-	def test_bat_co_ma_mo_ta_ngan_thi_bi_chan(self):
-		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang="nhãn mờ")
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			doc.gui_duyet()
-		self.assertIn("50", str(ctx.exception))
+	"""Chủ đầu tư 29/09/2026 bỏ ngưỡng 50 ký tự: tích "Tôi không chụp được
+	ảnh" là đủ, mô tả nhập hay không đều được."""
 
-	def test_bat_co_ma_khong_mo_ta_thi_bi_chan(self):
+	def test_bat_co_khong_mo_ta_van_qua(self):
 		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang=None)
-		with self.assertRaises(frappe.ValidationError):
-			doc.gui_duyet()
-
-	def test_bat_co_va_mo_ta_du_dai_thi_qua(self):
-		mo_ta = (
-			"Hộp giấy trắng viền xanh dương, chữ in màu đen ở mặt trước, "
-			"nắp mở kiểu lật, đã bỏ vỏ nên không chụp lại được."
-		)
-		self.assertGreaterEqual(len(mo_ta), 50)
-		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang=mo_ta)
 		doc.gui_duyet()
 		self.assertEqual(doc.trang_thai, "Chờ duyệt")
 
-	def test_dem_ky_tu_sau_khi_cat_khoang_trang(self):
-		"""Khoảng trắng không tính vào 50 ký tự.
+	def test_bat_co_mo_ta_ngan_van_qua(self):
+		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang="nhãn mờ")
+		doc.gui_duyet()
+		self.assertEqual(doc.trang_thai, "Chờ duyệt")
 
-		DỮ LIỆU VÀO PHẢI ≥50 KÝ TỰ KHI CHƯA CẮT và <50 SAU KHI CẮT — nếu
-		không, bài này không canh gì: bản đầu dùng 30 chữ + 6 dấu cách (36
-		ký tự), vẫn dưới ngưỡng ở CẢ HAI cách đếm, nên bỏ `strip()` khỏi mã
-		vẫn xanh. Đã đo: phép phá "bỏ strip()" không làm bài nào đỏ.
-
-		30 chữ + 25 dấu cách = 55 ký tự thô, 30 sau khi cắt. Không cắt thì
-		lọt; cắt thì chặn.
-		"""
-		mo_ta = "a" * 30 + " " * 25
-		self.assertGreaterEqual(len(mo_ta), 50)
-		self.assertLess(len(mo_ta.strip()), 50)
-		doc = self._phieu(anh=None, khong_co_anh=1, mo_ta_nhan_dang=mo_ta)
+	def test_khong_anh_khong_tich_co_van_bi_chan(self):
+		"""Chốt còn lại: không ảnh mà quên tích cờ thì vẫn bị chặn."""
+		doc = self._phieu(anh=None, khong_co_anh=0, mo_ta_nhan_dang="mô tả dài " * 10)
 		with self.assertRaises(frappe.ValidationError):
 			doc.gui_duyet()
 

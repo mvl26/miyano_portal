@@ -226,8 +226,6 @@ class PortalDeXuatMua(Document):
 				frappe.ValidationError,
 			)
 
-	MO_TA_NHAN_DANG_TOI_THIEU = 50
-
 	def _kiem_dat_ngoai_du_nhan_dang(self):
 		"""CR-03/BR-Y5 — mỗi dòng hàng chưa có trong hệ thống phải có ÍT NHẤT
 		MỘT ẢNH, hoặc một mô tả nhận dạng đủ dài.
@@ -246,12 +244,12 @@ class PortalDeXuatMua(Document):
 
 		Ảnh là dữ kiện tìm nguồn giá trị nhất: một tấm ảnh nhãn hộp thay được
 		cả bốn ô mô tả. Lối thoát `khong_co_anh` có thật (nhãn mờ, hộp đã bỏ,
-		hàng chưa từng mua) nên không chặn cứng — nhưng đổi lại phải có mô tả
-		bằng lời đủ để purchasing có manh mối.
+		hàng chưa từng mua) nên không chặn cứng: tích cờ đó là đủ.
 
-		Ngưỡng 50 ký tự là phép đo thô CỐ Ý: nó chặn "không có ảnh", "như
-		cũ", "gọi cho tôi". Nó KHÔNG chặn được 50 ký tự vô nghĩa, và chốt này
-		không giả vờ là có — phần còn lại là việc của người đọc phiếu.
+		Mô tả nhận dạng (`mo_ta_nhan_dang`) là TUỲ CHỌN — chủ đầu tư bỏ ngưỡng
+		50 ký tự ngày 29/09/2026 (*"không yêu cầu 50 ký tự nữa, có thể nhập
+		hoặc không nhập"*). Chốt còn lại chỉ là: không ảnh thì phải CỐ Ý tích
+		"Tôi không chụp được ảnh", không để lọt một dòng quên ảnh.
 		"""
 		for i, r in enumerate(self.get("dat_ngoai") or [], start=1):
 			ten = (r.ten_hang or f"dòng {i}").strip()
@@ -272,17 +270,8 @@ class PortalDeXuatMua(Document):
 				frappe.throw(
 					f'Mặt hàng "{ten}" chưa có ảnh. Miyano cần ảnh để tìm đúng '
 					"hàng — chụp nhãn trên hộp là đủ. Nếu thật sự không chụp "
-					'được, tích "Tôi không chụp được ảnh" rồi mô tả bằng lời.',
-					frappe.ValidationError,
-				)
-
-			mo_ta = (r.mo_ta_nhan_dang or "").strip()
-			if len(mo_ta) < self.MO_TA_NHAN_DANG_TOI_THIEU:
-				frappe.throw(
-					f'Mặt hàng "{ten}" không có ảnh nên cần mô tả nhận dạng ít '
-					f"nhất {self.MO_TA_NHAN_DANG_TOI_THIEU} ký tự "
-					f"(hiện {len(mo_ta)}). Hình dáng hộp, màu sắc, chữ in trên "
-					"nhãn — càng cụ thể Miyano càng tìm đúng hàng.",
+					'được, tích "Tôi không chụp được ảnh" (có thể mô tả thêm '
+					"bằng lời nếu muốn).",
 					frappe.ValidationError,
 				)
 
