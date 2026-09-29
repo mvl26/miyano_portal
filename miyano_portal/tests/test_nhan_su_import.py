@@ -271,27 +271,30 @@ class TestChotHopLe(_NhanSuTestBase):
 		self.assertEqual(self._dong(ket_qua, HOA)["trang_thai"], "tu_choi")
 		self.assertIn("Quản lý", " ".join(self._dong(ket_qua, HOA)["errors"]))
 
-	def test_quan_ly_thu_hai_bi_tu_choi_kem_ten_quan_ly_dang_co(self):
-		"""`_chan_hai_quan_ly` phải được chạy TRƯỚC ở bước xem trước — nếu
-		không, người nhập chỉ biết khi commit nổ giữa chừng."""
+	def test_quan_ly_thu_hai_duoc_tao(self):
+		"""Chủ đầu tư 29/09/2026: một bệnh viện có nhiều quản lý — bệnh viện
+		đã có quản lý thì tệp vẫn tạo thêm quản lý được."""
 		nhan_su_api.nhan_su_import_commit(
 			CUST_A, self._upload(_xlsx_bytes([_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý")])).file_url
 		)
 		f = self._upload(_xlsx_bytes([_row("Phạm Văn Dũng", DUNG, vai_tro="Quản lý")]))
 		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
+		self.assertEqual(self._dong(ket_qua, DUNG)["trang_thai"], "tao_moi")
 
-		dong = self._dong(ket_qua, DUNG)
-		self.assertEqual(dong["trang_thai"], "tu_choi")
-		self.assertIn(HOA, " ".join(dong["errors"]))
+		nhan_su_api.nhan_su_import_commit(CUST_A, f.file_url)
+		self.assertEqual(
+			frappe.db.get_value("Portal Member", {"user": DUNG}, ["vai_tro", "active"]),
+			("Quản lý", 1),
+		)
 
-	def test_hai_dong_quan_ly_trong_cung_tep_bi_tu_choi(self):
+	def test_hai_dong_quan_ly_trong_cung_tep_deu_duoc_tao(self):
 		f = self._upload(_xlsx_bytes([
 			_row("Nguyễn Thị Hoa", HOA, vai_tro="Quản lý"),
 			_row("Phạm Văn Dũng", DUNG, vai_tro="Quản lý"),
 		]))
 		ket_qua = nhan_su_api.nhan_su_import_preview(CUST_A, f.file_url)
 		self.assertEqual(self._dong(ket_qua, HOA)["trang_thai"], "tao_moi")
-		self.assertEqual(self._dong(ket_qua, DUNG)["trang_thai"], "tu_choi")
+		self.assertEqual(self._dong(ket_qua, DUNG)["trang_thai"], "tao_moi")
 
 	def test_trung_email_trong_cung_tep_bi_tu_choi(self):
 		f = self._upload(_xlsx_bytes([

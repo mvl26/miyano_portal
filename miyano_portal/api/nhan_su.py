@@ -372,7 +372,6 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 	rows: list[dict] = []
 	khoa_se_tao: list[dict] = []
 	email_da_gap: dict[str, int] = {}
-	quan_ly_trong_tep: dict | None = None
 	loi_toan_tep: list[str] = []
 	canh_bao_toan_tep: list[str] = []
 	# VÒNG SỬA 2: dòng ĐẦU TIÊN trong tệp "giữ" một số điện thoại — theo dõi ở
@@ -535,18 +534,9 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 					"Quản lý nhìn xuyên mọi khoa nên không gắn vào khoa phòng nào. "
 					"Bỏ trống cột Khoa và Mã khoa."
 				)
-			elif quan_ly_hien_co:
-				errors.append(
-					f"Bệnh viện này đã có quản lý là {quan_ly_hien_co}. Tắt thành viên đó "
-					f'trước, hoặc đặt tài khoản này là "{NHAN_VIEN_KHOA}".'
-				)
-			elif quan_ly_trong_tep:
-				errors.append(
-					f"Tệp đã có một Quản lý ở dòng {quan_ly_trong_tep['line']} "
-					f"({quan_ly_trong_tep['email']}) — mỗi bệnh viện chỉ một quản lý."
-				)
-			else:
-				quan_ly_trong_tep = dong
+			# Một bệnh viện được có NHIỀU quản lý (chủ đầu tư 29/09/2026) —
+			# không còn chặn quản lý thứ hai, dù đã có trên hệ thống hay
+			# cùng nằm trong tệp.
 		else:
 			if not co_ma_ngan:
 				errors.append(
@@ -622,7 +612,7 @@ def _phan_tich(content: bytes, customer: str) -> dict:
 			f'Khách hàng "{customer}" chưa có Mã ngắn. Đặt Mã ngắn trên hồ sơ khách hàng '
 			"rồi nhập lại — mã ngắn đi vào tên phiếu Đề nghị mua của khoa phòng."
 		)
-	se_co_quan_ly = quan_ly_trong_tep is not None and quan_ly_trong_tep["trang_thai"] == TAO_MOI
+	se_co_quan_ly = any(r["vai_tro"] == QUAN_LY and r["trang_thai"] == TAO_MOI for r in rows)
 	if not quan_ly_hien_co and not se_co_quan_ly:
 		canh_bao_toan_tep.append(
 			"Tệp này không tạo Quản lý nào và bệnh viện cũng chưa có quản lý đang hoạt "

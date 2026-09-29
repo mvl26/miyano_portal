@@ -69,13 +69,16 @@ class _NenThanhVien(FrappeTestCase):
 
 
 class TestPortalMemberRangBuoc(_NenThanhVien):
-	def test_moi_benh_vien_dung_mot_quan_ly_dang_hoat_dong(self):
+	def test_mot_benh_vien_co_the_co_nhieu_quan_ly(self):
+		"""Chủ đầu tư 29/09/2026 bỏ luật "mỗi bệnh viện đúng một quản lý":
+		quản lý thứ hai, thứ ba cùng hoạt động phải lưu được và đều là quản
+		lý thật (nhìn xuyên mọi khoa)."""
 		self._tv("zztest.ql1@demo.miyano")
-		with self.assertRaises(frappe.ValidationError) as cm:
-			self._tv("zztest.ql2@demo.miyano")
-		# Khẳng định ĐÚNG luật _chan_hai_quan_ly đứng sau lỗi này, không phải
-		# một ValidationError nào khác trùng hợp che khuất (vòng sửa 1, F1).
-		self.assertIn("đã có quản lý", str(cm.exception))
+		ql2 = self._tv("zztest.ql2@demo.miyano")
+		ql3 = self._tv("zztest.ql3@demo.miyano")
+		self.assertEqual(ql2.active, 1)
+		self.assertTrue(portal_context.la_quan_ly(ql2.user))
+		self.assertTrue(portal_context.la_quan_ly(ql3.user))
 
 	def test_nhan_vien_khoa_bat_buoc_co_khoa_phong(self):
 		with self.assertRaises(frappe.ValidationError) as cm:
@@ -198,58 +201,6 @@ class TestPortalMemberKhongLoRaChoKhach(FrappeTestCase):
 			"Một tài khoản cổng thật (Website User) không được có quyền đọc "
 			"Portal Member — nếu True, xem hai test trên để biết DocPerm hay "
 			"Custom DocPerm nào vừa mở lỗ.",
-		)
-
-
-class TestPortalMemberGioiHanDaBiet(_NenThanhVien):
-	"""F3 (vòng sửa 2, review độc lập): `_chan_hai_quan_ly()` chỉ chạy trong
-	`validate()`. `frappe.db.set_value()`/`doc.db_set()` bỏ qua validate hoàn
-	toàn và không có ràng buộc DB nào đứng sau — nên vẫn đi vòng được luật
-	"mỗi bệnh viện đúng một quản lý đang hoạt động". Test dưới đây KHÔNG
-	kiểm một luật đang đứng vững ở CHIỀU DƯƠNG; nó xác nhận GIỚI HẠN ĐÃ BIẾT
-	này thật sự tồn tại (xem docstring `_chan_hai_quan_ly` trong
-	portal_member.py), để không ai tưởng nhầm là lỗ hổng mới phát hiện ở
-	vòng sau — và để nhắc: Task 5 (backfill phía server) PHẢI luôn đi qua
-	doc.save()."""
-
-	def test_db_set_di_vong_qua_luat_mot_quan_ly(self):
-		self._tv("zztest.ql7@demo.miyano")
-		# Tạo quản lý thứ hai ở trạng thái INACTIVE — guard bỏ qua ngay từ
-		# đầu (`not self.active`), nên insert này không đỏ.
-		user2 = self._user("zztest.ql8@demo.miyano")
-		ql2 = frappe.get_doc({
-			"doctype": "Portal Member", "user": user2,
-			"customer": KHACH_BM, "vai_tro": "Quản lý", "active": 0,
-		}).insert(ignore_permissions=True)
-
-		# CHIỀU DƯƠNG trước (vòng sửa 3, F4 — góp ý của re-review): guard vẫn
-		# phải SỐNG trên đường chính thống. doc.save() với cùng dữ liệu này
-		# (bật active=1 qua validate()) phải bị chặn đúng như
-		# test_moi_benh_vien_dung_mot_quan_ly_dang_hoat_dong ở trên.
-		ql2.active = 1
-		with self.assertRaises(frappe.ValidationError) as cm:
-			ql2.save(ignore_permissions=True)
-		self.assertIn("đã có quản lý", str(cm.exception))
-		# save() ném lỗi thì DB chưa đổi, nhưng field trong bộ nhớ của ql2 đã
-		# bị ta gán active=1 phía trên — nạp lại từ DB trước khi đi tiếp.
-		ql2.reload()
-		self.assertEqual(ql2.active, 0)
-
-		# CHIỀU ÂM: db_set đi vòng qua validate() hoàn toàn — đây mới là lỗ
-		# đang được tài liệu hoá (KHÔNG phải điều test này chứng minh là an
-		# toàn).
-		ql2.db_set("active", 1)
-		# Đo trên ĐÚNG bản ghi (vòng sửa 3, F4) — không đếm tuyệt đối trên cả
-		# bảng `Portal Member` bằng frappe.db.count(): trước vòng sửa 3, con
-		# số kỳ vọng là "2" giả định BÊN CẠNH `Customer` ZZTEST không có
-		# quản lý active thật nào khác — giả định đó không còn đúng sau khi
-		# Task 5 backfill (dù nay `Customer` này là ZZTEST riêng của bộ test,
-		# vẫn giữ nguyên tắc "đo đúng bản ghi" làm chuẩn cho mọi test tương
-		# tự sau này).
-		self.assertEqual(
-			frappe.db.get_value("Portal Member", ql2.name, "active"), 1,
-			"Giới hạn đã biết: db_set() đi vòng được _chan_hai_quan_ly — "
-			"xem docstring _chan_hai_quan_ly trong portal_member.py.",
 		)
 
 
