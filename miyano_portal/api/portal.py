@@ -319,7 +319,7 @@ def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
 @frappe.whitelist()
 def portal_catalog_gop(
     tu_khoa=None, contract=None, start=0, limit=50, nhom_vat_tu=None, nha_cung_cap=None,
-    may_su_dung=None,
+    may_su_dung=None, ten_thuong_goi=None,
 ) -> dict:
     """Task 3 (gộp luồng đặt hàng, 21/08/2026) — MỘT endpoint tìm kiếm gộp
     BA TẦNG cho màn Lập phiếu (`LapPhieu.vue`, Task 8, chạy song song).
@@ -401,6 +401,12 @@ def portal_catalog_gop(
     `may_su_dung` (tên `Dong May`) lọc theo bảng `Item.custom_may_su_dung`;
     kết quả mang thêm `may_su_dung_ds` = `[{value, label}]`, chỉ gồm máy
     đang gắn với ít nhất một mặt hàng.
+
+    Tên thường gọi (02/10/2026, patch v1_39): `tu_khoa` vẫn khớp mã hoặc
+    `item_name` — đúng tên XUẤT HOÁ ĐƠN. Tham số `ten_thuong_goi` khớp bảng
+    `Item.custom_ten_thuong_goi`, CHỈ các dòng có `customer` = khách đang đăng
+    nhập (cách ly: tên bệnh viện A tự đặt không lộ sang B). Mỗi dòng trả thêm
+    `ten_thuong_goi` = danh sách tên thường gọi CỦA CHÍNH khách này.
     """
     customer = get_portal_customer()
     start = max(0, int(start or 0))
@@ -440,6 +446,19 @@ def portal_catalog_gop(
             pluck="parent", distinct=True,
         )
         filters.append(["name", "in", ma_cua_ncc or [""]])
+
+    co_bang_ten = frappe.db.table_exists("Item Ten Thuong Goi")
+    ten_thuong_goi = (ten_thuong_goi or "").strip()
+    if ten_thuong_goi:
+        ma_theo_ten = frappe.get_all(
+            "Item Ten Thuong Goi",
+            filters={
+                "parenttype": "Item", "customer": customer,
+                "ten_thuong_goi": ["like", f"%{ten_thuong_goi}%"],
+            },
+            pluck="parent", distinct=True,
+        ) if co_bang_ten else []
+        filters.append(["name", "in", ma_theo_ten or [""]])
 
     ds_may = _may_su_dung_ds()
     if may_su_dung:
@@ -521,6 +540,19 @@ def portal_catalog_gop(
         tong = _dem(filters)
         rows = _trang(filters, start, limit)
 
+    # MỘT truy vấn cho cả trang, chỉ tên của CHÍNH khách này.
+    ten_goi_theo_ma: dict[str, list] = {}
+    if co_bang_ten and rows:
+        for t in frappe.get_all(
+            "Item Ten Thuong Goi",
+            filters={
+                "parenttype": "Item", "customer": customer,
+                "parent": ["in", [r.item_code for r in rows]],
+            },
+            fields=["parent", "ten_thuong_goi"], order_by="idx asc",
+        ):
+            ten_goi_theo_ma.setdefault(t.parent, []).append(t.ten_thuong_goi)
+
     out = []
     for r in rows:
         bo = thang_cuoc.get(r.item_code)
@@ -532,6 +564,7 @@ def portal_catalog_gop(
             "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
             "boi_so": boi_so,
             "nhom_vat_tu": r.get("custom_nhom_vat_tu") or None,
+            "ten_thuong_goi": ten_goi_theo_ma.get(r.item_code, []),
             "trang_thai_hang": trang_thai_hang(r.item_code),
         }
         if bo:

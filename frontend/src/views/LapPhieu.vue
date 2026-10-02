@@ -369,6 +369,9 @@ const tongDongGio = computed(() => items.value.length + datNgoai.value.length)
 
 // --- Danh sách hàng hoá (một ô tìm, ba tầng) -----------------------------
 const search = ref('')
+// Tên thường gọi CỦA CHÍNH bệnh viện này (`Item.custom_ten_thuong_goi`) — ô
+// tìm thứ hai, khác `search` (mã / tên xuất hoá đơn).
+const searchTenGoi = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
 const searchError = ref('')
@@ -401,6 +404,7 @@ async function timKiem() {
     // đường gọi này (Ruling P13).
     const res = await api.call('portal_catalog_gop', {
       tu_khoa: search.value.trim() || undefined,
+      ten_thuong_goi: searchTenGoi.value.trim() || undefined,
       nhom_vat_tu: nhomVatTu.value || undefined,
       nha_cung_cap: nhaCungCap.value || undefined,
       may_su_dung: maySuDung.value || undefined,
@@ -433,7 +437,7 @@ const timKhongRa = computed(
   () => !searchLoading.value && (!!searchError.value || searchResults.value.length === 0)
 )
 
-watch(search, () => {
+watch([search, searchTenGoi], () => {
   clearTimeout(searchTimer)
   searchTrang.value = 1
   searchTimer = setTimeout(timKiem, 300)
@@ -987,9 +991,15 @@ onMounted(async () => {
     <!-- ==================== BƯỚC 1 — DANH SÁCH HÀNG HOÁ ==================== -->
     <template v-if="buoc === 'chon'">
       <div class="card mb10">
-        <div class="field" style="margin-bottom: 8px">
-          <label>Tìm vật tư</label>
-          <input v-model="search" placeholder="Nhập mã hoặc tên mặt hàng..." />
+        <div class="bo-loc">
+          <div class="field" style="margin-bottom: 8px">
+            <label>Tìm theo tên xuất hóa đơn</label>
+            <input v-model="search" placeholder="Nhập tên trên hóa đơn hoặc mã hàng..." />
+          </div>
+          <div class="field" style="margin-bottom: 8px">
+            <label>Tìm theo tên thường gọi</label>
+            <input v-model="searchTenGoi" placeholder="Tên đơn vị bạn quen gọi..." />
+          </div>
         </div>
         <div v-if="nhomVatTuDs.length || nhaCungCapDs.length || maySuDungDs.length" class="bo-loc">
           <div v-if="nhomVatTuDs.length" class="field">
@@ -1007,7 +1017,7 @@ onMounted(async () => {
         </div>
         <!-- LUÔN HIỆN (brief Task 10): khách biết trước hàng mình cần chưa
              có mã thì không phải gõ một từ khoá vô vọng để mở được lối này. -->
-        <button class="btn-o btn-sm" @click="moDatNgoai(search.trim())">
+        <button class="btn-o btn-sm" @click="moDatNgoai(search.trim() || searchTenGoi.trim())">
           + Thêm dòng — hàng chưa có trong hệ thống
         </button>
       </div>
@@ -1030,7 +1040,12 @@ onMounted(async () => {
             <tbody>
               <tr v-for="r in searchResults" :key="r.item_code">
                 <td><b>{{ r.item_code }}</b></td>
-                <td>{{ r.item_name }}</td>
+                <td>
+                  {{ r.item_name }}
+                  <div v-if="r.ten_thuong_goi?.length" class="muted sm">
+                    Tên thường gọi: {{ r.ten_thuong_goi.join(', ') }}
+                  </div>
+                </td>
                 <td><span class="tag">{{ r.nhom_vat_tu || '—' }}</span></td>
                 <td>{{ r.dvt }}</td>
                 <td>
@@ -1070,6 +1085,9 @@ onMounted(async () => {
         <template v-else>
           <div v-for="r in searchResults" :key="r.item_code" class="card item mb10">
             <div class="nm">{{ r.item_code }} · {{ r.item_name }}</div>
+            <div v-if="r.ten_thuong_goi?.length" class="muted sm">
+              Tên thường gọi: {{ r.ten_thuong_goi.join(', ') }}
+            </div>
             <div class="tag" style="margin: 2px 0 6px">
               {{ r.dvt }}<template v-if="r.nhom_vat_tu"> · {{ r.nhom_vat_tu }}</template>
             </div>
@@ -1101,7 +1119,7 @@ onMounted(async () => {
       </template>
 
       <div v-if="timKhongRa && !searchError" class="card mb10 tag">
-        <template v-if="nhomVatTu || nhaCungCap || maySuDung">
+        <template v-if="nhomVatTu || nhaCungCap || maySuDung || searchTenGoi.trim()">
           Không có mặt hàng khớp bộ lọc đang chọn — bỏ lọc (nút <b>×</b>) để tìm
           trong toàn bộ danh mục, hoặc dùng nút
         </template>

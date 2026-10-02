@@ -614,3 +614,52 @@ class TestPortalCatalogGop(FrappeTestCase):
 		frappe.set_user(self.user_a)
 		with self.assertRaises(frappe.ValidationError):
 			portal_api.portal_catalog_gop(may_su_dung="_KHONG CO MAY NAY")
+
+	# -- Tên thường gọi theo khách hàng (02/10/2026, patch v1_39) -------------
+
+	def _dat_ten_goi(self, item_code, ten, customer):
+		# Lớp test chỉ rollback MỘT lần cuối class — dọn tên thường gọi của các
+		# mặt hàng test để dòng của method trước không rò sang method sau.
+		if not getattr(self, "_da_don_ten_goi", False):
+			frappe.db.delete("Item Ten Thuong Goi", {"parent": ["like", "_TEST DX%"]})
+			self._da_don_ten_goi = True
+		item = frappe.get_doc("Item", item_code)
+		item.append("custom_ten_thuong_goi", {"ten_thuong_goi": ten, "customer": customer})
+		item.save(ignore_permissions=True)
+
+	def test_tim_theo_ten_thuong_goi_cua_chinh_minh(self):
+		self._dat_ten_goi(self.item_ngoai, "Ống đỏ GOIA", self.kh_a)
+		frappe.set_user(self.user_a)
+		# Không dấu vẫn khớp (collation `utf8mb4_unicode_ci`) — trừ "đ", MariaDB
+		# coi "đ" khác "d", nên giữ "đ" trong chuỗi tìm.
+		out = portal_api.portal_catalog_gop(ten_thuong_goi="ong đo goia", limit=50)
+		self.assertEqual([r["item_code"] for r in out["rows"]], [self.item_ngoai])
+		self.assertEqual(out["tong"], 1)
+		self.assertEqual(out["rows"][0]["ten_thuong_goi"], ["Ống đỏ GOIA"])
+
+	def test_ten_thuong_goi_cua_khach_khac_khong_tim_ra_khong_hien(self):
+		"""Cách ly: tên B đặt không tìm được và không hiện với A."""
+		self._dat_ten_goi(self.item_ngoai, "Bí danh của B GOIB", self.kh_b)
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(ten_thuong_goi="GOIB", limit=50)
+		self.assertEqual(out["rows"], [])
+		self.assertEqual(out["tong"], 0)
+		row = self._row(
+			portal_api.portal_catalog_gop(tu_khoa=self.item_ngoai, limit=50)["rows"], self.item_ngoai
+		)
+		self.assertEqual(row["ten_thuong_goi"], [])
+
+	def test_tu_khoa_van_tim_theo_ten_xuat_hoa_don(self):
+		"""Ô 1 tìm theo `item_name` (tên xuất hoá đơn); tên thường gọi KHÔNG lọt
+		vào ô này."""
+		self._dat_ten_goi(self.item_ngoai, "Tên riêng GOIC", self.kh_a)
+		frappe.set_user(self.user_a)
+		self._row(portal_api.portal_catalog_gop(tu_khoa="Ngoài hợp đồng GOPTEST")["rows"], self.item_ngoai)
+		self.assertEqual(portal_api.portal_catalog_gop(tu_khoa="GOIC")["rows"], [])
+
+	def test_ket_hop_hai_o_tim(self):
+		self._dat_ten_goi(self.item_ngoai, "Chung GOID", self.kh_a)
+		self._dat_ten_goi(self.item_co_dau, "Chung GOID", self.kh_a)
+		frappe.set_user(self.user_a)
+		out = portal_api.portal_catalog_gop(tu_khoa="Kẹp", ten_thuong_goi="GOID", limit=50)
+		self.assertEqual([r["item_code"] for r in out["rows"]], [self.item_co_dau])
