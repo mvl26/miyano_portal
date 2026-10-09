@@ -301,9 +301,15 @@ def de_xuat_chi_tiet(ten) -> dict:
 			for r in frappe.get_all(
 				"Sales Order Item",
 				filters={"parent": kq["sales_order"]},
-				fields=["item_code", "qty", "rate", "amount", "delivered_qty"],
+				fields=["item_code", "qty", "rate", "amount", "delivered_qty", "delivery_date"],
 			)
 		}
+	# Thời gian giao hàng (09/10/2026) — ngày trên dòng chỉ là LỜI HỨA của
+	# Miyano sau khi đơn được xác nhận; trước đó nó là "ngày cần" do khách gõ.
+	# Cùng luật với khoá `ngay_giao_du_kien` của `portal_order_track`.
+	don_da_xac_nhan = bool(dong_tren_don) and (
+		frappe.db.get_value("Sales Order", kq["sales_order"], "docstatus") == 1
+	)
 	for row in dong:
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
@@ -313,6 +319,9 @@ def de_xuat_chi_tiet(ten) -> dict:
 		row["don_gia_tren_don"] = float(tren_don.rate or 0) if tren_don else None
 		row["thanh_tien_tren_don"] = float(tren_don.amount or 0) if tren_don else None
 		row["da_giao_tren_don"] = float(tren_don.delivered_qty or 0) if tren_don else None
+		row["ngay_giao_du_kien"] = (
+			tren_don.delivery_date if tren_don and don_da_xac_nhan else None
+		)
 
 	# Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()` của danh
 	# sách (`api/portal.py`), KHÔNG một bản suy lại ở client. Bản suy ở

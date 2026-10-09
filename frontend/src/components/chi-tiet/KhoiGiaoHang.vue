@@ -11,7 +11,7 @@
 // sinh thêm ô con VÀ để chuỗi phần tử con của `.card` giữ nguyên như bản gốc.
 import { ref } from 'vue'
 import api from '../../api'
-import { fmtDate } from '../../format'
+import { fmtDate, fmtDateTime } from '../../format'
 import { showToast } from '../../toast'
 import HoaDonNhap from '../HoaDonNhap.vue'
 
@@ -110,9 +110,12 @@ function pdfUrl(doctype, docname) {
       {{ don.hen_giao.ly_do }}
     </p>
   </div>
+  <!-- Thời gian giao hàng (09/10/2026) — mỗi đợt hiện thời điểm giao THẬT
+       do Miyano nhập trên phiếu giao (`thoi_gian_giao`, có giờ), không phải
+       ngày ghi sổ. `posting_date` chỉ còn là đường lùi cho một response cũ. -->
   <template v-if="don.deliveries.length">
     <div v-for="(d, i) in don.deliveries" :key="d.name" style="margin-bottom: 12px">
-      <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDate(d.posting_date) }} ({{ d.percent }}%)</b></p>
+      <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDateTime(d.thoi_gian_giao || d.posting_date) }} ({{ d.percent }}%)</b></p>
       <p class="tag">
         Phiếu giao: {{ d.name }}
         <template v-if="d.carrier"> · {{ d.carrier }}</template>

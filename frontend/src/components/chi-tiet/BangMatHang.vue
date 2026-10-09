@@ -65,6 +65,7 @@ const dong = computed(() => {
         don_gia_tren_don: it.rate,
         thanh_tien_tren_don: it.amount,
         da_giao_tren_don: it.delivered_qty,
+        ngay_giao_du_kien: it.ngay_giao_du_kien,
       }))
 
   // MỘT BẢNG, KHÔNG BA (chủ đầu tư 08/09/2026: "sau khi đã khớp mã hàng từ
@@ -103,6 +104,7 @@ const dong = computed(() => {
       don_gia_tren_don: hang ? Number(hang.rate) : null,
       thanh_tien_tren_don: hang ? Number(hang.amount) : null,
       da_giao_tren_don: hang ? Number(hang.delivered_qty) : null,
+      ngay_giao_du_kien: hang?.ngay_giao_du_kien || null,
       ghi_chu_quan_ly: '',
       yeu_cau_khop: ycs,
       // Dòng KHÔNG có mặt trên phiếu — quản lý không được sửa SL duyệt của
@@ -125,6 +127,19 @@ const coCotXinSua = computed(() => props.phieu?.trang_thai === 'Chờ duyệt s�
 const coCotDaGiao = computed(
   () => coDon.value && (props.don.deliveries || []).length > 0
 )
+// Cột "Dự kiến giao" (09/10/2026) — chỉ hiện khi có ÍT NHẤT một dòng mang
+// ngày. Server trả `null` cho mọi dòng khi đơn CHƯA được Miyano xác nhận
+// (trước mốc đó ngày trên dòng là "ngày cần" do khách gõ, chưa phải lời hứa
+// của Miyano) — luật đó sống ở server, ở đây chỉ đọc kết quả.
+const coCotDuKienGiao = computed(
+  () => coDon.value && dong.value.some((r) => r.ngay_giao_du_kien)
+)
+// Dòng đã giao đủ thì "dự kiến" hết nghĩa — in ngày ra là mời khách chờ một
+// lần giao đã xong.
+function daGiaoDu(row) {
+  const dat = Number(row.so_luong_tren_don)
+  return dat > 0 && Number(row.da_giao_tren_don) >= dat
+}
 
 // M1 (Task 4) — "hạ về 0" chỉ có nghĩa SAU khi quản lý đã thật sự cầm phiếu
 // lên xử lý. Ở "Nháp"/"Chờ duyệt", `so_luong_duyet` mới là bản sao mặc định
@@ -162,7 +177,8 @@ function laBoMatHang(row) {
 
 // Số cột thật đang hiện — nuôi `colspan` của dòng "Chưa có dòng hàng nào."
 // Đếm động vì bộ cột co giãn theo giai đoạn (coPhieu/coCotDuyet/coCotXinSua/
-// coDon/coCotDaGiao), không phải một hằng số như bảng cũ (luôn 3 hoặc 4).
+// coDon/coCotDaGiao/coCotDuKienGiao), không phải một hằng số như bảng cũ
+// (luôn 3 hoặc 4).
 const soCotTong = computed(() => {
   let n = 2 // Mặt hàng, ĐVT — hai cột luôn có mặt
   if (coPhieu.value) n += 1 // SL đề xuất
@@ -170,6 +186,7 @@ const soCotTong = computed(() => {
   if (coCotXinSua.value) n += 1
   if (coDon.value) n += 3 // SL đặt, Đơn giá, Thành tiền
   if (coCotDaGiao.value) n += 1
+  if (coCotDuKienGiao.value) n += 1
   if (coPhieu.value) n += 1 // Ghi chú quản lý
   if (coCanCuKho.value) n += 4 // Tồn hiện có, Đang về, Dùng TB/ngày, Còn dùng được
   return n
@@ -314,6 +331,7 @@ function toggleChiTietKhop(row) {
           <th v-if="coDon" class="right">Đơn giá</th>
           <th v-if="coDon" class="right">Thành tiền</th>
           <th v-if="coCotDaGiao" class="right">Đã giao</th>
+          <th v-if="coCotDuKienGiao">Dự kiến giao</th>
           <!-- `min-width` bằng `rem` (không phải `px`) — co giãn theo cỡ
                chữ người dùng đặt trong trình duyệt, và là cột NÊN rộng khi
                còn chỗ. Bảng đã nằm trong khung `overflow-x: auto` nên đòi
@@ -463,6 +481,11 @@ function toggleChiTietKhop(row) {
           </td>
           <td v-if="coCotDaGiao" class="right">
             <template v-if="row.da_giao_tren_don !== null && row.da_giao_tren_don !== undefined">{{ row.da_giao_tren_don }}</template>
+            <template v-else>—</template>
+          </td>
+          <td v-if="coCotDuKienGiao">
+            <span v-if="daGiaoDu(row)" class="badge b-green">Đã giao</span>
+            <template v-else-if="row.ngay_giao_du_kien">{{ fmtDate(row.ngay_giao_du_kien) }}</template>
             <template v-else>—</template>
           </td>
           <!-- C1 (chép từ DeXuatDetail.vue) — cột riêng ở bảng gộp thay vì

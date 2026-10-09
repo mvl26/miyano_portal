@@ -38,6 +38,8 @@ from miyano_portal.portal_mua_le import (
     trang_thai_hang,
 )
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
+from miyano_portal.portal_thoi_gian_giao import COT_CAN as COT_THOI_GIAN_GIAO
+from miyano_portal.portal_thoi_gian_giao import thoi_gian_giao_cua_dn
 from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_delivery_inspection import (
     TT_TU_CHOI,
 )
@@ -1748,11 +1750,15 @@ def portal_order_track(order) -> dict:
     for dn_name in dn_names:
         dn = frappe.db.get_value(
             "Delivery Note", dn_name,
-            ["name", "posting_date", "status", "lr_no", "transporter_name"],
+            ["name", "status", "lr_no", "transporter_name", *COT_THOI_GIAN_GIAO],
             as_dict=True,
         )
         if not dn:
             continue
+        # Thời điểm giao THẬT do Miyano nhập trên phiếu; phiếu cũ chưa có thì
+        # lùi về ngày giờ ghi sổ (xem `portal_thoi_gian_giao`). `posting_date`
+        # vẫn trả riêng bên dưới — đó là ngày ghi sổ, một sự thật khác.
+        thoi_gian_giao = thoi_gian_giao_cua_dn(dn)
         dn_qty = frappe.db.sql(
             """select sum(qty) from `tabDelivery Note Item`
                where parent=%s and against_sales_order=%s""",
@@ -1776,6 +1782,7 @@ def portal_order_track(order) -> dict:
         row = {
             "name": dn["name"],
             "posting_date": dn.get("posting_date"),
+            "thoi_gian_giao": thoi_gian_giao,
             "status": dn.get("status"),
             "percent": pct,
             "carrier": dn.get("transporter_name") or "",
@@ -1792,6 +1799,7 @@ def portal_order_track(order) -> dict:
             "so_dot": so_dot,
             "delivery_note": dn["name"],
             "ngay": dn.get("posting_date"),
+            "thoi_gian_giao": thoi_gian_giao,
             "phan_tram": pct,
             "van_chuyen": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
@@ -1911,7 +1919,12 @@ def portal_order_track(order) -> dict:
             {"name": i.name, "item_code": i.item_code,
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
-             "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
+             "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0),
+             # Thời gian giao hàng (09/10/2026) — `None` khi đơn CHƯA được
+             # Miyano xác nhận: trước mốc đó `delivery_date` là "ngày cần"
+             # do chính khách gõ lúc đặt, in nó ra dưới chữ "Dự kiến giao"
+             # là để Miyano cam kết một ngày mình chưa hề xem.
+             "ngay_giao_du_kien": i.delivery_date if so.docstatus == 1 else None}
             for i in so.items
             if i.item_code != ITEM_GIU_CHO
         ],
@@ -3913,7 +3926,7 @@ def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
     dam_bao_xem_duoc("Delivery Note", delivery_note)
     dn = frappe.db.get_value(
         "Delivery Note", delivery_note,
-        ["name", "customer", "docstatus", "posting_date"], as_dict=True,
+        ["name", "customer", "docstatus", *COT_THOI_GIAN_GIAO], as_dict=True,
     )
     if not dn or dn.customer != customer:
         # Gộp "không tồn tại" và "của khách khác" vào một câu trả lời — không
@@ -3924,6 +3937,14 @@ def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
             "Phiếu giao này chưa được ghi sổ hoặc đã huỷ.", frappe.ValidationError
         )
     return dn
+
+
+def _ngay_giao_cua_dn(dn):
+    """Ngày giao hiện trên màn kiểm hàng — CÙNG nguồn với khối "Giao hàng"
+    của màn đơn (`thoi_gian_giao_cua_dn`), để hai màn nói về một đợt giao
+    không ra hai ngày."""
+    thoi_gian = thoi_gian_giao_cua_dn(dn)
+    return thoi_gian.date() if thoi_gian else None
 
 
 @frappe.whitelist()
@@ -3940,11 +3961,11 @@ def portal_kiem_hang_get(delivery_note) -> dict:
 
     bien_ban = bien_ban_cua_dn(delivery_note)
     if bien_ban:
-        return {"delivery_note": delivery_note, "ngay_giao": dn.posting_date,
+        return {"delivery_note": delivery_note, "ngay_giao": _ngay_giao_cua_dn(dn),
                 "bien_ban": bien_ban, "dong_goc": dong_goc, "moi": False}
     return {
         "delivery_note": delivery_note,
-        "ngay_giao": dn.posting_date,
+        "ngay_giao": _ngay_giao_cua_dn(dn),
         "moi": True,
         "dong_goc": dong_goc,
         "bien_ban": {
