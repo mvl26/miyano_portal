@@ -261,6 +261,7 @@ function dongTuKetQua(row) {
     dvt: row.dvt,
     tang: row.tang,
     don_gia: row.don_gia,
+    nguon_don_gia: row.nguon_don_gia,
     blanket_order: row.blanket_order,
     boi_so: row.boi_so,
     total: row.total,
@@ -278,17 +279,28 @@ function xoaDong(itemCode) {
 // (`format.js` ép `Number(v || 0)`), in ra thành "Giá HĐ · 0 ₫" đọc như giá
 // THẬT là 0 đồng — đúng ngược quy ước "`null` không phải `0`" của chính hợp
 // đồng `portal_catalog_gop`. Không có giá thì không đoán số.
+//
+// Mục 7 (09/10/2026), bước HIỆN GIÁ — hàng ngoài hợp đồng nhưng có giá trong
+// bảng giá của khách: server trả `nguon_don_gia === 'bang_gia'` kèm `don_gia`.
+// Đọc KHOÁ NGUỒN đó, không suy từ `don_gia` (cùng luật Ruling P23). `tang`
+// vẫn là `cho_bao_gia` — đường dựng đơn chưa đổi, xem `portal_catalog_gop`.
+function coGiaBangGia(row) {
+  return row.nguon_don_gia === 'bang_gia' && row.don_gia !== null && row.don_gia !== undefined
+}
 function nhanTang(row) {
+  if (coGiaBangGia(row)) return `Bảng giá ${fmtVND(row.don_gia)}`
   if (row.tang !== 'hop_dong') return 'Chờ báo giá'
   const co = row.don_gia !== null && row.don_gia !== undefined
   const ma = row.blanket_order ? ` · ${row.blanket_order}` : ''
   return co ? `Giá HĐ ${fmtVND(row.don_gia)}${ma}` : `Giá HĐ${ma}`
 }
 function classTang(row) {
+  if (coGiaBangGia(row)) return 'b-green'
   return row.tang === 'hop_dong' ? 'b-blue' : 'b-orange'
 }
 // Đơn giá trong giỏ (QĐ-G9) — dòng chờ báo giá hiện `—`, KHÔNG hiện 0 ₫.
 function giaTrongGio(row) {
+  if (coGiaBangGia(row)) return fmtVND(row.don_gia)
   if (row.tang !== 'hop_dong') return '—'
   if (row.don_gia === null || row.don_gia === undefined) return '—'
   return fmtVND(row.don_gia)

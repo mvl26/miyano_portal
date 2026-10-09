@@ -580,6 +580,7 @@ def portal_catalog_gop(
             dong.update({
                 "tang": "hop_dong",
                 "don_gia": float(don_gia) if don_gia is not None else None,
+                "nguon_don_gia": "hop_dong" if don_gia is not None else None,
                 "blanket_order": bo,
                 # Cùng bộ khoá `portal_catalog` — xem docstring. `remaining`
                 # `None` CHỈ khi không giới hạn, và `khong_gioi_han` là khoá
@@ -590,8 +591,25 @@ def portal_catalog_gop(
                 "khong_gioi_han": con_lai is None,
             })
         else:
+            # Mục 7 (09/10/2026), bước HIỆN GIÁ — hàng ngoài hợp đồng nhưng
+            # CÓ giá trong bảng giá của khách thì trả kèm đơn giá đó. Cùng
+            # hàm tra với nhánh trên (`blanket_order=None` → chỉ còn bước
+            # bảng giá), không viết phép tra `Item Price` thứ hai.
+            #
+            # `tang` CỐ Ý giữ `"cho_bao_gia"`: đường dựng đơn (`dat_hang.
+            # _xay_don`) chưa đổi, dòng này vẫn vào đơn với giá 0 và chờ
+            # Miyano báo giá. Đổi `tang` ở đây trước là để màn hình hứa "đặt
+            # ngay theo giá này" trong khi server vẫn đưa đơn đi vòng báo giá.
+            #
+            # `<= 0` là CHƯA khai giá, không phải "bán 0 đồng" — cùng quy ước
+            # `gia_hdnt.dong_bo()`.
+            gia_bang_gia = gia_hdnt.gia_dong_hop_dong(r.item_code, None, price_list)
+            co_gia = bool(gia_bang_gia) and float(gia_bang_gia) > 0
             dong.update({
-                "tang": "cho_bao_gia", "don_gia": None, "blanket_order": None,
+                "tang": "cho_bao_gia",
+                "don_gia": float(gia_bang_gia) if co_gia else None,
+                "nguon_don_gia": "bang_gia" if co_gia else None,
+                "blanket_order": None,
                 "total": None, "used": None, "remaining": None,
                 "khong_gioi_han": False,
             })
