@@ -18,8 +18,10 @@ def gia_bang_gia_nhieu(customer: str, item_codes: list[str]) -> dict[str, float]
 	"""`{item_code: giá}` cho những mã CÓ giá. Mã vắng mặt = chưa có giá.
 
 	Một truy vấn cho cả lô. Chỉ nhận dòng theo đơn vị gốc (cổng luôn đặt theo
-	`stock_uom`), còn hiệu lực hôm nay, giá dương. Nhiều dòng hợp lệ thì dòng
-	`valid_from` mới nhất thắng; trùng thì `name` lớn hơn thắng — tất định.
+	`stock_uom`), còn hiệu lực hôm nay, giá dương, không gắn nhà cung cấp/lô,
+	và hoặc là dòng chung (`customer` trống) hoặc đúng của khách này. Dòng gắn
+	riêng khách này thắng dòng chung; cùng loại thì `valid_from` mới nhất thắng;
+	trùng thì `name` lớn hơn thắng — tất định.
 	"""
 	item_codes = [m for m in dict.fromkeys(item_codes or []) if m]
 	if not item_codes:
@@ -35,14 +37,17 @@ def gia_bang_gia_nhieu(customer: str, item_codes: list[str]) -> dict[str, float]
 		   where ip.price_list = %(bang)s and ip.selling = 1
 		     and ip.item_code in %(ma)s
 		     and ip.price_list_rate > 0
+		     and ifnull(ip.supplier, '') = '' and ifnull(ip.batch_no, '') = ''
+		     and (ifnull(ip.customer, '') = '' or ip.customer = %(khach)s)
 		     and (ifnull(ip.uom, '') = '' or ip.uom = it.stock_uom)
 		     and (ip.valid_from is null or ip.valid_from <= %(nay)s)
 		     and (ip.valid_upto is null or ip.valid_upto >= %(nay)s)
-		   order by ifnull(ip.valid_from, '1900-01-01') asc, ip.name asc""",
-		{"bang": bang, "ma": tuple(item_codes), "nay": hom_nay},
+		   order by (ifnull(ip.customer, '') <> '') asc,
+		     ifnull(ip.valid_from, '1900-01-01') asc, ip.name asc""",
+		{"bang": bang, "khach": customer, "ma": tuple(item_codes), "nay": hom_nay},
 		as_dict=True,
 	)
-	# Sắp tăng dần rồi ghi đè: dòng sau cùng (mới nhất) thắng.
+	# Sắp tăng dần (dòng riêng khách sau dòng chung) rồi ghi đè: dòng cuối thắng.
 	return {d.item_code: flt(d.price_list_rate) for d in dong}
 
 
@@ -74,7 +79,9 @@ def dam_bao_bang_gia_rieng(customer: str) -> str:
 	"""Bảo đảm khách có Price List của RIÊNG mình; trả tên bảng.
 
 	Chưa có → tạo "Bảng giá <tên khách>". Đang dùng chung với khách khác →
-	tạo bảng riêng và chép mọi dòng giá bán của bảng chung sang. Ghi giá đàm
+	tạo bảng riêng và chép sang các dòng giá bán mà khách NÀY được thấy (dòng
+	chung và dòng gắn riêng khách này; bỏ dòng gắn khách khác, nhà cung cấp,
+	lô). Ghi giá đàm
 	phán của một bệnh viện vào bảng dùng chung là để bệnh viện khác thấy nó.
 	"""
 	bang = frappe.db.get_value("Customer", customer, "default_price_list")
@@ -90,9 +97,15 @@ def dam_bao_bang_gia_rieng(customer: str) -> str:
 
 	if bang:
 		for d in frappe.get_all(
-			"Item Price", filters={"price_list": bang, "selling": 1},
-			fields=["item_code", "uom", "price_list_rate", "currency",
-			        "valid_from", "valid_upto"],
+			"Item Price",
+			filters={
+				"price_list": bang, "selling": 1,
+				"customer": ["in", ["", None, customer]],
+				"supplier": ["in", ["", None]],
+				"batch_no": ["in", ["", None]],
+			},
+			fields=["item_code", "uom", "packing_unit", "price_list_rate", "currency",
+			        "valid_from", "valid_upto", "lead_time_days", "note", "customer"],
 		):
 			frappe.get_doc({
 				"doctype": "Item Price", "price_list": moi.name,

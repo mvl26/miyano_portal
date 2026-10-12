@@ -111,3 +111,41 @@ class TestBangGiaKhach(FrappeTestCase):
 	def test_goi_hai_lan_khong_tao_bang_thu_hai(self):
 		a = bg.dam_bao_bang_gia_rieng(self.kh_b)
 		self.assertEqual(bg.dam_bao_bang_gia_rieng(self.kh_b), a)
+
+	def test_dong_gia_gan_khach_khac_khong_lo_sang(self):
+		_gia(self.item, BANG_A, 77000, customer=self.kh_b)
+		self.assertIsNone(bg.gia_bang_gia(self.kh_a, self.item))
+
+	def test_dong_gan_rieng_khach_thang_dong_chung(self):
+		_gia(self.item, BANG_A, 50000, valid_from=add_days(today(), -1))
+		_gia(self.item, BANG_A, 40000, customer=self.kh_a, valid_from=add_days(today(), -10))
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item), 40000.0)
+
+	def test_tach_bang_khong_chep_dong_gan_khach_khac(self):
+		_gia(self.item, BANG_A, 50000)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", BANG_A)
+		# Dòng gắn riêng kh_a trong bảng chung: kh_b tách ra không được thấy.
+		item2 = frappe.get_all("Item", filters={"name": ["!=", self.item]}, limit=1, pluck="name")[0]
+		_gia(item2, BANG_A, 88000, customer=self.kh_a)
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertEqual(bg.gia_bang_gia(self.kh_b, self.item), 50000.0)
+		self.assertEqual(
+			frappe.db.count("Item Price", {"price_list": ten, "item_code": item2}), 0
+		)
+		frappe.db.delete("Item Price", {"item_code": item2, "price_list": BANG_A})
+
+	def test_tach_bang_giu_valid_from(self):
+		tu = add_days(today(), -7)
+		_gia(self.item, BANG_A, 50000, valid_from=tu)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", BANG_A)
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertEqual(
+			str(frappe.db.get_value("Item Price", {"price_list": ten, "item_code": self.item}, "valid_from")),
+			str(tu),
+		)
+
+	def test_ten_bang_trung_thi_them_hau_to(self):
+		_bang(f"Bảng giá {self.kh_b}")
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertNotEqual(ten, f"Bảng giá {self.kh_b}")
+		self.assertTrue(ten.startswith(f"Bảng giá {self.kh_b} ("))
