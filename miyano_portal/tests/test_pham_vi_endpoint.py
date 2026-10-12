@@ -113,7 +113,7 @@ MIEN_PHAM_VI: dict[str, str] = {
 	"portal_catalog_gop": (
 		"Task 3 (21/08/2026) — cùng khuôn portal_catalog/portal_catalog_"
 		"ban_le: danh mục hàng tìm kiếm gộp là dữ liệu CẤP BỆNH VIỆN (Item/"
-		"Blanket Order không có trục khoa phòng), không phải dữ liệu của "
+		"Item Price không có trục khoa phòng), không phải dữ liệu của "
 		"một PHIẾU/ĐƠN cụ thể. `get_portal_customer()` đã tự scope theo "
 		"khách hàng (trục bệnh viện) — không có khoa nào để lọc thêm."
 	),

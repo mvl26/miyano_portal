@@ -110,9 +110,9 @@ def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
     """QĐ-G12 — đơn giá của MỘT DÒNG, tra theo đúng thứ tự đã chốt.
 
     HÀM DÙNG CHUNG DUY NHẤT cho mọi nơi cần giá của một dòng hợp đồng: dựng
-    đơn (`dat_hang._xay_don`), danh mục gộp (`api/portal.portal_catalog_gop`),
-    đóng dấu giá lúc gửi duyệt (`PortalDeXuatMua._dong_dau_gia`) và so giá
-    lúc duyệt (`de_xuat_duyet._kiem_gia_doi`). Bốn phép tra riêng là bốn chỗ
+    đơn (`dat_hang._xay_don`), đóng dấu giá lúc gửi duyệt
+    (`PortalDeXuatMua._dong_dau_gia`) và so giá lúc duyệt
+    (`de_xuat_duyet._kiem_gia_doi`). Mỗi nơi một phép tra riêng là từng ấy chỗ
     có thể lệch, và dự án này đã trả giá đúng cho lỗi đó ở `nguon_gia`/
     `blanket_order` (Ruling P28: kiểm hạn mức và dựng đơn mỗi bên tự suy hợp
     đồng, hai bên bất đồng ở hai trạng thái tới được).
@@ -130,11 +130,10 @@ def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
     Bước 1 là chỗ DUY NHẤT lọc "phải dương". Bước 2 trả THẲNG giá trị đọc
     được, kể cả `0`, đúng như phép tra cũ (`dat_hang._gia_hien_hanh`, đã xoá)
     — mọi người gọi đều dùng `if not rate`, nên `0` và `None` cho cùng một
-    kết cục ở cổng đặt hàng; giữ nguyên giá trị trả về để `portal_catalog_gop`
-    (hiển thị `don_gia`) không đổi hành vi ở nhánh không liên quan tới QĐ-G12.
+    kết cục ở cổng đặt hàng.
 
     `price_list` được phép `None` và phép kiểm nằm TRONG hàm này, không ở
-    bốn nơi gọi: bước 1 KHÔNG cần bảng giá nào cả. Để phép kiểm ở ngoài
+    các nơi gọi: bước 1 KHÔNG cần bảng giá nào cả. Để phép kiểm ở ngoài
     (`... if price_list else None`, đúng dạng cả bốn nơi gọi đang viết trước
     Task 12) thì một khách chưa được gán `default_price_list` vẫn bị chặn
     "chưa có giá trong hợp đồng" dù hợp đồng khai giá đầy đủ — tức QĐ-G12

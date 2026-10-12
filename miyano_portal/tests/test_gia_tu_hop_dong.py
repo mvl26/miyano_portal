@@ -21,10 +21,12 @@ fixture xoá mất, và ca chính sẽ xanh qua bước 2 chứ không phải b�
 chính KHẲNG ĐỊNH tiền đề đó (`assertFalse(... exists("Item Price" ...))`)
 chứ không tin nó.
 
-Mọi bài đi ĐƯỜNG CÔNG KHAI (`dat_hang.tao_sales_order`, `portal_catalog_gop`,
-`PortalDeXuatMua.gui_duyet`), không gọi thẳng hàm tra giá dùng chung: ba nơi
-đó là ba nơi có thể lệch, và bài test chỉ có giá trị khi nó đi qua đúng chỗ
-người dùng đi.
+Mọi bài đi ĐƯỜNG CÔNG KHAI (`dat_hang.tao_sales_order`,
+`PortalDeXuatMua.gui_duyet`), không gọi thẳng hàm tra giá dùng chung: đó là
+các nơi có thể lệch, và bài test chỉ có giá trị khi nó đi qua đúng chỗ người
+dùng đi. Riêng danh mục `portal_catalog_gop` KHÔNG còn dùng hàm đó (spec
+2026-10-09: phân tầng theo Price List) — bài của nó ở dưới khẳng định điều
+ngược lại.
 """
 
 import frappe
@@ -293,19 +295,21 @@ class TestGiaTuHopDong(FrappeTestCase):
 		self.assertEqual(float(cua_b.rate), 0.0)
 		self.assertFalse(cua_b.blanket_order)
 
-	# -- HAI NƠI CÒN LẠI DÙNG CHUNG MỘT HÀM ---------------------------------
+	# -- DANH MỤC (không còn dùng hàm này) VÀ ĐƯỜNG GỬI DUYỆT (vẫn dùng) -----
 
-	def test_danh_muc_gop_hien_gia_hop_dong_khi_bang_gia_trong(self):
-		"""`portal_catalog_gop` — màn Lập phiếu phải hiện ĐÚNG con số mà đơn
-		sẽ mang. Trước Task 12 nó hiện `null` cho đúng mã hàng đặt được."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_danh_muc_gop_KHONG_hien_gia_hop_dong_khi_bang_gia_trong(self):
+		"""`portal_catalog_gop` phân tầng theo Price List của khách: mã CHỈ có
+		giá trên hợp đồng (bảng giá trống) là "chờ báo giá", không mang giá
+		hay khoá hợp đồng nào."""
 		user_a = self._thanh_vien("g12.a@demo.miyano", self.kh_a, self.khoa_huyethoc)
 		frappe.set_user(user_a)
 		out = portal_api.portal_catalog_gop(tu_khoa=self.item_chi_hd)
 		dong = [r for r in out["rows"] if r["item_code"] == self.item_chi_hd]
 		self.assertEqual(len(dong), 1, f"Không thấy {self.item_chi_hd} trong {out['rows']}")
-		self.assertEqual(dong[0]["tang"], "hop_dong")
-		self.assertEqual(dong[0]["don_gia"], float(GIA_HOP_DONG))
-		self.assertEqual(dong[0]["blanket_order"], self.bo_a)
+		self.assertEqual(dong[0]["tang"], "cho_bao_gia")
+		self.assertIsNone(dong[0]["don_gia"])
+		self.assertNotIn("blanket_order", dong[0])
 
 	def test_gui_duyet_dong_dau_gia_hop_dong_khi_bang_gia_trong(self):
 		"""`_dong_dau_gia` — "giá khoa đã thấy" phải là giá hợp đồng, đi qua

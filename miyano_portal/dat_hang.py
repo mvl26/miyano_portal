@@ -228,9 +228,9 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
       | Chưa có mã            | vào `custom_dat_ngoai`, KHÔNG vào `items` |
 
     "Dòng nào thuộc hợp đồng nào" hỏi `nguon_gia_theo_ma_cho_khach()` —
-    ĐÚNG hàm mà `Portal De Xuat Mua._suy_nguon_gia()` (màn lập phiếu) và
-    `api/portal.portal_catalog_gop` (màn tìm kiếm) đang dùng. Ba nơi cùng
-    một luật (Ruling P14: customer-wide, hết hạn sớm nhất thắng, trùng
+    ĐÚNG hàm mà `Portal De Xuat Mua._suy_nguon_gia()` (màn lập phiếu) đang
+    dùng. Hai nơi cùng một luật (Ruling P14: customer-wide, hết hạn sớm
+    nhất thắng, trùng
     `to_date` thì `name` nhỏ hơn thắng; Ruling P18: "còn hiệu lực" là
     `docstatus == 1`). Tự viết lại luật ở đây là dựng đúng thứ Task 2/3 đã
     tách ra để tránh: khách thấy một tầng trên màn lập phiếu rồi nhận một

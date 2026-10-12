@@ -1,13 +1,12 @@
-"""Màn Đặt hàng hiện giá từ Price List của khách (chủ đầu tư 09/10/2026).
+"""Danh mục đặt hàng phân tầng theo Price List của khách.
 
-Bước đầu của mục 7 "Hiển thị hàng hoá và đơn giá theo Price List của Khách
-hàng": một mặt hàng KHÔNG thuộc hợp đồng khung nào nhưng CÓ giá trong
-`Customer.default_price_list` thì danh mục trả kèm đơn giá đó.
-
-Bản này CHỈ HIỆN GIÁ. `tang` vẫn là `"cho_bao_gia"` vì đường dựng đơn
-(`dat_hang._xay_don`) chưa đổi: dòng ngoài hợp đồng vẫn vào đơn với giá 0 và
-chờ Miyano báo giá. Đổi `tang` trước khi đường dựng đơn đổi là để màn hình
-hứa "đặt ngay theo giá này" trong khi server vẫn đưa đơn đi vòng báo giá.
+Spec `docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §3
+(chủ đầu tư chốt 09/10/2026, Q3): mỗi dòng `portal_catalog_gop` thuộc đúng
+một trong hai tầng — `"bang_gia"` (có giá dương, còn hiệu lực trong
+`Customer.default_price_list`; `don_gia` là con số đó) hoặc `"cho_bao_gia"`
+(`don_gia` là `None`). Hợp đồng khung KHÔNG còn quyết định tầng hay giá: bộ
+fixture mượn của `test_catalog_gop` vẫn dựng hợp đồng đã nộp chính là để
+chứng minh điều đó.
 """
 
 import frappe
@@ -41,34 +40,51 @@ class TestGiaBangGiaTrenDanhMuc(FrappeTestCase):
 			frappe.set_user("Administrator")
 		return self._row(out["rows"], item_code)
 
-	def test_hang_ngoai_hop_dong_co_gia_bang_gia_thi_hien_gia(self):
+	def test_hang_co_gia_la_tang_bang_gia(self):
 		self._tao_gia(self.item_ngoai, self.price_list, 54000)
 		row = self._dong(self.item_ngoai)
+		self.assertEqual(row["tang"], "bang_gia")
 		self.assertEqual(row["don_gia"], 54000.0)
-		self.assertEqual(row["nguon_don_gia"], "bang_gia")
 
-	def test_hien_gia_KHONG_doi_tang_va_khong_mang_han_muc(self):
-		"""Đường dựng đơn chưa đổi — dòng này vẫn đi vòng báo giá, nên `tang`
-		và các khoá hạn mức phải y như một dòng chờ báo giá."""
-		self._tao_gia(self.item_ngoai, self.price_list, 54000)
+	def test_hang_chua_co_gia_la_tang_cho_bao_gia(self):
 		row = self._dong(self.item_ngoai)
 		self.assertEqual(row["tang"], "cho_bao_gia")
-		self.assertIsNone(row["blanket_order"])
-		self.assertIsNone(row["remaining"])
-		self.assertFalse(row["khong_gioi_han"])
-
-	def test_hang_chua_co_gia_van_la_None(self):
-		row = self._dong(self.item_ngoai)
 		self.assertIsNone(row["don_gia"])
-		self.assertIsNone(row["nguon_don_gia"])
 
-	def test_gia_0_la_CHUA_khai_gia_khong_phai_ban_0_dong(self):
+	def test_gia_0_la_cho_bao_gia(self):
+		"""`<= 0` là CHƯA khai giá, không phải "bán 0 đồng"."""
 		self._tao_gia(self.item_ngoai, self.price_list, 0)
 		row = self._dong(self.item_ngoai)
+		self.assertEqual(row["tang"], "cho_bao_gia")
 		self.assertIsNone(row["don_gia"])
-		self.assertIsNone(row["nguon_don_gia"])
 
-	def test_gia_trong_bang_gia_cua_khach_KHAC_khong_lo_sang(self):
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_hang_thuoc_hop_dong_nhung_khong_co_gia_bang_gia_la_cho_bao_gia(self):
+		"""Q3: hợp đồng không còn quyết định tầng. `setUp` đã đặt 111.000
+		cho `item_hd` trong bảng giá — xoá nó thì hợp đồng một mình không
+		cho ra giá nào."""
+		self._xoa_gia(self.item_hd)
+		row = self._dong(self.item_hd)
+		self.assertEqual(row["tang"], "cho_bao_gia")
+		self.assertIsNone(row["don_gia"])
+
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_hang_thuoc_hop_dong_lay_gia_BANG_GIA_khong_phai_gia_hop_dong(self):
+		"""Hợp đồng khai 125.000, bảng giá 111.000 — cổng đọc bảng giá."""
+		self._xoa_gia(self.item_hd)
+		self._tao_gia(self.item_hd, self.price_list, 111000)
+		row = self._dong(self.item_hd)
+		self.assertEqual(row["tang"], "bang_gia")
+		self.assertEqual(row["don_gia"], 111000.0)
+
+	def test_dong_khong_con_khoa_hop_dong_va_han_muc(self):
+		row = self._dong(self.item_ngoai)
+		self.assertEqual(
+			set(row), {"item_code", "item_name", "dvt", "boi_so", "nhom_vat_tu",
+			           "ten_thuong_goi", "trang_thai_hang", "tang", "don_gia"},
+		)
+
+	def test_gia_bang_gia_cua_khach_khac_khong_lo_sang(self):
 		"""Giá Miyano dành cho một bệnh viện là thông tin thương mại của
 		riêng bệnh viện đó."""
 		bang_khac = "_TEST DX GOP PRICE KHAC"
@@ -78,13 +94,7 @@ class TestGiaBangGiaTrenDanhMuc(FrappeTestCase):
 				"currency": "VND", "selling": 1, "enabled": 1,
 			}).insert(ignore_permissions=True)
 		self._tao_gia(self.item_ngoai, bang_khac, 99000)
-		row = self._dong(self.item_ngoai)
-		self.assertIsNone(row["don_gia"])
-
-	def test_hang_hop_dong_ghi_nguon_la_hop_dong(self):
-		row = self._dong(self.item_hd)
-		self.assertEqual(row["tang"], "hop_dong")
-		self.assertEqual(row["nguon_don_gia"], "hop_dong")
+		self.assertIsNone(self._dong(self.item_ngoai)["don_gia"])
 
 
 # Mượn các hàm dựng dữ liệu của bộ test danh mục gộp — MỘT bộ fixture cho
