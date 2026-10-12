@@ -98,7 +98,8 @@ mỗi phiếu có chữ "Lần đặt …" để nhận ra chúng là một cặ
 Mở một phiếu sẽ thấy dòng **Cùng lần đặt …** dẫn sang phiếu kia.
 
 Người đặt thẳng (quản lý) thấy thông báo "Đã tạo 2 đơn: 1 đơn đặt ngay, 1 đơn
-chờ báo giá."
+chờ báo giá." Trong danh sách, cột GIÁ TRỊ của đơn chờ báo giá hiện "0 ₫" cho
+tới khi Miyano báo giá.
 
 ![Hình 4 – Người đặt thẳng: hai đơn được tạo ngay, cùng một lần đặt](hdsd-img/gia-bang-gia/07-dat-thang-hai-don.png)
 
@@ -197,11 +198,15 @@ cuối dòng để xem.
 |---|---|---|
 | 1 | Bấm **Gửi duyệt** / **Xác nhận** cho đơn còn dòng báo giá mà khách chưa đồng ý | "Đơn có hàng chờ báo giá — dùng «Gửi khách duyệt» để khách đồng ý giá trước khi Miyano xác nhận." |
 | 2 | Bấm **Gửi khách duyệt** khi còn dòng chưa có đơn giá | "Chưa gửi khách được — còn mặt hàng chưa có đơn giá: …" |
-| 3 | Sau khi khách đồng ý mà đơn giá trên đơn khác giá khách đã đồng ý | "Đơn giá của … khác giá khách đã đồng ý — gửi khách duyệt lại trước khi xác nhận." |
+| 3 | Sau khi khách đồng ý mà đơn giá của một **dòng báo giá** khác giá khách đã đồng ý | "Đơn giá của … khác giá khách đã đồng ý — gửi khách duyệt lại trước khi xác nhận." |
 
 ![Hình 16 – Chốt 2: chưa điền giá thì không gửi khách được](hdsd-img/gia-bang-gia/11-desk-chan-thieu-gia.png)
 
 ![Hình 17 – Chốt 1: đơn có hàng chờ báo giá không đi thẳng "Gửi duyệt" được](hdsd-img/gia-bang-gia/12-desk-chan-gui-duyet.png)
+
+> Chốt 3 chỉ canh các dòng có Nguồn giá là `Báo giá`. Dòng `Bảng giá` nằm chung
+> trong đơn báo giá, số lượng và dòng thêm mới **không** được canh: sửa những
+> thứ đó sau khi khách đồng ý thì nhân viên phải tự bấm **Gửi khách duyệt** lại.
 
 **Lỡ nhập sai giá sau khi khách đã đồng ý?** Sửa đơn giá cho đúng, rồi ở trạng
 thái **Chờ Miyano xác nhận** bấm **Các hành động → Gửi khách duyệt** để khách
@@ -306,7 +311,7 @@ Email báo xuất giao gửi khách cũng ghi thời gian giao này.
 | Khách gửi một lần mà ra hai phiếu | Đúng thiết kế: giỏ có cả hàng có giá và hàng chờ báo giá |
 | Quản lý duyệt một phiếu, phiếu kia vẫn "Chờ duyệt" | Đã bấm **Duyệt** thay vì **Duyệt cả hai**. Mở phiếu kia và duyệt tiếp |
 | Đơn hàng ra giá khác lúc khoa gửi phiếu | Bảng giá đổi trong lúc chờ duyệt; đơn lấy giá tại lúc duyệt. Quản lý đã được cảnh báo trên màn duyệt |
-| Không bấm **Xác nhận** được, báo "khác giá khách đã đồng ý" | Đơn giá đã bị sửa sau khi khách đồng ý. Bấm **Gửi khách duyệt** để khách đồng ý lại |
+| Không bấm **Xác nhận** được, báo "khác giá khách đã đồng ý" | Đơn giá của một dòng báo giá đã bị sửa sau khi khách đồng ý. Bấm **Gửi khách duyệt** để khách đồng ý lại |
 | Cổng hiện giờ giao trùng giờ ghi sổ phiếu | Trường **Thời gian giao hàng** để trống lúc ghi sổ. Lần sau nhập trước khi ghi sổ |
 
 ---
@@ -319,7 +324,8 @@ Email báo xuất giao gửi khách cũng ghi thời gian giao này.
   giá của khách.
 - **Không ghi giá vào Bảng giá khi Miyano mới báo giá.** Chỉ ghi khi khách bấm
   Đồng ý.
-- **Không chặn sửa số lượng sau khi khách đồng ý.** Chốt 3 chỉ canh đơn giá.
+- **Không chặn sửa số lượng, thêm dòng, hay sửa giá dòng `Bảng giá` sau khi khách
+  đồng ý.** Chốt 3 chỉ canh đơn giá của các dòng báo giá.
 - **Không gộp lại hai phiếu đã tách.** Mỗi phiếu thành một đơn hàng riêng, giao
   và xuất hoá đơn riêng.
 - **Không tách lần hai.** Phiếu đã gửi rồi thu hồi về sửa thì gửi lại vẫn là
