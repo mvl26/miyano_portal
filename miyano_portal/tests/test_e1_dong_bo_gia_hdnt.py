@@ -25,7 +25,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from miyano_portal import dat_hang, gia_hdnt
+from miyano_portal import bang_gia_khach, dat_hang, gia_hdnt
 from miyano_portal.api import portal
 from miyano_portal.setup.seed_demo import COMPANY, seed_demo
 
@@ -165,15 +165,78 @@ class TestDongBoGia(_GiaFixture):
         self.assertEqual(gia_hdnt.dong_bo(bo.name)["tao"], 0)
         self.assertIsNone(self._gia(VT))
 
-    def test_khach_chua_co_bang_gia_thi_bo_qua_khong_vo_submit(self):
-        """Không được chặn việc ký hợp đồng chỉ vì chưa cấu hình bảng giá —
-        nhưng cũng không được im lặng: trả lý do để người submit nhìn thấy."""
-        frappe.db.set_value("Customer", KHACH, "default_price_list", None)
-        bo = self._hdnt()   # submit phải thành công
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_khach_chua_co_bang_gia_thi_duoc_tao_bang_rieng_va_ghi_gia(self):
+        """§5.3 — khách chưa có `default_price_list` KHÔNG còn bị bỏ qua kèm
+        `ly_do`: ký hợp đồng là khách có bảng giá của riêng mình, và đơn giá
+        hợp đồng nằm trong đó."""
+        khach, _bang_gia = self._khach_rieng()
+        frappe.db.set_value("Customer", khach, "default_price_list", None)
+        bo = self._hdnt(customer=khach)   # submit phải thành công
         self.assertEqual(bo.docstatus, 1)
+        bang = frappe.db.get_value("Customer", khach, "default_price_list")
+        self.assertTrue(bang, "ký hợp đồng phải dựng bảng giá riêng cho khách")
+        self.assertEqual(
+            frappe.get_all("Customer", filters={"default_price_list": bang}, pluck="name"),
+            [khach],
+        )
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, HC), 1250000.0)
         ket_qua = gia_hdnt.dong_bo(bo.name)
-        self.assertEqual(ket_qua["tao"], 0)
-        self.assertTrue(ket_qua["ly_do"], "phải nêu rõ vì sao không đồng bộ được")
+        self.assertIsNone(ket_qua["ly_do"])
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (0, 0), "chạy lại không ghi gì")
+
+    # -- BỘ GHI PHẢI KHỚP BỘ ĐỌC (spec 2026-10-09 §3.1) -----------------------
+    # Ba ca dưới chỉ khẳng định KẾT CỤC: sau `dong_bo`, bộ đọc của cổng trả
+    # đúng giá hợp đồng. Dòng nào được sửa/chèn là việc của bộ ghi chung
+    # (`bang_gia_khach.ghi_gia_vao_bang`).
+
+    def _dong_gia(self, bang_gia, rate, **them):
+        return frappe.get_doc({
+            "doctype": "Item Price", "item_code": VT, "price_list": bang_gia,
+            "selling": 1, "price_list_rate": rate, **them,
+        }).insert(ignore_permissions=True)
+
+    def test_bang_dang_co_dong_het_han_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng cũ ĐÚNG giá hợp đồng nhưng đã hết hạn: phép upsert cũ thấy
+        "đã khớp" và bỏ qua, cổng thì không thấy giá nào."""
+        khach, bang_gia = self._khach_rieng()
+        self._dong_gia(bang_gia, 95000, valid_from=add_days(today(), -30),
+                       valid_upto=add_days(today(), -1))
+        self.assertIsNone(bang_gia_khach.gia_bang_gia(khach, VT))
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+
+    def test_bang_dang_co_dong_rieng_cua_khach_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng gắn riêng khách che dòng chung ở bộ đọc: sửa dòng chung thì
+        giá hợp đồng không bao giờ hiện ra."""
+        khach, bang_gia = self._khach_rieng()
+        self._dong_gia(bang_gia, 50000)
+        self._dong_gia(bang_gia, 40000, customer=khach)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 40000.0)
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+
+    def test_bang_dang_co_dong_khac_don_vi_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng duy nhất của mã là giá theo một đơn vị KHÁC đơn vị gốc: bộ
+        đọc bỏ qua nó, nên ghi giá hợp đồng vào đó là ghi vào chỗ không ai đọc."""
+        khach, bang_gia = self._khach_rieng()
+        goc = frappe.db.get_value("Item", VT, "stock_uom")
+        khac = "Box" if goc != "Box" else "Nos"
+        self._dong_gia(bang_gia, 95000, uom=khac)
+        self.assertIsNone(bang_gia_khach.gia_bang_gia(khach, VT))
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+        self.assertEqual(
+            float(frappe.db.get_value(
+                "Item Price", {"item_code": VT, "price_list": bang_gia, "uom": khac},
+                "price_list_rate",
+            )),
+            95000.0, "dòng theo đơn vị khác không bị đụng tới",
+        )
 
     def test_hdnt_het_han_khong_dat_gia_cho_hom_nay(self):
         """Lỗi thật đã bị `test_e6_mua_le` bắt: `dong_bo` suy bảng giá từ

@@ -38,7 +38,7 @@ List) và việc DỰNG ĐƠN (`dat_hang._xay_don`, §4.2) — đơn lấy giá 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import dat_hang, gia_hdnt
+from miyano_portal import bang_gia_khach, dat_hang, gia_hdnt
 from miyano_portal.api import portal as portal_api
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
@@ -458,82 +458,73 @@ class TestGiaTuHopDong(FrappeTestCase):
 			"hợp đồng ĐÃ HẾT HẠN không có quyền định giá cho hôm nay",
 		)
 
-	# -- BẢNG GIÁ DÙNG CHUNG (Ruling P32, vòng sửa 1) ------------------------
+	# -- BẢNG GIÁ DÙNG CHUNG (spec 2026-10-09 §5.3, thay Ruling P32) ----------
 
-	def test_khong_ghi_gia_vao_bang_gia_nhieu_khach_dung_chung(self):
-		"""Ruling P32 — `dong_bo` lấy bảng giá đích từ
-		`Customer.default_price_list`, KHÔNG từ hợp đồng. Khi hai bệnh viện
-		trỏ chung một bảng giá, hợp đồng của bên này ghi giá cho bên kia:
-		một mã `rate = 0` (chưa khai giá) của khách B sẽ rơi xuống bước 2 và
-		đọc trúng giá ĐÃ ĐÀM PHÁN của khách A, thay vì bị chặn đúng bằng
-		"chưa có giá trong hợp đồng".
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_bang_gia_dung_chung_duoc_tach_roi_moi_ghi_gia(self):
+		"""§5.3 thay Ruling P32. Hai bệnh viện trỏ chung một bảng giá: trước
+		đây `dong_bo` TỪ CHỐI ghi kèm `ly_do`; giờ nó tách cho khách của hợp
+		đồng một bảng RIÊNG rồi ghi vào đó.
 
-		Thà không ghi và báo ồn ào, còn hơn ghi rồi không ai biết."""
+		Điều P32 bảo vệ vẫn phải đúng, và vẫn được khẳng định: giá đàm phán
+		của khách A không được hiện ra cho khách B."""
 		ma = self._item("_TEST G12 BANG GIA CHUNG")
-		# Vế DƯƠNG trước: bảng giá RIÊNG thì ghi được.
+		# Vế DƯƠNG trước: bảng giá RIÊNG thì ghi tại chỗ, không tách.
 		bo_a = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
 		kq = gia_hdnt.dong_bo(bo_a)
 		self.assertIsNone(kq["ly_do"])
 		self.assertEqual(
-			float(frappe.db.get_value(
-				"Item Price",
-				{"item_code": ma, "price_list": self.price_list, "selling": 1},
-				"price_list_rate",
-			)),
-			88000.0,
+			frappe.db.get_value("Customer", self.kh_a, "default_price_list"), self.price_list
 		)
+		self.assertEqual(bang_gia_khach.gia_bang_gia(self.kh_a, ma), 88000.0)
 
-		# Giờ khách B trỏ CHUNG bảng giá của khách A — phải từ chối ghi.
+		# Giờ khách B trỏ CHUNG bảng giá của khách A, và bảng chưa có giá mã này.
 		self._xoa_gia(ma)
 		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
 		kq = gia_hdnt.dong_bo(bo_a)
-		self.assertEqual(kq["tao"], 0)
-		self.assertEqual(kq["cap_nhat"], 0)
-		self.assertTrue(kq["ly_do"], "phải nêu rõ vì sao không đồng bộ được")
-		self.assertIn(self.price_list, kq["ly_do"])
-		self.assertIn(self.kh_b, kq["ly_do"], "phải nêu TÊN các khách dùng chung")
+		self.assertIsNone(kq["ly_do"])
+		self.assertEqual(kq["tao"], 1)
+		bang_a = frappe.db.get_value("Customer", self.kh_a, "default_price_list")
+		self.assertNotEqual(bang_a, self.price_list, "khách A phải được tách bảng riêng")
 		self.assertEqual(
-			frappe.db.count("Item Price", {
-				"item_code": ma, "price_list": self.price_list,
-			}),
+			frappe.db.get_value("Customer", self.kh_b, "default_price_list"), self.price_list
+		)
+		self.assertEqual(bang_gia_khach.gia_bang_gia(self.kh_a, ma), 88000.0)
+		self.assertIsNone(
+			bang_gia_khach.gia_bang_gia(self.kh_b, ma),
+			"giá đàm phán của khách A không được hiện ra cho khách B",
+		)
+		self.assertEqual(
+			frappe.db.count("Item Price", {"item_code": ma, "price_list": self.price_list}),
 			0,
-			"không được ghi giá đàm phán của khách này vào bảng giá khách kia",
+			"không được ghi giá đàm phán của khách này vào bảng giá khách kia đọc",
 		)
 
-	def test_khach_da_VO_HIEU_HOA_khong_con_chan_dong_bo(self):
-		"""Sửa 25/08 — chốt P32 đếm khách hàng ĐANG HOẠT ĐỘNG.
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_khach_da_VO_HIEU_HOA_khong_lam_bang_gia_bi_tach(self):
+		""""Dùng chung" đếm khách hàng ĐANG HOẠT ĐỘNG (sửa 25/08, giữ nguyên
+		trong `dam_bao_bang_gia_rieng`). Một bệnh viện cũ đã vô hiệu hoá vẫn
+		trỏ `default_price_list` về bảng này không đặt hàng được nữa, nên
+		không có giá nào của họ để mà trộn: khách còn lại giữ nguyên bảng và
+		giá được ghi TẠI CHỖ.
 
-		Thiếu bộ lọc `disabled`, một bệnh viện cũ đã bị vô hiệu hoá nhưng
-		vẫn trỏ `default_price_list` về bảng giá này khiến phép đếm mãi mãi
-		> 1, và bệnh viện CÒN LẠI bị chặn đồng bộ giá VĨNH VIỄN bằng một câu
-		bảo họ "tách bảng giá riêng cho từng khách" — trong khi họ đã là
-		khách duy nhất còn hoạt động dùng nó. Không có đường nào gỡ ra ngoài
-		việc sửa tay dữ liệu.
-
-		Khách đã vô hiệu hoá không đặt hàng được nữa nên không có giá nào
-		của họ để mà trộn: đúng nguy cơ P32 dựng lên để chặn, và nó không
-		còn."""
+		Vế "cả hai còn hoạt động → bị chặn" của bài cũ không còn: ca đó giờ
+		là tách bảng, đã khẳng định ở bài ngay trên."""
 		ma = self._item("_TEST G12 BANG GIA CHUNG VO HIEU")
 		bo_a = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
+		self._xoa_gia(ma)
 		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
 		self.addCleanup(
 			frappe.db.set_value, "Customer", self.kh_b, "disabled", 0
 		)
-
-		# Vế ÂM trước — cả hai còn hoạt động thì vẫn phải chặn (nếu vế này
-		# chết, vế dưới xanh chỉ vì chốt P32 đã hỏng hoàn toàn).
-		self._xoa_gia(ma)
-		kq = gia_hdnt.dong_bo(bo_a)
-		self.assertTrue(kq["ly_do"])
-		self.assertEqual(kq["tao"], 0)
-
-		# Vô hiệu hoá khách B — khách A giờ là khách DUY NHẤT còn hoạt động
-		# dùng bảng giá này, đồng bộ phải chạy lại được.
 		frappe.db.set_value("Customer", self.kh_b, "disabled", 1)
+
 		kq = gia_hdnt.dong_bo(bo_a)
-		self.assertIsNone(
-			kq["ly_do"],
-			"khách đã vô hiệu hoá không được chặn đồng bộ của khách còn lại",
+		self.assertIsNone(kq["ly_do"])
+		self.assertEqual(
+			frappe.db.get_value("Customer", self.kh_a, "default_price_list"),
+			self.price_list,
+			"khách đã vô hiệu hoá không được khiến bảng của khách còn lại bị tách",
 		)
 		self.assertEqual(
 			float(frappe.db.get_value(

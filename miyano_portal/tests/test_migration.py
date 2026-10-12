@@ -5,6 +5,7 @@ import tempfile
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal import bang_gia_khach
 from miyano_portal.migration.import_erpnext import import_masters
 
 FIXTURE = {
@@ -118,6 +119,15 @@ FIXTURE = {
                     "sold_qty": 0,
                     "unit_price": 340000,
                 },
+                # Not priced yet on the contract (<= 0 never means "sells
+                # for 0"): the line stays on the Blanket Order, no Item Price.
+                {
+                    "item": "MIG-IT-0003",
+                    "uom": "MIG Cai",
+                    "contract_qty": 100,
+                    "sold_qty": 0,
+                    "unit_price": 0,
+                },
             ],
         }
     ],
@@ -151,7 +161,7 @@ class TestMigrationImport(FrappeTestCase):
         # Customer B had no shipping_address -> no Address created.
         self.assertFalse(frappe.db.exists("Address", "MIG PXN Test B-Shipping"))
 
-        # Blanket Order for the contract's customer, with 2 items.
+        # Blanket Order for the contract's customer, with 3 items.
         bo_name = frappe.db.get_value(
             "Blanket Order",
             {"customer": "MIG Benh vien Test A", "order_no": "MIG-TEST-2026", "blanket_order_type": "Selling"},
@@ -159,23 +169,34 @@ class TestMigrationImport(FrappeTestCase):
         )
         self.assertTrue(bo_name)
         bo = frappe.get_doc("Blanket Order", bo_name)
-        self.assertEqual(len(bo.items), 2)
-        self.assertEqual({d.item_code for d in bo.items}, {"MIG-IT-0001", "MIG-IT-0002"})
+        self.assertEqual(len(bo.items), 3)
+        self.assertEqual({d.item_code for d in bo.items}, {"MIG-IT-0001", "MIG-IT-0002", "MIG-IT-0003"})
 
-        # Per-contract Price List + Item Price rows.
-        price_list = "HĐNT-MIG-TEST-2026"
-        self.assertTrue(frappe.db.exists("Price List", price_list))
-        self.assertTrue(
-            frappe.db.exists("Item Price", {"item_code": "MIG-IT-0001", "price_list": price_list, "selling": 1})
-        )
-        self.assertTrue(
-            frappe.db.exists("Item Price", {"item_code": "MIG-IT-0002", "price_list": price_list, "selling": 1})
-        )
-
-        # Customer's default_price_list points at the contract price list.
+        # Đảo theo spec 2026-10-09 (giá theo Price List).
+        # No per-contract price list any more: the customer gets a Price List
+        # of their OWN and the contract unit prices land in it.
+        self.assertFalse(frappe.db.exists("Price List", "HĐNT-MIG-TEST-2026"))
+        price_list = frappe.db.get_value("Customer", "MIG Benh vien Test A", "default_price_list")
+        self.assertEqual(price_list, "Bảng giá MIG Benh vien Test A")
         self.assertEqual(
-            frappe.db.get_value("Customer", "MIG Benh vien Test A", "default_price_list"), price_list
+            frappe.get_all("Customer", filters={"default_price_list": price_list}, pluck="name"),
+            ["MIG Benh vien Test A"],
         )
+        self.assertEqual(
+            bang_gia_khach.gia_bang_gia_nhieu(
+                "MIG Benh vien Test A", ["MIG-IT-0001", "MIG-IT-0002", "MIG-IT-0003"]
+            ),
+            {"MIG-IT-0001": 1150.0, "MIG-IT-0002": 340000.0},
+        )
+        self.assertFalse(
+            frappe.db.exists("Item Price", {"item_code": "MIG-IT-0003", "price_list": price_list}),
+            "a contract line without a price must not create a zero-price row",
+        )
+        self.assertEqual(first["contract_item_prices"], 2)
+        self.assertEqual(first["price_lists"], 1)
+        # Idempotency of the price rows: one row per item after both runs.
+        self.assertEqual(second["contract_item_prices"], 0)
+        self.assertEqual(frappe.db.count("Item Price", {"price_list": price_list, "selling": 1}), 2)
 
         # Dirty-data resilience: item with an empty item_group still gets
         # created, defaulted to the fallback Item Group.

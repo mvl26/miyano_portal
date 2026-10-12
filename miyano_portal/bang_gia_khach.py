@@ -156,6 +156,36 @@ def _chon_dong_de_sua(dong: list[dict]) -> dict | None:
 	return max(dong, key=khoa) if dong else None
 
 
+def ghi_gia_vao_bang(
+	bang: str, customer: str, item_code: str, gia: float, tien_te: str | None = None
+) -> float | None:
+	"""Ghi `gia` (theo đơn vị gốc) của `item_code` vào `bang` sao cho BỘ ĐỌC
+	(`gia_bang_gia_nhieu`) trả đúng nó cho `customer`. Trả giá cũ của dòng bị
+	sửa, `None` khi chèn dòng mới.
+
+	Bộ ghi DUY NHẤT của cổng — khách đồng ý báo giá (§5.2) và đồng bộ từ hợp
+	đồng (`gia_hdnt.dong_bo`) cùng đi qua đây. Hai bộ ghi tự chọn dòng là hai
+	chỗ lệch được với bộ đọc: một phép upsert theo `{item_code, price_list}`
+	thuần sẽ sửa trúng dòng khác đơn vị hay dòng chung đang bị dòng riêng của
+	khách che, và giá ghi xuống không bao giờ hiện ra.
+	"""
+	dvt = frappe.db.get_value("Item", item_code, "stock_uom")
+	dong = _chon_dong_de_sua(_dong_gia_bo_doc_chap_nhan(bang, customer, item_code, dvt))
+	if dong:
+		gia_cu = flt(dong.price_list_rate) or None
+		frappe.db.set_value("Item Price", dong.name, {
+			"price_list_rate": gia, "valid_from": today(), "valid_upto": None,
+		})
+		return gia_cu
+	frappe.get_doc({
+		"doctype": "Item Price", "item_code": item_code, "price_list": bang,
+		"selling": 1, "buying": 0, "uom": dvt,
+		"currency": tien_te or frappe.db.get_value("Price List", bang, "currency") or "VND",
+		"price_list_rate": gia, "valid_from": today(),
+	}).insert(ignore_permissions=True)
+	return None
+
+
 def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
 	"""Ghi đơn giá các dòng "Báo giá" của `so` vào Price List của khách.
 
@@ -184,22 +214,7 @@ def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
 
 	ket_qua = []
 	for item_code, gia in theo_ma.items():
-		dvt = frappe.db.get_value("Item", item_code, "stock_uom")
-		dong = _chon_dong_de_sua(
-			_dong_gia_bo_doc_chap_nhan(bang, so.customer, item_code, dvt)
-		)
-		if dong:
-			gia_cu = flt(dong.price_list_rate) or None
-			frappe.db.set_value("Item Price", dong.name, {
-				"price_list_rate": gia, "valid_from": today(), "valid_upto": None,
-			})
-		else:
-			gia_cu = None
-			frappe.get_doc({
-				"doctype": "Item Price", "item_code": item_code, "price_list": bang,
-				"selling": 1, "buying": 0, "uom": dvt, "currency": tien_te,
-				"price_list_rate": gia, "valid_from": today(),
-			}).insert(ignore_permissions=True)
+		gia_cu = ghi_gia_vao_bang(bang, so.customer, item_code, gia, tien_te)
 		ket_qua.append({"item_code": item_code, "gia_cu": gia_cu, "gia_moi": gia})
 
 	if ket_qua:
