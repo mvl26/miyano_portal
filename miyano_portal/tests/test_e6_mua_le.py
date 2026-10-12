@@ -21,6 +21,7 @@ from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO, han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 BVBM = "Bệnh viện Bạch Mai"
 USER_BVBM = "bvbm@demo.miyano"
@@ -114,109 +115,6 @@ def _seed_mua_le():
     _dam_bao_item_ban_le(RETAIL_NGUNG_KD, "Hàng ngừng kinh doanh", None)
     frappe.db.set_value("Item", RETAIL_NGUNG_KD, "disabled", 1)
 
-
-class TestCatalogBanLe(FrappeTestCase):
-    def setUp(self):
-        _seed_mua_le()
-        self.addCleanup(frappe.set_user, "Administrator")
-
-    # ---------- TC-E6-01 (đảo ngược 21/08 — chủ đầu tư chốt BR-R1 bỏ hẳn:
-    # "nghiệp vụ đó áp dụng cho toàn bộ khách hàng") ----------
-    def test_khach_chua_bat_co_van_mua_duoc(self):
-        """PXN vẫn giữ `custom_cho_phep_mua_le=0` tường minh trong
-        `_seed_mua_le` (field còn tồn tại vật lý cho tới khi patch
-        `xoa_co_mua_le` chạy) — để khẳng định danh mục KHÔNG còn đọc field
-        này nữa, không phải vì nó tình cờ mặc định bật."""
-        frappe.set_user(USER_PXN)
-        out = portal.portal_catalog_ban_le(tim_kiem=RETAIL_CO_GIA)["items"]
-        ma = {r["item_code"] for r in out}
-        self.assertIn(
-            RETAIL_CO_GIA, ma,
-            "khách chưa từng bật cờ (cũ) vẫn phải thấy danh mục đầy đủ",
-        )
-
-    # ---------- thiết kế lại mua lẻ §4.1 — bỏ lọc custom_ban_le_portal ----------
-    def test_danh_muc_khong_con_loc_theo_custom_ban_le_portal(self):
-        """HC0009 không hề nằm trong fixture "bán lẻ" — trước đây một cờ
-        `custom_ban_le_portal` (BR-R6 cũ) quyết định thành viên danh mục,
-        giờ danh mục là TOÀN BỘ `Item` với `disabled=0` (§4.1: "khách không
-        cần biết Miyano có gì"). Cờ đó đã xoá hẳn (Việc 2(a),
-        `patches/v1_16/xoa_custom_field_ban_le_portal.py`), tên test giữ
-        nguyên để chỉ thẳng chốt hồi quy đang bảo vệ. Dùng `tim_kiem` để
-        khoanh kết quả về đúng fixture, không đọc cả `tabItem` của site
-        (seed_demo/demo_kho_flow còn nhiều Item khác)."""
-        frappe.set_user(USER_BVBM)
-        out = portal.portal_catalog_ban_le(tim_kiem="HC0009")["items"]
-        ma = {r["item_code"] for r in out}
-        self.assertIn("HC0009", ma, "danh mục không được lọc theo bất kỳ cờ bán lẻ nào (§4.1)")
-
-    def test_danh_muc_van_gom_ca_item_da_bat_co_ban_le_cu(self):
-        """RETAIL_CO_GIA/RETAIL_THIEU_GIA (item bình thường, không còn cờ gì
-        đặc biệt kể từ khi `custom_ban_le_portal` bị xoá) vẫn phải xuất
-        hiện trong danh mục — chúng hợp lệ vì có `disabled=0`, không nhờ
-        một cờ bán lẻ nào."""
-        frappe.set_user(USER_BVBM)
-        out = portal.portal_catalog_ban_le(tim_kiem="RTL-E6-00")["items"]
-        ma = {r["item_code"] for r in out}
-        self.assertIn(RETAIL_CO_GIA, ma)
-        self.assertIn(RETAIL_THIEU_GIA, ma)
-
-    def test_danh_muc_khong_hien_gia(self):
-        """§4.1 — "Không trả giá": không còn field `gia_ban_le`/`co_gia` nào
-        trong phong bì trả về, kể cả với mặt hàng CÓ giá thật trong price
-        list cũ (RETAIL_CO_GIA)."""
-        frappe.set_user(USER_BVBM)
-        out = portal.portal_catalog_ban_le(tim_kiem=RETAIL_CO_GIA)["items"]
-        self.assertEqual(len(out), 1)
-        self.assertNotIn("gia_ban_le", out[0])
-        self.assertNotIn("co_gia", out[0])
-
-    def test_item_disabled_khong_hien_trong_danh_muc(self):
-        """`disabled=1` là điều kiện thành viên danh mục DUY NHẤT còn lại
-        (§4.1) — mặt hàng ngừng kinh doanh vẫn phải bị loại."""
-        frappe.set_user(USER_BVBM)
-        out = portal.portal_catalog_ban_le(tim_kiem=RETAIL_NGUNG_KD)["items"]
-        ma = {r["item_code"] for r in out}
-        self.assertNotIn(RETAIL_NGUNG_KD, ma)
-
-    def test_item_thuoc_hdnt_hieu_luc_duoc_danh_dau_br_r7(self):
-        """§4.2 — GIỮ NGUYÊN: mặt hàng thuộc HĐNT còn hiệu lực vẫn hiện ra
-        (khác trước: KHÔNG biến mất im lặng) nhưng phải mang cờ `thuoc_hdnt`
-        để client hiện mờ + khoá nút thêm giỏ Mua lẻ."""
-        frappe.set_user(USER_BVBM)
-        out = portal.portal_catalog_ban_le(tim_kiem=VT_HDNT)["items"]
-        theo_ma = {r["item_code"]: r for r in out}
-        self.assertIn(VT_HDNT, theo_ma)
-        self.assertTrue(theo_ma[VT_HDNT]["thuoc_hdnt"], "phải đánh dấu thuoc_hdnt=True (BR-R7/NL-10.7)")
-
-        out2 = portal.portal_catalog_ban_le(tim_kiem=RETAIL_CO_GIA)["items"]
-        self.assertFalse(out2[0]["thuoc_hdnt"], "item lẻ thuần không được đánh dấu nhầm")
-
-    # ---------- thiết kế lại mua lẻ §4.1 — phân trang phía server ----------
-    def test_phan_trang_khong_chong_lap_khong_bo_sot(self):
-        """DoD "phân trang phía server" của thiết kế: gộp NHIỀU trang nhỏ
-        (limit=1) phải phủ ĐÚNG tập fixture của test này, không thừa không
-        thiếu, không trùng lặp giữa các trang — khẳng định theo TÊN bản ghi
-        của chính fixture (ba mã RTL-E6-00x), không đếm tuyệt đối trên toàn
-        bộ `tabItem` của site."""
-        frappe.set_user(USER_BVBM)
-        ky_vong = {RETAIL_CO_GIA, RETAIL_THIEU_GIA, RETAIL_NGUNG_KD}
-        # RETAIL_NGUNG_KD bị lọc bởi disabled=0 — không nằm trong danh mục,
-        # nên tập fixture "nhìn thấy được" chỉ còn hai mã.
-        ky_vong_hien = {RETAIL_CO_GIA, RETAIL_THIEU_GIA}
-
-        trang0 = portal.portal_catalog_ban_le(tim_kiem="RTL-E6-00", start=0, limit=1)
-        self.assertEqual(len(trang0["items"]), 1)
-        self.assertEqual(trang0["tong"], 2, "tong phải đếm ĐÚNG bộ filter/or_filters của trang")
-
-        trang1 = portal.portal_catalog_ban_le(tim_kiem="RTL-E6-00", start=1, limit=1)
-        self.assertEqual(len(trang1["items"]), 1)
-
-        gop = {trang0["items"][0]["item_code"], trang1["items"][0]["item_code"]}
-        self.assertEqual(gop, ky_vong_hien, "hai trang limit=1 phải PHỦ ĐỦ, không trùng, đúng hai mã fixture")
-
-        trang2 = portal.portal_catalog_ban_le(tim_kiem="RTL-E6-00", start=2, limit=1)
-        self.assertEqual(trang2["items"], [], "hết dữ liệu ở trang thứ ba")
 
 class TestDatHangBanLe(FrappeTestCase):
     def setUp(self):
@@ -365,7 +263,7 @@ class TestDatHangBanLe(FrappeTestCase):
         vượt hạn mức còn 5 → bị chặn `vuot_han_muc`). Hạn mức không còn được
         kiểm lúc dựng đơn, nên giờ khẳng định thẳng kết quả của phép gộp —
         kể cả khi tổng VƯỢT số lượng còn lại trên hợp đồng."""
-        bo = portal.portal_contracts()[0]["name"]
+        bo = hop_dong_hieu_luc_dau_tien()
         frappe.db.set_value(
             "Blanket Order Item", {"parent": bo, "item_code": VT_HDNT},
             {"qty": 200, "ordered_qty": 195},  # hợp đồng chỉ còn đúng 5
@@ -468,7 +366,7 @@ class TestDatHangBanLe(FrappeTestCase):
 
         Bằng chứng ĐỎ của lần đảo: `AssertionError: ValidationError not
         raised`."""
-        bo = portal.portal_contracts()[0]["name"]
+        bo = hop_dong_hieu_luc_dau_tien()
         # Ca 1 — mặt hàng KHÔNG có giá trong bảng giá của hợp đồng: không
         # còn là lỗi `thieu_gia`, chỉ là một dòng chờ báo giá.
         res = portal.portal_order_place(
@@ -636,7 +534,7 @@ class TestDatHangBanLe(FrappeTestCase):
 
         Bằng chứng ĐỎ của lần đảo: `AssertionError: ValidationError not
         raised`."""
-        bo = portal.portal_contracts()[0]["name"]
+        bo = hop_dong_hieu_luc_dau_tien()
         res = portal.portal_order_place(
             bo, json.dumps([{"item_code": VT_HDNT, "qty": 1}]),
             dat_ngoai=json.dumps([{"ten_hang": "X", "dvt": "Cái", "so_luong": 1}]),

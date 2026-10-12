@@ -3,6 +3,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from miyano_portal.setup.seed_demo import seed_demo
 from miyano_portal.api import portal
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 
 class TestTracking(FrappeTestCase):
@@ -10,7 +11,7 @@ class TestTracking(FrappeTestCase):
         seed_demo()
         frappe.set_user("bvbm@demo.miyano")
         self.addCleanup(frappe.set_user, "Administrator")
-        bo = portal.portal_contracts()[0]["name"]
+        bo = hop_dong_hieu_luc_dau_tien()
         self.so = portal.portal_order_place(
             bo,
             json.dumps([{"item_code": "VT0005", "qty": 10}]),

@@ -285,8 +285,8 @@ class TestDongBoGia(_GiaFixture):
 
     def test_hdnt_chua_toi_ngay_hieu_luc_van_dung_gia_san(self):
         """Ngược lại với ca trên: ký trước ngày hiệu lực thì vẫn dựng giá —
-        `portal_contracts` đã tự chặn đặt hàng cho tới `from_date`, nên giá
-        "có sớm" vô hại, còn bắt sales quay lại nhập tay đúng ngày mới là hại."""
+        giá "có sớm" được coi là vô hại (xem chú thích ở `gia_hdnt.dong_bo`),
+        còn bắt sales quay lại nhập tay đúng ngày mới là hại."""
         bo = self._hdnt(submit=False)
         bo.from_date = add_days(today(), 10)
         bo.to_date = add_days(today(), 400)
@@ -304,8 +304,8 @@ class TestDongBoGia(_GiaFixture):
 
 class TestNhieuHopDongMotKhach(_GiaFixture):
     """`Customer.default_price_list` là MỘT field, nhưng một khách có thể có
-    NHIỀU hợp đồng còn hiệu lực cùng lúc (`portal_contracts` chỉ lọc theo
-    khoảng ngày, và `portal_order_place` nhận `contract` làm tham số). Trình
+    NHIỀU hợp đồng còn hiệu lực cùng lúc (không gì ép mỗi khách một hợp
+    đồng). Trình
     import lại đặt mỗi hợp đồng một bảng giá riêng rồi trỏ `default_price_list`
     sang bảng giá MỚI NHẤT — hợp đồng cũ hơn bị bỏ lại ở bảng giá không còn
     ai đọc, và lỗi "chưa có giá" quay lại đúng cho hợp đồng đó."""
@@ -369,10 +369,9 @@ class TestDonHangLayGiaBangGia(_GiaFixture):
 
         Trước spec 2026-10-09 bài này tên `test_danh_muc_va_don_hang_noi_
         cung_mot_gia` và đòi đơn mang đúng 95.000 mà danh mục cũ
-        `portal_catalog` hiện. Danh mục cũ đó VẪN đọc giá hợp đồng (chưa đổi
-        ở bước này) — vế đầu của bài giữ lại để ghi nhận đúng hiện trạng:
-        khi sales để Price List lệch hợp đồng, `portal_catalog` và đơn nói
-        hai con số cho tới khi endpoint cũ đó bị gỡ."""
+        `portal_catalog` hiện. Endpoint danh mục cũ đó đã gỡ (§7), nên vế
+        danh mục nay hỏi `portal_catalog_gop`: danh mục và đơn nói CÙNG một
+        giá, giá Price List."""
         bo = self._hdnt(dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
         frappe.db.delete("Item Price", {"price_list": BANG_GIA})
         frappe.get_doc({
@@ -381,8 +380,11 @@ class TestDonHangLayGiaBangGia(_GiaFixture):
         }).insert(ignore_permissions=True)
 
         frappe.set_user(KHACH_USER)
-        dong = {r["item_code"]: r for r in portal.portal_catalog(bo.name)}[VT]
-        self.assertEqual(dong["rate"], 95000, "danh mục CŨ vẫn hiện giá hợp đồng")
+        dong = {
+            r["item_code"]: r for r in portal.portal_catalog_gop(tu_khoa=VT)["rows"]
+        }[VT]
+        self.assertEqual(dong["tang"], "bang_gia")
+        self.assertEqual(dong["don_gia"], 55000, "danh mục hiện giá Price List")
 
         res = portal.portal_order_place(
             bo.name,

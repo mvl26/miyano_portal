@@ -31,9 +31,10 @@ Ranh giới cố ý của `dong_bo()`:
 
 **Còn sót, chờ gỡ.** `gia_dong_hop_dong()` và `con_hieu_luc()` là phép tra
 "hợp đồng trước, bảng giá sau" của QĐ-G12 (21/08/2026). Luồng đặt hàng mới
-không gọi chúng; chúng còn sống chỉ vì các endpoint cũ chưa gỡ vẫn gọi:
-`portal_contracts`, `portal_catalog`, `portal_catalog_ban_le` (`api/portal.py`).
-Gỡ các endpoint đó thì xoá luôn hai hàm này.
+không gọi chúng, và ba endpoint cũ từng gọi chúng (`portal_contracts`,
+`portal_catalog`, `portal_catalog_ban_le`) đã gỡ khỏi `api/portal.py`. Hai hàm
+không còn nơi gọi nào ngoài test của chính chúng; bước dọn hàm hợp đồng/hạn
+mức còn sót sẽ xoá chúng cùng các test đó.
 """
 
 import frappe
@@ -164,8 +165,9 @@ def dong_bo(bo, thang_cuoc=None) -> dict:
     # (`default_price_list`) chứ không từ hợp đồng, nên một HĐNT cũ vừa được
     # submit lại (sửa đổi, ký bổ sung) sẽ ghi đè giá của hợp đồng ĐANG hiệu
     # lực. Không chặn theo `from_date`: hợp đồng ký trước ngày hiệu lực vẫn
-    # nên dựng sẵn giá — `portal_contracts` đã tự chặn đặt hàng cho tới
-    # `from_date`, nên giá "có sớm" vô hại, còn giá "hết hạn" thì có hại.
+    # nên dựng sẵn giá — lúc chốt này được viết, `portal_contracts` (endpoint
+    # nay đã gỡ) tự chặn đặt hàng cho tới `from_date`, nên giá "có sớm" được
+    # coi là vô hại, còn giá "hết hạn" thì có hại.
     # `getdate()` cả hai vế: ở luồng hook `on_submit`, `doc.to_date` còn là
     # CHUỖI (chưa qua vòng nạp lại của `frappe.get_doc`), so thẳng với một
     # `date` sẽ ném TypeError — và hook thì nuốt lỗi, nên sai lầm này biến
@@ -226,8 +228,8 @@ def dong_bo_khach(customer, doc=None) -> dict:
 
     Vì sao phải quét cả khách: `Customer.default_price_list` là MỘT field,
     nhưng một khách có thể có NHIỀU hợp đồng còn hiệu lực cùng lúc
-    (`portal_contracts` chỉ lọc theo khoảng ngày, và `portal_order_place`
-    nhận `contract` làm tham số nên khách chọn hợp đồng nào cũng đặt được).
+    (không gì ép mỗi khách một hợp đồng: Blanket Order chỉ có khoảng ngày
+    hiệu lực của riêng nó).
     Trình import (`migration/import_erpnext.py`) trước 09/10/2026 lại đặt
     mỗi hợp đồng một bảng giá riêng rồi trỏ `default_price_list` sang bảng
     giá MỚI NHẤT (dữ liệu cũ trên site vẫn mang hình dạng đó) — nếu chỉ đồng

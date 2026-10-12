@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
 from miyano_portal.setup.seed_demo import seed_demo
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 USER_BVBM = "bvbm@demo.miyano"
 VT = "VT0005"
@@ -33,7 +34,7 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
         seed_demo()
         frappe.set_user(USER_BVBM)
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
         # `FrappeTestCase` rollback một lần mỗi CLASS: ca nào khai bội số thì
         # ca sau vẫn thấy nó. Đặt lại về trạng thái XÁC ĐỊNH — VT không ràng
         # buộc, HC đặt theo bội số 10 (lỗi mẫu của file này).

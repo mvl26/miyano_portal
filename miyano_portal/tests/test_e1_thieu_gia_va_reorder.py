@@ -22,6 +22,7 @@ from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.portal_thong_bao import bao_thieu_gia
 from miyano_portal.setup.seed_demo import seed_demo
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 BVBM = "Bệnh viện Bạch Mai"
 USER_BVBM = "bvbm@demo.miyano"
@@ -83,7 +84,7 @@ class TestReorder(FrappeTestCase):
         seed_demo()
         frappe.set_user(USER_BVBM)
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
         for item_code, qty, da_dat in ((VT, 10000, 0), (HC, 500, 0)):
             frappe.db.set_value(
                 "Blanket Order Item",

@@ -1,6 +1,6 @@
 """BR-O15 / QĐ-8 / NL-1.11 — hạn mức khai 0 nghĩa là KHÔNG GIỚI HẠN.
 
-TC-E1-06, 08, và tầng nghiệp vụ `han_muc_con`.
+Tầng nghiệp vụ `han_muc_con`.
 
 `remaining_qty` cũ trả `qty - ordered_qty`, nên một dòng khai 0 đã đặt 30 ra
 **-30** — đúng ngược quy ước QĐ-8. `han_muc_con` trả `None` cho dòng đó.
@@ -8,9 +8,10 @@ TC-E1-06, 08, và tầng nghiệp vụ `han_muc_con`.
 Từ spec 2026-10-09 (giá theo Price List, §4.2) việc DỰNG ĐƠN không còn kiểm
 hạn mức hay gắn `against_blanket_order` — ba bài về đường đặt hàng (TC-E1-05,
 TC-E1-07 và bài "dòng có hạn mức vẫn gắn `against_blanket_order`") đã xoá
-cùng hành vi đó; vế mới nằm ở `test_xay_don_bang_gia.py`. File này còn giữ
-những gì VẪN đọc hạn mức: `portal_context.han_muc_con`, danh mục cũ
-`portal_catalog` và `used_pct` của `portal_contracts`.
+cùng hành vi đó; vế mới nằm ở `test_xay_don_bang_gia.py`. Hai bài TC-E1-06
+(danh mục cũ `portal_catalog`) và TC-E1-08 (`used_pct` của `portal_contracts`)
+đã xoá cùng hai endpoint đó (§7). File này còn giữ thứ duy nhất VẪN đọc hạn
+mức: `portal_context.han_muc_con`.
 
 `setUp` đặt hạn mức thành giá trị XÁC ĐỊNH thay vì đọc trạng thái sẵn có của
 site: một test dựa vào dữ liệu mà thao tác nghiệp vụ bình thường có thể đổi
@@ -20,9 +21,9 @@ thì sớm muộn cũng đỏ vì lý do không liên quan.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal.api import portal
 from miyano_portal.portal_context import han_muc_con
 from miyano_portal.setup.seed_demo import seed_demo
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 VT_KGH = "HC0009"      # đặt qty = 0  -> KHÔNG GIỚI HẠN
 VT_GIOI_HAN = "VT0005"  # đặt qty = 200, đã đặt 195 -> còn 5
@@ -33,7 +34,7 @@ class TestHanMucKhongGioiHan(FrappeTestCase):
         seed_demo()
         frappe.set_user("bvbm@demo.miyano")
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
 
         for item_code, qty, da_dat in (
             (VT_KGH, 0, 30),
@@ -62,33 +63,3 @@ class TestHanMucKhongGioiHan(FrappeTestCase):
         con_lai, da_dat = han_muc_con(self.bo, "_TEST-NGOAI-HOP-DONG")
         self.assertEqual(con_lai, 0.0)
         self.assertEqual(da_dat, 0.0)
-
-    # ---------- TC-E1-06: danh mục ----------
-    def test_catalog_danh_dau_khong_gioi_han(self):
-        rows = {r["item_code"]: r for r in portal.portal_catalog(self.bo)}
-
-        kgh = rows[VT_KGH]
-        self.assertTrue(kgh["khong_gioi_han"])
-        self.assertIsNone(
-            kgh["remaining"],
-            "None chứ không phải 0 — giao diện phải phân biệt được "
-            "'không giới hạn' với 'hết hạn mức' (NL-1.11 vs NL-1.2)",
-        )
-        self.assertEqual(kgh["used"], 30.0)
-
-        gh = rows[VT_GIOI_HAN]
-        self.assertFalse(gh["khong_gioi_han"])
-        self.assertEqual(gh["remaining"], 5.0)
-
-    # ---------- TC-E1-08 ----------
-    def test_phan_tram_han_muc_bo_qua_dong_khong_gioi_han(self):
-        """Mẫu số chỉ gồm dòng có hạn mức > 0: 195/200 = 97,5%.
-
-        Nếu dòng khai 0 lọt vào mẫu số thì kết quả thành 225/200 — vô nghĩa,
-        và cảnh báo "dùng ≥ 80%" sẽ báo động sai.
-        """
-        hd = {r["name"]: r for r in portal.portal_contracts()}[self.bo]
-        self.assertEqual(hd["used_pct"], 97.5)
-        self.assertEqual(
-            hd["item_count"], 2, "vẫn đếm ĐỦ số mặt hàng, kể cả dòng không giới hạn"
-        )

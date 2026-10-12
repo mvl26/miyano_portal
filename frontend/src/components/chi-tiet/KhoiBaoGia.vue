@@ -139,14 +139,16 @@ function moGuiLai() {
     <!-- Việc 1/brief 2026-08-15 — sửa số lượng NGAY tại đây, chỉ cho
          đơn đi vòng báo giá (đúng điều kiện server
          `portal_order_sua_so_luong` đòi, xem `portal_mua_le.
-         di_vong_bao_gia`). Đơn giá cho N hộp không còn đúng ở M hộp —
-         gửi lại là để sales báo giá lại, KHÔNG giữ giá cũ (server tự
-         đặt rate = 0 cho dòng đã đổi). -->
+         di_vong_bao_gia`). Giá Miyano BÁO cho N hộp không còn đúng ở M hộp
+         — dòng đã báo giá bị đổi số lượng được báo giá lại. Dòng có giá
+         trong bảng giá của khách thì giữ giá bảng giá (spec 2026-10-09
+         §4.4): đó không phải giá đàm phán theo sản lượng. -->
     <div v-if="suaDuocSoLuong" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px">
       <p style="font-size: 13px; margin-bottom: 8px">
         Số lượng chưa đúng? Sửa rồi bấm <b>Gửi lại để báo giá</b> — đơn sẽ
-        về Miyano báo giá lại theo số lượng mới (giá hiện tại của dòng đã
-        đổi không còn áp dụng).
+        về Miyano xác nhận lại theo số lượng mới. Mặt hàng có giá trong bảng
+        giá vẫn giữ giá đó; mặt hàng Miyano đã báo giá sẽ được báo giá lại
+        (giá báo hiện tại của mặt hàng đó không còn áp dụng).
       </p>
       <div v-for="it in don.items" :key="'sl-' + it.item_code" class="rowline">
         <span>

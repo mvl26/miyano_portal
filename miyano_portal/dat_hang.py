@@ -253,7 +253,7 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
             loi.append(loi_boi_so)
             continue
         # review C-1 — chốt Ở ĐƯỜNG GHI, cạnh chốt danh mục ở
-        # `portal_catalog_ban_le`. `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ
+        # `portal_catalog_gop`. `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ
         # (§3.4) mà hàm NÀY tự chèn vào `hop_le` phía dưới KHI CẦN (đơn toàn
         # hàng chưa có mã) — nhưng client cũng có thể gửi thẳng mã này trong
         # payload `items`, y như bất kỳ item_code nào khác. Không có chốt
@@ -273,7 +273,7 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
             })
             continue
         # Phòng thủ tầng hai, retarget theo §4.1: danh mục
-        # `portal_catalog_ban_le` giờ chỉ lọc `disabled=0` (KHÔNG còn lọc
+        # `portal_catalog_gop` chỉ lọc `disabled=0` (KHÔNG còn lọc
         # `custom_ban_le_portal` — cờ đó không còn là điều kiện thành viên
         # danh mục, §6 "chỉ ngừng dùng để lọc"). Client có thể gửi THẲNG một
         # mã hàng bất kỳ tới đây — không tin payload, tự kiểm lại đúng điều

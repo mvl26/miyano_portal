@@ -15,6 +15,7 @@ from miyano_portal.portal_mua_le import ITEM_GIU_CHO, TRANG_THAI_CHO_KHACH
 from miyano_portal.tests.test_e6_mua_le import (
     BVBM, PXN, RETAIL_CO_GIA, USER_BVBM, USER_PXN, VT_HDNT, _rid, _seed_mua_le,
 )
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 PRINT_FORMAT = "Miyano - Báo giá"
 NOTI_BAO_GIA = "Portal - Báo giá sẵn sàng"
@@ -124,7 +125,7 @@ class TestBaoGiaPdf(FrappeTestCase):
         "Theo HĐNT") cũng có thể ở "Chờ khách đồng ý" (luồng E2 gốc) —
         endpoint phải từ chối tải PDF báo giá cho nhánh này, không chỉ dựa
         vào workflow_state."""
-        bo = portal.portal_contracts()[0]["name"]
+        bo = hop_dong_hieu_luc_dau_tien()
         res = portal.portal_order_place(
             bo, json.dumps([{"item_code": VT_HDNT, "qty": 1}]),
             mode="hdnt", request_id=_rid(),

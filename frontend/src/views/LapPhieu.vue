@@ -29,30 +29,28 @@
 // nháp" từ màn chi tiết) thì màn giữ nguyên luồng phiếu — phiếu đó đã bắt
 // đầu một vết duyệt, không được bỏ lửng để tạo một chứng từ thứ hai.
 //
-// QĐ-G8 — vượt hạn mức: CẢNH BÁO tại dòng, KHÔNG chặn, KHÔNG tự tách dòng.
-// Khoa xin 100 khi còn 40 vẫn gửi được; quản lý gõ số duyệt (cơ chế đã
-// chạy). Tách dòng theo hạn mức là hệ thống thay quản lý ra một quyết định
-// thương mại mà nó không đủ thông tin để ra.
+// HAI TẦNG GIÁ, đọc từ Price List của khách (spec 2026-10-09 §3.2 — thay ba
+// tầng hợp đồng / chờ báo giá / gõ tay cũ và các quyết định QĐ-G8, QĐ-G9,
+// QĐ-G10, Ruling P23 đi theo chúng). Server trả `tang` cho từng mặt hàng:
+// `bang_gia` (có giá trong bảng giá của khách, kèm `don_gia`) hoặc
+// `cho_bao_gia`. Không còn hợp đồng khung, hạn mức hay thứ tự "hàng hợp đồng
+// trước": danh sách hiện đúng thứ tự `portal_catalog_gop` trả, KHÔNG sắp xếp
+// lại phía client.
 //
-// QĐ-G9 — giỏ hiện ĐƠN GIÁ TỪNG DÒNG, KHÔNG có dòng tổng nào. Dòng hợp đồng
-// hiện đơn giá; dòng chờ báo giá hiện `—`. Không có "tạm tính"/"tổng cộng"
-// ở bất cứ đâu trên màn này (kể cả hộp xác nhận): tránh việc khoa nhớ một
-// con số rồi đem so với hoá đơn cuối, trong khi Miyano báo giá đầy đủ ở
-// bước sau.
+// Luật của giỏ (nhãn tầng, thành tiền, tạm tính, đếm hai nhóm khi tách) nằm
+// ở `gio-hang.js` — JS thuần, có `gio-hang.test.mjs` chạy thật. Màn này chỉ
+// nối dữ liệu vào đó. Điểm dễ sai nhất: `tang` (dòng đi đường nào) và
+// `don_gia` (con số để hiện) là HAI thứ — một phiếu Nháp mở lại biết tầng
+// của từng dòng nhưng chưa có giá (giá chỉ được đóng dấu lúc gửi duyệt,
+// §4.3), nên màn hỏi lại danh mục (`lamMoiGia`).
 //
-// QĐ-G10 — trang đầu là HÀNG TRONG HỢP ĐỒNG CỦA CHÍNH KHÁCH, hết rồi mới
-// tới danh mục chung; 10 dòng/trang, cắt trang trong SQL. Thứ tự đó do
-// `portal_catalog_gop` quyết (Task 10), màn chỉ hiện đúng thứ tự nhận được
-// — KHÔNG sắp xếp lại phía client.
+// GIỎ TRỘN TÁCH THÀNH HAI PHIẾU (§4.1): hàng có giá đi thẳng, hàng chờ báo
+// giá (kể cả dòng gõ tay) đi vòng báo giá. Việc tách do SERVER làm ở lần gửi
+// đầu tiên; màn báo trước cho người dùng và, khi server trả hai phiếu/hai
+// đơn, đưa họ về danh sách thay vì chi tiết một phiếu (§7).
 //
-// TẦNG GIÁ đọc `tang`, KHÔNG suy từ `don_gia` (Ruling P23). `tang` đến từ
-// Blanket Order, `don_gia` đến từ Item Price — HAI NGUỒN KHÁC NHAU, chúng
-// bất đồng được trên dữ liệu thật: một mặt hàng ĐANG trong hợp đồng nhưng
-// chưa có dòng Item Price sẽ có `tang = "hop_dong"` và `don_gia = null`.
-// Suy tầng từ giá sẽ dán nhãn cam "Chờ báo giá" cho nó và bắn cả câu "cả
-// đơn sẽ chờ Miyano báo giá" cho một đơn không có lý do gì phải chờ. Dòng
-// hợp đồng thiếu giá hiện nhãn hợp đồng KHÔNG KÈM SỐ — không bao giờ rơi
-// xuống nhãn chờ báo giá.
+// Giỏ hiện đơn giá, thành tiền từng dòng có giá và TẠM TÍNH của phần có giá
+// (§7). Dòng chờ báo giá hiện `—`, không bao giờ `0 ₫`.
 //
 // `boi_so` được TIÊU THỤ ở đây, không chỉ nhận về: ô số lượng CHẶN số sai
 // bội số và nêu đúng bội số (cùng câu chữ `portal_dat_hang.kiem_boi_so()`
@@ -61,8 +59,8 @@
 //
 // RESUME-SỬA một phiếu Nháp đã lưu — route `/dat-hang/:ten?` (`ten` tuỳ
 // chọn). Tầng của dòng đã lưu đọc từ `Portal De Xuat Mua Item.nguon_gia`
-// (Select, hệ thống tự suy ở `validate()` qua `_suy_nguon_gia`) — KHÔNG
-// đoán từ `don_gia`, cùng lý do Ruling P23 ở trên.
+// (hệ thống tự suy ở `validate()` qua `_suy_nguon_gia`), rồi được làm mới
+// từ danh mục.
 //
 // TẠO LƯỜI (lazy): `de_xuat_tao_nhap()` chỉ gọi ở lần LƯU/GỬI ĐẦU TIÊN,
 // không gọi lúc vào màn — gọi lúc mount sẽ chèn một phiếu Nháp rác mỗi lần
@@ -72,6 +70,9 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
 import { fmtVND, addWorkDaysISO, todayISO } from '../format'
+import {
+  coGia, dongKhopMa, laTangBangGia, tangTuNguonGia, thanhTienDong, tomTatGio,
+} from '../gio-hang'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
@@ -195,26 +196,7 @@ function loiBoiSo(row, so) {
   return `Số lượng phải là bội số của ${b}. Gần nhất: ${Math.ceil(n / b) * b}.`
 }
 
-// --- Hạn mức (QĐ-G8 — CẢNH BÁO, không chặn) ------------------------------
-// `khong_gioi_han` là khoá PHÂN ĐỊNH riêng, không suy từ `remaining`: dòng
-// khai `qty = 0` (không giới hạn) và dòng tầng 2 (không thuộc hợp đồng nào)
-// đều có `remaining === null`, nhưng chỉ cái đầu mới là "không giới hạn".
-function nhanHanMuc(row) {
-  if (row.tang !== 'hop_dong') return ''
-  if (row.khong_gioi_han) return 'Không giới hạn'
-  if (row.remaining === null || row.remaining === undefined) return ''
-  if (row.remaining <= 0) return 'Hết hạn mức'
-  return `còn ${row.remaining}/${row.total}`
-}
-function canhBaoHanMuc(row, so) {
-  if (row.tang !== 'hop_dong' || row.khong_gioi_han) return ''
-  if (row.remaining === null || row.remaining === undefined) return ''
-  const n = Number(so)
-  if (!Number.isFinite(n) || n <= row.remaining) return ''
-  return `Vượt hạn mức HĐ — còn ${row.remaining}`
-}
-
-// --- Dòng hàng đã chọn (tầng 1 + tầng 2, có mã) ---------------------------
+// --- Dòng hàng đã chọn (có mã) --------------------------------------------
 const items = ref([])
 const qtys = reactive({}) // item_code → số lượng đang chọn ở danh sách
 
@@ -241,10 +223,10 @@ function themDong(row) {
   const daCo = items.value.find((r) => r.item_code === row.item_code)
   if (daCo) {
     daCo.so_luong_de_xuat = (Number(daCo.so_luong_de_xuat) || 0) + so
-    // Làm MỚI các trường chỉ-để-hiển-thị của dòng đã có (tầng, giá, hợp
-    // đồng, hạn mức, bội số) theo kết quả tìm vừa nhận — chúng đến từ cùng
-    // một endpoint và bản mới luôn đúng hơn bản cũ. Số lượng thì CỘNG, không
-    // ghi đè: khách vừa nói "thêm nữa".
+    // Làm MỚI các trường chỉ-để-hiển-thị của dòng đã có (tầng, giá, bội số)
+    // theo kết quả tìm vừa nhận — chúng đến từ cùng một endpoint và bản mới
+    // luôn đúng hơn bản cũ. Số lượng thì CỘNG, không ghi đè: khách vừa nói
+    // "thêm nữa".
     Object.assign(daCo, dongTuKetQua(row), {
       so_luong_de_xuat: daCo.so_luong_de_xuat,
     })
@@ -261,52 +243,34 @@ function dongTuKetQua(row) {
     dvt: row.dvt,
     tang: row.tang,
     don_gia: row.don_gia,
-    nguon_don_gia: row.nguon_don_gia,
-    blanket_order: row.blanket_order,
     boi_so: row.boi_so,
-    total: row.total,
-    used: row.used,
-    remaining: row.remaining,
-    khong_gioi_han: row.khong_gioi_han,
   }
 }
 function xoaDong(itemCode) {
   items.value = items.value.filter((r) => r.item_code !== itemCode)
 }
 
-// Ruling P23 — nhãn tầng đọc `tang`, KHÔNG suy từ `don_gia`. Dòng hợp đồng
-// CHƯA CÓ GIÁ hiện nhãn hợp đồng KHÔNG KÈM SỐ: `fmtVND(null)` trả "0 ₫"
-// (`format.js` ép `Number(v || 0)`), in ra thành "Giá HĐ · 0 ₫" đọc như giá
-// THẬT là 0 đồng — đúng ngược quy ước "`null` không phải `0`" của chính hợp
-// đồng `portal_catalog_gop`. Không có giá thì không đoán số.
-//
-// Mục 7 (09/10/2026), bước HIỆN GIÁ — hàng ngoài hợp đồng nhưng có giá trong
-// bảng giá của khách: server trả `nguon_don_gia === 'bang_gia'` kèm `don_gia`.
-// Đọc KHOÁ NGUỒN đó, không suy từ `don_gia` (cùng luật Ruling P23). `tang`
-// vẫn là `cho_bao_gia` — đường dựng đơn chưa đổi, xem `portal_catalog_gop`.
-function coGiaBangGia(row) {
-  return row.nguon_don_gia === 'bang_gia' && row.don_gia !== null && row.don_gia !== undefined
-}
+// Spec 2026-10-09 §3.2 — hai tầng, đọc từ `tang` do server trả. Màu và chữ
+// của nhãn theo TẦNG; con số chỉ kèm khi thật sự có giá (`coGia`): dòng tầng
+// bảng giá chưa biết giá hiện "Bảng giá" trần, không hiện "0 ₫" và không rơi
+// xuống nhãn cam "Chờ báo giá" (nó KHÔNG đi vòng báo giá).
 function nhanTang(row) {
-  if (coGiaBangGia(row)) return `Bảng giá ${fmtVND(row.don_gia)}`
-  if (row.tang !== 'hop_dong') return 'Chờ báo giá'
-  const co = row.don_gia !== null && row.don_gia !== undefined
-  const ma = row.blanket_order ? ` · ${row.blanket_order}` : ''
-  return co ? `Giá HĐ ${fmtVND(row.don_gia)}${ma}` : `Giá HĐ${ma}`
+  if (coGia(row)) return `Bảng giá ${fmtVND(row.don_gia)}`
+  return laTangBangGia(row) ? 'Bảng giá' : 'Chờ báo giá'
 }
 function classTang(row) {
-  if (coGiaBangGia(row)) return 'b-green'
-  return row.tang === 'hop_dong' ? 'b-blue' : 'b-orange'
+  return laTangBangGia(row) ? 'b-green' : 'b-orange'
 }
-// Đơn giá trong giỏ (QĐ-G9) — dòng chờ báo giá hiện `—`, KHÔNG hiện 0 ₫.
+// Đơn giá và thành tiền trong giỏ (§7) — không có con số thì `—`.
 function giaTrongGio(row) {
-  if (coGiaBangGia(row)) return fmtVND(row.don_gia)
-  if (row.tang !== 'hop_dong') return '—'
-  if (row.don_gia === null || row.don_gia === undefined) return '—'
-  return fmtVND(row.don_gia)
+  return coGia(row) ? fmtVND(row.don_gia) : '—'
+}
+function thanhTien(row) {
+  const t = thanhTienDong(row)
+  return t === null ? '—' : fmtVND(t)
 }
 
-// --- Dòng đặt ngoài (tầng 3, khách gõ tay, KHÔNG có mã) -------------------
+// --- Dòng đặt ngoài (khách gõ tay, KHÔNG có mã) ---------------------------
 // Cùng hình dạng `Sales Order Dat Ngoai Item` — bốn field gốc CỘNG chín
 // field CR-03 (thiết kế §3/§7): bốn ô mô tả (model/hãng/nước/quy cách), hai
 // ô thương mại (NCC/giá đang mua), và bộ ba ảnh (`anh`/`khong_co_anh`/
@@ -371,15 +335,16 @@ const datNgoaiHopLe = computed(() =>
   )
 )
 
-// Cảnh báo phải hiện TRƯỚC khi bấm, không phải sau. Cố ý dùng
-// `datNgoai.length` (MỌI dòng, kể cả đang gõ dở): một dòng vừa mở ra đã LÀ
-// tín hiệu "đơn này sắp có hàng chờ báo giá".
-const coHangChoBaoGia = computed(
-  () => items.value.some((r) => r.tang === 'cho_bao_gia') || datNgoai.value.length > 0
+// Tóm tắt giỏ cho thông báo trước khi gửi và dòng tạm tính (§7). Dòng gõ tay
+// chỉ đếm khi khách ĐÃ gõ gì đó (`dongDaDongTay`): dòng trống vừa bấm "+ Thêm
+// dòng" không được gửi đi, báo "sẽ tách" vì nó là báo một việc không xảy ra.
+// `maDeXuat` khác rỗng = phiếu đã từng gửi duyệt, server không tách lần nữa.
+const tomTat = computed(() =>
+  tomTatGio(items.value, datNgoai.value.filter(dongDaDongTay).length, !!maDeXuat.value)
 )
 const tongDongGio = computed(() => items.value.length + datNgoai.value.length)
 
-// --- Danh sách hàng hoá (một ô tìm, ba tầng) -----------------------------
+// --- Danh sách hàng hoá ---------------------------------------------------
 const search = ref('')
 // Tên thường gọi CỦA CHÍNH bệnh viện này (`Item.custom_ten_thuong_goi`) — ô
 // tìm thứ hai, khác `search` (mã / tên xuất hoá đơn).
@@ -503,9 +468,10 @@ function resetState() {
 
 // Đổ dữ liệu một phiếu Nháp đã lưu (`de_xuat_chi_tiet`) vào form.
 //
-// `nguon_gia` (Select trên `Portal De Xuat Mua Item`, hệ thống tự suy ở
-// `validate()`, ĐỌC-CHỈ) là nguồn của TẦNG — `"Hợp đồng"` → tầng 1, mọi giá
-// trị khác (kể cả rỗng) → tầng 2. KHÔNG đoán tầng từ `don_gia` (Ruling P23).
+// `nguon_gia` của dòng đã lưu cho biết TẦNG (`tangTuNguonGia`); `don_gia`
+// chỉ có trên dòng đã từng được đóng dấu lúc gửi duyệt (phiếu thu hồi về
+// Nháp) và khi đó là giá của NGÀY GỬI. `lamMoiGia()` ngay sau đó hỏi lại danh
+// mục để cả hai đúng theo bảng giá hôm nay.
 // `boi_so` đi kèm từng dòng (Task 10, `de_xuat_chi_tiet`) để ô số lượng ở
 // giỏ vẫn chặn được bội số cho một phiếu mở lại — dòng này không đi qua ô
 // tìm kiếm nên không có cách nào khác biết bội số.
@@ -522,15 +488,9 @@ function napTuPhieu(d) {
     item_name: it.item_name,
     dvt: it.dvt,
     so_luong_de_xuat: it.so_luong_de_xuat,
-    tang: it.nguon_gia === 'Hợp đồng' ? 'hop_dong' : 'cho_bao_gia',
-    don_gia: it.don_gia,
-    blanket_order: it.blanket_order || null,
+    tang: tangTuNguonGia(it.nguon_gia, it.don_gia),
+    don_gia: Number(it.don_gia) > 0 ? Number(it.don_gia) : null,
     boi_so: it.boi_so ?? null,
-    // Hạn mức KHÔNG được đóng băng trên dòng phiếu (nó đổi mỗi khi một khoa
-    // khác đặt hàng) — phiếu mở lại không mang theo con số nào để hiện, và
-    // BỊA một con số cũ còn tệ hơn không hiện gì. Dòng vào giỏ lại từ ô tìm
-    // kiếm sẽ có ngay hạn mức mới nhất (xem `themDong`).
-    total: null, used: null, remaining: null, khong_gioi_han: false,
   }))
   // CR-03 — MANG ĐỦ CHÍN FIELD MỚI khi nạp lại một phiếu Nháp đã lưu, không
   // chỉ bốn field gốc. `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên cả
@@ -567,6 +527,41 @@ function napTuPhieu(d) {
   // Mở thẳng ở bước GIỎ: người dùng quay lại một phiếu dở dang là để xem/sửa
   // những gì đã có trong đó, không phải để bắt đầu tìm hàng lại từ đầu.
   buoc.value = 'gio'
+  lamMoiGia()
+}
+
+// Tầng và giá HIỆN HÀNH cho các dòng vừa nạp từ một phiếu đã lưu (phiếu Nháp
+// mở lại, phiếu thu hồi, giỏ "đặt lại đơn cũ" — cả ba đều tới màn này qua
+// `de_xuat_chi_tiet`, nơi không có giá hôm nay). Hỏi ĐÚNG endpoint mà ô tìm
+// kiếm dùng nên giỏ và danh sách không thể nói hai giá cho cùng một mã.
+// Best-effort và không chặn màn: dòng hỏi không ra giữ nguyên tầng đã suy từ
+// `nguon_gia`, hiện "Bảng giá" không kèm số, và dòng tạm tính nói rõ là chưa
+// gồm nó. Từng mã một lời gọi (endpoint không nhận danh sách mã), mỗi lượt
+// vài lời gọi để một phiếu dài không dội cả loạt request cùng lúc.
+const dangLamMoiGia = ref(false)
+async function lamMoiGia() {
+  const phieu = tenPhieu.value
+  const ma = items.value.map((r) => r.item_code)
+  if (!ma.length) return
+  dangLamMoiGia.value = true
+  try {
+    for (let i = 0; i < ma.length; i += 4) {
+      await Promise.all(ma.slice(i, i + 4).map(async (itemCode) => {
+        try {
+          const res = await api.call('portal_catalog_gop', { tu_khoa: itemCode, start: 0, limit: 50 })
+          const moi = dongKhopMa(res.rows, itemCode)
+          // Màn đã chuyển sang phiếu khác trong lúc chờ → bỏ kết quả.
+          if (!moi || tenPhieu.value !== phieu) return
+          const dong = items.value.find((r) => r.item_code === itemCode)
+          if (dong) Object.assign(dong, dongTuKetQua(moi), { so_luong_de_xuat: dong.so_luong_de_xuat })
+        } catch (e) {
+          console.warn(`Không làm mới được giá của ${itemCode}:`, e)
+        }
+      }))
+    }
+  } finally {
+    dangLamMoiGia.value = false
+  }
 }
 
 // `de_xuat_gui_duyet` là OWNER-ONLY tường minh phía server (khác
@@ -875,8 +870,16 @@ async function guiDuyet() {
     const ten = await damBaoCoTen()
     await ghiPhieu(ten)
     const res = await api.callDeXuat('de_xuat_gui_duyet', { ten })
-    showToast(`Đã gửi duyệt — mã phiếu ${res.ma_de_xuat}.`)
-    router.push({ name: 'de-xuat-detail', params: { ten }, query: { tu: 'yeu-cau' } })
+    if (res.phieu_cung_lan_dat) {
+      // §4.1/§7 — server vừa tách giỏ trộn thành hai phiếu. Về DANH SÁCH (hai
+      // phiếu đứng cạnh nhau, cùng mã lần đặt), không phải chi tiết của một
+      // trong hai.
+      showToast('Đã tách thành 2 phiếu và gửi duyệt.', 'success')
+      router.push({ name: 'yeu-cau' })
+    } else {
+      showToast(`Đã gửi duyệt — mã phiếu ${res.ma_de_xuat}.`)
+      router.push({ name: 'de-xuat-detail', params: { ten }, query: { tu: 'yeu-cau' } })
+    }
   } catch (e) {
     showToast(e.message || 'Không gửi được phiếu.', 'error')
   } finally {
@@ -888,10 +891,8 @@ async function guiDuyet() {
 // phiếu đề xuất TỰ DUYỆT đứng sau (§5.5), nên KHÔNG tạo/lưu phiếu Nháp ở
 // đây: làm cả hai sẽ đẻ ra hai chứng từ cho một lần bấm.
 //
-// KHÔNG truyền `contract`: từ Task 4 hàm dựng đơn quyết định theo TỪNG DÒNG
-// (mỗi dòng tự tìm hợp đồng của nó trong các hợp đồng CỦA CHÍNH khách), nên
-// một giỏ trộn hợp đồng + chờ báo giá đi qua đúng một lời gọi. KHÔNG truyền
-// `mode` vì tham số đó đã hết tác dụng từ Task 4.
+// Chỉ gửi mã và số lượng: tầng và giá của từng dòng do server suy lại từ
+// Price List lúc dựng đơn (§4.2), giỏ trộn ra hai đơn (§4.1).
 async function datHang() {
   if (dangGui.value) return
   if (gioTrong()) {
@@ -925,14 +926,21 @@ async function datHang() {
       // "không quy về khoa nào" ở tầng giao thức.
       khoa_phong: khoaPhongChon.value || null,
     })
-    if (res.da_ton_tai) showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
-    donDaDat.value = res
     store.ketThucDatHang()
     items.value = []
     datNgoai.value = []
     dnMoRong.value = false
+    if ((res.don || []).length === 2) {
+      // §4.1/§7 — giỏ trộn ra HAI đơn. Màn xác nhận bên dưới chỉ biết nói về
+      // một mã đơn, nên về danh sách, nơi cả hai đứng cạnh nhau.
+      showToast('Đã tạo 2 đơn: 1 đơn đặt ngay, 1 đơn chờ báo giá.', 'success')
+      router.push({ name: 'yeu-cau' })
+      return
+    }
+    if (res.da_ton_tai) showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
+    donDaDat.value = res
   } catch (e) {
-    // Lỗi CÓ CẤU TRÚC theo từng dòng (`e.loi`, vd. hết hạn mức/sai bội số)
+    // Lỗi CÓ CẤU TRÚC theo từng dòng (`e.loi`, vd. sai bội số)
     // — nêu ĐỦ từng dòng, không nuốt còn một câu chung chung.
     if (e.loi && e.loi.length) {
       showToast(
@@ -1045,7 +1053,7 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th>Mã</th><th>Tên mặt hàng</th><th>Nhóm</th><th>ĐVT</th>
-                <th>Tình trạng</th><th>Tầng giá</th><th style="min-width: 130px">Hạn mức</th>
+                <th>Tình trạng</th><th>Giá</th>
                 <th style="width: 130px">Số lượng</th><th></th>
               </tr>
             </thead>
@@ -1066,25 +1074,11 @@ onMounted(async () => {
                   </span>
                 </td>
                 <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
-                <!-- Kiểu hạn mức đọc từ DỮ LIỆU (`khong_gioi_han`/
-                     `remaining`), KHÔNG so chuỗi với nhãn: một lần biên tập
-                     lại câu chữ trong `nhanHanMuc()` mà so chuỗi thì badge
-                     lặng lẽ rơi về kiểu chung, không ai thấy gì hỏng. -->
-                <td>
-                  <span v-if="!nhanHanMuc(r)" class="tag">—</span>
-                  <span v-else-if="r.khong_gioi_han" class="tag tag-kgh">{{ nhanHanMuc(r) }}</span>
-                  <span v-else-if="r.remaining <= 0" class="tag tag-het">{{ nhanHanMuc(r) }}</span>
-                  <span v-else class="tag">{{ nhanHanMuc(r) }} {{ r.dvt }}</span>
-                </td>
                 <td>
                   <div class="step">
                     <button @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))">−</button>
                     <input v-model="qtys[r.item_code]" inputmode="decimal" />
                     <button @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)">+</button>
-                  </div>
-                  <!-- QĐ-G8: vượt hạn mức là CẢNH BÁO, không phải khoá nút. -->
-                  <div v-if="canhBaoHanMuc(r, soHienTai(r))" class="warn">
-                    {{ canhBaoHanMuc(r, soHienTai(r)) }}
                   </div>
                   <div v-if="loiBoiSo(r, soHienTai(r))" class="warn">{{ loiBoiSo(r, soHienTai(r)) }}</div>
                   <div v-else-if="boiSo(r) > 1" class="muted sm">bội số {{ boiSo(r) }}</div>
@@ -1109,9 +1103,6 @@ onMounted(async () => {
               </span>
               <span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span>
             </div>
-            <div v-if="nhanHanMuc(r)" class="tag" style="margin-top: 6px">
-              Hạn mức: {{ nhanHanMuc(r) }}
-            </div>
             <div class="sb" style="margin-top: 10px">
               <div class="step">
                 <button @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))">−</button>
@@ -1119,9 +1110,6 @@ onMounted(async () => {
                 <button @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)">+</button>
               </div>
               <button class="btn btn-sm" @click="themDong(r)">+ Giỏ</button>
-            </div>
-            <div v-if="canhBaoHanMuc(r, soHienTai(r))" class="warn">
-              {{ canhBaoHanMuc(r, soHienTai(r)) }}
             </div>
             <div v-if="loiBoiSo(r, soHienTai(r))" class="warn">{{ loiBoiSo(r, soHienTai(r)) }}</div>
             <div v-else-if="boiSo(r) > 1" class="muted sm">Đặt theo bội số {{ boiSo(r) }} {{ r.dvt }}</div>
@@ -1139,7 +1127,7 @@ onMounted(async () => {
         <b>“+ Thêm dòng”</b> ở trên để Miyano tìm nguồn và báo giá.
       </div>
 
-      <!-- Hàng chưa có mã (tầng 3) — khách gõ tay, không bao giờ lẫn vào
+      <!-- Hàng chưa có mã — khách gõ tay, không bao giờ lẫn vào
            `items`. Ô nhập nằm ở BƯỚC CHỌN vì đây là chỗ khách "thêm hàng";
            giỏ chỉ liệt kê lại. -->
       <template v-if="dnMoRong || datNgoai.length">
@@ -1282,8 +1270,8 @@ onMounted(async () => {
 
     <!-- ==================== BƯỚC 2 — GIỎ HÀNG ==================== -->
     <template v-else>
-      <!-- Nhánh quản lý: xác nhận đơn vừa đặt. KHÔNG có con số tổng nào ở
-           đây (QĐ-G9) — Miyano báo giá đầy đủ ở bước sau. -->
+      <!-- Nhánh quản lý: xác nhận MỘT đơn vừa đặt. Giỏ trộn ra hai đơn thì
+           `datHang()` đã đưa về danh sách, không tới đây. -->
       <div v-if="donDaDat" class="card success">
         <div style="font-size: 52px">✅</div>
         <h2 style="margin: 10px 0 6px">Đã đặt hàng!</h2>
@@ -1308,8 +1296,8 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th>MÃ</th><th>TÊN VẬT TƯ</th><th>ĐVT</th>
-                <th style="width: 150px">SL</th><th>MÃ HĐ KHUNG</th>
-                <th class="right">ĐƠN GIÁ</th><th></th>
+                <th style="width: 150px">SL</th>
+                <th class="right">ĐƠN GIÁ</th><th class="right">THÀNH TIỀN</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -1331,18 +1319,16 @@ onMounted(async () => {
                     :aria-label="`Số lượng cho ${r.item_code}`"
                     style="width: 90px; text-align: right"
                   />
-                  <div v-if="canhBaoHanMuc(r, r.so_luong_de_xuat)" class="warn">
-                    {{ canhBaoHanMuc(r, r.so_luong_de_xuat) }}
-                  </div>
                   <div v-if="loiBoiSo(r, r.so_luong_de_xuat)" class="warn">
                     {{ loiBoiSo(r, r.so_luong_de_xuat) }}
                   </div>
                   <div v-else-if="boiSo(r) > 1" class="muted sm">bội số {{ boiSo(r) }}</div>
                 </td>
-                <td>{{ r.blanket_order || '—' }}</td>
-                <!-- QĐ-G9 — ĐƠN GIÁ TỪNG DÒNG, không có cột thành tiền và
-                     KHÔNG có dòng tổng ở cuối bảng. -->
+                <!-- §7 — đơn giá và thành tiền của dòng có giá; dòng chờ báo
+                     giá hiện "—". Tổng nằm ở khối nút bên dưới, CHỈ của phần
+                     có giá. -->
                 <td class="right">{{ giaTrongGio(r) }}</td>
+                <td class="right">{{ thanhTien(r) }}</td>
                 <td><button class="btn-o btn-sm btn-danger" @click="xoaDong(r.item_code)">Xoá</button></td>
               </tr>
               <tr v-for="(d, i) in datNgoai" :key="'dn' + i">
@@ -1353,7 +1339,7 @@ onMounted(async () => {
                 </td>
                 <td>{{ d.dvt || '—' }}</td>
                 <td>{{ d.so_luong || '—' }}</td>
-                <td>—</td>
+                <td class="right">—</td>
                 <td class="right">—</td>
                 <td><button class="btn-o btn-sm btn-danger" @click="xoaDongDatNgoai(i)">Xoá</button></td>
               </tr>
@@ -1437,9 +1423,29 @@ onMounted(async () => {
         </div>
 
         <div class="card mb10">
-          <div v-if="coHangChoBaoGia" class="note note-b" style="margin-bottom: 12px">
+          <!-- §7 — báo TRƯỚC khi gửi. Ba ca, ba câu khác nhau:
+               * giỏ trộn, lần gửi đầu → server tách hai phiếu;
+               * chỉ có hàng chờ báo giá, hoặc phiếu đã từng gửi (không tách
+                 nữa) mà còn hàng chờ báo giá → cả phiếu đi vòng báo giá;
+               * chỉ có hàng có giá → không cần nói gì. -->
+          <div v-if="tomTat.seTach" class="note note-b" style="margin-bottom: 12px">
+            Lần đặt này sẽ tách thành 2 phiếu: <b>{{ tomTat.soDatNgay }}</b> mặt hàng đặt ngay theo
+            bảng giá, <b>{{ tomTat.soChoBaoGia }}</b> mặt hàng chờ Miyano báo giá.
+          </div>
+          <div v-else-if="tomTat.soChoBaoGia" class="note note-b" style="margin-bottom: 12px">
             Đơn có hàng chờ báo giá — cả đơn sẽ chờ Miyano báo giá trước khi giao.
           </div>
+          <!-- Tạm tính CHỈ của phần có giá, theo bảng giá lúc này; đơn lấy giá
+               bảng giá tại thời điểm được tạo (§4.3). Dòng tầng bảng giá chưa
+               tải được giá thì nói rõ là chưa gồm — không để tổng lặng lẽ thiếu. -->
+          <p v-if="tomTat.soCoGia" class="right" style="margin-bottom: 12px">
+            <b>Tạm tính (hàng có giá): {{ fmtVND(tomTat.tongTamTinh) }}</b>
+            <span v-if="tomTat.soChuaRoGia" class="tag">
+              <br />
+              <template v-if="dangLamMoiGia">Đang tải giá của {{ tomTat.soChuaRoGia }} mặt hàng…</template>
+              <template v-else>Chưa gồm {{ tomTat.soChuaRoGia }} mặt hàng chưa tải được giá.</template>
+            </span>
+          </p>
           <div class="flex" style="flex-wrap: wrap; gap: 8px">
             <button class="btn-o" @click="buoc = 'chon'">‹ Chọn thêm hàng</button>
             <!-- Hide, don't disable — nút "Lưu nháp"/"Gửi duyệt" thuộc luồng

@@ -3,6 +3,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from miyano_portal.setup.seed_demo import seed_demo
 from miyano_portal.api import portal
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 
 class TestOrderPlace(FrappeTestCase):
@@ -10,7 +11,7 @@ class TestOrderPlace(FrappeTestCase):
         seed_demo()
         frappe.set_user("bvbm@demo.miyano")
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
 
     def test_place_creates_draft_sales_order(self):
         # Delivery date must stay relative to "today": ERPNext requires it on

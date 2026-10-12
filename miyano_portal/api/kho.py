@@ -375,7 +375,7 @@ def kho_vat_tu_list(tim=None, ca_tat=0, limit=None, start=0) -> list | dict:
 	`limit`). Phân trang vì vậy TUỲ CHỌN: `limit=None` (mặc định, mọi
 	caller cũ) giữ NGUYÊN hành vi — trả list đầy đủ. Chỉ khi `limit` được
 	truyền mới cắt trang, hình dạng trả về đổi sang `{"rows": [...],
-	"tong": N}` (khuôn `portal_catalog_ban_le`). `tim` là lọc PYTHON
+	"tong": N}` (khuôn `portal_catalog_gop`). `tim` là lọc PYTHON
 	(substring thô trên "mã tên"), không phải SQL LIKE — không thể cắt
 	NGAY TRONG SQL như `kho_phieu_list`: đây là danh mục có lọc bằng
 	Python, phải lọc/đếm `tong` TRƯỚC khi cắt trang, cùng khuôn
@@ -781,7 +781,7 @@ def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong
 	# khuôn mà `kho_lo_goi_y`/`kho_canh_bao_han` đã dùng cho `so_luong`/`so_ngay`.
 	#
 	# Brief 2026-08-15 (phân trang) — ĐỔI hình dạng trả về từ list sang
-	# `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
+	# `{"rows": [...], "tong": N}` (khuôn `portal_catalog_gop`), LUÔN
 	# LUÔN (không tuỳ chọn như ba endpoint kiêm-hai-vai kho_vat_tu_list/
 	# kho_ncc_list/kho_khoa_phong_list — endpoint này KHÔNG nuôi dropdown
 	# nào, chỉ nguồn cho đúng hai màn PhieuNhap/PhieuXuat). Đã cập nhật MỌI

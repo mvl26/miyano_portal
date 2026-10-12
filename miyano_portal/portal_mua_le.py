@@ -1059,9 +1059,9 @@ def can_chen_giu_cho(items, dat_ngoai) -> bool:
 
 def items_thuoc_hdnt_hieu_luc(customer: str) -> set:
     """BR-R7 / NL-10.7 — tập `item_code` đang thuộc HĐNT CÒN HIỆU LỰC của
-    khách. "Còn hiệu lực" dùng ĐÚNG điều kiện `portal_contracts()` đang dùng
-    (`blanket_order_type=Selling`, `to_date >= hôm nay`) — không tự dựng một
-    định nghĩa "hiệu lực" thứ hai lệch với màn Hợp đồng khách đang thấy.
+    khách. "Còn hiệu lực" dùng ĐÚNG điều kiện endpoint `portal_contracts()`
+    từng dùng (`blanket_order_type=Selling`, `to_date >= hôm nay`; endpoint
+    đó đã gỡ theo spec 2026-10-09 §7 cùng màn Hợp đồng của khách).
 
     CỐ Ý không lọc theo hạn mức còn lại: mặt hàng ĐÃ HẾT hạn mức trong HĐNT
     vẫn phải nằm trong tập này — đó chính xác là tình huống BR-R7 sinh ra để
@@ -1072,7 +1072,7 @@ def items_thuoc_hdnt_hieu_luc(customer: str) -> set:
     không lọc hai điều kiện này, nên một HĐNT còn NHÁP (docstatus=0, chưa
     ai submit — khách không thể đặt hàng theo nó qua `portal_order_place`,
     `bo.customer`/kiểm ở đó không đòi docstatus nhưng `portal_contracts()`
-    thực tế chỉ liệt kê hợp đồng đã ký thật ở Desk) hoặc HĐNT **đã huỷ**
+    khi ấy chỉ liệt kê hợp đồng đã ký thật ở Desk) hoặc HĐNT **đã huỷ**
     (docstatus=2) vẫn chặn được mua lẻ — khách rơi vào khe hở "không mua
     HĐNT được (đã huỷ/chưa ký) mà cũng không mua lẻ được". Fail-closed nên
     không phải một lỗ an ninh (không né được hạn mức), nhưng đúng ra khách
@@ -1164,34 +1164,6 @@ def resolve_ban_le_company(item_codes: list[str]):
     if mac_dinh in candidates:
         return mac_dinh
     return sorted(candidates)[0]
-
-
-def items_san_sang_giao(item_codes: list[str]) -> set:
-    """review I-3 — tập `item_code` CÓ ÍT NHẤT MỘT company với
-    `default_warehouse` cấu hình (`Item Default`).
-
-    Dùng cho `portal_catalog_ban_le` để báo tín hiệu "chưa sẵn sàng giao"
-    NGAY TẠI DANH MỤC, thay vì để khách điền hết giỏ, chọn địa chỉ, bấm
-    Xác nhận rồi mới nhận "Không xác định được công ty giao hàng, liên hệ
-    quản trị viên hệ thống" ở bước cuối phễu — một lỗi CẤU HÌNH (admin quên
-    khai Item Default khi bật bán lẻ + đặt giá cho mã mới) bị đẩy tới đúng
-    người không sửa được nó (khách hàng), ở đúng bước tệ nhất để nhận nó.
-
-    MỘT truy vấn duy nhất cho CẢ danh mục (không lặp `resolve_ban_le_company`
-    cho từng dòng — N+1). Không đồng nghĩa "đặt được": khi thật sự đặt,
-    `resolve_ban_le_company` còn đòi TOÀN GIỎ đồng thuận một company — kiểm
-    đó vẫn chạy lại ở `portal_order_place`, hàm này chỉ là tín hiệu SỚM.
-    """
-    if not item_codes:
-        return set()
-    return set(frappe.get_all(
-        "Item Default",
-        filters={
-            "parent": ["in", item_codes], "parenttype": "Item",
-            "default_warehouse": ["is", "set"],
-        },
-        pluck="parent",
-    ))
 
 
 def cap_nhat_yeu_cau_goc(so, trang_thai_moi: str) -> None:

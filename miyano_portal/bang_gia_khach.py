@@ -301,4 +301,38 @@ def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
 			"reference_doctype": "Sales Order", "reference_name": so.name,
 			"content": ghi_chu, "comment_email": nguoi_dong_y or frappe.session.user,
 		}).insert(ignore_permissions=True)
+		_ghi_nhat_ky_ghi_gia(so, ket_qua, tien_te)
 	return ket_qua
+
+
+def _ghi_nhat_ky_ghi_gia(so, ket_qua: list[dict], tien_te: str) -> None:
+	"""Một dòng `ghi_gia_bang_gia` trong sổ nhật ký thao tác của đơn, để bệnh
+	viện thấy trên dòng thời gian rằng giá vừa đồng ý đã thành giá bảng giá.
+
+	Không bao giờ ném: giá đã ghi và đã đọc lại đúng, một trục trặc ở sổ nhật
+	ký không được biến thành "ghi giá hỏng" (người gọi sẽ lùi savepoint và báo
+	nhân viên). `nhat_ky.ghi` tự nuốt lỗi của nó; `try` ở đây che phần dựng
+	ghi chú và mọi lỗi ngoài hàm đó.
+	"""
+	try:
+		from miyano_portal import nhat_ky, portal_context
+
+		khoa_phong = None
+		if portal_context._cot_khoa_phong_ton_tai():
+			khoa_phong = so.get("custom_khoa_phong")
+		nhat_ky.ghi(
+			nhat_ky.SK_GHI_GIA_BANG_GIA, customer=so.customer, khoa_phong=khoa_phong,
+			sales_order=so.name, vai=nhat_ky.VAI_HE_THONG,
+			ghi_chu="; ".join(
+				f"{d['item_code']}: {frappe.utils.fmt_money(d['gia_moi'], currency=tien_te)}"
+				for d in ket_qua
+			),
+		)
+	except Exception:
+		try:
+			frappe.log_error(
+				title=f"Nhật ký thao tác: không ghi được việc ghi giá của đơn {so.name}"[:140],
+				message=frappe.get_traceback(with_context=True),
+			)
+		except Exception:
+			pass

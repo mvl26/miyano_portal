@@ -167,21 +167,24 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
 
     def test_danh_muc_ban_le_khong_chua_item_giu_cho(self):
         """review C-1(a) — `ITEM_GIU_CHO` có `disabled=0`, `is_sales_item=1`
-        (bắt buộc để đơn toàn hàng chưa có mã lưu được, §3.4) nên nếu
-        `portal_catalog_ban_le` không loại nó tường minh, nó lọt vào danh
-        mục như một sản phẩm khách duyệt được — đã kiểm trên site thật,
-        `tim_kiem="đặt ngoài"` khớp ngay chính tên item giữ chỗ."""
-        res = portal.portal_catalog_ban_le(tim_kiem="đặt ngoài")
-        ma = [r["item_code"] for r in res["items"]]
+        (bắt buộc để đơn toàn hàng chưa có mã lưu được, §3.4) nên nếu danh
+        mục không loại nó tường minh, nó lọt vào như một sản phẩm khách duyệt
+        được — đã kiểm trên site thật, từ khoá "đặt ngoài" khớp ngay chính
+        tên item giữ chỗ.
+
+        Bài này từng hỏi `portal_catalog_ban_le`; endpoint đó đã gỡ (spec
+        2026-10-09 §7) và chốt sống tiếp ở danh mục gộp `portal_catalog_gop`
+        — danh mục DUY NHẤT khách còn nhìn thấy."""
+        res = portal.portal_catalog_gop(tu_khoa="đặt ngoài")
+        ma = [r["item_code"] for r in res["rows"]]
         self.assertNotIn(
             ITEM_GIU_CHO, ma,
             "item giữ chỗ là chi tiết kỹ thuật nội bộ, không phải sản phẩm",
         )
-        # Danh mục không lọc theo `tim_kiem` (không có gì khác khớp từ khoá
-        # này trong seed) — nếu khác 0 thì phải KHÔNG chứa ITEM_GIU_CHO ở tất
-        # cả các trang, không chỉ trang đầu.
-        res_toan_bo = portal.portal_catalog_ban_le(limit=1000)
-        self.assertNotIn(ITEM_GIU_CHO, [r["item_code"] for r in res_toan_bo["items"]])
+        # Tìm thẳng bằng CHÍNH mã giữ chỗ cũng không được ra nó — từ khoá
+        # khớp cả cột mã lẫn cột tên, nên đây là phép hỏi trực diện nhất.
+        res_toan_bo = portal.portal_catalog_gop(tu_khoa=ITEM_GIU_CHO, limit=1000)
+        self.assertNotIn(ITEM_GIU_CHO, [r["item_code"] for r in res_toan_bo["rows"]])
 
     def test_payload_gui_thang_item_giu_cho_bi_tu_choi(self):
         """review C-1(b) — đường ghi phải tự chốt lại, không tin danh mục đã

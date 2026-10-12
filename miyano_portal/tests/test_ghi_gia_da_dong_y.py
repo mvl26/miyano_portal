@@ -369,6 +369,66 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 		self.assertIn("7.000", noi_dung.replace(",", "."))
 		self.assertIn(self.quan_ly, noi_dung)  # ai đồng ý
 
+	# --- Ruling R10: sự kiện nhật ký "ghi giá vào bảng giá" ------------------
+
+	def _nhat_ky_ghi_gia(self, so):
+		from miyano_portal import nhat_ky
+		return frappe.get_all(
+			nhat_ky.DOCTYPE,
+			filters={"sales_order": so.name, "su_kien": nhat_ky.SK_GHI_GIA_BANG_GIA},
+			fields=["customer", "khoa_phong", "de_xuat", "vai", "nguoi_thao_tac", "ghi_chu"],
+		)
+
+	def test_ghi_gia_de_lai_mot_dong_nhat_ky(self):
+		from miyano_portal import nhat_ky
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		khoa = frappe.db.get_value("Sales Order", so.name, "custom_khoa_phong")
+		self._khach(so, "dong_y")
+		dong = self._nhat_ky_ghi_gia(so)
+		self.assertEqual(len(dong), 1, "đúng MỘT dòng cho một lần ghi giá")
+		self.assertEqual(dong[0].customer, self.kh_a)
+		self.assertEqual(dong[0].khoa_phong, khoa)
+		self.assertEqual(dong[0].vai, nhat_ky.VAI_HE_THONG)
+		self.assertFalse(dong[0].nguoi_thao_tac, "hệ thống ghi, không gán cho người bấm")
+		self.assertIn(self.item_boi_so, dong[0].ghi_chu)
+		self.assertIn("7.000", dong[0].ghi_chu.replace(",", "."))
+
+	def test_khong_ghi_gia_nao_thi_khong_co_dong_nhat_ky(self):
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		self._khach(so, "khong_dong_y", ly_do="Giá cao hơn dự kiến của khoa")
+		self.assertEqual(self._nhat_ky_ghi_gia(so), [])
+		# Đơn không có dòng "Báo giá" nào có giá: gọi thẳng cũng không ghi.
+		self._tao_gia(self.item_ngoai, self.price_list, 54000)
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 1}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so2 = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(bg.ghi_gia_da_dong_y(so2), [])
+		self.assertEqual(self._nhat_ky_ghi_gia(so2), [])
+
+	def test_nhat_ky_hong_khong_lam_hong_viec_ghi_gia(self):
+		from miyano_portal import nhat_ky
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		truoc = frappe.db.count("Error Log", {"reference_name": so.name})
+		ghi_that = nhat_ky.ghi
+
+		# Chỉ làm hỏng ĐÚNG sự kiện này: `portal_order_accept` còn ghi
+		# `khach_dong_y` qua cùng hàm.
+		def _hong(su_kien, **kw):
+			if su_kien == nhat_ky.SK_GHI_GIA_BANG_GIA:
+				raise RuntimeError("so nhat ky hong")
+			return ghi_that(su_kien, **kw)
+
+		with patch.object(nhat_ky, "ghi", side_effect=_hong):
+			self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
+		self.assertEqual(self._nhat_ky_ghi_gia(so), [])
+		self.assertEqual(
+			frappe.db.count("Error Log", {"reference_name": so.name}), truoc,
+			"sổ nhật ký hỏng không được bị báo thành lỗi ghi giá",
+		)
+
 	def test_loi_ghi_gia_khong_lam_hong_viec_dong_y(self):
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		with patch.object(bg, "ghi_gia_da_dong_y", side_effect=RuntimeError("hong")):
