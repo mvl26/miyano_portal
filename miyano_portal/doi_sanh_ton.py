@@ -249,18 +249,23 @@ def _don_nhap_khac(item_code: str, warehouse: str, tru_don: str):
 	return {"sl": flt(sl, DO_CHINH_XAC), "so_don": cint(so_don)}
 
 
-def _mr_theo_dong(so_details: list) -> dict:
+def _mr_theo_dong(so_details: list, khoa: bool = False) -> dict:
 	"""Phần Material Request CHƯA NHẬN VỀ KHO, gom theo dòng đơn.
 
 	`stock_qty − received_qty`, không phải `stock_qty`: hàng đã nhận thì đã
 	nằm trong tồn hiện tại, đếm cả số MR gốc là đếm hai lần. Tính cả MR nháp
 	lẫn MR đã Submit; bỏ MR đã huỷ và MR Stopped.
+
+	`khoa=True` biến truy vấn thành ĐỌC CÓ KHOÁ (`for update`) — chỉ đường
+	tạo MR dùng. CSDL chạy REPEATABLE READ: một SELECT thường đọc theo ảnh
+	chụp mở từ đầu yêu cầu, nên không thấy MR nháp mà người khác vừa commit
+	trong lúc mình chờ khoá dòng đơn. Đọc có khoá thì thấy.
 	"""
 	so_details = [n for n in so_details if n]
 	if not so_details:
 		return {}
 	rows = frappe.db.sql(
-		"""
+		f"""
 		select mri.sales_order_item, mri.parent,
 			greatest(mri.stock_qty - mri.received_qty, 0) as con
 		from `tabMaterial Request Item` mri
@@ -270,6 +275,7 @@ def _mr_theo_dong(so_details: list) -> dict:
 			and mr.docstatus in (0, 1)
 			and mr.status not in ('Stopped', 'Cancelled')
 		order by mr.creation
+		{"for update" if khoa else ""}
 		""",
 		{"ds": tuple(so_details)},
 		as_dict=True,
@@ -298,11 +304,12 @@ def _dong_trong(**kw) -> dict:
 	return d
 
 
-def bang_cho_don(so) -> dict:
+def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 	"""Bảng đối sánh tồn kho cho một Sales Order (spec §5).
 
 	`so` là document Sales Order (đã lưu hay đang dựng trong bộ nhớ đều được).
-	Chỉ ĐỌC; không ghi gì vào đơn hay vào CSDL.
+	Chỉ ĐỌC; không ghi gì vào đơn hay vào CSDL. `khoa_mr=True` chỉ dành cho
+	đường tạo MR (xem `_mr_theo_dong`).
 	"""
 	dong_don = list(so.get("items") or [])
 	ma_hang = sorted({r.item_code for r in dong_don if r.item_code})
@@ -324,7 +331,7 @@ def bang_cho_don(so) -> dict:
 				pluck="name",
 			)
 		)
-	mr = _mr_theo_dong([r.name for r in dong_don])
+	mr = _mr_theo_dong([r.name for r in dong_don], khoa=khoa_mr)
 
 	nguon = {}
 	bang = []
@@ -457,25 +464,47 @@ def tao_mr_phan_thieu(order: str) -> dict:
 		raise frappe.PermissionError(
 			"Bạn không có quyền tạo yêu cầu mua hàng (Material Request)."
 		)
-	if cint(so.docstatus) != 1:
+	# Khoá dòng đơn rồi MỚI đọc trạng thái và tính lại: hai người bấm sát
+	# nhau xếp hàng ở đây. Mọi thứ quyết định "có tạo không, tạo bao nhiêu"
+	# đều đọc SAU khoá và bằng đọc có khoá — `so` nạp ở trên là bản trước
+	# khoá, đơn có thể đã bị đóng hay huỷ trong lúc chờ.
+	trang_thai = frappe.db.get_value(
+		"Sales Order", so.name, ["docstatus", "status"], as_dict=True, for_update=True
+	)
+	if cint(trang_thai.docstatus) != 1:
 		frappe.throw(
 			"Chỉ tạo được yêu cầu mua hàng cho đơn đã xác nhận.",
 			frappe.ValidationError,
 		)
-	if so.status in ("On Hold", "Closed"):
+	if trang_thai.status in ("On Hold", "Closed"):
 		frappe.throw(
 			"Đơn đang tạm giữ hoặc đã đóng — không tạo yêu cầu mua hàng.",
 			frappe.ValidationError,
 		)
 
-	# Khoá dòng đơn rồi MỚI tính lại: hai lần bấm sát nhau xếp hàng ở đây, lần
-	# sau thấy MR nháp của lần trước và dừng. Số thiếu tính lại tại máy chủ,
-	# không nhận từ trình duyệt — tồn có thể đã đổi từ lúc bảng hiện.
-	frappe.db.get_value("Sales Order", so.name, "name", for_update=True)
-	thieu = [d for d in bang_cho_don(so)["dong"] if flt(d["can_mua"]) > 0]
+	# Số thiếu tính lại tại máy chủ, không nhận từ trình duyệt — tồn có thể
+	# đã đổi từ lúc bảng hiện.
+	thieu = [
+		d for d in bang_cho_don(so, khoa_mr=True)["dong"] if flt(d["can_mua"]) > 0
+	]
 	if not thieu:
 		frappe.throw(
 			"Đơn không còn phần thiếu nào cần mua thêm.", frappe.ValidationError
+		)
+
+	# Mỗi dòng đơn thiếu là MỘT dòng MR (để phần phủ tính được theo từng dòng
+	# đơn), nên hai dòng đơn cùng mặt hàng sinh hai dòng MR cùng mặt hàng.
+	# ERPNext chỉ nhận thế khi Buying Settings cho phép; báo trước bằng tiếng
+	# Việt thay vì để nó ném "Same item cannot be entered multiple times".
+	ma = [d["item_code"] for d in thieu]
+	if len(set(ma)) < len(ma) and not cint(
+		frappe.db.get_single_value("Buying Settings", "allow_multiple_items")
+	):
+		frappe.throw(
+			"Đơn có nhiều dòng thiếu của cùng một mặt hàng. Bật «Allow Item To Be "
+			"Added Multiple Times in a Transaction» trong Buying Settings rồi "
+			"tạo lại yêu cầu mua hàng.",
+			frappe.ValidationError,
 		)
 
 	hom_nay = getdate(today())

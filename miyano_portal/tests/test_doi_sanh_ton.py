@@ -703,3 +703,108 @@ class TestGiaoDienDesk(FrappeTestCase):
 			self.assertNotIn(
 				"doi_sanh_ton", f.read_text(encoding="utf-8"), str(f)
 			)
+
+
+class TestTaoMrDongThoi(_CoSo):
+	"""Hai người cùng mở một đơn thiếu và cùng bấm "Tạo MR".
+
+	CSDL chạy REPEATABLE READ: yêu cầu thứ hai đã mở ảnh chụp dữ liệu TRƯỚC
+	khi xếp hàng ở khoá dòng đơn, nên một SELECT thường sau khoá vẫn không
+	thấy MR nháp yêu cầu thứ nhất vừa tạo. Chỉ ĐỌC CÓ KHOÁ mới thấy dữ liệu
+	đã commit mới nhất. Không dựng được hai giao dịch thật trong một test,
+	nên canh đúng hai điều làm nên cái khoá.
+	"""
+
+	def test_duong_tao_mr_doc_do_phu_bang_truy_van_CO_KHOA(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		cau = []
+		goc = frappe.db.sql
+
+		def ghi(query, *a, **kw):
+			cau.append(" ".join(str(query).lower().split()))
+			return goc(query, *a, **kw)
+
+		with unittest.mock.patch.object(frappe.db, "sql", side_effect=ghi):
+			dst.tao_mr_phan_thieu(so.name)
+		doc_mr = [c for c in cau if "from `tabmaterial request item` mri" in c]
+		self.assertTrue(doc_mr)
+		self.assertTrue(all(c.endswith("for update") for c in doc_mr), doc_mr)
+
+	def test_duong_xem_bang_KHONG_khoa(self):
+		"""Mở form chỉ để xem thì không được giữ khoá dòng nào."""
+		item = self._item()
+		so = self._don([(item, 3)])
+		dst.tao_mr_phan_thieu(so.name)
+		cau = []
+		goc = frappe.db.sql
+
+		def ghi(query, *a, **kw):
+			cau.append(" ".join(str(query).lower().split()))
+			return goc(query, *a, **kw)
+
+		with unittest.mock.patch.object(frappe.db, "sql", side_effect=ghi):
+			dst.doi_sanh_ton(so.name)
+		self.assertFalse([c for c in cau if c.endswith("for update")])
+
+	def test_trang_thai_don_duoc_doc_lai_SAU_khoa(self):
+		"""Đơn bị đóng trong lúc chờ khoá thì không sinh MR: trạng thái phải
+		đọc lại từ CSDL, không lấy từ bản đã nạp trước khi khoá."""
+		item = self._item()
+		so = self._don([(item, 3)])
+		goc = frappe.get_doc
+
+		def nap_ban_cu(*a, **kw):
+			doc = goc(*a, **kw)
+			if doc.doctype == "Sales Order":
+				# Sau khi bản này được nạp, người khác đóng đơn.
+				frappe.db.set_value(
+					"Sales Order", doc.name, "status", "Closed",
+					update_modified=False,
+				)
+			return doc
+
+		with unittest.mock.patch.object(frappe, "get_doc", side_effect=nap_ban_cu):
+			with self.assertRaises(frappe.ValidationError) as ca:
+				dst.tao_mr_phan_thieu(so.name)
+		# Phải là chốt CỦA MÌNH chặn, không phải may nhờ một kiểm tra nào đó
+		# của ERPNext chạy muộn hơn trong `mr.insert()`.
+		self.assertIn("đã đóng", str(ca.exception))
+		self.assertFalse(
+			frappe.db.exists("Material Request Item", {"sales_order": so.name})
+		)
+
+
+class TestTaoMrHaiDongCungMatHang(_CoSo):
+	def setUp(self):
+		super().setUp()
+		cu = frappe.db.get_single_value("Buying Settings", "allow_multiple_items")
+		self.addCleanup(
+			frappe.db.set_single_value, "Buying Settings", "allow_multiple_items", cu
+		)
+
+	def test_cho_phep_trung_mat_hang_thi_moi_dong_don_mot_dong_mr(self):
+		frappe.db.set_single_value("Buying Settings", "allow_multiple_items", 1)
+		item = self._item()
+		so = self._don([(item, 2), (item, 3)])
+		kq = dst.tao_mr_phan_thieu(so.name)
+		mr = frappe.get_doc("Material Request", kq["name"])
+		self.assertEqual([r.qty for r in mr.items], [2, 3])
+		self.assertEqual(
+			[r.sales_order_item for r in mr.items], [r.name for r in so.items]
+		)
+
+	def test_khong_cho_phep_thi_bao_ro_bang_tieng_Viet_va_khong_tao_gi(self):
+		"""Không báo trước thì người dùng nhận câu lỗi tiếng Anh của ERPNext
+		("Same item cannot be entered multiple times") và không biết sửa ở
+		đâu."""
+		frappe.db.set_single_value("Buying Settings", "allow_multiple_items", 0)
+		item = self._item()
+		so = self._don([(item, 2), (item, 3)])
+		with self.assertRaises(frappe.ValidationError) as ca:
+			dst.tao_mr_phan_thieu(so.name)
+		self.assertIn("Buying Settings", str(ca.exception))
+		self.assertIn("cùng một mặt hàng", str(ca.exception))
+		self.assertFalse(
+			frappe.db.exists("Material Request Item", {"sales_order": so.name})
+		)
