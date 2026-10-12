@@ -2,6 +2,11 @@
 
 App `miyano_portal` · Cập nhật **03/09/2026** · Áp dụng từ bản nền (bước 1–4)
 
+> **Cập nhật 12/10/2026:** cách hiện giá và đặt hàng đã đổi — giá lấy từ Bảng giá
+> của khách, cổng không còn kiểm soát theo hợp đồng/hạn mức, giỏ có hàng chờ báo
+> giá được tách thành hai phiếu. Các đoạn nói khác đi trong tài liệu này đã cũ;
+> xem `HDSD-gia-theo-bang-gia-va-thoi-gian-giao-hang.md`.
+
 **Tài liệu này dành cho nhân viên Miyano** làm việc trên Desk (`/app`). Vòng
 "khoa yêu cầu → quản lý duyệt → đơn sang Miyano" nay **chạy trọn vẹn trên cổng
 khách**: nhân viên khoa tự lập yêu cầu ở màn **Đặt hàng**, quản lý duyệt **ngay

@@ -2,6 +2,11 @@
 
 App `miyano_portal` · Cập nhật **26/08/2026**
 
+> **Cập nhật 12/10/2026:** cách hiện giá và đặt hàng đã đổi — giá lấy từ Bảng giá
+> của khách, cổng không còn kiểm soát theo hợp đồng/hạn mức, giỏ có hàng chờ báo
+> giá được tách thành hai phiếu. Các đoạn nói khác đi trong tài liệu này đã cũ;
+> xem `HDSD-gia-theo-bang-gia-va-thoi-gian-giao-hang.md`.
+
 Tài liệu này mô tả **toàn bộ luồng nghiệp vụ và thao tác trên màn hình** cho hai
 vai:
 
@@ -178,6 +183,9 @@ giai đoạn *Nháp*.
 > ra và trả về đúng đơn đã tạo.
 
 ### ⚠️ Đơn có hàng chờ báo giá thì CẢ ĐƠN chờ
+
+> **Đã thay đổi từ 12/10/2026:** giỏ trộn nay tách thành hai phiếu, phần có giá
+> không phải chờ. Xem `HDSD-gia-theo-bang-gia-va-thoi-gian-giao-hang.md` mục A2.
 
 Đây là điều hay được hỏi nhất, nên nói thẳng.
 

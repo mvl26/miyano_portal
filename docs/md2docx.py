@@ -17,10 +17,11 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 
 DAM = re.compile(r"\*\*(.+?)\*\*")
 MA = re.compile(r"`([^`]+)`")
+ANH = re.compile(r"^!\[(.*?)\]\((.+?)\)\s*$")
 
 
 def _viet_doan(p, text, dam=False, nghieng=False):
@@ -93,6 +94,19 @@ def chuyen(md_path: Path) -> Path:
             i += 1
             continue
 
+        m = ANH.match(d.strip())
+        if m:  # ảnh chụp màn hình, đứng riêng một dòng: ![chú thích](đường-dẫn)
+            # Đường dẫn tính từ thư mục chứa file .md — đúng cách Markdown
+            # hiểu — để chạy script từ đâu cũng ra cùng một bản Word.
+            doc.add_picture(str(md_path.parent / m.group(2)), width=Inches(6.0))
+            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if m.group(1):
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                _viet_doan(p, m.group(1), nghieng=True)
+            i += 1
+            continue
+
         if d.startswith("|"):  # bảng
             khoi = []
             while i < len(dong) and dong[i].startswith("|"):
@@ -123,7 +137,7 @@ def chuyen(md_path: Path) -> Path:
             khoi = [re.sub(r"^\s*(\d+\.|-) ", "", d).strip()]
             j = i + 1
             while j < len(dong) and dong[j].strip() and not re.match(
-                r"^(#|\||```|> |\s*-\s|\s*\d+\. |---$)", dong[j]
+                r"^(#|\||```|!\[|> |\s*-\s|\s*\d+\. |---$)", dong[j]
             ):
                 khoi.append(dong[j].strip())
                 j += 1
@@ -139,7 +153,7 @@ def chuyen(md_path: Path) -> Path:
             khoi = [d.strip()]
             j = i + 1
             while j < len(dong) and dong[j].strip() and not re.match(
-                r"^(#|\||```|> |- |\d+\. |---$)", dong[j]
+                r"^(#|\||```|!\[|> |- |\d+\. |---$)", dong[j]
             ):
                 khoi.append(dong[j].strip())
                 j += 1
