@@ -388,7 +388,7 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 	"""Lõi của `kho_canh_bao_ton()` (US-E5.2) — MỌI vật tư ĐANG DÙNG
 	(`active=1`) của một kho, đã áp BR-P3 (loại vật tư chưa khai min/ROP VÀ
 	chưa đủ dữ liệu — không cảnh báo trên dữ liệu không đáng tin) và gắn kèm
-	dữ liệu US-E5.3 (`sl_goi_y`, `item_code`) để màn giao diện dựng giỏ bổ
+	dữ liệu US-E5.3 (`sl_goi_y`, `item_code`) để client dựng được giỏ bổ
 	sung mà không phải gọi thêm API. Cờ `dat_duoc_hdnt` ("mã này thuộc hợp
 	đồng còn hiệu lực") đã bỏ theo spec 2026-10-09: cổng không còn phân
 	biệt hàng trong/ngoài hợp đồng — vật tư có `item_code` thì đặt được qua

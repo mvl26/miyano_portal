@@ -1607,9 +1607,10 @@ def kho_bao_cao_excel(
 def kho_canh_bao_ton(trang_thai=None, trang=1) -> dict:
     """US-E5.2 — dữ liệu màn dự trù: tồn/ADU30/ADU90/ngày phủ/min/ROP/max/
     trạng thái cho mọi vật tư đang dùng của kho, cộng ba thẻ đếm và dữ liệu
-    US-E5.3 (`sl_goi_y`/`item_code`) để màn giao diện quyết định hiện nút
-    "Thêm vào giỏ bổ sung" (vật tư có `item_code`) hay "Nhờ Miyano tìm nguồn"
-    (không có). Phân trang phía server
+    US-E5.3 (`sl_goi_y`/`item_code`): client suy được từ `item_code` việc
+    vật tư đặt được qua danh mục (có mã) hay phải nhờ Miyano tìm nguồn
+    (không có). Chưa màn nào của `frontend/src` gọi endpoint này. Phân trang
+    phía server
     (DoD) — `trang_thai` lọc theo một trong "thieu"/"sap_thieu"/
     "chua_thiet_lap" khi người dùng bấm một trong ba thẻ đếm."""
     kho = get_portal_kho()
