@@ -182,15 +182,18 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     tiền, không lên hoá đơn. Việc duy nhất đã xảy ra là gắn một cái mã vào
     một dòng ghi chú.
 
-    **QĐ-G14 — giá lấy từ HÀM DÙNG CHUNG, không phải phép tra thứ bảy.**
-    Hợp đồng thắng cuộc suy bằng `nguon_gia_theo_ma_cho_khach()` (Ruling
-    P14/P18) và đơn giá bằng `gia_hdnt.gia_dong_hop_dong()` (QĐ-G12/P30/P31)
-    — ĐÚNG hai hàm mà `dat_hang._xay_don` dùng. Sáu nơi đã được gộp về một
-    hàm chính vì các phép tra độc lập trôi lệch, và hai trong số đó đã lệch
-    tới mức báo cho khách một giá rồi xuất hoá đơn một giá khác. Mã không
-    thuộc hợp đồng còn hiệu lực nào → `rate = 0`, chờ Miyano báo giá như mọi
-    dòng tầng 2 (KHÔNG ném lỗi thiếu giá: đây là thao tác của nhân viên
-    Miyano trên đơn nháp, chặn lưu ở đây là chặn đúng người đang xử lý).
+    **Giá lấy từ Price List của khách (spec 2026-10-09 §4.4, thay QĐ-G14).**
+    Đơn giá hỏi `bang_gia_khach.gia_bang_gia()` — ĐÚNG nguồn mà
+    `dat_hang._xay_don` dùng, nên cùng một mã ra cùng một giá dù khách đặt
+    qua giỏ hay nhân viên khớp từ dòng gõ tay. Mã có giá → dòng "Bảng giá"
+    mang giá đó; chưa có giá → `rate = 0`, dấu "Báo giá", chờ Miyano báo giá
+    (KHÔNG ném lỗi thiếu giá: đây là thao tác của nhân viên Miyano trên đơn
+    nháp, chặn lưu ở đây là chặn đúng người đang xử lý). Không còn tra hợp
+    đồng khung, không gắn `blanket_order`.
+
+    QĐ-G2b — phép chuyển KHÔNG suy lại `custom_loai_don`: kể cả khi sau khi
+    khớp mọi dòng đều là "Bảng giá", đơn đã vào vòng báo giá thì đi hết vòng
+    đó (các chốt đọc dấu, không suy lại từ dòng).
 
     **Ở hook `before_validate` của Sales Order, KHÔNG ở `validate`** —
     khác một chữ so với bẫy 4 của kế hoạch, và đây là lý do (đã dựng lại
@@ -274,8 +277,6 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     _hoan_tac_dong_bi_xoa(doc, cu, {d.get("name") for d in dong_go_tay}, gop)
 
     da_chuyen_lan_nay = False
-    thang_cuoc = None
-    price_list = None
     for dong in dong_go_tay:
         xua = cu.get(dong.get("name"))
         if xua and xua.get("da_chuyen"):
@@ -323,18 +324,7 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
             # `validate` (chạy sau hàm này) — không dựng một dòng hàng số
             # lượng âm/0 rồi mới để đơn hỏng ở nơi khác.
             continue
-        if thang_cuoc is None:
-            from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
-                nguon_gia_theo_ma_cho_khach,
-            )
-            # Tra MỘT LẦN cho cả đơn, không mỗi dòng một lần.
-            thang_cuoc = nguon_gia_theo_ma_cho_khach(doc.customer)
-            price_list = frappe.db.get_value(
-                "Customer", doc.customer, "default_price_list"
-            )
-        hang = _gop_hoac_them_dong_hang(
-            doc, dong.item_khop, flt(dong.so_luong), thang_cuoc, price_list
-        )
+        hang = _gop_hoac_them_dong_hang(doc, dong.item_khop, flt(dong.so_luong))
         dong.da_chuyen = 1
         dong.dong_hang = hang.name
         dong.so_luong_da_gop = flt(dong.so_luong)
@@ -712,62 +702,45 @@ def _kiem_dong_da_chuyen_khong_doi(dong, xua) -> None:
     )
 
 
-def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
-                             price_list):
+def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
     """Trả về dòng `Sales Order Item` mang mặt hàng này — GỘP vào dòng sẵn
     có nếu đã có, ngược lại thêm mới. Bẫy 2: không bao giờ để hai dòng cùng
     `item_code` đứng trên một Sales Order.
 
-    Dòng GỘP giữ nguyên `rate`/`blanket_order` ĐÃ CÓ — dòng đó đã được định
-    giá theo đúng luật ở đường dựng đơn, chuyện xảy ra ở đây chỉ là khách
-    cần thêm số lượng, và giá đã chốt là giá Miyano đàm phán/đã báo cho
-    khách, không ai được đè lên.
+    Giá theo Price List của khách (spec 2026-10-09 §4.4): mã có giá → dòng
+    "Bảng giá" mang giá đó, `rate = price_list_rate`; chưa có giá → dòng
+    "Báo giá", cả hai bằng 0. Không tra hợp đồng, không gắn `blanket_order`.
 
-    Nhưng dòng sẵn có CHƯA có giá / CHƯA gắn hợp đồng thì phép gộp phải DÁN
-    vào (Critical-2, review 22/08 — dựng lại được trên bench). Vòng lặp
-    nghiệp vụ chủ đầu tư mô tả 21/08 tới thẳng ca này mà không ai phải sửa
-    tay: khoa đặt một mặt hàng lúc nó còn NGOÀI hợp đồng (dòng tầng 2,
-    `rate = 0`), Miyano bổ sung chính mặt hàng đó vào hợp đồng khung và ký,
-    rồi khớp một dòng gõ tay về đúng mã đó. Bản trước `return` ngay và VỨT
-    con số 88.000 vừa tính cùng cả `blanket_order`, nên TOÀN BỘ số lượng
-    (cũ lẫn mới) submit được với `grand_total = 0` và không trừ hạn mức nào
-    — đúng nửa còn lại của con bug QĐ-G13 dẹp, đi vào bằng đường gộp.
+    LUẬT GỘP vào dòng sẵn có — chỉ ĐIỀN VÀO CHỖ TRỐNG, không đè:
 
-    Vì thế giá/hợp đồng phải tính TRƯỚC vòng gộp, không phải sau nó.
+      * dòng sẵn có đã có `rate > 0` → giữ nguyên `rate` VÀ dấu. Dòng "Báo
+        giá" mang giá nhân viên vừa gõ là giá đang đàm phán với khách; đè
+        giá bảng giá lên giữa vòng báo giá là đổi con số khách sắp được hỏi
+        ý kiến. Dòng "Bảng giá" thì đã mang giá của bảng lúc lập đơn;
+      * dòng sẵn có `rate = 0` mà mã NAY đã có giá → dán giá bảng giá và
+        dấu "Bảng giá" (Critical-2, review 22/08: không để cả cụm số lượng
+        đi tiếp với 0 đồng khi giá đã có). Ca thật: khoa đặt lúc mã chưa có
+        giá, một đơn khác được khách đồng ý ghi giá vào bảng, rồi Miyano
+        khớp một dòng gõ tay về đúng mã đó;
+      * dòng sẵn có CHƯA có dấu (đơn lập trước spec này, hoặc dòng nhân viên
+        thêm tay trên Desk) → nhận dấu theo tình trạng giá hiện tại của mã,
+        `rate` theo hai luật trên.
+
+    Vì thế giá phải tính TRƯỚC vòng gộp, không phải sau nó.
     """
     # Import tại chỗ: `dat_hang` import ngược lại module này ở tầng module
     # (ITEM_GIU_CHO, can_chen_giu_cho, resolve_ban_le_company...), nên import
     # ở đầu file sẽ thành vòng.
     from frappe.model.naming import set_new_name
 
-    from miyano_portal import gia_hdnt
+    from miyano_portal import bang_gia_khach
     from miyano_portal.dat_hang import _resolve_item_warehouse
-    from miyano_portal.portal_context import han_muc_con
 
-    bo_dong = thang_cuoc.get(item_code)
-    # QĐ-G14 — CHỈ dòng thuộc một hợp đồng còn hiệu lực mới được hỏi giá.
-    # Dòng tầng 2 nhận thẳng `rate = 0` và KHÔNG rơi xuống bảng giá: đó
-    # đúng là hành vi của `dat_hang._xay_don` cho tầng 2 (bước 2 "Item
-    # Price" của QĐ-G12 là bước LUI CỦA DÒNG HỢP ĐỒNG, không phải một
-    # nguồn giá cho hàng ngoài hợp đồng). Gọi `gia_dong_hop_dong` vô điều
-    # kiện sẽ đọc trúng một giá bảng giá cũ và ghi nó lên đơn — trong khi
-    # cùng mặt hàng đó, đặt qua giỏ hàng, lại ra 0 và chờ Miyano báo giá.
-    # Hai con số cho một mặt hàng tuỳ đường đi: đúng lớp lệch giá dự án này
-    # đã trả giá (Ruling P28/P30).
-    rate = (
-        flt(gia_hdnt.gia_dong_hop_dong(item_code, bo_dong, price_list))
-        if bo_dong else 0.0
-    )
-    # BR-O15 — hạn mức khai 0 nghĩa KHÔNG GIỚI HẠN. KHÔNG gắn
-    # `against_blanket_order` cho dòng đó: cơ chế gốc của ERPNext đối chiếu
-    # cờ này với `qty` của Blanket Order Item, thấy 0 thì hiểu là CẤM ĐẶT và
-    # chặn ngay lúc submit. Y hệt nhánh `con_lai is None` của `_xay_don` —
-    # một luật, hai nơi thi hành giống nhau.
-    gan_hop_dong = None
-    if bo_dong:
-        con_lai, _da_dat = han_muc_con(bo_dong, item_code)
-        if con_lai is not None:
-            gan_hop_dong = bo_dong
+    # `gia_bang_gia` chỉ trả giá DƯƠNG; `None` = chưa có giá (<= 0 không bao
+    # giờ là "bán 0 đồng").
+    gia = bang_gia_khach.gia_bang_gia(doc.customer, item_code)
+    rate = flt(gia)
+    nguon = bang_gia_khach.NGUON_BANG_GIA if gia else bang_gia_khach.NGUON_BAO_GIA
 
     # ---- BẪY 2 — GỘP vào dòng sẵn có, không thêm dòng thứ hai cùng mã ----
     for hang in doc.get("items") or []:
@@ -775,14 +748,13 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
             continue
         hang.qty = flt(hang.qty) + qty
         if rate and not flt(hang.rate):
-            # Dòng sẵn có đang CHỜ BÁO GIÁ mà mặt hàng thì đã có giá hợp
-            # đồng — không im lặng để cả cụm số lượng đi tiếp với 0 đồng.
-            # CHỈ điền vào chỗ trống, xem docstring.
+            # Dòng sẵn có đang CHỜ BÁO GIÁ mà mặt hàng thì đã có giá trong
+            # bảng — CHỈ điền vào chỗ trống, xem docstring.
             hang.rate = rate
-            hang.price_list_rate = 0
-        if gan_hop_dong and not hang.get("blanket_order"):
-            hang.blanket_order = gan_hop_dong
-            hang.against_blanket_order = 1
+            hang.price_list_rate = rate
+            hang.custom_nguon_gia = nguon
+        elif not hang.get("custom_nguon_gia"):
+            hang.custom_nguon_gia = nguon
         return hang
 
     kho = _resolve_item_warehouse(item_code, doc.company)
@@ -798,22 +770,19 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float, thang_cuoc: dict,
         "item_code": item_code,
         "qty": qty,
         "rate": rate,
+        # BẪY ERPNext, giống hệt `dat_hang._xay_don` — đặt CẢ HAI, kể cả khi
+        # bằng 0: `taxes_and_totals.calculate_item_values` có nhánh `elif
+        # item.price_list_rate: if not item.rate: item.rate =
+        # price_list_rate` — `rate = 0` là FALSY nên nếu để `price_list_rate`
+        # là `None` thì `set_missing_item_details` tự tra bảng giá của đơn
+        # (phép tra của ERPNext KHÔNG trùng luật với `gia_bang_gia_nhieu`)
+        # rồi ERPNext ÂM THẦM thay 0 bằng giá đó. Nó chỉ điền khi field đang
+        # là `None`, nên dòng chờ báo giá phải mang 0 TƯỜNG MINH.
+        "price_list_rate": rate,
+        "custom_nguon_gia": nguon,
         "warehouse": kho,
         "delivery_date": doc.get("delivery_date"),
     }
-    if not rate:
-        # BẪY ERPNext, giống hệt `dat_hang._xay_don`:
-        # `taxes_and_totals.calculate_item_values` có nhánh `elif
-        # item.price_list_rate: if not item.rate: item.rate =
-        # price_list_rate` — `rate = 0` là FALSY nên ERPNext ÂM THẦM thay 0
-        # bằng giá trong bảng giá của đơn. Đơn có dòng hợp đồng mang chính
-        # bảng giá của khách, nên nhánh này KÍCH HOẠT THẬT. Gán tường minh
-        # `price_list_rate = 0` để `set_missing_item_details` không điền hộ
-        # (nó chỉ điền khi field đang là `None`).
-        moi["price_list_rate"] = 0
-    if gan_hop_dong:
-        moi["blanket_order"] = gan_hop_dong
-        moi["against_blanket_order"] = 1
 
     hang = doc.append("items", moi)
     # Đặt tên NGAY: `set_name_in_children()` đã chạy xong TRƯỚC

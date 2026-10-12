@@ -26,13 +26,13 @@ Mọi bài đi ĐƯỜNG CÔNG KHAI (`dat_hang.tao_sales_order`,
 các nơi có thể lệch, và bài test chỉ có giá trị khi nó đi qua đúng chỗ người
 dùng đi.
 
-SPEC 2026-10-09 (giá theo Price List) đảo QĐ-G12 ở HAI nơi, mỗi bài bị đảo
+SPEC 2026-10-09 (giá theo Price List) đảo QĐ-G12 ở BA nơi, mỗi bài bị đảo
 mang chú thích riêng: danh mục `portal_catalog_gop` (phân tầng theo Price
-List) và việc DỰNG ĐƠN (`dat_hang._xay_don`, §4.2) — đơn lấy giá từ
+List), việc DỰNG ĐƠN (`dat_hang._xay_don`, §4.2) — đơn lấy giá từ
 `Customer.default_price_list`, không đọc `rate` của hợp đồng, không gắn hợp
 đồng lên dòng, và "chưa có giá" là dòng chờ báo giá chứ không còn lỗi
-`thieu_gia`. Thứ tự tra ở trên giờ chỉ còn đúng cho đường gửi duyệt phiếu và
-`portal_reorder`.
+`thieu_gia` — và ĐẶT LẠI đơn cũ (`portal_reorder`, §4.4). Thứ tự tra ở trên
+giờ chỉ còn đúng cho đường gửi duyệt phiếu.
 """
 
 import frappe
@@ -320,16 +320,18 @@ class TestGiaTuHopDong(FrappeTestCase):
 		self.assertFalse(doc.items[0].blanket_order)
 		self.assertFalse(doc.items[0].don_gia)
 
-	def test_dat_lai_don_cu_cung_lay_gia_hop_dong(self):
-		"""`portal_reorder` — phép tra `Item Price` THỨ SÁU, độc lập, phát
-		hiện khi rà theo TÊN DOCTYPE thay vì theo tên hàm trợ giúp cũ.
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_dat_lai_don_cu_lay_gia_bang_gia_khong_lay_gia_hop_dong(self):
+		"""`portal_reorder` hỏi CÙNG nguồn với `_xay_don`: Price List của
+		khách. Bài cũ khẳng định giỏ đặt lại mang giá HỢP ĐỒNG.
 
-		Nếu nó không đi qua `gia_dong_hop_dong()`, cùng một mã hàng cho hai
-		câu trả lời khác nhau tuỳ khách bấm "Đặt hàng" hay "Đặt lại đơn cũ":
-		đặt mới thì được, đặt lại thì `thieu_gia`. Vế dương ĐỦ MẠNH: dòng
-		phải NẰM TRONG giỏ, mang ĐÚNG giá hợp đồng, và KHÔNG có mặt trong
-		`bi_loai`."""
-		kq = self._dat([{"item_code": self.item_chi_hd, "qty": 2}])
+		Hai vế: mã có cả giá hợp đồng lẫn giá bảng giá ra giá BẢNG GIÁ; mã chỉ
+		có giá trên hợp đồng (bảng giá trống) vào giỏ ở tầng chờ báo giá,
+		không giá — và KHÔNG bị loại khỏi giỏ."""
+		kq = self._dat([
+			{"item_code": self.item_chi_hd, "qty": 2},
+			{"item_code": self.item_ca_hai, "qty": 1},
+		])
 		# Quản lý: `pham_vi_don()` trả `{}` nên xem được đơn cấp bệnh viện
 		# (`custom_khoa_phong` rỗng) mà `tao_sales_order` vừa dựng.
 		user_ql = self._thanh_vien(
@@ -341,13 +343,13 @@ class TestGiaTuHopDong(FrappeTestCase):
 		)
 		frappe.set_user(user_ql)
 		out = portal_api.portal_reorder(kq["sales_order"])
-		self.assertNotIn(
-			self.item_chi_hd, [d["item_code"] for d in out["bi_loai"]],
-			"mặt hàng có giá trên hợp đồng không được coi là thiếu giá",
-		)
-		gio = [d for d in out["gio_hang"] if d["item_code"] == self.item_chi_hd]
-		self.assertEqual(len(gio), 1, f"Không thấy {self.item_chi_hd} trong {out}")
-		self.assertEqual(float(gio[0]["gia_hien_hanh"]), float(GIA_HOP_DONG))
+		self.assertEqual(out["bi_loai"], [])
+		gio = {d["item_code"]: d for d in out["gio_hang"]}
+		self.assertEqual(set(gio), {self.item_chi_hd, self.item_ca_hai})
+		self.assertEqual(gio[self.item_ca_hai]["tang"], "bang_gia")
+		self.assertEqual(float(gio[self.item_ca_hai]["gia_hien_hanh"]), float(GIA_BANG_GIA))
+		self.assertEqual(gio[self.item_chi_hd]["tang"], "cho_bao_gia")
+		self.assertIsNone(gio[self.item_chi_hd]["gia_hien_hanh"])
 
 	# -- MỘT LUẬT PHÂN ĐỊNH (Ruling P30, vòng sửa 1) -------------------------
 
@@ -398,15 +400,16 @@ class TestGiaTuHopDong(FrappeTestCase):
 	# -- HỢP ĐỒNG PHẢI CÒN HIỆU LỰC (Ruling P31, vòng sửa 1) ----------------
 
 	def test_dat_lai_don_cu_lay_gia_hop_dong_CON_SONG(self):
-		"""Ruling P31 + I-1 — `portal_reorder` tin `Sales Order.custom_hdnt`
-		của ĐƠN CŨ và không kiểm hợp đồng đó còn hiệu lực hay không.
+		"""Ruling P31 + I-1, đọc lại theo spec 2026-10-09 §4.4 — giỏ đặt lại
+		không được mang giá của một hợp đồng ĐÃ CHẾT.
 
-		Kịch bản thật: hợp đồng cũ hết hạn 31/12, ngày 02/01 khách bấm "Đặt
-		lại đơn cũ" → giỏ hiện giá của một hợp đồng ĐÃ CHẾT, rồi lúc xác
-		nhận `_xay_don` lại tính theo hợp đồng kế nhiệm. Số hiện lúc xác nhận
-		không phải số trên đơn. Đây là đường SỐNG, frontend đang gọi.
+		Kịch bản thật: hợp đồng cũ hết hạn 31/12, hợp đồng kế nhiệm được ký
+		với giá mới, ngày 02/01 khách bấm "Đặt lại đơn cũ". `portal_reorder`
+		giờ KHÔNG đọc hợp đồng nào (cũng không tin `custom_hdnt` hay `rate`
+		của đơn cũ): nó đọc Price List của khách, và chính việc ký hợp đồng
+		kế nhiệm (`gia_hdnt.dong_bo` lúc submit) đã ghi giá mới vào bảng đó.
 
-		Vế dương kép: giỏ đặt lại phải mang giá HỢP ĐỒNG KẾ NHIỆM, và mã hàng
+		Vế dương kép: giỏ đặt lại phải mang giá HIỆN HÀNH (95.000), và mã hàng
 		KHÔNG được rơi vào `bi_loai`."""
 		ma = self._item("_TEST G12 KE NHIEM")
 		bo_cu = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
@@ -432,7 +435,7 @@ class TestGiaTuHopDong(FrappeTestCase):
 		self.assertEqual(len(gio), 1, f"Không thấy {ma} trong {out}")
 		self.assertEqual(
 			float(gio[0]["gia_hien_hanh"]), 95000.0,
-			"giỏ đặt lại đang đọc giá của hợp đồng ĐÃ HẾT HIỆU LỰC",
+			"giỏ đặt lại đang đọc giá cũ (đơn cũ / hợp đồng ĐÃ HẾT HIỆU LỰC)",
 		)
 		self.assertTrue(bo_moi)
 

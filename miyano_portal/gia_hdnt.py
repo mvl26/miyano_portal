@@ -32,9 +32,8 @@ Ranh giới cố ý của `dong_bo()`:
 **Còn sót, chờ gỡ.** `gia_dong_hop_dong()` và `con_hieu_luc()` là phép tra
 "hợp đồng trước, bảng giá sau" của QĐ-G12 (21/08/2026). Luồng đặt hàng mới
 không gọi chúng; chúng còn sống chỉ vì các endpoint cũ chưa gỡ vẫn gọi:
-`portal_contracts`, `portal_catalog`, `portal_catalog_ban_le`, `portal_reorder`
-(`api/portal.py`) và `portal_mua_le._gop_hoac_them_dong_hang`. Gỡ các endpoint
-đó thì xoá luôn hai hàm này.
+`portal_contracts`, `portal_catalog`, `portal_catalog_ban_le` (`api/portal.py`).
+Gỡ các endpoint đó thì xoá luôn hai hàm này.
 """
 
 import frappe

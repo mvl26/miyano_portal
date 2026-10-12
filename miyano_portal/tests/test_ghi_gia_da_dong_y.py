@@ -276,6 +276,48 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 			[d for d in bg.ghi_gia_da_dong_y(so) if d["item_code"] == self.item_ngoai], []
 		)
 
+	def test_dong_go_tay_khop_ma_co_gia_di_het_vong_ma_khong_ghi_bang_gia(self):
+		"""Spec 2026-10-09 §4.4 gặp ba chốt §5: đơn chỉ có MỘT dòng gõ tay, nhân
+		viên khớp nó về một mã ĐÃ CÓ GIÁ. Dòng sinh ra mang giá bảng và dấu "Bảng
+		giá", nên (1) "Gửi khách duyệt" qua được chốt 2 mà không ai phải gõ giá,
+		và (2) khách đồng ý KHÔNG ghi gì vào Price List — giá đó vốn là của bảng."""
+		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
+		self._tao_gia(self.item_ngoai, bang, 54000)
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[],
+			dat_ngoai=[{"ten_hang": "Kim X", "dvt": "Cái", "so_luong": 3,
+			            "khong_co_anh": 1}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so.custom_dat_ngoai[0].item_khop = self.item_ngoai
+		so.save()
+		so.reload()
+		dong = [d for d in so.items if d.item_code == self.item_ngoai][0]
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertEqual(float(dong.rate), 54000.0)
+		self.assertEqual(so.custom_loai_don, "Mua lẻ", "đơn vẫn ở vòng báo giá (QĐ-G2b)")
+
+		def gia_trong_bang():
+			return frappe.get_all(
+				"Item Price", filters={"item_code": self.item_ngoai, "selling": 1},
+				fields=["name", "price_list", "price_list_rate", "modified"],
+				order_by="name asc",
+			)
+
+		truoc = gia_trong_bang()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(so.workflow_state, "Chờ khách đồng ý")
+		self._khach(so, "dong_y")
+
+		self.assertEqual(gia_trong_bang(), truoc, "Price List không được đổi")
+		self.assertEqual(float(frappe.db.get_value(
+			"Sales Order Item", dong.name, "custom_gia_khach_dong_y") or 0), 0.0)
+		noi_dung = " ".join(frappe.get_all(
+			"Comment", filters={"reference_doctype": "Sales Order",
+			                    "reference_name": so.name}, pluck="content"))
+		self.assertNotIn("Ghi giá khách đã đồng ý", noi_dung)
+
 	def test_de_lai_dau_vet_tren_don(self):
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		self._khach(so, "dong_y")

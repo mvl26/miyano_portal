@@ -17,6 +17,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO, han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
@@ -1258,6 +1259,10 @@ class TestSuaSoLuong(FrappeTestCase):
             float(frappe.db.get_value("Sales Order Item", row_name, "rate")), 0.0,
             "báo giá cũ không còn hiệu lực ở số lượng mới — rate phải về 0",
         )
+        self.assertTrue(
+            any("chờ báo giá lại" in c for c in kq["thay_doi"]),
+            "ghi chú thay đổi của dòng báo giá phải nói giá cũ hết hiệu lực",
+        )
 
         cmt = frappe.get_all(
             "Comment",
@@ -1304,8 +1309,66 @@ class TestSuaSoLuong(FrappeTestCase):
         )
         self.assertEqual(
             float(frappe.db.get_value("Sales Order Item", row_name, "rate")), 0.0,
-            "rate client gửi lên phải bị bỏ qua hoàn toàn — server luôn tự đặt 0",
+            "rate client gửi lên phải bị bỏ qua hoàn toàn — server tự đặt giá "
+            "(0 cho dòng chờ báo giá lại)",
         )
+
+    def _so_co_dong_bang_gia(self, item_code, gia_tren_don):
+        """Đơn vòng báo giá có MỘT dòng mang dấu "Bảng giá" — đúng hình dạng
+        §4.4: đơn vào vòng báo giá vì một dòng gõ tay, rồi nhân viên khớp nó
+        về một mã đã có giá (`_gop_hoac_them_dong_hang` đóng dấu này)."""
+        so = _tao_so_bao_gia(BVBM, item_code, gia_tren_don)
+        frappe.db.set_value(
+            "Sales Order Item", so.items[0].name, "custom_nguon_gia", "Bảng giá",
+            update_modified=False,
+        )
+        so.reload()
+        return so
+
+    def test_sua_so_luong_dong_bang_gia_giu_gia_bang_gia(self):
+        # Spec 2026-10-09 §4.4: dòng "Bảng giá" đọc lại giá Price List,
+        # không về 0 như dòng "Báo giá".
+        gia = bang_gia_khach.gia_bang_gia(BVBM, VT_HDNT)
+        self.assertTrue(gia, "tiền đề: mã có giá trong Price List của khách")
+        # Giá trên đơn CỐ Ý khác giá bảng: chứng minh giá được ĐỌC LẠI từ
+        # bảng, không phải chỉ giữ nguyên con số cũ.
+        so = self._so_co_dong_bang_gia(VT_HDNT, gia + 111)
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": VT_HDNT, "qty": 7}]})
+        )
+        self.assertEqual(kq["trang_thai_moi"], "Chờ xác nhận")
+        so.reload()
+        moi = next(d for d in so.items if d.item_code == VT_HDNT)
+        self.assertEqual(float(moi.qty), 7.0)
+        self.assertEqual(float(moi.rate), gia)
+        self.assertEqual(float(moi.price_list_rate), gia)
+        self.assertEqual(moi.custom_nguon_gia, "Bảng giá")
+        self.assertEqual(len(kq["thay_doi"]), 1)
+        self.assertIn("giá theo bảng giá", kq["thay_doi"][0])
+        self.assertNotIn("chờ báo giá", kq["thay_doi"][0])
+
+    def test_sua_so_luong_dong_bang_gia_da_mat_gia_thanh_dong_bao_gia(self):
+        """Mã MẤT giá trong Price List từ lúc lập đơn → dòng thành "Báo giá"
+        ở 0, chờ Miyano báo giá như mọi mã chưa có giá (spec §4.4)."""
+        self.assertIsNone(
+            bang_gia_khach.gia_bang_gia(BVBM, RETAIL_CO_GIA),
+            "tiền đề: mã KHÔNG có giá trong Price List của khách",
+        )
+        so = self._so_co_dong_bang_gia(RETAIL_CO_GIA, 25000)
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": RETAIL_CO_GIA, "qty": 4}]})
+        )
+        so.reload()
+        moi = so.items[0]
+        self.assertEqual(float(moi.qty), 4.0)
+        self.assertEqual(float(moi.rate), 0.0)
+        self.assertEqual(float(moi.price_list_rate), 0.0)
+        self.assertEqual(moi.custom_nguon_gia, "Báo giá")
+        self.assertIn("không còn giá trong bảng giá", kq["thay_doi"][0])
 
     def test_payload_them_dong_moi_bi_tu_choi(self):
         so = _tao_so_bao_gia(BVBM, RETAIL_CO_GIA, 25000)

@@ -6,6 +6,10 @@ Từ spec 2026-10-09 (giá theo Price List, §4.2) đường ĐẶT HÀNG không
 đơn bằng `thieu_gia` hay gọi `bao_thieu_gia` — mặt hàng chưa có giá thành dòng
 chờ báo giá. Hai bài TC-E1-09 về đường đó đã xoá cùng hành vi; `TestThieuGia`
 còn giữ các bài gọi THẲNG `bao_thieu_gia` (hàm vẫn có người gọi khác).
+
+§4.4 cùng spec: ĐẶT LẠI đơn cũ cũng theo Price List — không còn loại dòng vì
+"ngoài hợp đồng" / "hết hạn mức" / "thiếu giá", không còn hạ số lượng theo hạn
+mức. Chỉ mặt hàng ngừng kinh doanh mới vào `bi_loai`.
 """
 
 import json
@@ -13,6 +17,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_thong_bao import bao_thieu_gia
 from miyano_portal.setup.seed_demo import seed_demo
@@ -26,32 +31,6 @@ HC = "HC0009"
 
 def _rid() -> str:
     return frappe.generate_hash(length=12)
-
-
-def _dong_hop_dong_bvbm(item_code: str) -> list:
-    """Mọi dòng `item_code` trên hợp đồng bán CÒN HIỆU LỰC của BVBM.
-
-    Task 12 (QĐ-G12) — giá của một dòng hợp đồng lấy từ CHÍNH hợp đồng trước,
-    bảng giá chỉ là bước lui; nên mọi thao tác "đổi giá"/"xoá giá" trong file
-    này phải chạm tới hợp đồng, không chỉ `Item Price`. Quét MỌI hợp đồng còn
-    hiệu lực chứ không chỉ một: một hợp đồng khác cũng khai mã đó là đủ để
-    cổng có giá và bài test mất tiền đề."""
-    cha = frappe.get_all(
-        "Blanket Order",
-        filters={
-            "customer": BVBM, "blanket_order_type": "Selling", "docstatus": 1,
-            "from_date": ["<=", frappe.utils.today()],
-            "to_date": [">=", frappe.utils.today()],
-        },
-        pluck="name",
-    )
-    if not cha:
-        return []
-    return frappe.get_all(
-        "Blanket Order Item",
-        filters={"item_code": item_code, "parent": ["in", cha]},
-        pluck="name",
-    )
 
 
 class TestThieuGia(FrappeTestCase):
@@ -110,15 +89,101 @@ class TestReorder(FrappeTestCase):
                 {"parent": self.bo, "item_code": item_code},
                 {"qty": qty, "ordered_qty": da_dat},
             )
+        # Tiền đề của cả lớp: hai mã đều CÓ GIÁ lúc lập đơn cũ, nên giỏ ra
+        # MỘT đơn (giỏ trộn có giá / chưa giá sẽ tách thành hai phiếu).
+        for ma in (VT, HC):
+            self.assertIsNotNone(bang_gia_khach.gia_bang_gia(BVBM, ma))
         self.don = portal.portal_order_place(
             self.bo,
             json.dumps([{"item_code": VT, "qty": 2}, {"item_code": HC, "qty": 3}]),
             request_id=_rid(),
         )["sales_order"]
 
+    def _mat_gia(self, item_code):
+        """Làm `item_code` MẤT GIÁ trong Price List của BVBM sau khi đơn cũ
+        đã lập: hạ mọi dòng giá bán của mã về 0 (bộ đọc bỏ qua dòng `<= 0`).
+
+        `FrappeTestCase` rollback một lần mỗi CLASS — phải trả giá lại ngay
+        sau bài, nếu không `setUp` của bài sau lập đơn với một mã chưa giá."""
+        frappe.set_user("Administrator")
+        bang = frappe.db.get_value("Customer", BVBM, "default_price_list")
+        for r in frappe.get_all(
+            "Item Price",
+            filters={"item_code": item_code, "price_list": bang, "selling": 1},
+            fields=["name", "price_list_rate"],
+        ):
+            frappe.db.set_value("Item Price", r.name, "price_list_rate", 0)
+            self.addCleanup(
+                frappe.db.set_value, "Item Price", r.name, "price_list_rate",
+                r.price_list_rate,
+            )
+        self.assertIsNone(
+            bang_gia_khach.gia_bang_gia(BVBM, item_code),
+            "tiền đề: mã phải THẬT SỰ không còn giá",
+        )
+        frappe.set_user(USER_BVBM)
+
     # ---------- TC-E1-10 ----------
-    def test_reorder_dien_lai_gio_va_liet_ke_dong_bi_loai(self):
-        # Vắt cạn hạn mức của HC0009 sau khi đơn cũ đã tồn tại.
+    def test_reorder_dua_ca_hang_chua_co_gia_vao_gio(self):
+        # Đảo theo spec 2026-10-09 (giá theo Price List). Bài cũ khẳng định
+        # dòng không đặt được theo hợp đồng bị LOẠI khỏi giỏ; giờ mã chưa có
+        # giá vào giỏ ở tầng chờ báo giá, như khi khách chọn nó từ danh mục.
+        self._mat_gia(HC)
+        kq = portal.portal_reorder(self.don)
+        theo_ma = {d["item_code"]: d for d in kq["gio_hang"]}
+        self.assertEqual(set(theo_ma), {VT, HC})
+        self.assertEqual(theo_ma[VT]["tang"], "bang_gia")
+        self.assertEqual(
+            theo_ma[VT]["gia_hien_hanh"], bang_gia_khach.gia_bang_gia(BVBM, VT)
+        )
+        self.assertEqual(theo_ma[HC]["tang"], "cho_bao_gia")
+        self.assertIsNone(theo_ma[HC]["gia_hien_hanh"])
+        self.assertEqual(kq["bi_loai"], [])
+
+    def test_reorder_loai_hang_ngung_kinh_doanh(self):
+        frappe.db.set_value("Item", VT, "disabled", 1)
+        self.addCleanup(frappe.db.set_value, "Item", VT, "disabled", 0)
+        kq = portal.portal_reorder(self.don)
+        self.assertEqual(
+            kq["bi_loai"],
+            [{"item_code": VT, "ly_do": "mat_hang_ngung_kinh_doanh"}],
+        )
+        self.assertEqual({d["item_code"] for d in kq["gio_hang"]}, {HC})
+
+    def test_gio_hang_du_thong_tin_de_ve_man_hinh(self):
+        """Giỏ dựng thẳng từ payload này — thiếu tên hoặc ĐVT thì khách nhìn
+        thấy mã hàng trần."""
+        kq = portal.portal_reorder(self.don)
+        self.assertEqual(len(kq["gio_hang"]), 2)
+        for d in kq["gio_hang"]:
+            with self.subTest(item=d["item_code"]):
+                self.assertTrue(d["item_name"])
+                self.assertNotEqual(d["item_name"], d["item_code"])
+                self.assertTrue(d["uom"])
+                self.assertEqual(d["tang"], "bang_gia")
+                self.assertGreater(d["gia_hien_hanh"], 0)
+
+    def test_gia_la_gia_hien_hanh_khong_phai_gia_luu_tren_don_cu(self):
+        """Giá lấy từ Price List HÔM NAY, không lấy giá đóng trên đơn cũ."""
+        gia_cu = float(
+            frappe.db.get_value(
+                "Sales Order Item", {"parent": self.don, "item_code": VT}, "rate"
+            )
+        )
+        self.assertNotEqual(gia_cu, 9999.0, "tiền đề: giá đơn cũ khác giá sắp đặt")
+        frappe.set_user("Administrator")
+        bang = frappe.db.get_value("Customer", BVBM, "default_price_list")
+        gia_truoc = bang_gia_khach.ghi_gia_vao_bang(bang, BVBM, VT, 9999)
+        self.addCleanup(bang_gia_khach.ghi_gia_vao_bang, bang, BVBM, VT, gia_truoc)
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_reorder(self.don)
+        dong_vt = next(d for d in kq["gio_hang"] if d["item_code"] == VT)
+        self.assertEqual(dong_vt["gia_hien_hanh"], 9999.0)
+
+    def test_het_han_muc_hop_dong_khong_con_loai_hay_ha_so_luong(self):
+        # Đảo theo spec 2026-10-09 (giá theo Price List). Hai bài cũ: hết hạn
+        # mức thì loại dòng (`het_han_muc`), còn 1 thì hạ 3 xuống 1. Cổng
+        # không còn đặt theo hạn mức hợp đồng — số lượng đơn cũ giữ nguyên.
         frappe.db.set_value(
             "Blanket Order Item",
             {"parent": self.bo, "item_code": HC},
@@ -126,64 +191,9 @@ class TestReorder(FrappeTestCase):
             500,
         )
         kq = portal.portal_reorder(self.don)
-
-        self.assertEqual({d["item_code"] for d in kq["gio_hang"]}, {VT})
-        self.assertEqual(
-            {d["item_code"]: d["ly_do"] for d in kq["bi_loai"]}, {HC: "het_han_muc"}
-        )
-
-    def test_gio_hang_du_thong_tin_de_ve_man_hinh(self):
-        """Giỏ dựng thẳng từ payload này — thiếu tên hoặc ĐVT thì khách nhìn
-        thấy mã hàng trần."""
-        kq = portal.portal_reorder(self.don)
-        for d in kq["gio_hang"]:
-            with self.subTest(item=d["item_code"]):
-                self.assertTrue(d["item_name"])
-                self.assertNotEqual(d["item_name"], d["item_code"])
-                self.assertTrue(d["uom"])
-                self.assertIn("remaining", d)
-
-    def test_gia_la_gia_hien_hanh_khong_phai_gia_luu_tren_don_cu(self):
-        """Task 12 (QĐ-G12) — "giá hiện hành" giờ là giá trên HỢP ĐỒNG trước,
-        bảng giá sau, nên sửa đổi hợp đồng mới là cách mô phỏng đúng nghiệp
-        vụ. Đặt CẢ HAI về 9999 để bài này khẳng định đúng một điều duy nhất
-        (giá lấy hiện hành, không lấy giá đóng trên đơn cũ) chứ không vô tình
-        thành một bài kiểm thứ tự tra — thứ tự đã có bài riêng ở
-        `test_gia_tu_hop_dong.py`."""
-        frappe.set_user("Administrator")
-        frappe.db.set_value(
-            "Item Price",
-            {"item_code": VT, "price_list": "HĐNT-BVBM-2026"},
-            "price_list_rate",
-            9999,
-        )
-        for ten in _dong_hop_dong_bvbm(VT):
-            frappe.db.set_value("Blanket Order Item", ten, "rate", 9999)
-        frappe.set_user(USER_BVBM)
-        kq = portal.portal_reorder(self.don)
-        dong_vt = next(d for d in kq["gio_hang"] if d["item_code"] == VT)
-        self.assertEqual(dong_vt["gia_hien_hanh"], 9999.0)
-
-    def test_khong_gioi_han_thi_giu_nguyen_so_luong_cu(self):
-        frappe.db.set_value(
-            "Blanket Order Item", {"parent": self.bo, "item_code": HC}, "qty", 0
-        )
-        kq = portal.portal_reorder(self.don)
         dong_hc = next(d for d in kq["gio_hang"] if d["item_code"] == HC)
         self.assertEqual(dong_hc["qty"], 3.0)
-
-    def test_so_luong_bi_ha_xuong_phan_con_dat_duoc(self):
-        """Còn 1 mà đơn cũ đặt 3 thì điền 1, không phải loại cả dòng — khách
-        vẫn đặt được phần còn lại."""
-        frappe.db.set_value(
-            "Blanket Order Item",
-            {"parent": self.bo, "item_code": HC},
-            "ordered_qty",
-            499,
-        )
-        kq = portal.portal_reorder(self.don)
-        dong_hc = next(d for d in kq["gio_hang"] if d["item_code"] == HC)
-        self.assertEqual(dong_hc["qty"], 1.0)
+        self.assertEqual(kq["bi_loai"], [])
 
     def test_reorder_don_cua_khach_khac_bi_tu_choi(self):
         frappe.set_user("Administrator")

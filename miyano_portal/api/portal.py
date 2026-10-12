@@ -50,7 +50,6 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
     TRANG_THAI_DA_HUY,
     TRANG_THAI_NHAP,
     TRANG_THAI_TU_CHOI,
-    nguon_gia_theo_ma_cho_khach,
 )
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
@@ -2960,14 +2959,18 @@ def portal_bao_gia_pdf(order) -> None:
 
 @frappe.whitelist()
 def portal_reorder(order: str) -> dict:
-    """UC-14 / US-E1.5 — điền lại giỏ theo một đơn cũ, theo GIÁ HIỆN HÀNH.
+    """UC-14 / US-E1.5 — điền lại giỏ theo một đơn cũ, theo GIÁ HIỆN HÀNH
+    trong Price List của khách (spec 2026-10-09 §4.4).
 
-    Dòng nào không còn đặt được thì vào `bi_loai` kèm mã lý do để giao diện
-    dịch sang thông điệp FormSpec §5. Im lặng bỏ bớt dòng là cách chắc chắn
-    khiến khách đặt thiếu hàng mà không biết.
+    Mặt hàng chưa có giá KHÔNG bị loại: nó vào giỏ ở tầng chờ báo giá
+    (`tang = "cho_bao_gia"`, `gia_hien_hanh = None`), đúng như khi khách tự
+    chọn nó từ danh mục. Không còn tra hợp đồng khung hay hạn mức, nên số
+    lượng giữ nguyên như đơn cũ.
 
-    Dòng còn đặt được một phần thì HẠ số lượng xuống phần còn lại chứ không
-    loại cả dòng — còn 1 mà đơn cũ đặt 3 thì khách vẫn nên đặt được 1.
+    Dòng không còn đặt được (mặt hàng đã ngừng kinh doanh) vào `bi_loai` kèm
+    mã lý do để giao diện dịch sang thông điệp. Im lặng bỏ bớt dòng là cách
+    chắc chắn khiến khách đặt thiếu hàng mà không biết. Dòng giữ chỗ kỹ thuật
+    `ITEM_GIU_CHO` thì bỏ qua hẳn — nó chưa bao giờ là thứ khách đặt.
     """
     dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
@@ -2978,53 +2981,26 @@ def portal_reorder(order: str) -> dict:
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
 
-    # I-1 / Ruling P31 (review vòng 1) — SUY LẠI hợp đồng thắng cuộc THEO
-    # TỪNG DÒNG, không tin `so.custom_hdnt` của đơn cũ. Hai lý do, cả hai đều
-    # là lỗi thật:
-    #   * `custom_hdnt` không kiểm hiệu lực. Hợp đồng hết hạn 31/12, ngày
-    #     02/01 khách bấm "Đặt lại đơn cũ" → giỏ hiện giá VÀ hạn mức của một
-    #     hợp đồng đã chết, rồi lúc xác nhận `_xay_don` (vốn luôn suy lại)
-    #     tính theo hợp đồng kế nhiệm. Số hiện lúc xác nhận không phải số
-    #     trên đơn — đường SỐNG, frontend đang gọi mỗi ngày;
-    #   * `custom_hdnt` có thể là tham số CLIENT gửi lên khi đơn trải nhiều
-    #     hợp đồng (xem `tao_sales_order`), nên nó không phải bằng chứng về
-    #     hợp đồng của một DÒNG cụ thể.
-    # Dùng ĐÚNG hàm mà `_xay_don` dùng — Ruling P28:
-    # một sự thật, một nguồn. Giá và hạn mức của cùng một dòng phải hỏi
-    # CÙNG một hợp đồng, nếu không giỏ lại tự mâu thuẫn với chính nó.
-    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
-    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+    # Giá hỏi `bang_gia_khach` — ĐÚNG nguồn mà `dat_hang._xay_don` dùng lúc
+    # dựng đơn, nên giỏ đặt lại và đơn sắp lập không thể nói hai giá khác
+    # nhau cho cùng một mã. KHÔNG đọc `rate` hay `custom_hdnt` của đơn cũ:
+    # đó là giá của ngày lập đơn cũ, không phải giá hôm nay. Một truy vấn
+    # cho cả đơn.
+    gia_theo_ma = bang_gia_khach.gia_bang_gia_nhieu(
+        customer, [d.item_code for d in so.items]
+    )
     gio_hang, bi_loai = [], []
-
     for dong in so.items:
-        contract = thang_cuoc.get(dong.item_code)
-        if not contract:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "ngoai_hdnt"})
+        if dong.item_code == ITEM_GIU_CHO:
             continue
-
-        con_lai, _ = han_muc_con(contract, dong.item_code)
-        if con_lai is not None and con_lai <= 0:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "het_han_muc"})
+        # Cùng chốt (và cùng mã lý do) với `dat_hang._xay_don`: đưa một mặt
+        # hàng ngừng kinh doanh vào giỏ là để khách bị từ chối ở bước gửi.
+        if frappe.db.get_value("Item", dong.item_code, "disabled"):
+            bi_loai.append({
+                "item_code": dong.item_code, "ly_do": "mat_hang_ngung_kinh_doanh",
+            })
             continue
-
-        # QĐ-G12 (Task 12) — ĐÚNG hàm mà `_xay_don` dùng. Trước Task 12 đây
-        # là phép tra `Item Price` THỨ SÁU, độc lập, nên "đặt lại đơn cũ"
-        # vẫn trả `thieu_gia` cho đúng mặt hàng mà đặt mới đã đặt được:
-        # cùng một mã, hai câu trả lời khác nhau tuỳ khách bấm nút nào.
-        # `contract` ở đây là hợp đồng THẮNG CUỘC vừa suy lại cho chính
-        # dòng này (`thang_cuoc.get(...)` ngay đầu vòng lặp), KHÔNG phải
-        # `so.custom_hdnt` của đơn cũ — xem khối Ruling P31 phía trên, nơi
-        # giải thích vì sao không được tin `custom_hdnt`. Đó cũng đúng là
-        # hợp đồng vòng lặp này vừa dùng để tính hạn mức, nên giá và hạn
-        # mức của một dòng luôn hỏi CÙNG một hợp đồng.
-        gia = gia_hdnt.gia_dong_hop_dong(dong.item_code, contract, price_list)
-        if not gia:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "thieu_gia"})
-            continue
-
-        qty = float(dong.qty)
-        if con_lai is not None:
-            qty = min(qty, con_lai)
+        gia = gia_theo_ma.get(dong.item_code)
         # Kèm tên và ĐVT: giỏ hàng dựng thẳng từ payload này, thiếu chúng thì
         # khách nhìn thấy mã hàng trần và không có đơn vị tính.
         gio_hang.append({
@@ -3032,9 +3008,9 @@ def portal_reorder(order: str) -> dict:
             "item_name": dong.item_name
             or frappe.db.get_value("Item", dong.item_code, "item_name"),
             "uom": dong.uom or "",
-            "qty": qty,
-            "gia_hien_hanh": float(gia),
-            "remaining": None if con_lai is None else con_lai,
+            "qty": float(dong.qty),
+            "tang": "bang_gia" if gia is not None else "cho_bao_gia",
+            "gia_hien_hanh": gia,
         })
 
     return {"gio_hang": gio_hang, "bi_loai": bi_loai}
@@ -3257,8 +3233,12 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
     báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc
     Miyano vào một mức giá ở sản lượng khác hẳn mà không ai đồng ý. Nên:
-    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của MỌI dòng đã
-    đổi số lượng bị đặt về 0 (báo giá cũ hết hiệu lực cho dòng đó).
+    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của mọi dòng
+    "Báo giá" (cùng dòng đơn cũ chưa có dấu) đã đổi số lượng bị đặt về 0
+    (báo giá cũ hết hiệu lực cho dòng đó). Dòng "Bảng giá" thì khác (spec
+    2026-10-09 §4.4): giá của nó là giá Price List, không phải giá đàm phán
+    theo sản lượng, nên đọc lại giá bảng hôm nay; mã đã mất giá trong bảng
+    thì dòng thành "Báo giá" ở 0.
 
     Chuyển trạng thái DÙNG LẠI transition "Khách không đồng ý" ("Chờ khách
     đồng ý" -> "Chờ xác nhận", allowed "System Manager") — brief: "KHÔNG
@@ -3397,17 +3377,52 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             doi_items_ap_dung[i.item_code] = 0.0
             continue
         if float(i.qty or 0) != qty_moi:
-            thay_doi.append(
-                f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
-                "còn hiệu lực, chờ báo giá lại)"
-            )
+            # Spec 2026-10-09 §4.4 — giá của dòng đổi số lượng tuỳ DẤU của
+            # dòng. `rate` VÀ `price_list_rate` luôn đặt CÙNG nhau: chỉ đặt
+            # `rate` mà để nguyên `price_list_rate` có nguy cơ một luồng tính
+            # giá khác của ERPNext coi `price_list_rate` là nguồn sự thật và
+            # ghi đè lại `rate` khi lưu.
+            if i.get("custom_nguon_gia") == bang_gia_khach.NGUON_BANG_GIA:
+                # Dòng "Bảng giá" không mang giá đàm phán theo sản lượng —
+                # giá của nó là giá bảng, đúng ở mọi số lượng. Đọc lại giá
+                # HÔM NAY của bảng thay vì về 0 rồi bắt nhân viên gõ lại.
+                gia = bang_gia_khach.gia_bang_gia(so.customer, i.item_code) or 0
+                if gia:
+                    thay_doi.append(
+                        f"{i.item_code}: {i.qty} → {qty_moi} (giá theo bảng "
+                        f"giá: {gia})"
+                    )
+                else:
+                    # Mã đã mất giá trong bảng từ lúc lập đơn → thành dòng
+                    # chờ báo giá như mọi mã chưa có giá.
+                    thay_doi.append(
+                        f"{i.item_code}: {i.qty} → {qty_moi} (mặt hàng không "
+                        "còn giá trong bảng giá, chờ báo giá)"
+                    )
+                    i.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
+                i.rate = gia
+                i.price_list_rate = gia
+                # BẪY ERPNext: nếu nhân viên từng nâng `rate` của dòng này
+                # lên trên `price_list_rate`, `taxes_and_totals.
+                # calculate_margin` đã lưu phần chênh vào `margin_rate_or_
+                # amount`, và lần lưu sau sẽ tính lại `rate = price_list_rate
+                # + margin` — đè lên giá bảng vừa đặt. Xoá phần chênh/chiết
+                # khấu cũ để dòng mang ĐÚNG giá bảng.
+                i.margin_type = None
+                i.margin_rate_or_amount = 0
+                i.rate_with_margin = 0
+                i.discount_percentage = 0
+                i.discount_amount = 0
+            else:
+                # Dòng "Báo giá" (và dòng đơn cũ chưa có dấu): đơn giá báo
+                # cho N hộp không còn đúng ở M hộp → về 0, báo giá lại.
+                thay_doi.append(
+                    f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
+                    "còn hiệu lực, chờ báo giá lại)"
+                )
+                i.rate = 0
+                i.price_list_rate = 0
             i.qty = qty_moi
-            # `rate` VÀ `price_list_rate` — cả hai về 0. Chỉ đặt `rate` mà để
-            # nguyên `price_list_rate` có nguy cơ một luồng tính giá khác của
-            # ERPNext coi `price_list_rate` là nguồn sự thật và ghi đè lại
-            # `rate` khi lưu; đặt cả hai về 0 loại hẳn khả năng đó.
-            i.rate = 0
-            i.price_list_rate = 0
             doi_items_ap_dung[i.item_code] = qty_moi
         giu_items.append(i)
 
