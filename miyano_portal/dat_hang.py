@@ -445,6 +445,12 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
     # mọi dòng còn chờ báo giá: đó là bảng nhân viên Miyano nhìn và ghi vào
     # khi báo giá.
     so.selling_price_list = price_list
+    # Ruling R19 — cổng có ĐÚNG MỘT nguồn giá. Không tắt thì một Pricing Rule
+    # bán hàng của ERPNext khớp mặt hàng/khách sẽ chiết khấu `rate` ngay lúc
+    # lưu đơn (và mỗi lần nhân viên lưu lại trên Desk): khách thấy một giá
+    # trên màn đặt hàng, nhận một giá khác trên đơn, và dòng "Bảng giá" thôi
+    # bằng giá bảng. Cờ nằm trên ĐƠN nên phủ cả dòng thêm sau khi khớp mã.
+    so.ignore_pricing_rule = 1
     so.custom_nguon_don = "Client Portal"
     # §4.2 — đơn mới từ cổng không còn mang hợp đồng khung ở đầu đơn.
     so.custom_hdnt = None

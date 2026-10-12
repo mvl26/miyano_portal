@@ -37,6 +37,36 @@ class TestXayDonBangGia(FrappeTestCase):
 		self.assertEqual(d.custom_nguon_gia, bg.NGUON_BANG_GIA)
 		self.assertEqual(so.custom_loai_don, bg.LOAI_DON_BANG_GIA)
 
+	def test_pricing_rule_cua_erpnext_khong_dinh_gia_lai_dong_cua_cong(self):
+		"""Ruling R19 — cổng có ĐÚNG MỘT nguồn giá (Price List của khách). Một
+		Pricing Rule bán hàng đang bật, khớp đúng mặt hàng và khách, không được
+		chiết khấu dòng do cổng dựng: khách đã thấy 54.000 trên màn đặt hàng."""
+		quy_tac = frappe.get_doc({
+			"doctype": "Pricing Rule", "title": "_TEST DX R19 giam 10%",
+			"apply_on": "Item Code", "items": [{"item_code": self.item_ngoai}],
+			"selling": 1, "applicable_for": "Customer", "customer": self.kh_a,
+			"price_or_product_discount": "Price",
+			"rate_or_discount": "Discount Percentage", "discount_percentage": 10,
+			"company": goc.COMPANY, "currency": "VND",
+			"valid_from": frappe.utils.add_days(frappe.utils.today(), -1),
+		}).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "Pricing Rule", quy_tac.name,
+			force=True, ignore_permissions=True,
+		)
+
+		so = self._dat([{"item_code": self.item_ngoai, "qty": 3}])
+		d = so.items[0]
+		self.assertEqual(float(d.rate), 54000.0)
+		self.assertEqual(float(d.price_list_rate), 54000.0)
+		self.assertEqual(float(d.discount_percentage or 0), 0.0)
+		self.assertEqual(float(d.amount), 3 * 54000.0)
+		self.assertFalse(d.pricing_rules)
+		self.assertEqual(so.ignore_pricing_rule, 1)
+		# Lưu lại trên Desk (nhân viên mở đơn, bấm lưu) cũng không định giá lại.
+		so.save()
+		self.assertEqual(float(so.items[0].rate), 54000.0)
+
 	def test_dong_luon_theo_don_vi_goc_du_item_co_sales_uom_khac(self):
 		"""Ruling R15 — ERPNext mặc định `uom` của dòng mới theo `Item.sales_uom`,
 		còn giá bảng tính theo `stock_uom` và cổng đặt theo đơn vị gốc. Dòng cổng
