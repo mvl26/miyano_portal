@@ -15,6 +15,7 @@ BA ĐIỀU ĐỊNH HÌNH BỘ TEST NÀY:
 """
 
 import unittest.mock
+from pathlib import Path
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -665,3 +666,40 @@ class TestTaoMr(_CoSo):
 			dst.tao_mr_phan_thieu(so.name)
 		frappe.set_user("Administrator")
 		self.assertEqual(self._mr_cua(so), [])
+
+
+class TestGiaoDienDesk(FrappeTestCase):
+	"""Desk JS không có bộ chạy test trong repo này — canh bằng nội dung
+	file, cùng cách `test_cr06_desk_hang_moi.py` đang làm."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		# Đi từ file THẬT của module, không từ `frappe.get_app_path`: khi
+		# module được nối vào app bằng symlink (đang phát triển ở worktree),
+		# `resolve()` dẫn về đúng cây mã chứa bản `sales_order.js` đi cùng nó.
+		goc = Path(dst.__file__).resolve().parent
+		cls.js = (goc / "public" / "js" / "sales_order.js").read_text(encoding="utf-8")
+		cls.goc_repo = goc.parent
+
+	def test_form_goi_dung_hai_endpoint(self):
+		self.assertIn("miyano_portal.doi_sanh_ton.doi_sanh_ton", self.js)
+		self.assertIn("miyano_portal.doi_sanh_ton.tao_mr_phan_thieu", self.js)
+
+	def test_danh_sach_vai_o_js_khop_voi_python(self):
+		"""Hai danh sách lệch nhau thì hoặc nhân viên không thấy bảng, hoặc
+		người không có vai mở đơn là dính hộp báo lỗi quyền."""
+		for vai in dst.ROLE_NOI_BO:
+			self.assertIn(f'"{vai}"', self.js, vai)
+
+	def test_js_xu_du_bon_ma_de_xuat(self):
+		for ma in (dst.DX_DU, dst.DX_CAN_MUA, dst.DX_MOT_PHAN, dst.DX_DA_CO_MR):
+			self.assertIn(f"{ma}:", self.js, ma)
+
+	def test_cong_khach_hang_KHONG_goi_doi_sanh_ton(self):
+		"""Spec Q4: tồn của Miyano không được lộ sang cổng khách hàng."""
+		src = self.goc_repo / "frontend" / "src"
+		for f in list(src.rglob("*.vue")) + list(src.rglob("*.js")):
+			self.assertNotIn(
+				"doi_sanh_ton", f.read_text(encoding="utf-8"), str(f)
+			)
