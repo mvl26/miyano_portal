@@ -220,7 +220,8 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertGreaterEqual(flt(so.total), 5.0 * GIA_BANG_GIA)
 
 	def test_ma_khop_co_gia_bang_gia_thi_dong_nhan_gia_do(self):
-		# Đảo theo spec 2026-10-09 §4.4: mã khớp đã có giá trong Price List
+		# Đảo theo spec 2026-10-09 (giá theo Price List).
+		# §4.4: mã khớp đã có giá trong Price List
 		# của khách thì dòng tự nhận giá, không bắt nhân viên điền tay — kể cả
 		# khi mã đó KHÔNG thuộc hợp đồng khung nào (bài cũ khẳng định ngược
 		# lại: mã ngoài hợp đồng không được nhặt giá bảng giá).
