@@ -35,6 +35,8 @@
 **QĐ-G1 — `nguon_gia` là field SUY RA, không nhập tay.** Đặt trên `Portal De Xuat Mua Item`, Select: `Hợp đồng` / `Chờ báo giá`. Hệ thống ghi lúc thêm dòng, dựa trên việc mã hàng có dòng hợp đồng còn hiệu lực hay không. Không cho client gửi lên — một giá trị tự khai thì đúng lúc cần đối chiếu nhất sẽ sai.
 *Sai thì mất gì:* nếu nghiệp vụ cần quản lý ép một dòng sang "chờ báo giá" thủ công thì phải mở ra sau; rẻ.
 
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
+
 **QĐ-G2 (THAY THẾ 21/08/2026 — chủ đầu tư chốt lại) — `loai_don` trên PHIẾU ĐỀ XUẤT bị XOÁ HẲN, không giữ làm field suy ra.**
 Bản trước của QĐ-G2 chọn giữ nó lại làm field suy ra vì sợ vỡ chỗ đọc. Đã **đo thật** (21/08): trên phiếu đề xuất chỉ có **4 chỗ đọc** (`de_xuat_duyet.py:52,62,120` và `portal_de_xuat_mua.py:208`) cộng 3 chỗ ghi (`api/de_xuat.py:66,74`, `api/portal.py:439`). Nỗi sợ đó không có cơ sở. Chủ đầu tư: *"bỏ loại đơn đi và làm phiếu gộp"*.
 Thay bằng một hàm suy từ DÒNG: `PortalDeXuatMua.co_dong_cho_bao_gia() -> bool`. Không field, không giá trị `Hỗn hợp`, không Select nào phải mở rộng.
@@ -44,6 +46,8 @@ Thay bằng một hàm suy từ DÒNG: `PortalDeXuatMua.co_dong_cho_bao_gia() ->
 
 **QĐ-G3 — Đơn trộn đi MỘT vòng báo giá, cả đơn cùng chờ.** Chủ đầu tư xác nhận rõ và **chấp nhận cái giá**: hàng trong hợp đồng vốn giao được ngay, giờ phải chờ. Ghi vào tài liệu vận hành — đây là thứ bệnh viện sẽ hỏi.
 *Sai thì mất gì:* nếu sau này cần tách, phải dựng cơ chế tách đơn — việc lớn. Nhưng làm sẵn cơ chế tách khi chưa cần là YAGNI.
+
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
 
 **QĐ-G4 — Bỏ cờ `custom_cho_phep_mua_le` là XOÁ MỘT CHỐT ĐANG CHẠY**, không phải dọn mã chết. Sau khi bỏ, **mọi khách hàng đều xin được hàng ngoài hợp đồng** — đó là điều mong muốn, nhưng nó **mở rộng quyền cho toàn bộ khách hiện có**. Phải nói ra, không để lẳng lặng xảy ra.
 
@@ -302,9 +306,15 @@ Chủ đầu tư chọn: **đơn sinh từ cổng MANG THẲNG TÊN `MD-HUYETHOC
 **QĐ-G8 — vượt hạn mức: CẢNH BÁO tại dòng, KHÔNG chặn, KHÔNG tự tách dòng** (chủ đầu tư chốt 21/08, chọn "cách nhẹ"). Khoa xin 100 khi hạn mức còn 40 → dòng đó hiện *"Vượt hạn mức HĐ — còn 40"*, vẫn gửi duyệt được. **Quản lý gõ số duyệt** — cơ chế đó đã chạy. Không dựng cơ chế tách một dòng thành hai theo hạn mức: đó là hệ thống thay quản lý ra một quyết định thương mại mà nó không đủ thông tin để ra.
 *Sai thì mất gì:* nếu nghiệp vụ muốn tách tự động thì phải dựng thêm; nhưng dựng sẵn khi chưa cần là YAGNI.
 
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
+
 **QĐ-G9 — giỏ hàng hiện ĐƠN GIÁ TỪNG DÒNG, KHÔNG có dòng tổng** (chủ đầu tư chốt 21/08). Dòng hợp đồng hiện đơn giá; dòng chờ báo giá hiện `—`. **Không có dòng tổng nào** — tránh việc khoa nhớ một con số rồi đem so với hoá đơn cuối. Miyano báo giá đầy đủ ở bước sau.
 
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
+
 **QĐ-G10 — trang đầu là HÀNG TRONG HỢP ĐỒNG CỦA CHÍNH KHÁCH**, hết rồi mới tới danh mục chung (chủ đầu tư chốt 21/08). 10 dòng/trang, cắt trang trong SQL. Danh mục Miyano vài nghìn mã; A→Z thì không ai lật tới cuối, mà bắt gõ tìm mới hiện thì khoa quên tên hàng quen là bí.
+
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
 
 **Danh sách hàng — mỗi dòng mang:** trạng thái hàng (`trang_thai_hang`, đúng cơ chế màn mua lẻ đang dùng), tầng giá (`Giá HĐ <số tiền> · <mã HĐ>` hoặc `Chờ báo giá`), và hạn mức còn lại cho dòng hợp đồng (`còn 40/100` / `Hết hạn mức`). Nút **"+ Thêm dòng"** cho hàng chưa có mã **luôn hiện**, không chỉ khi tìm không ra.
 
@@ -374,6 +384,8 @@ Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
 2. `Item Price` trong `Customer.default_price_list`
 3. Không có → mới báo thiếu giá
 
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
+
 `rate = 0` là **CHƯA KHAI GIÁ**, không phải "bán 0 đồng" — giữ nguyên quy ước đã có trong `gia_hdnt.py`, coi như không có và đi tiếp bước 2.
 *Sai thì mất gì:* nếu Miyano cố tình để rate cũ trên hợp đồng và muốn bảng giá đè lên, thứ tự này sẽ lấy giá hợp đồng. Nhưng `gia_hdnt.py` đã chốt ngược lại rồi — *"Giá HĐNT ĐÈ giá cũ. Hợp đồng đã ký là nguồn sự thật"* — nên đây là làm cho mã khớp với nguyên tắc đã tuyên bố, không phải đổi nguyên tắc.
 
@@ -410,6 +422,8 @@ Thứ tự tra, dừng ở cái đầu tiên có giá trị dương:
 *Sai thì mất gì:* nếu Miyano muốn khớp mã chỉ để tra cứu mà chưa muốn đưa vào đơn, sẽ phải thêm một bước xác nhận. Nhưng chốt `before_submit` hiện đã coi "khớp mã" là "đã lo xong", nên hai nghĩa đó đang bị trộn sẵn rồi.
 
 **QĐ-G14 — hàng có trong hợp đồng khung của khách thì LẤY GIÁ HỢP ĐỒNG TỰ ĐỘNG** (chủ đầu tư chốt tường minh). Dùng **đúng hàm dùng chung** của QĐ-G12/P30/P31 — không viết phép tra thứ bảy. Không thuộc hợp đồng nào còn hiệu lực → `rate = 0`, chờ Miyano báo giá như mọi dòng tầng 2.
+
+> **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.
 
 **QĐ-G15 — GIỮ NGUYÊN dòng gõ tay làm bằng chứng.** Không xoá, không sửa `ten_hang` khách đã gõ. Đó là truy vết chủ đầu tư yêu cầu từ đầu: *"ghi tên ngày giờ lý do yêu cầu của nhân viên để sau này truy vết"*. Thêm cờ **đã chuyển** + lưu tên dòng `items` đã tạo, để biết dòng nào sinh ra từ dòng nào.
 
