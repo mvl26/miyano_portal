@@ -17,8 +17,9 @@ from pathlib import Path
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor
 
+ANH = re.compile(r"^!\[(.*?)\]\((.+?)\)\s*$")
 DAM = re.compile(r"\*\*(.+?)\*\*")
 MA = re.compile(r"`([^`]+)`")
 
@@ -90,6 +91,19 @@ def chuyen(md_path: Path) -> Path:
             r.font.name = "Consolas"
             r.font.size = Pt(9)
             p.paragraph_format.left_indent = Pt(18)
+            i += 1
+            continue
+
+        anh = ANH.match(d)
+        if anh:  # ảnh chụp màn hình: `![chú thích](đường-dẫn-tương-đối)`
+            # Đường dẫn tính từ thư mục chứa file .md, như trình xem Markdown.
+            # Rộng 6,3 inch = vừa khít lề trang A4 mặc định của python-docx.
+            doc.add_picture(str(md_path.parent / anh.group(2)), width=Inches(6.3))
+            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if anh.group(1):
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                _viet_doan(p, anh.group(1), nghieng=True)
             i += 1
             continue
 
