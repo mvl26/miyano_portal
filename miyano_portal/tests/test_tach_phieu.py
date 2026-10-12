@@ -22,21 +22,23 @@ class TestTachPhieu(FrappeTestCase):
 				frappe.delete_doc("Item Price", ten, force=True)
 		self._tao_gia(self.item_ngoai, self.price_list, 54000)   # có giá
 		self.co_gia, self.chua_gia = self.item_ngoai, self.item_boi_so
-		self.quan_ly = self._dam_bao_thanh_vien(
-			"tach.ql@demo.miyano", self.kh_a, "Quản lý", None
-		)
+		self.quan_ly = self._quan_ly_cua("tach.ql@demo.miyano", self.kh_a)
+
+	def _quan_ly_cua(self, email, khach):
+		user = self._dam_bao_thanh_vien(email, khach, "Quản lý", None)
 		# ERPNext tự tìm `Contact` theo người đang đăng nhập và gán vào
 		# `so.contact_person`; Contact tự sinh của User chưa nối với khách thì
 		# đơn bị từ chối ("Contact Person does not belong to…"). Cùng cách
 		# dựng với `test_don_tron_bao_gia.py`.
-		contact = frappe.db.get_value("Contact", {"user": self.quan_ly})
+		contact = frappe.db.get_value("Contact", {"user": user})
 		if contact and not frappe.db.exists("Dynamic Link", {
 			"parent": contact, "parenttype": "Contact",
-			"link_doctype": "Customer", "link_name": self.kh_a,
+			"link_doctype": "Customer", "link_name": khach,
 		}):
 			c = frappe.get_doc("Contact", contact)
-			c.append("links", {"link_doctype": "Customer", "link_name": self.kh_a})
+			c.append("links", {"link_doctype": "Customer", "link_name": khach})
 			c.save(ignore_permissions=True)
+		return user
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -295,6 +297,36 @@ class TestTachPhieu(FrappeTestCase):
 		)
 		self.assertFalse(frappe.db.get_value(DT, kq["de_xuat"], "ma_lan_dat"))
 		self.assertFalse(frappe.db.get_value(DT, kq["de_xuat"], "phieu_cung_lan_dat"))
+
+	def test_don_da_tach_cua_khach_khac_khong_lam_gio_mot_loai_bi_coi_la_da_tach(self):
+		"""Phép dò "lần bấm trước đã tách chưa" phải hỏi trong phạm vi CHÍNH
+		khách đang đặt. Khách A có đơn `X:gia` / `X:baogia`; khách B gửi mã
+		trần `X` cho một giỏ MỘT LOẠI. Không lọc khách thì B bị coi là "đã
+		tách", giỏ bị ép sang `X:gia` và chết ở chốt BR-O12 ("Mã yêu cầu
+		không hợp lệ") dù B chưa từng dùng mã nào."""
+		frappe.set_user(self.quan_ly)
+		rid = frappe.generate_hash(length=12)
+		cua_a = portal.portal_order_place(**self._gio_tron(rid))
+		self.assertEqual(len(cua_a["don"]), 2, "tiền đề: khách A đã có hai đơn tách")
+
+		frappe.set_user("Administrator")
+		quan_ly_b = self._quan_ly_cua("tach.ql.b@demo.miyano", self.kh_b)
+		frappe.set_user(quan_ly_b)
+		cua_b = portal.portal_order_place(
+			items=json.dumps([{"item_code": self.chua_gia, "qty": 10}]), request_id=rid,
+		)
+		self.assertEqual(len(cua_b["don"]), 1)
+		self.assertFalse(cua_b["da_ton_tai"])
+		frappe.set_user("Administrator")
+		don_b = frappe.db.get_value(
+			"Sales Order", cua_b["sales_order"],
+			["customer", "custom_request_id"], as_dict=True,
+		)
+		self.assertEqual(don_b.customer, self.kh_b)
+		self.assertEqual(don_b.custom_request_id, rid)
+		self.assertNotIn(
+			cua_b["sales_order"], [d["sales_order"] for d in cua_a["don"]]
+		)
 
 	def test_quan_ly_dat_gio_tron_thieu_request_id_bi_tu_choi_nhu_gio_mot_loai(self):
 		"""Thiếu `request_id` thì `dat_hang.tao_sales_order` từ chối (BR-O12).

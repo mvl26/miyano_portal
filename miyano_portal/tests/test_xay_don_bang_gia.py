@@ -125,8 +125,14 @@ class TestXayDonBangGia(FrappeTestCase):
 	def test_dong_gia_khac_don_vi_goc_trong_bang_cua_khach_van_la_bao_gia_gia_0(self):
 		"""Cùng họ với ca hết hạn: dòng giá khai theo đơn vị KHÁC đơn vị gốc
 		(cổng luôn đặt theo `stock_uom`) không phải giá của dòng đơn này."""
-		dvt_khac = frappe.db.get_value("UOM", {"name": ["!=", "Cái"]}, "name")
+		# Đọc đơn vị gốc THẬT của mặt hàng thay vì tin nó là "Cái": fixture
+		# đổi đơn vị thì dòng giá dưới đây thành dòng ĐÚNG đơn vị gốc, và bài
+		# đỏ ở chỗ khác với một lý do không liên quan.
+		dvt_goc = frappe.db.get_value("Item", self.item_boi_so, "stock_uom")
+		self.assertTrue(dvt_goc, "tiền đề: mặt hàng phải có đơn vị gốc")
+		dvt_khac = frappe.db.get_value("UOM", {"name": ["!=", dvt_goc]}, "name")
 		self.assertTrue(dvt_khac, "Site test không có đơn vị tính thứ hai.")
+		self.assertNotEqual(dvt_khac, dvt_goc)
 		frappe.get_doc({
 			"doctype": "Item Price", "item_code": self.item_boi_so,
 			"price_list": self.price_list, "selling": 1, "price_list_rate": 880000,

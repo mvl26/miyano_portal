@@ -1,11 +1,10 @@
-"""US-E1.4 (thông báo thiếu giá cho sales) và US-E1.5 (đặt lại đơn cũ).
-
-TC-E1-10, và hàm `portal_thong_bao.bao_thieu_gia`.
+"""US-E1.5 — đặt lại đơn cũ (TC-E1-10).
 
 Từ spec 2026-10-09 (giá theo Price List, §4.2) đường ĐẶT HÀNG không còn chặn
-đơn bằng `thieu_gia` hay gọi `bao_thieu_gia` — mặt hàng chưa có giá thành dòng
-chờ báo giá. Hai bài TC-E1-09 về đường đó đã xoá cùng hành vi; `TestThieuGia`
-còn giữ các bài gọi THẲNG `bao_thieu_gia` (hàm vẫn có người gọi khác).
+đơn vì thiếu giá — mặt hàng chưa có giá thành dòng chờ báo giá. Thông báo
+"Portal - Thiếu giá" cho sales (US-E1.4, hàm `portal_thong_bao.bao_thieu_gia`)
+vì thế không còn nơi gọi và đã gỡ cùng các bài của nó; tên file giữ nguyên để
+lịch sử git của các bài đặt lại không đứt.
 
 §4.4 cùng spec: ĐẶT LẠI đơn cũ cũng theo Price List — không còn loại dòng vì
 "ngoài hợp đồng" / "hết hạn mức" / "thiếu giá", không còn hạ số lượng theo hạn
@@ -20,63 +19,17 @@ from frappe.tests.utils import FrappeTestCase
 from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
-from miyano_portal.portal_thong_bao import bao_thieu_gia
 from miyano_portal.setup.seed_demo import seed_demo
 from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 BVBM = "Bệnh viện Bạch Mai"
 USER_BVBM = "bvbm@demo.miyano"
-USER_SALES = "sales_user@demo.miyano"
 VT = "VT0005"
 HC = "HC0009"
 
 
 def _rid() -> str:
     return frappe.generate_hash(length=12)
-
-
-class TestThieuGia(FrappeTestCase):
-    def setUp(self):
-        seed_demo()
-        # Gán sales phụ trách để có người nhận thông báo. Không có thì
-        # `bao_thieu_gia` im lặng bỏ qua — đúng thiết kế, nhưng test sẽ không
-        # kiểm được gì.
-        frappe.db.set_value("Customer", BVBM, "account_manager", USER_SALES)
-        # `FrappeTestCase` rollback một lần mỗi CLASS, không phải mỗi test:
-        # `Notification Log` do ca chạy trước tạo ra vẫn còn khi ca sau chạy,
-        # và cơ chế chống spam theo ngày sẽ trả False. Không dọn ở đây thì
-        # các ca phụ thuộc thứ tự chạy — đúng loại phụ thuộc ngầm đã làm đỏ
-        # suite một lần rồi.
-        frappe.db.delete("Notification Log", {"subject": ("like", "Portal - Thiếu giá%")})
-        self.addCleanup(frappe.set_user, "Administrator")
-
-    def test_chi_bao_mot_lan_moi_ngay_cho_moi_cap_khach_mat_hang(self):
-        """Khách mở danh mục mười lần trong ngày không được thành mười thông
-        báo cho cùng một nhân viên."""
-        frappe.set_user("Administrator")
-        self.assertTrue(bao_thieu_gia(BVBM, HC))
-        self.assertFalse(bao_thieu_gia(BVBM, HC), "lần thứ hai trong ngày không gửi lại")
-        self.assertEqual(
-            frappe.db.count(
-                "Notification Log",
-                {"for_user": USER_SALES, "subject": ("like", f"%{HC}%")},
-            ),
-            1,
-        )
-
-    def test_mat_hang_khac_van_duoc_bao_rieng(self):
-        """Chống spam theo CẶP (khách, mặt hàng), không phải theo khách —
-        chặn cả mặt hàng thứ hai là giấu mất một nhu cầu thật."""
-        frappe.set_user("Administrator")
-        self.assertTrue(bao_thieu_gia(BVBM, HC))
-        self.assertTrue(bao_thieu_gia(BVBM, VT))
-
-    def test_khach_khong_co_sales_phu_trach_thi_im_lang(self):
-        """Không có người nhận thì không tạo bản ghi rác, và tuyệt đối không
-        được ném lỗi — khách vẫn phải nhận đúng thông điệp thiếu giá."""
-        frappe.set_user("Administrator")
-        frappe.db.set_value("Customer", BVBM, "account_manager", None)
-        self.assertFalse(bao_thieu_gia(BVBM, HC))
 
 
 class TestReorder(FrappeTestCase):

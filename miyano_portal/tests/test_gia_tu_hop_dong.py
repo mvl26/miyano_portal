@@ -31,8 +31,12 @@ mang chú thích riêng: danh mục `portal_catalog_gop` (phân tầng theo Pric
 List), việc DỰNG ĐƠN (`dat_hang._xay_don`, §4.2) — đơn lấy giá từ
 `Customer.default_price_list`, không đọc `rate` của hợp đồng, không gắn hợp
 đồng lên dòng, và "chưa có giá" là dòng chờ báo giá chứ không còn lỗi
-`thieu_gia` — và ĐẶT LẠI đơn cũ (`portal_reorder`, §4.4). Thứ tự tra ở trên
-giờ chỉ còn đúng cho đường gửi duyệt phiếu.
+`thieu_gia` — và ĐẶT LẠI đơn cũ (`portal_reorder`, §4.4). Phiếu đề xuất
+(`_suy_nguon_gia` / `_dong_dau_gia`) cũng đã chuyển sang Price List, và hàm tra
+dùng chung `gia_hdnt.gia_dong_hop_dong` đã xoá (12/10/2026). Thứ tự tra ở trên
+vì thế là LỊCH SỬ: không đường nào của cổng còn đọc `rate` của hợp đồng. Giá
+hợp đồng tới được đơn theo đúng một lối — `gia_hdnt.dong_bo` chép nó vào Price
+List lúc trình ký — và đó là thứ các bài còn lại ở đây canh.
 """
 
 import frappe
@@ -418,8 +422,7 @@ class TestGiaTuHopDong(FrappeTestCase):
 
 		# Thời gian trôi qua: hợp đồng cũ hết hạn. Ghi thẳng DB — `to_date`
 		# của một Blanket Order đã nộp không sửa qua `save()` được, và đây
-		# mô phỏng đúng việc ngày tháng đi tới (cùng khuôn
-		# `test_han_muc_don_tron.py`).
+		# mô phỏng đúng việc ngày tháng đi tới.
 		frappe.db.set_value(
 			"Blanket Order", bo_cu, "to_date", frappe.utils.add_days(frappe.utils.today(), -1)
 		)
@@ -438,28 +441,6 @@ class TestGiaTuHopDong(FrappeTestCase):
 			"giỏ đặt lại đang đọc giá cũ (đơn cũ / hợp đồng ĐÃ HẾT HIỆU LỰC)",
 		)
 		self.assertTrue(bo_moi)
-
-	def test_hop_dong_het_han_khong_dinh_gia_duoc_cho_hom_nay(self):
-		"""Ruling P31 ở tầng hàm dùng chung — chốt nằm TRONG
-		`gia_dong_hop_dong()`, không ở sáu nơi gọi (sáu nơi là sáu chỗ quên
-		được). Hợp đồng hết hạn → bỏ qua bước 1, rơi xuống bảng giá.
-
-		Vế dương đi kèm: cũng chính hợp đồng đó, khi CÒN hiệu lực, thì định
-		giá được — nếu không, bài này xanh cả khi hàm luôn trả `None`."""
-		ma = self._item("_TEST G12 HET HAN")
-		bo = self._bo(self.kh_a, [{"item_code": ma, "qty": 100, "rate": 88000}])
-		self._xoa_gia(ma)
-		self.assertEqual(
-			gia_hdnt.gia_dong_hop_dong(ma, bo, self.price_list), 88000.0,
-			"vế dương: hợp đồng CÒN hiệu lực phải định giá được",
-		)
-		frappe.db.set_value(
-			"Blanket Order", bo, "to_date", frappe.utils.add_days(frappe.utils.today(), -1)
-		)
-		self.assertIsNone(
-			gia_hdnt.gia_dong_hop_dong(ma, bo, self.price_list),
-			"hợp đồng ĐÃ HẾT HẠN không có quyền định giá cho hôm nay",
-		)
 
 	# -- BẢNG GIÁ DÙNG CHUNG (spec 2026-10-09 §5.3, thay Ruling P32) ----------
 

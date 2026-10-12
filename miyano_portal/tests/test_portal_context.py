@@ -1,6 +1,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from miyano_portal.portal_context import get_portal_customer, remaining_qty
+from miyano_portal.portal_context import get_portal_customer
 
 
 class TestPortalContext(FrappeTestCase):

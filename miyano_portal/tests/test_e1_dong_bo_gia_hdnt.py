@@ -357,7 +357,7 @@ class TestDonHangLayGiaBangGia(_GiaFixture):
     LỊCH SỬ, đọc trước khi sửa: lớp này từng tên `TestDanhMucVaDatHangCoThe
     LECH` (ghim điểm lệch "danh mục hiện giá, đơn bị chặn chưa có giá"), rồi
     `TestDanhMucVaDatHangKHONGCONLECH` khi Task 12 (QĐ-G12) cho cả danh mục
-    cũ lẫn đơn hỏi chung `gia_hdnt.gia_dong_hop_dong` — hợp đồng THẮNG bảng
+    cũ lẫn đơn hỏi chung `gia_hdnt.gia_dong_hop_dong` (hàm đã xoá) — hợp đồng THẮNG bảng
     giá ở cả hai phía. Spec 2026-10-09 đảo vế ĐƠN: nguồn giá duy nhất của
     đơn là Price List. Bài dưới cố ý cài một `Item Price` KHÁC giá hợp đồng
     để phân biệt được hai nguồn."""

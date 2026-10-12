@@ -3,24 +3,25 @@
 Trước task này `dat_hang.tao_sales_order` rẽ NGAY Ở ĐẦU HÀM thành
 `_xay_don_hdnt` / `_xay_don_ban_le` theo tham số `mode`, tức quyết định
 "đơn này theo hợp đồng hay chờ báo giá" được hạ MỘT LẦN CHO CẢ ĐƠN. Sau
-task này chỉ còn MỘT hàm dựng và quyết định hạ xuống TỪNG DÒNG:
+task này chỉ còn MỘT hàm dựng và quyết định hạ xuống TỪNG DÒNG. Bảng HIỆN
+HÀNH (spec 2026-10-09, giá theo Price List, §3.2 / §4.2):
 
-| Dòng                    | Xử lý                                            |
-|-------------------------|--------------------------------------------------|
-| Có trong hợp đồng       | `rate` = giá hợp đồng, gắn `blanket_order`, trừ hạn mức |
-| Có mã, ngoài hợp đồng   | `rate = 0`, chờ Miyano báo giá                   |
-| Chưa có mã              | vào `custom_dat_ngoai`, KHÔNG BAO GIỜ vào `items`|
+| Dòng                              | Xử lý                                   |
+|-----------------------------------|-----------------------------------------|
+| Có mã, có giá trong Price List    | `rate` = giá đó, dấu `custom_nguon_gia = "Bảng giá"` |
+| Có mã, chưa có giá                | `rate = 0`, dấu "Báo giá", chờ Miyano báo giá |
+| Chưa có mã                        | vào `custom_dat_ngoai`, KHÔNG BAO GIỜ vào `items` |
 
-Luật phân định dòng nào thuộc hợp đồng nào dùng CHUNG một hàm với màn lập
-phiếu và với `Portal De Xuat Mua._suy_nguon_gia()`
-(`portal_de_xuat_mua.nguon_gia_theo_ma_cho_khach`, Ruling P14/P18) — hai
-đường tính "hợp đồng nào thắng" khác nhau sớm muộn cũng lệch.
+Hợp đồng khung không còn được hỏi lúc dựng đơn — không giá hợp đồng, không
+`blanket_order`, không hạn mức, không `custom_hdnt`. Nguồn giá của đơn, của
+danh mục và của `Portal De Xuat Mua._suy_nguon_gia()` là CÙNG một phép hỏi
+(`bang_gia_khach.gia_bang_gia_nhieu`) — hai đường tra khác nhau sớm muộn cũng
+lệch.
 
-SPEC 2026-10-09 (giá theo Price List, §3.2 / §4.2) thay bảng trên: tầng của
-một dòng CÓ MÃ giờ là "có giá trong Price List của khách" (giá đó, dấu
-`custom_nguon_gia = "Bảng giá"`) hay "chưa có giá" (`rate = 0`, dấu "Báo
-giá"); hợp đồng khung không còn được hỏi lúc dựng đơn — không giá hợp đồng,
-không `blanket_order`, không hạn mức, không `custom_hdnt`. Các bài dưới đây
+LỊCH SỬ (21/08 → 09/10/2026, đã thay): hai dòng đầu của bảng từng là "có
+trong hợp đồng → giá hợp đồng, gắn `blanket_order`, trừ hạn mức" và "ngoài
+hợp đồng → `rate = 0`", phân định bằng `nguon_gia_theo_ma_cho_khach` (Ruling
+P14/P18). Các bài dưới đây
 đã đổi kỳ vọng theo luật đó (mỗi bài mang chú thích "Đảo theo spec …"); hai
 bài về lỗi vượt hạn mức ở nhánh đặt hàng đã xoá cùng hành vi. Việc tách giỏ
 trộn thành hai phiếu là của tầng trên (§4.1), không kiểm ở file này.
@@ -36,8 +37,9 @@ sau; xem `task-4-5-9-report.md` để có bằng chứng đỏ.
 
 Lớp RIÊNG (không gộp vào `test_dat_hang_core.py`) vì lớp này dựng
 `Blanket Order` SUBMIT thật cho `_TEST DX A`, và `FrappeTestCase` chỉ
-rollback MỘT LẦN mỗi CLASS — cùng lý do `TestDeXuatDuyetHanMuc` tách khỏi
-`TestDeXuatDuyet`.
+rollback MỘT LẦN mỗi CLASS — hợp đồng đó sẽ rò sang các bài không cần nó.
+Hợp đồng vẫn được dựng có chủ đích: nó là thứ các bài ở đây chứng minh KHÔNG
+còn ảnh hưởng tới đơn.
 """
 
 import frappe
@@ -299,7 +301,7 @@ class TestDatHangGop(FrappeTestCase):
 		self.assertEqual(so.company, COMPANY)
 		self.assertEqual(so.selling_price_list, self.price_list)
 
-	def test_don_thuan_cho_bao_gia_nhu_mua_le_hom_nay(self):
+	def test_don_thuan_cho_bao_gia_la_don_mua_le_rate_0(self):
 		"""Đơn toàn hàng chưa có giá — rate 0, không gắn hợp đồng, loại đơn
 		"Mua lẻ" (đi vòng báo giá)."""
 		kq = dat_hang.tao_sales_order(

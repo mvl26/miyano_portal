@@ -308,6 +308,7 @@ class TestNguonGiaDong(FrappeTestCase):
 
 	# ---- Đóng băng dòng (`dong_bang`) --------------------------------
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_dong_bang_nguon_gia_luc_gui_duyet_khong_bi_tinh_lai_sau_do(self):
 		"""I3 (review vòng 1) — `nguon_gia` phải ĐÓNG BĂNG từ lúc Gửi duyệt.
 		Không có chốt đó, `_suy_nguon_gia()` chạy lại ở MỌI `validate()`/
@@ -358,6 +359,7 @@ class TestNguonGiaDong(FrappeTestCase):
 		self._xoa_gia(item)
 		return doc, item
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_thu_hoi_KHONG_mo_bang_nguon_gia_cua_dong_cu(self):
 		"""Review TOÀN NHÁNH (Important) — `thu_hoi()` đặt `trang_thai =
 		"Nháp"` TRƯỚC `save()`, nên `validate()` của chính lần lưu đó sẽ
@@ -489,6 +491,7 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[1].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
 		self.assertFalse(doc.items[1].blanket_order)
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_gui_duyet_lai_sau_tu_choi_tren_doc_tai_moi_khong_vo(self):
 		"""I3 (advisor, ngay sau vòng sửa 1) — `_suy_nguon_gia()` KHÔNG được
 		đọc `self.get_doc_before_save()` khi đóng băng: nó còn được gọi từ

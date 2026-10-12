@@ -104,6 +104,9 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
         )
         self.assertEqual(len(loi), 2)
         for d in loi:
+            # Chuỗi rỗng nằm trong MỌI chuỗi: không khẳng định `thong_diep`
+            # có chữ thì phép `assertIn` dưới xanh cả khi thông điệp mất sạch.
+            self.assertTrue((d["thong_diep"] or "").strip(), d)
             self.assertIn(d["thong_diep"], van_xuoi)
 
     # Đảo theo spec 2026-10-09 (giá theo Price List).

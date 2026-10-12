@@ -31,6 +31,58 @@ class TestTruongGiaTheoPriceList(FrappeTestCase):
 		self.assertIn("Theo HĐNT", loai.options.split("\n"))
 		self.assertIn("Mua lẻ", loai.options.split("\n"))
 
+	def _chay_them_truong(self):
+		"""`them_truong()` với hai bước CẤU TRÚC (`reload_doc`,
+		`create_custom_fields`) bị thay bằng mock: chúng có thể ALTER TABLE,
+		tức commit ngầm giữa một bài test trên site đang dùng thật. Phần cần
+		kiểm ở đây là phần ghi `options` của `custom_loai_don`."""
+		with patch.object(patch_moi.frappe, "reload_doc"), \
+				patch.object(patch_moi, "create_custom_fields"):
+			patch_moi.them_truong()
+
+	def test_them_truong_chay_hai_lan_chi_them_lua_chon_mot_lan(self):
+		ten = frappe.db.get_value(
+			"Custom Field", {"dt": "Sales Order", "fieldname": "custom_loai_don"}, "name"
+		)
+		self.assertTrue(ten, "tiền đề: site phải có Custom Field custom_loai_don")
+		# Dựng lại hiện trường TRƯỚC patch (chưa có lựa chọn mới) để lần chạy
+		# đầu thật sự phải thêm; `FrappeTestCase` rollback trả lại sau lớp.
+		truoc = (frappe.db.get_value("Custom Field", ten, "options") or "").split("\n")
+		frappe.db.set_value(
+			"Custom Field", ten, "options",
+			"\n".join(o for o in truoc if o != "Theo bảng giá"),
+		)
+		self._chay_them_truong()
+		self._chay_them_truong()
+		sau = (frappe.db.get_value("Custom Field", ten, "options") or "").split("\n")
+		self.assertEqual(sau.count("Theo bảng giá"), 1)
+		self.assertEqual(
+			[o for o in sau if o != "Theo bảng giá"],
+			[o for o in truoc if o != "Theo bảng giá"],
+			"các lựa chọn cũ phải còn nguyên, đúng thứ tự",
+		)
+
+	def test_them_truong_thieu_custom_loai_don_thi_ghi_error_log(self):
+		"""Site thiếu Custom Field `custom_loai_don` (patch v1_8 chưa chạy
+		/ field bị xoá tay): không có chỗ nào để thêm "Theo bảng giá", và đơn
+		"Theo bảng giá" đầu tiên sẽ hỏng ở phép kiểm Select. Bỏ qua trong im
+		lặng là giấu đúng lỗi đó — phải để lại Error Log nói rõ."""
+		that = frappe.db.get_value
+
+		def _khong_co_truong(doctype, filters=None, *a, **kw):
+			if doctype == "Custom Field" and isinstance(filters, dict) \
+					and filters.get("fieldname") == "custom_loai_don":
+				return None
+			return that(doctype, filters, *a, **kw)
+
+		with patch.object(patch_moi.frappe.db, "get_value", side_effect=_khong_co_truong), \
+				patch.object(patch_moi.frappe, "log_error") as ghi_loi:
+			self._chay_them_truong()
+		self.assertEqual(ghi_loi.call_count, 1)
+		noi_dung = " ".join(str(v) for v in ghi_loi.call_args.kwargs.values())
+		self.assertIn("custom_loai_don", noi_dung)
+		self.assertIn("Theo bảng giá", noi_dung)
+
 
 class TestChuyenDuLieu(FrappeTestCase):
 	"""Phần DỮ LIỆU của patch (spec 2026-10-09 §6). `chuyen_du_lieu()` quét MỌI

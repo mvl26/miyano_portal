@@ -40,6 +40,7 @@ class TestGiaBangGiaTrenDanhMuc(FrappeTestCase):
 			frappe.set_user("Administrator")
 		return self._row(out["rows"], item_code)
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_hang_co_gia_la_tang_bang_gia(self):
 		self._tao_gia(self.item_ngoai, self.price_list, 54000)
 		row = self._dong(self.item_ngoai)

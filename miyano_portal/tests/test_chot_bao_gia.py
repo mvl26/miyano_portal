@@ -84,7 +84,7 @@ class TestChotBaoGia(FrappeTestCase):
 		self.assertEqual(float(so.items[0].custom_gia_khach_dong_y or 0), 0.0)
 
 	def test_don_desk_khong_bi_chot(self):
-		"""Đơn không phải từ cổng: chốt 1 và 2 không áp."""
+		"""Đơn không phải từ cổng: cả ba chốt không áp."""
 		so = self._don(self.item_boi_so)
 		so.custom_nguon_don = "Nội bộ"
 		so.save()
@@ -95,7 +95,19 @@ class TestChotBaoGia(FrappeTestCase):
 		so2.save()
 		so2 = apply_workflow(so2, "Gửi khách duyệt")
 		self.assertEqual(so2.workflow_state, "Chờ khách đồng ý")
-		chot_bao_gia.kiem_gia_khop_gia_da_dong_y(so2)
+		# Chốt 3 — dựng ĐÚNG ca nó sinh ra để chặn (dòng "Báo giá", giá trên
+		# đơn lệch giá khách đã đồng ý) ngay trong bộ nhớ. Vế đối chứng đi
+		# trước: cũng dòng ấy trên đơn TỪ CỔNG thì bị chặn — không có nó, lời
+		# gọi cho đơn Desk xanh cả khi dữ liệu chưa hề chạm tới điều kiện.
+		dong = so2.items[0]
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+		dong.custom_gia_khach_dong_y = 7000
+		dong.rate = 9000
+		so2.custom_nguon_don = "Client Portal"
+		with self.assertRaises(frappe.ValidationError):
+			chot_bao_gia.kiem_gia_khop_gia_da_dong_y(so2)
+		so2.custom_nguon_don = "Nội bộ"
+		self.assertIsNone(chot_bao_gia.kiem_gia_khop_gia_da_dong_y(so2))
 
 	def test_don_cu_theo_hdnt_du_gia_khong_bi_chot(self):
 		"""Đơn cổng tạo trước thay đổi: loại "Theo HĐNT", dòng chưa đóng dấu nguồn giá."""

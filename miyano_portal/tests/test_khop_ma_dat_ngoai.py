@@ -28,7 +28,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from miyano_portal import bang_gia_khach, dat_hang, gia_hdnt
+from miyano_portal import bang_gia_khach, dat_hang
+from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
+	nguon_gia_theo_ma_cho_khach,
+)
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
@@ -190,8 +193,8 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		trong Price List của khách: đơn phải có một DÒNG HÀNG THẬT, đúng số
 		lượng khách gõ, mang ĐÚNG GIÁ BẢNG GIÁ và dấu "Bảng giá"."""
 		# Đảo theo spec 2026-10-09 (giá theo Price List).
-		self.assertTrue(
-			gia_hdnt.con_hieu_luc(self.bo_a),
+		self.assertEqual(
+			nguon_gia_theo_ma_cho_khach(self.kh_a).get(self.item_hd), self.bo_a,
 			"Tiền đề: mã này CŨNG nằm trong một hợp đồng còn hiệu lực với giá "
 			"khác — nếu không, bài không chứng minh được giá hợp đồng đã thôi "
 			"rơi lên đơn.",

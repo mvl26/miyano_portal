@@ -133,8 +133,9 @@ class TestDatHangBanLe(FrappeTestCase):
         #
         # review P0 (kiểm thử hệ thống, mục "TC-E6-02") — ba assertFalse chỉ
         # khẳng định dòng đơn không GẮN link tới Blanket Order; chưa ai đọc
-        # thẳng `ordered_qty` — trường ERPNext THẬT dùng để tính hạn mức còn
-        # lại (`han_muc_con`, portal_context.py) và được ERPNext core ghi
+        # thẳng `ordered_qty` — trường ERPNext THẬT ghi số đã đặt luỹ kế của
+        # dòng hợp đồng (cổng thôi đọc nó từ spec 2026-10-09; Desk và báo cáo
+        # ERPNext vẫn đọc), được ERPNext core ghi
         # đè lúc submit (`StockController.update_blanket_order`, chạy khi
         # dòng đơn CÓ `blanket_order` — xem
         # apps/erpnext/erpnext/controllers/stock_controller.py). Dựng thêm
