@@ -28,7 +28,7 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def _don_cho_khach(self, ma, rate):
+	def _don_cho_khach_chua_gui(self, ma, rate):
 		kq = dat_hang.tao_sales_order(
 			self.kh_a, items=[{"item_code": ma, "qty": 10}],
 			request_id=frappe.generate_hash(length=12),
@@ -36,7 +36,10 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		so.items[0].rate = rate
 		so.save()
-		return apply_workflow(so, "Gửi khách duyệt")
+		return so
+
+	def _don_cho_khach(self, ma, rate):
+		return apply_workflow(self._don_cho_khach_chua_gui(ma, rate), "Gửi khách duyệt")
 
 	def _khach(self, so, action, **them):
 		frappe.set_user(self.quan_ly)
@@ -260,21 +263,189 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 			"Sales Order Item", so.items[0].name, "conversion_factor")), 10.0)
 		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
 
-	def test_khong_ghi_dong_bang_gia(self):
+	# ---- Final-fix I-3: dòng "Bảng giá" / dòng thêm tay trong ĐƠN BÁO GIÁ ----
+	# Đơn "Mua lẻ" có một dòng "Bảng giá" là ca hợp lệ (giá xuất hiện giữa lúc
+	# gửi và lúc duyệt §4.3, hoặc gửi lại). Luật R14/R16 chạy cho MỌI dòng lúc
+	# đơn vào "Chờ khách đồng ý", không chỉ khi tình cờ có dòng gõ tay gộp vào.
+
+	def _don_tron(self):
+		"""Đơn báo giá: `item_ngoai` có giá bảng 54.000 (dòng "Bảng giá"),
+		`item_boi_so` chưa có giá (dòng "Báo giá")."""
 		self._tao_gia(self.item_ngoai, self.price_list, 54000)
 		kq = dat_hang.tao_sales_order(
 			self.kh_a,
-			items=[{"item_code": self.item_ngoai, "qty": 1}],
-			dat_ngoai=[{"ten_hang": "Kim X", "dvt": "Cái", "so_luong": 1,
-			            "khong_co_anh": 1}],
+			items=[{"item_code": self.item_ngoai, "qty": 2},
+			       {"item_code": self.item_boi_so, "qty": 10}],
 			request_id=frappe.generate_hash(length=12),
 		)
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		dong_ngoai = [d for d in so.items if d.item_code == self.item_ngoai]
-		self.assertEqual(dong_ngoai[0].custom_nguon_gia, "Bảng giá")
-		self.assertEqual(
-			[d for d in bg.ghi_gia_da_dong_y(so) if d["item_code"] == self.item_ngoai], []
+		self.assertEqual(so.custom_loai_don, "Mua lẻ")
+		self.assertEqual(self._dong_don(so, self.item_ngoai).custom_nguon_gia, "Bảng giá")
+		self.assertEqual(self._dong_don(so, self.item_boi_so).custom_nguon_gia, "Báo giá")
+		return so
+
+	def _dong_don(self, so, ma):
+		return [d for d in so.items if d.item_code == ma][0]
+
+	def _gia_trong_bang(self, ma):
+		return frappe.get_all(
+			"Item Price", filters={"item_code": ma, "selling": 1},
+			fields=["name", "price_list", "price_list_rate", "modified"],
+			order_by="name asc",
 		)
+
+	def _dau_dong_y(self, so, ma):
+		return float(frappe.db.get_value(
+			"Sales Order Item", self._dong_don(so, ma).name, "custom_gia_khach_dong_y") or 0)
+
+	def test_dong_bang_gia_khong_ai_sua_khong_ghi_khong_dong_dau(self):
+		"""(a) Dòng "Bảng giá" còn nguyên giá bảng: giữ dấu, không ghi gì vào
+		Price List, không có dấu giá đã đồng ý. Dòng "Báo giá" cạnh nó vẫn ghi."""
+		so = self._don_tron()
+		self._dong_don(so, self.item_boi_so).rate = 7000
+		so.save()
+		truoc = self._gia_trong_bang(self.item_ngoai)
+		so = apply_workflow(so, "Gửi khách duyệt")
+		dong = self._dong_don(so, self.item_ngoai)
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertEqual(float(dong.rate), 54000.0)
+		self._khach(so, "dong_y")
+		self.assertEqual(self._gia_trong_bang(self.item_ngoai), truoc)
+		self.assertEqual(self._dau_dong_y(so, self.item_ngoai), 0.0)
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
+		self.assertEqual(self._dau_dong_y(so, self.item_boi_so), 7000.0)
+
+	def test_dong_bang_gia_bi_chiet_khau_tay_la_mot_bao_gia(self):
+		"""(b) Nhân viên hạ giá dòng "Bảng giá" 54.000 → 50.000 rồi gửi khách:
+		dòng thành "Báo giá" lúc gửi; khách đồng ý thì 50.000 vào Price List và
+		được đóng dấu; đổi giá lần nữa thì chốt 3 chặn xác nhận."""
+		so = self._don_tron()
+		self._dong_don(so, self.item_boi_so).rate = 7000
+		self._dong_don(so, self.item_ngoai).rate = 50000
+		so.save()
+		self.assertEqual(self._dong_don(so, self.item_ngoai).custom_nguon_gia, "Bảng giá",
+		                 "dấu chỉ đổi lúc gửi khách, không đổi ở lần lưu thường")
+		so = apply_workflow(so, "Gửi khách duyệt")
+		dong = self._dong_don(so, self.item_ngoai)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+		self.assertEqual(float(dong.rate), 50000.0)
+		self.assertEqual(float(dong.amount), 2 * 50000.0)
+
+		self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_ngoai), 50000.0)
+		self.assertEqual(self._dau_dong_y(so, self.item_ngoai), 50000.0)
+
+		so.reload()
+		self._dong_don(so, self.item_ngoai).rate = 45000
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		self.assertIn("gửi khách duyệt lại", str(ctx.exception))
+		self.assertIn(self.item_ngoai, str(ctx.exception))
+
+	def _them_dong_tay_tren_desk(self, so, ma, rate):
+		"""Nhân viên thêm một dòng trên Desk: không qua cổng nên KHÔNG có dấu."""
+		so.append("items", {
+			"item_code": ma, "qty": 2, "rate": rate,
+			"delivery_date": so.delivery_date,
+			"warehouse": so.items[0].warehouse,
+		})
+		so.save()
+		so.reload()
+		dong = self._dong_don(so, ma)
+		self.assertFalse(dong.custom_nguon_gia)
+		self.assertEqual(float(dong.rate), float(rate))
+		return so
+
+	def test_dong_them_tay_tren_desk_mang_gia_go_tay_la_mot_bao_gia(self):
+		"""(c) Dòng CHƯA có dấu, giá 50.000 khác giá bảng 54.000: như (b)."""
+		so = self._don_cho_khach_chua_gui(self.item_boi_so, 7000)
+		self._tao_gia(self.item_ngoai, self.price_list, 54000)
+		so = self._them_dong_tay_tren_desk(so, self.item_ngoai, 50000)
+
+		so = apply_workflow(so, "Gửi khách duyệt")
+		dong = self._dong_don(so, self.item_ngoai)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+		self.assertEqual(float(dong.rate), 50000.0)
+
+		self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_ngoai), 50000.0)
+		self.assertEqual(self._dau_dong_y(so, self.item_ngoai), 50000.0)
+
+		so.reload()
+		self._dong_don(so, self.item_ngoai).rate = 45000
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			so.submit()
+		self.assertIn("gửi khách duyệt lại", str(ctx.exception))
+
+	def test_dong_them_tay_tren_desk_dung_gia_bang_la_dong_bang_gia(self):
+		"""(c') Dòng chưa có dấu mà giá ĐÚNG bằng giá bảng hôm nay: "Bảng giá",
+		không có gì để ghi lúc khách đồng ý."""
+		so = self._don_cho_khach_chua_gui(self.item_boi_so, 7000)
+		self._tao_gia(self.item_ngoai, self.price_list, 54000)
+		so = self._them_dong_tay_tren_desk(so, self.item_ngoai, 54000)
+		truoc = self._gia_trong_bang(self.item_ngoai)
+
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(self._dong_don(so, self.item_ngoai).custom_nguon_gia, "Bảng giá")
+		self._khach(so, "dong_y")
+		self.assertEqual(self._gia_trong_bang(self.item_ngoai), truoc)
+		self.assertEqual(self._dau_dong_y(so, self.item_ngoai), 0.0)
+
+	def test_gia_bang_doi_thi_dong_bang_gia_duoc_lam_moi_luc_gui_khach(self):
+		"""(d) Dòng "Bảng giá" chưa ai sửa, giá bảng đổi 54.000 → 56.000 từ lúc
+		lập đơn: lúc gửi khách dòng nhận 56.000 (cả thành tiền và tổng đơn), vẫn
+		là "Bảng giá"; khách đồng ý không ghi gì cho mã đó."""
+		so = self._don_tron()
+		self._dong_don(so, self.item_boi_so).rate = 7000
+		so.save()
+		ten_gia = self._gia_trong_bang(self.item_ngoai)[0].name
+		frappe.db.set_value("Item Price", ten_gia, "price_list_rate", 56000)
+		truoc = self._gia_trong_bang(self.item_ngoai)
+
+		so = apply_workflow(so, "Gửi khách duyệt")
+		dong = self._dong_don(so, self.item_ngoai)
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertEqual(float(dong.rate), 56000.0)
+		self.assertEqual(float(dong.price_list_rate), 56000.0)
+		self.assertEqual(float(dong.amount), 2 * 56000.0)
+		self.assertEqual(float(so.total), 2 * 56000.0 + 10 * 7000.0)
+		so.reload()
+		self.assertEqual(float(self._dong_don(so, self.item_ngoai).amount), 2 * 56000.0)
+		self.assertEqual(float(so.total), 2 * 56000.0 + 10 * 7000.0)
+
+		self._khach(so, "dong_y")
+		self.assertEqual(self._gia_trong_bang(self.item_ngoai), truoc)
+		self.assertEqual(self._dau_dong_y(so, self.item_ngoai), 0.0)
+
+	def test_ma_bi_rut_khoi_bang_thi_chua_gui_khach_duoc(self):
+		"""(d') Dòng "Bảng giá" chưa ai sửa mà mã đã bị rút khỏi bảng: dòng về
+		0, thành "Báo giá" — chốt 2 chặn gửi và nêu tên mặt hàng. Giá đã rút
+		không đi tiếp tới khách, cũng không bị ghi ngược vào bảng."""
+		so = self._don_tron()
+		self._dong_don(so, self.item_boi_so).rate = 7000
+		so.save()
+		for r in self._gia_trong_bang(self.item_ngoai):
+			frappe.delete_doc("Item Price", r.name, force=True)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			apply_workflow(so, "Gửi khách duyệt")
+		self.assertIn(self.item_ngoai, str(ctx.exception))
+		self.assertIn("chưa có đơn giá", str(ctx.exception))
+
+	def test_don_theo_bang_gia_khong_bi_dong_lai_dau(self):
+		"""Chỉ đơn ĐI VÒNG BÁO GIÁ: đơn "Theo bảng giá" bị sửa giá tay vẫn giữ
+		dấu "Bảng giá" khi nhân viên dùng «Gửi khách duyệt»."""
+		self._tao_gia(self.item_ngoai, self.price_list, 54000)
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 2}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(so.custom_loai_don, "Theo bảng giá")
+		so.items[0].rate = 50000
+		so.save()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+		self.assertEqual(float(so.items[0].rate), 50000.0)
 
 	def test_dong_go_tay_khop_ma_co_gia_di_het_vong_ma_khong_ghi_bang_gia(self):
 		"""Spec 2026-10-09 §4.4 gặp ba chốt §5: đơn chỉ có MỘT dòng gõ tay, nhân

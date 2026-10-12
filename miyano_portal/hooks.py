@@ -485,6 +485,12 @@ doc_events = {
 		# đó khi document CHA lưu.
 		"before_validate": [
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+			# Đơn báo giá vào "Chờ khách đồng ý" → dấu nguồn giá của từng dòng
+			# theo luật R14/R16 (dòng "Bảng giá" bị sửa giá tay, dòng thêm tay
+			# trên Desk là dòng "Báo giá"). SAU hook trên (dòng vừa gộp đã có
+			# dấu) và ở `before_validate` vì nó có thể đổi `rate` — xem
+			# docstring hàm.
+			"miyano_portal.chot_bao_gia.chuan_hoa_dau_truoc_khi_gui_khach",
 		],
 		"validate": [
 			"miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",

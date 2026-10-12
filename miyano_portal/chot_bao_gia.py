@@ -12,8 +12,13 @@ trống: chốt 3 chỉ nhìn dòng đã đóng dấu "Báo giá" nên không ch
 import frappe
 from frappe.utils import flt
 
-from miyano_portal.bang_gia_khach import NGUON_BAO_GIA
-from miyano_portal.portal_mua_le import ITEM_GIU_CHO, TRANG_THAI_CHO_KHACH, di_vong_bao_gia
+from miyano_portal.bang_gia_khach import NGUON_BAO_GIA, gia_bang_gia_nhieu
+from miyano_portal.portal_mua_le import (
+	ITEM_GIU_CHO,
+	TRANG_THAI_CHO_KHACH,
+	chuan_hoa_dau_nguon_gia,
+	di_vong_bao_gia,
+)
 
 TT_CHO_XAC_NHAN = "Chờ xác nhận"
 TT_CHO_MIYANO = "Chờ Miyano xác nhận"
@@ -22,6 +27,39 @@ TT_CHO_MIYANO = "Chờ Miyano xác nhận"
 def _trang_thai_truoc(doc) -> str | None:
 	truoc = doc.get_doc_before_save()
 	return truoc.get("workflow_state") if truoc else None
+
+
+def chuan_hoa_dau_truoc_khi_gui_khach(doc, method=None) -> None:
+	"""Đơn báo giá VÀO "Chờ khách đồng ý": dấu nguồn giá của MỌI dòng phải nói
+	thật về con số khách sắp được hỏi (luật R14/R16, `portal_mua_le.
+	chuan_hoa_dau_nguon_gia` — cùng một hàm với vòng gộp khi khớp mã).
+
+	Thiếu bước này, một dòng "Bảng giá" trong đơn báo giá (giá xuất hiện giữa
+	lúc gửi và lúc duyệt, §4.3) bị nhân viên chiết khấu tay — hoặc một dòng
+	nhân viên thêm tay trên Desk — đi hết vòng mà không phải dòng "Báo giá":
+	khách đồng ý, giá không vào Price List (§5.2), không có dấu giá đã đồng ý,
+	và chốt 3 không canh nó.
+
+	Hook `before_validate`, KHÔNG nằm trong `kiem_chuyen_trang_thai`
+	(`validate`): dòng "Bảng giá" chưa ai sửa được làm mới theo giá bảng hôm
+	nay, tức `rate` đổi — mà hook `validate` của app chạy SAU `SalesOrder.
+	validate()`, lúc `amount` / `grand_total` đã tính xong (cùng lý do
+	`chuyen_dong_dat_ngoai_thanh_hang` ở `before_validate`, xem `hooks.py`).
+	Vẫn chạy TRƯỚC chốt 2, nên dòng vừa về 0 (mã bị rút khỏi bảng) bị chốt 2
+	chặn và nêu tên.
+
+	Chỉ đơn cổng ĐI VÒNG BÁO GIÁ; đơn "Theo bảng giá" không bị đụng.
+	"""
+	if doc.is_new() or doc.get("custom_nguon_don") != "Client Portal":
+		return
+	if doc.get("workflow_state") != TRANG_THAI_CHO_KHACH:
+		return
+	if _trang_thai_truoc(doc) == TRANG_THAI_CHO_KHACH or not di_vong_bao_gia(doc):
+		return
+	dong = [d for d in doc.items if d.item_code != ITEM_GIU_CHO]
+	gia = gia_bang_gia_nhieu(doc.customer, [d.item_code for d in dong])
+	for d in dong:
+		chuan_hoa_dau_nguon_gia(doc, d, gia.get(d.item_code))
 
 
 def kiem_chuyen_trang_thai(doc, method=None) -> None:
