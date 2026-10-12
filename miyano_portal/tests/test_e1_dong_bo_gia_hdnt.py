@@ -129,6 +129,14 @@ class TestDongBoGia(_GiaFixture):
             frappe.db.count("Item Price", {"item_code": VT, "price_list": BANG_GIA}), 1
         )
 
+    def test_rate_khong_tron_chay_lai_khong_ghi_lai(self):
+        """Rate hợp đồng nhiều chữ số lẻ: lần chạy sau so theo giá đã làm tròn
+        như bộ ghi, nên không báo "đã ghi" mãi."""
+        bo = self._hdnt(dong=[{"item_code": VT, "qty": 5, "rate": 95000.123456789}])
+        gia_hdnt.dong_bo(bo.name)
+        ket_qua = gia_hdnt.dong_bo(bo.name)
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (0, 0))
+
     def test_gia_hdnt_doi_thi_item_price_doi_theo(self):
         """HĐNT là nguồn sự thật về giá đã ký: rate mới (qua sửa đổi hợp đồng)
         phải ĐÈ giá cũ, không im lặng giữ giá cũ rồi xuất hoá đơn sai."""

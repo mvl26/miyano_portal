@@ -206,7 +206,8 @@ def dong_bo(bo, thang_cuoc=None) -> dict:
             })
             continue
 
-        if dang_co.get(dong.item_code) == rate:
+        # So sau khi làm tròn như bộ ghi, kẻo giá hợp đồng không tròn bị ghi lại mỗi lần.
+        if dang_co.get(dong.item_code) == bang_gia_khach.lam_tron_gia(rate, tien_te):
             continue
         # `Blanket Order Item` KHÔNG có trường `uom` — giá trên hợp đồng luôn
         # hiểu theo ĐVT tồn kho của mặt hàng, đúng đơn vị bộ ghi chung dùng.

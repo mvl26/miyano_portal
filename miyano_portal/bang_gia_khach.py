@@ -132,28 +132,44 @@ def _dong_gia_bo_doc_chap_nhan(bang: str, khach: str, item_code: str, dvt: str) 
 	)
 
 
-def _chon_dong_de_sua(dong: list[dict]) -> dict | None:
-	"""Dòng mà bộ đọc đang trả (hoặc sẽ trả sau khi sửa giá nó).
+def lam_tron_gia(gia: float, tien_te: str | None = None) -> float:
+	"""Làm tròn đơn giá theo độ chính xác của trường `Item Price.price_list_rate`.
 
-	Thứ tự khớp `gia_bang_gia_nhieu`: còn hiệu lực hôm nay trước, rồi giá dương
-	(dòng giá 0 bị bộ đọc bỏ qua nên sửa nó không đổi được kết quả khi đã có
-	dòng dương), rồi dòng gắn riêng khách, rồi `valid_from` mới nhất, rồi `name`.
-	Không dòng nào còn hiệu lực (hết hạn / chưa tới ngày) thì lấy dòng ưu tiên
-	nhất trong số đó và sửa lại hiệu lực — chèn dòng mới bên cạnh sẽ để lại hai
-	dòng cùng khoá nghiệp vụ.
+	`rate / conversion_factor` không tròn (100000 / 12); DB lưu bản đã tròn, nên
+	mọi phép so "giá vừa ghi" với "giá đọc lại" phải so sau khi làm tròn cùng
+	một kiểu — so số thực thô thì không bao giờ khớp.
+	"""
+	try:
+		chinh_xac = frappe.get_precision("Item Price", "price_list_rate", currency=tien_te)
+	except Exception:
+		chinh_xac = None
+	return flt(gia, chinh_xac)
+
+
+def _chon_dong_de_sua(dong: list[dict]) -> dict | None:
+	"""Dòng mà bộ đọc đang trả cho khách hôm nay, hoặc `None`.
+
+	Chỉ xét dòng CÒN HIỆU LỰC hôm nay; thứ tự khớp `gia_bang_gia_nhieu`: giá
+	dương trước (dòng giá 0 bị bộ đọc bỏ qua nên sửa nó không đổi kết quả khi
+	đã có dòng dương), rồi dòng gắn riêng khách, rồi `valid_from` mới nhất, rồi
+	`name`. Dòng đã hết hạn hay hẹn ngày tương lai KHÔNG được chọn — chúng là
+	lịch sử / kế hoạch của nhân viên, không phải thứ để ghi đè.
 	"""
 	hom_nay = getdate(today())
 
-	def khoa(d):
-		con_han = (d.valid_from is None or getdate(d.valid_from) <= hom_nay) and (
+	def con_han(d):
+		return (d.valid_from is None or getdate(d.valid_from) <= hom_nay) and (
 			d.valid_upto is None or getdate(d.valid_upto) >= hom_nay
 		)
+
+	def khoa(d):
 		return (
-			con_han, con_han and flt(d.price_list_rate) > 0, bool(d.customer),
+			flt(d.price_list_rate) > 0, bool(d.customer),
 			getdate(d.valid_from) if d.valid_from else getdate("1900-01-01"), d.name,
 		)
 
-	return max(dong, key=khoa) if dong else None
+	hop_le = [d for d in dong if con_han(d)]
+	return max(hop_le, key=khoa) if hop_le else None
 
 
 def ghi_gia_vao_bang(
@@ -161,42 +177,43 @@ def ghi_gia_vao_bang(
 ) -> float | None:
 	"""Ghi `gia` (theo đơn vị gốc) của `item_code` vào `bang` sao cho BỘ ĐỌC
 	(`gia_bang_gia_nhieu`) trả đúng nó cho `customer`. Trả giá cũ của dòng bị
-	sửa, `None` khi chèn dòng mới.
+	sửa, `None` khi chèn dòng mới. Giá được làm tròn bằng `lam_tron_gia`.
 
 	Bộ ghi DUY NHẤT của cổng — khách đồng ý báo giá (§5.2) và đồng bộ từ hợp
 	đồng (`gia_hdnt.dong_bo`) cùng đi qua đây. Hai bộ ghi tự chọn dòng là hai
-	chỗ lệch được với bộ đọc: một phép upsert theo `{item_code, price_list}`
-	thuần sẽ sửa trúng dòng khác đơn vị hay dòng chung đang bị dòng riêng của
-	khách che, và giá ghi xuống không bao giờ hiện ra.
+	chỗ lệch được với bộ đọc.
+
+	- Có dòng còn hiệu lực hôm nay mà bộ đọc nhận → chỉ sửa `price_list_rate`
+	  của nó, giữ nguyên `valid_from`/`valid_upto`.
+	- Không có → chèn dòng chung mới (`customer` trống, ĐVT gốc, hiệu lực từ
+	  hôm nay, không hạn) và để nguyên dòng hết hạn / hẹn tương lai. Không đụng
+	  khoá trùng của ERPNext (`Item Price.check_duplicates`: item, bảng giá, ĐVT,
+	  `valid_from`, `valid_upto`, khách, nhà cung cấp, lô, gói): dòng cùng khoá
+	  với dòng mới (cùng ĐVT, khách trống, `valid_from` hôm nay, không hạn) còn
+	  hiệu lực hôm nay nên đã được chọn để sửa ở nhánh trên.
 	"""
 	dvt = frappe.db.get_value("Item", item_code, "stock_uom")
+	if not tien_te:
+		tien_te = frappe.db.get_value("Price List", bang, "currency") or "VND"
+	gia = lam_tron_gia(gia, tien_te)
 	dong = _chon_dong_de_sua(_dong_gia_bo_doc_chap_nhan(bang, customer, item_code, dvt))
 	if dong:
 		gia_cu = flt(dong.price_list_rate) or None
-		frappe.db.set_value("Item Price", dong.name, {
-			"price_list_rate": gia, "valid_from": today(), "valid_upto": None,
-		})
+		frappe.db.set_value("Item Price", dong.name, "price_list_rate", gia)
 		return gia_cu
 	frappe.get_doc({
 		"doctype": "Item Price", "item_code": item_code, "price_list": bang,
-		"selling": 1, "buying": 0, "uom": dvt,
-		"currency": tien_te or frappe.db.get_value("Price List", bang, "currency") or "VND",
+		"selling": 1, "buying": 0, "uom": dvt, "currency": tien_te,
 		"price_list_rate": gia, "valid_from": today(),
 	}).insert(ignore_permissions=True)
 	return None
 
 
-def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
-	"""Ghi đơn giá các dòng "Báo giá" của `so` vào Price List của khách.
-
-	Spec 2026-10-09 §5.2. Gọi SAU khi khách đã đồng ý. Chỉ dòng mang dấu "Báo giá"
-	và có giá dương; dòng "Bảng giá" đã là giá của bảng rồi. Giá ghi theo đơn vị
-	gốc. Ném lỗi khi ghi hỏng hoặc khi đọc lại không ra giá vừa ghi — người gọi bọc.
-	"""
+def _gia_theo_ma(so, tien_te: str | None = None):
+	"""`({item_code: giá theo ĐVT gốc đã làm tròn}, {mã có nhiều dòng khác giá})`
+	từ các dòng "Báo giá" giá dương của `so`; dòng sau cùng thắng."""
 	from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 
-	bang = dam_bao_bang_gia_rieng(so.customer)
-	tien_te = frappe.db.get_value("Price List", bang, "currency") or "VND"
 	theo_ma: dict[str, float] = {}
 	trung = set()
 	for d in so.items:
@@ -204,13 +221,43 @@ def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
 			continue
 		if flt(d.rate) <= 0:
 			continue
-		gia = flt(d.rate) / (flt(d.conversion_factor) or 1)
+		gia = lam_tron_gia(flt(d.rate) / (flt(d.conversion_factor) or 1), tien_te)
 		if d.item_code in theo_ma and theo_ma[d.item_code] != gia:
 			trung.add(d.item_code)
-		theo_ma[d.item_code] = gia          # dòng sau cùng thắng
-		# Dấu để chốt 3 (chot_bao_gia) so với giá nhân viên sửa về sau.
+		theo_ma[d.item_code] = gia
+	return theo_ma, trung
+
+
+def dong_dau_gia_khach_dong_y(so) -> None:
+	"""Đóng dấu `custom_gia_khach_dong_y` lên các dòng "Báo giá" giá dương.
+
+	Dấu là tính chất của VIỆC ĐỒNG Ý, không của việc ghi bảng giá: chốt 3
+	(`chot_bao_gia.kiem_gia_khop_gia_da_dong_y`) chỉ bắt khi dấu > 0, nên ghi
+	giá hỏng không được kéo dấu theo — đó đúng là đơn nhân viên phải sửa tay.
+	Gọi TRƯỚC khối ghi giá có savepoint.
+	"""
+	from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+
+	for d in so.items:
+		if d.item_code == ITEM_GIU_CHO or d.get("custom_nguon_gia") != NGUON_BAO_GIA:
+			continue
+		if flt(d.rate) <= 0:
+			continue
 		frappe.db.set_value("Sales Order Item", d.name, "custom_gia_khach_dong_y",
 		                    flt(d.rate), update_modified=False)
+
+
+def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
+	"""Ghi đơn giá các dòng "Báo giá" của `so` vào Price List của khách.
+
+	Spec 2026-10-09 §5.2. Gọi SAU khi khách đã đồng ý. Chỉ dòng mang dấu "Báo giá"
+	và có giá dương; dòng "Bảng giá" đã là giá của bảng rồi. Giá ghi theo đơn vị
+	gốc, đã làm tròn. Ném lỗi khi ghi hỏng hoặc khi đọc lại không ra giá vừa
+	ghi — người gọi bọc (và phải đã gọi `dong_dau_gia_khach_dong_y`).
+	"""
+	bang = dam_bao_bang_gia_rieng(so.customer)
+	tien_te = frappe.db.get_value("Price List", bang, "currency") or "VND"
+	theo_ma, trung = _gia_theo_ma(so, tien_te)
 
 	ket_qua = []
 	for item_code, gia in theo_ma.items():
@@ -219,7 +266,7 @@ def ghi_gia_da_dong_y(so, nguoi_dong_y: str | None = None) -> list[dict]:
 
 	if ket_qua:
 		doc_lai = gia_bang_gia_nhieu(so.customer, list(theo_ma))
-		lech = [m for m, g in theo_ma.items() if doc_lai.get(m) != g]
+		lech = [m for m, g in theo_ma.items() if lam_tron_gia(doc_lai.get(m) or 0, tien_te) != g]
 		if lech:
 			raise RuntimeError(
 				"Đọc lại Price List không ra giá vừa ghi cho: " + ", ".join(lech)

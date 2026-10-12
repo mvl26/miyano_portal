@@ -3154,18 +3154,25 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực
         # trong Price List của họ. Bọc lỗi CỐ Ý: việc đồng ý đã thành công,
         # một trục trặc ở bảng giá không được biến nó thành lỗi cho khách.
-        # Savepoint để lỗi giữa chừng không để lại nửa số giá đã ghi; nhân
-        # viên phụ trách được báo để tự cập nhật bảng giá.
+        # Dấu giá đã đồng ý đóng TRƯỚC savepoint: ghi giá hỏng không được cuốn
+        # dấu theo (chốt 3 chỉ bắt khi dấu > 0). Savepoint để lỗi giữa chừng
+        # không để lại nửa số giá đã ghi; nhân viên phụ trách được báo.
         if di_vong_bao_gia(so):
+            so.reload()
+            bang_gia_khach.dong_dau_gia_khach_dong_y(so)
             try:
                 frappe.db.savepoint("ghi_gia_da_dong_y")
-                so.reload()
                 bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
             except Exception:
-                frappe.db.rollback(save_point="ghi_gia_da_dong_y")
+                loi = frappe.get_traceback(with_context=True)
+                try:
+                    frappe.db.rollback(save_point="ghi_gia_da_dong_y")
+                except Exception:
+                    # Savepoint không còn (giao dịch đã bị bỏ): giữ lỗi gốc.
+                    loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
                 frappe.log_error(
                     title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
-                    message=frappe.get_traceback(with_context=True),
+                    message=loi,
                     reference_doctype="Sales Order", reference_name=so.name,
                 )
                 bao_loi_ghi_gia(so.customer, so.name)

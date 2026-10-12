@@ -1,12 +1,11 @@
 """Ghi giá khách đã đồng ý vào Price List (spec 2026-10-09 §5.2)."""
 
-from datetime import timedelta
 from unittest.mock import patch
 
 import frappe
 from frappe.model.workflow import apply_workflow
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, getdate, today
+from frappe.utils import add_days, today
 
 from miyano_portal import bang_gia_khach as bg
 from miyano_portal import dat_hang
@@ -83,22 +82,158 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 			"item_code": self.item_boi_so, "price_list": bang, "selling": 1,
 		}), 2)
 
+	def _quy_doi(self, uom, he_so):
+		item = frappe.get_doc("Item", self.item_boi_so)
+		dong = [u for u in item.uoms if u.uom == uom]
+		if dong:
+			dong[0].conversion_factor = he_so
+		else:
+			item.append("uoms", {"uom": uom, "conversion_factor": he_so})
+		item.save(ignore_permissions=True)
+
+	def _dong(self, ten):
+		return frappe.db.get_value(
+			"Item Price", ten, ["price_list_rate", "valid_from", "valid_upto"], as_dict=True)
+
 	def test_dong_y_khi_dong_gia_da_het_han(self):
-		"""Dòng cũ đã hết hạn: không được ném lỗi trùng khoá, và đọc lại ra giá mới."""
+		"""Chỉ có dòng hết hạn: để nguyên nó, chèn dòng chung mới; đọc ra giá mới."""
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
-		self._dong_gia(self.item_boi_so, bang, 3000,
-		               valid_from=add_days(today(), -30), valid_upto=add_days(today(), -1))
+		cu = self._dong_gia(self.item_boi_so, bang, 3000,
+		                    valid_from=add_days(today(), -30), valid_upto=add_days(today(), -1))
+		truoc = self._dong(cu.name)
 		self.assertIsNone(bg.gia_bang_gia(self.kh_a, self.item_boi_so))
 		self._khach(so, "dong_y")
 		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
+		self.assertEqual(self._dong(cu.name), truoc)
+		moi = frappe.get_all("Item Price", filters={
+			"item_code": self.item_boi_so, "price_list": bang, "name": ["!=", cu.name]},
+			fields=["customer", "valid_from", "valid_upto"])
+		self.assertEqual(len(moi), 1)
+		self.assertFalse(moi[0].customer)
+		self.assertEqual(str(moi[0].valid_from), today())
+		self.assertIsNone(moi[0].valid_upto)
 
 	def test_dong_y_khi_dong_gia_chua_co_hieu_luc(self):
+		"""Dòng hẹn ngày tương lai là kế hoạch của nhân viên: không bị ghi đè."""
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
-		self._dong_gia(self.item_boi_so, bang, 3000, valid_from=add_days(today(), 10))
+		cu = self._dong_gia(self.item_boi_so, bang, 3000, valid_from=add_days(today(), 10))
+		truoc = self._dong(cu.name)
 		self._khach(so, "dong_y")
 		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
+		self.assertEqual(self._dong(cu.name), truoc)
+		self.assertEqual(frappe.db.count("Item Price", {
+			"item_code": self.item_boi_so, "price_list": bang}), 2)
+
+	def test_dong_y_khi_dong_gia_co_valid_from_hom_nay(self):
+		"""Dòng cùng khoá với dòng sẽ chèn (valid_from hôm nay, không hạn) còn hiệu
+		lực nên được SỬA, không chèn trùng khoá."""
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
+		cu = self._dong_gia(self.item_boi_so, bang, 3000,
+		                    uom=frappe.db.get_value("Item", self.item_boi_so, "stock_uom"),
+		                    valid_from=today())
+		self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 7000.0)
+		self.assertEqual(self._dong(cu.name).price_list_rate, 7000.0)
+		self.assertEqual(frappe.db.count("Item Price", {
+			"item_code": self.item_boi_so, "price_list": bang}), 1)
+
+	def test_dong_y_giu_nguyen_ngay_hieu_luc_cua_dong_dang_dung(self):
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
+		cu = self._dong_gia(self.item_boi_so, bang, 3000, valid_from=add_days(today(), -5),
+		                    valid_upto=add_days(today(), 20))
+		self._khach(so, "dong_y")
+		d = self._dong(cu.name)
+		self.assertEqual(d.price_list_rate, 7000.0)
+		self.assertEqual(str(d.valid_from), add_days(today(), -5))
+		self.assertEqual(str(d.valid_upto), add_days(today(), 20))
+
+	def test_he_so_quy_doi_khong_tron(self):
+		"""100000 / 12 không tròn: ghi được, đọc ra giá làm tròn, không Error Log."""
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		thung = "Box" if frappe.db.get_value("Item", self.item_boi_so, "stock_uom") != "Box" else "Nos"
+		self._quy_doi(thung, 12)
+		frappe.db.set_value("Sales Order Item", so.items[0].name,
+		                    {"uom": thung, "conversion_factor": 12, "rate": 100000})
+		self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), bg.lam_tron_gia(100000 / 12))
+		self.assertFalse(frappe.db.exists("Error Log", {"reference_name": so.name}))
+
+	def test_cung_ma_hai_dong_khac_gia_dong_cuoi_thang(self):
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_boi_so, "qty": 10}],
+			request_id=frappe.generate_hash(length=12))
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so.append("items", {**{k: so.items[0].get(k) for k in (
+			"item_code", "qty", "uom", "conversion_factor", "warehouse", "delivery_date",
+			"custom_nguon_gia")}})
+		so.items[0].rate, so.items[1].rate = 7000, 8000
+		so.save()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self._khach(so, "dong_y")
+		self.assertEqual(bg.gia_bang_gia(self.kh_a, self.item_boi_so), 8000.0)
+		noi_dung = " ".join(frappe.get_all("Comment", filters={
+			"reference_doctype": "Sales Order", "reference_name": so.name}, pluck="content"))
+		self.assertIn("nhiều dòng khác giá", noi_dung)
+
+	def test_hong_giua_chung_khong_de_lai_nua_vo_va_van_giu_dau(self):
+		"""Hai mã "Báo giá"; mã thứ hai ghi hỏng: không dòng giá nào còn lại, bảng
+		giá mặc định như cũ, đơn vẫn sang "Chờ Miyano xác nhận", dấu còn nguyên."""
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_boi_so, "qty": 10},
+			                  {"item_code": self.item_ngoai, "qty": 1}],
+			request_id=frappe.generate_hash(length=12))
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		for d in so.items:
+			d.rate = 7000 if d.item_code == self.item_boi_so else 9000
+			d.custom_nguon_gia = "Báo giá"
+		so.save()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		bang_truoc = frappe.db.get_value("Customer", self.kh_a, "default_price_list")
+		goc_ghi = bg.ghi_gia_vao_bang
+		cac_ma = []
+
+		def ghi_hong(bang, khach, ma, gia, tien_te=None):
+			cac_ma.append(ma)
+			if len(cac_ma) == 2:
+				raise RuntimeError("hong o ma thu hai")
+			return goc_ghi(bang, khach, ma, gia, tien_te)
+
+		with patch.object(bg, "ghi_gia_vao_bang", side_effect=ghi_hong):
+			kq = self._khach(so, "dong_y")
+		self.assertEqual(len(cac_ma), 2)
+		self.assertEqual(kq["trang_thai_moi"], "Chờ Miyano xác nhận")
+		self.assertEqual(frappe.db.get_value("Customer", self.kh_a, "default_price_list"),
+		                 bang_truoc)
+		for ma in (self.item_boi_so, self.item_ngoai):
+			self.assertFalse(frappe.get_all("Item Price", filters={
+				"item_code": ma, "price_list": ["not in", [bang_truoc]], "selling": 1,
+				"creation": [">=", so.creation]}))
+		self.assertIsNone(bg.gia_bang_gia(self.kh_a, self.item_boi_so))
+		self.assertTrue(frappe.db.exists("Comment", {
+			"reference_doctype": "Sales Order", "reference_name": so.name,
+			"content": ["like", "Khách đồng ý%"]}))
+		so.reload()
+		self.assertEqual(sorted(float(d.custom_gia_khach_dong_y) for d in so.items),
+		                 [7000.0, 9000.0])
+		# dấu còn nên chốt 3 vẫn chặn khi nhân viên đổi giá
+		so.items[0].rate = float(so.items[0].rate) + 1000
+		with self.assertRaises(frappe.ValidationError):
+			so.submit()
+		frappe.db.delete("Error Log", {"reference_name": so.name})
+
+	def test_doc_lai_khong_ra_gia_van_giu_dau(self):
+		so = self._don_cho_khach(self.item_boi_so, 7000)
+		with patch.object(bg, "gia_bang_gia_nhieu", return_value={}):
+			self._khach(so, "dong_y")
+		self.assertEqual(float(frappe.db.get_value(
+			"Sales Order Item", so.items[0].name, "custom_gia_khach_dong_y")), 7000.0)
+		self.assertEqual(frappe.db.count("Item Price", {
+			"item_code": self.item_boi_so, "selling": 1}), 0)
+		frappe.db.delete("Error Log", {"reference_name": so.name})
 
 	def test_dong_y_dong_dau_gia_khach_dong_y_tren_dong_don(self):
 		so = self._don_cho_khach(self.item_boi_so, 7000)
@@ -117,9 +252,7 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 		# `conversion_factor` bằng SQL thì lần lưu của workflow đặt lại về 1,
 		# nên phải khai báo quy đổi thật trên Item.
 		thung = "Box" if frappe.db.get_value("Item", self.item_boi_so, "stock_uom") != "Box" else "Nos"
-		item = frappe.get_doc("Item", self.item_boi_so)
-		item.append("uoms", {"uom": thung, "conversion_factor": 10})
-		item.save(ignore_permissions=True)
+		self._quy_doi(thung, 10)
 		frappe.db.set_value("Sales Order Item", so.items[0].name,
 		                    {"uom": thung, "conversion_factor": 10, "rate": 70000})
 		self._khach(so, "dong_y")
@@ -137,6 +270,8 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 			request_id=frappe.generate_hash(length=12),
 		)
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		dong_ngoai = [d for d in so.items if d.item_code == self.item_ngoai]
+		self.assertEqual(dong_ngoai[0].custom_nguon_gia, "Bảng giá")
 		self.assertEqual(
 			[d for d in bg.ghi_gia_da_dong_y(so) if d["item_code"] == self.item_ngoai], []
 		)
@@ -179,7 +314,7 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		self._khach(so, "dong_y")
 		so.reload()
-		self.assertEqual(flt_(so.items[0].custom_gia_khach_dong_y), 7000.0)
+		self.assertEqual(float(so.items[0].custom_gia_khach_dong_y or 0), 7000.0)
 		so.items[0].rate = 9000
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			so.submit()
@@ -191,10 +326,6 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 		so.reload()
 		so = apply_workflow(so, "Xác nhận")
 		self.assertEqual(so.docstatus, 1)
-
-
-def flt_(v):
-	return float(v or 0)
 
 
 for _ten, _ham in vars(goc.TestPortalCatalogGop).items():
