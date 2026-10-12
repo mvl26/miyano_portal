@@ -714,6 +714,22 @@ class TestGiaoDienDesk(FrappeTestCase):
 		for ma in (dst.DX_DU, dst.DX_CAN_MUA, dst.DX_MOT_PHAN, dst.DX_DA_CO_MR):
 			self.assertIn(f"{ma}:", self.js, ma)
 
+	def test_bang_nam_duoi_luoi_mat_hang_KHONG_nam_trong_dashboard(self):
+		"""Form Sales Order chia tab, và mọi khối `frm.dashboard.add_section`
+		nằm trong tab "Connections": đặt bảng ở đó thì mở đơn ra KHÔNG THẤY
+		bảng. Lỗi này chỉ lộ khi mở trình duyệt thật (12/10/2026) — mọi test
+		khác vẫn xanh."""
+		moi = self.js[self.js.index("// Đối sánh tồn kho của MIYANO"):]
+		self.assertNotIn("dashboard.add_section(", moi)
+		self.assertIn("frm.fields_dict.items", moi)
+
+	def test_bang_cu_duoc_go_TRUOC_moi_loi_thoat_som(self):
+		"""Bảng không còn do dashboard quản, nên Frappe không tự dọn. Một form
+		dùng lại cho mọi đơn: không gỡ trước thì đơn MỚI (chưa lưu) hiện bảng
+		tồn của đơn vừa xem trước đó."""
+		than = self.js[self.js.index("function hien_doi_sanh_ton(frm) {"):]
+		self.assertLess(than.index("go_doi_sanh_ton(frm)"), than.index("frm.is_new()"))
+
 	def test_js_hien_ghi_chu_don_khac_da_giu(self):
 		self.assertIn("d.giu_don_khac", self.js)
 		self.assertIn("Đơn khác đã giữ", self.js)

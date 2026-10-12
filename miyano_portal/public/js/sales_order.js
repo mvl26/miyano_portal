@@ -157,7 +157,20 @@ const NHAN_DE_XUAT = {
 	da_co_mr: (d, so) => `Đã có MR ${so(d.mr_da_phu)}`,
 };
 
+// Bảng nằm NGAY DƯỚI lưới mặt hàng ở tab đầu, KHÔNG dùng
+// `frm.dashboard.add_section`: form Sales Order chia tab, và mọi khối
+// dashboard nằm trong tab "Connections" — đặt ở đó thì mở đơn ra không thấy
+// bảng (bắt được khi mở trình duyệt thật 12/10/2026).
+//
+// Vì không còn do dashboard quản, Frappe KHÔNG tự dọn khối này. Một form dùng
+// lại cho mọi đơn, nên phải gỡ bảng cũ trước mọi lối thoát sớm — không thì
+// đơn mới (chưa lưu) hiện bảng tồn của đơn vừa xem trước đó.
+function go_doi_sanh_ton(frm) {
+	$(frm.wrapper).find(".mvl-doi-sanh-ton").remove();
+}
+
 function hien_doi_sanh_ton(frm) {
+	go_doi_sanh_ton(frm);
 	if (frm.is_new()) return;
 	if (!VAI_XEM_TON.some((v) => frappe.user_roles.includes(v))) return;
 
@@ -183,10 +196,11 @@ function ve_doi_sanh_ton(frm, bang) {
 		? "—"
 		: format_number(v, null, Number.isInteger(v) ? 0 : 3));
 
+	const luoi = frm.fields_dict.items && frm.fields_dict.items.$wrapper;
+	if (!luoi || !luoi.length) return;
 	// `refresh` có thể chạy hai lần sát nhau; mỗi lần là một lời gọi riêng.
 	// Gỡ khối cũ trước khi vẽ, không thì form có hai bảng.
-	frm.dashboard.parent.find(".mvl-doi-sanh-ton")
-		.closest(".form-dashboard-section").remove();
+	go_doi_sanh_ton(frm);
 
 	let than;
 	if (bang.loi) {
@@ -204,7 +218,7 @@ function ve_doi_sanh_ton(frm, bang) {
 			).join(", ");
 			const de_xuat = d.ly_do
 				? `<span class="text-muted">${esc(d.ly_do)}</span>`
-				: NHAN_DE_XUAT[d.de_xuat](d, so) + (mr ? `<br>${mr}` : "");
+				: (NHAN_DE_XUAT[d.de_xuat] || (() => "—"))(d, so) + (mr ? `<br>${mr}` : "");
 			// Hai đơn đã xác nhận tranh cùng một lượng tồn thì cả hai đều báo
 			// thiếu — dòng này cho nhân viên thấy vì sao, trước khi lập hai
 			// MR cho cùng một chỗ thiếu.
@@ -243,9 +257,11 @@ function ve_doi_sanh_ton(frm, bang) {
 			</table></div>`;
 	}
 
-	frm.dashboard.add_section(
-		`<div class="mvl-doi-sanh-ton" style="padding:.5rem 0">${than}</div>`,
-		__("Đối sánh tồn kho")
+	luoi.after(
+		`<div class="mvl-doi-sanh-ton" style="margin:1rem 0 .5rem">
+			<div style="font-weight:600;margin-bottom:.4rem">${__("Đối sánh tồn kho")}</div>
+			${than}
+		</div>`
 	);
 }
 
