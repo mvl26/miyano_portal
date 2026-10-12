@@ -741,6 +741,11 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
             nhân viên gõ là một báo giá: nó phải được ghi vào Price List khi
             khách đồng ý, được chốt `before_submit` canh, và về 0 khi khách
             sửa số lượng — chứ không lặng lẽ bị thay bằng giá bảng;
+          - NGOẠI LỆ duy nhất của "giữ nguyên `rate`" (ruling R16): dòng dấu
+            "Bảng giá" mà `rate` vẫn bằng `price_list_rate` của chính nó —
+            chưa ai sửa, chỉ là giá bảng đã đổi từ lúc lập đơn. Dòng đó được
+            làm mới theo giá bảng hôm nay (giữ dấu "Bảng giá"); mã đã bị rút
+            khỏi bảng thì về 0 và thành "Báo giá";
       * dòng sẵn có `rate = 0` mà mã NAY đã có giá → dán giá bảng giá và
         dấu "Bảng giá" (Critical-2, review 22/08: không để cả cụm số lượng
         đi tiếp với 0 đồng khi giá đã có). Ca thật: khoa đặt lúc mã chưa có
@@ -779,19 +784,41 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
         elif not flt(hang.rate):
             hang.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
         elif hang.get("custom_nguon_gia") != bang_gia_khach.NGUON_BAO_GIA:
-            # R14 — `rate > 0` giữ nguyên; dấu "Bảng giá" chỉ khi con số trên
-            # dòng ĐÚNG là giá bảng (quy về đơn vị gốc như bộ ghi giá làm).
+            # R14 — dấu "Bảng giá" chỉ khi con số trên dòng ĐÚNG là giá bảng
+            # hôm nay (quy về đơn vị gốc như bộ ghi giá làm).
             tien_te = doc.get("currency")
-            gia_dong = bang_gia_khach.lam_tron_gia(
-                flt(hang.rate) / (flt(hang.conversion_factor) or 1), tien_te
-            )
-            la_gia_bang = bool(gia) and gia_dong == bang_gia_khach.lam_tron_gia(
-                gia, tien_te
-            )
-            hang.custom_nguon_gia = (
-                bang_gia_khach.NGUON_BANG_GIA if la_gia_bang
-                else bang_gia_khach.NGUON_BAO_GIA
-            )
+            he_so = flt(hang.conversion_factor) or 1
+            gia_dong = bang_gia_khach.lam_tron_gia(flt(hang.rate) / he_so, tien_te)
+            if gia and gia_dong == bang_gia_khach.lam_tron_gia(gia, tien_te):
+                hang.custom_nguon_gia = bang_gia_khach.NGUON_BANG_GIA
+            elif (
+                hang.get("custom_nguon_gia") == bang_gia_khach.NGUON_BANG_GIA
+                and gia_dong == bang_gia_khach.lam_tron_gia(
+                    flt(hang.price_list_rate) / he_so, tien_te
+                )
+            ):
+                # R16 — dòng "Bảng giá" KHÔNG ai sửa, chỉ là GIÁ BẢNG đã đổi
+                # từ lúc lập đơn. Phân biệt được nhờ `price_list_rate` của
+                # chính dòng: cổng dựng dòng với `rate == price_list_rate`,
+                # và nhân viên sửa `rate` trên Desk thì `price_list_rate`
+                # đứng yên — hai số còn bằng nhau nghĩa là chưa ai gõ giá.
+                # Đóng "Báo giá" giữ giá cũ ở đây là để lúc khách đồng ý,
+                # giá CŨ bị ghi đè lên giá bảng hiện hành.
+                if gia:
+                    hang.rate = rate * he_so
+                    hang.price_list_rate = rate * he_so
+                else:
+                    # Mã đã bị rút khỏi bảng giá: không còn là dòng giá bảng,
+                    # và giá đã rút không được ghi ngược vào bảng → chờ báo
+                    # giá từ 0.
+                    hang.rate = 0
+                    hang.price_list_rate = 0
+                    hang.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
+                xoa_chenh_lech_gia(hang)
+            else:
+                # Chưa có dấu, hoặc "Bảng giá" đã bị nhân viên sửa giá tay →
+                # một giá nhân viên gõ là một báo giá; `rate` giữ nguyên.
+                hang.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
         return hang
 
     kho = _resolve_item_warehouse(item_code, doc.company)

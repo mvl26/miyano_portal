@@ -1037,12 +1037,104 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		so.reload()
 		self.assertEqual(flt(so.items[0].rate), 50000.0, "tiền đề: giá đã sửa tay")
 		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+		# R16 dựa vào đúng điều này: sửa `rate` trên dòng đã lưu KHÔNG kéo
+		# `price_list_rate` theo — cột đó vẫn nhớ giá bảng lúc lập đơn.
+		self.assertEqual(flt(so.items[0].price_list_rate), float(GIA_BANG_GIA))
 
 		so = self._khop(so, self.item_da_co)
 		dong = self._dong(so, self.item_da_co)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(flt(dong.rate), 50000.0, "giá nhân viên gõ phải giữ nguyên")
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+	# -- Ruling R16: dòng "Bảng giá" KHÔNG ai sửa mà giá bảng đã đổi ----------
+
+	def _don_bang_gia_roi_bang_doi(self, gia_moi):
+		"""Đơn có dòng "Bảng giá" ở 54.000 (`rate == price_list_rate`, không ai
+		sửa) + một dòng gõ tay; rồi giá bảng đổi thành `gia_moi` (`None` = mã
+		bị rút khỏi bảng giá)."""
+		so = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=4)],
+		)
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
+		self.assertEqual(flt(dong.price_list_rate), float(GIA_BANG_GIA))
+		if gia_moi is None:
+			self._xoa_gia(self.item_da_co)
+		else:
+			bang_gia_khach.ghi_gia_vao_bang(
+				self.price_list, self.kh_a, self.item_da_co, gia_moi
+			)
+		self.assertEqual(
+			bang_gia_khach.gia_bang_gia(self.kh_a, self.item_da_co), gia_moi
+		)
+		return so
+
+	def test_gop_vao_dong_bang_gia_khi_gia_bang_da_doi_thi_lay_gia_moi(self):
+		"""R16 — giá bảng trôi từ 54.000 lên 60.000 sau khi lập đơn. Gộp phải
+		làm mới dòng theo giá hôm nay và GIỮ dấu "Bảng giá"; đóng "Báo giá" ở
+		54.000 thì lúc khách đồng ý, giá cũ bị ghi đè lên giá bảng hiện hành."""
+		from frappe.model.workflow import apply_workflow
+
+		from miyano_portal.api import portal
+		from miyano_portal.tests import test_catalog_gop as goc
+
+		so = self._don_bang_gia_roi_bang_doi(60000.0)
+		so = self._khop(so, self.item_da_co)
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(flt(dong.qty), 6.0)
+		self.assertEqual(flt(dong.rate), 60000.0)
+		self.assertEqual(flt(dong.price_list_rate), 60000.0)
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertEqual(flt(so.total), 6.0 * 60000)
+
+		def gia_trong_bang():
+			return frappe.get_all(
+				"Item Price", filters={"item_code": self.item_da_co, "selling": 1},
+				fields=["name", "price_list", "price_list_rate", "modified"],
+				order_by="name asc",
+			)
+
+		truoc = gia_trong_bang()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		quan_ly = goc.TestPortalCatalogGop._dam_bao_thanh_vien(
+			self, "g13.ql@demo.miyano", self.kh_a, "Quản lý", None
+		)
+		frappe.set_user(quan_ly)
+		try:
+			portal.portal_order_accept(so.name, "dong_y")
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(gia_trong_bang(), truoc, "khách đồng ý không được ghi Price List")
+		self.assertEqual(
+			bang_gia_khach.gia_bang_gia(self.kh_a, self.item_da_co), 60000.0
+		)
+
+	def test_gop_vao_dong_bang_gia_khi_ma_bi_rut_gia_thi_cho_bao_gia(self):
+		"""R16 — mã bị rút khỏi bảng giá sau khi lập đơn: dòng không còn là
+		dòng giá bảng. Dấu "Báo giá", `rate = 0` (một giá đã rút không được
+		ghi ngược vào bảng lúc khách đồng ý), và chốt 2 giữ đơn lại cho tới
+		khi nhân viên gõ giá."""
+		from frappe.model.workflow import apply_workflow
+
+		so = self._don_bang_gia_roi_bang_doi(None)
+		so = self._khop(so, self.item_da_co)
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(flt(dong.qty), 6.0)
+		self.assertEqual(flt(dong.rate), 0.0)
+		self.assertEqual(flt(dong.price_list_rate), 0.0)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			apply_workflow(so, "Gửi khách duyệt")
+		self.assertIn("chưa có đơn giá", str(ctx.exception))
+		so.reload()
+		self._dong(so, self.item_da_co).rate = 58000
+		so.save(ignore_permissions=True)
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(so.workflow_state, "Chờ khách đồng ý")
 
 	def _bo_dau(self, so, item_code, **them):
 		"""Hạ dòng về hình dạng dòng CHƯA có dấu — dòng nhân viên thêm tay trên
