@@ -19,6 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
+from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.portal_thong_bao import bao_thieu_gia
 from miyano_portal.setup.seed_demo import seed_demo
 
@@ -150,6 +151,7 @@ class TestReorder(FrappeTestCase):
         )
         self.assertEqual({d["item_code"] for d in kq["gio_hang"]}, {HC})
 
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
     def test_gio_hang_du_thong_tin_de_ve_man_hinh(self):
         """Giỏ dựng thẳng từ payload này — thiếu tên hoặc ĐVT thì khách nhìn
         thấy mã hàng trần."""
@@ -163,6 +165,23 @@ class TestReorder(FrappeTestCase):
                 self.assertEqual(d["tang"], "bang_gia")
                 self.assertGreater(d["gia_hien_hanh"], 0)
 
+    def test_reorder_bo_qua_dong_giu_cho(self):
+        """Dòng giữ chỗ kỹ thuật không phải thứ khách đặt: không vào giỏ, cũng
+        không vào `bi_loai`."""
+        frappe.set_user("Administrator")
+        ten_dong = frappe.db.get_value(
+            "Sales Order Item", {"parent": self.don, "item_code": HC}, "name"
+        )
+        frappe.db.set_value(
+            "Sales Order Item", ten_dong, "item_code", ITEM_GIU_CHO,
+            update_modified=False,
+        )
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_reorder(self.don)
+        self.assertEqual([d["item_code"] for d in kq["gio_hang"]], [VT])
+        self.assertEqual(kq["bi_loai"], [])
+
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
     def test_gia_la_gia_hien_hanh_khong_phai_gia_luu_tren_don_cu(self):
         """Giá lấy từ Price List HÔM NAY, không lấy giá đóng trên đơn cũ."""
         gia_cu = float(

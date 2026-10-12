@@ -37,6 +37,24 @@ class TestXayDonBangGia(FrappeTestCase):
 		self.assertEqual(d.custom_nguon_gia, bg.NGUON_BANG_GIA)
 		self.assertEqual(so.custom_loai_don, bg.LOAI_DON_BANG_GIA)
 
+	def test_dong_luon_theo_don_vi_goc_du_item_co_sales_uom_khac(self):
+		"""Ruling R15 — ERPNext mặc định `uom` của dòng mới theo `Item.sales_uom`,
+		còn giá bảng tính theo `stock_uom` và cổng đặt theo đơn vị gốc. Dòng cổng
+		dựng phải mang đơn vị gốc, hệ số 1, đúng giá bảng."""
+		item = frappe.get_doc("Item", self.item_ngoai)
+		thung = "Box" if item.stock_uom != "Box" else "Nos"
+		item.append("uoms", {"uom": thung, "conversion_factor": 10})
+		item.sales_uom = thung
+		item.save(ignore_permissions=True)
+
+		so = self._dat([{"item_code": self.item_ngoai, "qty": 3}])
+		d = so.items[0]
+		self.assertEqual(d.uom, item.stock_uom)
+		self.assertEqual(float(d.conversion_factor), 1.0)
+		self.assertEqual(float(d.stock_qty), 3.0)
+		self.assertEqual(float(d.rate), 54000.0)
+		self.assertEqual(float(d.amount), 3 * 54000.0)
+
 	def test_dong_chua_co_gia_la_bao_gia_gia_0(self):
 		so = self._dat([{"item_code": self.item_boi_so, "qty": 10}])
 		d = so.items[0]

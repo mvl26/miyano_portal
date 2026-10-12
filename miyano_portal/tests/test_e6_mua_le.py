@@ -1349,6 +1349,27 @@ class TestSuaSoLuong(FrappeTestCase):
         self.assertIn("giá theo bảng giá", kq["thay_doi"][0])
         self.assertNotIn("chờ báo giá", kq["thay_doi"][0])
 
+    def test_sua_so_luong_dong_bao_gia_ve_0_du_ma_co_gia_bang(self):
+        """Dòng mang dấu "Báo giá" TƯỜNG MINH: giá trên dòng là giá đàm phán
+        theo sản lượng, nên đổi số lượng là về 0 chờ báo lại — kể cả khi mã
+        đó có giá trong Price List (không tự nhận giá bảng)."""
+        self.assertTrue(bang_gia_khach.gia_bang_gia(BVBM, VT_HDNT))
+        so = _tao_so_bao_gia(BVBM, VT_HDNT, 999)
+        frappe.db.set_value(
+            "Sales Order Item", so.items[0].name, "custom_nguon_gia", "Báo giá",
+            update_modified=False,
+        )
+
+        frappe.set_user(USER_BVBM)
+        kq = portal.portal_order_sua_so_luong(
+            so.name, json.dumps({"items": [{"item_code": VT_HDNT, "qty": 6}]})
+        )
+        so.reload()
+        self.assertEqual(float(so.items[0].qty), 6.0)
+        self.assertEqual(float(so.items[0].rate), 0.0)
+        self.assertEqual(so.items[0].custom_nguon_gia, "Báo giá")
+        self.assertIn("chờ báo giá lại", kq["thay_doi"][0])
+
     def test_sua_so_luong_dong_bang_gia_da_mat_gia_thanh_dong_bao_gia(self):
         """Mã MẤT giá trong Price List từ lúc lập đơn → dòng thành "Báo giá"
         ở 0, chờ Miyano báo giá như mọi mã chưa có giá (spec §4.4)."""

@@ -318,6 +318,47 @@ class TestGhiGiaDaDongY(FrappeTestCase):
 			                    "reference_name": so.name}, pluck="content"))
 		self.assertNotIn("Ghi giá khách đã đồng ý", noi_dung)
 
+	def test_dong_chua_dau_mang_gia_nhan_vien_go_di_het_vong_nhu_mot_bao_gia(self):
+		"""Ruling R14, đi hết đường: dòng CHƯA có dấu (nhân viên thêm tay trên
+		Desk) mang 50.000, mã có giá bảng 54.000. Gộp một dòng gõ tay vào nó →
+		dấu "Báo giá", giữ 50.000. Khách sửa số lượng → về 0 chờ báo lại, KHÔNG
+		lặng lẽ thành 54.000."""
+		bang = bg.dam_bao_bang_gia_rieng(self.kh_a)
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 2}],
+			dat_ngoai=[{"ten_hang": "Kim X", "dvt": "Cái", "so_luong": 3,
+			            "khong_co_anh": 1}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so.items[0].rate = 50000
+		so.save()
+		frappe.db.set_value("Sales Order Item", so.items[0].name,
+		                    "custom_nguon_gia", "", update_modified=False)
+		self._tao_gia(self.item_ngoai, bang, 54000)
+		so.reload()
+		self.assertFalse(so.items[0].custom_nguon_gia)
+
+		so.custom_dat_ngoai[0].item_khop = self.item_ngoai
+		so.save()
+		so.reload()
+		dong = [d for d in so.items if d.item_code == self.item_ngoai][0]
+		self.assertEqual(float(dong.qty), 5.0)
+		self.assertEqual(float(dong.rate), 50000.0)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+		so = apply_workflow(so, "Gửi khách duyệt")
+		frappe.set_user(self.quan_ly)
+		try:
+			portal.portal_order_sua_so_luong(
+				so.name, {"items": [{"item_code": self.item_ngoai, "qty": 8}]})
+		finally:
+			frappe.set_user("Administrator")
+		dong.reload()
+		self.assertEqual(float(dong.qty), 8.0)
+		self.assertEqual(float(dong.rate), 0.0, "báo giá lại, không tự nhận 54.000")
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
 	def test_de_lai_dau_vet_tren_don(self):
 		so = self._don_cho_khach(self.item_boi_so, 7000)
 		self._khach(so, "dong_y")

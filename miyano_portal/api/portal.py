@@ -36,6 +36,7 @@ from miyano_portal.portal_mua_le import (
     la_dong_giu_cho,
     qua_han_hieu_luc,
     trang_thai_hang,
+    xoa_chenh_lech_gia,
 )
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
 from miyano_portal.portal_thoi_gian_giao import COT_CAN as COT_THOI_GIAN_GIAO
@@ -3402,17 +3403,8 @@ def portal_order_sua_so_luong(order, dong) -> dict:
                     i.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
                 i.rate = gia
                 i.price_list_rate = gia
-                # BẪY ERPNext: nếu nhân viên từng nâng `rate` của dòng này
-                # lên trên `price_list_rate`, `taxes_and_totals.
-                # calculate_margin` đã lưu phần chênh vào `margin_rate_or_
-                # amount`, và lần lưu sau sẽ tính lại `rate = price_list_rate
-                # + margin` — đè lên giá bảng vừa đặt. Xoá phần chênh/chiết
-                # khấu cũ để dòng mang ĐÚNG giá bảng.
-                i.margin_type = None
-                i.margin_rate_or_amount = 0
-                i.rate_with_margin = 0
-                i.discount_percentage = 0
-                i.discount_amount = 0
+                # Bẫy margin của ERPNext — xem `xoa_chenh_lech_gia`.
+                xoa_chenh_lech_gia(i)
             else:
                 # Dòng "Báo giá" (và dòng đơn cũ chưa có dấu): đơn giá báo
                 # cho N hộp không còn đúng ở M hộp → về 0, báo giá lại.

@@ -474,8 +474,14 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
                 f"Không tìm thấy kho giao hàng cho mặt hàng {d['item_code']} tại "
                 f"công ty {company}. Vui lòng liên hệ quản trị viên hệ thống."
             )
+        # R15 — cổng đặt theo đơn vị GỐC và giá bảng tính theo đơn vị gốc
+        # (`gia_bang_gia_nhieu`). ERPNext thì mặc định `uom` của dòng mới
+        # theo `Item.sales_uom`; để nó tự điền, một mã khai `sales_uom` là
+        # thùng sẽ ra dòng "3 thùng" mang giá của MỘT đơn vị gốc.
+        dvt_goc = frappe.db.get_value("Item", d["item_code"], "stock_uom")
         dong = {
             "item_code": d["item_code"], "qty": d["qty"], "rate": d["rate"],
+            "uom": dvt_goc, "stock_uom": dvt_goc, "conversion_factor": 1,
             "warehouse": item_warehouse, "delivery_date": delivery_date,
             "custom_nguon_gia": d["nguon_gia"],
             # Đặt CẢ HAI `rate` và `price_list_rate` (§4.2):

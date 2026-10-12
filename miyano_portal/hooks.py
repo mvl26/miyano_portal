@@ -470,7 +470,8 @@ doc_events = {
 	"Sales Order": {
 		# Task 13 (QĐ-G13, chủ đầu tư chốt 21/08/2026) — khớp mã cho một
 		# dòng "đặt ngoài" thì CHUYỂN nó thành dòng hàng thật trong `items`,
-		# lấy giá hợp đồng bằng hàm dùng chung (QĐ-G14).
+		# lấy giá từ Price List của khách (`bang_gia_khach.gia_bang_gia`, spec
+		# 2026-10-09 §4.4 — thay QĐ-G14 "giá hợp đồng").
 		#
 		# Ở `before_validate` chứ KHÔNG `validate`, và đây là lý do: hook
 		# của app chạy SAU method cùng tên của chính doctype

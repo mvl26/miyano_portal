@@ -237,6 +237,7 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
 		self.assertEqual(flt(dong.amount), 3.0 * 123456)
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_ma_khop_chua_co_gia_la_dong_bao_gia(self):
 		"""Mã chưa có giá trong Price List của khách → `rate = 0`, dấu "Báo
 		giá", chờ Miyano báo giá. `price_list_rate` cũng phải là 0 TƯỜNG MINH:
@@ -953,7 +954,8 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 	# -- CRITICAL-2 (review 22/08) + spec 2026-10-09 §4.4: LUẬT GỘP ----------
 	#
 	# Gộp vào dòng sẵn có chỉ ĐIỀN VÀO CHỖ TRỐNG: dòng `rate = 0` nhận giá
-	# bảng giá và dấu "Bảng giá"; dòng đã có giá giữ nguyên giá VÀ dấu.
+	# bảng giá và dấu "Bảng giá"; dòng đã có giá LUÔN giữ nguyên giá, còn dấu
+	# thì "Bảng giá" chỉ khi giá đó đúng bằng giá bảng (ruling R14).
 
 	def test_gop_vao_dong_dang_cho_bao_gia_thi_DAN_gia_bang_gia(self):
 		"""Vòng lặp nghiệp vụ thật, dựng lại NGUYÊN VẸN — không sửa tay dòng
@@ -1019,9 +1021,13 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá", "dấu cũng giữ nguyên")
 		self.assertEqual(flt(so.total), 6.0 * 50000)
 
-	def test_gop_KHONG_de_len_gia_Miyano_da_chot(self):
-		"""Cùng luật cho dòng "Bảng giá" đã bị nhân viên sửa giá tay: phép gộp
-		chỉ được ĐIỀN VÀO CHỖ TRỐNG, tuyệt đối không đè lên một con số đã có."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_gop_vao_dong_bang_gia_da_bi_sua_gia_thi_thanh_bao_gia(self):
+		"""Ruling R14. Dòng mang dấu "Bảng giá" nhưng nhân viên đã sửa giá tay
+		trên Desk (50.000 ≠ giá bảng 54.000): phép gộp vẫn KHÔNG đè con số đó,
+		nhưng đóng lại dấu "Báo giá" — một giá nhân viên gõ là một báo giá: nó
+		phải được ghi vào Price List khi khách đồng ý và được chốt
+		`before_submit` canh. Bài cũ khẳng định dấu vẫn là "Bảng giá"."""
 		so = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
@@ -1029,13 +1035,110 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		so.items[0].rate = 50000
 		so.save(ignore_permissions=True)
 		so.reload()
-		self.assertEqual(flt(so.items[0].rate), 50000.0, "tiền đề: giá đã chốt")
+		self.assertEqual(flt(so.items[0].rate), 50000.0, "tiền đề: giá đã sửa tay")
+		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
 
 		so = self._khop(so, self.item_da_co)
 		dong = self._dong(so, self.item_da_co)
 		self.assertEqual(flt(dong.qty), 6.0)
-		self.assertEqual(flt(dong.rate), 50000.0, "giá đã chốt phải giữ nguyên")
+		self.assertEqual(flt(dong.rate), 50000.0, "giá nhân viên gõ phải giữ nguyên")
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+	def _bo_dau(self, so, item_code, **them):
+		"""Hạ dòng về hình dạng dòng CHƯA có dấu — dòng nhân viên thêm tay trên
+		Desk, hoặc đơn lập trước spec 2026-10-09."""
+		frappe.db.set_value(
+			"Sales Order Item", self._dong(so, item_code).name,
+			{"custom_nguon_gia": "", **them}, update_modified=False,
+		)
+		so.reload()
+		return so
+
+	def test_gop_vao_dong_chua_dau_gia_khac_gia_bang_thi_la_bao_gia(self):
+		"""Ruling R14 — dòng chưa có dấu mang 50.000, giá bảng 54.000: gộp giữ
+		50.000 và đóng dấu "Báo giá", KHÔNG "Bảng giá" (nếu không, lần khách
+		sửa số lượng kế tiếp sẽ lặng lẽ thay giá nhân viên bằng giá bảng)."""
+		so = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=4)],
+		)
+		so.items[0].rate = 50000
+		so.save(ignore_permissions=True)
+		so = self._bo_dau(so, self.item_da_co)
+		self.assertFalse(self._dong(so, self.item_da_co).custom_nguon_gia)
+
+		so = self._khop(so, self.item_da_co)
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(flt(dong.rate), 50000.0)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+	def test_gop_vao_dong_chua_dau_gia_bang_gia_bang_thi_la_bang_gia(self):
+		"""Vế còn lại của R14: dòng chưa có dấu mà `rate` ĐÚNG BẰNG giá bảng
+		thì đó là giá bảng — dấu "Bảng giá"."""
+		so = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=4)],
+		)
+		so = self._bo_dau(so, self.item_da_co)
+		self.assertEqual(flt(self._dong(so, self.item_da_co).rate), float(GIA_BANG_GIA))
+
+		so = self._khop(so, self.item_da_co)
+		dong = self._dong(so, self.item_da_co)
+		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+
+	def test_gop_vao_dong_chua_dau_co_gia_ma_ma_chua_co_gia_bang_la_bao_gia(self):
+		"""R14 — dòng chưa có dấu mang giá nhân viên gõ, mã KHÔNG có giá bảng."""
+		so = self._dat(
+			items=[{"item_code": self.item_ngoai, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=4)],
+		)
+		self._dong(so, self.item_ngoai).rate = 50000
+		so.save(ignore_permissions=True)
+		so = self._bo_dau(so, self.item_ngoai)
+
+		so = self._khop(so, self.item_ngoai)
+		dong = self._dong(so, self.item_ngoai)
+		self.assertEqual(flt(dong.rate), 50000.0)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+
+	def test_gop_dien_gia_bang_xoa_phan_chenh_cu_cua_dong(self):
+		"""Bẫy ERPNext: dòng `rate = 0` còn mang `margin_rate_or_amount` cũ thì
+		`taxes_and_totals.calculate_margin` cộng phần chênh đó lên giá bảng
+		vừa điền. Phép gộp phải xoá phần chênh để dòng mang ĐÚNG giá bảng."""
+		so = self._dat(
+			items=[{"item_code": self.item_ngoai, "qty": 2}],
+			dat_ngoai=[self._go_tay(so_luong=4)],
+		)
+		frappe.db.set_value(
+			"Sales Order Item", self._dong(so, self.item_ngoai).name,
+			{"margin_type": "Amount", "margin_rate_or_amount": 111},
+			update_modified=False,
+		)
+		self._tao_gia(self.item_ngoai, self.price_list, GIA_BANG_GIA)
+		so.reload()
+		so = self._khop(so, self.item_ngoai)
+		dong = self._dong(so, self.item_ngoai)
+		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
+		self.assertEqual(flt(dong.margin_rate_or_amount), 0.0)
+		self.assertEqual(flt(so.total), 6.0 * GIA_BANG_GIA)
+
+	def test_dong_khop_ma_luon_theo_don_vi_goc(self):
+		"""Ruling R15 — ERPNext mặc định `uom` của dòng mới theo `Item.
+		sales_uom`, còn giá bảng tính theo `stock_uom`. Dòng sinh ra khi khớp
+		mã phải mang đơn vị gốc, hệ số 1, đúng giá bảng."""
+		item = frappe.get_doc("Item", self.item_hd)
+		item.append("uoms", {"uom": "Box", "conversion_factor": 10})
+		item.sales_uom = "Box"
+		item.save(ignore_permissions=True)
+
+		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		so = self._khop(so, self.item_hd)
+		dong = self._dong(so, self.item_hd)
+		self.assertEqual(dong.uom, "Cái")
+		self.assertEqual(flt(dong.conversion_factor), 1.0)
+		self.assertEqual(flt(dong.stock_qty), 5.0)
+		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 
 	# -- CRITICAL-3 (review 22/08): `da_xu_ly` phải còn đúng LÚC SUBMIT -----
 

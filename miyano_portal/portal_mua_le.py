@@ -702,6 +702,22 @@ def _kiem_dong_da_chuyen_khong_doi(dong, xua) -> None:
     )
 
 
+def xoa_chenh_lech_gia(dong) -> None:
+    """Xoá phần chênh / chiết khấu cũ của một dòng vừa được đặt về GIÁ BẢNG.
+
+    BẪY ERPNext: khi `rate` của dòng từng cao hơn `price_list_rate`,
+    `taxes_and_totals.calculate_margin` lưu phần chênh vào `margin_rate_or_
+    amount`, và lần lưu sau tính lại `rate = price_list_rate + margin` — đè
+    lên giá bảng vừa đặt. Gọi ở MỌI chỗ gán `rate = price_list_rate = giá
+    bảng` lên một dòng ĐÃ CÓ (gộp khi khớp mã, khách sửa số lượng).
+    """
+    dong.margin_type = None
+    dong.margin_rate_or_amount = 0
+    dong.rate_with_margin = 0
+    dong.discount_percentage = 0
+    dong.discount_amount = 0
+
+
 def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
     """Trả về dòng `Sales Order Item` mang mặt hàng này — GỘP vào dòng sẵn
     có nếu đã có, ngược lại thêm mới. Bẫy 2: không bao giờ để hai dòng cùng
@@ -713,18 +729,24 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
 
     LUẬT GỘP vào dòng sẵn có — chỉ ĐIỀN VÀO CHỖ TRỐNG, không đè:
 
-      * dòng sẵn có đã có `rate > 0` → giữ nguyên `rate` VÀ dấu. Dòng "Báo
-        giá" mang giá nhân viên vừa gõ là giá đang đàm phán với khách; đè
-        giá bảng giá lên giữa vòng báo giá là đổi con số khách sắp được hỏi
-        ý kiến. Dòng "Bảng giá" thì đã mang giá của bảng lúc lập đơn;
+      * dòng sẵn có đã có `rate > 0` → LUÔN giữ nguyên `rate`: đè giá bảng
+        giá lên một giá nhân viên đã gõ giữa vòng báo giá là đổi con số
+        khách sắp được hỏi ý kiến. DẤU thì phải nói thật về con số đó
+        (ruling R14):
+          - dấu "Báo giá" → giữ nguyên;
+          - dấu "Bảng giá" hoặc CHƯA có dấu (dòng nhân viên thêm tay trên
+            Desk, đơn lập trước spec này) → "Bảng giá" CHỈ KHI `rate` đúng
+            bằng giá bảng hôm nay (so sau `lam_tron_gia`, theo đơn vị gốc);
+            khác giá bảng, hoặc mã không có giá bảng → "Báo giá". Một giá
+            nhân viên gõ là một báo giá: nó phải được ghi vào Price List khi
+            khách đồng ý, được chốt `before_submit` canh, và về 0 khi khách
+            sửa số lượng — chứ không lặng lẽ bị thay bằng giá bảng;
       * dòng sẵn có `rate = 0` mà mã NAY đã có giá → dán giá bảng giá và
         dấu "Bảng giá" (Critical-2, review 22/08: không để cả cụm số lượng
         đi tiếp với 0 đồng khi giá đã có). Ca thật: khoa đặt lúc mã chưa có
         giá, một đơn khác được khách đồng ý ghi giá vào bảng, rồi Miyano
         khớp một dòng gõ tay về đúng mã đó;
-      * dòng sẵn có CHƯA có dấu (đơn lập trước spec này, hoặc dòng nhân viên
-        thêm tay trên Desk) → nhận dấu theo tình trạng giá hiện tại của mã,
-        `rate` theo hai luật trên.
+      * dòng sẵn có `rate = 0` mà mã vẫn chưa có giá → "Báo giá".
 
     Vì thế giá phải tính TRƯỚC vòng gộp, không phải sau nó.
     """
@@ -753,8 +775,23 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
             hang.rate = rate
             hang.price_list_rate = rate
             hang.custom_nguon_gia = nguon
-        elif not hang.get("custom_nguon_gia"):
-            hang.custom_nguon_gia = nguon
+            xoa_chenh_lech_gia(hang)
+        elif not flt(hang.rate):
+            hang.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
+        elif hang.get("custom_nguon_gia") != bang_gia_khach.NGUON_BAO_GIA:
+            # R14 — `rate > 0` giữ nguyên; dấu "Bảng giá" chỉ khi con số trên
+            # dòng ĐÚNG là giá bảng (quy về đơn vị gốc như bộ ghi giá làm).
+            tien_te = doc.get("currency")
+            gia_dong = bang_gia_khach.lam_tron_gia(
+                flt(hang.rate) / (flt(hang.conversion_factor) or 1), tien_te
+            )
+            la_gia_bang = bool(gia) and gia_dong == bang_gia_khach.lam_tron_gia(
+                gia, tien_te
+            )
+            hang.custom_nguon_gia = (
+                bang_gia_khach.NGUON_BANG_GIA if la_gia_bang
+                else bang_gia_khach.NGUON_BAO_GIA
+            )
         return hang
 
     kho = _resolve_item_warehouse(item_code, doc.company)
@@ -766,6 +803,7 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
             frappe.ValidationError,
         )
 
+    dvt_goc = frappe.db.get_value("Item", item_code, "stock_uom")
     moi = {
         "item_code": item_code,
         "qty": qty,
@@ -780,6 +818,12 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
         # là `None`, nên dòng chờ báo giá phải mang 0 TƯỜNG MINH.
         "price_list_rate": rate,
         "custom_nguon_gia": nguon,
+        # R15 — đơn vị GỐC tường minh, như `dat_hang._xay_don`: ERPNext mặc
+        # định `uom` của dòng mới theo `Item.sales_uom`, còn giá bảng tính
+        # theo `stock_uom`.
+        "uom": dvt_goc,
+        "stock_uom": dvt_goc,
+        "conversion_factor": 1,
         "warehouse": kho,
         "delivery_date": doc.get("delivery_date"),
     }

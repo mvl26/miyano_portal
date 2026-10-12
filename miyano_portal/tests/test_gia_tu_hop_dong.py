@@ -399,7 +399,7 @@ class TestGiaTuHopDong(FrappeTestCase):
 
 	# -- HỢP ĐỒNG PHẢI CÒN HIỆU LỰC (Ruling P31, vòng sửa 1) ----------------
 
-	def test_dat_lai_don_cu_lay_gia_hop_dong_CON_SONG(self):
+	def test_dat_lai_don_cu_lay_gia_hien_hanh_sau_khi_ky_hop_dong_ke_nhiem(self):
 		"""Ruling P31 + I-1, đọc lại theo spec 2026-10-09 §4.4 — giỏ đặt lại
 		không được mang giá của một hợp đồng ĐÃ CHẾT.
 
