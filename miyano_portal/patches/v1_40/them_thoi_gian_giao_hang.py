@@ -14,6 +14,7 @@ Hai việc trên site đang chạy:
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from miyano_portal.portal_thoi_gian_giao import MO_TA_TRUONG
 from miyano_portal.setup.install_notifications import DEFS, install_portal_notifications
 
 THU_CAP_NHAT = ("Portal - Đơn xác nhận", "Portal - Xuất giao")
@@ -29,7 +30,7 @@ def execute():
 				"insert_after": "posting_time",
 				"allow_on_submit": 1,
 				"no_copy": 1,
-				"description": "Thời điểm hàng tới khách. Hiện trên cổng khách hàng và trong email báo xuất giao. Để trống thì lấy ngày giờ ghi sổ.",
+				"description": MO_TA_TRUONG,
 			},
 		],
 	}, ignore_validate=True)

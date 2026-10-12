@@ -205,7 +205,62 @@ def mo_rong_workflow():
 	return True
 
 
+def don_thoi_gian_giao_tu_dien_tren_phieu_nhap() -> int:
+	"""Phiếu giao NHÁP đang giữ thời gian giao do hook tự điền lúc lưu nháp.
+
+	Từ 09/10 đến bản này hook `portal_thoi_gian_giao.dien_thoi_gian_giao` chạy ở
+	`validate` và điền `custom_thoi_gian_giao` ngay lần lưu nháp đầu — giờ soạn
+	phiếu, không phải giờ hàng đi. Nay hook chạy ở `before_submit` và chỉ điền
+	khi field TRỐNG, nên giá trị cũ phải được xoá thì lúc ghi sổ mới điền lại.
+
+	Chỉ phiếu `docstatus = 0` có giá trị ĐÚNG BẰNG ngày giờ ghi sổ của chính nó
+	(dấu hiệu "tự điền, chưa ai gõ"). Không nhận ra được: phiếu nháp tự điền
+	rồi được lưu thêm lần nữa (ngày giờ ghi sổ đã chạy tiếp, giá trị đứng yên)
+	— không phân biệt được với giờ nhân viên gõ, nên để nguyên. Phiếu đã ghi sổ
+	KHÔNG bị viết lại. Không đụng `modified`: đây không phải một lần ai đó sửa
+	phiếu. Idempotent: lần chạy sau không còn phiếu nào khớp.
+
+	Cũng cập nhật mô tả của field trên site đang chạy (`create_custom_fields`
+	của v1_40 không chạy lại). Trả số phiếu đã xoá giá trị.
+	"""
+	from miyano_portal.portal_thoi_gian_giao import FIELD, MO_TA_TRUONG
+
+	if not frappe.db.has_column("Delivery Note", FIELD):
+		return 0
+	ten_truong = frappe.db.get_value(
+		"Custom Field", {"dt": "Delivery Note", "fieldname": FIELD}, "name"
+	)
+	if ten_truong and frappe.db.get_value(
+		"Custom Field", ten_truong, "description"
+	) != MO_TA_TRUONG:
+		frappe.db.set_value("Custom Field", ten_truong, "description", MO_TA_TRUONG)
+		frappe.clear_cache(doctype="Delivery Note")
+
+	phieu = frappe.db.sql(
+		f"""select name from `tabDelivery Note`
+		    where docstatus = 0 and `{FIELD}` is not null
+		      and `{FIELD}` = timestamp(posting_date, posting_time)""",
+		pluck=True,
+	)
+	if phieu:
+		frappe.db.sql(
+			f"update `tabDelivery Note` set `{FIELD}` = null where name in %s",
+			(tuple(phieu),),
+		)
+	con_lai = frappe.db.sql(
+		f"""select count(*) from `tabDelivery Note`
+		    where docstatus = 0 and `{FIELD}` is not null"""
+	)[0][0]
+	print(
+		f"[miyano_portal] v1_41 thời gian giao: {len(phieu)} phiếu giao nháp được "
+		f"xoá giá trị tự điền; {con_lai} phiếu nháp còn giá trị (gõ tay hoặc "
+		"không nhận ra được), để nguyên."
+	)
+	return len(phieu)
+
+
 def execute():
 	them_truong()
 	chuyen_du_lieu()
 	mo_rong_workflow()
+	don_thoi_gian_giao_tu_dien_tren_phieu_nhap()

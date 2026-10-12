@@ -400,8 +400,11 @@ doc_events = {
 		],
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
 		# Thời gian giao hàng (09/10/2026) — điền `custom_thoi_gian_giao` khi
-		# còn trống. Chỉ GÁN, không bao giờ ném lỗi (xem docstring hàm).
-		"validate": "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
+		# còn trống, LÚC GHI SỔ: ở `validate` nó đóng băng giờ lưu nháp đầu
+		# tiên, sớm hơn lúc hàng thật sự đi. Chỉ GÁN, không bao giờ ném lỗi —
+		# khác các chốt `before_submit` thường thấy, hook này không chặn gì
+		# (xem docstring hàm).
+		"before_submit": "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
 		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
 		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
 		# chứng từ không khớp tài khoản cổng nào của khách, nghĩa là

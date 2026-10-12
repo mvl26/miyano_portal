@@ -155,14 +155,48 @@ class TestNgayGiaoDuKienTheoDong(_Base):
 
 
 class TestThoiGianGiaoTrenPhieuGiao(_Base):
-	def test_phieu_giao_tu_dien_thoi_gian_giao_khi_de_trong(self):
-		"""Phiếu dựng ở server (mapper `make_delivery_note`) không đi qua
-		form nên không có giá trị mặc định nào của form."""
+	# Final-fix I-2 — giá trị mặc định điền lúc GHI SỔ (`before_submit`), không
+	# lúc lưu nháp: ERPNext đặt lại `posting_date`/`posting_time` về "bây giờ" ở
+	# MỖI lần validate (trừ khi tick "Edit Posting Date and Time"), nên con số
+	# điền ở lần lưu nháp đầu là giờ SOẠN phiếu — phiếu soạn chiều thứ Hai, ghi
+	# sổ sáng thứ Ba sẽ báo khách "giao chiều thứ Hai".
+
+	def _ngay_gio_ghi_so(self, dn):
+		return frappe.utils.get_datetime(f"{dn.posting_date} {dn.posting_time}")
+
+	def _lui_ngay_gio_ghi_so_cua_phieu_nhap(self, dn):
+		"""Phiếu nháp "soạn từ hôm qua 15:00": lần validate kế tiếp (ghi sổ) sẽ
+		đặt lại ngày giờ ghi sổ về bây giờ."""
+		frappe.db.set_value("Delivery Note", dn.name, {
+			"posting_date": frappe.utils.add_days(frappe.utils.today(), -1),
+			"posting_time": "15:00:00",
+		}, update_modified=False)
+		dn.reload()
+
+	def test_phieu_nhap_de_trong_ghi_so_moi_dien_theo_gio_ghi_so(self):
+		"""Phiếu dựng ở server (mapper `make_delivery_note`) không đi qua form
+		nên không có giá trị mặc định nào của form — hook điền, nhưng CHỈ lúc
+		ghi sổ và theo ngày giờ ghi sổ của lúc đó."""
 		dn = self._phieu_giao(self._don(), ghi_so=False)
+		self.assertFalse(dn.custom_thoi_gian_giao, "nháp: chưa điền")
+		self.assertFalse(
+			frappe.db.get_value("Delivery Note", dn.name, "custom_thoi_gian_giao")
+		)
+		self._lui_ngay_gio_ghi_so_cua_phieu_nhap(dn)
+		hom_qua = self._ngay_gio_ghi_so(dn)
+		dn.save()   # lưu nháp thêm lần nữa vẫn không điền
+		self.assertFalse(dn.custom_thoi_gian_giao)
+
+		dn.submit()
+		dn.reload()
 		self.assertTrue(dn.custom_thoi_gian_giao)
 		self.assertEqual(
+			frappe.utils.get_datetime(dn.custom_thoi_gian_giao), self._ngay_gio_ghi_so(dn)
+		)
+		self.assertGreater(frappe.utils.get_datetime(dn.custom_thoi_gian_giao), hom_qua)
+		self.assertEqual(
 			frappe.utils.getdate(dn.custom_thoi_gian_giao),
-			frappe.utils.getdate(dn.posting_date),
+			frappe.utils.getdate(frappe.utils.today()),
 		)
 
 	def test_phieu_giao_giu_thoi_gian_miyano_da_nhap(self):
@@ -174,6 +208,136 @@ class TestThoiGianGiaoTrenPhieuGiao(_Base):
 		dn.custom_thoi_gian_giao = "2026-10-12 09:30:00"
 		dn.insert(ignore_permissions=True)
 		self.assertEqual(str(dn.custom_thoi_gian_giao), "2026-10-12 09:30:00")
+		dn.submit()
+		dn.reload()
+		self.assertEqual(str(dn.custom_thoi_gian_giao), "2026-10-12 09:30:00",
+		                 "giá trị nhân viên gõ sống qua lúc ghi sổ")
+
+	def test_phieu_tra_hang_cung_luat(self):
+		"""Phiếu trả hàng (`is_return`) là một Delivery Note: nháp để trống, ghi
+		sổ mới điền; không thừa hưởng giờ giao của phiếu gốc (`no_copy`)."""
+		from erpnext.stock.doctype.delivery_note.delivery_note import make_sales_return
+
+		goc_dn = self._phieu_giao(self._don())
+		frappe.db.set_value(
+			"Delivery Note", goc_dn.name, "custom_thoi_gian_giao", "2026-10-12 09:30:00"
+		)
+		tra = make_sales_return(goc_dn.name)
+		tra.insert(ignore_permissions=True)
+
+		def _don_phieu_tra():
+			# `_don_phieu_giao_cu` của bài sau huỷ phiếu theo thứ tự bất kỳ; phiếu
+			# gốc còn phiếu trả đã ghi sổ thì vấp `LinkExistsError`.
+			frappe.set_user("Administrator")
+			if frappe.db.get_value("Delivery Note", tra.name, "docstatus") == 1:
+				frappe.get_doc("Delivery Note", tra.name).cancel()
+			frappe.delete_doc("Delivery Note", tra.name, force=True, ignore_permissions=True)
+
+		self.addCleanup(_don_phieu_tra)
+		self.assertEqual(tra.is_return, 1)
+		self.assertFalse(tra.custom_thoi_gian_giao)
+		tra.submit()
+		tra.reload()
+		self.assertEqual(
+			frappe.utils.get_datetime(tra.custom_thoi_gian_giao), self._ngay_gio_ghi_so(tra)
+		)
+
+	def test_hook_dang_ky_o_before_submit_khong_o_validate(self):
+		"""Canh DÒNG ĐĂNG KÝ: mọi test khác chạy qua `submit()` thật, nhưng một
+		lần dời hook về `validate` sẽ làm sống lại đúng lỗi "giờ soạn phiếu"."""
+		ten = "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao"
+		su_kien = frappe.get_hooks("doc_events")["Delivery Note"]
+		self.assertIn(ten, su_kien.get("before_submit") or [])
+		self.assertNotIn(ten, su_kien.get("validate") or [])
+
+	def test_hook_khong_bao_gio_chan_viec_ghi_so(self):
+		from unittest.mock import patch
+
+		from miyano_portal import portal_thoi_gian_giao
+
+		dn = self._phieu_giao(self._don(), ghi_so=False)
+		with patch.object(
+			portal_thoi_gian_giao, "thoi_gian_giao_cua_dn",
+			side_effect=RuntimeError("giả lập"),
+		):
+			dn.submit()
+		self.assertEqual(frappe.db.get_value("Delivery Note", dn.name, "docstatus"), 1)
+
+	def test_thu_xuat_giao_luc_ghi_so_thay_thoi_gian_vua_dien(self):
+		"""Notification "Portal - Xuất giao" (event Submit) chạy ở `on_submit`,
+		SAU `before_submit`: thư gửi đi lúc ghi sổ phải mang giờ vừa điền. Dựng
+		thư ĐÚNG lúc Frappe đánh giá thông báo, trên chính document nó nhận."""
+		from unittest.mock import patch
+
+		from frappe.email.doctype.notification import notification
+
+		that = notification.evaluate_alert
+		thu = []
+
+		def bat(doc, alert, event):
+			if doc.doctype == "Delivery Note" and (
+				alert if isinstance(alert, str) else alert.name
+			) == "Portal - Xuất giao":
+				thu.append((event, _dung_thu("Portal - Xuất giao", doc)))
+			return that(doc, alert, event)
+
+		dn = self._phieu_giao(self._don(), ghi_so=False)
+		self._lui_ngay_gio_ghi_so_cua_phieu_nhap(dn)
+		with patch.object(notification, "evaluate_alert", side_effect=bat):
+			dn.submit()
+		self.assertEqual([e for e, _ in thu], ["Submit"])
+		gio = frappe.utils.format_datetime(self._ngay_gio_ghi_so(dn), "dd/MM/yyyy HH:mm")
+		self.assertIn(f"Thời gian giao hàng: {gio}", thu[0][1])
+		self.assertIn(frappe.utils.getdate(frappe.utils.today()).strftime("%d/%m/%Y"), thu[0][1])
+
+	# ---- Dọn giá trị tự điền cũ trên phiếu NHÁP (patch v1_41) --------------
+
+	def _dat_bang_ngay_gio_ghi_so(self, dn):
+		frappe.db.sql(
+			"""update `tabDelivery Note`
+			   set custom_thoi_gian_giao = timestamp(posting_date, posting_time)
+			   where name = %s""", dn.name)
+
+	def test_patch_xoa_gia_tri_tu_dien_tren_phieu_nhap(self):
+		from miyano_portal.patches.v1_41 import gia_theo_price_list as patch
+
+		tu_dien = self._phieu_giao(self._don(), ghi_so=False)
+		self._dat_bang_ngay_gio_ghi_so(tu_dien)
+		go_tay = self._phieu_giao(self._don(), ghi_so=False)
+		frappe.db.set_value("Delivery Note", go_tay.name, "custom_thoi_gian_giao",
+		                    "2026-10-12 09:30:00", update_modified=False)
+		da_ghi_so = self._phieu_giao(self._don())
+		self._dat_bang_ngay_gio_ghi_so(da_ghi_so)
+		truoc = frappe.db.get_value(
+			"Delivery Note", da_ghi_so.name, ["custom_thoi_gian_giao", "modified"])
+		sua_luc = frappe.db.get_value("Delivery Note", tu_dien.name, "modified")
+
+		def gia_tri(dn):
+			return frappe.db.get_value("Delivery Note", dn.name, "custom_thoi_gian_giao")
+
+		self.assertTrue(gia_tri(tu_dien))
+		so_phieu = patch.don_thoi_gian_giao_tu_dien_tren_phieu_nhap()
+		self.assertGreaterEqual(so_phieu, 1)
+		self.assertIsNone(gia_tri(tu_dien), "nháp tự điền: xoá để lúc ghi sổ điền lại")
+		self.assertEqual(
+			frappe.db.get_value("Delivery Note", tu_dien.name, "modified"), sua_luc,
+			"không phải một lần ai đó sửa phiếu")
+		self.assertEqual(str(gia_tri(go_tay)), "2026-10-12 09:30:00", "nháp gõ tay: giữ")
+		self.assertEqual(
+			frappe.db.get_value(
+				"Delivery Note", da_ghi_so.name, ["custom_thoi_gian_giao", "modified"]),
+			truoc, "phiếu đã ghi sổ: không viết lại")
+
+		self.assertEqual(patch.don_thoi_gian_giao_tu_dien_tren_phieu_nhap(), 0, "chạy lại")
+
+		# Phiếu nháp vừa được dọn: ghi sổ thì điền theo giờ ghi sổ.
+		tu_dien.reload()
+		tu_dien.submit()
+		tu_dien.reload()
+		self.assertEqual(
+			frappe.utils.get_datetime(tu_dien.custom_thoi_gian_giao),
+			self._ngay_gio_ghi_so(tu_dien),
+		)
 
 	def test_order_track_tra_thoi_gian_giao_cua_tung_dot(self):
 		so = self._don()
