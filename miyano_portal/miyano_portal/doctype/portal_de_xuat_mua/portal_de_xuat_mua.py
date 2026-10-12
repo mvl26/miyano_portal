@@ -331,8 +331,12 @@ class PortalDeXuatMua(Document):
 		# không bao giờ ném lỗi (xem docstring nó) nên an toàn gọi ngay sau
 		# save(): một trục trặc ở khâu thông báo không được cuốn theo trạng
 		# thái "Chờ duyệt" vừa ghi thành công.
-		from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
-		bao_de_xuat_gui_duyet(self)
+		#
+		# `flags.khong_bao_gui_duyet` — chỉ `tach_phieu.gui_duyet_co_tach` đặt:
+		# hai phiếu của MỘT lần gửi được báo bằng một thông báo chung ở đó.
+		if not self.flags.get("khong_bao_gui_duyet"):
+			from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
+			bao_de_xuat_gui_duyet(self)
 
 	def thu_hoi(self):
 		"""Nhân viên rút phiếu đang "Chờ duyệt" về "Nháp" để sửa lại

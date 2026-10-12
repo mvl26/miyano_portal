@@ -112,6 +112,55 @@ class TestTachPhieu(FrappeTestCase):
 		self.assertEqual(a.items[0].nguon_gia, "Bảng giá")
 		self.assertEqual(b.items[0].nguon_gia, "Chờ báo giá")
 
+	def test_phieu_thu_hai_khong_thua_huong_hop_dong_cua_phieu_nhap_cu(self):
+		"""Final-fix S-3: phiếu Nháp lập TRƯỚC spec 2026-10-09 còn mang `hdnt`.
+		Cổng không còn kiểm soát theo hợp đồng (Q3), nên phiếu chờ báo giá sinh
+		ra lúc tách không được nhận nó — nhất là khi nó chính là phần hàng
+		KHÔNG thuộc hợp đồng nào."""
+		ten = self._phieu_nhap([self.co_gia, self.chua_gia])
+		frappe.db.set_value(DT, ten, "hdnt", self.bo_a, update_modified=False)
+		kq = de_xuat.de_xuat_gui_duyet(ten)
+		frappe.set_user("Administrator")
+		self.assertTrue(kq["phieu_cung_lan_dat"])
+		self.assertEqual(frappe.db.get_value(DT, ten, "hdnt"), self.bo_a,
+		                 "phiếu gốc (cũ) giữ nguyên dấu của nó")
+		self.assertFalse(frappe.db.get_value(DT, kq["phieu_cung_lan_dat"], "hdnt"))
+
+	def _thong_bao_gui_duyet(self, nguoi, ten_phieu):
+		from miyano_portal.portal_thong_bao_khach import TIEN_TO_DE_XUAT_GUI_DUYET
+
+		return frappe.get_all("Notification Log", filters={
+			"for_user": nguoi, "document_type": DT,
+			"document_name": ["in", ten_phieu],
+			"subject": ["like", f"{TIEN_TO_DE_XUAT_GUI_DUYET}:%"],
+		}, fields=["subject", "document_name", "email_content"])
+
+	def test_gui_phieu_tron_quan_ly_nhan_MOT_thong_bao_neu_ca_hai_ma(self):
+		"""Final-fix S-5: một lần bấm gửi của khoa là MỘT việc chờ quản lý, dù
+		nó tách thành hai phiếu — một thông báo, gọi tên cả hai mã."""
+		ten = self._phieu_nhap([self.co_gia, self.chua_gia])
+		kq = de_xuat.de_xuat_gui_duyet(ten)
+		frappe.set_user("Administrator")
+		a = frappe.get_doc(DT, kq["name"])
+		b = frappe.get_doc(DT, kq["phieu_cung_lan_dat"])
+		tb = self._thong_bao_gui_duyet(self.quan_ly, [a.name, b.name])
+		self.assertEqual(len(tb), 1, tb)
+		self.assertEqual(tb[0].document_name, a.name)
+		for ma in (a.ma_de_xuat, b.ma_de_xuat):
+			self.assertIn(ma, tb[0].subject)
+			self.assertIn(ma, tb[0].email_content)
+		# Người nhận không đổi so với đường không tách: chỉ quản lý, không
+		# báo lại cho chính người vừa gửi.
+		self.assertEqual(self._thong_bao_gui_duyet(self.user_a, [a.name, b.name]), [])
+
+	def test_gui_phieu_khong_tach_van_mot_thong_bao_mot_ma(self):
+		kq = de_xuat.de_xuat_gui_duyet(self._phieu_nhap([self.co_gia]))
+		frappe.set_user("Administrator")
+		tb = self._thong_bao_gui_duyet(self.quan_ly, [kq["name"]])
+		self.assertEqual(len(tb), 1, tb)
+		self.assertTrue(tb[0].subject.endswith(f": {kq['ma_de_xuat']}"), tb[0].subject)
+		self.assertEqual(self._thong_bao_gui_duyet(self.user_a, [kq["name"]]), [])
+
 	def test_hang_go_tay_di_theo_phieu_cho_bao_gia(self):
 		ten = self._phieu_nhap(
 			[self.co_gia],

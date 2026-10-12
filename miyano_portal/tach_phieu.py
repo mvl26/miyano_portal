@@ -14,10 +14,12 @@ DOCTYPE = "Portal De Xuat Mua"
 HAU_TO_GIA = ":gia"
 HAU_TO_BAO_GIA = ":baogia"
 
-# Thông tin đầu phiếu chép sang phiếu thứ hai.
+# Thông tin đầu phiếu chép sang phiếu thứ hai. KHÔNG có `hdnt`: cổng không
+# còn kiểm soát theo hợp đồng (quyết định Q3); phiếu Nháp lập trước đó có
+# thể còn mang nó, và phiếu chờ báo giá sinh ra ở đây không được thừa hưởng.
 _TRUONG_CHUNG = (
 	"customer", "khoa_phong", "ngay_can", "dia_chi_giao", "ghi_chu",
-	"ly_do_yeu_cau", "ten_don_hang", "hdnt",
+	"ly_do_yeu_cau", "ten_don_hang",
 )
 
 # Khoá định danh của dòng con — bỏ khi chép dòng sang phiếu mới.
@@ -131,9 +133,17 @@ def gui_duyet_co_tach(doc) -> list:
 	doc.set("dat_ngoai", [])
 	doc.save(ignore_permissions=True)
 
+	# Một lần bấm gửi là MỘT việc chờ quản lý: tắt thông báo riêng của từng
+	# phiếu (cờ đặt ngay trước `gui_duyet()` — `reload()` phía trên không giữ
+	# cờ) và gửi một thông báo gọi tên cả hai mã sau khi đã nối hai phiếu.
+	doc.flags.khong_bao_gui_duyet = True
 	doc.gui_duyet()
+	moi.flags.khong_bao_gui_duyet = True
 	moi.gui_duyet()
 	lien_ket(doc.name, moi.name, doc.ma_de_xuat)
 	doc.reload()
 	moi.reload()
+	from miyano_portal.portal_thong_bao_khach import bao_de_xuat_gui_duyet
+
+	bao_de_xuat_gui_duyet(doc, cung_lan_dat=moi)
 	return [doc, moi]

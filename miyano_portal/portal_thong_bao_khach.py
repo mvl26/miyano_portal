@@ -146,11 +146,16 @@ def _ghi_thong_bao_de_xuat(doc, nguoi_nhan: list[str], chu_de: str, noi_dung: st
     return dem
 
 
-def bao_de_xuat_gui_duyet(doc) -> int:
+def bao_de_xuat_gui_duyet(doc, cung_lan_dat=None) -> int:
     """§5.8 hàng 1 — khoa gửi phiếu đề xuất lên → CHỈ Quản lý cần biết để
     duyệt (không báo lại cho chính khoa vừa gửi, kể cả đồng nghiệp cùng
     khoa với người lập). `khoa_phong=None` truyền cho `_portal_users_theo_
     khoa` đúng nghĩa "chỉ Quản lý" đã định nghĩa Ở ĐÓ.
+
+    `cung_lan_dat` — phiếu thứ hai của một lần gửi bị tách (spec 2026-10-09
+    §4.1): MỘT thông báo gắn vào `doc` (phiếu gốc), gọi tên cả hai mã. Người
+    gọi (`tach_phieu.gui_duyet_co_tach`) đã tắt thông báo riêng của từng
+    phiếu, nên quản lý không nhận hai tin cho một lần bấm gửi của khoa.
 
     KHÔNG chống trùng bằng `frappe.db.exists` như `bao_da_nhap_hang`/
     `bao_kiem_hang_ket_qua`/`bao_hen_giao_lai` ngay dưới — những hàm đó
@@ -170,11 +175,18 @@ def bao_de_xuat_gui_duyet(doc) -> int:
         nguoi_nhan = _portal_users_theo_khoa(doc.customer, None)
         if not nguoi_nhan:
             return 0
-        chu_de = f"{TIEN_TO_DE_XUAT_GUI_DUYET}: {doc.ma_de_xuat or doc.name}"
-        noi_dung = (
-            f"Khoa vừa gửi đề xuất mua <b>{doc.ma_de_xuat or doc.name}</b> "
-            "chờ bạn duyệt."
-        )
+        ma = doc.ma_de_xuat or doc.name
+        if cung_lan_dat is not None:
+            ma_kia = cung_lan_dat.ma_de_xuat or cung_lan_dat.name
+            chu_de = f"{TIEN_TO_DE_XUAT_GUI_DUYET}: {ma}, {ma_kia}"
+            noi_dung = (
+                f"Khoa vừa gửi một lần đặt tách thành hai đề xuất mua "
+                f"<b>{ma}</b> (hàng có giá) và <b>{ma_kia}</b> (hàng chờ báo "
+                "giá) chờ bạn duyệt."
+            )
+        else:
+            chu_de = f"{TIEN_TO_DE_XUAT_GUI_DUYET}: {ma}"
+            noi_dung = f"Khoa vừa gửi đề xuất mua <b>{ma}</b> chờ bạn duyệt."
         return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
     except Exception:
         try:
