@@ -221,13 +221,29 @@ def tu_hdnt(doc, method=None):
     lỗi ở đây (bảng giá bị xoá, Item lạ, ...) không có quyền rollback một
     chứng từ nghiệp vụ đã đúng — cùng nguyên tắc `delivery_hook._chay_an_toan`.
     Nhưng cũng KHÔNG được im lặng: người vừa submit phải thấy ngay, vì hậu quả
-    của việc bỏ sót là khách không đặt được hàng và không ai biết tại sao."""
+    của việc bỏ sót là khách không đặt được hàng và không ai biết tại sao.
+
+    Cả lượt đồng bộ nằm trong MỘT savepoint: hỏng giữa chừng thì lùi hết, không
+    để lại bảng giá nửa vời (vài mã đã có giá hợp đồng, vài mã chưa) trông như
+    đã đồng bộ xong. Hợp đồng vừa ký nằm NGOÀI savepoint nên vẫn giữ."""
+    if doc.blanket_order_type != "Selling":
+        return
+    diem = "tu_hdnt_dong_bo_gia"
     try:
-        if doc.blanket_order_type != "Selling":
-            return
+        frappe.db.savepoint(diem)
         ket_qua = dong_bo_khach(doc.customer, doc)
+        frappe.db.release_savepoint(diem)
     except Exception:
-        frappe.log_error(title=f"HĐNT {doc.name}: không đồng bộ được đơn giá sang bảng giá")
+        loi = frappe.get_traceback(with_context=True)
+        try:
+            frappe.db.rollback(save_point=diem)
+        except Exception:
+            # Savepoint không còn (giao dịch đã bị bỏ): giữ lỗi gốc.
+            loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
+        frappe.log_error(
+            title=f"HĐNT {doc.name}: không đồng bộ được đơn giá sang bảng giá",
+            message=loi,
+        )
         frappe.msgprint(
             _("Không dựng được bảng giá từ hợp đồng này. Kiểm tra Error Log — "
               "khách sẽ không đặt hàng được trên cổng cho tới khi xử lý."),

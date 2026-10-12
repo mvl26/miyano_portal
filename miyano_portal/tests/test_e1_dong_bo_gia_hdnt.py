@@ -110,6 +110,30 @@ class TestDongBoGia(_GiaFixture):
         self.assertEqual(self._gia(VT), 95000)
         self.assertEqual(self._gia(HC), 1250000)
 
+    def test_ghi_hong_giua_chung_khong_de_lai_gia_nua_voi(self):
+        """Final-fix S-4: dòng thứ hai ghi hỏng → giá dòng thứ nhất KHÔNG được
+        nằm lại trong bảng (một bảng giá nửa vời trông như đã đồng bộ xong),
+        và việc ký hợp đồng vẫn thành công — hook nuốt lỗi như cũ."""
+        from unittest.mock import patch
+
+        that = bang_gia_khach.ghi_gia_vao_bang
+        da_ghi = []
+
+        def hong_o_dong_hai(bang, customer, item_code, gia, tien_te=None):
+            if da_ghi:
+                raise RuntimeError("giả lập: ghi dòng thứ hai hỏng")
+            da_ghi.append(item_code)
+            return that(bang, customer, item_code, gia, tien_te)
+
+        with patch.object(bang_gia_khach, "ghi_gia_vao_bang", side_effect=hong_o_dong_hai):
+            bo = self._hdnt()
+
+        self.assertEqual(da_ghi, [VT], "dòng thứ nhất phải đã được ghi thật trước khi hỏng")
+        self.assertEqual(frappe.db.get_value("Blanket Order", bo.name, "docstatus"), 1)
+        self.assertIsNone(self._gia(VT), "giá dòng thứ nhất phải được lùi lại")
+        self.assertIsNone(self._gia(HC))
+        self.assertEqual(frappe.db.count("Item Price", {"price_list": BANG_GIA}), 0)
+
     def test_item_price_dung_uom_va_currency_cua_bang_gia(self):
         self._hdnt()
         row = frappe.db.get_value(
