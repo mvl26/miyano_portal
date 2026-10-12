@@ -1352,7 +1352,10 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
                so.status as so_status, so.per_delivered as per_delivered,
                so.workflow_state as workflow_state, so.grand_total as grand_total,
                p.name as khoa_sap_xep,
-               {_sql_giai_doan("p.trang_thai", "so")} as giai_doan
+               {_sql_giai_doan("p.trang_thai", "so")} as giai_doan,
+               -- Mã lần đặt chung của hai phiếu tách (spec 2026-10-09 §7);
+               -- rỗng với phiếu không tách và với đơn không đứng sau phiếu.
+               coalesce(p.ma_lan_dat, '') as ma_lan_dat
         from `tabPortal De Xuat Mua` p
         left join `tabSales Order` so on so.name = p.sales_order
         where {dk_phieu}
@@ -1365,7 +1368,7 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
         select 'don', null, so.name, so.name,
                {cot_ten_don}, {cot_khoa_don}, so.creation, null, null,
                so.status, so.per_delivered, so.workflow_state, so.grand_total,
-               so.name, {_sql_giai_doan("null", "so")}
+               so.name, {_sql_giai_doan("null", "so")}, ''
         from `tabSales Order` so
         where {dk_don}
           and not exists (

@@ -212,7 +212,7 @@ def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
 		loc["trang_thai"] = trang_thai
 	return frappe.get_all(
 		DOCTYPE, filters=loc,
-		fields=["name", "ma_de_xuat", "khoa_phong", "trang_thai",
+		fields=["name", "ma_de_xuat", "ma_lan_dat", "khoa_phong", "trang_thai",
 		        "thoi_diem_gui", "owner"],
 		order_by="modified desc", limit_page_length=int(limit),
 	)
@@ -364,6 +364,35 @@ def de_xuat_chi_tiet(ten) -> dict:
 	from miyano_portal.kho import can_cu_duyet
 
 	kq["can_cu_kho"] = can_cu_duyet.can_cu_cho_don(doc)
+
+	# Spec 2026-10-09 §7 — hai phiếu tách từ cùng một lần đặt. Chỉ lộ
+	# `name`/`ma_de_xuat`/`trang_thai`, và chỉ khi người gọi mở được phiếu
+	# kia qua CHÍNH chốt phạm vi `_phieu_cua_toi` (phiếu tách luôn cùng khách
+	# và khoa, nhưng không dựa vào đó để khỏi rò mã/trạng thái).
+	kq["ma_lan_dat"] = doc.get("ma_lan_dat") or ""
+	kq["phieu_cung_lan_dat"] = None
+	if doc.get("phieu_cung_lan_dat"):
+		try:
+			kia = _phieu_cua_toi(doc.phieu_cung_lan_dat, cho_quan_ly=True)
+			kq["phieu_cung_lan_dat"] = {
+				"name": kia.name, "ma_de_xuat": kia.ma_de_xuat,
+				"trang_thai": kia.trang_thai,
+			}
+		except (frappe.PermissionError, frappe.DoesNotExistError):
+			pass
+	# Cảnh báo đổi giá chỉ có nghĩa TRƯỚC khi duyệt. `_kiem_gia_doi` chỉ đọc
+	# nhưng NÉM khi một dòng mất giá; màn chi tiết phải mở được để quản lý
+	# thấy lý do và từ chối phiếu, nên bắt lỗi và trả dạng "mat_gia".
+	kq["canh_bao_gia"] = []
+	if doc.trang_thai == "Chờ duyệt":
+		from frappe.utils import strip_html
+
+		from miyano_portal import de_xuat_duyet
+		try:
+			kq["canh_bao_gia"] = de_xuat_duyet._kiem_gia_doi(doc)
+		except frappe.ValidationError as e:
+			# Frontend in thẳng dạng chữ, nên bỏ thẻ HTML mà `frappe.throw` có thể thêm.
+			kq["canh_bao_gia"] = [{"ly_do": "mat_gia", "thong_diep": strip_html(str(e))}]
 	return kq
 
 
@@ -403,7 +432,7 @@ def _ap_dieu_chinh(doc, dieu_chinh):
 
 
 @frappe.whitelist()
-def de_xuat_duyet_phieu(ten, dieu_chinh=None) -> dict:
+def de_xuat_duyet_phieu(ten, dieu_chinh=None, duyet_ca_hai=0) -> dict:
 	"""Chốt quyền DUY NHẤT của đường duyệt. Kế hoạch C (uỷ quyền) sửa ĐÚNG
 	dòng `la_quan_ly()` này, không đụng `de_xuat_duyet.duyet_va_tao_don`."""
 	if not la_quan_ly():
@@ -412,7 +441,21 @@ def de_xuat_duyet_phieu(ten, dieu_chinh=None) -> dict:
 	if dieu_chinh:
 		_ap_dieu_chinh(doc, dieu_chinh)
 	from miyano_portal import de_xuat_duyet
-	return de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
+	kq = de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
+	kq["phieu_cung_lan_dat"] = None
+	# Spec 2026-10-09 §7 — "Duyệt cả hai": phiếu kia duyệt CÙNG tư cách và
+	# cùng chốt quyền như phiếu này. Cả hai nằm trong một giao dịch: phiếu
+	# kia ném lỗi thì ngoại lệ lan lên và request rollback luôn phiếu này.
+	kia = doc.get("phieu_cung_lan_dat")
+	if frappe.utils.cint(duyet_ca_hai) and kia and frappe.db.get_value(
+		DOCTYPE, kia, "trang_thai"
+	) == "Chờ duyệt":
+		_phieu_cua_toi(kia, cho_quan_ly=True)
+		kq_kia = de_xuat_duyet.duyet_va_tao_don(kia, frappe.session.user)
+		kq["phieu_cung_lan_dat"] = {
+			"sales_order": kq_kia["sales_order"], "de_xuat": kq_kia["de_xuat"],
+		}
+	return kq
 
 
 @frappe.whitelist()
