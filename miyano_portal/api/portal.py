@@ -58,6 +58,7 @@ from miyano_portal.portal_kiem_hang import (
 )
 from miyano_portal.portal_thong_bao import (
     bao_khach_sua_so_luong,
+    bao_loi_ghi_gia,
     bao_yeu_cau_ho_tro_hddt,
 )
 
@@ -3149,6 +3150,25 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # KHÔNG được để một trục trặc ở đây làm hỏng việc đồng ý đã ghi
         # nhận thành công phía trên (xem docstring của hàm).
         cap_nhat_yeu_cau_goc(so, "Đã chuyển thành đơn")
+
+        # Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực
+        # trong Price List của họ. Bọc lỗi CỐ Ý: việc đồng ý đã thành công,
+        # một trục trặc ở bảng giá không được biến nó thành lỗi cho khách.
+        # Savepoint để lỗi giữa chừng không để lại nửa số giá đã ghi; nhân
+        # viên phụ trách được báo để tự cập nhật bảng giá.
+        if di_vong_bao_gia(so):
+            try:
+                frappe.db.savepoint("ghi_gia_da_dong_y")
+                so.reload()
+                bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
+            except Exception:
+                frappe.db.rollback(save_point="ghi_gia_da_dong_y")
+                frappe.log_error(
+                    title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
+                    message=frappe.get_traceback(with_context=True),
+                    reference_doctype="Sales Order", reference_name=so.name,
+                )
+                bao_loi_ghi_gia(so.customer, so.name)
     elif action == "khong_dong_y":
         # review I-5/NL-10.4 — BA §4.10 ghi rõ "lý do lưu vào đơn VÀ yêu
         # cầu gốc". Bản trước chỉ ghi Comment lên `so` (dòng phía trên) —

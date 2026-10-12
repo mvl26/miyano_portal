@@ -99,6 +99,40 @@ def bao_thieu_gia(customer: str, item_code: str) -> bool:
     return True
 
 
+def bao_loi_ghi_gia(customer: str, sales_order: str) -> int:
+    """Spec 2026-10-09 §5.2 — khách đã đồng ý báo giá nhưng giá chưa vào được
+    Price List của họ. Báo nhân viên phụ trách (đường lui Sales Manager, như
+    biên bản kiểm hàng) để tự cập nhật bảng giá. Trả số thông báo vừa tạo.
+
+    Không bao giờ ném lỗi, cùng lý do với `bao_thieu_gia`: chạy sau khi việc
+    đồng ý đã thành công.
+    """
+    try:
+        so_gui = 0
+        for nguoi in _nguoi_nhan_kiem_hang(customer):
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": f"Portal - Chưa ghi được giá vào bảng giá: {sales_order} ({customer})",
+                "for_user": nguoi,
+                "type": "Alert",
+                "document_type": "Sales Order",
+                "document_name": sales_order,
+                "email_content": (
+                    f"Khách hàng <b>{customer}</b> đã đồng ý báo giá trên đơn "
+                    f"<b>{sales_order}</b> nhưng hệ thống chưa ghi được giá vào "
+                    f"bảng giá của họ (xem Error Log). Cần cập nhật Item Price thủ công."
+                ),
+            }).insert(ignore_permissions=True)
+            so_gui += 1
+        return so_gui
+    except Exception:
+        frappe.log_error(
+            title=f"Không báo được lỗi ghi giá của đơn {sales_order}",
+            message=frappe.get_traceback(with_context=True),
+        )
+        return 0
+
+
 def bao_yeu_cau_moi(customer: str, name: str, ten_hang: str) -> int:
     """US-E6.3 — báo yêu cầu hàng hoá mới cho sales phụ trách VÀ mọi
     `Purchase User`. Trả số Notification Log vừa tạo.
