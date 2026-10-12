@@ -431,8 +431,8 @@ def portal_order_place(
     `tao_sales_order` ghi trước khi ném.
     """
     if not la_quan_ly():
-        # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL/hạn mức khó
-        # hiểu lộ ra từ tầng dưới. Chặn TRƯỚC khi chạm bất kỳ thứ gì khác
+        # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL khó hiểu lộ
+        # ra từ tầng dưới. Chặn TRƯỚC khi chạm bất kỳ thứ gì khác
         # (customer, khoa_phong_cho_don, dat_hang) — không để lỡ tạo ra bất
         # kỳ chứng từ nào rồi mới từ chối.
         frappe.throw(
@@ -453,8 +453,15 @@ def portal_order_place(
     rid_bao_gia = f"{request_id}{tach_phieu.HAU_TO_BAO_GIA}"
 
     def _da_co_don(*ds_rid):
+        # Lọc CẢ `customer`: câu hỏi là "lần bấm trước CỦA KHÁCH NÀY đã chia
+        # giỏ thế nào". Không lọc thì khách B gửi `X` trong khi khách A đã
+        # có đơn `X:gia` sẽ bị coi là "đã tách" — giỏ một loại của B bị ép
+        # sang `X:gia` rồi chết ở chốt BR-O12 của `tao_sales_order` ("Mã yêu
+        # cầu không hợp lệ") dù B chưa từng dùng mã đó. Trùng mã THẬT với
+        # khách khác vẫn do `tao_sales_order` từ chối như cũ.
         return bool(frappe.db.exists(
-            "Sales Order", {"custom_request_id": ["in", list(ds_rid)]}
+            "Sales Order",
+            {"custom_request_id": ["in", list(ds_rid)], "customer": customer},
         ))
 
     # Spec 2026-10-09 §4.1 — giỏ trộn ra HAI đơn. Giỏ một loại giữ nguyên
@@ -644,8 +651,9 @@ def _so_status_vi(so_status, per_delivered=None):
     if so_status == "Closed":
         # NL-2.8 — đóng sớm KHÁC huỷ: phần đã giao vẫn là hàng khách đã nhận.
         # Gộp chung vào "Đã huỷ" khiến khách tưởng không nhận được gì.
-        # TODO(VĐ-7): phần chưa giao hiện KHÔNG được hoàn vào hạn mức Blanket
-        # Order. Chỉ làm khi chủ đầu tư chốt cơ chế — xem BA §VĐ-7.
+        # VĐ-7 (hoàn phần chưa giao vào hạn mức Blanket Order) đã khép theo
+        # spec 2026-10-09 §9: đơn từ cổng không còn tiêu hạn mức hợp đồng
+        # nào, nên không có gì để hoàn.
         return "Hoàn thành (đóng sớm)"
     if so_status == "Cancelled":
         return "Đã huỷ"
@@ -1696,7 +1704,7 @@ def portal_order_track(order) -> dict:
         "items": [
             # `name` — Việc 1 (brief 2026-08-15) — `portal_order_sua_so_luong`
             # khớp dòng payload khách gửi lên với dòng THẬT trên đơn qua
-            # `item_code` (duy nhất trong MỘT đơn, xem `_xay_don_ban_le`
+            # `item_code` (duy nhất trong MỘT đơn, xem `dat_hang._xay_don`
             # aggregate theo item_code khi tạo đơn); `name` đi kèm ở đây để
             # client có thể tham chiếu nếu cần, cùng khuôn với `dat_ngoai`
             # bên dưới (dat_ngoai không có khoá tự nhiên nào khác).
@@ -3013,7 +3021,9 @@ def portal_order_sua_so_luong(order, dong) -> dict:
 
     Task 7 — câu mở trước đây viết "trên một đơn Mua lẻ", mô tả một phép so
     chuỗi mà mã bên dưới KHÔNG còn thực hiện. Từ Task 4 đơn TRỘN (chín dòng
-    hợp đồng + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3), nên
+    có giá sẵn + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3; từ
+    spec 2026-10-09 §4.1 cổng tách giỏ trộn thành hai đơn lúc đặt, nên đơn
+    trộn chủ yếu còn ở dữ liệu cũ), nên
     nó cũng sửa được số lượng — đó chính là gốc của lỗi Critical C1 ngày
     19/08 và là thứ mô hình gộp gỡ ra. Chốt hỏi `portal_mua_le.
     di_vong_bao_gia(so)`, không hỏi "có phải đơn mua lẻ không".
@@ -3109,11 +3119,11 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     doi_items = dong.get("items") or []
     doi_dat_ngoai = dong.get("dat_ngoai") or []
 
-    # review (I-4 tương tự _xay_don_ban_le) — dòng giữ chỗ kỹ thuật nội bộ
+    # review (I-4 tương tự `dat_hang._xay_don`) — dòng giữ chỗ kỹ thuật nội bộ
     # KHÔNG BAO GIỜ là một dòng khách "sửa được": không lộ ra `portal_order_
     # track` (đã lọc `ITEM_GIU_CHO`) nên khách bình thường không có cách nào
     # gõ đúng mã này, nhưng payload có thể bị sửa tay — chặn tường minh,
-    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `_xay_don_ban_le`.
+    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `dat_hang._xay_don`.
     for d in doi_items:
         if la_dong_giu_cho((d.get("item_code") or "").strip()):
             frappe.throw(
@@ -3248,7 +3258,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
         frappe.throw("Không có thay đổi số lượng nào để gửi.", frappe.ValidationError)
 
     # §3.4 — ERPNext không lưu được `items` rỗng (xem docstring
-    # `_xay_don_ban_le`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
+    # `dat_hang._xay_don`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
     # còn gì để Miyano báo giá lại — hướng khách sang nút Huỷ (huỷ THẬT,
     # đóng đơn ngay) thay vì để endpoint này chặn mập mờ.
     giu_items_that = [i for i in giu_items if i.item_code != ITEM_GIU_CHO]

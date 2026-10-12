@@ -438,22 +438,20 @@ doc_events = {
 		# Hoá đơn phát hành".
 		"on_update": "miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 	},
-	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
+	# Ký HĐNT (Selling) → chép đơn giá hợp đồng vào Price List của khách.
 	#
-	# CẬP NHẬT Task 12 (QĐ-G12, 21/08/2026) — chú thích cũ ở đây nói rằng
-	# cổng CHỈ chấp nhận đơn giá đến từ `Item Price` và rằng giữ nguyên phép
-	# tra đó mới là đúng. CẢ HAI vế nay đã SAI: với một dòng hợp đồng, cổng
-	# đọc `Blanket Order Item.rate` TRƯỚC (`gia_hdnt.gia_dong_hop_dong`),
-	# bảng giá chỉ còn là bước lui. Lý do đổi: hook này chạy ĐÚNG MỘT LẦN
-	# lúc trình ký, nên mọi hợp đồng ký trước khi nó ra đời và mọi hợp đồng
-	# nạp bằng import không bao giờ được đồng bộ — và chỗ hổng đó im lặng,
-	# biểu hiện ra thành "chưa có giá trong hợp đồng" cho một hợp đồng có
-	# rate rành rành.
+	# Spec 2026-10-09 (giá theo Price List) — cổng định giá theo MỘT nguồn:
+	# Price List của khách (`bang_gia_khach`). Hook này là đường DUY NHẤT để
+	# giá hợp đồng tới được cổng: không có nó, hàng đã ký giá vẫn hiện "chờ
+	# báo giá" cho tới khi ai đó nhập tay `Item Price`. (Từ 21/08 đến 09/10
+	# cổng đọc thẳng `Blanket Order Item.rate` — QĐ-G12 — và hook chỉ giữ
+	# `Item Price` khớp cho phía Desk; phép đọc đó đã gỡ.) Nhiều hợp đồng
+	# cùng khai một mã thì ghi theo luật phân định `gia_hdnt.
+	# THU_TU_PHAN_DINH` (Ruling P30).
 	#
-	# Hook VẪN CẦN, chỉ đổi vai: nó không còn là điều kiện để khách đặt được
-	# hàng, mà là thứ giữ `Item Price` khớp với hợp đồng cho phía ERPNext —
-	# báo cáo, hoá đơn, và giá Desk tự điền khi nhân viên Miyano dựng chứng
-	# từ bằng tay. Ruling P30: nó ghi theo ĐÚNG luật phân định của cổng.
+	# Hook chạy ĐÚNG MỘT LẦN lúc trình ký, nên hợp đồng ký trước khi nó ra
+	# đời và hợp đồng nạp bằng import phải được đồng bộ bằng patch (`v1_13`,
+	# `v1_26`, `v1_41`).
 	#
 	# `on_submit` là đủ: `Blanket Order Item.rate` KHÔNG `allow_on_submit`
 	# (đã kiểm JSON doctype), nên giá chỉ đổi được bằng cách sửa đổi hợp đồng

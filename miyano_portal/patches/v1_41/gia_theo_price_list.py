@@ -41,6 +41,19 @@ def them_truong():
 			lua_chon.append("Theo bảng giá")
 			frappe.db.set_value("Custom Field", ten, "options", "\n".join(lua_chon))
 			frappe.clear_cache(doctype="Sales Order")
+	else:
+		# Không ném lỗi (phần dữ liệu của patch vẫn phải chạy), nhưng cũng
+		# không bỏ qua trong im lặng: thiếu lựa chọn này thì đơn "Theo bảng
+		# giá" đầu tiên hỏng ở phép kiểm Select của `custom_loai_don`.
+		frappe.log_error(
+			title="Patch v1_41: thiếu Custom Field custom_loai_don",
+			message=(
+				"Không tìm thấy Custom Field `custom_loai_don` trên Sales Order "
+				"nên CHƯA thêm được lựa chọn \"Theo bảng giá\". Tạo lại field "
+				"(patch v1_8 `create_e6_mua_le_custom_fields`) rồi chạy lại "
+				"`miyano_portal.patches.v1_41.gia_theo_price_list.them_truong`."
+			),
+		)
 
 
 def _tung_khach(khach, viec, ten_buoc):

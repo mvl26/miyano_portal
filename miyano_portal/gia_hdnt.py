@@ -29,12 +29,12 @@ Ranh giới cố ý của `dong_bo()`:
 - **Nhiều hợp đồng cùng khai một mã**: `dong_bo_khach()` phân định bằng
   `nguon_gia_theo_ma_cho_khach()` (Ruling P30) — hết hạn sớm nhất thắng.
 
-**Còn sót, chờ gỡ.** `gia_dong_hop_dong()` và `con_hieu_luc()` là phép tra
-"hợp đồng trước, bảng giá sau" của QĐ-G12 (21/08/2026). Luồng đặt hàng mới
-không gọi chúng, và ba endpoint cũ từng gọi chúng (`portal_contracts`,
-`portal_catalog`, `portal_catalog_ban_le`) đã gỡ khỏi `api/portal.py`. Hai hàm
-không còn nơi gọi nào ngoài test của chính chúng; bước dọn hàm hợp đồng/hạn
-mức còn sót sẽ xoá chúng cùng các test đó.
+**Đã gỡ (12/10/2026).** `gia_dong_hop_dong()` và `con_hieu_luc()` — phép tra
+"hợp đồng trước, bảng giá sau" của QĐ-G12 (21/08/2026) — không còn nơi gọi nào
+sau khi luồng đặt hàng chuyển sang Price List và ba endpoint cũ
+(`portal_contracts`, `portal_catalog`, `portal_catalog_ban_le`) bị gỡ; hai hàm
+đã xoá cùng test của chúng. Module này không còn hàm ĐỌC giá nào: đọc giá là
+việc của `bang_gia_khach`.
 """
 
 import frappe
@@ -43,99 +43,6 @@ from frappe.utils import flt, format_date, getdate
 
 
 THU_TU_PHAN_DINH = "to_date asc, name asc"
-
-
-def con_hieu_luc(blanket_order: str) -> bool:
-    """HĐNT đã trình ký VÀ hôm nay nằm trong khoảng hiệu lực.
-
-    Ruling P31 (review vòng 1) — chốt này nằm ở ĐÂY, trong hàm dùng chung,
-    KHÔNG ở từng nơi gọi: sáu nơi gọi là sáu chỗ có thể quên, và hai nơi đã
-    quên thật (`portal_catalog` chỉ kiểm quyền sở hữu; `portal_reorder` tin
-    thẳng `Sales Order.custom_hdnt` của đơn cũ). Hậu quả không phải lỗi kỹ
-    thuật mà là một con số SAI hiện ra cho khách: giỏ "đặt lại đơn cũ" báo
-    giá của một hợp đồng đã chết, rồi lúc xác nhận đơn lại mang giá khác.
-
-    Cùng định nghĩa "còn hiệu lực" với `nguon_gia_theo_ma_cho_khach()`
-    (BR-R7, Ruling P18): `docstatus == 1` — bản NHÁP là sales còn đang soạn,
-    không được định giá cho ai. `from_date`/`to_date` để trống coi như không
-    ràng buộc phía đó."""
-    hd = frappe.db.get_value(
-        "Blanket Order", blanket_order,
-        ["docstatus", "from_date", "to_date"], as_dict=True,
-    )
-    if not hd or hd.docstatus != 1:
-        return False
-    hom_nay = getdate()
-    if hd.from_date and getdate(hd.from_date) > hom_nay:
-        return False
-    if hd.to_date and getdate(hd.to_date) < hom_nay:
-        return False
-    return True
-
-
-def gia_dong_hop_dong(item_code: str, blanket_order=None, price_list=None):
-    """QĐ-G12 — đơn giá của MỘT DÒNG, tra theo đúng thứ tự đã chốt.
-
-    HÀM DÙNG CHUNG DUY NHẤT cho mọi nơi cần giá của một dòng hợp đồng: dựng
-    đơn (`dat_hang._xay_don`), đóng dấu giá lúc gửi duyệt
-    (`PortalDeXuatMua._dong_dau_gia`) và so giá lúc duyệt
-    (`de_xuat_duyet._kiem_gia_doi`). Mỗi nơi một phép tra riêng là từng ấy chỗ
-    có thể lệch, và dự án này đã trả giá đúng cho lỗi đó ở `nguon_gia`/
-    `blanket_order` (Ruling P28: kiểm hạn mức và dựng đơn mỗi bên tự suy hợp
-    đồng, hai bên bất đồng ở hai trạng thái tới được).
-
-    Thứ tự, dừng ở giá trị DƯƠNG đầu tiên:
-
-      1. `Blanket Order Item.rate` của ĐÚNG hợp đồng dòng đó đã suy ra
-         (`blanket_order`) — hợp đồng đã ký là nguồn sự thật;
-      2. `Item Price` trong bảng giá của khách (`price_list`);
-      3. Không có → trả `None`, người gọi báo thiếu giá.
-
-    `rate <= 0` ở bước 1 là CHƯA KHAI GIÁ (không phải "bán 0 đồng") — cùng
-    quy ước `dong_bo()` đã dùng ở dưới — nên rơi xuống bước 2.
-
-    Bước 1 là chỗ DUY NHẤT lọc "phải dương". Bước 2 trả THẲNG giá trị đọc
-    được, kể cả `0`, đúng như phép tra cũ (`dat_hang._gia_hien_hanh`, đã xoá)
-    — mọi người gọi đều dùng `if not rate`, nên `0` và `None` cho cùng một
-    kết cục ở cổng đặt hàng.
-
-    `price_list` được phép `None` và phép kiểm nằm TRONG hàm này, không ở
-    các nơi gọi: bước 1 KHÔNG cần bảng giá nào cả. Để phép kiểm ở ngoài
-    (`... if price_list else None`, đúng dạng cả bốn nơi gọi đang viết trước
-    Task 12) thì một khách chưa được gán `default_price_list` vẫn bị chặn
-    "chưa có giá trong hợp đồng" dù hợp đồng khai giá đầy đủ — tức QĐ-G12
-    chết ngay ở ca dễ gặp nhất.
-
-    Ruling P31 (review vòng 1) — bước 1 chỉ chạy khi hợp đồng CÒN HIỆU LỰC
-    (`con_hieu_luc()`). Hết hạn/chưa tới ngày/còn nháp thì bỏ qua bước 1 và
-    rơi xuống bảng giá, không phải ném lỗi: người gọi vẫn có quyền hỏi giá
-    của một dòng gắn với hợp đồng cũ, chỉ là hợp đồng đó không còn quyền trả
-    lời.
-
-    Nợ cũ, cố ý giữ nguyên: bước 2 chưa lọc `valid_from`/`valid_upto`, nhiều
-    bản ghi thì lấy tuỳ ý.
-    """
-    if blanket_order and con_hieu_luc(blanket_order):
-        rate = flt(frappe.db.get_value(
-            "Blanket Order Item",
-            {"parent": blanket_order, "item_code": item_code},
-            "rate",
-            # M-2 (review vòng 1) — TẤT ĐỊNH. Một hợp đồng liệt kê trùng
-            # `item_code` hai dòng thì `get_value` với filter dict lấy TUỲ Ý
-            # một dòng; trước Task 12 điều đó chỉ ảnh hưởng phép chọn hạn
-            # mức, giờ nó chọn GIÁ. Dòng đứng TRƯỚC trên chứng từ thắng —
-            # quy tắc đọc được bằng mắt trên chính tờ hợp đồng.
-            order_by="idx asc, name asc",
-        ))
-        if rate > 0:
-            return rate
-    if not price_list:
-        return None
-    return frappe.db.get_value(
-        "Item Price",
-        {"item_code": item_code, "price_list": price_list, "selling": 1},
-        "price_list_rate",
-    )
 
 
 def dong_bo(bo, thang_cuoc=None) -> dict:
@@ -165,9 +72,11 @@ def dong_bo(bo, thang_cuoc=None) -> dict:
     # (`default_price_list`) chứ không từ hợp đồng, nên một HĐNT cũ vừa được
     # submit lại (sửa đổi, ký bổ sung) sẽ ghi đè giá của hợp đồng ĐANG hiệu
     # lực. Không chặn theo `from_date`: hợp đồng ký trước ngày hiệu lực vẫn
-    # nên dựng sẵn giá — lúc chốt này được viết, `portal_contracts` (endpoint
-    # nay đã gỡ) tự chặn đặt hàng cho tới `from_date`, nên giá "có sớm" được
-    # coi là vô hại, còn giá "hết hạn" thì có hại.
+    # dựng sẵn giá. Lúc chốt này được viết, cổng tự chặn đặt hàng theo hợp
+    # đồng cho tới `from_date` nên giá "có sớm" vô hại; từ spec 2026-10-09
+    # không còn chốt nào như vậy — giá "có sớm" là giá khách đặt được NGAY.
+    # Hành vi giữ nguyên có chủ đích (đổi nó là một quyết định nghiệp vụ,
+    # không phải việc dọn dẹp).
     # `getdate()` cả hai vế: ở luồng hook `on_submit`, `doc.to_date` còn là
     # CHUỖI (chưa qua vòng nạp lại của `frappe.get_doc`), so thẳng với một
     # `date` sẽ ném TypeError — và hook thì nuốt lỗi, nên sai lầm này biến
@@ -237,7 +146,11 @@ def dong_bo_khach(customer, doc=None) -> dict:
     đọc, và lỗi "chưa có giá" quay lại đúng cho hợp đồng đó. Đã dựng lại
     được bằng test trước khi sửa.
 
-    **Ruling P30 (review vòng 1) — ĐỔI LUẬT PHÂN ĐỊNH.** Bản trước duyệt
+    **Ruling P30 (review vòng 1, 21/08/2026) — ĐỔI LUẬT PHÂN ĐỊNH.** Đoạn
+    này là LỊCH SỬ của luật: "cổng" trong đó là cổng thời QĐ-G12, khi nó còn
+    đọc thẳng giá hợp đồng. Từ spec 2026-10-09 cổng chỉ đọc Price List, nên
+    luật phân định giờ có đúng một việc: quyết hợp đồng nào được GHI giá của
+    một mã vào bảng đó. Bản trước duyệt
     `creation asc` rồi để mỗi lần ghi đè lên cùng một dòng `Item Price`, tức
     luật ẩn "hợp đồng KÝ SAU thắng". Cổng thì phân định NGƯỢC LẠI — "hết hạn
     sớm nhất thắng, trùng `to_date` thì `name` nhỏ hơn"
@@ -261,8 +174,8 @@ def dong_bo_khach(customer, doc=None) -> dict:
     `creation asc` vẫn giữ, nhưng giờ chỉ còn là thứ tự TẤT ĐỊNH cho các mã
     KHÔNG có người thắng (mã không nằm trong hợp đồng còn hiệu lực nào —
     hợp đồng chưa tới ngày hiệu lực vẫn được dựng sẵn giá, xem `dong_bo`).
-    Những mã đó không bao giờ đi qua bước 2 của cổng: dòng ngoài mọi hợp
-    đồng còn hiệu lực là dòng "chờ báo giá", `rate = 0`, không tra bảng giá.
+    Giá của những mã đó vào thẳng Price List và cổng đọc được ngay (xem chú
+    thích về `from_date` trong `dong_bo`).
 
     Hợp đồng hết hiệu lực bị `dong_bo` tự loại; CỐ Ý không lọc lần thứ hai ở
     truy vấn này (hai nơi cùng định nghĩa "còn hiệu lực" là hai nơi lệch nhau

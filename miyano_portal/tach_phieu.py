@@ -107,10 +107,7 @@ def gui_duyet_co_tach(doc) -> list:
 	# kiểm (nó nhận đúng lý do và đúng các dòng gõ tay này): phiếu gốc không
 	# bị cắt dòng và không tiêu số nào trong dãy mã rồi mới phát hiện phiếu
 	# kia không gửi được.
-	doc._kiem_chuyen("Chờ duyệt")
-	if not (doc.ly_do_yeu_cau or "").strip():
-		frappe.throw("Lý do yêu cầu là bắt buộc khi gửi duyệt.", frappe.ValidationError)
-	doc._kiem_dat_ngoai_du_nhan_dang()
+	doc.kiem_truoc_gui_duyet()
 
 	def _dong_moi(d):
 		return {k: v for k, v in dict(d).items() if k not in _KHOA_DINH_DANH}

@@ -556,9 +556,9 @@ def tao_sales_order(
 
     # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
     # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
-    # Áp dụng CHUNG cho cả hai chế độ — mỗi lần bấm xác nhận (dù ngăn HĐNT
-    # hay ngăn Mua lẻ) đều mang một request_id riêng (30_API_Spec §2 — "mỗi
-    # ngăn xác nhận riêng → hai Sales Order riêng, mỗi cái một request_id").
+    # Mỗi Sales Order một `request_id`: giỏ trộn được tầng gọi tách thành
+    # hai lần gọi hàm này, mỗi lần một mã riêng (`request_id` gốc + hậu tố
+    # `tach_phieu.HAU_TO_GIA` / `HAU_TO_BAO_GIA`, spec 2026-10-09 §4.1).
     if not request_id:
         frappe.throw(
             "Thiếu mã yêu cầu đặt hàng. Tải lại trang rồi thử lại.",

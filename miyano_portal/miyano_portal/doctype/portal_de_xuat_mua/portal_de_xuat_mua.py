@@ -74,9 +74,10 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 	Spec 2026-10-09 — phiếu đề xuất KHÔNG còn gọi hàm này: `PortalDeXuatMua.
 	_suy_nguon_gia()` suy nguồn giá từ Price List của khách (`bang_gia_khach`),
 	và đường duyệt (`de_xuat_duyet`) cũng không còn hỏi hợp đồng. Hàm nằm lại
-	ở module này vì các nơi khác còn import nó từ đây: `gia_hdnt.dong_bo_khach`
-	(ghi `Item Price` từ hợp đồng — luật phân định ở đó phải khớp luật ở đây),
-	`portal_mua_le` và các endpoint cũ của `api/portal.py`. Không nhận
+	ở module này vì nơi gọi DUY NHẤT còn lại import nó từ đây:
+	`gia_hdnt.dong_bo_khach` (chép giá hợp đồng vào Price List của khách — khi
+	nhiều hợp đồng cùng khai một mã, hàm này quyết hợp đồng nào được ghi).
+	Không nhận
 	`Document` làm tham số (chỉ `customer: str`) để gọi được từ ngữ cảnh
 	không có phiếu nào đang mở.
 
@@ -92,10 +93,9 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 	NỘP/ký), KHÔNG phải `docstatus < 2` (bản đầu — chỉ loại "Đã huỷ", vẫn
 	cho Nháp lọt qua). Một hợp đồng NHÁP là sales còn đang soạn, CHƯA
 	trình ký — có thể đổi/xoá bất cứ lúc nào, không được làm nguồn giá.
-	Đây cũng là định nghĩa "còn hiệu lực" đã có sẵn ở nơi khác trong app
-	(BR-R7, `items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.py`) — MỘT
-	luật, không phải mỗi nơi tự định nghĩa một kiểu rồi sớm muộn lệch
-	nhau."""
+	Từ 12/10/2026 đây là nơi DUY NHẤT trong app định nghĩa "hợp đồng còn
+	hiệu lực" (bản thứ hai, `portal_mua_le.items_thuoc_hdnt_hieu_luc()` của
+	BR-R7, đã gỡ cùng cờ `dat_duoc_hdnt`)."""
 	bo_hieu_luc = frappe.get_all(
 		"Blanket Order",
 		filters={
@@ -280,13 +280,21 @@ class PortalDeXuatMua(Document):
 					frappe.ValidationError,
 				)
 
-	def gui_duyet(self):
+	def kiem_truoc_gui_duyet(self):
+		"""Mọi điều kiện một phiếu phải đạt TRƯỚC khi gửi duyệt, không ghi
+		gì. Công khai vì có HAI nơi cần đúng bộ kiểm này: `gui_duyet()` ngay
+		dưới, và `tach_phieu.gui_duyet_co_tach()` — nơi phải biết phiếu gửi
+		được hay không TRƯỚC khi cắt dòng sang phiếu thứ hai. Hai bản chép
+		tay của cùng ba phép kiểm là hai bản sẽ lệch nhau."""
 		self._kiem_chuyen(TRANG_THAI_CHO_DUYET)
 		if not (self.ly_do_yeu_cau or "").strip():
 			frappe.throw(
 				"Lý do yêu cầu là bắt buộc khi gửi duyệt.", frappe.ValidationError
 			)
 		self._kiem_dat_ngoai_du_nhan_dang()
+
+	def gui_duyet(self):
+		self.kiem_truoc_gui_duyet()
 		if not self.ma_de_xuat:
 			# Ruling R8 — LẦN GỬI ĐẦU: suy lại nguồn giá của MỌI dòng từ
 			# Price List hiện hành, TRƯỚC khi cấp mã. Nguồn giá trên phiếu

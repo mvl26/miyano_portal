@@ -673,8 +673,8 @@ def _kiem_dong_da_chuyen_khong_doi(dong, xua) -> None:
     **CHẶN**, không đồng bộ. Lý do, ghi để không phải phát hiện lại:
 
     Phép chuyển GỘP số lượng vào dòng `items` sẵn có khi mã trùng (bẫy 2 —
-    hai dòng cùng `item_code` trên một Sales Order là mồi cho lệch hạn mức
-    và lệch hoá đơn). Sau khi đã gộp, câu hỏi "phần nào của dòng hàng này
+    hai dòng cùng `item_code` trên một Sales Order là mồi cho lệch hoá
+    đơn). Sau khi đã gộp, câu hỏi "phần nào của dòng hàng này
     tới từ dòng gõ tay" KHÔNG còn câu trả lời trung thực nào nếu không dựng
     thêm một cột sổ sách thứ ba. Đồng bộ mù sẽ ghi đè cả phần số lượng do
     người khác đặt. Chặn thì không cần trạng thái mới, và nó ăn khớp với
@@ -1057,50 +1057,8 @@ def can_chen_giu_cho(items, dat_ngoai) -> bool:
     return not items and bool(dat_ngoai)
 
 
-def items_thuoc_hdnt_hieu_luc(customer: str) -> set:
-    """BR-R7 / NL-10.7 — tập `item_code` đang thuộc HĐNT CÒN HIỆU LỰC của
-    khách. "Còn hiệu lực" dùng ĐÚNG điều kiện endpoint `portal_contracts()`
-    từng dùng (`blanket_order_type=Selling`, `to_date >= hôm nay`; endpoint
-    đó đã gỡ theo spec 2026-10-09 §7 cùng màn Hợp đồng của khách).
-
-    CỐ Ý không lọc theo hạn mức còn lại: mặt hàng ĐÃ HẾT hạn mức trong HĐNT
-    vẫn phải nằm trong tập này — đó chính xác là tình huống BR-R7 sinh ra để
-    chặn (khách hết hạn mức né sang mua lẻ). Chỉ xét "có mặt trong hợp đồng
-    còn hiệu lực hay không", không xét "còn hạn mức hay không".
-
-    review M-1 — thêm `docstatus: 1` và `from_date <= hôm nay`: bản trước
-    không lọc hai điều kiện này, nên một HĐNT còn NHÁP (docstatus=0, chưa
-    ai submit — khách không thể đặt hàng theo nó qua `portal_order_place`,
-    `bo.customer`/kiểm ở đó không đòi docstatus nhưng `portal_contracts()`
-    khi ấy chỉ liệt kê hợp đồng đã ký thật ở Desk) hoặc HĐNT **đã huỷ**
-    (docstatus=2) vẫn chặn được mua lẻ — khách rơi vào khe hở "không mua
-    HĐNT được (đã huỷ/chưa ký) mà cũng không mua lẻ được". Fail-closed nên
-    không phải một lỗ an ninh (không né được hạn mức), nhưng đúng ra khách
-    phải mua lẻ được trong tình huống đó. Tương tự, một HĐNT có `from_date`
-    ở TƯƠNG LAI (chưa tới hiệu lực) không nên chặn mua lẻ ngay từ bây giờ.
-    """
-    bo_names = frappe.get_all(
-        "Blanket Order",
-        filters={
-            "customer": customer,
-            "blanket_order_type": "Selling",
-            "docstatus": 1,
-            "from_date": ["<=", frappe.utils.today()],
-            "to_date": [">=", frappe.utils.today()],
-        },
-        pluck="name",
-    )
-    if not bo_names:
-        return set()
-    return set(frappe.get_all(
-        "Blanket Order Item",
-        filters={"parent": ["in", bo_names]},
-        pluck="item_code",
-    ))
-
-
 def trang_thai_hang(item_code: str) -> str:
-    """F-21 — cột "Tình trạng hàng" thay cột hạn mức của danh mục lẻ.
+    """F-21 — cột "Tình trạng hàng" của danh mục đặt hàng.
 
     Đọc tồn Miyano THẬT (`tabBin`, kho của công ty bán hàng) — KHÔNG phải
     kho khách hàng (`Customer Stock Ledger Entry`, quyết định nền tảng #1
@@ -1113,8 +1071,9 @@ def trang_thai_hang(item_code: str) -> str:
 
 
 def resolve_ban_le_company(item_codes: list[str]):
-    """Đơn mua lẻ KHÔNG có Blanket Order để suy `company` như nhánh HĐNT
-    (`bo.company`) — suy từ `Item Default` của chính các mặt hàng trong giỏ.
+    """`company` của MỌI đơn đặt từ cổng (spec 2026-10-09 §4.2: đơn không
+    còn gắn Blanket Order nào để mượn `bo.company`; trước đó chỉ đơn mua lẻ
+    đi đường này) — suy từ `Item Default` của chính các mặt hàng trong giỏ.
     Một Sales Order chỉ có MỘT `company`, nên chỉ company nào có
     `default_warehouse` khai cho ĐỦ mọi mặt hàng trong giỏ mới hợp lệ.
 

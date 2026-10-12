@@ -537,9 +537,11 @@ def _bu_ton_miyano() -> dict:
 def _dat_don(contract: str, po: str, gio_hang: list[dict], ghi_chu: str) -> str:
 	"""Đặt một đơn QUA ĐÚNG endpoint của cổng, dưới phiên của khách.
 
-	Không dựng thẳng Sales Order: chỉ đường này mới đặt `custom_nguon_don`,
-	`custom_hdnt`, `against_blanket_order` và kiểm hạn mức hợp đồng đúng như
-	một đơn khách đặt thật.
+	Không dựng thẳng Sales Order: chỉ đường này mới đặt `custom_nguon_don`
+	và định giá theo Price List của khách đúng như một đơn khách đặt thật.
+	`contract` vẫn được truyền nhưng endpoint không còn đọc nó (spec
+	2026-10-09 §4.2): đơn không mang `custom_hdnt` / `against_blanket_order`
+	và không kiểm hạn mức hợp đồng.
 	"""
 	da_co = frappe.db.get_value(
 		"Sales Order", {"custom_so_po_khach": po, "docstatus": ["<", 2]}, "name"
