@@ -171,7 +171,14 @@ function go_doi_sanh_ton(frm) {
 
 function hien_doi_sanh_ton(frm) {
 	go_doi_sanh_ton(frm);
+	// Mỗi lần gọi một số thứ tự: phản hồi CHẬM của lần refresh trước không
+	// được vẽ đè hay thêm lại nút mà lần sau đã cho là không còn.
+	frm._dst_lan = (frm._dst_lan || 0) + 1;
+	const lan = frm._dst_lan;
 	if (frm.is_new()) return;
+	// Đơn đã huỷ / đã đóng không còn giao: "Thiếu k/n dòng" màu đỏ ở đó là
+	// một lời kêu gọi hành động sai.
+	if (frm.doc.docstatus === 2 || frm.doc.status === "Closed") return;
 	if (!VAI_XEM_TON.some((v) => frappe.user_roles.includes(v))) return;
 
 	const ten = frm.doc.name;
@@ -180,8 +187,16 @@ function hien_doi_sanh_ton(frm) {
 		args: { order: ten },
 	}).then((r) => {
 		// Người dùng đã chuyển sang đơn khác trong lúc chờ: bỏ kết quả cũ.
-		if (frm.doc.name !== ten || !r.message) return;
-		ve_doi_sanh_ton(frm, r.message);
+		if (frm.doc.name !== ten || lan !== frm._dst_lan || !r.message) return;
+		try {
+			ve_doi_sanh_ton(frm, r.message);
+		} catch (e) {
+			// Vẽ hỏng không được để form mất cả bảng lẫn lời giải thích.
+			console.error(e);
+			go_doi_sanh_ton(frm);
+			ve_doi_sanh_ton(frm, { loi: __("Không hiển thị được bảng đối sánh tồn kho.") });
+			return;
+		}
 		if (r.message.co_the_tao_mr) {
 			frm.add_custom_button(
 				__("Tạo MR cho phần thiếu"), () => tao_mr_phan_thieu(frm), __("Miyano")
@@ -225,6 +240,9 @@ function ve_doi_sanh_ton(frm, bang) {
 			const giu = d.giu_don_khac
 				? `<div class="text-muted" style="font-size:.75rem">Đơn khác đã giữ: ${so(d.giu_don_khac)} ${esc(d.dvt || "")}</div>`
 				: "";
+			const bo = d.bo_trong_don
+				? `<div class="text-muted" style="font-size:.75rem">Bộ sản phẩm trong đơn này dùng: ${so(d.bo_trong_don)} ${esc(d.dvt || "")}</div>`
+				: "";
 			const nhap = d.don_nhap_khac
 				? `<div class="text-muted" style="font-size:.75rem">Đơn nháp khác đang chờ: ${so(d.don_nhap_khac.sl)} ${esc(d.dvt || "")} (${d.don_nhap_khac.so_don} đơn)</div>`
 				: "";
@@ -235,7 +253,7 @@ function ve_doi_sanh_ton(frm, bang) {
 				<td>${esc(d.dvt || "")}</td>
 				<td class="text-right">${so(d.sl_yeu_cau)}</td>
 				<td class="text-right">${so(d.ton_hien_tai)}</td>
-				<td class="text-right">${so(d.ton_kha_dung)}${giu}${nhap}</td>
+				<td class="text-right">${so(d.ton_kha_dung)}${giu}${bo}${nhap}</td>
 				<td class="text-right">${d.sl_thieu ? `<b style="color:var(--red-600)">${so(d.sl_thieu)}</b>` : so(d.sl_thieu)}</td>
 				<td>${de_xuat}</td>
 			</tr>`;

@@ -103,6 +103,17 @@ lượng tồn thì mỗi đơn trừ trọn phần của đơn kia và cả hai
 thật là 4. Bảng không tự phân tồn theo thứ tự đơn; ghi chú để nhân viên thấy
 và tự cân trước khi lập MR.
 
+**Bổ sung sau lượt soát (12/10/2026).**
+
+* Lô bị vô hiệu hoá (`Batch.disabled`) cũng bị trừ như lô hết hạn: ERPNext
+  không cho chọn lô đó để xuất.
+* Thành phần Product Bundle của **chính đơn đang xem** được trừ khỏi tồn mà
+  dòng lẻ cùng mặt hàng, cùng kho nhìn thấy, kèm ghi chú "Bộ sản phẩm trong
+  đơn này dùng: n".
+* Bảng không hiện trên đơn đã huỷ hoặc đã đóng.
+* Số lượng trên MR làm tròn **lên** khi đơn vị tồn kho chỉ nhận số nguyên.
+* `tao_mr_phan_thieu` chỉ nhận POST.
+
 ### 5.3 Đơn nháp khác
 
 Đơn nháp không giữ hàng, nên hai đơn nháp cùng mặt hàng có thể cùng thấy "đủ".

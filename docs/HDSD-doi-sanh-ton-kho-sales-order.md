@@ -30,7 +30,8 @@ sánh tồn kho** nằm ngay dưới lưới mặt hàng.
 
 ![Bảng Đối sánh tồn kho nằm ngay dưới lưới Items của đơn](hdsd-doi-sanh-ton-kho/01-don-nhap-toan-man.png)
 
-- Bảng có từ lúc đơn còn **nháp** cho tới khi giao xong.
+- Bảng có từ lúc đơn còn **nháp** cho tới khi giao xong. Đơn đã huỷ hoặc đã
+  đóng không hiện bảng.
 - Bảng tính theo **bản đơn đã lưu**. Vừa sửa số lượng hay thêm dòng thì bấm
   **Save** để bảng tính lại.
 - Dòng đầu bảng là kết luận cho cả đơn: **Đủ hàng cả đơn** (xanh) hoặc
@@ -52,7 +53,7 @@ thì SL yêu cầu là 20 Hộp.
 | **Mặt hàng** | Tên hàng; dòng nhỏ bên dưới là mã hàng và **kho** của dòng đơn |
 | **SL yêu cầu** | Số lượng còn phải giao. Đơn đã giao một phần thì chỉ tính phần chưa giao |
 | **Tồn hiện tại** | Số hàng đang có trong kho của dòng đơn |
-| **Tồn có thể sử dụng** | Tồn hiện tại, trừ lô đã hết hạn, trừ phần đã giữ cho các đơn đã xác nhận khác |
+| **Tồn có thể sử dụng** | Tồn hiện tại, trừ lô đã hết hạn hoặc bị vô hiệu hoá, trừ phần đã giữ cho các đơn đã xác nhận khác |
 | **SL thiếu** | SL yêu cầu trừ tồn có thể sử dụng |
 | **Đề xuất** | Việc cần làm với dòng này (xem bảng dưới) |
 
@@ -74,7 +75,7 @@ lấy trước, dòng dưới chỉ thấy phần còn lại.
 
 ---
 
-## 3. Hai ghi chú nhỏ dưới ô "Tồn có thể sử dụng"
+## 3. Các ghi chú nhỏ dưới ô "Tồn có thể sử dụng"
 
 **Đơn khác đã giữ: n** — các đơn **đã xác nhận** khác đang chờ giao cùng mặt
 hàng, cùng kho. Số này **đã bị trừ** khỏi tồn có thể sử dụng.
@@ -82,6 +83,10 @@ hàng, cùng kho. Số này **đã bị trừ** khỏi tồn có thể sử dụ
 **Đơn nháp khác đang chờ: n (k đơn)** — các đơn **còn nháp** cùng mặt hàng,
 cùng kho. Số này **chưa bị trừ**: đơn nháp chưa giữ hàng. Ghi chú để biết còn
 ai đang chờ cùng lượng hàng đó.
+
+**Bộ sản phẩm trong đơn này dùng: n** — đơn vừa có một bộ sản phẩm chứa mặt
+hàng này, vừa có dòng lẻ của chính nó. Phần bộ sản phẩm cần **đã bị trừ** khỏi
+tồn mà dòng lẻ nhìn thấy.
 
 > **Lưu ý khi hai đơn đã xác nhận cùng thiếu một mặt hàng.** Mỗi đơn trừ trọn
 > phần của đơn kia nên cả hai đều báo thiếu. Ví dụ tồn 10, đơn A cần 7, đơn B
@@ -178,8 +183,11 @@ Tài khoản chỉ có vai kinh doanh thì xem được bảng nhưng không t�
 mua. Chuyển cho bộ phận kho hoặc mua hàng tạo.
 
 **Tồn hiện tại 10 mà tồn có thể sử dụng chỉ 3?**
-Xem hai ghi chú ở mục 3: phần chênh là hàng đã giữ cho đơn đã xác nhận khác,
-hoặc là lô đã hết hạn.
+Xem các ghi chú ở mục 3: phần chênh là hàng đã giữ cho đơn đã xác nhận khác,
+hoặc là lô đã hết hạn hay bị vô hiệu hoá.
+
+**Thiếu 2,5 mà yêu cầu mua ghi 3?**
+Đơn vị tồn kho của mặt hàng chỉ nhận số nguyên, nên số mua được làm tròn lên.
 
 **Lô sắp hết hạn có bị trừ không?**
 Không. Chỉ lô **đã** hết hạn mới bị trừ; lô cận hạn vẫn tính là dùng được.

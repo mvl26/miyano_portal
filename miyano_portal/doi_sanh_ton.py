@@ -14,6 +14,8 @@ Ba lớp, từ trong ra ngoài:
 3. Hai endpoint — chốt vai nội bộ rồi mới gọi hai lớp trên.
 """
 
+import math
+
 import frappe
 from frappe.utils import cint, flt, getdate, today
 
@@ -111,6 +113,16 @@ def de_xuat(sl_thieu, mr_da_phu) -> dict:
 	return {"ma": ma, "mr_da_phu": flt(phu, DO_CHINH_XAC), "can_mua": can_mua}
 
 
+def sl_mua(can_mua, don_vi_nguyen: bool) -> float:
+	"""Số lượng ghi lên Material Request cho một dòng thiếu.
+
+	Đơn vị chỉ nhận số nguyên thì làm tròn LÊN: ERPNext từ chối 2,3 Hộp, và
+	thiếu 2,3 mà mua 2 là vẫn thiếu.
+	"""
+	sl = flt(can_mua, DO_CHINH_XAC)
+	return float(math.ceil(sl)) if don_vi_nguyen else sl
+
+
 def ly_do_khong_tra(row, thong_tin_item, la_bo: bool):
 	"""Vì sao KHÔNG tra được tồn cho dòng này, hoặc `None` nếu tra được.
 
@@ -160,6 +172,52 @@ def _ton_het_han(item_code: str, warehouse: str) -> float:
 		return sum(flt(b.get("qty")) for b in lo)
 
 	return flt(max(tong(for_stock_levels=True) - tong(), 0), DO_CHINH_XAC)
+
+
+def _ton_lo_vo_hieu(item_code: str, warehouse: str) -> float:
+	"""Tổng tồn của các lô bị VÔ HIỆU HOÁ (`Batch.disabled`) tại một kho.
+
+	Lô cách ly / thu hồi: hàng vẫn nằm trong `Bin` nhưng ERPNext không cho
+	chọn lô đó để xuất. `get_batch_qty` bỏ lô vô hiệu ở CẢ HAI lời gọi của
+	`_ton_het_han`, nên chúng không lọt vào phần "hết hạn" — phải đếm riêng,
+	và vì thế cũng không bị trừ hai lần khi lô vừa hết hạn vừa vô hiệu.
+	"""
+	kq = frappe.db.sql(
+		"""
+		select sum(sbe.qty)
+		from `tabSerial and Batch Entry` sbe
+		join `tabSerial and Batch Bundle` sbb on sbb.name = sbe.parent
+		join `tabBatch` b on b.name = sbe.batch_no
+		where sbb.item_code = %(item)s and sbe.warehouse = %(kho)s
+			and sbb.docstatus = 1 and sbb.is_cancelled = 0 and b.disabled = 1
+		""",
+		{"item": item_code, "kho": warehouse},
+	)
+	return flt(max(flt(kq[0][0] if kq else 0), 0), DO_CHINH_XAC)
+
+
+def _bo_trong_don(so) -> dict:
+	"""Thành phần Product Bundle của CHÍNH đơn này còn phải giao, theo
+	`(item_code, kho)`.
+
+	Đơn vừa có một bộ chứa mặt hàng X vừa có một dòng lẻ X: cả hai rút từ
+	cùng một lượng tồn. Dòng bộ hiện "—" (không tra tồn mã gộp), nhưng phần X
+	nó cần vẫn phải trừ khỏi tồn mà dòng lẻ thấy.
+	"""
+	con_giao = {
+		r.name: (max(flt(r.qty) - flt(r.delivered_qty), 0) / flt(r.qty)) if flt(r.qty) else 0
+		for r in so.get("items") or []
+	}
+	kq = {}
+	for p in so.get("packed_items") or []:
+		if not p.item_code or not p.warehouse or p.item_code == p.parent_item:
+			continue
+		khoa = (p.item_code, p.warehouse)
+		kq[khoa] = flt(
+			kq.get(khoa, 0) + flt(p.qty) * con_giao.get(p.parent_detail_docname, 1),
+			DO_CHINH_XAC,
+		)
+	return kq
 
 
 def _giu_cho_don_khac(item_code: str, warehouse: str, tru_don: str) -> float:
@@ -298,7 +356,7 @@ def _dong_trong(**kw) -> dict:
 		"kho": None, "dvt": None, "ly_do": None, "sl_yeu_cau": None,
 		"ton_hien_tai": None, "ton_kha_dung": None, "sl_thieu": None,
 		"mr_da_phu": None, "can_mua": None, "de_xuat": None, "mr": [],
-		"don_nhap_khac": None, "giu_don_khac": None,
+		"don_nhap_khac": None, "giu_don_khac": None, "bo_trong_don": None,
 	}
 	d.update(kw)
 	return d
@@ -332,6 +390,7 @@ def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 			)
 		)
 	mr = _mr_theo_dong([r.name for r in dong_don], khoa=khoa_mr)
+	bo_cua_don = _bo_trong_don(so)
 
 	nguon = {}
 	bang = []
@@ -349,14 +408,18 @@ def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 		khoa = (r.item_code, r.warehouse)
 		if khoa not in nguon:
 			ton = _ton_hien_tai(r.item_code, r.warehouse)
+			# Hết hạn + vô hiệu hoá: hai tập lô rời nhau (xem `_ton_lo_vo_hieu`).
 			het_han = (
 				_ton_het_han(r.item_code, r.warehouse)
+				+ _ton_lo_vo_hieu(r.item_code, r.warehouse)
 				if cint(item.has_batch_no) else 0
 			)
 			giu = _giu_cho_don_khac(r.item_code, r.warehouse, so.name)
+			bo_dung = flt(bo_cua_don.get(khoa))
 			nguon[khoa] = {
 				"ton_hien_tai": ton,
-				"kha_dung": ton_kha_dung(ton, het_han, giu),
+				"kha_dung": ton_kha_dung(ton, het_han, giu + bo_dung),
+				"bo_trong_don": bo_dung if bo_dung > 0 else None,
 				# Chỉ để GHI CHÚ: hai đơn đã Submit tranh cùng một lượng tồn
 				# thì mỗi đơn trừ trọn phần của đơn kia và CẢ HAI đều báo
 				# thiếu. Hiện con số này ra để nhân viên thấy vì sao, trước
@@ -368,6 +431,7 @@ def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 		d["ton_hien_tai"] = nguon[khoa]["ton_hien_tai"]
 		d["don_nhap_khac"] = nguon[khoa]["don_nhap_khac"]
 		d["giu_don_khac"] = nguon[khoa]["giu_don_khac"]
+		d["bo_trong_don"] = nguon[khoa]["bo_trong_don"]
 
 	tra_duoc = [d for d in bang if not d["ly_do"]]
 	chia = chia_ton(
@@ -454,7 +518,7 @@ def doi_sanh_ton(order: str) -> dict:
 	return bang
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def tao_mr_phan_thieu(order: str) -> dict:
 	"""Tạo MỘT Material Request NHÁP cho phần thiếu của đơn (spec §6).
 
@@ -518,16 +582,25 @@ def tao_mr_phan_thieu(order: str) -> dict:
 	mr.material_request_type = "Purchase"
 	mr.company = so.company
 	mr.transaction_date = hom_nay
+	dvt_nguyen = {
+		u.name: cint(u.must_be_whole_number)
+		for u in frappe.get_all(
+			"UOM",
+			filters={"name": ["in", sorted({d["dvt"] for d in thieu if d["dvt"]})]},
+			fields=["name", "must_be_whole_number"],
+		)
+	}
 	for d in thieu:
 		ngay = getdate(ngay_giao.get(d["so_detail"]) or so.delivery_date or hom_nay)
+		sl = sl_mua(d["can_mua"], bool(dvt_nguyen.get(d["dvt"])))
 		mr.append("items", {
 			"item_code": d["item_code"],
 			"item_name": d["item_name"],
-			"qty": d["can_mua"],
+			"qty": sl,
 			"uom": d["dvt"],
 			"stock_uom": d["dvt"],
 			"conversion_factor": 1,
-			"stock_qty": d["can_mua"],
+			"stock_qty": sl,
 			"warehouse": d["kho"],
 			"schedule_date": max(ngay, hom_nay),
 			"sales_order": so.name,

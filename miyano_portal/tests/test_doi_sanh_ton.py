@@ -95,6 +95,15 @@ class _CoSo(FrappeTestCase):
 			so.submit()
 		return so
 
+	def _bo(self, thanh_phan, sl=2):
+		"""Product Bundle: một mã gộp (không quản lý tồn) gồm `sl` thành phần."""
+		cha = self._item(quan_ly_ton=False)
+		frappe.get_doc({
+			"doctype": "Product Bundle", "new_item_code": cha,
+			"items": [{"item_code": thanh_phan, "qty": sl}],
+		}).insert(ignore_permissions=True)
+		return cha
+
 	def _bang(self, so):
 		return dst.bang_cho_don(frappe.get_doc("Sales Order", so.name))
 
@@ -707,8 +716,10 @@ class TestGiaoDienDesk(FrappeTestCase):
 	def test_danh_sach_vai_o_js_khop_voi_python(self):
 		"""Hai danh sách lệch nhau thì hoặc nhân viên không thấy bảng, hoặc
 		người không có vai mở đơn là dính hộp báo lỗi quyền."""
-		for vai in dst.ROLE_NOI_BO:
-			self.assertIn(f'"{vai}"', self.js, vai)
+		khoi = self.js[self.js.index("const VAI_XEM_TON = ["):]
+		khoi = khoi[: khoi.index("];")]
+		import re
+		self.assertEqual(set(re.findall(r'"([^"]+)"', khoi)), set(dst.ROLE_NOI_BO))
 
 	def test_js_xu_du_bon_ma_de_xuat(self):
 		for ma in (dst.DX_DU, dst.DX_CAN_MUA, dst.DX_MOT_PHAN, dst.DX_DA_CO_MR):
@@ -730,6 +741,30 @@ class TestGiaoDienDesk(FrappeTestCase):
 		than = self.js[self.js.index("function hien_doi_sanh_ton(frm) {"):]
 		self.assertLess(than.index("go_doi_sanh_ton(frm)"), than.index("frm.is_new()"))
 
+	def test_khong_ve_bang_tren_don_da_huy_hoac_da_dong(self):
+		"""Đơn đã huỷ / đã đóng không còn giao: "Thiếu k/n dòng" màu đỏ ở đó
+		là một lời kêu gọi hành động sai."""
+		than = self.js[self.js.index("function hien_doi_sanh_ton(frm) {"):]
+		than = than[: than.index("frappe.call(")]
+		self.assertIn("frm.doc.docstatus === 2", than)
+		self.assertIn('frm.doc.status === "Closed"', than)
+
+	def test_phan_hoi_cu_bi_bo_theo_so_thu_tu_lan_goi(self):
+		"""Hai lần refresh sát nhau: phản hồi CHẬM của lần trước không được
+		thêm lại nút "Tạo MR" mà lần sau đã cho là không còn."""
+		than = self.js[self.js.index("function hien_doi_sanh_ton(frm) {"):]
+		self.assertIn("frm._dst_lan", than)
+		self.assertIn("lan !== frm._dst_lan", than)
+
+	def test_ve_bang_hong_thi_van_con_dong_bao_loi(self):
+		than = self.js[self.js.index("function hien_doi_sanh_ton(frm) {"):]
+		than = than[: than.index("function ve_doi_sanh_ton")]
+		self.assertIn("try {", than)
+		self.assertIn("catch (e)", than)
+
+	def test_js_hien_ghi_chu_bo_trong_don(self):
+		self.assertIn("d.bo_trong_don", self.js)
+
 	def test_js_hien_ghi_chu_don_khac_da_giu(self):
 		self.assertIn("d.giu_don_khac", self.js)
 		self.assertIn("Đơn khác đã giữ", self.js)
@@ -737,6 +772,7 @@ class TestGiaoDienDesk(FrappeTestCase):
 	def test_cong_khach_hang_KHONG_goi_doi_sanh_ton(self):
 		"""Spec Q4: tồn của Miyano không được lộ sang cổng khách hàng."""
 		src = self.goc_repo / "frontend" / "src"
+		self.assertTrue(src.is_dir(), src)  # không có thư mục thì bài này xanh giả
 		for f in list(src.rglob("*.vue")) + list(src.rglob("*.js")):
 			self.assertNotIn(
 				"doi_sanh_ton", f.read_text(encoding="utf-8"), str(f)
@@ -846,3 +882,195 @@ class TestTaoMrHaiDongCungMatHang(_CoSo):
 		self.assertFalse(
 			frappe.db.exists("Material Request Item", {"sales_order": so.name})
 		)
+
+
+class TestSlMua(FrappeTestCase):
+	"""Đơn vị chỉ nhận số nguyên: ERPNext từ chối 2,3 Hộp trên Material
+	Request. Thiếu 2,3 thì phải mua 3 — làm tròn LÊN, không bao giờ xuống."""
+
+	def test_don_vi_nguyen_lam_tron_len(self):
+		self.assertEqual(dst.sl_mua(2.3, True), 3)
+		self.assertEqual(dst.sl_mua(2.0, True), 2)
+		self.assertEqual(dst.sl_mua(0.001, True), 1)
+
+	def test_don_vi_le_giu_nguyen(self):
+		self.assertEqual(dst.sl_mua(2.3, False), 2.3)
+
+
+class TestLoVoHieu(_CoSo):
+	def test_lo_bi_vo_hieu_hoa_khong_tinh_la_dung_duoc(self):
+		"""Lô bị `disabled` (cách ly, thu hồi): hàng vẫn nằm trong `Bin`
+		nhưng ERPNext không cho chọn lô đó để xuất."""
+		item = self._item(theo_lo=True)
+		tot = self._lo(item, None)
+		khoa = self._lo(item, None)
+		self._nap(item, 6, lo=tot)
+		self._nap(item, 4, lo=khoa)
+		frappe.db.set_value("Batch", khoa, "disabled", 1)
+		d = self._dong_dau(self._don([(item, 8)], submit=False))
+		self.assertEqual(d["ton_hien_tai"], 10)
+		self.assertEqual(d["ton_kha_dung"], 6)
+		self.assertEqual(d["sl_thieu"], 2)
+
+	def test_lo_vua_het_han_vua_vo_hieu_chi_bi_tru_MOT_lan(self):
+		item = self._item(theo_lo=True)
+		tot = self._lo(item, None)
+		xau = self._lo(item, frappe.utils.add_days(frappe.utils.today(), 90))
+		self._nap(item, 6, lo=tot)
+		self._nap(item, 4, lo=xau)
+		frappe.db.set_value("Batch", xau, {
+			"disabled": 1,
+			"expiry_date": frappe.utils.add_days(frappe.utils.today(), -1),
+		})
+		d = self._dong_dau(self._don([(item, 6)], submit=False))
+		self.assertEqual(d["ton_kha_dung"], 6)
+		self.assertEqual(d["sl_thieu"], 0)
+
+
+class TestBoSanPham(_CoSo):
+	def _kho_thanh_phan(self, bo):
+		"""Kho ERPNext gán cho thành phần của bộ — hỏi chính ERPNext thay vì
+		đoán, để bài test không gãy theo cách nó chọn kho."""
+		so = self._don([(bo, 1)], submit=False)
+		return so.packed_items[0].warehouse
+
+	def test_thanh_phan_bo_cua_CHINH_DON_tru_vao_dong_le_cung_mat_hang(self):
+		"""Đơn vừa có bộ (2 bộ × 2 = 4 thành phần) vừa có dòng lẻ 8 cái của
+		chính thành phần đó; tồn 10. Dòng lẻ chỉ còn 6 để dùng, thiếu 2."""
+		tp = self._item()
+		bo = self._bo(tp, sl=2)
+		kho = self._kho_thanh_phan(bo)
+		make_stock_entry(
+			item_code=tp, qty=10, to_warehouse=kho, rate=1000,
+			company=COMPANY, purpose="Material Receipt",
+		)
+		so = self._don(
+			[(bo, 2), {"item_code": tp, "qty": 8, "warehouse": kho}], submit=False
+		)
+		dong = {d["item_code"]: d for d in self._bang(so)["dong"]}
+		self.assertEqual(dong[bo]["ly_do"], dst.LY_DO_BO)
+		self.assertEqual(dong[tp]["bo_trong_don"], 4)
+		self.assertEqual(dong[tp]["ton_kha_dung"], 6)
+		self.assertEqual(dong[tp]["sl_thieu"], 2)
+
+	def test_don_khong_co_bo_thi_ghi_chu_la_None(self):
+		item = self._item()
+		self._nap(item, 5)
+		self.assertIsNone(self._dong_dau(self._don([(item, 1)], submit=False))["bo_trong_don"])
+
+	def test_nhanh_Packed_Item_cua_ban_sao_khop_ham_goc(self):
+		"""Ghim NHÁNH THỨ HAI của bản sao `get_reserved_qty` (Packed Item) —
+		bài `…khop_dung_ham_goc…` ở trên chỉ ghim nhánh dòng đơn thường."""
+		tp = self._item()
+		bo = self._bo(tp, sl=2)
+		kho = self._kho_thanh_phan(bo)
+		make_stock_entry(
+			item_code=tp, qty=20, to_warehouse=kho, rate=1000,
+			company=COMPANY, purpose="Material Receipt",
+		)
+		so = self._don([(bo, 3)])
+		self.assertEqual(get_reserved_qty(tp, kho), 6)
+		self.assertEqual(dst._giu_cho_don_khac(tp, kho, tru_don=""), 6)
+		self.assertEqual(dst._giu_cho_don_khac(tp, kho, tru_don=so.name), 0)
+
+
+class TestKhopHamGocSauGiaoHang(_CoSo):
+	def test_sau_khi_giao_mot_phan_van_khop(self):
+		item = self._item()
+		self._nap(item, 10)
+		so = self._don([(item, 10)])
+		dn = make_delivery_note(so.name)
+		dn.posting_date = frappe.utils.today()
+		dn.set_posting_time = 1
+		for r in dn.items:
+			r.qty = 4
+			r.warehouse = KHO_MYN
+			r.cost_center = COST_CENTER
+		dn.insert(ignore_permissions=True)
+		dn.submit()
+		self.assertEqual(get_reserved_qty(item, KHO_MYN), 6)
+		self.assertEqual(dst._giu_cho_don_khac(item, KHO_MYN, tru_don=""), 6)
+
+
+class TestTaoMrBoSung(_CoSo):
+	def test_chi_nhan_POST(self):
+		"""Endpoint GHI dữ liệu. Frappe tình cờ rollback mọi GET, nhưng đó
+		không phải thứ nên đứng ra bảo vệ một endpoint tạo chứng từ."""
+		self.assertEqual(
+			frappe.allowed_http_methods_for_whitelisted_func[dst.tao_mr_phan_thieu],
+			["POST"],
+		)
+
+	def test_don_dang_tam_giu_khong_tao_duoc_mr(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		so.update_status("On Hold")
+		with self.assertRaises(frappe.ValidationError) as ca:
+			dst.tao_mr_phan_thieu(so.name)
+		self.assertIn("tạm giữ", str(ca.exception))
+
+	def test_dong_khong_tra_duoc_KHONG_vao_mr(self):
+		"""Spec §10.9, đi qua đúng đường tạo MR chứ không chỉ hàm thuần."""
+		thieu = self._item()
+		dich_vu = self._item(quan_ly_ton=False)
+		so = self._don([(dich_vu, 1), (thieu, 3)])
+		mr = frappe.get_doc("Material Request", dst.tao_mr_phan_thieu(so.name)["name"])
+		self.assertEqual([r.item_code for r in mr.items], [thieu])
+
+	def test_don_vi_nguyen_thi_mua_lam_tron_len(self):
+		item = self._item()
+		self._nap(item, 0.5)  # nhập khi đơn vị còn cho số lẻ
+		frappe.db.set_value("UOM", "Hộp", "must_be_whole_number", 1)
+		so = self._don([(item, 3)])
+		self.assertEqual(self._dong_dau(so)["can_mua"], 2.5)
+		mr = frappe.get_doc("Material Request", dst.tao_mr_phan_thieu(so.name)["name"])
+		self.assertEqual(mr.items[0].qty, 3)
+		# MR 3 phủ trọn 2,5 thiếu: không còn gì để mua thêm.
+		d = self._dong_dau(so)
+		self.assertEqual(d["de_xuat"], dst.DX_DA_CO_MR)
+		self.assertEqual(d["can_mua"], 0)
+
+	def test_duong_that_MR_sang_PO_sang_nhap_kho(self):
+		"""Đi hết đường thật: MR -> Purchase Order -> Purchase Receipt.
+
+		Ghim hai điều mới chỉ được kiểm bằng `db.set_value`: MR do mình dựng
+		chuyển được thành PO bình thường, và `received_qty` ERPNext ghi lên
+		dòng MR đúng là theo đơn vị tồn kho — hàng về thì MR thôi phủ và dòng
+		chuyển sang "Đủ hàng".
+		"""
+		from erpnext.buying.doctype.purchase_order.purchase_order import (
+			make_purchase_receipt,
+		)
+		from erpnext.stock.doctype.material_request.material_request import (
+			make_purchase_order,
+		)
+
+		ncc = frappe.get_all("Supplier", filters={"disabled": 0}, pluck="name", limit=1)[0]
+		item = self._item()
+		so = self._don([(item, 5)])
+		mr = frappe.get_doc("Material Request", dst.tao_mr_phan_thieu(so.name)["name"])
+		mr.submit()
+
+		po = make_purchase_order(mr.name)
+		po.supplier = ncc
+		po.schedule_date = frappe.utils.today()
+		for r in po.items:
+			r.rate = 1000
+			r.schedule_date = frappe.utils.today()
+		po.insert(ignore_permissions=True)
+		self.assertEqual(po.items[0].material_request, mr.name)
+		self.assertEqual(po.items[0].sales_order, so.name)
+		po.submit()
+
+		pr = make_purchase_receipt(po.name)
+		pr.insert(ignore_permissions=True)
+		pr.submit()
+
+		self.assertEqual(
+			frappe.db.get_value("Material Request Item", mr.items[0].name, "received_qty"), 5
+		)
+		d = self._dong_dau(so)
+		self.assertEqual(d["ton_hien_tai"], 5)
+		self.assertEqual(d["sl_thieu"], 0)
+		self.assertEqual(d["de_xuat"], dst.DX_DU)
+		self.assertEqual(d["mr"], [])
