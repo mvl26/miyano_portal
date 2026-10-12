@@ -151,8 +151,17 @@ def de_xuat_gui_duyet(ten) -> dict:
 	doc = _phieu_cua_toi(ten)
 	if doc.owner != frappe.session.user:
 		raise frappe.PermissionError("Chỉ chủ phiếu (người tạo) mới gửi duyệt được.")
-	doc.gui_duyet()
-	return {"name": doc.name, "ma_de_xuat": doc.ma_de_xuat}
+	# Spec 2026-10-09 §4.1 — phiếu trộn hàng có giá với hàng chờ báo giá tách
+	# thành HAI phiếu ở lần gửi đầu tiên. `name`/`ma_de_xuat` luôn là của
+	# phiếu GỐC (client cũ chỉ đọc hai khoá này); `phieu_cung_lan_dat` là
+	# phiếu chờ báo giá vừa sinh, `None` khi không tách.
+	from miyano_portal import tach_phieu
+
+	ds = tach_phieu.gui_duyet_co_tach(doc)
+	return {
+		"name": ds[0].name, "ma_de_xuat": ds[0].ma_de_xuat,
+		"phieu_cung_lan_dat": ds[1].name if len(ds) > 1 else None,
+	}
 
 
 @frappe.whitelist()

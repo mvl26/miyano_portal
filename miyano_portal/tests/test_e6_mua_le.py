@@ -648,8 +648,15 @@ class TestDatHangBanLe(FrappeTestCase):
         # Đảo theo spec 2026-10-09 (giá theo Price List). Dòng không còn gắn
         # hợp đồng khung (§4.2).
         self.assertFalse(so.items[0].blanket_order)
-        self.assertEqual(len(so.custom_dat_ngoai), 1)
-        self.assertEqual(so.custom_dat_ngoai[0].ten_hang, "X")
+        # Đảo theo spec 2026-10-09 (giá theo Price List). §4.1 — dòng gõ tay
+        # luôn thuộc nhóm chờ báo giá, nên giỏ này ra HAI đơn: giỏ vẫn được
+        # CHẤP NHẬN trong một lần bấm (điều test này canh), nhưng dòng đặt
+        # ngoài nằm ở đơn thứ hai chứ không còn chung đơn với dòng có giá.
+        self.assertEqual(len(so.custom_dat_ngoai), 0)
+        self.assertEqual(len(res["don"]), 2)
+        so2 = frappe.get_doc("Sales Order", res["don"][1]["sales_order"])
+        self.assertEqual(len(so2.custom_dat_ngoai), 1)
+        self.assertEqual(so2.custom_dat_ngoai[0].ten_hang, "X")
 
     def test_gio_hang_chi_co_dat_ngoai_van_dat_duoc(self):
         """SUPERSEDED bởi spec 2026-08-15 §3.4 (xem

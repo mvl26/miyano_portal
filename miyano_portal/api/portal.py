@@ -577,24 +577,36 @@ def portal_order_place(
     contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
     request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None, ten_don_hang=None,
 ) -> dict:
-    """API Spec §1.1 — `mode`: `"hdnt"` (mặc định, [Hiện có]) | `"ban_le"`
-    (E6 phần B, [MỚI]). Tham số vẫn tên `contract` (không phải `hdnt` như
-    JSON mẫu của API Spec) để KHÔNG đổi chữ ký mà `frontend/src/views/
-    Cart.vue` (đã chạy thật) đang gọi — đổi tên tham số ở đây là đổi API mà
-    không có gì buộc phần C phải đổi theo, một chỗ lệch tài liệu đã có từ
-    trước E6, không phải lỗi tạo mới ở đây.
+    """API Spec §1.1 — quản lý đặt hàng trực tiếp từ giỏ.
+
+    Trả `{"sales_order", "de_xuat", "da_ton_tai", "total", "loai_don",
+    "don": [{"sales_order", "de_xuat", "loai_don"}]}`. `don` có 1 hoặc 2
+    phần tử; các khoá cấp cao nhất là của phần tử ĐẦU (client cũ chỉ đọc
+    chúng).
+
+    Spec 2026-10-09 §4.1 — giỏ trộn hàng có giá trong Price List với hàng
+    chờ báo giá (kể cả dòng gõ tay `dat_ngoai`) ra HAI đơn, mỗi đơn một
+    `Portal De Xuat Mua` đứng sau; hai phiếu mang chung `ma_lan_dat` và trỏ
+    nhau qua `phieu_cung_lan_dat`. Đơn đầu là đơn "Theo bảng giá". Hai đơn
+    nhận `request_id` gốc kèm hậu tố `:gia` / `:baogia`; giỏ một loại giữ
+    nguyên `request_id` của client. Bấm lại cùng `request_id` trả đúng (các)
+    đơn và phiếu đã tạo, không tạo thêm. Thiếu `request_id` thì
+    `dat_hang.tao_sales_order` từ chối, giỏ trộn hay không cũng vậy.
+
+    `contract`, `mode` — [KHÔNG CÒN QUYẾT ĐỊNH GÌ, spec 2026-10-09 §4.2].
+    Giá lấy từ Price List theo từng dòng; đơn và phiếu không còn gắn hợp
+    đồng khung. Hai tham số ở lại trong chữ ký vì client đang chạy thật vẫn
+    gửi; `contract` không được đọc ở đây, `mode` chỉ còn được
+    `tao_sales_order` kiểm chính tả.
 
     Vỏ mỏng (bước 1, tách lõi đặt hàng — xem `dat_hang.py`): xác định khách
-    hàng từ PHIÊN ĐĂNG NHẬP rồi giao toàn bộ việc tạo Sales Order cho
-    `dat_hang.tao_sales_order`, KHÔNG ĐỔI. Task 7 (§5.5) thêm ĐÚNG hai việc
-    quanh lõi đó, không đụng vào chính nó:
+    hàng từ PHIÊN ĐĂNG NHẬP rồi giao việc tạo từng Sales Order cho
+    `dat_hang.tao_sales_order`.
 
-    C1 (review vòng sửa 1, CRITICAL — SỬA LẠI ở Task 7, bình luận cũ ở đây
-    nói SAI thực tế mới, xem QĐ điều phối viên 19/08/2026 trong
-    `task-7-report.md`): bản TRƯỚC Task 7 chặn bằng cách "không có tham số
-    `khoa_phong` trong chữ ký". Nhưng §5.5 đòi giỏ hàng của QUẢN LÝ có ô
-    chọn khoa (mặc định "Toàn viện") — nên tham số `khoa_phong` giờ CÓ mặt,
-    và phép chặn A-đóng-dấu-thành-B chuyển sang `portal_context.
+    C1 (review vòng sửa 1, CRITICAL — SỬA LẠI ở Task 7, xem QĐ điều phối
+    viên 19/08/2026 trong `task-7-report.md`): §5.5 đòi giỏ hàng của QUẢN LÝ
+    có ô chọn khoa (mặc định "Toàn viện") nên tham số `khoa_phong` CÓ mặt,
+    và phép chặn A-đóng-dấu-thành-B nằm ở `portal_context.
     khoa_phong_cho_don()`, hàm role-aware DUY NHẤT được phép đọc/ghi
     `khoa_phong` cho đường ghi này:
       * Nhân viên khoa KHÔNG được gọi endpoint này chút nào nữa (chặn ở
@@ -605,24 +617,14 @@ def portal_order_place(
         không nhận thẳng giá trị client gửi mà không kiểm.
 
     §5.5 (thân bài, "mọi đơn trên hệ thống đều có đúng MỘT chứng từ đề nghị
-    đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong Sales Order,
-    hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau, `nguoi_duyet`
-    là chính quản lý. CỐ Ý KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`
-    (QĐ điều phối viên 19/08 — SỬA LẠI ở review M3, chữ dùng lần đầu SAI,
-    xem `task-7-report.md`): CẢ HAI đường đều NÉM (`frappe.throw`, đều
-    `ValidationError`) khi vượt hạn mức — không phải một MỀM một CỨNG.
-    Khác biệt thật là dữ liệu ĐI KÈM lúc ném: `dat_hang.tao_sales_order`
-    (nhánh HĐNT) ghi `frappe.local.response["loi"]` — danh sách CÓ CẤU
-    TRÚC theo từng dòng hàng (`item_code`/`ly_do`/`thong_diep`) — TRƯỚC khi
-    throw, mà nhiều test (`test_e1_loi_co_cau_truc.py` và các test E1
-    khác) đọc trực tiếp từ `frappe.local.response["loi"]` sau khi bắt
-    `ValidationError` từ kết quả hàm NÀY. `_kiem_han_muc` (bên trong
-    `duyet_va_tao_don`) chỉ `frappe.throw` một câu văn xuôi PHẲNG, không
-    ghi gì vào `frappe.local.response`. Route qua `duyet_va_tao_don` sẽ mất
-    dữ liệu có cấu trúc đó cho MỌI người gọi, không riêng nhân viên khoa —
-    trong khi sáu tài khoản đang chạy thật đều là quản lý và đi qua đúng
-    đường này mỗi ngày. (`bi_loai`/`ly_do` là khoá của MỘT HÀM KHÁC hẳn,
-    `portal_reorder` — không liên quan gì tới đường này; đừng nhầm.)
+    đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong một Sales
+    Order, hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau,
+    `nguoi_duyet` là chính quản lý (`_dam_bao_phieu_tu_duyet`). CỐ Ý KHÔNG
+    route qua `de_xuat_duyet.duyet_va_tao_don`: phiếu này SINH RA đã "Đã
+    duyệt", không có ai chờ duyệt; và `duyet_va_tao_don` coi `da_ton_tai`
+    là LỖI, trong khi ở đây bấm lại cùng `request_id` phải trả đơn cũ
+    (BR-O12). Lỗi theo dòng hàng vẫn ra `frappe.local.response["loi"]` do
+    `tao_sales_order` ghi trước khi ném.
     """
     if not la_quan_ly():
         # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL/hạn mức khó
@@ -636,19 +638,74 @@ def portal_order_place(
         )
     customer = get_portal_customer()
     khoa = khoa_phong_cho_don(khoa_phong)
-    kq = dat_hang.tao_sales_order(
-        customer,
-        mode=mode, contract=contract, items=items, dat_ngoai=dat_ngoai,
-        po=po, delivery_date=delivery_date, note=note, address=address,
-        request_id=request_id, khoa_phong=khoa,
+    from miyano_portal import tach_phieu
+
+    ds_items = frappe.parse_json(items) if isinstance(items, str) else (items or [])
+    ds_ngoai = (
+        frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else (dat_ngoai or [])
     )
-    kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
-        customer=customer, khoa_phong=khoa, mode=mode, contract=contract,
-        dat_ngoai=dat_ngoai, delivery_date=delivery_date, address=address,
-        note=note, request_id=request_id, ten_don_hang=ten_don_hang,
-        sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
-    )
-    return kq
+    co_gia, cho_bao_gia = tach_phieu.chia_dong(customer, ds_items)
+    rid_gia = f"{request_id}{tach_phieu.HAU_TO_GIA}"
+    rid_bao_gia = f"{request_id}{tach_phieu.HAU_TO_BAO_GIA}"
+
+    def _da_co_don(*ds_rid):
+        return bool(frappe.db.exists(
+            "Sales Order", {"custom_request_id": ["in", list(ds_rid)]}
+        ))
+
+    # Spec 2026-10-09 §4.1 — giỏ trộn ra HAI đơn. Giỏ một loại giữ nguyên
+    # `request_id` của client (tương thích với mọi đơn đã tạo trước đây).
+    #
+    # Lần BẤM LẠI theo đúng cách chia của lần đầu, KHÔNG chia lại theo Price
+    # List hiện tại: giá có thể xuất hiện/mất đi giữa hai lần bấm, và chia
+    # lại sẽ đổi `request_id` thực dùng → đơn thứ ba. Thiếu `request_id` thì
+    # không dựng hậu tố ("None:gia" sẽ lọt chốt BR-O12): đi một lô, để
+    # `tao_sales_order` từ chối như mọi giỏ khác.
+    if not request_id or _da_co_don(request_id):
+        tron = False
+    elif _da_co_don(rid_gia, rid_bao_gia):
+        tron = True
+    else:
+        tron = bool(co_gia and (cho_bao_gia or ds_ngoai))
+
+    if tron:
+        lo = [(co_gia, [], rid_gia), (cho_bao_gia, ds_ngoai, rid_bao_gia)]
+    else:
+        lo = [(ds_items, ds_ngoai, request_id)]
+
+    don = []
+    for lo_items, lo_ngoai, rid in lo:
+        kq = dat_hang.tao_sales_order(
+            customer, mode=mode, items=lo_items, dat_ngoai=lo_ngoai,
+            po=po, delivery_date=delivery_date, note=note, address=address,
+            request_id=rid, khoa_phong=khoa,
+        )
+        kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
+            customer=customer, khoa_phong=khoa, mode=mode, contract=None,
+            dat_ngoai=lo_ngoai, delivery_date=delivery_date, address=address,
+            note=note, request_id=rid, ten_don_hang=ten_don_hang,
+            sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
+        )
+        kq["loai_don"] = frappe.db.get_value(
+            "Sales Order", kq["sales_order"], "custom_loai_don"
+        )
+        don.append(kq)
+
+    if len(don) == 2 and don[0]["de_xuat"] and don[1]["de_xuat"]:
+        # Mã lần đặt = mã của phiếu đầu (cùng quy ước đường khoa gửi duyệt);
+        # khách chưa có Mã ngắn thì phiếu không có mã, rơi về tên phiếu. Bấm
+        # lại ghi đúng các giá trị cũ.
+        ma = frappe.db.get_value("Portal De Xuat Mua", don[0]["de_xuat"], "ma_de_xuat")
+        tach_phieu.lien_ket(don[0]["de_xuat"], don[1]["de_xuat"], ma or don[0]["de_xuat"])
+
+    return {
+        **don[0],
+        "don": [
+            {"sales_order": d["sales_order"], "de_xuat": d["de_xuat"],
+             "loai_don": d["loai_don"]}
+            for d in don
+        ],
+    }
 
 
 def _dam_bao_phieu_tu_duyet(

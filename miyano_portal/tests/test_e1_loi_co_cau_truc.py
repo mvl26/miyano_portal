@@ -150,8 +150,16 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
             request_id=_rid(),
         )
         self.assertIsNone(frappe.local.response.get("loi"))
-        so = frappe.get_doc("Sales Order", kq["sales_order"])
-        theo_ma = {d.item_code: d for d in so.items}
+        # Đảo theo spec 2026-10-09 (giá theo Price List). §4.1 — giỏ trộn ra
+        # HAI đơn: dòng có giá ở đơn đầu, dòng chờ báo giá ở đơn thứ hai.
+        self.assertEqual(len(kq["don"]), 2)
+        theo_ma = {
+            d.item_code: d
+            for don in kq["don"]
+            for d in frappe.get_doc("Sales Order", don["sales_order"]).items
+        }
+        don_dau = frappe.get_doc("Sales Order", kq["sales_order"])
+        self.assertEqual([d.item_code for d in don_dau.items], [VT])
         self.assertEqual(float(theo_ma[VT].qty), 10.0)
         self.assertEqual(theo_ma[HC].custom_nguon_gia, "Báo giá")
         self.assertEqual(float(theo_ma[HC].rate), 0.0)
