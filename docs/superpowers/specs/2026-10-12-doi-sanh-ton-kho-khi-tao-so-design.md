@@ -95,6 +95,14 @@ nhánh của hàm gốc mới không lệch. Lệch thì đơn tự tranh hàng 
 dòng trước lấy trước, dòng sau chỉ thấy phần còn lại. Không được để hai dòng
 cùng báo "đủ" trên cùng một lượng hàng.
 
+**Ghi chú "Đơn khác đã giữ: n".** Dòng nào có đơn đã Submit khác đang giữ
+hàng cùng mặt hàng, cùng kho thì hiện thêm ghi chú này dưới ô tồn có thể sử
+dụng (chủ đầu tư chốt 12/10/2026). Lý do: hai đơn đã Submit tranh cùng một
+lượng tồn thì mỗi đơn trừ trọn phần của đơn kia và cả hai đều báo thiếu — tồn
+10, hai đơn cùng cần 7, mỗi đơn thấy thiếu 4, hai MR cộng lại 8 cho chỗ thiếu
+thật là 4. Bảng không tự phân tồn theo thứ tự đơn; ghi chú để nhân viên thấy
+và tự cân trước khi lập MR.
+
 ### 5.3 Đơn nháp khác
 
 Đơn nháp không giữ hàng, nên hai đơn nháp cùng mặt hàng có thể cùng thấy "đủ".

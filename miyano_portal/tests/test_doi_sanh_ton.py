@@ -277,6 +277,24 @@ class TestBangChoDon(_CoSo):
 		self.assertEqual(d["ton_kha_dung"], 3)
 		self.assertEqual(d["sl_thieu"], 2)
 
+	def test_don_khac_da_giu_thi_co_ghi_chu_so_da_giu(self):
+		"""Tồn 10, đơn A và đơn B cùng cần 7 và cùng đã Submit: mỗi đơn thấy
+		thiếu 4. Không có ghi chú này thì nhân viên không biết vì sao "tồn có
+		thể sử dụng" thấp hơn tồn hiện tại, và lập hai MR cho cùng một chỗ
+		thiếu."""
+		item = self._item()
+		self._nap(item, 10)
+		self._don([(item, 7)])
+		d = self._dong_dau(self._don([(item, 7)]))
+		self.assertEqual(d["sl_thieu"], 4)
+		self.assertEqual(d["giu_don_khac"], 7)
+
+	def test_khong_don_nao_giu_thi_ghi_chu_la_None(self):
+		item = self._item()
+		self._nap(item, 10)
+		d = self._dong_dau(self._don([(item, 7)]))
+		self.assertIsNone(d["giu_don_khac"])
+
 	def test_don_nhap_khac_KHONG_tru_nhung_co_ghi_chu(self):
 		item = self._item()
 		self._nap(item, 10)
@@ -695,6 +713,10 @@ class TestGiaoDienDesk(FrappeTestCase):
 	def test_js_xu_du_bon_ma_de_xuat(self):
 		for ma in (dst.DX_DU, dst.DX_CAN_MUA, dst.DX_MOT_PHAN, dst.DX_DA_CO_MR):
 			self.assertIn(f"{ma}:", self.js, ma)
+
+	def test_js_hien_ghi_chu_don_khac_da_giu(self):
+		self.assertIn("d.giu_don_khac", self.js)
+		self.assertIn("Đơn khác đã giữ", self.js)
 
 	def test_cong_khach_hang_KHONG_goi_doi_sanh_ton(self):
 		"""Spec Q4: tồn của Miyano không được lộ sang cổng khách hàng."""

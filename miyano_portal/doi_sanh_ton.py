@@ -298,7 +298,7 @@ def _dong_trong(**kw) -> dict:
 		"kho": None, "dvt": None, "ly_do": None, "sl_yeu_cau": None,
 		"ton_hien_tai": None, "ton_kha_dung": None, "sl_thieu": None,
 		"mr_da_phu": None, "can_mua": None, "de_xuat": None, "mr": [],
-		"don_nhap_khac": None,
+		"don_nhap_khac": None, "giu_don_khac": None,
 	}
 	d.update(kw)
 	return d
@@ -353,17 +353,21 @@ def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 				_ton_het_han(r.item_code, r.warehouse)
 				if cint(item.has_batch_no) else 0
 			)
+			giu = _giu_cho_don_khac(r.item_code, r.warehouse, so.name)
 			nguon[khoa] = {
 				"ton_hien_tai": ton,
-				"kha_dung": ton_kha_dung(
-					ton, het_han,
-					_giu_cho_don_khac(r.item_code, r.warehouse, so.name),
-				),
+				"kha_dung": ton_kha_dung(ton, het_han, giu),
+				# Chỉ để GHI CHÚ: hai đơn đã Submit tranh cùng một lượng tồn
+				# thì mỗi đơn trừ trọn phần của đơn kia và CẢ HAI đều báo
+				# thiếu. Hiện con số này ra để nhân viên thấy vì sao, trước
+				# khi lập hai MR cho cùng một chỗ thiếu.
+				"giu_don_khac": giu if giu > 0 else None,
 				"don_nhap_khac": _don_nhap_khac(r.item_code, r.warehouse, so.name),
 			}
 		d["sl_yeu_cau"] = sl_con_giao(r.stock_qty, r.qty, r.delivered_qty)
 		d["ton_hien_tai"] = nguon[khoa]["ton_hien_tai"]
 		d["don_nhap_khac"] = nguon[khoa]["don_nhap_khac"]
+		d["giu_don_khac"] = nguon[khoa]["giu_don_khac"]
 
 	tra_duoc = [d for d in bang if not d["ly_do"]]
 	chia = chia_ton(

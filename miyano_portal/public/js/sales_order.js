@@ -205,6 +205,12 @@ function ve_doi_sanh_ton(frm, bang) {
 			const de_xuat = d.ly_do
 				? `<span class="text-muted">${esc(d.ly_do)}</span>`
 				: NHAN_DE_XUAT[d.de_xuat](d, so) + (mr ? `<br>${mr}` : "");
+			// Hai đơn đã xác nhận tranh cùng một lượng tồn thì cả hai đều báo
+			// thiếu — dòng này cho nhân viên thấy vì sao, trước khi lập hai
+			// MR cho cùng một chỗ thiếu.
+			const giu = d.giu_don_khac
+				? `<div class="text-muted" style="font-size:.75rem">Đơn khác đã giữ: ${so(d.giu_don_khac)} ${esc(d.dvt || "")}</div>`
+				: "";
 			const nhap = d.don_nhap_khac
 				? `<div class="text-muted" style="font-size:.75rem">Đơn nháp khác đang chờ: ${so(d.don_nhap_khac.sl)} ${esc(d.dvt || "")} (${d.don_nhap_khac.so_don} đơn)</div>`
 				: "";
@@ -215,7 +221,7 @@ function ve_doi_sanh_ton(frm, bang) {
 				<td>${esc(d.dvt || "")}</td>
 				<td class="text-right">${so(d.sl_yeu_cau)}</td>
 				<td class="text-right">${so(d.ton_hien_tai)}</td>
-				<td class="text-right">${so(d.ton_kha_dung)}${nhap}</td>
+				<td class="text-right">${so(d.ton_kha_dung)}${giu}${nhap}</td>
 				<td class="text-right">${d.sl_thieu ? `<b style="color:var(--red-600)">${so(d.sl_thieu)}</b>` : so(d.sl_thieu)}</td>
 				<td>${de_xuat}</td>
 			</tr>`;
