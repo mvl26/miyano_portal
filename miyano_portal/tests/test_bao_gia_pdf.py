@@ -115,13 +115,15 @@ class TestBaoGiaPdf(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             portal.portal_bao_gia_pdf(order=res["sales_order"])
 
-    def test_don_hdnt_o_cho_khach_dong_y_khong_tai_duoc_pdf(self):
-        """review I-2 — "hiệu lực báo giá" là khái niệm CHỈ của Mua lẻ
-        (`portal_order_track` trả `han_hieu_luc: None` cho đơn khác;
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_don_theo_bang_gia_o_cho_khach_dong_y_khong_tai_duoc_pdf(self):
+        """review I-2 — "hiệu lực báo giá" là khái niệm CHỈ của đơn đi vòng
+        báo giá (`portal_order_track` trả `han_hieu_luc: None` cho đơn khác;
         `quet_bao_gia_het_han` lọc riêng `custom_loai_don: "Mua lẻ"`). Một
-        đơn Theo hợp đồng khung (luồng E2 gốc) cũng có thể ở "Chờ khách đồng
-        ý" — endpoint phải từ chối tải PDF báo giá cho nhánh này, không chỉ
-        dựa vào workflow_state."""
+        đơn mọi dòng đã có giá ("Theo bảng giá" — trước spec 2026-10-09 là
+        "Theo HĐNT") cũng có thể ở "Chờ khách đồng ý" (luồng E2 gốc) —
+        endpoint phải từ chối tải PDF báo giá cho nhánh này, không chỉ dựa
+        vào workflow_state."""
         bo = portal.portal_contracts()[0]["name"]
         res = portal.portal_order_place(
             bo, json.dumps([{"item_code": VT_HDNT, "qty": 1}]),
@@ -129,7 +131,7 @@ class TestBaoGiaPdf(FrappeTestCase):
         )
         frappe.set_user("Administrator")
         so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(so.custom_loai_don, "Theo HĐNT")
+        self.assertEqual(so.custom_loai_don, "Theo bảng giá")
         so.workflow_state = TRANG_THAI_CHO_KHACH
         so.save(ignore_permissions=True)
         frappe.set_user(USER_BVBM)

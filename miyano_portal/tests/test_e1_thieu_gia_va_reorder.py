@@ -1,6 +1,11 @@
-"""US-E1.4 (thiếu giá → báo sales) và US-E1.5 (đặt lại đơn cũ).
+"""US-E1.4 (thông báo thiếu giá cho sales) và US-E1.5 (đặt lại đơn cũ).
 
-TC-E1-09, TC-E1-10.
+TC-E1-10, và hàm `portal_thong_bao.bao_thieu_gia`.
+
+Từ spec 2026-10-09 (giá theo Price List, §4.2) đường ĐẶT HÀNG không còn chặn
+đơn bằng `thieu_gia` hay gọi `bao_thieu_gia` — mặt hàng chưa có giá thành dòng
+chờ báo giá. Hai bài TC-E1-09 về đường đó đã xoá cùng hành vi; `TestThieuGia`
+còn giữ các bài gọi THẲNG `bao_thieu_gia` (hàm vẫn có người gọi khác).
 """
 
 import json
@@ -56,63 +61,13 @@ class TestThieuGia(FrappeTestCase):
         # `bao_thieu_gia` im lặng bỏ qua — đúng thiết kế, nhưng test sẽ không
         # kiểm được gì.
         frappe.db.set_value("Customer", BVBM, "account_manager", USER_SALES)
-        # Xoá giá của HC0009 bằng cách đặt về 0 (falsy) — cách rẻ nhất để tái
-        # lập "mặt hàng có trong hợp đồng nhưng chưa có giá bán".
-        self.gia_cu = frappe.db.get_value(
-            "Item Price", {"item_code": HC, "price_list": "HĐNT-BVBM-2026"}, "name"
-        )
-        frappe.db.set_value("Item Price", self.gia_cu, "price_list_rate", 0)
-        # Task 12 (QĐ-G12) — phải hạ CẢ `Blanket Order Item.rate` về 0, nếu
-        # không "thiếu giá" không còn là thiếu giá: cổng giờ đọc hợp đồng
-        # TRƯỚC bảng giá, nên một hợp đồng còn khai 350.000 sẽ định giá được
-        # dòng này và ca TC-E1-09 mất sạch tiền đề. Quét MỌI hợp đồng bán
-        # còn hiệu lực của khách, không chỉ `HĐNT-BVBM-2026`: chỉ cần một
-        # hợp đồng khác cũng khai HC0009 là cổng lại có giá để dùng.
-        self.dong_hd = _dong_hop_dong_bvbm(HC)
-        self.assertTrue(
-            self.dong_hd,
-            "Tiền đề hỏng: không thấy dòng HĐNT nào của khách khai HC0009 — "
-            "ca 'thiếu giá' sẽ xanh vì mặt hàng không thuộc hợp đồng nào, "
-            "không phải vì cổng chặn đúng.",
-        )
-        for ten in self.dong_hd:
-            frappe.db.set_value("Blanket Order Item", ten, "rate", 0)
-
         # `FrappeTestCase` rollback một lần mỗi CLASS, không phải mỗi test:
         # `Notification Log` do ca chạy trước tạo ra vẫn còn khi ca sau chạy,
         # và cơ chế chống spam theo ngày sẽ trả False. Không dọn ở đây thì
         # các ca phụ thuộc thứ tự chạy — đúng loại phụ thuộc ngầm đã làm đỏ
         # suite một lần rồi.
         frappe.db.delete("Notification Log", {"subject": ("like", "Portal - Thiếu giá%")})
-
-        frappe.set_user(USER_BVBM)
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
-
-    # ---------- TC-E1-09 ----------
-    def test_dat_hang_thieu_gia_bi_chan_dung_nguyen_van(self):
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            portal.portal_order_place(
-                self.bo, json.dumps([{"item_code": HC, "qty": 1}]), request_id=_rid()
-            )
-        loi = str(ctx.exception)
-        self.assertIn(HC, loi)
-        # Nguyên văn ma trận FormSpec §5, dòng NL-1.4.
-        self.assertIn("chưa có giá trong hợp đồng", loi)
-        self.assertIn("Miyano đã nhận được thông báo", loi)
-
-    def test_bi_chan_thi_sales_nhan_duoc_thong_bao(self):
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                self.bo, json.dumps([{"item_code": HC, "qty": 1}]), request_id=_rid()
-            )
-        frappe.set_user("Administrator")
-        self.assertTrue(
-            frappe.db.exists(
-                "Notification Log", {"for_user": USER_SALES, "subject": ("like", f"%{HC}%")}
-            ),
-            "sales phụ trách phải nhận được thông báo thiếu giá",
-        )
 
     def test_chi_bao_mot_lan_moi_ngay_cho_moi_cap_khach_mat_hang(self):
         """Khách mở danh mục mười lần trong ngày không được thành mười thông

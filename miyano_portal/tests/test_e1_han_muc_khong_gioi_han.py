@@ -1,19 +1,21 @@
 """BR-O15 / QĐ-8 / NL-1.11 — hạn mức khai 0 nghĩa là KHÔNG GIỚI HẠN.
 
-TC-E1-05, 06, 07, 08.
+TC-E1-06, 08, và tầng nghiệp vụ `han_muc_con`.
 
-Lỗi được sửa ở đây không chỉ là hiển thị. `remaining_qty` cũ trả
-`qty - ordered_qty`, nên một dòng khai 0 đã đặt 30 ra **-30**, và
-`portal_order_place` so `qty > rem` khiến MỌI số lượng đều bị chặn với thông
-báo "vượt hạn mức (còn -30)". Mặt hàng khai hạn mức 0 hiện **không đặt được**
-— đúng ngược quy ước QĐ-8.
+`remaining_qty` cũ trả `qty - ordered_qty`, nên một dòng khai 0 đã đặt 30 ra
+**-30** — đúng ngược quy ước QĐ-8. `han_muc_con` trả `None` cho dòng đó.
+
+Từ spec 2026-10-09 (giá theo Price List, §4.2) việc DỰNG ĐƠN không còn kiểm
+hạn mức hay gắn `against_blanket_order` — ba bài về đường đặt hàng (TC-E1-05,
+TC-E1-07 và bài "dòng có hạn mức vẫn gắn `against_blanket_order`") đã xoá
+cùng hành vi đó; vế mới nằm ở `test_xay_don_bang_gia.py`. File này còn giữ
+những gì VẪN đọc hạn mức: `portal_context.han_muc_con`, danh mục cũ
+`portal_catalog` và `used_pct` của `portal_contracts`.
 
 `setUp` đặt hạn mức thành giá trị XÁC ĐỊNH thay vì đọc trạng thái sẵn có của
 site: một test dựa vào dữ liệu mà thao tác nghiệp vụ bình thường có thể đổi
 thì sớm muộn cũng đỏ vì lý do không liên quan.
 """
-
-import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -24,10 +26,6 @@ from miyano_portal.setup.seed_demo import seed_demo
 
 VT_KGH = "HC0009"      # đặt qty = 0  -> KHÔNG GIỚI HẠN
 VT_GIOI_HAN = "VT0005"  # đặt qty = 200, đã đặt 195 -> còn 5
-
-
-def _rid() -> str:
-    return frappe.generate_hash(length=12)
 
 
 class TestHanMucKhongGioiHan(FrappeTestCase):
@@ -81,51 +79,6 @@ class TestHanMucKhongGioiHan(FrappeTestCase):
         gh = rows[VT_GIOI_HAN]
         self.assertFalse(gh["khong_gioi_han"])
         self.assertEqual(gh["remaining"], 5.0)
-
-    # ---------- TC-E1-05 ----------
-    def test_dat_1000_don_vi_tren_dong_khong_gioi_han(self):
-        kq = portal.portal_order_place(
-            self.bo,
-            json.dumps([{"item_code": VT_KGH, "qty": 1000}]),
-            request_id=_rid(),
-        )
-        so = frappe.get_doc("Sales Order", kq["sales_order"])
-        dong = so.items[0]
-        self.assertEqual(dong.qty, 1000)
-        self.assertFalse(
-            dong.against_blanket_order,
-            "dòng không giới hạn KHÔNG được gắn against_blanket_order — cơ chế "
-            "gốc ERPNext đối chiếu với qty=0 của Blanket Order Item và sẽ chặn "
-            "lúc submit",
-        )
-        self.assertFalse(dong.blanket_order)
-        self.assertEqual(
-            so.custom_hdnt, self.bo, "vẫn phải truy vết được về hợp đồng"
-        )
-
-    def test_dong_co_han_muc_van_gan_against_blanket_order(self):
-        """Không được sửa quá tay: dòng có hạn mức thật vẫn phải trừ hạn mức
-        theo cơ chế gốc (BR-O6)."""
-        kq = portal.portal_order_place(
-            self.bo,
-            json.dumps([{"item_code": VT_GIOI_HAN, "qty": 5}]),
-            request_id=_rid(),
-        )
-        dong = frappe.get_doc("Sales Order", kq["sales_order"]).items[0]
-        self.assertEqual(dong.against_blanket_order, 1)
-        self.assertEqual(dong.blanket_order, self.bo)
-
-    # ---------- TC-E1-07 ----------
-    def test_dong_co_han_muc_van_bi_chan_khi_vuot(self):
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            portal.portal_order_place(
-                self.bo,
-                json.dumps([{"item_code": VT_GIOI_HAN, "qty": 10}]),
-                request_id=_rid(),
-            )
-        loi = str(ctx.exception)
-        self.assertIn("chỉ còn", loi)
-        self.assertIn("5", loi)
 
     # ---------- TC-E1-08 ----------
     def test_phan_tram_han_muc_bo_qua_dong_khong_gioi_han(self):

@@ -256,27 +256,30 @@ class TestNhieuHopDongMotKhach(_GiaFixture):
         self.assertTrue(res.get("sales_order"))
 
 
-class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
-    """Task 12 (QĐ-G12) — điểm LỆCH mà lớp này từng GHIM đã bị xoá hẳn.
+class TestDonHangLayGiaBangGia(_GiaFixture):
+    """Đơn lấy giá từ Price List của khách, không từ hợp đồng (spec
+    2026-10-09 §4.2).
 
-    LỊCH SỬ, đọc trước khi sửa: lớp này tên cũ là `TestDanhMucVaDatHangCoThe
-    LECH` và khẳng định ĐÚNG cái sai — `portal_catalog` tra `Item Price` rồi
-    rơi về `Blanket Order Item.rate`, trong khi đường đặt hàng chỉ chấp nhận
-    `Item Price`, nên danh mục hiện giá đẹp còn gửi đơn thì bị chặn "chưa có
-    giá trong hợp đồng". Docstring cũ tự nói rõ: ai sửa hành vi đó phải cập
-    nhật lại chính test này, có ý thức. Task 12 là lần sửa đó — chủ đầu tư
-    gặp đúng điểm lệch ấy trên trình duyệt ngày 21/08.
+    LỊCH SỬ, đọc trước khi sửa: lớp này từng tên `TestDanhMucVaDatHangCoThe
+    LECH` (ghim điểm lệch "danh mục hiện giá, đơn bị chặn chưa có giá"), rồi
+    `TestDanhMucVaDatHangKHONGCONLECH` khi Task 12 (QĐ-G12) cho cả danh mục
+    cũ lẫn đơn hỏi chung `gia_hdnt.gia_dong_hop_dong` — hợp đồng THẮNG bảng
+    giá ở cả hai phía. Spec 2026-10-09 đảo vế ĐƠN: nguồn giá duy nhất của
+    đơn là Price List. Bài dưới cố ý cài một `Item Price` KHÁC giá hợp đồng
+    để phân biệt được hai nguồn."""
 
-    Giờ CẢ HAI phía hỏi cùng một hàm (`gia_hdnt.gia_dong_hop_dong`), nên
-    khẳng định đúng của lớp này là hai bên KHỚP NHAU. Bài dưới còn cố ý cài
-    một `Item Price` KHÁC giá hợp đồng: nếu ai đó lật ngược thứ tự tra (bảng
-    giá trước, hợp đồng sau) thì danh mục và đơn lại nói hai con số, và bài
-    này đỏ."""
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_don_hang_lay_gia_bang_gia_khi_lech_voi_hop_dong(self):
+        """Hợp đồng khai 95.000, Price List của khách bị sửa tay thành 55.000
+        → đơn mang giá PRICE LIST (§4.2).
 
-    def test_danh_muc_va_don_hang_noi_cung_mot_gia(self):
+        Trước spec 2026-10-09 bài này tên `test_danh_muc_va_don_hang_noi_
+        cung_mot_gia` và đòi đơn mang đúng 95.000 mà danh mục cũ
+        `portal_catalog` hiện. Danh mục cũ đó VẪN đọc giá hợp đồng (chưa đổi
+        ở bước này) — vế đầu của bài giữ lại để ghi nhận đúng hiện trạng:
+        khi sales để Price List lệch hợp đồng, `portal_catalog` và đơn nói
+        hai con số cho tới khi endpoint cũ đó bị gỡ."""
         bo = self._hdnt(dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
-        # Bảng giá khai một con số KHÁC — hợp đồng đã ký phải THẮNG, ở CẢ HAI
-        # phía. Không có dòng này, bài xanh cả khi bảng giá được ưu tiên.
         frappe.db.delete("Item Price", {"price_list": BANG_GIA})
         frappe.get_doc({
             "doctype": "Item Price", "item_code": VT, "price_list": BANG_GIA,
@@ -285,7 +288,7 @@ class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
 
         frappe.set_user(KHACH_USER)
         dong = {r["item_code"]: r for r in portal.portal_catalog(bo.name)}[VT]
-        self.assertEqual(dong["rate"], 95000, "danh mục phải hiện GIÁ HỢP ĐỒNG")
+        self.assertEqual(dong["rate"], 95000, "danh mục CŨ vẫn hiện giá hợp đồng")
 
         res = portal.portal_order_place(
             bo.name,
@@ -293,10 +296,8 @@ class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
             request_id=frappe.generate_hash(length=12),
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(
-            float(so.items[0].rate), dong["rate"],
-            "giá khách NHÌN THẤY và giá đơn MANG phải là một",
-        )
+        self.assertEqual(float(so.items[0].rate), 55000.0)
+        self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
 
 
 class TestDatHangDuocSauKhiDongBo(_GiaFixture):
@@ -314,29 +315,29 @@ class TestDatHangDuocSauKhiDongBo(_GiaFixture):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.items[0].rate, 95000)
 
-    def test_chua_khai_gia_o_dau_ca_thi_van_bao_thieu_gia(self):
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_chua_khai_gia_o_dau_ca_thi_la_dong_cho_bao_gia(self):
         """Ca ĐỐI CHỨNG — không có ca này thì test trên có thể xanh vì một lý
         do khác (vd. site tình cờ đã có Item Price) mà ta không biết.
 
-        Task 12 (QĐ-G12) — ĐỔI ĐỐI CHỨNG, không nới lỏng nó. Bản cũ xoá
-        `Item Price` rồi đòi cổng phải CHẶN; từ QĐ-G12 cổng đọc thẳng `rate`
-        của hợp đồng nên nó KHÔNG chặn nữa, và đó chính là bản vá, không phải
-        hồi quy (vế dương ở `TestDanhMucVaDatHangKHONGCONLECH` và ở
-        `test_gia_tu_hop_dong.py`). "Thiếu giá" giờ có nghĩa CHƯA KHAI Ở ĐÂU
-        CẢ: `rate = 0` trên hợp đồng VÀ không có dòng bảng giá — và cổng vẫn
-        phải chặn, nguyên văn.
+        "Chưa có giá" = `rate = 0` trên hợp đồng VÀ không có dòng bảng giá.
+        Trước spec 2026-10-09 cổng CHẶN đơn bằng "chưa có giá trong hợp
+        đồng"; giờ đơn TẠO ĐƯỢC, dòng đó mang `rate = 0` và chờ Miyano báo
+        giá (§4.2).
 
         Đứng trên KHÁCH RIÊNG (`_khach_rieng()`): đây là một khẳng định về sự
         VẮNG MẶT, mà `FrappeTestCase` rollback MỘT LẦN mỗi CLASS nên hợp đồng
         của method chạy trước vẫn còn hiệu lực ở đây và sẽ khai giá hộ."""
         khach, _bang_gia = self._khach_rieng()
         bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 0}])
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            dat_hang.tao_sales_order(
-                khach, contract=bo.name, items=[{"item_code": VT, "qty": 2}],
-                request_id=frappe.generate_hash(length=12),
-            )
-        self.assertIn("chưa có giá trong hợp đồng", str(ctx.exception))
+        kq = dat_hang.tao_sales_order(
+            khach, contract=bo.name, items=[{"item_code": VT, "qty": 2}],
+            request_id=frappe.generate_hash(length=12),
+        )
+        so = frappe.get_doc("Sales Order", kq["sales_order"])
+        self.assertEqual(float(so.items[0].rate), 0.0)
+        self.assertEqual(so.items[0].custom_nguon_gia, "Báo giá")
+        self.assertEqual(so.custom_loai_don, "Mua lẻ")
 
 
 class TestBackfill(_GiaFixture):

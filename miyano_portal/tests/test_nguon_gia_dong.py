@@ -676,7 +676,9 @@ class TestNguonGiaDong(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(so.items[0].qty, 2)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn dựng ra không
+		# còn gắn hợp đồng khung lên dòng (§4.2).
+		self.assertFalse(so.items[0].blanket_order)
 
 	# ---- Hành vi ngầm định (không nêu rõ trong brief) ------------------
 	# §5.6 bẫy #2 — `_dong_dau_gia()`/`_kiem_gia_doi()` là HAI NỬA của MỘT
@@ -739,7 +741,9 @@ class TestNguonGiaDong(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		theo_ma = {d.item_code: d for d in so.items}
 		self.assertEqual(sorted(theo_ma), sorted([self.item_hd, self.item_ngoai]))
-		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn dựng ra không
+		# còn gắn hợp đồng khung lên dòng (§4.2).
+		self.assertFalse(theo_ma[self.item_hd].blanket_order)
 		self.assertEqual(float(theo_ma[self.item_ngoai].rate), 0.0)
 
 

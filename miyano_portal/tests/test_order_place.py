@@ -25,31 +25,13 @@ class TestOrderPlace(FrappeTestCase):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.docstatus, 0)
         self.assertEqual(so.custom_nguon_don, "Client Portal")
-        self.assertEqual(so.custom_hdnt, self.bo)
         self.assertEqual(so.custom_so_po_khach, "PO-123")
-        self.assertEqual(so.items[0].blanket_order, self.bo)
-        self.assertEqual(so.items[0].against_blanket_order, 1)
-
-    def test_over_quota_rejected(self):
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                self.bo, json.dumps([{"item_code": "HC0009", "qty": 999999}]),
-                request_id=frappe.generate_hash(length=12),
-            )
-
-    def test_duplicate_lines_aggregated_over_quota_rejected(self):
-        # Remaining qty for HC0009 is 500; two lines of 300 each pass
-        # individually but total 600 > 500, so the aggregated total must
-        # be rejected.
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                self.bo,
-                json.dumps([
-                    {"item_code": "HC0009", "qty": 300},
-                    {"item_code": "HC0009", "qty": 300},
-                ]),
-                request_id=frappe.generate_hash(length=12),
-            )
+        # Đảo theo spec 2026-10-09 (giá theo Price List). Đơn từ cổng không
+        # còn mang hợp đồng khung ở đầu đơn hay trên dòng (§4.2) — kể cả khi
+        # client vẫn gửi `contract`.
+        self.assertFalse(so.custom_hdnt)
+        self.assertFalse(so.items[0].blanket_order)
+        self.assertFalse(so.items[0].against_blanket_order)
 
     def test_migrated_item_without_default_warehouse_gets_delivery_warehouse(self):
         # Items migrated from SupplyCore (e.g. VTTH-GAUZE-5) have no Item

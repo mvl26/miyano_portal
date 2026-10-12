@@ -594,7 +594,9 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(so.items[0].qty, 2)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn dựng ra không
+		# còn gắn hợp đồng khung lên dòng (§4.2).
+		self.assertFalse(so.items[0].blanket_order)
 
 	# ---- §5.6 bẫy #2 — đóng dấu + cảnh báo giá (vòng sửa sau report) --
 

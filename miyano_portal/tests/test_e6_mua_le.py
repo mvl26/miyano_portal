@@ -18,7 +18,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
-from miyano_portal.portal_context import han_muc_con
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO, han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
 
@@ -316,25 +315,19 @@ class TestDatHangBanLe(FrappeTestCase):
         self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
 
     # ---------- review C-2 (Critical) — BR-R7 không được lách qua hoa/thường ----------
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
     def test_c2_ma_hang_viet_thuong_van_duoc_chuan_hoa_ve_ma_chinh_tac(self):
         """`tabItem` chạy collation `utf8mb4_unicode_ci` (case-insensitive):
         MariaDB coi "vt0005" và "VT0005" là CÙNG một bản ghi, nhưng phép so
-        trên `set` Python không biết điều đó. Lỗ đó (review C-2, từng là
+        chuỗi của Python không biết điều đó. Lỗ đó (review C-2, từng là
         Critical) vẫn phải kín.
 
-        ĐẢO NGƯỢC 21/08/2026 (Task 4) — tên cũ `test_c2_ma_hang_viet_thuong_
-        van_bi_br_r7_chan`, khẳng định cũ là "bị BR-R7 chặn kèm mã chính
-        tắc". BR-R7 không còn (xem `test_br_r7_item_thuoc_hdnt_gio_duoc_
-        dinh_gia_theo_hop_dong`), nhưng phép CHUẨN HOÁ thì còn nguyên giá
-        trị và giờ gánh MỘT VIỆC KHÁC, quan trọng hơn: mã viết thường phải
-        tra ra đúng hợp đồng của mã chính tắc, nếu không dòng đó rơi nhầm
-        xuống tầng 2 (`rate = 0`) và khách mua được hàng hợp đồng KHÔNG bị
-        trừ hạn mức — đúng lỗ hổng BR-R7 sinh ra để bịt, chỉ đi bằng cửa
-        khác.
-
-        Bằng chứng ĐỎ của lần đảo: `AssertionError: ValidationError not
-        raised`."""
-        bo = portal.portal_contracts()[0]["name"]
+        Lịch sử: ban đầu khẳng định "bị BR-R7 chặn kèm mã chính tắc"; Task 4
+        (21/08/2026) đảo thành "mã viết thường phải tra ra đúng hợp đồng".
+        Từ spec 2026-10-09 hợp đồng không còn được hỏi, nhưng phép CHUẨN HOÁ
+        vẫn gánh đúng việc đó với nguồn giá mới: mã viết thường phải tra ra
+        GIÁ của mã chính tắc trong Price List của khách — nếu không, một
+        dòng CÓ giá bị đóng dấu "Báo giá" với `rate = 0`."""
         rid = _rid()
         res = portal.portal_order_place(
             items=json.dumps([{"item_code": VT_HDNT.lower(), "qty": 1}]),
@@ -346,11 +339,11 @@ class TestDatHangBanLe(FrappeTestCase):
             "dòng phải mang mã CHÍNH TẮC (Item.name), không phải chuỗi thô client gửi",
         )
         self.assertEqual(
-            so.items[0].blanket_order, bo,
-            "mã viết thường vẫn phải tra ra ĐÚNG hợp đồng — nếu không, hàng "
-            "hợp đồng lọt xuống tầng 2 và thoát hạn mức",
+            so.items[0].custom_nguon_gia, "Bảng giá",
+            "mã viết thường vẫn phải tra ra ĐÚNG giá bảng giá của mã chính tắc",
         )
-        self.assertTrue(float(so.items[0].rate) > 0, "phải mang giá hợp đồng")
+        self.assertTrue(float(so.items[0].rate) > 0, "phải mang giá bảng giá")
+        self.assertFalse(so.items[0].blanket_order)
 
     def test_c2_khong_ton_tai_bi_tu_choi_ngay(self):
         """Mã hàng không tra ra Item thật nào (kể cả sau chuẩn hoá) phải bị
@@ -362,28 +355,32 @@ class TestDatHangBanLe(FrappeTestCase):
                 mode="ban_le", request_id=_rid(),
             )
 
-    def test_c2_gop_dong_trung_ma_qua_khac_hoa_thuong_nhanh_hdnt(self):
-        """Hệ luỵ CÙNG một lỗ ở nhánh HĐNT (không riêng BR-R7): hai dòng
-        "VT0005"/"vt0005" phải GỘP thành một khi kiểm hạn mức, không tách
-        đôi mỗi dòng đi qua `han_muc_con` độc lập (duplicate-line quota
-        bypass qua khác hoa/thường — nợ từ E1, vá cùng chỗ với C-2)."""
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_c2_gop_dong_trung_ma_qua_khac_hoa_thuong(self):
+        """Hệ luỵ CÙNG một lỗ ở vòng gộp giỏ: hai dòng "VT0005"/"vt0005"
+        phải GỘP thành MỘT dòng đơn mang tổng số lượng, không tách đôi.
+
+        Trước spec 2026-10-09 bài này chứng minh điều đó qua hạn mức (tổng 6
+        vượt hạn mức còn 5 → bị chặn `vuot_han_muc`). Hạn mức không còn được
+        kiểm lúc dựng đơn, nên giờ khẳng định thẳng kết quả của phép gộp —
+        kể cả khi tổng VƯỢT số lượng còn lại trên hợp đồng."""
         bo = portal.portal_contracts()[0]["name"]
         frappe.db.set_value(
             "Blanket Order Item", {"parent": bo, "item_code": VT_HDNT},
-            {"qty": 200, "ordered_qty": 195},  # còn đúng 5
+            {"qty": 200, "ordered_qty": 195},  # hợp đồng chỉ còn đúng 5
         )
-        with self.assertRaises(frappe.ValidationError):
-            portal.portal_order_place(
-                bo,
-                json.dumps([
-                    {"item_code": VT_HDNT, "qty": 3},
-                    {"item_code": VT_HDNT.lower(), "qty": 3},  # tổng thật = 6 > 5
-                ]),
-                mode="hdnt", request_id=_rid(),
-            )
-        loi = frappe.local.response.get("loi")
-        self.assertIsNotNone(loi)
-        self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
+        res = portal.portal_order_place(
+            bo,
+            json.dumps([
+                {"item_code": VT_HDNT, "qty": 3},
+                {"item_code": VT_HDNT.lower(), "qty": 3},
+            ]),
+            mode="hdnt", request_id=_rid(),
+        )
+        so = frappe.get_doc("Sales Order", res["sales_order"])
+        self.assertEqual([d.item_code for d in so.items], [VT_HDNT])
+        self.assertEqual(float(so.items[0].qty), 6.0)
+        self.assertIsNone(frappe.local.response.get("loi"))
 
     def test_dat_le_item_khong_co_gia_van_dat_duoc_rate_0(self):
         """§4.5 — "portal_order_place(mode='ban_le') không còn đòi giá":
@@ -400,38 +397,25 @@ class TestDatHangBanLe(FrappeTestCase):
         self.assertEqual(float(so.items[0].rate), 0.0)
         self.assertEqual(so.workflow_state, "Chờ xác nhận")
 
-    # ---------- TC-E6-03 / BR-R7 — ĐẢO NGƯỢC ở Task 4 ----------
-    def test_br_r7_item_thuoc_hdnt_gio_duoc_dinh_gia_theo_hop_dong(self):
-        """ĐẢO NGƯỢC 21/08/2026 (Task 4 — gộp hai hàm dựng đơn). Bài này
-        trước đây tên `test_br_r7_item_thuoc_hdnt_hieu_luc_khong_dat_le_
-        duoc` và khẳng định điều NGƯỢC LẠI: mặt hàng thuộc hợp đồng còn
-        hiệu lực bị TỪ CHỐI khỏi giỏ "mua lẻ" (`ly_do =
-        thuoc_hdnt_hieu_luc`).
+    # ---------- TC-E6-03 / BR-R7 — đảo ở Task 4, đảo lần nữa theo spec
+    # 2026-10-09 (hợp đồng khung không còn được hỏi lúc dựng đơn) ----------
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_item_thuoc_hdnt_duoc_dinh_gia_theo_bang_gia_khong_gan_hop_dong(self):
+        """Lịch sử: BR-R7 ban đầu TỪ CHỐI mặt hàng thuộc hợp đồng còn hiệu
+        lực khỏi giỏ "mua lẻ"; Task 4 (21/08/2026) đảo thành "dòng đó LUÔN
+        được định giá theo hợp đồng và trừ hạn mức".
 
-        Vì sao đảo: BR-R7 sinh ra để chặn đúng MỘT đường lách — khách hết
-        hạn mức bấm sang ngăn "Mua lẻ" để mua tiếp cùng mặt hàng, vô hiệu
-        hoá hạn mức của E1 (NL-10.7). Nó là một lời TỪ CHỐI, không phải một
-        phép kiểm: nó dựa vào việc CÓ HAI hàm dựng đơn tách rời, mỗi hàm
-        một luật giá. Task 4 gộp hai hàm đó làm một và hạ quyết định xuống
-        TỪNG DÒNG, nên đường lách không còn tồn tại để mà chặn: mặt hàng
-        thuộc hợp đồng LUÔN được định giá theo hợp đồng và LUÔN đi qua
-        `han_muc_con()`, bất kể người gọi nghĩ mình đang ở "chế độ" nào.
-        Điều BR-R7 bảo vệ (hạn mức không bị né) giờ được bảo vệ MẠNH HƠN —
-        bằng phép kiểm thật thay vì bằng một lời từ chối — và vế đó có
-        test riêng ngay dưới đây.
-
-        Bằng chứng ĐỎ của lần đảo (chạy trước khi sửa test):
-        `AssertionError: ValidationError not raised`."""
+        Spec 2026-10-09 §4.2 đảo lần nữa: cổng không còn hỏi hợp đồng khung.
+        Mặt hàng thuộc hợp đồng đi vào đơn như mọi mặt hàng khác — giá lấy
+        từ Price List của khách, dòng KHÔNG gắn hợp đồng, đơn không mang
+        `custom_hdnt`, và vì mọi dòng đã có giá nên đơn là "Theo bảng giá"."""
         price_list = frappe.db.get_value("Customer", BVBM, "default_price_list")
-        gia_hd = frappe.db.get_value(
+        gia_bang = frappe.db.get_value(
             "Item Price",
             {"item_code": VT_HDNT, "price_list": price_list, "selling": 1},
             "price_list_rate",
         )
-        self.assertTrue(gia_hd, "fixture phải có giá hợp đồng để bài này có nghĩa")
-        han_truoc, _ = han_muc_con(
-            portal.portal_contracts()[0]["name"], VT_HDNT
-        )
+        self.assertTrue(gia_bang, "fixture phải có giá bảng giá để bài này có nghĩa")
 
         rid = _rid()
         res = portal.portal_order_place(
@@ -439,38 +423,13 @@ class TestDatHangBanLe(FrappeTestCase):
             mode="ban_le", request_id=rid,
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
-        # VẾ DƯƠNG — dòng đi vào đơn với GIÁ HỢP ĐỒNG và GẮN hợp đồng, dù
-        # người gọi tưởng mình đang mua lẻ.
         self.assertEqual(so.items[0].item_code, VT_HDNT)
-        self.assertEqual(float(so.items[0].rate), float(gia_hd))
-        self.assertEqual(so.items[0].blanket_order, portal.portal_contracts()[0]["name"])
-        self.assertTrue(so.items[0].against_blanket_order)
-        self.assertEqual(so.custom_loai_don, "Theo HĐNT")
-
-    def test_br_r7_thay_bang_kiem_han_muc_that_o_moi_che_do(self):
-        """VẾ CÒN LẠI của bài trên, và là lý do việc đảo ngược KHÔNG mở ra
-        lỗ hổng: cái BR-R7 bảo vệ là hạn mức. Đặt QUÁ hạn mức còn lại qua
-        ĐÚNG cái "chế độ mua lẻ" mà BR-R7 từng phải chặn — giờ phải bị
-        chặn bởi PHÉP KIỂM HẠN MỨC THẬT, không phải bởi một lời từ chối
-        theo chế độ.
-
-        Không có bài này, việc bỏ BR-R7 chỉ được chứng minh là "không còn
-        báo lỗi", chứ chưa chứng minh là "vẫn còn được canh"."""
-        bo = portal.portal_contracts()[0]["name"]
-        con_lai, _ = han_muc_con(bo, VT_HDNT)
-        self.assertIsNotNone(con_lai, "fixture phải có hạn mức hữu hạn")
-        rid = _rid()
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            portal.portal_order_place(
-                items=json.dumps([{"item_code": VT_HDNT, "qty": con_lai + 1}]),
-                mode="ban_le", request_id=rid,
-            )
-        loi = frappe.local.response.get("loi")
-        self.assertIsNotNone(loi, "phải có phong bì lỗi máy đọc được (BR-O3)")
-        self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
-        self.assertIn(VT_HDNT, str(ctx.exception))
-        # Chặn TRƯỚC khi ghi, không phải ghi rồi mới xin lỗi.
-        self.assertFalse(frappe.db.exists("Sales Order", {"custom_request_id": rid}))
+        self.assertEqual(float(so.items[0].rate), float(gia_bang))
+        self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+        self.assertFalse(so.items[0].blanket_order)
+        self.assertFalse(so.items[0].against_blanket_order)
+        self.assertFalse(so.custom_hdnt)
+        self.assertEqual(so.custom_loai_don, "Theo bảng giá")
 
     # ---------- TC-E6-04 — server từ chối đặt mặt hàng đã ngừng kinh doanh ----------
     def test_item_disabled_bi_chan_du_gui_thang_ma_hang(self):
@@ -686,7 +645,9 @@ class TestDatHangBanLe(FrappeTestCase):
         # VẾ DƯƠNG — dòng hợp đồng vẫn nguyên vẹn trong `items`, dòng đặt
         # ngoài nằm ở bảng con của nó, KHÔNG lẫn vào nhau.
         self.assertEqual([d.item_code for d in so.items], [VT_HDNT])
-        self.assertEqual(so.items[0].blanket_order, bo)
+        # Đảo theo spec 2026-10-09 (giá theo Price List). Dòng không còn gắn
+        # hợp đồng khung (§4.2).
+        self.assertFalse(so.items[0].blanket_order)
         self.assertEqual(len(so.custom_dat_ngoai), 1)
         self.assertEqual(so.custom_dat_ngoai[0].ten_hang, "X")
 

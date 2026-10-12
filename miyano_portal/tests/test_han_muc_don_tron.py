@@ -207,7 +207,9 @@ class TestHanMucDonTron(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		theo_ma = {d.item_code: d for d in so.items}
 		self.assertEqual(float(theo_ma[self.item_hd].qty), 2.0)   # đúng bằng phần còn lại
-		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn dựng ra không
+		# còn gắn hợp đồng khung lên dòng (§4.2).
+		self.assertFalse(theo_ma[self.item_hd].blanket_order)
 		self.assertEqual(float(theo_ma[self.item_ngoai].qty), 3.0)
 
 	def test_don_tron_dong_hop_dong_vuot_han_muc_thi_that_bai_kem_ten_khoa(self):
@@ -293,8 +295,11 @@ class TestHanMucDonTron(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		theo_ma = {d.item_code: d for d in so.items}
-		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
-		self.assertEqual(theo_ma[item_hd2].blanket_order, bo2)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Phép kiểm hạn mức
+		# lúc DUYỆT vẫn hỏi đúng hợp đồng của từng dòng (khẳng định ở trên),
+		# nhưng đơn dựng ra không còn gắn hợp đồng khung lên dòng (§4.2).
+		self.assertFalse(theo_ma[self.item_hd].blanket_order)
+		self.assertFalse(theo_ma[item_hd2].blanket_order)
 		self.assertEqual(float(theo_ma[item_hd2].qty), 40.0)
 
 	# ---- Ruling P28 — MỘT nguồn duy nhất: bản SUY LẠI lúc duyệt --------
@@ -345,10 +350,10 @@ class TestHanMucDonTron(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(float(so.items[0].qty), 5.0)
-		self.assertEqual(
-			so.items[0].blanket_order, bo_dai,
-			"dòng phải được định giá và trừ hạn mức theo hợp đồng CÒN SỐNG",
-		)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn dựng ra không
+		# còn gắn hợp đồng khung lên dòng (§4.2); giá 300 đến từ Price List
+		# của khách.
+		self.assertFalse(so.items[0].blanket_order)
 		self.assertEqual(float(so.items[0].rate), 300.0)
 
 		# Bằng chứng đóng băng KHÔNG bị xoá, không bị đổi ý nghĩa.

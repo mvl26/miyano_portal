@@ -16,6 +16,15 @@ phiếu và với `Portal De Xuat Mua._suy_nguon_gia()`
 (`portal_de_xuat_mua.nguon_gia_theo_ma_cho_khach`, Ruling P14/P18) — hai
 đường tính "hợp đồng nào thắng" khác nhau sớm muộn cũng lệch.
 
+SPEC 2026-10-09 (giá theo Price List, §3.2 / §4.2) thay bảng trên: tầng của
+một dòng CÓ MÃ giờ là "có giá trong Price List của khách" (giá đó, dấu
+`custom_nguon_gia = "Bảng giá"`) hay "chưa có giá" (`rate = 0`, dấu "Báo
+giá"); hợp đồng khung không còn được hỏi lúc dựng đơn — không giá hợp đồng,
+không `blanket_order`, không hạn mức, không `custom_hdnt`. Các bài dưới đây
+đã đổi kỳ vọng theo luật đó (mỗi bài mang chú thích "Đảo theo spec …"); hai
+bài về lỗi vượt hạn mức ở nhánh đặt hàng đã xoá cùng hành vi. Việc tách giỏ
+trộn thành hai phiếu là của tầng trên (§4.1), không kiểm ở file này.
+
 Ruling P19 (điều phối viên, sau review Task 2) — bài test BẮT BUỘC của
 vòng này: một phiếu `hdnt = None` (đúng dạng MỌI phiếu tạo qua UI thật,
 xem `_nguon_gia_theo_ma()`) mà mọi dòng đều `nguon_gia == "Hợp đồng"`
@@ -109,12 +118,15 @@ class TestDatHangGop(FrappeTestCase):
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
 		self._tao_gia(self.item_hd, self.price_list, 100)
-		# CỐ Ý cho mặt hàng NGOÀI hợp đồng một giá trong CÙNG bảng giá:
-		# dòng tầng 2 phải ra `rate = 0` vì nó KHÔNG thuộc hợp đồng nào,
-		# KHÔNG phải vì tình cờ không tra được giá. Thiếu dòng này, một
-		# hàm dựng đơn tra giá cho MỌI dòng vẫn qua được test (giá `None`
-		# → 0) — false green kinh điển.
-		self._tao_gia(self.item_ngoai, self.price_list, 777)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Tầng của một dòng
+		# giờ là "có giá trong Price List của khách hay chưa" — nên mã chờ
+		# báo giá của file này là mã KHÔNG có dòng giá nào (trước đây fixture
+		# cố ý gài 777 cho nó để chứng minh "ngoài hợp đồng thì rate = 0 dù
+		# bảng giá có giá"; luật đó đã đảo, xem `test_xay_don_bang_gia.py`).
+		for ten in frappe.get_all(
+			"Item Price", filters={"item_code": self.item_ngoai, "selling": 1}, pluck="name"
+		):
+			frappe.delete_doc("Item Price", ten, force=True)
 
 		self.bo = self._bo(self.kh_a, [
 			{"item_code": self.item_hd, "qty": 50, "rate": 100},
@@ -193,14 +205,13 @@ class TestDatHangGop(FrappeTestCase):
 
 	# ---- ca CHÍNH: giỏ trộn ba tầng ---------------------------------
 
-	def test_gio_tron_ba_tang_ra_dung_mot_don(self):
-		"""CA CHÍNH của Task 4. Một giỏ có cả ba loại dòng phải ra ĐÚNG MỘT
-		Sales Order, mỗi dòng được xử lý theo TẦNG CỦA RIÊNG NÓ.
-
-		Trước Task 4 giỏ này KHÔNG tồn tại được: `mode="hdnt"` từ chối
-		thẳng `dat_ngoai` ("Dòng đặt ngoài chỉ áp dụng cho chế độ Mua lẻ"),
-		còn `mode="ban_le"` từ chối thẳng `item_hd` (BR-R7, "đang thuộc hợp
-		đồng khung")."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_gio_tron_ba_loai_dong_ra_dung_mot_don(self):
+		"""Một giỏ có cả ba loại dòng (có giá, chưa có giá, chưa có mã) đưa
+		THẲNG vào `tao_sales_order` phải ra ĐÚNG MỘT Sales Order, mỗi dòng
+		xử lý theo loại của RIÊNG NÓ. (Việc tách giỏ trộn thành hai phiếu
+		nằm ở tầng trên, §4.1; hàm dựng đơn vẫn phải dựng đúng một đơn trộn
+		— ca giá xuất hiện giữa lúc gửi và lúc duyệt, §4.3.)"""
 		kq = dat_hang.tao_sales_order(
 			self.kh_a,
 			items=[
@@ -219,26 +230,27 @@ class TestDatHangGop(FrappeTestCase):
 			"dòng đặt ngoài KHÔNG BAO GIỜ được lọt vào `items`",
 		)
 
-		# Tầng 1 — giá hợp đồng + truy vết về hợp đồng THẮNG CUỘC.
+		# Có giá trong Price List — đúng giá đó, dấu "Bảng giá", KHÔNG gắn
+		# hợp đồng dù mã này nằm trên một hợp đồng còn hiệu lực.
 		hd = theo_ma[self.item_hd]
 		self.assertEqual(float(hd.rate), 100.0)
-		self.assertEqual(hd.blanket_order, self.bo)
-		self.assertTrue(hd.against_blanket_order)
+		self.assertEqual(hd.custom_nguon_gia, "Bảng giá")
+		self.assertFalse(hd.blanket_order)
+		self.assertFalse(hd.against_blanket_order)
 
-		# Tầng 2 — rate 0 dù mặt hàng CÓ giá trong cùng bảng giá (777).
+		# Chưa có giá — rate 0, dấu "Báo giá".
 		ngoai = theo_ma[self.item_ngoai]
 		self.assertEqual(float(ngoai.rate), 0.0)
+		self.assertEqual(ngoai.custom_nguon_gia, "Báo giá")
 		self.assertFalse(ngoai.blanket_order)
 		self.assertFalse(ngoai.against_blanket_order)
 
-		# Tầng 3 — nằm trên CHÍNH đơn này, không sinh chứng từ thứ hai.
+		# Chưa có mã — nằm trên CHÍNH đơn này, không sinh chứng từ thứ hai.
 		self.assertEqual(len(so.custom_dat_ngoai), 1)
 		self.assertEqual(so.custom_dat_ngoai[0].ten_hang, "Găng tay cỡ 7.5")
 
-		# `company` phải theo hợp đồng của dòng tầng 1 — sai company thì
-		# kho giao của MỌI dòng rơi về kho của một công ty khác và đơn
-		# hỏng lặng lẽ ở khâu giao hàng.
 		self.assertEqual(so.company, COMPANY)
+		self.assertFalse(so.custom_hdnt)
 		# Còn dòng chưa có giá → phải đi qua vòng báo giá của Miyano.
 		self.assertEqual(so.custom_loai_don, "Mua lẻ")
 
@@ -256,17 +268,20 @@ class TestDatHangGop(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual([d.item_code for d in so.items], [self.item_hd])
 		self.assertEqual(float(so.items[0].rate), 100.0)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Dòng không còn gắn
+		# hợp đồng khung (§4.2).
+		self.assertFalse(so.items[0].blanket_order)
 		self.assertEqual(len(so.custom_dat_ngoai), 1)
 
 	# ---- tương thích ngược ------------------------------------------
 
-	def test_don_thuan_hop_dong_giu_nguyen_hanh_vi_cu(self):
-		"""CHỐT TƯƠNG THÍCH NGƯỢC — đơn đặt theo đúng cách CŨ (truyền
-		`mode="hdnt"` + `contract`) phải hành xử Y HỆT hôm nay: giá hợp
-		đồng, gắn hợp đồng lên dòng, `custom_hdnt` ở đầu đơn, loại đơn
-		"Theo HĐNT". Sáu tài khoản bệnh viện thật đang đi đúng đường này
-		mỗi ngày."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_goi_theo_cach_cu_ra_don_theo_bang_gia(self):
+		"""Người gọi CŨ (truyền `mode="hdnt"` + `contract`) vẫn đặt được —
+		chữ ký giữ nguyên — nhưng đơn theo luật mới: giá Price List, dấu
+		"Bảng giá", KHÔNG gắn hợp đồng lên dòng, `custom_hdnt` rỗng, loại
+		đơn "Theo bảng giá", và mang bảng giá của khách. Trước spec
+		2026-10-09 bài này ghim điều ngược lại ("Theo HĐNT", gắn hợp đồng)."""
 		kq = dat_hang.tao_sales_order(
 			self.kh_a, mode="hdnt", contract=self.bo,
 			items=[{"item_code": self.item_hd, "qty": 4}],
@@ -276,16 +291,17 @@ class TestDatHangGop(FrappeTestCase):
 		self.assertEqual(len(so.items), 1)
 		self.assertEqual(float(so.items[0].rate), 100.0)
 		self.assertEqual(float(so.items[0].qty), 4.0)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
-		self.assertTrue(so.items[0].against_blanket_order)
-		self.assertEqual(so.custom_hdnt, self.bo)
-		self.assertEqual(so.custom_loai_don, "Theo HĐNT")
+		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+		self.assertFalse(so.items[0].blanket_order)
+		self.assertFalse(so.items[0].against_blanket_order)
+		self.assertFalse(so.custom_hdnt)
+		self.assertEqual(so.custom_loai_don, "Theo bảng giá")
 		self.assertEqual(so.company, COMPANY)
 		self.assertEqual(so.selling_price_list, self.price_list)
 
 	def test_don_thuan_cho_bao_gia_nhu_mua_le_hom_nay(self):
-		"""Đơn toàn hàng ngoài hợp đồng — y hệt "mua lẻ" hôm nay: rate 0,
-		không gắn hợp đồng, không trừ hạn mức, loại đơn "Mua lẻ"."""
+		"""Đơn toàn hàng chưa có giá — rate 0, không gắn hợp đồng, loại đơn
+		"Mua lẻ" (đi vòng báo giá)."""
 		kq = dat_hang.tao_sales_order(
 			self.kh_a,
 			items=[{"item_code": self.item_ngoai, "qty": 3}],
@@ -322,32 +338,6 @@ class TestDatHangGop(FrappeTestCase):
 				request_id=_rid(),
 			)
 		self.assertIn("Hợp đồng không thuộc đơn vị của bạn", str(ctx.exception))
-
-	def test_vuot_han_muc_van_ra_loi_co_cau_truc(self):
-		"""GIỮ NGUYÊN phong bì lỗi máy đọc được (`frappe.local.response
-		["loi"]` + `frappe.throw`) — nhiều test phụ thuộc. Kiểm trên GIỎ
-		TRỘN: dòng tầng 2 đi cùng KHÔNG được làm hỏng phong bì, và cũng
-		KHÔNG được tự sinh thêm một mục lỗi nào của riêng nó."""
-		frappe.db.set_value(
-			"Blanket Order Item", {"parent": self.bo, "item_code": self.item_hd},
-			"ordered_qty", 48,      # còn đúng 2
-		)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			dat_hang.tao_sales_order(
-				self.kh_a,
-				items=[
-					{"item_code": self.item_hd, "qty": 5},
-					{"item_code": self.item_ngoai, "qty": 1},
-				],
-				request_id=_rid(),
-			)
-		self.assertIn("hạn mức hợp đồng khung", str(ctx.exception))
-		loi = frappe.local.response.get("loi")
-		self.assertIsNotNone(loi, "phong bì lỗi có cấu trúc phải còn (BR-O3)")
-		self.assertEqual(len(loi), 1, "dòng chờ báo giá không được sinh lỗi")
-		self.assertEqual(loi[0]["item_code"], self.item_hd)
-		self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
-		self.assertEqual(float(loi[0]["con_lai"]), 2.0)
 
 	def test_trung_request_id_van_tra_don_cu(self):
 		"""GIỮ NGUYÊN chống trùng đơn qua `custom_request_id` (BR-O12)."""
@@ -393,9 +383,11 @@ class TestDatHangGop(FrappeTestCase):
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(len(so.items), 1)
 		self.assertEqual(float(so.items[0].qty), 2.0)
-		self.assertEqual(float(so.items[0].rate), 100.0, "phải có giá hợp đồng")
-		self.assertEqual(so.items[0].blanket_order, self.bo, "phải trỏ đúng hợp đồng")
-		self.assertEqual(so.custom_hdnt, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Giá 100 đến từ
+		# Price List của khách; đơn không còn gắn hợp đồng (§4.2).
+		self.assertEqual(float(so.items[0].rate), 100.0)
+		self.assertFalse(so.items[0].blanket_order)
+		self.assertFalse(so.custom_hdnt)
 
 	def test_p19_phieu_tron_duyet_duoc_qua_duong_cong_khai(self):
 		"""Vế thứ hai của cùng chốt: phiếu TRỘN (một dòng hợp đồng, một
@@ -420,13 +412,10 @@ class TestDatHangGop(FrappeTestCase):
 		theo_ma = {d.item_code: d for d in so.items}
 		self.assertEqual(sorted(theo_ma), sorted([self.item_hd, self.item_ngoai]))
 		self.assertEqual(float(theo_ma[self.item_hd].rate), 100.0)
-		self.assertEqual(
-			theo_ma[self.item_hd].blanket_order,
-			doc.items[0].blanket_order,
-			"hợp đồng trên dòng đơn phải là hợp đồng ĐÃ ĐÓNG BĂNG trên phiếu "
-			"lúc gửi duyệt — lệch nhau thì khách bị báo hạn mức của một hợp "
-			"đồng họ chưa từng nhìn thấy",
-		)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Dòng đơn không còn
+		# gắn hợp đồng khung (§4.2), kể cả khi phiếu có đóng băng một hợp
+		# đồng trên dòng lúc gửi duyệt.
+		self.assertFalse(theo_ma[self.item_hd].blanket_order)
 		self.assertEqual(float(theo_ma[self.item_ngoai].rate), 0.0)
 		self.assertFalse(theo_ma[self.item_ngoai].blanket_order)
 		self.assertEqual(len(so.custom_dat_ngoai), 1)
@@ -435,51 +424,6 @@ class TestDatHangGop(FrappeTestCase):
 		doc.reload()
 		self.assertEqual(doc.trang_thai, "Đã duyệt")
 		self.assertEqual(doc.sales_order, kq["sales_order"])
-
-	# ---- vòng sửa 1 — mọi nhánh hạn mức phải nêu TÊN KHOA -------------
-
-	def test_vuot_han_muc_o_nhanh_dat_hang_van_neu_ten_khoa(self):
-		"""Vòng sửa 1 (review độc lập). §5.6 đòi "thất bại kèm TÊN KHOA đã
-		tiêu mất" — KHÔNG có ngoại lệ nào cho nhánh nào. Trước vòng sửa,
-		chỉ `de_xuat_duyet._kiem_han_muc` nêu tên khoa; nhánh hạn mức
-		trong `dat_hang._xay_don` chỉ nói "chỉ còn N theo hạn mức hợp đồng
-		khung", nên MỌI đơn đặt qua giỏ hàng — và mọi phiếu mà `_kiem_han_
-		muc` bỏ qua — đều nhận một thông điệp không cho người dùng đường
-		nào để gỡ (họ không biết hạn mức đi đâu mất)."""
-		ten_khoa = "Hồi sức tích cực"
-		khoa = frappe.db.get_value(
-			"Customer Department", {"customer": self.kh_a, "ma_khoa": "HSTC"}, "name"
-		) or frappe.get_doc({
-			"doctype": "Customer Department", "customer": self.kh_a,
-			"ten_khoa_phong": ten_khoa, "ma_khoa": "HSTC", "active": 1,
-		}).insert(ignore_permissions=True).name
-
-		# Đơn của khoa KIA đã tiêu hạn mức trên CÙNG hợp đồng.
-		frappe.get_doc({
-			"doctype": "Sales Order", "customer": self.kh_a, "company": COMPANY,
-			"transaction_date": frappe.utils.today(),
-			"delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
-			"selling_price_list": self.price_list,
-			"custom_hdnt": self.bo, "custom_khoa_phong": khoa,
-			"items": [{"item_code": self.item_hd, "qty": 48, "rate": 100}],
-		}).insert(ignore_permissions=True)
-		frappe.db.set_value(
-			"Blanket Order Item", {"parent": self.bo, "item_code": self.item_hd},
-			"ordered_qty", 48,      # còn đúng 2
-		)
-
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			dat_hang.tao_sales_order(
-				self.kh_a,
-				items=[{"item_code": self.item_hd, "qty": 5}],
-				request_id=_rid(),
-			)
-		self.assertIn(ten_khoa, str(ctx.exception))
-		loi = frappe.local.response.get("loi")
-		self.assertIn(ten_khoa, loi[0]["thong_diep"])
-		# Phong bì máy đọc được KHÔNG đổi hình dạng — nhiều test phụ thuộc.
-		self.assertEqual(loi[0]["ly_do"], "vuot_han_muc")
-		self.assertEqual(float(loi[0]["con_lai"]), 2.0)
 
 	def test_mat_hang_hop_dong_bi_ngung_kinh_doanh_van_bi_chan(self):
 		"""GHIM hành vi ĐỔI ở Task 4 mà chưa test nào phủ: hàm dựng gộp áp

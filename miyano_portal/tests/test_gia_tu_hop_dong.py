@@ -24,9 +24,15 @@ chứ không tin nó.
 Mọi bài đi ĐƯỜNG CÔNG KHAI (`dat_hang.tao_sales_order`,
 `PortalDeXuatMua.gui_duyet`), không gọi thẳng hàm tra giá dùng chung: đó là
 các nơi có thể lệch, và bài test chỉ có giá trị khi nó đi qua đúng chỗ người
-dùng đi. Riêng danh mục `portal_catalog_gop` KHÔNG còn dùng hàm đó (spec
-2026-10-09: phân tầng theo Price List) — bài của nó ở dưới khẳng định điều
-ngược lại.
+dùng đi.
+
+SPEC 2026-10-09 (giá theo Price List) đảo QĐ-G12 ở HAI nơi, mỗi bài bị đảo
+mang chú thích riêng: danh mục `portal_catalog_gop` (phân tầng theo Price
+List) và việc DỰNG ĐƠN (`dat_hang._xay_don`, §4.2) — đơn lấy giá từ
+`Customer.default_price_list`, không đọc `rate` của hợp đồng, không gắn hợp
+đồng lên dòng, và "chưa có giá" là dòng chờ báo giá chứ không còn lỗi
+`thieu_gia`. Thứ tự tra ở trên giờ chỉ còn đúng cho đường gửi duyệt phiếu và
+`portal_reorder`.
 """
 
 import frappe
@@ -220,26 +226,11 @@ class TestGiaTuHopDong(FrappeTestCase):
 
 	# -- CA CHÍNH ------------------------------------------------------------
 
-	def test_hop_dong_co_gia_bang_gia_trong_van_dat_duoc_hang(self):
-		"""CA CHÍNH — chính xác ca chủ đầu tư gặp 21/08.
-
-		Hợp đồng khai `rate = 88.000`, `tabItem Price` KHÔNG có dòng nào cho
-		mã đó → đơn phải ĐI, và dòng phải mang ĐÚNG giá hợp đồng."""
-		self.assertFalse(
-			frappe.db.exists("Item Price", {
-				"item_code": self.item_chi_hd, "price_list": self.price_list,
-			}),
-			"Tiền đề của ca này là bảng giá TRỐNG — fixture đang che mất cổng cần kiểm.",
-		)
-		kq = self._dat([{"item_code": self.item_chi_hd, "qty": 2}])
-		self.assertTrue(kq["sales_order"])
-		dong = self._dong(kq["sales_order"], self.item_chi_hd)
-		self.assertEqual(float(dong.rate), float(GIA_HOP_DONG))
-		self.assertEqual(dong.blanket_order, self.bo_a)
-
-	def test_co_ca_hai_va_khac_nhau_thi_lay_gia_hop_dong(self):
-		"""Hợp đồng ĐÈ bảng giá — nguyên tắc đã tuyên bố ở `gia_hdnt.py`
-		("Hợp đồng đã ký là nguồn sự thật"), giờ mã mới khớp lời."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_co_ca_hai_va_khac_nhau_thi_don_lay_gia_bang_gia(self):
+		"""Hợp đồng khai 88.000, Price List của khách khai 55.000 → đơn mang
+		giá PRICE LIST (§4.2), dấu "Bảng giá", không gắn hợp đồng. Trước spec
+		2026-10-09 bài này khẳng định điều ngược lại (hợp đồng đè bảng giá)."""
 		self.assertEqual(
 			float(frappe.db.get_value(
 				"Item Price",
@@ -251,48 +242,48 @@ class TestGiaTuHopDong(FrappeTestCase):
 		)
 		kq = self._dat([{"item_code": self.item_ca_hai, "qty": 1}])
 		dong = self._dong(kq["sales_order"], self.item_ca_hai)
-		self.assertEqual(float(dong.rate), float(GIA_HOP_DONG))
+		self.assertEqual(float(dong.rate), float(GIA_BANG_GIA))
+		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
+		self.assertFalse(dong.blanket_order)
 
-	def test_rate_0_tren_hop_dong_thi_roi_ve_bang_gia(self):
-		"""`rate = 0` là CHƯA KHAI GIÁ, không phải "bán 0 đồng" — bước 1
-		chỉ dừng ở giá trị DƯƠNG, nên dòng này đi tiếp xuống bảng giá."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_rate_0_tren_hop_dong_thi_don_van_lay_gia_bang_gia(self):
+		"""Hợp đồng khai `rate = 0`, Price List có giá → đơn mang giá Price
+		List. Con số không đổi so với trước spec 2026-10-09; cái đổi là dòng
+		không còn gắn hợp đồng (§4.2)."""
 		kq = self._dat([{"item_code": self.item_rate_0, "qty": 1}])
 		dong = self._dong(kq["sales_order"], self.item_rate_0)
 		self.assertEqual(float(dong.rate), float(GIA_BANG_GIA))
-		self.assertEqual(dong.blanket_order, self.bo_a)
-
-	def test_khong_co_ca_hai_thi_van_bao_thieu_gia_nguyen_van(self):
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			self._dat([{"item_code": self.item_trong_rong, "qty": 1}])
-		self.assertIn(
-			f"{self.item_trong_rong} chưa có giá trong hợp đồng.", str(ctx.exception)
-		)
-		self.assertIn("Miyano đã nhận được thông báo để bổ sung.", str(ctx.exception))
-		self.assertEqual(
-			[d["ly_do"] for d in frappe.local.response["loi"]], ["thieu_gia"]
-		)
+		self.assertFalse(dong.blanket_order)
 
 	# -- CÁCH LY -------------------------------------------------------------
 
-	def test_rate_hop_dong_khach_b_khong_roi_vao_don_khach_a(self):
-		"""Hai vế trong CÙNG một đơn, cả hai đều DƯƠNG:
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_gia_cua_khach_b_khong_roi_vao_don_khach_a(self):
+		"""Hai vế trong CÙNG một đơn:
 
-		  * mã của chính khách A ra đúng giá hợp đồng A (nếu vế này chết,
-		    vế cách ly bên dưới xanh chỉ vì hàm tra giá luôn trả 0);
-		  * mã CHỈ có trong hợp đồng khách B ra `rate = 0` (tầng "chờ báo
-		    giá") và KHÔNG gắn hợp đồng nào — 77.000 của B không được rơi
-		    sang đơn của A.
+		  * mã có giá trong Price List của chính khách A ra đúng giá đó (nếu
+		    vế này chết, vế cách ly bên dưới xanh chỉ vì hàm tra giá luôn
+		    trả 0);
+		  * mã CHỈ có giá ở phía khách B — 77.000 trên hợp đồng B và 77.000
+		    trong Price List của B — ra `rate = 0`, dấu "Báo giá": giá của B
+		    không được rơi sang đơn của A.
 		"""
+		frappe.get_doc({
+			"doctype": "Item Price", "item_code": self.item_chi_b,
+			"price_list": self.price_list_b, "selling": 1, "price_list_rate": 77000,
+		}).insert(ignore_permissions=True)
 		kq = self._dat([
-			{"item_code": self.item_chi_hd, "qty": 1},
+			{"item_code": self.item_ca_hai, "qty": 1},
 			{"item_code": self.item_chi_b, "qty": 1},
 		])
-		cua_a = self._dong(kq["sales_order"], self.item_chi_hd)
-		self.assertEqual(float(cua_a.rate), float(GIA_HOP_DONG))
-		self.assertEqual(cua_a.blanket_order, self.bo_a)
+		cua_a = self._dong(kq["sales_order"], self.item_ca_hai)
+		self.assertEqual(float(cua_a.rate), float(GIA_BANG_GIA))
+		self.assertEqual(cua_a.custom_nguon_gia, "Bảng giá")
 
 		cua_b = self._dong(kq["sales_order"], self.item_chi_b)
 		self.assertEqual(float(cua_b.rate), 0.0)
+		self.assertEqual(cua_b.custom_nguon_gia, "Báo giá")
 		self.assertFalse(cua_b.blanket_order)
 
 	# -- DANH MỤC (không còn dùng hàm này) VÀ ĐƯỜNG GỬI DUYỆT (vẫn dùng) -----
@@ -379,11 +370,14 @@ class TestGiaTuHopDong(FrappeTestCase):
 		)
 		self.assertNotEqual(bo_som, bo_muon)
 
-		# Vế 1 — CỔNG: hết hạn sớm nhất thắng.
+		# Vế 1 — CỔNG. Đảo theo spec 2026-10-09 (giá theo Price List): đơn
+		# không còn tự phân định hợp đồng thắng cuộc — nó đọc Price List
+		# (chính dòng `dong_bo_khach` ghi ở vế 2) và không gắn hợp đồng lên
+		# dòng. Con số vẫn phải là 88.000 của hợp đồng hết hạn sớm nhất.
 		kq = self._dat([{"item_code": ma, "qty": 1}])
 		dong = self._dong(kq["sales_order"], ma)
 		self.assertEqual(float(dong.rate), 88000.0)
-		self.assertEqual(dong.blanket_order, bo_som)
+		self.assertFalse(dong.blanket_order)
 
 		# Vế 2 — BẢNG GIÁ phải nói y hệt. `dong_bo_khach` đã chạy hai lần qua
 		# hook `on_submit` của hai hợp đồng trên.
