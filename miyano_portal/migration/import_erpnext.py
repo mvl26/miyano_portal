@@ -284,8 +284,11 @@ def _ensure_contract(contract: dict, company: str, customer_name_by_sc_id: dict)
     customer without one, splits a list shared with another customer).
 
     Price rows: only ``unit_price > 0`` (<= 0 means "not priced yet", never
-    "sells for 0"), written at the item's stock UOM like every other portal
-    price (a Blanket Order line carries no UOM either). An item the customer
+    "sells for 0"), and only when the contract line's UOM is empty or equal
+    to the item's stock UOM - the UOM every portal price is read at. A
+    priced line in another UOM gets NO Item Price (no conversion is
+    attempted) and is reported in ``skipped_lines`` with the reason; the
+    line itself stays on the Blanket Order. An item the customer
     already has a price for is left untouched, so re-running the import
     neither duplicates rows nor overwrites a price edited since.
     ``price_lists`` counts a list only when one was created for the customer.
@@ -374,7 +377,27 @@ def _ensure_contract(contract: dict, company: str, customer_name_by_sc_id: dict)
     for sfc_item in valid_items:
         item_code = sfc_item.get("item")
         unit_price = flt(sfc_item.get("unit_price"))
-        if unit_price <= 0 or item_code in already_priced:
+        if unit_price <= 0:
+            continue
+        # A contract price is per the CONTRACT line's UOM; the portal reads
+        # prices per the item's stock UOM. Writing a per-box price where a
+        # per-piece price is read would get charged as is, so do not write
+        # it and do not guess a conversion: report it, the item shows as
+        # "chờ báo giá" until someone enters the right price.
+        line_uom = sfc_item.get("uom")
+        stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+        if line_uom and line_uom != stock_uom:
+            result["skipped_lines"].append(
+                {
+                    "item_code": item_code,
+                    "error": (
+                        f"price not imported: contract UOM {line_uom!r} differs from the item's "
+                        f"stock UOM {stock_uom!r} (line kept on the Blanket Order, no Item Price written)"
+                    ),
+                }
+            )
+            continue
+        if item_code in already_priced:
             continue
         bang_gia_khach.ghi_gia_vao_bang(
             price_list_name, customer_name, item_code, unit_price, DEFAULT_CURRENCY

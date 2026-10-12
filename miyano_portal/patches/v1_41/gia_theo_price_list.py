@@ -73,7 +73,10 @@ def chuyen_du_lieu():
 	cho cùng kết quả: bảng đã riêng thì giữ, giá đã khớp thì không ghi, dòng đã
 	có dấu thì không đụng."""
 	from miyano_portal import bang_gia_khach, gia_hdnt
-	from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+	from miyano_portal.chot_bao_gia import TT_CHO_XAC_NHAN
+	from miyano_portal.portal_mua_le import (
+		ITEM_GIU_CHO, LOAI_DON_BAO_GIA, TRANG_THAI_CHO_KHACH,
+	)
 
 	khach = frappe.get_all(
 		"Customer", filters={"disabled": 0}, pluck="name", order_by="name asc"
@@ -90,19 +93,17 @@ def chuyen_du_lieu():
 
 	# 2. Chép giá từ hợp đồng đã ký (`dong_bo` tự loại hợp đồng hết hạn). Nhiều
 	#    khách chỉ có giá nhờ hợp đồng; bỏ bước này thì hàng của họ rơi về "chờ
-	#    báo giá". Chỉ khách ĐANG HOẠT ĐỘNG: khách đã vô hiệu hoá không đặt hàng
-	#    được, và `dam_bao_bang_gia_rieng` chỉ đếm khách đang hoạt động khi xét
-	#    "bảng riêng" — bảng của một khách đã vô hiệu hoá có thể đang là bảng
-	#    riêng của khách khác.
-	co_hop_dong = set(frappe.get_all(
-		"Blanket Order",
-		filters={"blanket_order_type": "Selling", "docstatus": 1},
-		pluck="customer", distinct=True,
-	))
-	gia, loi_gia = _tung_khach(
-		[kh for kh in khach if kh in co_hop_dong and kh not in loi_bang],
-		gia_hdnt.dong_bo_khach, "giá hợp đồng",
+	#    báo giá". MỌI khách có hợp đồng, kể cả khách đã vô hiệu hoá (§6 bước
+	#    3): `dong_bo` tự bảo đảm bảng riêng cho khách của hợp đồng, nên giá của
+	#    một khách đã vô hiệu hoá không rơi vào bảng của khách khác.
+	co_hop_dong = sorted(
+		kh for kh in set(frappe.get_all(
+			"Blanket Order",
+			filters={"blanket_order_type": "Selling", "docstatus": 1},
+			pluck="customer",
+		)) if kh and kh not in loi_bang
 	)
+	gia, loi_gia = _tung_khach(co_hop_dong, gia_hdnt.dong_bo_khach, "giá hợp đồng")
 
 	# 3. Đơn báo giá đang dở: đóng dấu "Báo giá" để khi khách đồng ý thì giá
 	#    vẫn được ghi (dòng cũ có dấu rỗng, `ghi_gia_da_dong_y` bỏ qua chúng).
@@ -113,12 +114,17 @@ def chuyen_du_lieu():
 		   inner join `tabSales Order` so on so.name = soi.parent
 		   where so.docstatus = 0
 		     and so.custom_nguon_don = 'Client Portal'
-		     and so.custom_loai_don = 'Mua lẻ'
-		     and so.workflow_state in ('Chờ xác nhận', 'Chờ khách đồng ý')
+		     and so.custom_loai_don = %(loai)s
+		     and so.workflow_state in %(trang_thai)s
 		     and ifnull(soi.custom_nguon_gia, '') = ''
 		     and ifnull(soi.blanket_order, '') = ''
-		     and soi.item_code != %s""",
-		(ITEM_GIU_CHO,), pluck=True,
+		     and soi.item_code != %(giu_cho)s""",
+		{
+			"loai": LOAI_DON_BAO_GIA,
+			"trang_thai": (TT_CHO_XAC_NHAN, TRANG_THAI_CHO_KHACH),
+			"giu_cho": ITEM_GIU_CHO,
+		},
+		pluck=True,
 	)
 	if dong:
 		frappe.db.sql(
@@ -128,10 +134,11 @@ def chuyen_du_lieu():
 
 	viec = list(bang.values())
 	loi = loi_bang + loi_gia
+	co_ghi = [kh for kh, k in gia.items() if k["tao"] or k["cap_nhat"]]
 	print(
 		f"[miyano_portal] v1_41 giá theo Price List: {viec.count('tao')} bảng giá "
 		f"tạo mới, {viec.count('tach')} bảng tách khỏi bảng dùng chung; "
-		f"{len(gia)} khách được chép giá hợp đồng "
+		f"{len(gia)} khách có hợp đồng được rà, {len(co_ghi)} khách có giá được ghi "
 		f"({sum(k['tao'] for k in gia.values())} dòng tạo, "
 		f"{sum(k['cap_nhat'] for k in gia.values())} dòng cập nhật); "
 		f"{len(dong)} dòng đơn báo giá đang dở được đóng dấu; "

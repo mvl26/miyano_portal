@@ -246,6 +246,29 @@ class TestDongBoGia(_GiaFixture):
             95000.0, "dòng theo đơn vị khác không bị đụng tới",
         )
 
+    def test_cung_ma_hai_dong_gia_khong_tron_chi_ghi_mot_lan(self):
+        """Hợp đồng liệt kê cùng một mã hai dòng, cùng một giá KHÔNG TRÒN:
+        dòng sau phải thấy giá (đã làm tròn) dòng trước vừa ghi, không ghi lần
+        hai. Dựng chứng từ trong bộ nhớ: ERPNext không cho lưu hợp đồng trùng
+        mã, nhưng dữ liệu nhập ngoài luồng thì có."""
+        khach, _bang_gia = self._khach_rieng()
+        le = 95000.123456789
+        bo = frappe.get_doc({
+            "doctype": "Blanket Order", "blanket_order_type": "Selling",
+            "customer": khach, "company": COMPANY, "name": "_TEST BO TRUNG MA",
+            "from_date": today(), "to_date": add_days(today(), 365),
+            "items": [
+                {"item_code": VT, "qty": 500, "rate": le},
+                {"item_code": VT, "qty": 500, "rate": le},
+            ],
+        })
+        self.assertNotEqual(bang_gia_khach.lam_tron_gia(le, "VND"), le, "tiền đề: giá không tròn")
+        ket_qua = gia_hdnt.dong_bo(bo)
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (1, 0))
+        self.assertEqual(
+            bang_gia_khach.gia_bang_gia(khach, VT), bang_gia_khach.lam_tron_gia(le, "VND")
+        )
+
     def test_hdnt_het_han_khong_dat_gia_cho_hom_nay(self):
         """Lỗi thật đã bị `test_e6_mua_le` bắt: `dong_bo` suy bảng giá từ
         KHÁCH chứ không từ hợp đồng, nên một HĐNT cũ đã hết hiệu lực (khách

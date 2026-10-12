@@ -214,7 +214,8 @@ def dong_bo(bo, thang_cuoc=None) -> dict:
             bang_gia, doc.customer, dong.item_code, rate, tien_te
         )
         # Cùng mã khai hai dòng trên một hợp đồng: dòng sau thấy giá dòng trước.
-        dang_co[dong.item_code] = rate
+        # Lưu bản ĐÃ LÀM TRÒN, đúng thứ phép so ở trên dùng.
+        dang_co[dong.item_code] = bang_gia_khach.lam_tron_gia(rate, tien_te)
         ket_qua["cap_nhat" if gia_cu else "tao"] += 1
 
     return ket_qua

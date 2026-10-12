@@ -128,6 +128,16 @@ FIXTURE = {
                     "sold_qty": 0,
                     "unit_price": 0,
                 },
+                # Contract price quoted per "MIG Hop" for an item stocked in
+                # "Cái" (fallback UOM): a per-box price must never become
+                # readable as a per-piece price. Line kept, price not written.
+                {
+                    "item": "MIG-IT-0004",
+                    "uom": "MIG Hop",
+                    "contract_qty": 20,
+                    "sold_qty": 0,
+                    "unit_price": 500000,
+                },
             ],
         }
     ],
@@ -161,7 +171,7 @@ class TestMigrationImport(FrappeTestCase):
         # Customer B had no shipping_address -> no Address created.
         self.assertFalse(frappe.db.exists("Address", "MIG PXN Test B-Shipping"))
 
-        # Blanket Order for the contract's customer, with 3 items.
+        # Blanket Order for the contract's customer, with 4 items.
         bo_name = frappe.db.get_value(
             "Blanket Order",
             {"customer": "MIG Benh vien Test A", "order_no": "MIG-TEST-2026", "blanket_order_type": "Selling"},
@@ -169,8 +179,11 @@ class TestMigrationImport(FrappeTestCase):
         )
         self.assertTrue(bo_name)
         bo = frappe.get_doc("Blanket Order", bo_name)
-        self.assertEqual(len(bo.items), 3)
-        self.assertEqual({d.item_code for d in bo.items}, {"MIG-IT-0001", "MIG-IT-0002", "MIG-IT-0003"})
+        self.assertEqual(len(bo.items), 4)
+        self.assertEqual(
+            {d.item_code for d in bo.items},
+            {"MIG-IT-0001", "MIG-IT-0002", "MIG-IT-0003", "MIG-IT-0004"},
+        )
 
         # Đảo theo spec 2026-10-09 (giá theo Price List).
         # No per-contract price list any more: the customer gets a Price List
@@ -192,6 +205,22 @@ class TestMigrationImport(FrappeTestCase):
             frappe.db.exists("Item Price", {"item_code": "MIG-IT-0003", "price_list": price_list}),
             "a contract line without a price must not create a zero-price row",
         )
+        # UOM mismatch: no readable price, no row at all, and the line is
+        # reported with the reason (on every run - it stays unresolved).
+        self.assertIsNone(bang_gia_khach.gia_bang_gia("MIG Benh vien Test A", "MIG-IT-0004"))
+        self.assertFalse(
+            frappe.db.exists("Item Price", {"item_code": "MIG-IT-0004", "price_list": price_list})
+        )
+        for run in (first, second):
+            lech = [
+                line for line in run["contracts"]["skipped_lines"]
+                if line["item_code"] == "MIG-IT-0004"
+            ]
+            self.assertEqual(len(lech), 1, run["contracts"]["skipped_lines"])
+            self.assertEqual(lech[0]["contract"], "MIG-TEST-2026")
+            self.assertIn("MIG Hop", lech[0]["error"])
+            self.assertIn("Cái", lech[0]["error"])
+            self.assertIn("price not imported", lech[0]["error"])
         self.assertEqual(first["contract_item_prices"], 2)
         self.assertEqual(first["price_lists"], 1)
         # Idempotency of the price rows: one row per item after both runs.

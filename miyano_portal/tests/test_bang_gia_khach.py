@@ -86,6 +86,25 @@ class TestBangGiaKhach(FrappeTestCase):
 	def test_bang_rieng_san_co_thi_giu_nguyen(self):
 		self.assertEqual(bg.dam_bao_bang_gia_rieng(self.kh_a), BANG_A)
 
+	def test_khach_vo_hieu_hoa_con_tro_vao_khong_lam_chu_bang_bi_tach(self):
+		"""Chủ bảng hỏi: khách khác đã vô hiệu hoá vẫn trỏ về bảng này không
+		phải là "dùng chung" — giữ nguyên bảng, không tách thừa."""
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", BANG_A)
+		self.addCleanup(frappe.db.set_value, "Customer", self.kh_b, "disabled", 0)
+		frappe.db.set_value("Customer", self.kh_b, "disabled", 1)
+		self.assertEqual(bg.dam_bao_bang_gia_rieng(self.kh_a), BANG_A)
+
+	def test_khach_vo_hieu_hoa_hoi_thi_khong_nhan_bang_cua_khach_khac(self):
+		"""Khách đã vô hiệu hoá hỏi: bảng nó trỏ tới đang là của một khách
+		ĐANG HOẠT ĐỘNG khác, nên nó phải được tách bảng riêng."""
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", BANG_A)
+		self.addCleanup(frappe.db.set_value, "Customer", self.kh_b, "disabled", 0)
+		frappe.db.set_value("Customer", self.kh_b, "disabled", 1)
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertNotEqual(ten, BANG_A)
+		self.assertEqual(frappe.db.get_value("Customer", self.kh_b, "default_price_list"), ten)
+		self.assertEqual(frappe.db.get_value("Customer", self.kh_a, "default_price_list"), BANG_A)
+
 	def test_khach_chua_co_bang_thi_tao_va_gan(self):
 		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
 		self.assertEqual(ten, f"Bảng giá {self.kh_b}")

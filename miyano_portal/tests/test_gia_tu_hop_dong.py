@@ -538,6 +538,42 @@ class TestGiaTuHopDong(FrappeTestCase):
 			88000.0,
 		)
 
+	def test_hop_dong_cua_khach_VO_HIEU_HOA_khong_ghi_vao_bang_khach_khac(self):
+		"""Khách B đã vô hiệu hoá nhưng `default_price_list` vẫn trỏ về bảng
+		RIÊNG của khách A. "Bảng chỉ còn một khách đang hoạt động dùng" KHÔNG
+		có nghĩa nó là của B: ký hợp đồng cho B mà ghi vào đó là đè giá đàm
+		phán của A bằng giá của B. B phải được tách bảng của riêng mình."""
+		ma = self._item("_TEST G12 VO HIEU GHI NHAM")
+		self._xoa_gia(ma)
+		self._tao_gia(ma, 88000)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", self.price_list)
+		self.addCleanup(frappe.db.set_value, "Customer", self.kh_b, "disabled", 0)
+		frappe.db.set_value("Customer", self.kh_b, "disabled", 1)
+
+		bo_b = frappe.get_doc({
+			"doctype": "Blanket Order", "blanket_order_type": "Selling",
+			"customer": self.kh_b, "company": COMPANY, "name": "_TEST G12 BO VO HIEU",
+			"from_date": frappe.utils.today(),
+			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
+			"items": [{"item_code": ma, "qty": 100, "rate": 61000}],
+		})
+		bo_b.docstatus = 1
+		# Đúng đường của hook `on_submit` (`tu_hdnt` → `dong_bo_khach`), gọi
+		# thẳng để bài không phụ thuộc việc ERPNext có cho ký hợp đồng với
+		# khách đã vô hiệu hoá hay không.
+		gia_hdnt.dong_bo_khach(self.kh_b, bo_b)
+
+		self.assertEqual(
+			bang_gia_khach.gia_bang_gia(self.kh_a, ma), 88000.0,
+			"giá của khách A bị hợp đồng của khách B ghi đè",
+		)
+		self.assertEqual(
+			frappe.db.get_value("Customer", self.kh_a, "default_price_list"), self.price_list
+		)
+		bang_b = frappe.db.get_value("Customer", self.kh_b, "default_price_list")
+		self.assertNotEqual(bang_b, self.price_list, "khách B phải có bảng của riêng mình")
+		self.assertEqual(bang_gia_khach.gia_bang_gia(self.kh_b, ma), 61000.0)
+
 	# -- ĐÓNG DẤU GIÁ PHẢI NÓI VỀ LẦN GỬI NÀY (advisor, vòng sửa 1) ----------
 
 	def test_gui_duyet_lai_khong_giu_gia_cu_khi_khong_con_tra_duoc_gia(self):

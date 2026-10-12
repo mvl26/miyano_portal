@@ -83,9 +83,16 @@ def dam_bao_bang_gia_rieng(customer: str) -> str:
 	chung và dòng gắn riêng khách này; bỏ dòng gắn khách khác, nhà cung cấp,
 	lô). Ghi giá đàm
 	phán của một bệnh viện vào bảng dùng chung là để bệnh viện khác thấy nó.
+
+	"Riêng" = không khách ĐANG HOẠT ĐỘNG nào KHÁC trỏ về bảng này. Phải trừ
+	chính khách đang hỏi ra rồi mới đếm, không đếm "tối đa một khách đang hoạt
+	động": khách đã vô hiệu hoá còn trỏ về bảng riêng của một khách đang hoạt
+	động thì phép đếm kia cũng ra một, và hợp đồng của nó sẽ ghi đè giá của
+	khách kia. Chiều ngược lại vẫn giữ: chủ bảng không bị tách chỉ vì một
+	khách đã vô hiệu hoá còn trỏ vào.
 	"""
 	bang = frappe.db.get_value("Customer", customer, "default_price_list")
-	if bang and len(_khach_dung_bang(bang)) <= 1:
+	if bang and not [kh for kh in _khach_dung_bang(bang) if kh != customer]:
 		return bang
 
 	moi = frappe.get_doc({
