@@ -31,6 +31,10 @@ KHO_MYN = "Kho Miyano - MYN"
 COST_CENTER = "Main - MYN"
 KHACH = "Bệnh viện Bạch Mai"
 
+# `seed_demo()` tạo tài khoản cổng này cho đúng Customer KHACH (vai "Customer").
+BM_USER = "bvbm@demo.miyano"
+SALES_USER = "sales_user@demo.miyano"
+
 
 class _CoSo(FrappeTestCase):
 	"""Dựng dữ liệu chung. Mỗi test tự tạo MẶT HÀNG MỚI (`_TEST DST-…`):
@@ -429,3 +433,75 @@ class TestLoHetHan(_CoSo):
 			d = self._dong_dau(self._don([(item, 5)], submit=False))
 		self.assertEqual(d["ton_kha_dung"], 5)
 		self.assertEqual(d["sl_thieu"], 0)
+
+
+class TestEndpointDoc(_CoSo):
+	def setUp(self):
+		super().setUp()
+		if not frappe.db.exists("User", SALES_USER):
+			frappe.get_doc({
+				"doctype": "User", "email": SALES_USER, "first_name": "Sales DST",
+				"send_welcome_email": 0,
+			}).insert(ignore_permissions=True)
+		frappe.get_doc("User", SALES_USER).add_roles("Sales User")
+		self.item = self._item()
+		self._nap(self.item, 4)
+		self.so = self._don([(self.item, 10)])
+		self.addCleanup(
+			frappe.db.delete, "Error Log", {"method": ["like", "Đối sánh tồn kho:%"]}
+		)
+
+	def test_nhan_vien_ban_hang_doc_duoc(self):
+		frappe.set_user(SALES_USER)
+		bang = dst.doi_sanh_ton(self.so.name)
+		self.assertEqual(bang["dong"][0]["sl_thieu"], 6)
+
+	def test_tai_khoan_cong_khach_hang_bi_tu_choi_voi_DON_CUA_CHINH_HO(self):
+		"""Khách đọc được Sales Order này (đơn của bệnh viện họ) — và đúng vì
+		thế mà chốt phải là vai, không phải quyền đọc đơn."""
+		frappe.set_user(BM_USER)
+		self.assertTrue(
+			frappe.has_permission("Sales Order", "read", doc=self.so.name)
+		)
+		with self.assertRaises(frappe.PermissionError):
+			dst.doi_sanh_ton(self.so.name)
+
+	def test_tai_khoan_cong_LO_DUOC_GAN_vai_noi_bo_van_bi_tu_choi(self):
+		"""Chốt "không phải tài khoản cổng" đứng TRƯỚC chốt vai. Giả lập bằng
+		cách vá `get_roles`: gán vai Desk thật cho user sẽ khiến Frappe đổi
+		`user_type` của họ, không còn là ca cần canh."""
+		frappe.set_user(BM_USER)
+		with unittest.mock.patch.object(
+			frappe, "get_roles", return_value=["Customer", "Sales User", "All"]
+		):
+			with self.assertRaises(frappe.PermissionError):
+				dst.doi_sanh_ton(self.so.name)
+
+	def test_nhan_vien_khong_co_quyen_tao_mr_thi_khong_thay_nut(self):
+		frappe.set_user(SALES_USER)
+		self.assertFalse(frappe.has_permission("Material Request", "create"))
+		self.assertFalse(dst.doi_sanh_ton(self.so.name)["co_the_tao_mr"])
+
+	def test_quan_tri_thay_nut(self):
+		self.assertTrue(dst.doi_sanh_ton(self.so.name)["co_the_tao_mr"])
+
+	def test_phep_tinh_hong_KHONG_lam_chet_form(self):
+		with unittest.mock.patch.object(
+			dst, "bang_cho_don", side_effect=RuntimeError("truy vấn hỏng")
+		):
+			kq = dst.doi_sanh_ton(self.so.name)
+		self.assertEqual(list(kq), ["loi"])
+		self.assertTrue(
+			frappe.db.exists(
+				"Error Log", {"method": "Đối sánh tồn kho: không tính được bảng"}
+			)
+		)
+
+	def test_loi_QUYEN_thi_van_phai_nem_ra(self):
+		"""Nuốt lỗi là để form không chết, KHÔNG phải để che lỗi quyền."""
+		frappe.set_user(BM_USER)
+		with unittest.mock.patch.object(
+			dst, "bang_cho_don", side_effect=RuntimeError("không được tới đây")
+		):
+			with self.assertRaises(frappe.PermissionError):
+				dst.doi_sanh_ton(self.so.name)

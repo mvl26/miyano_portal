@@ -397,3 +397,47 @@ def bang_cho_don(so) -> dict:
 			and con_mua
 		),
 	}
+
+
+# ------------------------------------------------------------- endpoint
+def _don_duoc_doc(order: str):
+	"""Sales Order mà người gọi được xem bảng tồn, hoặc ném PermissionError.
+
+	Ba chốt, theo thứ tự: không phải tài khoản cổng, có vai nội bộ, đọc được
+	đơn. Hai chốt đầu là chốt thật — tài khoản cổng khách hàng qua được chốt
+	thứ ba với đơn của chính họ. Chốt đầu dùng đúng định nghĩa "tài khoản
+	cổng" của cả app (`permissions._is_restricted_user`), để một tài khoản
+	khách lỡ được gán thêm vai nội bộ vẫn không thấy tồn của Miyano.
+	"""
+	from miyano_portal.permissions import _is_restricted_user
+
+	if _is_restricted_user(frappe.session.user):
+		raise frappe.PermissionError("Bạn không có quyền xem đối sánh tồn kho.")
+	if not set(ROLE_NOI_BO) & set(frappe.get_roles()):
+		raise frappe.PermissionError("Bạn không có quyền xem đối sánh tồn kho.")
+	so = frappe.get_doc("Sales Order", order)
+	so.check_permission("read")
+	return so
+
+
+@frappe.whitelist()
+def doi_sanh_ton(order: str) -> dict:
+	"""Bảng đối sánh tồn kho của một Sales Order, cho form trên Desk.
+
+	Phép tính hỏng thì trả `{"loi": …}` thay vì ném: bảng là thông tin phụ,
+	nó hỏng không được kéo theo cả form Sales Order. Lỗi QUYỀN thì vẫn ném —
+	`_don_duoc_doc` nằm NGOÀI khối try.
+	"""
+	so = _don_duoc_doc(order)
+	try:
+		bang = bang_cho_don(so)
+	except Exception:
+		frappe.log_error(
+			title="Đối sánh tồn kho: không tính được bảng",
+			message=frappe.get_traceback(with_context=True),
+		)
+		return {"loi": "Không tính được bảng đối sánh tồn kho. Lỗi đã được ghi lại."}
+	bang["co_the_tao_mr"] = bool(
+		bang["co_the_tao_mr"] and frappe.has_permission("Material Request", "create")
+	)
+	return bang
