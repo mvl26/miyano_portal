@@ -189,6 +189,9 @@ def _kiem_gia_doi(doc) -> list[dict]:
 				"gia_moi": float(gia_moi), "ly_do": "gia_doi",
 			})
 	if mat_gia:
+		# Mỗi mặt hàng nêu MỘT lần, giữ thứ tự dòng (dữ liệu cũ có thể có
+		# hai dòng cùng mã).
+		mat_gia = list(dict.fromkeys(mat_gia))
 		frappe.throw(
 			"Không duyệt được: " + ", ".join(mat_gia) + " không còn giá trong "
 			"bảng giá. Từ chối phiếu để khoa gửi lại — các mặt hàng này sẽ "

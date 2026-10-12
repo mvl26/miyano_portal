@@ -1,5 +1,7 @@
 """Phiếu đề xuất theo Price List (spec 2026-10-09 §3.2, §4.3)."""
 
+from types import SimpleNamespace
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -208,3 +210,43 @@ class TestPhieuBangGia(FrappeTestCase):
 		self.assertEqual(row.nguon_gia, "Hợp đồng")
 		self.assertEqual(row.blanket_order, bo.name)
 		self.assertEqual(float(row.don_gia), 300.0)
+
+	# ---- Ruling R8 — lần GỬI ĐẦU suy lại nguồn giá của mọi dòng ---------
+	# Nguồn giá trên phiếu Nháp là của lần LƯU gần nhất. Giá có thể đổi giữa
+	# lần lưu đó và lúc gửi, nên lần gửi đầu phải suy lại từ Price List hiện
+	# hành TRƯỚC khi đóng dấu.
+
+	def test_gui_lan_dau_dong_nhap_vua_co_gia_thi_thanh_bang_gia(self):
+		ten = self._phieu(gui=False).name
+		self.assertEqual(self._doc_moi(ten).items[0].nguon_gia, "Chờ báo giá")
+		self._dat_gia(54000)
+		self._doc_moi(ten).gui_duyet()
+		row = self._doc_moi(ten).items[0]
+		self.assertEqual(row.nguon_gia, "Bảng giá")
+		self.assertEqual(float(row.don_gia), 54000.0)
+
+	def test_gui_lan_dau_dong_nhap_vua_mat_gia_thi_thanh_cho_bao_gia(self):
+		self._dat_gia(54000)
+		ten = self._phieu(gui=False).name
+		self.assertEqual(self._doc_moi(ten).items[0].nguon_gia, "Bảng giá")
+		self._dat_gia(None)
+		self._doc_moi(ten).gui_duyet()
+		row = self._doc_moi(ten).items[0]
+		self.assertEqual(row.nguon_gia, "Chờ báo giá")
+		self.assertEqual(float(row.don_gia or 0), 0.0)
+
+	def test_loi_chan_mat_gia_khong_neu_mot_mat_hang_hai_lan(self):
+		"""Phiếu không cho hai dòng cùng mã (`validate()`), nhưng dữ liệu cũ
+		có thể có — lời chặn nêu mỗi mặt hàng ĐÚNG MỘT lần, giữ thứ tự dòng."""
+		dong = lambda ma: frappe._dict(
+			item_code=ma, nguon_gia="Bảng giá", so_luong_duyet=1, don_gia=100
+		)
+		# `SimpleNamespace`, không phải `frappe._dict`: `.items` của một dict
+		# là phương thức, không phải bảng con.
+		gia_phieu = SimpleNamespace(
+			customer=self.kh_a,
+			items=[dong("_TEST DX MAT B"), dong("_TEST DX MAT A"), dong("_TEST DX MAT B")],
+		)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			de_xuat_duyet._kiem_gia_doi(gia_phieu)
+		self.assertIn("_TEST DX MAT B, _TEST DX MAT A không còn giá", str(ctx.exception))

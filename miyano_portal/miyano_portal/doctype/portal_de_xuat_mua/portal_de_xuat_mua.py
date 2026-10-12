@@ -288,6 +288,17 @@ class PortalDeXuatMua(Document):
 			)
 		self._kiem_dat_ngoai_du_nhan_dang()
 		if not self.ma_de_xuat:
+			# Ruling R8 — LẦN GỬI ĐẦU: suy lại nguồn giá của MỌI dòng từ
+			# Price List hiện hành, TRƯỚC khi cấp mã. Nguồn giá trên phiếu
+			# Nháp là của lần LƯU gần nhất, và giá có thể đổi từ lúc đó;
+			# một khi mã đã cấp thì `_suy_nguon_gia()` coi mọi dòng đã lưu
+			# là đóng băng (kể cả lời gọi trong `_dong_dau_gia()` ngay
+			# dưới), nên đây là cơ hội cuối để dòng mang đúng nguồn giá của
+			# LÚC GỬI. Gửi lại (đã có mã) không đi qua đây — dòng đóng băng
+			# giữ nguyên, trừ ngoại lệ R5 trong `_dong_dau_gia()`. Phiếu
+			# không có mã mà đã rời Nháp (khách chưa có Mã ngắn) có đi qua,
+			# nhưng `_suy_nguon_gia()` tự đóng băng theo trạng thái.
+			self._suy_nguon_gia()
 			# Sinh ĐÚNG MỘT LẦN. Phiếu bị từ chối rồi gửi lại giữ nguyên mã cũ:
 			# quản lý và khoa đã gọi tên nó bằng mã đó trong lúc trao đổi.
 			self.ma_de_xuat = sinh_ma(self.customer, self.khoa_phong)
@@ -408,7 +419,9 @@ class PortalDeXuatMua(Document):
 		Tự gọi `_suy_nguon_gia()` TRƯỚC khi đọc `nguon_gia` — hàm này chạy
 		TRONG `gui_duyet()`, TRƯỚC `self.save()` (nên trước `validate()` của
 		chính lần lưu này), nên KHÔNG được tin `self.items[].nguon_gia` trong
-		bộ nhớ đã chắc chắn mới. Trên đường gửi lại (sau "Từ chối" hoặc sau
+		bộ nhớ đã chắc chắn mới. Ở lần gửi ĐẦU, `gui_duyet()` đã suy lại mọi
+		dòng ngay trước khi cấp mã (Ruling R8), nên lời gọi ở đây chỉ còn
+		chạm dòng chưa lưu. Trên đường gửi lại (sau "Từ chối" hoặc sau
 		thu hồi) lời gọi đó bỏ qua các dòng ĐÃ đóng băng (xem `dong_bang` ở
 		đó) và chỉ còn tác dụng cho dòng MỚI thêm.
 
@@ -622,8 +635,9 @@ class PortalDeXuatMua(Document):
 		`custom_loai_don == "Mua lẻ"` viết tại chỗ), cộng chốt hiệu lực
 		BR-R5. Trước bản vá, `xin_sua()` không hỏi chốt nào — nên:
 
-		  * đơn KHÔNG đi vòng báo giá (thuần hợp đồng — `dat_hang.py` đóng
-		    dấu `custom_loai_don = "Theo HĐNT"` khi mọi dòng đã có giá) và
+		  * đơn KHÔNG đi vòng báo giá (`dat_hang.py` đóng dấu `custom_loai_
+		    don = "Theo bảng giá"` khi mọi dòng đã có giá, ngược lại là "Mua
+		    lẻ") và
 		  * đơn ĐANG đi vòng báo giá nhưng CHƯA tới "Chờ khách đồng ý" —
 		    tức MỌI đơn ngay sau khi duyệt, vì đơn sinh ra ở "Chờ xác nhận"
 
@@ -1127,10 +1141,13 @@ class PortalDeXuatMua(Document):
 		# điền trong một chu trình `save()` ĐÃ XẢY RA trên CHÍNH object
 		# Python này (`base_document.py`, gán trong `_get_doc_before_save`
 		# gọi từ `run_before_save_hooks`), mà hàm này còn được gọi từ
-		# `_dong_dau_gia()` chạy TRỰC TIẾP trong `gui_duyet()`, TRƯỚC `self.
-		# save()`. Đường Nháp→Chờ duyệt vô hại (`dong_bang` False lúc đó).
+		# `gui_duyet()`/`_dong_dau_gia()` chạy TRỰC TIẾP, TRƯỚC `self.
+		# save()`. Lần gửi ĐẦU vô hại: lời gọi của `gui_duyet()` chạy khi
+		# chưa có mã (`dong_bang` False, không đọc `da_khoa`); lời gọi của
+		# `_dong_dau_gia()` chạy sau khi mã đã cấp (`dong_bang` True) nên
+		# cũng phải đi đường đọc DB dưới đây.
 		# Đường RESUBMIT-SAU-TỪ-CHỐI (`gui_duyet()` hợp lệ từ "Từ chối")
-		# THÌ VỠ: endpoint thật nạp `Document` MỚI qua `frappe.get_doc()`
+		# THÌ VỠ nếu dùng property đó: endpoint thật nạp `Document` MỚI qua `frappe.get_doc()`
 		# mỗi request rồi gọi `.gui_duyet()` ngay — không có `save()` nào
 		# trước đó trên object đó để điền `_doc_before_save`, `get_doc_
 		# before_save()` trả `None`, `.items` ném `AttributeError` → HTTP

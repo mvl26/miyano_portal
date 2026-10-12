@@ -494,9 +494,10 @@ class TestNguonGiaDong(FrappeTestCase):
 		đọc `self.get_doc_before_save()` khi đóng băng: nó còn được gọi từ
 		`_dong_dau_gia()` chạy TRỰC TIẾP trong `gui_duyet()`, TRƯỚC `self.
 		save()`, mà `_doc_before_save` chỉ được Frappe điền trong một chu
-		trình `save()` ĐÃ XẢY RA trên CHÍNH object Python đó. Đường Nháp→Chờ
-		duyệt an toàn (`dong_bang` False); đường RESUBMIT-SAU-TỪ-CHỐI thì
-		KHÔNG — endpoint thật nạp một `Document` MỚI qua `frappe.get_doc()`
+		trình `save()` ĐÃ XẢY RA trên CHÍNH object Python đó. Lần gửi ĐẦU cũng
+		đi qua nhánh đóng băng (mã phiếu được cấp TRƯỚC `_dong_dau_gia()`),
+		nhưng bài này canh đường dễ vỡ hơn — RESUBMIT-SAU-TỪ-CHỐI: endpoint
+		thật nạp một `Document` MỚI qua `frappe.get_doc()`
 		mỗi request rồi gọi `.gui_duyet()` ngay. Mô phỏng đúng đường đó —
 		nạp lại `Document` MỚI thay vì tái dùng object đã tự `save()` trong
 		test (khác `test_de_xuat_doctype.py::test_tu_choi_roi_sua_roi_gui_
