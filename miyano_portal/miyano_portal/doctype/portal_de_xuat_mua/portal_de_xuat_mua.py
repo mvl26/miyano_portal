@@ -55,10 +55,15 @@ TRANG_THAI_CHO_DUYET_SUA = "Chờ duyệt sửa"
 # 0`), nên `-1` là sentinel AN TOÀN — không trùng bất kỳ giá trị hợp lệ nào.
 SO_LUONG_XIN_SUA_TRONG = -1
 
-# Task 2 (gộp luồng đặt hàng, 19/08/2026, Ruling P7) — thay cho `loai_don`
-# cấp PHIẾU đã xoá. Mỗi DÒNG tự mang nguồn giá của nó; một phiếu được phép
-# trộn cả hai. KHÔNG có giá trị "Hỗn hợp" nào — xem `co_dong_cho_bao_gia()`.
+# Mỗi DÒNG tự mang nguồn giá của nó (Task 2 gộp luồng đặt hàng, Ruling P7 —
+# thay cho `loai_don` cấp PHIẾU đã xoá). KHÔNG có giá trị "Hỗn hợp" nào —
+# xem `co_dong_cho_bao_gia()`.
+#
+# Spec 2026-10-09 §3.2 — nguồn giá suy từ Price List của khách: có giá →
+# "Bảng giá", chưa có → "Chờ báo giá". "Hợp đồng" chỉ còn trên dòng CŨ đã
+# đóng băng trước thay đổi này; không dòng mới nào nhận nó nữa.
 NGUON_GIA_HOP_DONG = "Hợp đồng"
+NGUON_GIA_BANG_GIA = "Bảng giá"
 NGUON_GIA_CHO_BAO_GIA = "Chờ báo giá"
 
 
@@ -66,33 +71,31 @@ def nguon_gia_theo_ma_cho_khach(customer: str) -> dict:
 	"""`{item_code: blanket_order}` — hợp đồng khung THẮNG CUỘC cho mỗi mã
 	hàng, trong số các Blanket Order CÒN HIỆU LỰC của `customer`.
 
-	Tách ra module-level (Task 3, gộp luồng đặt hàng, 21/08/2026) khỏi
-	`PortalDeXuatMua._nguon_gia_theo_ma()` — CÙNG một luật quyết định giá
-	có NHIỀU nơi gọi: `PortalDeXuatMua.validate()` (qua `_suy_nguon_gia`),
-	`dat_hang._xay_don` và các endpoint của `api/portal.py` (danh mục gộp
-	`portal_catalog_gop` từng là một trong số đó; từ spec 2026-10-09 nó
-	phân tầng theo Price List và không còn gọi hàm này). Hai đường tính
-	"hợp đồng nào thắng" khác nhau sớm muộn
-	cũng lệch — y hệt lý do `_gia_hien_hanh`/`kiem_boi_so` đã được tách
-	thành hàm dùng chung thay vì để mỗi nơi tự viết một bản. Không nhận
-	`Document` làm tham số (chỉ nhận `customer: str`) để gọi được từ một
-	ngữ cảnh KHÔNG có `Portal De Xuat Mua` nào đang mở (một endpoint hay
-	đường dựng đơn không gắn với phiếu nào).
+	Spec 2026-10-09 — phiếu đề xuất KHÔNG còn gọi hàm này: `PortalDeXuatMua.
+	_suy_nguon_gia()` suy nguồn giá từ Price List của khách (`bang_gia_khach`),
+	và đường duyệt (`de_xuat_duyet`) cũng không còn hỏi hợp đồng. Hàm nằm lại
+	ở module này vì các nơi khác còn import nó từ đây: `gia_hdnt.dong_bo_khach`
+	(ghi `Item Price` từ hợp đồng — luật phân định ở đó phải khớp luật ở đây),
+	`portal_mua_le` và các endpoint cũ của `api/portal.py`. Không nhận
+	`Document` làm tham số (chỉ `customer: str`) để gọi được từ ngữ cảnh
+	không có phiếu nào đang mở.
 
-	Xem đầy đủ lý do PHÂN ĐỊNH ("hết hạn sớm nhất thắng, trùng `to_date`
-	thì `name` nhỏ hơn thắng", ngày hiệu lực) ở `PortalDeXuatMua._nguon_
-	gia_theo_ma()` — docstring gốc giữ nguyên ở đó, không chép lại đây để
-	tránh hai lời giải thích lệch nhau theo thời gian.
+	PHÂN ĐỊNH khi một mã hàng nằm trong NHIỀU hợp đồng còn hiệu lực (Ruling
+	P14) — hợp đồng hết hạn SỚM NHẤT thắng, trùng `to_date` thì `name` nhỏ
+	hơn thắng (`gia_hdnt.THU_TU_PHAN_DINH`; `dict.setdefault` chỉ nhận giá
+	trị ĐẦU khi duyệt theo đúng thứ tự đó). "Hết hạn sớm nhất" là hành vi
+	đúng nghiệp vụ (tiêu hợp đồng sắp hết hạn trước), nhưng điều BẮT BUỘC là
+	kết quả phải TẤT ĐỊNH — hai lần hỏi cho cùng một mã không được ra hai
+	hợp đồng khác nhau.
 
 	Ruling P18 (review vòng 1) — "còn hiệu lực" đòi `docstatus == 1` (ĐÃ
 	NỘP/ký), KHÔNG phải `docstatus < 2` (bản đầu — chỉ loại "Đã huỷ", vẫn
 	cho Nháp lọt qua). Một hợp đồng NHÁP là sales còn đang soạn, CHƯA
-	trình ký — để nó định giá một dòng trên phiếu đề xuất là để một bản
-	nháp nội bộ, có thể đổi/xoá bất cứ lúc nào, làm bằng chứng giá cho
-	khoa. Đây cũng là định nghĩa "còn hiệu lực" đã có sẵn ở nơi khác
-	trong app (BR-R7, `items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.
-	py`) — MỘT luật, không phải mỗi nơi tự định nghĩa một kiểu rồi sớm
-	muộn lệch nhau."""
+	trình ký — có thể đổi/xoá bất cứ lúc nào, không được làm nguồn giá.
+	Đây cũng là định nghĩa "còn hiệu lực" đã có sẵn ở nơi khác trong app
+	(BR-R7, `items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.py`) — MỘT
+	luật, không phải mỗi nơi tự định nghĩa một kiểu rồi sớm muộn lệch
+	nhau."""
 	bo_hieu_luc = frappe.get_all(
 		"Blanket Order",
 		filters={
@@ -329,7 +332,7 @@ class PortalDeXuatMua(Document):
 		field này còn CHỊU TẢI: nó là dấu "đã từng gửi duyệt" duy nhất sống
 		sót qua thu hồi, và HAI chốt hỏi thẳng nó thay vì hỏi trạng thái —
 		`on_trash` (không cho xoá vĩnh viễn thứ quản lý đã thấy) và gate
-		đóng băng của `_suy_nguon_gia()` (không cho hợp đồng của dòng cũ bị
+		đóng băng của `_suy_nguon_gia()` (không cho nguồn giá của dòng cũ bị
 		tính lại). Xoá mã ở đây là mở lại cả hai.
 
 		KHÔNG đụng `so_luong_duyet`/`don_gia`: cả
@@ -385,88 +388,46 @@ class PortalDeXuatMua(Document):
 			row.so_luong_duyet = row.so_luong_de_xuat
 
 	def _dong_dau_gia(self):
-		"""§5.6 bẫy #2 (vòng sửa Task 6) — đóng dấu `don_gia` = giá hiện hành
-		TẠI THỜI ĐIỂM GỬI DUYỆT, cùng lúc `so_luong_de_xuat` bị khoá vĩnh
-		viễn (`_chan_sua_so_luong_de_xuat`). Đây là "giá khoa đã thấy" mà
-		`de_xuat_duyet.duyet_va_tao_don()` so với giá tính lại lúc DUYỆT để
-		cảnh báo quản lý — không cảnh báo được gì nếu không có số này.
+		"""Spec 2026-10-09 §4.3 (kế thừa §5.6 bẫy #2) — đóng dấu `don_gia` =
+		giá Price List của khách TẠI THỜI ĐIỂM GỬI DUYỆT, cùng lúc `so_luong_
+		de_xuat` bị khoá (`_chan_sua_so_luong_de_xuat`). Đây là "giá khoa đã
+		thấy" mà `de_xuat_duyet._kiem_gia_doi()` so với giá hiện hành lúc
+		DUYỆT để cảnh báo quản lý — không cảnh báo được gì nếu không có số
+		này.
 
-		Dùng ĐÚNG nguồn giá `dat_hang` dùng (`gia_hdnt.gia_dong_hop_dong`,
-		QĐ-G12) — hai đường tra giá khác nhau sớm muộn cũng lệch, cùng lý do
-		module đó không tự viết một hàm tra giá thứ hai cho nhánh HĐNT/mua lẻ
-		của chính nó.
+		Hỏi ĐÚNG nguồn giá `dat_hang._xay_don` hỏi (`bang_gia_khach`) — hai
+		đường tra giá khác nhau sớm muộn cũng lệch.
 
-		Task 12 — BỎ gate `if not price_list: return` ở đầu hàm. Bước 1 của
-		QĐ-G12 đọc `Blanket Order Item.rate`, không cần bảng giá nào; giữ
-		gate đó thì khách chưa được gán `default_price_list` không bao giờ
-		được đóng dấu giá dù hợp đồng khai đủ. `price_list` (có thể `None`)
-		đi thẳng xuống `gia_dong_hop_dong()`, nơi phép kiểm nằm.
-
-		`row.blanket_order` là hợp đồng dòng đó đã suy ra — ĐÚNG hợp đồng
-		QĐ-G12 nói tới, và nó vừa được `_suy_nguon_gia()` ngay trên ghi lại.
-		Dòng cũ do patch backfill mang `nguon_gia = "Hợp đồng"` mà
-		`blanket_order` NULL (xem `de_xuat_duyet._kiem_han_muc`) rơi thẳng
-		xuống bảng giá — đúng bằng hành vi trước Task 12, không xấu đi.
-
-		Task 2 (gộp luồng đặt hàng) — HÀNH VI ĐỔI so với trước: trước đây
-		hàm này áp cho CẢ PHIẾU (chỉ chạy khi `loai_don == "HĐNT"`, vì một
-		phiếu khi đó CHỈ CÓ MỘT loại). Sau khi `loai_don` bị xoá, một phiếu
-		được phép TRỘN — nên giờ đóng dấu THEO TỪNG DÒNG: chỉ dòng `nguon_
-		gia == "Hợp đồng"` được đóng dấu, dòng `"Chờ báo giá"` (kể cả trong
-		một phiếu trộn) bị BỎ QUA — mua lẻ/chờ báo giá không tra giá ở đâu
-		cả trong toàn bộ luồng (§4.5, `rate = 0`, sales điền khi báo giá),
-		nên không có "giá khoa đã thấy" nào để đóng dấu cho dòng đó. Mặt
-		hàng không tra được giá (chưa có trong bảng giá hợp đồng) thì để
-		`don_gia` RỖNG, KHÔNG throw — gửi duyệt chưa phải lúc chặn vì thiếu
-		giá, đó là việc của lúc duyệt/tạo đơn (`dat_hang._xay_don_hdnt`).
+		Đóng dấu THEO TỪNG DÒNG, chỉ dòng `nguon_gia == "Bảng giá"`:
+		  * dòng "Chờ báo giá" chưa có giá ở đâu cả (sales điền khi báo giá)
+		    nên không có "giá khoa đã thấy" nào để đóng dấu;
+		  * dòng CŨ còn mang "Hợp đồng" (đóng băng trước spec 2026-10-09) giữ
+		    nguyên `don_gia` đã đóng dấu từ hồi đó — đơn của nó vẫn được dựng
+		    theo Price List lúc duyệt, và `_kiem_gia_doi()` bỏ qua nó.
 
 		Tự gọi `_suy_nguon_gia()` TRƯỚC khi đọc `nguon_gia` — hàm này chạy
-		TRONG `gui_duyet()`, TRƯỚC `self.save()` (nên trước `validate()`
-		của chính lần lưu này), nên KHÔNG được tin `self.items[].nguon_gia`
-		trong bộ nhớ đã chắc chắn mới; validate() của lần save() TRƯỚC ĐÓ
-		mới ghi giá trị đó lần gần nhất.
+		TRONG `gui_duyet()`, TRƯỚC `self.save()` (nên trước `validate()` của
+		chính lần lưu này), nên KHÔNG được tin `self.items[].nguon_gia` trong
+		bộ nhớ đã chắc chắn mới. Trên đường gửi lại (sau "Từ chối" hoặc sau
+		thu hồi) lời gọi đó bỏ qua các dòng ĐÃ đóng băng (xem `dong_bang` ở
+		đó) và chỉ còn tác dụng cho dòng MỚI thêm.
 
-		Ruling P14 — KHÔNG còn gate `if not self.hdnt: return` (field đó
-		chỉ còn legacy, không quyết định phiếu có dòng Hợp đồng hay không
-		nữa — xem `_nguon_gia_theo_ma()`). Vòng lặp bên dưới tự lọc theo
-		`row.nguon_gia` sau khi `_suy_nguon_gia()` tính lại (customer-wide),
-		nên không cần gate ngoài dựa trên `self.hdnt` nữa.
-
-		I3 (review vòng 1) — trên đường resubmit-sau-từ-chối (`gui_duyet()`
-		gọi được từ trạng thái "Từ chối", không chỉ "Nháp"), tự gọi `_suy_
-		nguon_gia()` ở đây gần như KHÔNG LÀM GÌ cho các dòng ĐÃ CÓ từ lần
-		gửi duyệt đầu tiên (đã đóng băng — xem guard `dong_bang` ở đó); nó
-		vẫn còn tác dụng THẬT cho dòng MỚI thêm trong lúc "Từ chối" (chưa
-		đóng băng), nên lời gọi này không phải no-op tuyệt đối, chỉ không
-		còn tính lại phần đã khoá.
+		GHI VÔ ĐIỀU KIỆN, kể cả khi không còn tra được giá (`0` = "chưa có
+		giá"): phiếu gửi lại đi qua đây lần thứ hai, và con dấu phải nói về
+		LẦN GỬI ẤY — nếu chỉ ghi khi có giá thì dòng "Bảng giá" đã đóng băng
+		mà giá vừa bị gỡ vẫn khoe con số của lần gửi trước, một con số không
+		bảng giá nào còn đỡ. Không có đường nào đi qua im lặng: dòng "Bảng
+		giá" mất giá bị `_kiem_gia_doi()` CHẶN lúc duyệt.
 		"""
-		price_list = frappe.db.get_value("Customer", self.customer, "default_price_list")
+		from miyano_portal import bang_gia_khach
 		self._suy_nguon_gia()
-		from miyano_portal import gia_hdnt
+		gia = bang_gia_khach.gia_bang_gia_nhieu(
+			self.customer, [r.item_code for r in self.items]
+		)
 		for row in self.items:
-			if row.nguon_gia != NGUON_GIA_HOP_DONG:
+			if row.nguon_gia != NGUON_GIA_BANG_GIA:
 				continue
-			rate = gia_hdnt.gia_dong_hop_dong(
-				row.item_code, row.blanket_order, price_list
-			)
-			# GHI VÔ ĐIỀU KIỆN (advisor, vòng sửa 1). Bản trước là `if rate:`,
-			# nên con dấu CHỈ ĐI LÊN, không bao giờ hạ: phiếu bị TỪ CHỐI rồi
-			# GỬI LẠI đi qua đây lần thứ hai, và nếu lúc đó không tra được
-			# giá nữa (hợp đồng đã hết hiệu lực — Ruling P31 khiến bước 1 im,
-			# hoặc bảng giá bị gỡ) thì `don_gia` vẫn khoe con số của LẦN GỬI
-			# TRƯỚC. Đó là một con số không hợp đồng nào và không bảng giá
-			# nào còn đỡ, in ra cho bệnh viện như bằng chứng "giá khoa đã
-			# thấy". Cùng họ lỗi với `portal_reorder` tin `custom_hdnt` của
-			# đơn cũ: giá trị ĐÓNG BĂNG được tin hơn phép tính LẠI.
-			#
-			# `0` là cách biểu diễn "chưa có giá" đã dùng sẵn ở đây (dòng
-			# chưa bao giờ tra được giá cũng mang 0), và `_kiem_gia_doi()`
-			# đã tự bỏ qua dòng `not row.don_gia`. Mất cảnh báo `gia_doi`
-			# cho ca này KHÔNG phải mất tín hiệu: hợp đồng hết hiệu lực thì
-			# `_kiem_gia_doi` vẫn báo `hop_dong_doi`, còn giá biến mất hẳn
-			# thì `_xay_don` chặn thẳng lúc duyệt bằng "chưa có giá trong
-			# hợp đồng". Không có đường nào đi qua im lặng.
-			row.don_gia = rate or 0
+			row.don_gia = gia.get(row.item_code) or 0
 
 	def duyet(self, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None):
 		"""Nơi DUY NHẤT ghi `Đã duyệt` LẦN ĐẦU — cùng cả khối truy vết
@@ -1081,49 +1042,46 @@ class PortalDeXuatMua(Document):
 			)
 
 	def _suy_nguon_gia(self):
-		"""Task 2 (gộp luồng đặt hàng), Ruling P14 (thay Ruling P7 — SỬA
-		SAU review: bản đầu suy theo `self.hdnt` ở ĐẦU PHIẾU, hỏng KHÔNG
-		CỨU ĐƯỢC ở tầng giao diện thật — xem `_nguon_gia_theo_ma()`) — ghi
-		`nguon_gia` cho MỌI dòng, KHÔNG tin giá trị client gửi (QĐ-G1): mã
-		hàng có dòng trong BẤT KỲ hợp đồng khung nào của `self.customer`
-		còn hiệu lực → `Hợp đồng` (và `blanket_order` = hợp đồng THẮNG
-		CUỘC); ngược lại (kể cả `item_code` rỗng) → `Chờ báo giá`
-		(`blanket_order` để rỗng). Luôn GHI ĐÈ, kể cả khi `self.items` rỗng
-		— không có nhánh nào bỏ qua để giá trị cũ/giá trị client gửi sống
-		sót.
+		"""Spec 2026-10-09 §3.2 — ghi `nguon_gia` cho MỌI dòng, KHÔNG tin giá
+		trị client gửi (QĐ-G1): mã hàng CÓ giá trong Price List của `self.
+		customer` (`bang_gia_khach.gia_bang_gia_nhieu` — cùng phép hỏi với
+		danh mục và `dat_hang._xay_don`) → `Bảng giá`; ngược lại (kể cả
+		`item_code` rỗng) → `Chờ báo giá`. `blanket_order` luôn để RỖNG:
+		phiếu không còn gắn hợp đồng khung nào lên dòng. Luôn GHI ĐÈ, kể cả
+		khi `self.items` rỗng — không có nhánh nào bỏ qua để giá trị cũ/giá
+		trị client gửi sống sót. `self.hdnt` ở đầu phiếu chỉ còn là field
+		LEGACY, không được đọc ở đây.
 
 		I3 (review vòng 1) — TRỪ khi phiếu đã qua khỏi Nháp: ĐÓNG BĂNG
-		`nguon_gia`/`blanket_order` ĐÚNG nơi `_chan_sua_so_luong_de_xuat`
-		đã khoá `so_luong_de_xuat`/`don_gia` (từ lúc Gửi duyệt trở đi,
-		"khoá vĩnh viễn" — §5.3). Không có chốt này, một lần lưu BẤT KỲ sau
-		khi đã duyệt (VD: `duyet_sua()`, luồng xin sửa/duyệt sửa số lượng)
-		sẽ tính lại theo trạng thái hợp đồng HIỆN TẠI — nếu hợp đồng đã hết
-		hạn từ lúc đó, phiếu ĐÃ được duyệt dựa trên giá hợp đồng nào sẽ bị
-		âm thầm ghi đè thành "Chờ báo giá", xoá mất bằng chứng đã dùng lúc
-		duyệt.
+		`nguon_gia`/`blanket_order` của các dòng đã có lúc Gửi duyệt. Nguồn
+		giá của dòng là điều khoa ĐÃ THẤY lúc gửi ("có giá sẵn" hay "chờ báo
+		giá"), và phiếu đã được tách theo đúng loại đó lúc gửi (§4.1). Không
+		có chốt này, một lần lưu BẤT KỲ sau đó (VD: `duyet_sua()`, luồng xin
+		sửa/duyệt sửa số lượng) sẽ tính lại theo Price List HIỆN TẠI và âm
+		thầm ghi đè bằng chứng đó. Chốt này cũng là thứ giữ nguyên các dòng
+		CŨ mang `Hợp đồng` + `blanket_order` (đóng băng trước spec
+		2026-10-09): chúng không bị tính lại, và đường duyệt vẫn chạy được
+		với chúng vì `dat_hang._xay_don` tự hỏi Price List cho mọi dòng.
 
 		SỬA (review TOÀN NHÁNH, 03/09/2026) — gate hỏi `ma_de_xuat`, KHÔNG
 		hỏi trạng thái, nên nó CỐ Ý KHÁC điều kiện của `_chan_sua_so_luong_
-		de_xuat` (bản trước hai nơi viết cùng một điều kiện và nói rõ là cố
-		ý; giờ chúng phải khác nhau). Vì sao hai khoá tách đôi:
+		de_xuat`. Vì sao hai khoá tách đôi:
 
 		  * khoá SỐ LƯỢNG phải MỞ LẠI khi thu hồi — đó là toàn bộ lý do
 		    `thu_hoi()` tồn tại (nhân viên sửa lại đơn mình vừa gửi);
-		  * khoá NGUỒN GIÁ thì KHÔNG — "hợp đồng nào đứng sau dòng này" là
-		    bằng chứng, không phải một ô để sửa, và không ai bấm Thu hồi để
-		    xin đổi nó.
+		  * khoá NGUỒN GIÁ thì KHÔNG — "dòng này đã gửi đi với nguồn giá
+		    nào" là bằng chứng, không phải một ô để sửa, và không ai bấm Thu
+		    hồi để xin đổi nó.
 
-		Nếu gate này vẫn hỏi trạng thái, chính `thu_hoi()` mở nó ra: hàm đó
-		đặt `trang_thai = "Nháp"` TRƯỚC `save()`, nên `validate()` của lần
-		lưu đó chạy với `dong_bang = False` và tính lại MỌI dòng. Ca thật:
-		dòng đang là "Hợp đồng", hợp đồng hết hạn trong lúc chờ duyệt → thu
-		hồi lật nó sang "Chờ báo giá" + `blanket_order = None`; lần gửi
-		duyệt sau `_dong_dau_gia` bỏ qua dòng chờ báo giá nên `don_gia` cũ
-		SỐNG NGUYÊN, rồi `_kiem_gia_doi` im hoàn toàn (hai vế hợp đồng cùng
-		`None` → `hop_dong_doi` False; `gia_moi` `None` → `gia_doi` False).
-		Quản lý duyệt một dòng chờ báo giá mang giá của một hợp đồng đã
-		chết. Xem `test_nguon_gia_dong.py::test_thu_hoi_roi_gui_lai_VAN_
-		canh_bao_hop_dong_da_chet`.
+		Nếu gate này hỏi trạng thái, chính `thu_hoi()` mở nó ra: hàm đó đặt
+		`trang_thai = "Nháp"` TRƯỚC `save()`, nên `validate()` của lần lưu
+		đó chạy với `dong_bang = False` và tính lại MỌI dòng. Ca thật: dòng
+		đang là "Bảng giá", giá bị gỡ khỏi Price List trong lúc chờ duyệt →
+		thu hồi lật nó sang "Chờ báo giá"; lần gửi duyệt sau `_dong_dau_gia`
+		bỏ qua dòng chờ báo giá nên `don_gia` cũ SỐNG NGUYÊN, và `_kiem_gia_
+		doi` (chỉ xét dòng "Bảng giá") im hoàn toàn — quản lý duyệt một dòng
+		chờ báo giá còn khoe con số của một giá đã bị gỡ. Xem `test_nguon_
+		gia_dong.py::test_thu_hoi_KHONG_mo_bang_nguon_gia_cua_dong_cu`.
 
 		`ma_de_xuat` là dấu "ĐÃ TỪNG gửi duyệt" duy nhất sống sót qua thu
 		hồi (`thu_hoi()` cố ý giữ nó) — cùng dấu mà `on_trash` đã chuyển
@@ -1131,15 +1089,15 @@ class PortalDeXuatMua(Document):
 
 		SỬA (advisor, ngay sau review vòng 1) — đóng băng theo TỪNG DÒNG đã
 		có lúc gửi duyệt, KHÔNG `return` sớm cho CẢ `self.items`:
-		`_chan_sua_so_luong_de_xuat` (nơi I3 mô phỏng theo) vẫn CHO PHÉP
-		thêm dòng MỚI sau khi gửi duyệt (Đường lọt #1 của gate đó — quản lý
-		điều chỉnh qua `_ap_dieu_chinh`, dòng mới bắt buộc `so_luong_de_
-		xuat = 0`). `return` sớm cho cả tập dòng sẽ khiến dòng MỚI đó không
-		bao giờ được `_suy_nguon_gia()` chạm tới — nó giữ nguyên default
-		Select "Hợp đồng" (lựa chọn ĐẦU trong `options`) dù mã hàng của nó
-		không hề thuộc hợp đồng nào: đúng bẫy false-green đã ghi ở đầu task
-		này, quay lại qua một cửa khác.
+		`_chan_sua_so_luong_de_xuat` vẫn CHO PHÉP thêm dòng MỚI sau khi gửi
+		duyệt (Đường lọt #1 của gate đó — quản lý điều chỉnh qua `_ap_dieu_
+		chinh`, dòng mới bắt buộc `so_luong_de_xuat = 0`). `return` sớm cho
+		cả tập dòng sẽ khiến dòng MỚI đó không bao giờ được `_suy_nguon_
+		gia()` chạm tới — nó giữ nguyên default Select "Hợp đồng" (lựa chọn
+		ĐẦU trong `options`), một nguồn giá không dòng mới nào được phép
+		mang nữa.
 		"""
+		from miyano_portal import bang_gia_khach
 		dong_bang = not self.is_new() and (
 			bool(self.ma_de_xuat) or self.trang_thai != TRANG_THAI_NHAP
 		)
@@ -1147,8 +1105,8 @@ class PortalDeXuatMua(Document):
 		# before_save()` làm nguồn `da_khoa`: property đó chỉ được Frappe
 		# điền trong một chu trình `save()` ĐÃ XẢY RA trên CHÍNH object
 		# Python này (`base_document.py`, gán trong `_get_doc_before_save`
-		# gọi từ `run_before_save_hooks`), mà lời gọi DUY NHẤT của hàm này
-		# ở `_dong_dau_gia()` chạy TRỰC TIẾP từ `gui_duyet()`, TRƯỚC `self.
+		# gọi từ `run_before_save_hooks`), mà hàm này còn được gọi từ
+		# `_dong_dau_gia()` chạy TRỰC TIẾP trong `gui_duyet()`, TRƯỚC `self.
 		# save()`. Đường Nháp→Chờ duyệt vô hại (`dong_bang` False lúc đó).
 		# Đường RESUBMIT-SAU-TỪ-CHỐI (`gui_duyet()` hợp lệ từ "Từ chối")
 		# THÌ VỠ: endpoint thật nạp `Document` MỚI qua `frappe.get_doc()`
@@ -1161,81 +1119,25 @@ class PortalDeXuatMua(Document):
 		da_khoa = set(frappe.get_all(
 			"Portal De Xuat Mua Item", filters={"parent": self.name}, pluck="name"
 		)) if dong_bang else set()
-		thang_cuoc = self._nguon_gia_theo_ma()
+		co_gia = bang_gia_khach.gia_bang_gia_nhieu(
+			self.customer, [r.item_code for r in self.items]
+		)
 		for row in self.items:
 			if dong_bang and row.name in da_khoa:
 				# Dòng đã có lúc gửi duyệt — đóng băng, không tính lại.
 				continue
-			bo = thang_cuoc.get(row.item_code)
-			if bo:
-				row.nguon_gia = NGUON_GIA_HOP_DONG
-				row.blanket_order = bo
-			else:
-				row.nguon_gia = NGUON_GIA_CHO_BAO_GIA
-				row.blanket_order = None
-
-	def _nguon_gia_theo_ma(self) -> dict:
-		"""`{item_code: blanket_order}` — hợp đồng khung THẮNG CUỘC cho mỗi
-		mã hàng, trong số các Blanket Order CÒN HIỆU LỰC của `self.customer`.
-
-		Ruling P14 (review màn lập phiếu, 21/08/2026) — SỬA hẳn cách suy so
-		với bản đầu (Ruling P7, đã xoá): bản đầu hỏi ĐÚNG một hợp đồng —
-		`self.hdnt`, field ở ĐẦU PHIẾU — mô phỏng CHÍNH lỗi mà cả kế hoạch
-		này sinh ra để sửa (`loai_don`, một field cấp ĐƠN ép "cả phiếu chỉ
-		một loại"), chỉ lệch sang field khác. Vỡ thật ở tầng giao diện:
-		`api/de_xuat.de_xuat_tao_nhap()` tạo phiếu Nháp TRƯỚC KHI người
-		dùng chọn mặt hàng nào — `hdnt` lúc đó luôn `None` — và `de_xuat_
-		luu_nhap()` (hàm DUY NHẤT ghi `items` sau đó) KHÔNG có tham số
-		`hdnt` nào để sửa lại. Nghĩa là bản đầu khiến `hdnt` rỗng VĨNH VIỄN
-		cho MỌI phiếu tạo qua đúng luồng UI thật, `_items_hop_dong_hieu_
-		luc()` (cũ) luôn trả tập rỗng, MỌI dòng thành "Chờ báo giá" — tầng
-		1 (Hợp đồng) không bao giờ chạy được, đúng tính năng chính của cả
-		kế hoạch "gộp luồng đặt hàng".
-
-		Sửa: hỏi CUSTOMER-WIDE (giống `portal_mua_le.items_thuoc_hdnt_hieu_
-		luc()`, BR-R7) thay vì một hợp đồng cố định — `self.hdnt` KHÔNG còn
-		được đọc ở đây nữa, chỉ còn là field LEGACY (giữ lại cho `_kiem_han_
-		muc`/`dat_hang.tao_sales_order` tới Task 4/5, xem `de_xuat_duyet.py`).
-
-		PHÂN ĐỊNH khi một mã hàng nằm trong NHIỀU hợp đồng còn hiệu lực —
-		hợp đồng hết hạn SỚM NHẤT thắng (`order_by="to_date asc, name
-		asc"`, `dict.setdefault` chỉ nhận giá trị ĐẦU khi duyệt theo đúng
-		thứ tự ưu tiên đó). Chọn "hết hạn sớm nhất" vì đó là hành vi ĐÚNG
-		nghiệp vụ (tiêu hợp đồng sắp hết hạn trước khi nó biến mất); nhưng
-		điều BẮT BUỘC không phải là chọn tiêu chí nào, mà là kết quả phải
-		TẤT ĐỊNH — lưu đi lưu lại một phiếu mà dòng của nó nhảy qua lại
-		giữa hai hợp đồng là lỗi nặng hơn cả việc chọn nhầm hợp đồng nào.
-		`name asc` phá vỡ hoà khi trùng `to_date`, để `order_by` không bao
-		giờ mơ hồ.
-
-		`docstatus == 1` (Ruling P18, review vòng 1 — SỬA, thay quyết định
-		`docstatus < 2` bản đầu) — bản đầu chọn `< 2` (chỉ loại hợp đồng đã
-		HUỶ, vẫn cho Nháp lọt qua) và biện minh bằng chính fixture của HAI
-		bộ test đang tồn tại (`TestDeXuatDuyetHanMuc` và bộ test của chính
-		task này), cả hai khi đó đều dựng Blanket Order chỉ `.insert()`
-		không `.submit()`. Review chỉ đúng ra đó là một dạng fixture-
-		patching trá hình quanh chính cái gate đang được kiểm: fixture tiện
-		tay không phải là lý do nghiệp vụ. Định nghĩa "còn hiệu lực" đúng
-		phải THỐNG NHẤT với nơi đã có sẵn trong app (BR-R7,
-		`items_thuoc_hdnt_hieu_luc()` tại `portal_mua_le.py`, đòi
-		`docstatus == 1`) — một hợp đồng NHÁP (sales còn soạn, chưa trình
-		ký) không được định giá bất cứ dòng nào. Cả hai bộ test đã SỬA để
-		`.submit()` Blanket Order của mình, không nới định nghĩa để né việc
-		sửa fixture.
-
-		Task 3 (21/08/2026) — phép tính THẬT SỰ chuyển sang hàm module-level
-		`nguon_gia_theo_ma_cho_khach()` (đầu file), dùng CHUNG với các nơi
-		gọi ngoài doctype này. Docstring này giữ nguyên tại đây
-		(không chuyển) vì nó gắn với lịch sử review/Ruling P14 của CHÍNH
-		method này; hàm module-level chỉ trỏ ngược lại đây thay vì chép lại.
-		"""
-		return nguon_gia_theo_ma_cho_khach(self.customer)
+			row.blanket_order = None
+			row.nguon_gia = (
+				NGUON_GIA_BANG_GIA if row.item_code in co_gia
+				else NGUON_GIA_CHO_BAO_GIA
+			)
 
 	def co_dong_cho_bao_gia(self) -> bool:
 		"""Task 2, Ruling P7 — THAY THẾ mọi chỗ trước đây hỏi `loai_don`
 		(nay đã xoá khỏi doctype). `True` khi có ít nhất một dòng `Chờ báo
-		giá` HOẶC có dòng đặt ngoài (`self.dat_ngoai` — chưa có mã, luôn
-		không tra được giá hợp đồng).
+		giá` HOẶC có dòng đặt ngoài (`self.dat_ngoai` — chưa có mã, nên
+		không có giá nào trong Price List). Dòng `Bảng giá` và dòng CŨ còn
+		mang `Hợp đồng` đều KHÔNG tính là chờ báo giá.
 
 		Đọc TRỰC TIẾP `self.items[].nguon_gia` đã suy sẵn ở `_suy_nguon_
 		gia()` (validate()), KHÔNG tự tính lại — cùng cách `loai_don` cũ

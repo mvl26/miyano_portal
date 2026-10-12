@@ -302,9 +302,12 @@ class TestGiaTuHopDong(FrappeTestCase):
 		self.assertIsNone(dong[0]["don_gia"])
 		self.assertNotIn("blanket_order", dong[0])
 
-	def test_gui_duyet_dong_dau_gia_hop_dong_khi_bang_gia_trong(self):
-		"""`_dong_dau_gia` — "giá khoa đã thấy" phải là giá hợp đồng, đi qua
-		ĐƯỜNG CÔNG KHAI `gui_duyet()`."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_gui_duyet_KHONG_dong_dau_gia_hop_dong_khi_bang_gia_trong(self):
+		"""`_dong_dau_gia` đi qua ĐƯỜNG CÔNG KHAI `gui_duyet()`: mã CHỈ có giá
+		trên hợp đồng (Price List của khách trống) là dòng "Chờ báo giá" —
+		không mang hợp đồng khung, và không có "giá khoa đã thấy" nào để
+		đóng dấu. Giá hợp đồng không còn được hỏi ở đây."""
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
@@ -313,8 +316,9 @@ class TestGiaTuHopDong(FrappeTestCase):
 		doc.ly_do_yeu_cau = "cần hàng"
 		doc.gui_duyet()
 		doc.reload()
-		self.assertEqual(doc.items[0].nguon_gia, "Hợp đồng")
-		self.assertEqual(float(doc.items[0].don_gia), float(GIA_HOP_DONG))
+		self.assertEqual(doc.items[0].nguon_gia, "Chờ báo giá")
+		self.assertFalse(doc.items[0].blanket_order)
+		self.assertFalse(doc.items[0].don_gia)
 
 	def test_dat_lai_don_cu_cung_lay_gia_hop_dong(self):
 		"""`portal_reorder` — phép tra `Item Price` THỨ SÁU, độc lập, phát

@@ -26,9 +26,9 @@ bài về lỗi vượt hạn mức ở nhánh đặt hàng đã xoá cùng hàn
 trộn thành hai phiếu là của tầng trên (§4.1), không kiểm ở file này.
 
 Ruling P19 (điều phối viên, sau review Task 2) — bài test BẮT BUỘC của
-vòng này: một phiếu `hdnt = None` (đúng dạng MỌI phiếu tạo qua UI thật,
-xem `_nguon_gia_theo_ma()`) mà mọi dòng đều `nguon_gia == "Hợp đồng"`
-phải duyệt được thành đơn. Trước Task 4 nó ném
+vòng này: một phiếu `hdnt = None` (đúng dạng MỌI phiếu tạo qua UI thật)
+mà mọi dòng đều có giá sẵn (hồi đó `nguon_gia == "Hợp đồng"`, từ spec
+2026-10-09 là "Bảng giá") phải duyệt được thành đơn. Trước Task 4 nó ném
 `PermissionError("Hợp đồng không thuộc đơn vị của bạn.")` — `mode="hdnt"`
 + `contract=None` → `frappe.db.get_value("Blanket Order", None, ...)` rơi
 vào `get_values_from_single()` và trả `None`. Bài test này đỏ trước, xanh
@@ -52,7 +52,7 @@ from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
 
-NGUON_GIA_HOP_DONG = "Hợp đồng"
+NGUON_GIA_BANG_GIA = "Bảng giá"
 NGUON_GIA_CHO_BAO_GIA = "Chờ báo giá"
 
 
@@ -376,7 +376,10 @@ class TestDatHangGop(FrappeTestCase):
 			"nguon_gia": NGUON_GIA_CHO_BAO_GIA,   # gán SAI, buộc suy lại thật
 		}])
 		self.assertIsNone(doc.hdnt, "phiếu UI thật KHÔNG có hdnt")
-		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_HOP_DONG)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Dòng có giá trong
+		# Price List của khách là "Bảng giá", không còn là "Hợp đồng".
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_BANG_GIA)
+		self.assertFalse(doc.items[0].blanket_order)
 		self.assertFalse(doc.co_dong_cho_bao_gia())
 
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
