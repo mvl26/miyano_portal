@@ -128,3 +128,272 @@ def ly_do_khong_tra(row, thong_tin_item, la_bo: bool):
 	if not row.get("warehouse"):
 		return LY_DO_KHONG_KHO
 	return None
+
+
+# ------------------------------------------------------------- đọc CSDL
+def _ton_hien_tai(item_code: str, warehouse: str) -> float:
+	"""`Bin.actual_qty`. Không có dòng `Bin` = chưa từng có hàng = 0 THẬT."""
+	return flt(
+		frappe.db.get_value(
+			"Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty"
+		),
+		DO_CHINH_XAC,
+	)
+
+
+def _ton_het_han(item_code: str, warehouse: str) -> float:
+	"""Tổng tồn của các lô ĐÃ hết hạn tại một kho.
+
+	= (mọi lô, `for_stock_levels=True`) − (lô còn hạn và lô không khai hạn).
+	Hỏi đúng hàm ERPNext dùng khi tự chọn lô để xuất, để "hết hạn" ở đây và
+	"không xuất được" ở phiếu giao là cùng một định nghĩa.
+
+	Tính phần HẾT HẠN rồi trừ, KHÔNG lấy thẳng "tổng lô còn hạn" làm tồn dùng
+	được: đo trên site thử 12/10/2026 có mặt hàng theo lô mà tồn `Bin` không
+	có sổ lô đi kèm (1/60). Lấy tổng lô còn hạn thì mặt hàng đó ra 0 và báo
+	thiếu sai; cách này chỉ trừ thứ biết chắc là hết hạn.
+	"""
+	from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+	def tong(**kw):
+		lo = get_batch_qty(item_code=item_code, warehouse=warehouse, **kw) or []
+		return sum(flt(b.get("qty")) for b in lo)
+
+	return flt(max(tong(for_stock_levels=True) - tong(), 0), DO_CHINH_XAC)
+
+
+def _giu_cho_don_khac(item_code: str, warehouse: str, tru_don: str) -> float:
+	"""Phần còn phải giao của các Sales Order KHÁC đã Submit.
+
+	Là BẢN SAO truy vấn của `erpnext.stock.stock_balance.get_reserved_qty`
+	(nguồn của `Bin.reserved_qty`), thêm đúng một điều kiện `parent != tru_don`
+	ở mỗi nhánh. Không lấy `Bin.reserved_qty` rồi tự trừ phần của đơn đang
+	xem: phép trừ viết tay phải khớp từng nhánh (hàng trả lại, Product Bundle)
+	mới không lệch. Bài test `…khop_dung_ham_goc…` ghim hai truy vấn vào nhau.
+	"""
+	khong_giu_khi_tra = cint(
+		frappe.db.get_single_value(
+			"Selling Settings", "dont_reserve_sales_order_qty_on_sales_return"
+		)
+	)
+	kq = frappe.db.sql(
+		f"""
+		select
+			sum(dnpi_qty * ((so_item_qty - so_item_delivered_qty
+				- if({khong_giu_khi_tra}, so_item_returned_qty, 0)) / so_item_qty))
+		from
+			(
+				(select
+					dnpi.qty as dnpi_qty,
+					(
+						select qty from `tabSales Order Item`
+						where name = dnpi.parent_detail_docname
+						and (delivered_by_supplier is null or delivered_by_supplier = 0)
+					) as so_item_qty,
+					(
+						select delivered_qty from `tabSales Order Item`
+						where name = dnpi.parent_detail_docname
+						and delivered_by_supplier = 0
+					) as so_item_delivered_qty,
+					(
+						select returned_qty from `tabSales Order Item`
+						where name = dnpi.parent_detail_docname
+						and delivered_by_supplier = 0
+					) as so_item_returned_qty,
+					dnpi.parent, dnpi.name
+				from `tabPacked Item` dnpi
+				where dnpi.item_code = %(item)s and dnpi.warehouse = %(kho)s
+					and dnpi.parenttype = 'Sales Order'
+					and dnpi.item_code != dnpi.parent_item
+					and dnpi.parent != %(tru)s
+					and exists (select 1 from `tabSales Order` so
+						where so.name = dnpi.parent and so.docstatus = 1
+						and so.status not in ('On Hold', 'Closed')))
+			union
+				(select
+					so_item.stock_qty as dnpi_qty,
+					so_item.qty as so_item_qty,
+					so_item.delivered_qty as so_item_delivered_qty,
+					so_item.returned_qty as so_item_returned_qty,
+					so_item.parent, so_item.name
+				from `tabSales Order Item` so_item
+				where so_item.item_code = %(item)s and so_item.warehouse = %(kho)s
+					and (so_item.delivered_by_supplier is null
+						or so_item.delivered_by_supplier = 0)
+					and so_item.parent != %(tru)s
+					and exists (select 1 from `tabSales Order` so
+						where so.name = so_item.parent and so.docstatus = 1
+						and so.status not in ('On Hold', 'Closed')))
+			) tab
+		where so_item_qty >= so_item_delivered_qty
+		""",
+		{"item": item_code, "kho": warehouse, "tru": tru_don or ""},
+	)
+	return flt(kq[0][0] if kq else 0, DO_CHINH_XAC)
+
+
+def _don_nhap_khac(item_code: str, warehouse: str, tru_don: str):
+	"""Các đơn NHÁP khác cùng mặt hàng, cùng kho — chỉ để ghi chú (spec §5.3)."""
+	sl, so_don = frappe.db.sql(
+		"""
+		select coalesce(sum(i.stock_qty), 0), count(distinct i.parent)
+		from `tabSales Order Item` i
+		join `tabSales Order` s on s.name = i.parent
+		where s.docstatus = 0 and i.item_code = %(item)s
+			and i.warehouse = %(kho)s and i.parent != %(tru)s
+		""",
+		{"item": item_code, "kho": warehouse, "tru": tru_don or ""},
+	)[0]
+	if not so_don:
+		return None
+	return {"sl": flt(sl, DO_CHINH_XAC), "so_don": cint(so_don)}
+
+
+def _mr_theo_dong(so_details: list) -> dict:
+	"""Phần Material Request CHƯA NHẬN VỀ KHO, gom theo dòng đơn.
+
+	`stock_qty − received_qty`, không phải `stock_qty`: hàng đã nhận thì đã
+	nằm trong tồn hiện tại, đếm cả số MR gốc là đếm hai lần. Tính cả MR nháp
+	lẫn MR đã Submit; bỏ MR đã huỷ và MR Stopped.
+	"""
+	so_details = [n for n in so_details if n]
+	if not so_details:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		select mri.sales_order_item, mri.parent,
+			greatest(mri.stock_qty - mri.received_qty, 0) as con
+		from `tabMaterial Request Item` mri
+		join `tabMaterial Request` mr on mr.name = mri.parent
+		where mri.sales_order_item in %(ds)s
+			and mr.material_request_type = 'Purchase'
+			and mr.docstatus in (0, 1)
+			and mr.status not in ('Stopped', 'Cancelled')
+		order by mr.creation
+		""",
+		{"ds": tuple(so_details)},
+		as_dict=True,
+	)
+	kq = {}
+	for r in rows:
+		if flt(r.con) <= 0:
+			continue
+		d = kq.setdefault(r.sales_order_item, {"sl": 0.0, "mr": []})
+		d["sl"] = flt(d["sl"] + flt(r.con), DO_CHINH_XAC)
+		if r.parent not in d["mr"]:
+			d["mr"].append(r.parent)
+	return kq
+
+
+# ------------------------------------------------------------ dựng bảng
+def _dong_trong(**kw) -> dict:
+	d = {
+		"so_detail": None, "idx": 0, "item_code": None, "item_name": "",
+		"kho": None, "dvt": None, "ly_do": None, "sl_yeu_cau": None,
+		"ton_hien_tai": None, "ton_kha_dung": None, "sl_thieu": None,
+		"mr_da_phu": None, "can_mua": None, "de_xuat": None, "mr": [],
+		"don_nhap_khac": None,
+	}
+	d.update(kw)
+	return d
+
+
+def bang_cho_don(so) -> dict:
+	"""Bảng đối sánh tồn kho cho một Sales Order (spec §5).
+
+	`so` là document Sales Order (đã lưu hay đang dựng trong bộ nhớ đều được).
+	Chỉ ĐỌC; không ghi gì vào đơn hay vào CSDL.
+	"""
+	dong_don = list(so.get("items") or [])
+	ma_hang = sorted({r.item_code for r in dong_don if r.item_code})
+	thong_tin = {}
+	bo = set()
+	if ma_hang:
+		thong_tin = {
+			i.name: i
+			for i in frappe.get_all(
+				"Item",
+				filters={"name": ["in", ma_hang]},
+				fields=["name", "is_stock_item", "has_batch_no"],
+			)
+		}
+		bo = set(
+			frappe.get_all(
+				"Product Bundle",
+				filters={"name": ["in", ma_hang], "disabled": 0},
+				pluck="name",
+			)
+		)
+	mr = _mr_theo_dong([r.name for r in dong_don])
+
+	nguon = {}
+	bang = []
+	for r in dong_don:
+		item = thong_tin.get(r.item_code)
+		d = _dong_trong(
+			so_detail=r.name, idx=r.idx, item_code=r.item_code,
+			item_name=r.item_name or r.item_code or "", kho=r.warehouse,
+			dvt=r.stock_uom,
+			ly_do=ly_do_khong_tra(r, item, r.item_code in bo),
+		)
+		bang.append(d)
+		if d["ly_do"]:
+			continue
+		khoa = (r.item_code, r.warehouse)
+		if khoa not in nguon:
+			ton = _ton_hien_tai(r.item_code, r.warehouse)
+			het_han = (
+				_ton_het_han(r.item_code, r.warehouse)
+				if cint(item.has_batch_no) else 0
+			)
+			nguon[khoa] = {
+				"ton_hien_tai": ton,
+				"kha_dung": ton_kha_dung(
+					ton, het_han,
+					_giu_cho_don_khac(r.item_code, r.warehouse, so.name),
+				),
+				"don_nhap_khac": _don_nhap_khac(r.item_code, r.warehouse, so.name),
+			}
+		d["sl_yeu_cau"] = sl_con_giao(r.stock_qty, r.qty, r.delivered_qty)
+		d["ton_hien_tai"] = nguon[khoa]["ton_hien_tai"]
+		d["don_nhap_khac"] = nguon[khoa]["don_nhap_khac"]
+
+	tra_duoc = [d for d in bang if not d["ly_do"]]
+	chia = chia_ton(
+		[((d["item_code"], d["kho"]), d["sl_yeu_cau"]) for d in tra_duoc],
+		{k: v["kha_dung"] for k, v in nguon.items()},
+	)
+	for d, (thay, thieu) in zip(tra_duoc, chia):
+		phu = mr.get(d["so_detail"]) or {}
+		dx = de_xuat(thieu, phu.get("sl"))
+		d.update(
+			ton_kha_dung=thay, sl_thieu=thieu, de_xuat=dx["ma"],
+			mr_da_phu=dx["mr_da_phu"], can_mua=dx["can_mua"],
+			mr=list(phu.get("mr") or []),
+		)
+
+	# Dòng đặt ngoài CHƯA khớp mã: không có `item_code` nên không có gì để
+	# tra. Dòng đã khớp thì đã thành một dòng `items` ở trên.
+	for dn in so.get("custom_dat_ngoai") or []:
+		if dn.get("item_khop"):
+			continue
+		bang.append(_dong_trong(
+			idx=dn.idx, item_name=dn.get("ten_hang") or "", dvt=dn.get("dvt"),
+			sl_yeu_cau=flt(dn.get("so_luong"), DO_CHINH_XAC),
+			ly_do=LY_DO_DAT_NGOAI,
+		))
+
+	con_mua = any(flt(d["can_mua"]) > 0 for d in tra_duoc)
+	return {
+		"dong": bang,
+		"tong": {
+			"so_dong": len(tra_duoc),
+			"so_thieu": sum(1 for d in tra_duoc if flt(d["sl_thieu"]) > 0),
+		},
+		# ERPNext chỉ cho sinh Material Request từ Sales Order đã Submit.
+		"co_the_tao_mr": bool(
+			cint(so.docstatus) == 1
+			and so.get("status") not in ("On Hold", "Closed")
+			and con_mua
+		),
+	}
