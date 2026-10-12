@@ -3,6 +3,8 @@
 Giá báo chỉ vào Price List khi KHÁCH đồng ý (quyết định Q4). Ba chốt dưới đây
 giữ cho điều đó không có đường vòng: đơn báo giá không đi tắt qua khách,
 không gửi khách khi còn thiếu giá, và giá không đổi sau khi khách đã đồng ý.
+Chốt 3 có lối ra: từ "Chờ Miyano xác nhận" nhân viên bấm «Gửi khách duyệt» đưa
+đơn về "Chờ khách đồng ý" để khách đồng ý giá mới.
 
 Chỉ áp cho đơn từ cổng (`custom_nguon_don == "Client Portal"`); đơn Desk tự
 lập không bị ràng. Đơn cổng cũ (trước thay đổi này) có dòng `custom_nguon_gia`
@@ -98,9 +100,11 @@ def kiem_chuyen_trang_thai(doc, method=None) -> None:
 				frappe.ValidationError,
 			)
 
-	# Quay về "Chờ xác nhận" (khách không đồng ý, hoặc khách sửa số lượng) thì
-	# giá đã đồng ý không còn giá trị; vòng đồng ý sau sẽ đóng dấu lại.
-	if nay == TT_CHO_XAC_NHAN:
+	# Quay về "Chờ xác nhận" (khách không đồng ý, hoặc khách sửa số lượng),
+	# hoặc được gửi khách duyệt LẠI từ "Chờ Miyano xác nhận" (lối ra của chốt
+	# 3, patch v1_41 `mo_rong_workflow`), thì giá đã đồng ý không còn giá trị;
+	# vòng đồng ý sau sẽ đóng dấu lại.
+	if nay in (TT_CHO_XAC_NHAN, TRANG_THAI_CHO_KHACH):
 		for d in doc.items:
 			d.custom_gia_khach_dong_y = 0
 

@@ -160,6 +160,52 @@ def chuyen_du_lieu():
 	)
 
 
+WORKFLOW = "Sales Order - Client Portal"
+# (state, action, next_state, allowed) — lối ra của chốt 3 (§5.4): giá bị sửa
+# sau khi khách đồng ý thì nhân viên đưa đơn quay lại cho khách duyệt. Không
+# thêm trạng thái mới (§6 bước 4).
+CANH_GUI_KHACH_DUYET_LAI = (
+	"Chờ Miyano xác nhận", "Gửi khách duyệt", "Chờ khách đồng ý", "Sales User",
+)
+
+
+def mo_rong_workflow():
+	"""Thêm bước "Chờ Miyano xác nhận" → «Gửi khách duyệt» → "Chờ khách đồng ý".
+
+	Chốt 3 (`chot_bao_gia.kiem_gia_khop_gia_da_dong_y`) chặn xác nhận và bảo
+	"gửi khách duyệt lại", nhưng từ "Chờ Miyano xác nhận" workflow chỉ có "Xác
+	nhận" và "Từ chối" (trạng thái cuối): một lần sửa giá chính đáng sau khi
+	khách đồng ý là ngõ cụt.
+
+	Cùng khuôn `v1_4/mo_rong_workflow_e2.py` (mở rộng workflow ĐANG CHẠY —
+	`install_portal_workflow()` thoát sớm khi workflow đã có). Idempotent theo
+	nội dung: chỉ thêm khi chưa có đúng bộ bốn khoá. Site mới có sẵn cạnh này
+	từ `setup/install_workflow.py`, nên ở đó hàm không làm gì.
+	"""
+	if not frappe.db.exists("Workflow", WORKFLOW):
+		return False
+	state, action, next_state, allowed = CANH_GUI_KHACH_DUYET_LAI
+	if not frappe.db.exists("Workflow Action Master", action):
+		frappe.get_doc(
+			{"doctype": "Workflow Action Master", "workflow_action_name": action}
+		).insert(ignore_permissions=True)
+	wf = frappe.get_doc("Workflow", WORKFLOW)
+	if not {state, next_state} <= {s.state for s in wf.states}:
+		# Workflow thiếu "Chờ khách đồng ý" (v1_4 chưa chạy): không có gì để nối.
+		return False
+	if CANH_GUI_KHACH_DUYET_LAI in {
+		(t.state, t.action, t.next_state, t.allowed) for t in wf.transitions
+	}:
+		return False
+	wf.append("transitions", {
+		"state": state, "action": action, "next_state": next_state, "allowed": allowed,
+	})
+	wf.flags.ignore_permissions = True
+	wf.save()
+	return True
+
+
 def execute():
 	them_truong()
 	chuyen_du_lieu()
+	mo_rong_workflow()
