@@ -441,17 +441,26 @@ def de_xuat_duyet_phieu(ten, dieu_chinh=None, duyet_ca_hai=0) -> dict:
 	if dieu_chinh:
 		_ap_dieu_chinh(doc, dieu_chinh)
 	from miyano_portal import de_xuat_duyet
-	kq = de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
-	kq["phieu_cung_lan_dat"] = None
-	# Spec 2026-10-09 §7 — "Duyệt cả hai": phiếu kia duyệt CÙNG tư cách và
-	# cùng chốt quyền như phiếu này. Cả hai nằm trong một giao dịch: phiếu
-	# kia ném lỗi thì ngoại lệ lan lên và request rollback luôn phiếu này.
+
+	# Spec 2026-10-09 §7 — "Duyệt cả hai". MỌI chốt không cần ghi của phiếu
+	# kia chạy TRƯỚC khi duyệt phiếu này (quyền + tồn tại, chuyển trạng thái
+	# hợp lệ, giá còn đủ), để phiếu kia bị chặn thì chưa đơn/nhật ký/thông
+	# báo nào được ghi — không dựa vào việc request rollback.
+	doc_kia = None
 	kia = doc.get("phieu_cung_lan_dat")
 	if frappe.utils.cint(duyet_ca_hai) and kia and frappe.db.get_value(
 		DOCTYPE, kia, "trang_thai"
 	) == "Chờ duyệt":
-		_phieu_cua_toi(kia, cho_quan_ly=True)
-		kq_kia = de_xuat_duyet.duyet_va_tao_don(kia, frappe.session.user)
+		doc_kia = _phieu_cua_toi(kia, cho_quan_ly=True)
+		doc_kia._kiem_chuyen("Đã duyệt")
+		de_xuat_duyet._kiem_gia_doi(doc_kia)
+
+	kq = de_xuat_duyet.duyet_va_tao_don(doc.name, frappe.session.user)
+	kq["phieu_cung_lan_dat"] = None
+	if doc_kia:
+		# Cả hai lần duyệt chạy dưới tư cách người duyệt mặc định của
+		# endpoint này; ai thêm duyệt uỷ quyền vào đây phải đổi CẢ HAI lời gọi.
+		kq_kia = de_xuat_duyet.duyet_va_tao_don(doc_kia.name, frappe.session.user)
 		kq["phieu_cung_lan_dat"] = {
 			"sales_order": kq_kia["sales_order"], "de_xuat": kq_kia["de_xuat"],
 		}

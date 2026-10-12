@@ -123,44 +123,95 @@ class TestApiLanDat(FrappeTestCase):
 		for ten in (a, b):
 			self.assertEqual(frappe.db.get_value(DT, ten, "trang_thai"), "Đã duyệt")
 
-	def test_duyet_ca_hai_phieu_kia_bi_chan_thi_khong_duyet_phieu_nao(self):
+	def _khong_dong_gi_cho_phieu_dau(self, a, b, so_don_truoc):
+		"""KHÔNG rollback ở test: phiếu đầu phải còn nguyên vì production
+		chưa hề ghi gì cho nó."""
+		frappe.set_user("Administrator")
+		self.assertEqual(frappe.db.get_value(DT, a, "trang_thai"), "Chờ duyệt")
+		self.assertFalse(frappe.db.get_value(DT, a, "sales_order"))
+		self.assertEqual(
+			frappe.db.count("Sales Order", {"customer": self.kh_a}), so_don_truoc
+		)
+		self.assertEqual(frappe.db.get_value(DT, b, "trang_thai"), "Chờ duyệt")
+
+	def test_duyet_ca_hai_phieu_kia_mat_gia_thi_chua_ghi_gi_cho_phieu_dau(self):
 		a, b = self._hai_phieu()
-		# Phiếu kia (chờ báo giá) bị đóng dấu "Bảng giá" cho một mã đã mất giá
+		# Phiếu kia (chờ báo giá) bị đóng dấu "Bảng giá" cho một mã không có giá
 		# → `_kiem_gia_doi` chặn việc duyệt nó.
 		frappe.set_user("Administrator")
 		ten_dong = frappe.get_doc(DT, b).items[0].name
 		frappe.db.set_value(
 			"Portal De Xuat Mua Item", ten_dong, {"nguon_gia": "Bảng giá", "don_gia": 1000}
 		)
+		so_don = frappe.db.count("Sales Order", {"customer": self.kh_a})
 		frappe.set_user(self.quan_ly)
-		# Request thật rollback khi hàm ném; mô phỏng bằng savepoint.
-		frappe.db.savepoint("lan_dat")
 		with self.assertRaises(frappe.ValidationError):
 			de_xuat.de_xuat_duyet_phieu(a, duyet_ca_hai=1)
-		frappe.db.rollback(save_point="lan_dat")
-		frappe.set_user("Administrator")
-		for ten in (a, b):
-			self.assertEqual(frappe.db.get_value(DT, ten, "trang_thai"), "Chờ duyệt")
-			self.assertFalse(frappe.db.get_value(DT, ten, "sales_order"))
+		self._khong_dong_gi_cho_phieu_dau(a, b, so_don)
 
-	def test_duyet_ca_hai_khong_quyen_phieu_kia_thi_khong_duyet_phieu_nao(self):
+	def test_duyet_ca_hai_khong_quyen_phieu_kia_thi_chua_ghi_gi_cho_phieu_dau(self):
 		a, b = self._hai_phieu()
 		# Quản lý không gắn khoa (luật Portal Member) nên "không quyền" được
 		# dựng bằng phiếu kia thuộc khách khác: `_phieu_cua_toi` chặn đúng như
 		# khi duyệt thẳng phiếu đó.
 		frappe.set_user("Administrator")
 		frappe.db.set_value(DT, b, "customer", self.kh_b)
+		so_don = frappe.db.count("Sales Order", {"customer": self.kh_a})
 		frappe.set_user(self.quan_ly)
 		with self.assertRaises(frappe.PermissionError):
-			de_xuat.de_xuat_duyet_phieu(b)  # lỗi khi duyệt thẳng phiếu kia
-		frappe.db.savepoint("lan_dat")
+			de_xuat.de_xuat_duyet_phieu(b)  # cùng lỗi khi duyệt thẳng phiếu kia
 		with self.assertRaises(frappe.PermissionError):
 			de_xuat.de_xuat_duyet_phieu(a, duyet_ca_hai=1)
-		frappe.db.rollback(save_point="lan_dat")
+		self._khong_dong_gi_cho_phieu_dau(a, b, so_don)
+
+	def test_loi_sau_khi_duyet_phieu_dau_duoc_nem_ra_khoi_endpoint(self):
+		"""Chứng minh LAN TRUYỀN lỗi (không nuốt) — việc rollback là của
+		Frappe khi ngoại lệ thoát khỏi request, không được test ở đây."""
+		from unittest import mock
+
+		from miyano_portal import de_xuat_duyet
+
+		a, _b = self._hai_phieu()
+		goc_ham = de_xuat_duyet.duyet_va_tao_don
+		so_lan = []
+
+		def ham(*args, **kwargs):
+			so_lan.append(args[0])
+			if len(so_lan) == 2:
+				raise frappe.ValidationError("lỗi lần duyệt thứ hai")
+			return goc_ham(*args, **kwargs)
+
+		frappe.set_user(self.quan_ly)
+		with mock.patch.object(de_xuat_duyet, "duyet_va_tao_don", ham):
+			with self.assertRaises(frappe.ValidationError):
+				de_xuat.de_xuat_duyet_phieu(a, duyet_ca_hai=1)
+		self.assertEqual(len(so_lan), 2)
+
+	def test_duyet_ca_hai_dieu_chinh_chi_ap_cho_phieu_dau(self):
+		a, b = self._hai_phieu()
 		frappe.set_user("Administrator")
-		for ten in (a, b):
-			self.assertEqual(frappe.db.get_value(DT, ten, "trang_thai"), "Chờ duyệt")
-			self.assertFalse(frappe.db.get_value(DT, ten, "sales_order"))
+		doc_b = frappe.get_doc(DT, b)
+		sl_b = float(doc_b.items[0].so_luong_duyet or 0)
+		self.assertTrue(sl_b)
+		frappe.set_user(self.quan_ly)
+		kq = de_xuat.de_xuat_duyet_phieu(
+			a, duyet_ca_hai=1,
+			dieu_chinh={"items": [{"item_code": self.co_gia, "so_luong_duyet": 4}]},
+		)
+		frappe.set_user("Administrator")
+		dong_a = frappe.get_all(
+			"Sales Order Item", filters={"parent": kq["sales_order"]},
+			fields=["item_code", "qty"],
+		)
+		self.assertEqual({d.item_code: float(d.qty) for d in dong_a}, {self.co_gia: 4.0})
+		dong_b = frappe.get_all(
+			"Sales Order Item", filters={"parent": kq["phieu_cung_lan_dat"]["sales_order"]},
+			fields=["item_code", "qty"],
+		)
+		self.assertEqual({d.item_code: float(d.qty) for d in dong_b}, {self.chua_gia: sl_b})
+		self.assertEqual(
+			float(frappe.get_doc(DT, b).items[0].so_luong_duyet), sl_b
+		)
 
 	def test_duyet_mot_phieu_khong_dung_phieu_kia(self):
 		a, b = self._hai_phieu()
