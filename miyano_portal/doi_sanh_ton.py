@@ -441,3 +441,65 @@ def doi_sanh_ton(order: str) -> dict:
 		bang["co_the_tao_mr"] and frappe.has_permission("Material Request", "create")
 	)
 	return bang
+
+
+@frappe.whitelist()
+def tao_mr_phan_thieu(order: str) -> dict:
+	"""Tạo MỘT Material Request NHÁP cho phần thiếu của đơn (spec §6).
+
+	Không gọi `sales_order.make_material_request` của ERPNext: hàm đó lấy toàn
+	bộ số lượng đơn (không trừ tồn) và chỉ đếm MR đã Submit khi chống trùng.
+
+	Không bao giờ Submit — bộ phận mua kiểm tra rồi tự Submit.
+	"""
+	so = _don_duoc_doc(order)
+	if not frappe.has_permission("Material Request", "create"):
+		raise frappe.PermissionError(
+			"Bạn không có quyền tạo yêu cầu mua hàng (Material Request)."
+		)
+	if cint(so.docstatus) != 1:
+		frappe.throw(
+			"Chỉ tạo được yêu cầu mua hàng cho đơn đã xác nhận.",
+			frappe.ValidationError,
+		)
+	if so.status in ("On Hold", "Closed"):
+		frappe.throw(
+			"Đơn đang tạm giữ hoặc đã đóng — không tạo yêu cầu mua hàng.",
+			frappe.ValidationError,
+		)
+
+	# Khoá dòng đơn rồi MỚI tính lại: hai lần bấm sát nhau xếp hàng ở đây, lần
+	# sau thấy MR nháp của lần trước và dừng. Số thiếu tính lại tại máy chủ,
+	# không nhận từ trình duyệt — tồn có thể đã đổi từ lúc bảng hiện.
+	frappe.db.get_value("Sales Order", so.name, "name", for_update=True)
+	thieu = [d for d in bang_cho_don(so)["dong"] if flt(d["can_mua"]) > 0]
+	if not thieu:
+		frappe.throw(
+			"Đơn không còn phần thiếu nào cần mua thêm.", frappe.ValidationError
+		)
+
+	hom_nay = getdate(today())
+	ngay_giao = {r.name: r.delivery_date for r in so.items}
+
+	mr = frappe.new_doc("Material Request")
+	mr.material_request_type = "Purchase"
+	mr.company = so.company
+	mr.transaction_date = hom_nay
+	for d in thieu:
+		ngay = getdate(ngay_giao.get(d["so_detail"]) or so.delivery_date or hom_nay)
+		mr.append("items", {
+			"item_code": d["item_code"],
+			"item_name": d["item_name"],
+			"qty": d["can_mua"],
+			"uom": d["dvt"],
+			"stock_uom": d["dvt"],
+			"conversion_factor": 1,
+			"stock_qty": d["can_mua"],
+			"warehouse": d["kho"],
+			"schedule_date": max(ngay, hom_nay),
+			"sales_order": so.name,
+			"sales_order_item": d["so_detail"],
+		})
+	mr.schedule_date = min(getdate(r.schedule_date) for r in mr.items)
+	mr.insert()
+	return {"name": mr.name, "so_dong": len(mr.items)}

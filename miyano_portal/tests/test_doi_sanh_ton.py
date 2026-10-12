@@ -505,3 +505,163 @@ class TestEndpointDoc(_CoSo):
 		):
 			with self.assertRaises(frappe.PermissionError):
 				dst.doi_sanh_ton(self.so.name)
+
+
+class TestTaoMr(_CoSo):
+	def _mr_cua(self, so):
+		return frappe.get_all(
+			"Material Request Item",
+			filters={"sales_order": so.name},
+			fields=["parent", "item_code", "qty", "stock_qty", "uom", "stock_uom",
+				"warehouse", "sales_order_item", "schedule_date", "docstatus"],
+			order_by="idx",
+		)
+
+	def test_chi_gom_dong_thieu_dung_so_thieu_va_la_NHAP(self):
+		du, thieu = self._item(), self._item()
+		self._nap(du, 10)
+		self._nap(thieu, 4)
+		so = self._don([(du, 5), (thieu, 10)])
+
+		kq = dst.tao_mr_phan_thieu(so.name)
+
+		self.assertEqual(kq["so_dong"], 1)
+		mr = frappe.get_doc("Material Request", kq["name"])
+		self.assertEqual(mr.docstatus, 0)
+		self.assertEqual(mr.material_request_type, "Purchase")
+		self.assertEqual(mr.company, COMPANY)
+		self.assertEqual(len(mr.items), 1)
+		r = mr.items[0]
+		self.assertEqual(r.item_code, thieu)
+		self.assertEqual(r.qty, 6)
+		self.assertEqual(r.stock_qty, 6)
+		self.assertEqual(r.uom, "Hộp")
+		self.assertEqual(r.warehouse, KHO_MYN)
+		self.assertEqual(r.sales_order, so.name)
+		self.assertEqual(r.sales_order_item, so.items[1].name)
+		self.assertEqual(
+			frappe.utils.getdate(r.schedule_date),
+			frappe.utils.getdate(so.items[1].delivery_date),
+		)
+
+	def test_ngay_giao_da_qua_thi_ngay_can_hang_la_hom_nay(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		frappe.db.set_value(
+			"Sales Order Item", so.items[0].name, "delivery_date",
+			frappe.utils.add_days(frappe.utils.today(), -5),
+		)
+		kq = dst.tao_mr_phan_thieu(so.name)
+		mr = frappe.get_doc("Material Request", kq["name"])
+		self.assertEqual(
+			frappe.utils.getdate(mr.items[0].schedule_date),
+			frappe.utils.getdate(frappe.utils.today()),
+		)
+
+	def test_bam_lan_hai_khong_sinh_mr_trung(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		dst.tao_mr_phan_thieu(so.name)
+		with self.assertRaises(frappe.ValidationError):
+			dst.tao_mr_phan_thieu(so.name)
+		self.assertEqual(len(self._mr_cua(so)), 1)
+		d = self._dong_dau(so)
+		self.assertEqual(d["de_xuat"], dst.DX_DA_CO_MR)
+		self.assertEqual(d["mr_da_phu"], 3)
+		self.assertEqual(len(d["mr"]), 1)
+
+	def test_mr_da_huy_thi_khong_con_tinh_la_phu(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		mr = frappe.get_doc("Material Request", dst.tao_mr_phan_thieu(so.name)["name"])
+		mr.submit()
+		mr.cancel()
+		self.assertEqual(self._dong_dau(so)["de_xuat"], dst.DX_CAN_MUA)
+		self.assertEqual(dst.tao_mr_phan_thieu(so.name)["so_dong"], 1)
+
+	def test_mr_da_nhan_ve_kho_thi_phan_da_nhan_khong_con_la_phu(self):
+		"""Cần 10, tồn 0, MR 10. Hàng về đủ rồi 6 cái bị xuất cho đơn khác:
+		thiếu 6 và MR không còn phủ gì. Đếm `stock_qty` thay vì
+		`stock_qty − received_qty` thì bảng nói "đã có MR" và nút biến mất."""
+		item = self._item()
+		so = self._don([(item, 10)])
+		ten_mr = dst.tao_mr_phan_thieu(so.name)["name"]
+		dong_mr = frappe.get_doc("Material Request", ten_mr).items[0].name
+		frappe.db.set_value("Material Request Item", dong_mr, "received_qty", 10)
+		self._nap(item, 4)  # 10 về, 6 đã đi nơi khác -> còn 4 trên kệ
+
+		d = self._dong_dau(so)
+		self.assertEqual(d["sl_thieu"], 6)
+		self.assertEqual(d["mr_da_phu"], 0)
+		self.assertEqual(d["de_xuat"], dst.DX_CAN_MUA)
+
+	def test_mr_theo_so_thieu_LUC_BAM_khong_theo_luc_bang_hien(self):
+		item = self._item()
+		so = self._don([(item, 10)])
+		self.assertEqual(self._dong_dau(so)["can_mua"], 10)
+		self._nap(item, 7)  # hàng về giữa lúc xem và lúc bấm
+		kq = dst.tao_mr_phan_thieu(so.name)
+		self.assertEqual(
+			frappe.get_doc("Material Request", kq["name"]).items[0].qty, 3
+		)
+
+	def test_mr_phu_mot_phan_thi_lan_sau_chi_tao_phan_con_lai(self):
+		item = self._item()
+		self._nap(item, 4)
+		so = self._don([(item, 10)])
+		dst.tao_mr_phan_thieu(so.name)  # MR 6
+		# Đơn khác vừa Submit lấy mất 3 trong 4 cái trên kệ.
+		self._don([(item, 3)])
+		d = self._dong_dau(so)
+		self.assertEqual(d["sl_thieu"], 9)
+		self.assertEqual(d["de_xuat"], dst.DX_MOT_PHAN)
+		self.assertEqual(d["can_mua"], 3)
+		kq = dst.tao_mr_phan_thieu(so.name)
+		self.assertEqual(
+			frappe.get_doc("Material Request", kq["name"]).items[0].qty, 3
+		)
+
+	def test_don_nhap_khong_tao_duoc_mr(self):
+		item = self._item()
+		so = self._don([(item, 3)], submit=False)
+		with self.assertRaises(frappe.ValidationError):
+			dst.tao_mr_phan_thieu(so.name)
+		self.assertEqual(self._mr_cua(so), [])
+
+	def test_don_da_huy_khong_tao_duoc_mr(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		so.cancel()
+		with self.assertRaises(frappe.ValidationError):
+			dst.tao_mr_phan_thieu(so.name)
+
+	def test_don_du_hang_khong_tao_duoc_mr(self):
+		item = self._item()
+		self._nap(item, 10)
+		so = self._don([(item, 3)])
+		with self.assertRaises(frappe.ValidationError):
+			dst.tao_mr_phan_thieu(so.name)
+
+	def test_tai_khoan_cong_khach_hang_bi_tu_choi(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		frappe.set_user(BM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			dst.tao_mr_phan_thieu(so.name)
+		frappe.set_user("Administrator")
+		self.assertEqual(self._mr_cua(so), [])
+
+	def test_nhan_vien_khong_co_quyen_tao_mr_bi_tu_choi(self):
+		item = self._item()
+		so = self._don([(item, 3)])
+		if not frappe.db.exists("User", SALES_USER):
+			frappe.get_doc({
+				"doctype": "User", "email": SALES_USER, "first_name": "Sales DST",
+				"send_welcome_email": 0,
+			}).insert(ignore_permissions=True)
+		frappe.get_doc("User", SALES_USER).add_roles("Sales User")
+		frappe.set_user(SALES_USER)
+		with self.assertRaises(frappe.PermissionError):
+			dst.tao_mr_phan_thieu(so.name)
+		frappe.set_user("Administrator")
+		self.assertEqual(self._mr_cua(so), [])
