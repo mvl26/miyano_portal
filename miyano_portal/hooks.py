@@ -500,6 +500,10 @@ doc_events = {
 			# gọi khi cha lưu, đây là nơi DUY NHẤT chốt này chạy được cho
 			# mọi đường ghi (cổng lẫn Desk).
 			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
+			# Giá theo Price List, spec 2026-10-09 §5.1 — chốt 1 và 2 trên bước
+			# chuyển trạng thái: đơn báo giá không "Gửi duyệt" thẳng, không
+			# gửi khách khi còn dòng chưa có giá. Chạy sau `ghi_ngay_gui_khach_duyet`.
+			"miyano_portal.chot_bao_gia.kiem_chuyen_trang_thai",
 		],
 		"before_submit": [
 			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
@@ -517,6 +521,8 @@ doc_events = {
 			# không bắt được dòng giữ chỗ `ITEM_GIU_CHO` còn sót lại trong
 			# `items` dù mọi dòng đặt ngoài đã khớp mã. Xem docstring hàm.
 			"miyano_portal.portal_mua_le.kiem_khong_con_dong_giu_cho",
+			# Spec 2026-10-09 §5.4 — chốt 3: giá phải khớp giá khách đã đồng ý.
+			"miyano_portal.chot_bao_gia.kiem_gia_khop_gia_da_dong_y",
 		],
 		# Cùng lý do/chốt với "Delivery Note"/"Sales Invoice" ở trên —
 		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối"/"Báo giá sẵn
