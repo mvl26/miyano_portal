@@ -412,12 +412,24 @@ class PortalDeXuatMua(Document):
 		thu hồi) lời gọi đó bỏ qua các dòng ĐÃ đóng băng (xem `dong_bang` ở
 		đó) và chỉ còn tác dụng cho dòng MỚI thêm.
 
-		GHI VÔ ĐIỀU KIỆN, kể cả khi không còn tra được giá (`0` = "chưa có
-		giá"): phiếu gửi lại đi qua đây lần thứ hai, và con dấu phải nói về
-		LẦN GỬI ẤY — nếu chỉ ghi khi có giá thì dòng "Bảng giá" đã đóng băng
-		mà giá vừa bị gỡ vẫn khoe con số của lần gửi trước, một con số không
-		bảng giá nào còn đỡ. Không có đường nào đi qua im lặng: dòng "Bảng
-		giá" mất giá bị `_kiem_gia_doi()` CHẶN lúc duyệt.
+		GHI VÔ ĐIỀU KIỆN: phiếu gửi lại đi qua đây lần thứ hai, và con dấu
+		phải nói về LẦN GỬI ẤY. Dòng "Bảng giá" đã đóng băng mà giá vừa ĐỔI
+		được đóng dấu lại theo giá hiện hành.
+
+		Ruling R5 (12/10/2026) — dòng "Bảng giá" mà mặt hàng KHÔNG CÒN giá
+		thì chuyển sang "Chờ báo giá" với `don_gia = 0`, DÙ dòng đã đóng
+		băng. Đây là ngoại lệ DUY NHẤT của chốt đóng băng, và nó phải có:
+		`_kiem_gia_doi()` chặn duyệt dòng "Bảng giá" mất giá và bảo quản lý
+		từ chối để khoa gửi lại — nếu lần gửi lại vẫn giữ "Bảng giá" thì
+		phiếu bị chặn mãi (ở "Từ chối" khoa không xoá/đổi được dòng). Hạ
+		`don_gia` về 0 cùng lúc là bắt buộc: vòng lặp này bỏ qua dòng "Chờ
+		báo giá" ở các lần gửi sau, nên con số của lần gửi trước sẽ sống
+		mãi nếu không xoá ngay tại đây.
+
+		Đặt ở ĐÂY chứ không ở `_suy_nguon_gia()`/`validate()`: chỉ một lần
+		GỬI DUYỆT — một đề nghị mới của khoa — mới được viết lại nguồn giá
+		của dòng đã đóng băng; một lần lưu bất kỳ thì không. Chiều ngược lại
+		("Chờ báo giá" vừa có giá) và dòng cũ "Hợp đồng" KHÔNG được đụng tới.
 		"""
 		from miyano_portal import bang_gia_khach
 		self._suy_nguon_gia()
@@ -427,7 +439,12 @@ class PortalDeXuatMua(Document):
 		for row in self.items:
 			if row.nguon_gia != NGUON_GIA_BANG_GIA:
 				continue
-			row.don_gia = gia.get(row.item_code) or 0
+			gia_moi = gia.get(row.item_code)
+			if gia_moi is None:
+				row.nguon_gia = NGUON_GIA_CHO_BAO_GIA
+				row.don_gia = 0
+				continue
+			row.don_gia = gia_moi
 
 	def duyet(self, nguoi_duyet, tu_cach="Quản lý chính", uy_quyen=None):
 		"""Nơi DUY NHẤT ghi `Đã duyệt` LẦN ĐẦU — cùng cả khối truy vết
@@ -1058,7 +1075,9 @@ class PortalDeXuatMua(Document):
 		giá"), và phiếu đã được tách theo đúng loại đó lúc gửi (§4.1). Không
 		có chốt này, một lần lưu BẤT KỲ sau đó (VD: `duyet_sua()`, luồng xin
 		sửa/duyệt sửa số lượng) sẽ tính lại theo Price List HIỆN TẠI và âm
-		thầm ghi đè bằng chứng đó. Chốt này cũng là thứ giữ nguyên các dòng
+		thầm ghi đè bằng chứng đó. Ngoại lệ duy nhất nằm ở `_dong_dau_gia()`
+		(Ruling R5): lúc GỬI DUYỆT, dòng "Bảng giá" đã mất giá chuyển sang
+		"Chờ báo giá". Chốt này cũng là thứ giữ nguyên các dòng
 		CŨ mang `Hợp đồng` + `blanket_order` (đóng băng trước spec
 		2026-10-09): chúng không bị tính lại, và đường duyệt vẫn chạy được
 		với chúng vì `dat_hang._xay_don` tự hỏi Price List cho mọi dòng.
@@ -1077,11 +1096,13 @@ class PortalDeXuatMua(Document):
 		`trang_thai = "Nháp"` TRƯỚC `save()`, nên `validate()` của lần lưu
 		đó chạy với `dong_bang = False` và tính lại MỌI dòng. Ca thật: dòng
 		đang là "Bảng giá", giá bị gỡ khỏi Price List trong lúc chờ duyệt →
-		thu hồi lật nó sang "Chờ báo giá"; lần gửi duyệt sau `_dong_dau_gia`
-		bỏ qua dòng chờ báo giá nên `don_gia` cũ SỐNG NGUYÊN, và `_kiem_gia_
-		doi` (chỉ xét dòng "Bảng giá") im hoàn toàn — quản lý duyệt một dòng
-		chờ báo giá còn khoe con số của một giá đã bị gỡ. Xem `test_nguon_
-		gia_dong.py::test_thu_hoi_KHONG_mo_bang_nguon_gia_cua_dong_cu`.
+		thu hồi lật nó sang "Chờ báo giá" mà KHÔNG hạ `don_gia`; lần gửi
+		duyệt sau `_dong_dau_gia` bỏ qua dòng chờ báo giá nên `don_gia` cũ
+		SỐNG NGUYÊN — quản lý duyệt một dòng chờ báo giá còn khoe con số
+		của một giá đã bị gỡ. Việc chuyển dòng đó sang "Chờ báo giá" là của
+		`_dong_dau_gia()` lúc gửi lại, nơi nó xoá con dấu cùng lúc. Xem
+		`test_nguon_gia_dong.py::test_thu_hoi_KHONG_mo_bang_nguon_gia_cua_
+		dong_cu`.
 
 		`ma_de_xuat` là dấu "ĐÃ TỪNG gửi duyệt" duy nhất sống sót qua thu
 		hồi (`thu_hoi()` cố ý giữ nó) — cùng dấu mà `on_trash` đã chuyển

@@ -149,6 +149,11 @@ def _kiem_gia_doi(doc) -> list[dict]:
 	sang vòng báo giá: phiếu đã được tách theo loại lúc gửi). Giá ĐỔI → cảnh
 	báo, đơn mang giá mới.
 
+	Lối thoát của lời chặn (Ruling R5): quản lý từ chối, khoa gửi lại —
+	`PortalDeXuatMua._dong_dau_gia()` chuyển dòng mất giá sang "Chờ báo giá"
+	ngay ở lần gửi đó, nên phiếu gửi lại duyệt được thành đơn báo giá. Câu
+	chữ trong lời chặn dưới đây phải khớp đúng điều đó.
+
 	Chỉ xét dòng đóng dấu "Bảng giá" SẼ VÀO ĐƠN (`so_luong_duyet` > 0):
 	  * dòng "Chờ báo giá" không có giá đóng dấu nào để so — nếu nó vừa có
 	    giá thì đơn cứ nhận giá đó (§4.3), không có gì để báo;

@@ -8,7 +8,9 @@ có → "Chờ báo giá"; `blanket_order` luôn rỗng. Hợp đồng khung kh�
 về ngày hiệu lực/`docstatus` của hợp đồng (Ruling P18) và về hạn mức lúc
 duyệt đã bị xoá cùng hành vi; các bài còn lại đã đổi fixture từ "đưa mã vào
 hợp đồng" sang "đặt `Item Price`" (mỗi bài đảo kỳ vọng mang chú thích "Đảo
-theo spec …"). Phần đóng băng dòng (`dong_bang`) giữ nguyên luật.
+theo spec …"). Phần đóng băng dòng (`dong_bang`) giữ nguyên luật, trừ
+ngoại lệ của Ruling R5: dòng "Bảng giá" đã mất giá chuyển sang "Chờ báo
+giá" ở lần gửi duyệt kế tiếp (ca đầy đủ ở `test_phieu_bang_gia.py`).
 `co_dong_cho_bao_gia()` vẫn thay thế mọi chỗ trước đây hỏi `loai_don`.
 
 Dùng lại fixture khách/khoa/vật tư chung (`fixtures_de_xuat.dung_fixture`,
@@ -373,49 +375,49 @@ class TestNguonGiaDong(FrappeTestCase):
 		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_BANG_GIA)
 
 	# Đảo theo spec 2026-10-09 (giá theo Price List).
-	def test_thu_hoi_roi_gui_lai_dong_mat_gia_KHONG_lot_qua_im_lang(self):
-		"""HẬU QUẢ THẬT của bài trên. Nếu `thu_hoi()` lật dòng sang "Chờ báo
-		giá": lần `gui_duyet()` sau, `_dong_dau_gia` BỎ QUA dòng chờ báo giá
-		nên `don_gia` cũ (100, của một giá đã bị gỡ) sống nguyên, và `_kiem_
-		gia_doi` — chỉ xét dòng "Bảng giá" — im HOÀN TOÀN. Quản lý bấm Duyệt
-		trên một dòng còn khoe con số không bảng giá nào còn đỡ.
+	def test_thu_hoi_roi_gui_lai_dong_mat_gia_thanh_cho_bao_gia_KHONG_giu_gia_cu(self):
+		"""HẬU QUẢ THẬT mà bài trên canh. Nếu chính `thu_hoi()` lật dòng sang
+		"Chờ báo giá" (qua `validate()`), `don_gia` cũ (100, của một giá đã
+		bị gỡ) sống nguyên: `_dong_dau_gia` bỏ qua dòng chờ báo giá ở lần
+		gửi sau, và quản lý duyệt một dòng còn khoe con số không bảng giá
+		nào còn đỡ.
 
-		Đóng băng theo `ma_de_xuat` giữ tín hiệu: dòng vẫn là "Bảng giá",
-		lần gửi lại đóng dấu `don_gia` về 0 (con dấu nói về LẦN GỬI ẤY), và
-		`_kiem_gia_doi` CHẶN, nêu đúng tên mặt hàng (§4.3). Trước spec
-		2026-10-09 tín hiệu này là cảnh báo `hop_dong_doi`; loại đó đã bị gỡ
-		cùng phần hợp đồng."""
+		Ruling R5 — việc chuyển là của LẦN GỬI LẠI (`_dong_dau_gia`), nơi nó
+		xoá con dấu CÙNG LÚC: dòng thành "Chờ báo giá", `don_gia = 0`, và
+		`_kiem_gia_doi` không còn gì để chặn hay cảnh báo. (Trước R5 dòng
+		giữ "Bảng giá" và bị chặn lúc duyệt; trước spec 2026-10-09 tín hiệu
+		này là cảnh báo `hop_dong_doi`.)"""
 		doc, item = self._phieu_da_gui_roi_mat_gia()
 		doc.thu_hoi()
 		doc.reload()
+		self.assertEqual(float(doc.items[0].don_gia), 100.0)   # thu hồi chưa đụng gì
 		doc.gui_duyet()
 		doc.reload()
-		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_BANG_GIA)
-		self.assertEqual(float(doc.items[0].don_gia), 0.0)
-
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			de_xuat_duyet._kiem_gia_doi(doc)
-		self.assertIn(item, str(ctx.exception))
+		self.assertEqual(doc.items[0].nguon_gia, NGUON_GIA_CHO_BAO_GIA)
+		self.assertEqual(float(doc.items[0].don_gia or 0), 0.0)
+		self.assertIs(doc.co_dong_cho_bao_gia(), True)
+		self.assertEqual(de_xuat_duyet._kiem_gia_doi(doc), [])
 
 	# Đảo theo spec 2026-10-09 (giá theo Price List).
-	def test_thu_hoi_dong_mat_gia_bi_chan_TOI_DUOC_duong_duyet_that(self):
+	def test_thu_hoi_dong_mat_gia_gui_lai_DUYET_DUOC_thanh_don_bao_gia(self):
 		"""Bài trên gọi THẲNG `_kiem_gia_doi()` — một hàm nội bộ. Điều người
-		dùng thật nhận được là kết quả của `duyet_va_tao_don()`: lời chặn
-		phải tới được đó, và KHÔNG có đơn nào sinh ra."""
+		dùng thật nhận được là kết quả của `duyet_va_tao_don()`: phiếu gửi
+		lại phải duyệt được, đơn đi vòng báo giá với `rate = 0` — không mang
+		con số 100 của giá đã bị gỡ."""
 		doc, item = self._phieu_da_gui_roi_mat_gia()
 		doc.thu_hoi()
 		doc.reload()
 		doc.gui_duyet()
 		doc.reload()
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		self.assertIn(item, str(ctx.exception))
-		doc.reload()
-		self.assertEqual(doc.trang_thai, "Chờ duyệt")
-		self.assertFalse(doc.sales_order)
-		self.assertFalse(frappe.db.exists(
-			"Sales Order", {"custom_request_id": doc.request_id or doc.name}
-		))
+		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
+		self.assertEqual(kq["canh_bao_gia"], [])
+		dong = self._dong_don(kq["sales_order"])[item]
+		self.assertEqual(float(dong.rate), 0.0)
+		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
+			"Mua lẻ",
+		)
 
 	def test_quan_ly_ha_dong_mat_gia_ve_0_thi_duyet_duoc_phan_con_lai(self):
 		"""`_kiem_gia_doi` chỉ xét dòng SẼ VÀO ĐƠN. Dòng "Bảng giá" mất giá
