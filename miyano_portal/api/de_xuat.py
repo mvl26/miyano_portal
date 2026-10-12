@@ -311,14 +311,20 @@ def de_xuat_chi_tiet(ten) -> dict:
 	# `so_luong_tren_don` ngay dưới: `0` và "chưa có đơn" là hai ca khác
 	# nhau, và một bảng in `0 ₫` cho phiếu Chờ duyệt là nói với khoa rằng
 	# hàng của họ giá 0.
+	#
+	# `custom_nguon_gia` (dấu "Bảng giá" / "Báo giá" của dòng đơn, spec
+	# 2026-10-09 §4.2) đi cùng: bảng mặt hàng in "Chờ báo giá" cho dòng báo
+	# giá chưa có giá thay vì "0 ₫" — quyết từ DẤU và giá, không đoán. Cột
+	# thêm muộn (patch v1_41), nên chỉ chọn khi field có thật trên site.
 	dong_tren_don = {}
 	if kq.get("sales_order"):
+		cot = ["item_code", "qty", "rate", "amount", "delivered_qty", "delivery_date"]
+		if frappe.get_meta("Sales Order Item").has_field("custom_nguon_gia"):
+			cot.append("custom_nguon_gia")
 		dong_tren_don = {
 			r.item_code: r
 			for r in frappe.get_all(
-				"Sales Order Item",
-				filters={"parent": kq["sales_order"]},
-				fields=["item_code", "qty", "rate", "amount", "delivered_qty", "delivery_date"],
+				"Sales Order Item", filters={"parent": kq["sales_order"]}, fields=cot,
 			)
 		}
 	# Thời gian giao hàng (09/10/2026) — ngày trên dòng chỉ là LỜI HỨA của
@@ -335,6 +341,10 @@ def de_xuat_chi_tiet(ten) -> dict:
 		row["so_luong_tren_don"] = float(tren_don.qty or 0) if tren_don else None
 		row["don_gia_tren_don"] = float(tren_don.rate or 0) if tren_don else None
 		row["thanh_tien_tren_don"] = float(tren_don.amount or 0) if tren_don else None
+		# `None` cho cả "không có trên đơn" lẫn dòng đơn cũ chưa có dấu.
+		row["nguon_gia_tren_don"] = (
+			(tren_don.get("custom_nguon_gia") or None) if tren_don else None
+		)
 		row["da_giao_tren_don"] = float(tren_don.delivered_qty or 0) if tren_don else None
 		row["ngay_giao_du_kien"] = (
 			tren_don.delivery_date if tren_don and don_da_xac_nhan else None

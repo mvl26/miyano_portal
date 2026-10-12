@@ -1718,6 +1718,10 @@ def portal_order_track(order) -> dict:
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
              "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0),
+             # Dấu "Bảng giá" / "Báo giá" của dòng (spec 2026-10-09 §4.2) —
+             # `None` với dòng cũ chưa có dấu. Bảng mặt hàng in "Chờ báo
+             # giá" cho dòng "Báo giá" chưa có giá thay vì "0 ₫".
+             "nguon_gia": i.get("custom_nguon_gia") or None,
              # Thời gian giao hàng (09/10/2026) — `None` khi đơn CHƯA được
              # Miyano xác nhận: trước mốc đó `delivery_date` là "ngày cần"
              # do chính khách gõ lúc đặt, in nó ra dưới chữ "Dự kiến giao"

@@ -17,6 +17,7 @@ import { ref, computed } from 'vue'
 import api from '../../api'
 import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
+import { NHAN_CHO_BAO_GIA, choBaoGiaTrenDon } from '../../gia-dong-don'
 import TheHangMoi from './TheHangMoi.vue'
 
 const props = defineProps({
@@ -64,6 +65,9 @@ const dong = computed(() => {
         so_luong_tren_don: it.qty,   // Ruling preflight #2 — nuôi cột "SL đặt"
         don_gia_tren_don: it.rate,
         thanh_tien_tren_don: it.amount,
+        // Dấu "Bảng giá" / "Báo giá" của dòng đơn — dòng phiếu nhận khoá này
+        // từ server (`de_xuat_chi_tiet`). Xem `gia-dong-don.js`.
+        nguon_gia_tren_don: it.nguon_gia,
         da_giao_tren_don: it.delivered_qty,
         ngay_giao_du_kien: it.ngay_giao_du_kien,
       }))
@@ -103,6 +107,7 @@ const dong = computed(() => {
       so_luong_tren_don: hang ? Number(hang.qty) : null,
       don_gia_tren_don: hang ? Number(hang.rate) : null,
       thanh_tien_tren_don: hang ? Number(hang.amount) : null,
+      nguon_gia_tren_don: hang?.nguon_gia || null,
       da_giao_tren_don: hang ? Number(hang.delivered_qty) : null,
       ngay_giao_du_kien: hang?.ngay_giao_du_kien || null,
       ghi_chu_quan_ly: '',
@@ -495,22 +500,22 @@ function toggleChiTietKhop(row) {
                `format.js`: `Number(v || 0)`) nên PHẢI chặn ở đây, gọi thẳng
                `fmtVND` sẽ nói với khoa rằng hàng của họ giá 0. -->
           <td v-if="coDon" class="right">
-            <!-- Giá 0 trên một dòng ĐÃ KHỚP MÃ nghĩa là MIYANO CHƯA BÁO GIÁ,
-                 không phải "miễn phí": `_gop_hoac_them_dong_hang` chỉ tự lấy
-                 đơn giá khi mặt hàng có giá trong bảng giá của khách (spec
-                 2026-10-09 §4.4), ngoài ra để 0 và chờ Miyano điền. Câu này
-                 chuyển nguyên từ
-                 bảng "Đã khớp mã" cũ — bỏ nó lúc gộp bảng là nói với khoa
-                 rằng hàng của họ giá 0. Chỉ áp cho dòng khớp: một dòng hàng
-                 thường giá 0 là chuyện khác (hàng tặng kèm), không đoán hộ. -->
-            <template v-if="row.yeu_cau_khop && !row.don_gia_tren_don">
-              <span class="tag">Chờ Miyano báo giá</span>
+            <!-- Giá <= 0 trên một dòng của đơn báo giá nghĩa là MIYANO CHƯA BÁO
+                 GIÁ, không phải "miễn phí" (spec 2026-10-09: giá <= 0 là chưa
+                 có giá). Áp cho dòng mang dấu "Báo giá" và cho dòng gõ tay đã
+                 khớp mã — `_gop_hoac_them_dong_hang` chỉ tự lấy đơn giá khi
+                 mặt hàng có giá trong bảng giá của khách (§4.4), ngoài ra để
+                 0 và chờ Miyano điền. Luật nằm ở `gia-dong-don.js`. -->
+            <template v-if="choBaoGiaTrenDon(row)">
+              <span class="tag">{{ NHAN_CHO_BAO_GIA }}</span>
             </template>
             <template v-else-if="row.don_gia_tren_don !== null && row.don_gia_tren_don !== undefined">{{ fmtVND(row.don_gia_tren_don) }}</template>
             <template v-else>—</template>
           </td>
           <td v-if="coDon" class="right">
-            <template v-if="row.thanh_tien_tren_don !== null && row.thanh_tien_tren_don !== undefined">{{ fmtVND(row.thanh_tien_tren_don) }}</template>
+            <!-- Chưa có đơn giá thì chưa có thành tiền: "—", không "0 ₫". -->
+            <template v-if="choBaoGiaTrenDon(row)">—</template>
+            <template v-else-if="row.thanh_tien_tren_don !== null && row.thanh_tien_tren_don !== undefined">{{ fmtVND(row.thanh_tien_tren_don) }}</template>
             <template v-else>—</template>
           </td>
           <td v-if="coCotDaGiao" class="right">
