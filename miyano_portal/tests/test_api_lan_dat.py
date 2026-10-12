@@ -243,6 +243,72 @@ class TestApiLanDat(FrappeTestCase):
 		self.assertEqual(theo_phieu[le]["ma_lan_dat"], "")
 		self.assertTrue(all("ma_lan_dat" in r for r in rows))
 
+	# ---- Final-fix S-1: site chạy mã mới TRƯỚC patch v1_41 ----------------
+	# Cột có thật trên site test, nên "thiếu cột" được giả lập đúng như các
+	# test lưới cột khác của app (mock `frappe.db.has_column`). Chỉ giả thiếu
+	# ĐÚNG hai cột lần đặt — mock trần sẽ làm các lưới cột khác (khoa phòng,
+	# tên đơn) nhớ nhầm "thiếu cột" cho cả tiến trình test.
+	def _gia_thieu_cot_lan_dat(self):
+		from unittest.mock import patch
+
+		from miyano_portal import portal_context
+
+		that = frappe.db.has_column
+
+		def has_column(doctype, column, *a, **kw):
+			if doctype == DT and column in ("ma_lan_dat", "phieu_cung_lan_dat"):
+				return False
+			return that(doctype, column, *a, **kw)
+
+		def _dat_lai():
+			portal_context._cot_lan_dat_cache = None
+
+		_dat_lai()
+		self.addCleanup(_dat_lai)
+		p = patch("frappe.db.has_column", side_effect=has_column)
+		p.start()
+		self.addCleanup(p.stop)
+
+	def test_thieu_cot_lan_dat_danh_sach_yeu_cau_van_chay_va_tra_rong(self):
+		a, b = self._hai_phieu()
+		frappe.set_user(self.quan_ly)
+		self._gia_thieu_cot_lan_dat()
+		rows = portal.portal_yeu_cau_cua_toi(limit=100)["rows"]
+		theo_phieu = {r["de_xuat"]: r for r in rows}
+		self.assertIn(a, theo_phieu)
+		self.assertIn(b, theo_phieu)
+		self.assertTrue(all(r["ma_lan_dat"] == "" for r in rows))
+
+	def test_thieu_cot_lan_dat_danh_sach_phieu_van_chay_va_tra_rong(self):
+		a, b = self._hai_phieu()
+		frappe.set_user(self.quan_ly)
+		self._gia_thieu_cot_lan_dat()
+		theo_ten = {r["name"]: r for r in de_xuat.de_xuat_danh_sach()}
+		self.assertEqual(theo_ten[a]["ma_lan_dat"], "")
+		self.assertEqual(theo_ten[b]["ma_lan_dat"], "")
+
+	def test_thieu_cot_lan_dat_chi_tiet_van_mo_duoc_va_khong_co_phieu_kia(self):
+		a, b = self._hai_phieu()
+		frappe.set_user(self.quan_ly)
+		self._gia_thieu_cot_lan_dat()
+		kq = de_xuat.de_xuat_chi_tiet(ten=a)
+		self.assertEqual(kq["name"], a)
+		self.assertEqual(kq["ma_lan_dat"], "")
+		self.assertIsNone(kq["phieu_cung_lan_dat"])
+
+	def test_luoi_cot_lan_dat_chi_hoi_csdl_mot_lan(self):
+		from unittest.mock import patch
+
+		from miyano_portal import portal_context
+
+		portal_context._cot_lan_dat_cache = None
+		self.addCleanup(setattr, portal_context, "_cot_lan_dat_cache", None)
+		with patch("frappe.db.has_column", return_value=True) as gia_lap:
+			self.assertTrue(portal_context.cot_lan_dat_ton_tai())
+			so_lan = gia_lap.call_count
+			self.assertTrue(portal_context.cot_lan_dat_ton_tai())
+			self.assertEqual(gia_lap.call_count, so_lan)
+
 
 for _ten, _ham in vars(goc.TestTachPhieu).items():
 	if _ten.startswith("_") and not _ten.startswith("__") and callable(_ham):

@@ -12,6 +12,7 @@ from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
+    cot_lan_dat_ton_tai,
     cot_ten_don_hang_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
@@ -1143,6 +1144,11 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
         "coalesce(so.custom_ten_don_hang, '')"
         if cot_ten_don_hang_ton_tai() else "''"
     )
+    # Mã lần đặt của hai phiếu tách — `''` khi site chưa chạy patch v1_41
+    # (cùng lập trường với cột tên: một ô trống, không phải một lỗi 500).
+    cot_lan_dat = (
+        "coalesce(p.ma_lan_dat, '')" if cot_lan_dat_ton_tai() else "''"
+    )
     co_nhanh_don = co_cot_khoa or not khoa
 
     nhanh_phieu = f"""
@@ -1166,7 +1172,7 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
                {_sql_giai_doan("p.trang_thai", "so")} as giai_doan,
                -- Mã lần đặt chung của hai phiếu tách (spec 2026-10-09 §7);
                -- rỗng với phiếu không tách và với đơn không đứng sau phiếu.
-               coalesce(p.ma_lan_dat, '') as ma_lan_dat
+               {cot_lan_dat} as ma_lan_dat
         from `tabPortal De Xuat Mua` p
         left join `tabSales Order` so on so.name = p.sales_order
         where {dk_phieu}

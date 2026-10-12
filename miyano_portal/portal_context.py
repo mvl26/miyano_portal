@@ -340,6 +340,28 @@ def cot_ten_don_hang_ton_tai() -> bool:
     return _cot_ten_don_hang_cache
 
 
+_cot_lan_dat_cache: bool | None = None
+
+
+def cot_lan_dat_ton_tai() -> bool:
+    """Có HAI cột `Portal De Xuat Mua.ma_lan_dat` / `phieu_cung_lan_dat` THẬT
+    trong CSDL không (patch v1_41, spec 2026-10-09 §4.1).
+
+    CÙNG KHUÔN và cùng lý do với `cot_ten_don_hang_ton_tai()` ngay trên: một
+    site chạy mã mới TRƯỚC khi patch thêm cột sẽ ném 1054 ở danh sách yêu cầu
+    và màn chi tiết — hai màn mọi người dùng mở đầu tiên. Hai cột này chỉ để
+    HIỂN THỊ mối nối giữa hai phiếu tách, nên thiếu cột thì trả rỗng / `None`
+    (phiếu trông như phiếu lẻ) và không `log_error`. Hai cột do cùng một lần
+    nạp lại doctype tạo ra, nhưng hỏi cả hai: thiếu một cũng là thiếu."""
+    global _cot_lan_dat_cache
+    if _cot_lan_dat_cache is None:
+        _cot_lan_dat_cache = bool(
+            frappe.db.has_column("Portal De Xuat Mua", "ma_lan_dat")
+            and frappe.db.has_column("Portal De Xuat Mua", "phieu_cung_lan_dat")
+        )
+    return _cot_lan_dat_cache
+
+
 # Task 9 (§12 Q4) — CÙNG KHUÔN `_cot_khoa_ton_tai`/`_cot_khoa_phong_ton_tai`
 # ở trên: cache CẤP TIẾN TRÌNH cho cột `Sales Order.custom_de_xuat` (patch
 # v1_24), dùng bởi `dam_bao_duoc_sua_don_da_duyet()`. Tách biến RIÊNG với

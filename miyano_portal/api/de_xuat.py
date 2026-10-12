@@ -23,6 +23,7 @@ lọc riêng.
 import frappe
 
 from miyano_portal.portal_context import (
+	cot_lan_dat_ton_tai,
 	get_portal_member,
 	la_quan_ly,
 	lien_he_nguoi_dung,
@@ -210,12 +211,19 @@ def de_xuat_danh_sach(trang_thai=None, limit=50) -> list[dict]:
 		loc["khoa_phong"] = pv["custom_khoa_phong"]
 	if trang_thai:
 		loc["trang_thai"] = trang_thai
-	return frappe.get_all(
+	# `ma_lan_dat` là cột thêm muộn (patch v1_41): site chưa chạy patch thì
+	# không chọn cột đó (MariaDB ném 1054) và trả rỗng — phiếu như phiếu lẻ.
+	co_lan_dat = cot_lan_dat_ton_tai()
+	rows = frappe.get_all(
 		DOCTYPE, filters=loc,
-		fields=["name", "ma_de_xuat", "ma_lan_dat", "khoa_phong", "trang_thai",
-		        "thoi_diem_gui", "owner"],
+		fields=["name", "ma_de_xuat", "khoa_phong", "trang_thai",
+		        "thoi_diem_gui", "owner"] + (["ma_lan_dat"] if co_lan_dat else []),
 		order_by="modified desc", limit_page_length=int(limit),
 	)
+	if not co_lan_dat:
+		for r in rows:
+			r["ma_lan_dat"] = ""
+	return rows
 
 
 @frappe.whitelist()
@@ -369,9 +377,11 @@ def de_xuat_chi_tiet(ten) -> dict:
 	# `name`/`ma_de_xuat`/`trang_thai`, và chỉ khi người gọi mở được phiếu
 	# kia qua CHÍNH chốt phạm vi `_phieu_cua_toi` (phiếu tách luôn cùng khách
 	# và khoa, nhưng không dựa vào đó để khỏi rò mã/trạng thái).
-	kq["ma_lan_dat"] = doc.get("ma_lan_dat") or ""
+	# Cột thêm muộn (patch v1_41) — thiếu cột thì phiếu là phiếu lẻ.
+	co_lan_dat = cot_lan_dat_ton_tai()
+	kq["ma_lan_dat"] = (doc.get("ma_lan_dat") or "") if co_lan_dat else ""
 	kq["phieu_cung_lan_dat"] = None
-	if doc.get("phieu_cung_lan_dat"):
+	if co_lan_dat and doc.get("phieu_cung_lan_dat"):
 		try:
 			kia = _phieu_cua_toi(doc.phieu_cung_lan_dat, cho_quan_ly=True)
 			kq["phieu_cung_lan_dat"] = {
