@@ -105,6 +105,48 @@ class TestBangGiaKhach(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Customer", self.kh_b, "default_price_list"), ten)
 		self.assertEqual(frappe.db.get_value("Customer", self.kh_a, "default_price_list"), BANG_A)
 
+	def _bang_khong_dung_duoc(self, **thuoc_tinh):
+		"""Gán cho kh_b một bảng có giá nhưng KHÔNG dùng được làm bảng giá bán."""
+		ten = "_TEST DX BGK HONG"
+		if not frappe.db.exists("Price List", ten):
+			frappe.get_doc({
+				"doctype": "Price List", "price_list_name": ten,
+				"currency": "VND", "selling": 1, "buying": 1, "enabled": 1,
+			}).insert(ignore_permissions=True)
+		# Bảng sống qua các test trong lớp: đưa về trạng thái dùng được trước
+		# khi chèn giá (Item Price từ chối bảng đã tắt).
+		frappe.db.set_value("Price List", ten, {"enabled": 1, "selling": 1})
+		_gia(self.item, ten, 33000)
+		frappe.db.set_value("Price List", ten, thuoc_tinh)
+		frappe.db.set_value("Customer", self.kh_b, "default_price_list", ten)
+		return ten
+
+	def test_bang_mac_dinh_da_tat_thi_coi_nhu_chua_co_bang(self):
+		"""Final-fix S-2: bảng đã bị tắt không phải là bảng giá của khách —
+		tạo bảng riêng và gán, không trả về bảng tắt."""
+		hong = self._bang_khong_dung_duoc(enabled=0)
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertEqual(ten, f"Bảng giá {self.kh_b}")
+		self.assertNotEqual(ten, hong)
+		self.assertEqual(
+			frappe.db.get_value("Customer", self.kh_b, "default_price_list"), ten
+		)
+		self.assertEqual(
+			frappe.db.get_value("Price List", ten, ["selling", "enabled"]), (1, 1)
+		)
+		# "Coi như chưa có bảng": không chép giá từ bảng không dùng được.
+		self.assertEqual(frappe.db.count("Item Price", {"price_list": ten}), 0)
+
+	def test_bang_mac_dinh_khong_phai_bang_gia_ban_thi_coi_nhu_chua_co_bang(self):
+		hong = self._bang_khong_dung_duoc(selling=0)
+		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
+		self.assertEqual(ten, f"Bảng giá {self.kh_b}")
+		self.assertNotEqual(ten, hong)
+		self.assertEqual(
+			frappe.db.get_value("Customer", self.kh_b, "default_price_list"), ten
+		)
+		self.assertEqual(frappe.db.count("Item Price", {"price_list": ten}), 0)
+
 	def test_khach_chua_co_bang_thi_tao_va_gan(self):
 		ten = bg.dam_bao_bang_gia_rieng(self.kh_b)
 		self.assertEqual(ten, f"Bảng giá {self.kh_b}")

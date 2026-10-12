@@ -78,7 +78,8 @@ def _ten_bang_moi(customer: str) -> str:
 def dam_bao_bang_gia_rieng(customer: str) -> str:
 	"""Bảo đảm khách có Price List của RIÊNG mình; trả tên bảng.
 
-	Chưa có → tạo "Bảng giá <tên khách>". Đang dùng chung với khách khác →
+	Chưa có (hoặc bảng đang gán đã tắt / không phải bảng giá bán) → tạo
+	"Bảng giá <tên khách>". Đang dùng chung với khách khác →
 	tạo bảng riêng và chép sang các dòng giá bán mà khách NÀY được thấy (dòng
 	chung và dòng gắn riêng khách này; bỏ dòng gắn khách khác, nhà cung cấp,
 	lô). Ghi giá đàm
@@ -92,6 +93,13 @@ def dam_bao_bang_gia_rieng(customer: str) -> str:
 	khách đã vô hiệu hoá còn trỏ vào.
 	"""
 	bang = frappe.db.get_value("Customer", customer, "default_price_list")
+	# Bảng đã tắt, hoặc không phải bảng giá BÁN, không dùng được cho đơn bán
+	# (ERPNext từ chối cả việc ghi `Item Price` lẫn chọn nó làm bảng của đơn):
+	# coi như khách chưa có bảng — tạo bảng riêng, không chép gì từ bảng đó.
+	if bang and frappe.db.get_value(
+		"Price List", bang, ["enabled", "selling"]
+	) != (1, 1):
+		bang = None
 	if bang and not [kh for kh in _khach_dung_bang(bang) if kh != customer]:
 		return bang
 
