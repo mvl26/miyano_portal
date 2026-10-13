@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   NHOM_BAO_GIA, nhanNhomBaoGia, nhomBaoGiaBadge, khoaNhomBaoGia,
   dichDongBaoGia, hanhDongBaoGia, dongDaSua, dichSauDatHang,
+  thongBaoSauDuyet, loiSoLuong,
 } from './bao-gia.js'
 
 test('năm nhóm, đúng thứ tự vòng đời', () => {
@@ -34,7 +35,7 @@ test('dòng đã có báo giá mở màn báo giá; chưa có thì mở phiếu'
   assert.deepEqual(dichDongBaoGia({ bao_gia: 'SAL-QTN-1', de_xuat: 'DXM-1' }),
     { name: 'bao-gia-detail', params: { ten: 'SAL-QTN-1' } })
   assert.deepEqual(dichDongBaoGia({ bao_gia: '', de_xuat: 'DXM-1' }),
-    { name: 'de-xuat-detail', params: { ten: 'DXM-1' } })
+    { name: 'de-xuat-detail', params: { ten: 'DXM-1' }, query: { tu: 'bao-gia' } })
 })
 
 test('hành động theo cờ của server', () => {
@@ -70,4 +71,50 @@ test('không có mã đơn thì không bao giờ rơi vào màn xác nhận đơ
   assert.notEqual(dichSauDatHang({ sales_order: null, don: [] }).loai, 'don')
   assert.notEqual(dichSauDatHang(null).loai, 'don')
   assert.deepEqual(dichSauDatHang({}).to, { name: 'yeu-cau' })
+})
+
+test('duyệt một phiếu: nói đúng chứng từ vừa sinh ra', () => {
+  assert.equal(thongBaoSauDuyet({ sales_order: 'SO-1', bao_gia: null, phieu_cung_lan_dat: null }),
+    'Đã duyệt phiếu — đơn hàng đã được tạo.')
+  assert.equal(thongBaoSauDuyet({ sales_order: null, bao_gia: 'SAL-QTN-1', phieu_cung_lan_dat: null }),
+    'Đã duyệt phiếu — yêu cầu báo giá đã gửi cho Miyano.')
+  // Không biết sinh ra gì thì không khẳng định gì.
+  assert.equal(thongBaoSauDuyet({}), 'Đã duyệt phiếu.')
+  assert.equal(thongBaoSauDuyet(null), 'Đã duyệt phiếu.')
+})
+
+test('duyệt cả hai phiếu: đếm đúng số đơn và số yêu cầu báo giá', () => {
+  const don = { sales_order: 'SO-2', bao_gia: null }
+  const baoGia = { sales_order: null, bao_gia: 'SAL-QTN-2' }
+  assert.equal(thongBaoSauDuyet({ sales_order: 'SO-1', bao_gia: null, phieu_cung_lan_dat: don }),
+    'Đã duyệt cả hai phiếu — 2 đơn hàng đã được tạo.')
+  assert.equal(thongBaoSauDuyet({ sales_order: 'SO-1', bao_gia: null, phieu_cung_lan_dat: baoGia }),
+    'Đã duyệt cả hai phiếu — 1 đơn hàng đã được tạo và 1 yêu cầu báo giá đã gửi cho Miyano.')
+  assert.equal(thongBaoSauDuyet({ sales_order: null, bao_gia: 'SAL-QTN-1', phieu_cung_lan_dat: don }),
+    'Đã duyệt cả hai phiếu — 1 đơn hàng đã được tạo và 1 yêu cầu báo giá đã gửi cho Miyano.')
+  assert.equal(thongBaoSauDuyet({ sales_order: null, bao_gia: 'SAL-QTN-1', phieu_cung_lan_dat: baoGia }),
+    'Đã duyệt cả hai phiếu — 2 yêu cầu báo giá đã gửi cho Miyano.')
+  assert.equal(thongBaoSauDuyet({ phieu_cung_lan_dat: {} }), 'Đã duyệt cả hai phiếu.')
+})
+
+test('số lượng sửa phải lớn hơn 0 — báo đúng dòng và nói phải làm gì', () => {
+  const items = [
+    { name: 'a', item_code: 'VT-A', qty: 10 },
+    { name: 'b', item_code: 'VT-B', qty: 20 },
+  ]
+  const cau = (ma) => `${ma}: số lượng phải lớn hơn 0. Không cần mặt hàng nào nữa thì từ chối báo giá.`
+  assert.equal(loiSoLuong(items, { a: 10, b: 0 }), cau('VT-B'))
+  assert.equal(loiSoLuong(items, { a: -3, b: 20 }), cau('VT-A'))
+  assert.equal(loiSoLuong(items, { a: '', b: 20 }), cau('VT-A'))
+  assert.equal(loiSoLuong(items, { a: 'abc', b: 20 }), cau('VT-A'))
+  assert.equal(loiSoLuong(items, { a: null, b: 20 }), cau('VT-A'))
+  // Một dòng 0 cạnh một dòng sửa hợp lệ vẫn bị chặn, không lặng lẽ bỏ qua.
+  assert.equal(loiSoLuong(items, { a: 0, b: 40 }), cau('VT-A'))
+})
+
+test('số lượng hợp lệ thì không có lỗi', () => {
+  const items = [{ name: 'a', item_code: 'VT-A', qty: 10 }, { name: 'b', item_code: 'VT-B', qty: 20 }]
+  assert.equal(loiSoLuong(items, { a: 10, b: 40 }), '')
+  assert.equal(loiSoLuong(items, { a: 0.5, b: '7' }), '')
+  assert.equal(loiSoLuong([], {}), '')
 })

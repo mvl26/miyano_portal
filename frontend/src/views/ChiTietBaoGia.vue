@@ -7,7 +7,9 @@ import { useRoute } from 'vue-router'
 import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { showToast } from '../toast'
-import { nhanNhomBaoGia, nhomBaoGiaBadge, hanhDongBaoGia, dongDaSua } from '../bao-gia'
+import {
+  nhanNhomBaoGia, nhomBaoGiaBadge, hanhDongBaoGia, dongDaSua, loiSoLuong,
+} from '../bao-gia'
 import ReasonModal from '../components/ReasonModal.vue'
 import CotTenHang from '../components/CotTenHang.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
@@ -34,7 +36,7 @@ async function load() {
   error.value = ''
   try {
     bg.value = await api.call('portal_bao_gia_chi_tiet', { ten: route.params.ten })
-    soLuongMoi.value = Object.fromEntries((bg.value.items || []).map((it) => [it.name, it.qty]))
+    datLaiSoLuong()
     dangSua.value = false
     napNhatKy()
   } catch (e) {
@@ -43,6 +45,17 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+function datLaiSoLuong() {
+  soLuongMoi.value = Object.fromEntries((bg.value?.items || []).map((it) => [it.name, it.qty]))
+}
+
+// Tắt chế độ sửa là HUỶ: các ô trở về số lượng đang có, để lần mở sau không
+// mang theo con số gõ dở của lần trước.
+function batTatSua() {
+  if (dangSua.value) datLaiSoLuong()
+  dangSua.value = !dangSua.value
 }
 
 // Đọc sổ là việc phụ: không `await` ở `load()`, lỗi không làm hỏng màn chính.
@@ -79,16 +92,24 @@ const dongY = () => chay(
   'Đã đồng ý — đơn hàng đã được tạo và chuyển cho Miyano xác nhận.',
 )
 
+// Hộp lý do chỉ đóng khi server đã nhận: lỗi thì hộp còn mở, lý do vừa gõ còn
+// nguyên để gửi lại.
 function tuChoi(lyDo) {
-  moTuChoi.value = false
   return chay(
     'tu_choi',
-    () => api.call('portal_bao_gia_tu_choi', { ten: bg.value.bao_gia, ly_do: lyDo || undefined }),
+    async () => {
+      await api.call('portal_bao_gia_tu_choi', { ten: bg.value.bao_gia, ly_do: lyDo || undefined })
+      moTuChoi.value = false
+    },
     'Đã từ chối báo giá.',
   )
 }
 
 function guiSuaSoLuong() {
+  // Số 0, số âm, ô trống: chặn và nói rõ dòng nào, không lặng lẽ bỏ dòng đó
+  // khỏi lời gửi rồi báo thành công.
+  const loi = loiSoLuong(bg.value.items, soLuongMoi.value)
+  if (loi) return showToast(loi, 'error')
   const dong = dongDaSua(bg.value.items, soLuongMoi.value)
   if (!dong.length) return showToast('Chưa sửa số lượng dòng nào.', 'error')
   return chay(
@@ -149,7 +170,7 @@ onMounted(load)
           </button>
           <button class="btn-o" :disabled="!!dangChay" @click="moTuChoi = true">✕ Từ chối…</button>
           <button v-if="hanhDong.includes('sua_so_luong')" class="btn-o" :disabled="!!dangChay"
-                  @click="dangSua = !dangSua">✎ Sửa số lượng</button>
+                  @click="batTatSua">{{ dangSua ? '✕ Huỷ sửa số lượng' : '✎ Sửa số lượng' }}</button>
           <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
         </div>
       </div>
@@ -158,7 +179,7 @@ onMounted(load)
         <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
       </div>
 
-      <div v-if="bg.nhom === 'dang_bao_gia'" class="card mb10">
+      <div v-if="!bg.hien_gia && bg.nhom === 'dang_bao_gia'" class="card mb10">
         <span class="badge b-blue">Miyano đang báo giá</span>
         <span class="tag"> Đơn giá sẽ hiện khi Miyano gửi báo giá cho quý vị.</span>
       </div>
@@ -183,7 +204,7 @@ onMounted(load)
               <CotTenHang :ma="it.item_code" :ten="it.item_name || ''" />
               <td>{{ it.uom }}</td>
               <td class="right">
-                <input v-if="dangSua" v-model.number="soLuongMoi[it.name]" type="number" min="0"
+                <input v-if="dangSua" v-model.number="soLuongMoi[it.name]" type="number" min="0.001"
                        step="any" style="width: 90px; text-align: right" />
                 <template v-else>{{ it.qty }}</template>
               </td>

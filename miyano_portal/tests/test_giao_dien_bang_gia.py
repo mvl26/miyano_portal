@@ -35,8 +35,22 @@ class TestGiaoDienBangGia(FrappeTestCase):
 
 	def test_man_dat_hang_bao_truoc_khi_tach(self):
 		s = _doc("views/LapPhieu.vue")
-		self.assertIn("sẽ tách thành 2 phiếu", s)
-		self.assertIn("tomTat.seTach", s)
+		# Báo TRƯỚC khi gửi rằng giỏ sẽ bị tách, và tách thành GÌ (spec
+		# 2026-10-12 §5: phần chờ báo giá ra một yêu cầu báo giá, không ra
+		# thêm một đơn). Câu báo nằm trên phần tử mang `v-if="tomTat.seTach"`
+		# và đứng TRƯỚC nút gửi trong template.
+		mau = s.split("<template>", 1)[1]
+		bao = re.search(r'<div v-if="tomTat\.seTach"[^>]*>(.*?)</div>', mau, re.S)
+		self.assertIsNotNone(bao)
+		cau = " ".join(bao.group(1).split())
+		self.assertIn("Lần đặt này sẽ tách làm hai", cau)
+		self.assertIn("đơn đặt ngay", cau)
+		self.assertIn("yêu cầu báo giá riêng", cau)
+		self.assertNotIn("2 phiếu", cau)
+		self.assertLess(bao.start(), mau.index('@click="nutChinh"'))
+		# Giỏ chỉ có hàng chờ báo giá: cũng báo trước, bằng chữ của luồng mới.
+		self.assertIn("sẽ gửi thành yêu cầu báo giá", mau)
+		self.assertNotIn("cả đơn sẽ chờ Miyano báo giá", mau)
 		self.assertIn("Tạm tính", s)
 		self.assertIn("THÀNH TIỀN", s)
 

@@ -30,10 +30,11 @@ export function khoaNhomBaoGia(gt) {
 }
 
 // Phiếu chưa có Quotation (nháp, chờ duyệt nội bộ) mở màn chi tiết phiếu đang
-// có: việc gửi duyệt / duyệt vẫn nằm ở đó.
+// có: việc gửi duyệt / duyệt vẫn nằm ở đó. `tu: 'bao-gia'` để nút "Quay lại"
+// của màn đó về đúng tab này chứ không về tab Đơn hàng.
 export function dichDongBaoGia(dong) {
   if (dong.bao_gia) return { name: 'bao-gia-detail', params: { ten: dong.bao_gia } }
-  return { name: 'de-xuat-detail', params: { ten: dong.de_xuat } }
+  return { name: 'de-xuat-detail', params: { ten: dong.de_xuat }, query: { tu: 'bao-gia' } }
 }
 
 export function hanhDongBaoGia(bg) {
@@ -67,4 +68,43 @@ export function dichSauDatHang(res) {
   if (baoGia) return { loai: 'bao_gia', to: { name: 'bao-gia-detail', params: { ten: baoGia } } }
   if (res?.sales_order) return { loai: 'don', to: null }
   return { loai: 'khac', to: { name: 'yeu-cau' } }
+}
+
+// Số lượng khách gõ ở màn sửa số lượng phải là số lớn hơn 0 ở MỌI dòng. Trả
+// câu lỗi của dòng sai đầu tiên, hoặc '' khi không có dòng nào sai. Cùng nghĩa
+// với câu server trả (`bao_gia.py`): dòng 0 không được lặng lẽ bỏ qua — bỏ một
+// mặt hàng không phải việc của màn này. Dòng không có ô nhập (`undefined`) là
+// dòng không sửa.
+export function loiSoLuong(items, soLuongMoi) {
+  for (const it of items || []) {
+    const gt = soLuongMoi?.[it.name]
+    if (gt === undefined) continue
+    const so = gt === null || String(gt).trim() === '' ? NaN : Number(gt)
+    if (!Number.isFinite(so) || so <= 0) {
+      return `${it.item_code || it.name}: số lượng phải lớn hơn 0. `
+        + 'Không cần mặt hàng nào nữa thì từ chối báo giá.'
+    }
+  }
+  return ''
+}
+
+// Câu báo sau khi quản lý duyệt phiếu (`de_xuat_duyet_phieu`). Phiếu có hàng
+// chờ báo giá sinh một YÊU CẦU BÁO GIÁ (`sales_order: null`, `bao_gia: <tên>`),
+// không sinh đơn; "Duyệt cả hai" trả thêm kết quả của phiếu kia trong
+// `phieu_cung_lan_dat`. Câu báo đếm đúng thứ vừa sinh ra — không biết sinh ra
+// gì thì không khẳng định gì.
+export function thongBaoSauDuyet(kq) {
+  const kia = kq?.phieu_cung_lan_dat || null
+  const ds = [kq, kia].filter(Boolean)
+  const soDon = ds.filter((k) => k.sales_order).length
+  const soBaoGia = ds.filter((k) => !k.sales_order && k.bao_gia).length
+  if (!kia) {
+    if (soDon) return 'Đã duyệt phiếu — đơn hàng đã được tạo.'
+    if (soBaoGia) return 'Đã duyệt phiếu — yêu cầu báo giá đã gửi cho Miyano.'
+    return 'Đã duyệt phiếu.'
+  }
+  const phan = []
+  if (soDon) phan.push(`${soDon} đơn hàng đã được tạo`)
+  if (soBaoGia) phan.push(`${soBaoGia} yêu cầu báo giá đã gửi cho Miyano`)
+  return phan.length ? `Đã duyệt cả hai phiếu — ${phan.join(' và ')}.` : 'Đã duyệt cả hai phiếu.'
 }

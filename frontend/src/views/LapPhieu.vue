@@ -1445,11 +1445,11 @@ onMounted(async () => {
                  nữa) mà còn hàng chờ báo giá → cả phiếu đi vòng báo giá;
                * chỉ có hàng có giá → không cần nói gì. -->
           <div v-if="tomTat.seTach" class="note note-b" style="margin-bottom: 12px">
-            Lần đặt này sẽ tách thành 2 phiếu: <b>{{ tomTat.soDatNgay }}</b> mặt hàng đặt ngay theo
-            bảng giá, <b>{{ tomTat.soChoBaoGia }}</b> mặt hàng chờ Miyano báo giá.
+            Lần đặt này sẽ tách làm hai: <b>{{ tomTat.soDatNgay }}</b> mặt hàng có giá thành đơn đặt ngay
+            theo bảng giá, <b>{{ tomTat.soChoBaoGia }}</b> mặt hàng chờ báo giá thành một yêu cầu báo giá riêng.
           </div>
           <div v-else-if="tomTat.soChoBaoGia" class="note note-b" style="margin-bottom: 12px">
-            Đơn có hàng chờ báo giá — cả đơn sẽ chờ Miyano báo giá trước khi giao.
+            Giỏ có hàng chờ báo giá — sẽ gửi thành yêu cầu báo giá; Miyano báo giá, quý vị đồng ý rồi mới thành đơn hàng.
           </div>
           <!-- Tạm tính CHỈ của phần có giá, theo bảng giá lúc này; đơn lấy giá
                bảng giá tại thời điểm được tạo (§4.3). Dòng tầng bảng giá chưa

@@ -31,6 +31,7 @@ import ReasonModal from '../components/ReasonModal.vue'
 import KhoiHangMoi from '../components/chi-tiet/KhoiHangMoi.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
+import { thongBaoSauDuyet } from '../bao-gia'
 import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
@@ -232,13 +233,19 @@ const coTheSuaNhap = computed(
 // Nút "Quay lại" mang theo bộ lọc đang mở của danh sách (C3). Giữ nguyên cơ
 // chế `?chip=` / `?khoa=` — người dùng vào thẳng bằng URL (link thông báo,
 // tab ghim) không có bước lịch sử nào để `router.back()` lùi.
-const quayLaiTo = computed(() => ({
-  name: 'yeu-cau',
-  query: {
-    ...(route.query.chip ? { chip: String(route.query.chip) } : {}),
-    ...(route.query.khoa ? { khoa: String(route.query.khoa) } : {}),
-  },
-}))
+//
+// Phiếu mở từ tab "Yêu cầu báo giá" (`?tu=bao-gia`, đặt ở `dichDongBaoGia`)
+// quay về đúng tab đó. Mọi giá trị `tu` khác giữ nguyên đường về cũ.
+const quayLaiTo = computed(() => {
+  if (route.query.tu === 'bao-gia') return { name: 'bao-gia' }
+  return {
+    name: 'yeu-cau',
+    query: {
+      ...(route.query.chip ? { chip: String(route.query.chip) } : {}),
+      ...(route.query.khoa ? { khoa: String(route.query.khoa) } : {}),
+    },
+  }
+})
 
 // --- C1: quản lý SỬA rồi mới duyệt (chép nguyên từ DeXuatDetail.vue, đổi
 // `doc.` → `phieu.`) --------------------------------------------------
@@ -349,9 +356,9 @@ const dangChay = ref('')
 const TOAST_THANH_CONG = {
   // Phiếu — chép nguyên từ DeXuatDetail.vue.
   de_xuat_xoa_nhap: 'Đã xoá phiếu.',
-  de_xuat_duyet_phieu: 'Đã duyệt phiếu — đơn hàng đã được tạo.',
-  // Cùng method với "Duyệt" nên khoá theo `method|label` (xem dưới).
-  'de_xuat_duyet_phieu|Duyệt cả hai': 'Đã duyệt cả hai phiếu — hai đơn hàng đã được tạo.',
+  // Duyệt phiếu KHÔNG có câu cứng ở đây: phiếu có hàng chờ báo giá sinh một
+  // yêu cầu báo giá chứ không sinh đơn, nên câu báo đọc từ KẾT QUẢ server
+  // trả (`thongBaoSauDuyet` ở `bao-gia.js`).
   de_xuat_tu_choi: 'Đã từ chối phiếu.',
   de_xuat_huy: 'Đã huỷ phiếu.',
   de_xuat_duyet_sua: 'Đã đồng ý sửa số lượng — đơn hàng đã cập nhật.',
@@ -375,15 +382,18 @@ async function chayHanhDong(action, extraArgs) {
   try {
     // Chọn module theo `action.nhom` — đơn đi `api.call` kèm `order`, phiếu
     // đi `api.callDeXuat` kèm `ten` (brief Task 7, Step 3).
+    let kq
     if (action.nhom === 'don') {
-      await api.call(action.method, { order: don.value.order, ...(extraArgs || {}) })
+      kq = await api.call(action.method, { order: don.value.order, ...(extraArgs || {}) })
     } else {
-      await api.callDeXuat(action.method, { ten: phieu.value.name, ...(extraArgs || {}) })
+      kq = await api.callDeXuat(action.method, { ten: phieu.value.name, ...(extraArgs || {}) })
     }
     showToast(
-      TOAST_THANH_CONG[action.method + '|' + action.label] ||
-        TOAST_THANH_CONG[action.method] ||
-        `Đã ${action.label}.`
+      action.method === 'de_xuat_duyet_phieu'
+        ? thongBaoSauDuyet(kq)
+        : TOAST_THANH_CONG[action.method + '|' + action.label] ||
+          TOAST_THANH_CONG[action.method] ||
+          `Đã ${action.label}.`
     )
     if (action.method === 'de_xuat_xoa_nhap') {
       // Xoá nháp thì phiếu không còn tồn tại nữa — quay lại danh sách thay

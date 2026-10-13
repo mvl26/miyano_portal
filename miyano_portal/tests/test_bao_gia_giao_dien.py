@@ -1,5 +1,6 @@
 """Nối dây giao diện của tab "Yêu cầu báo giá" (spec 2026-10-12 §6)."""
 
+import inspect
 import re
 from pathlib import Path
 
@@ -13,6 +14,15 @@ SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 
 def _doc(ten):
 	return (SRC / ten).read_text()
+
+
+def _endpoint_that_portal():
+	# Cùng cách đo với `test_de_xuat_action_registry.py`: Frappe ghi hàm gốc
+	# vào `frappe.whitelisted`, không gắn thuộc tính lên hàm.
+	return {
+		ten for ten, fn in inspect.getmembers(portal, inspect.isfunction)
+		if fn in frappe.whitelisted and fn.__module__ == portal.__name__
+	}
 
 
 class TestBaoGiaGiaoDien(FrappeTestCase):
@@ -43,13 +53,52 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 	def test_endpoint_frontend_goi_deu_ton_tai(self):
 		for ten in ("views/BaoGiaList.vue", "views/ChiTietBaoGia.vue",
 		            "components/TabDonBaoGia.vue"):
-			for ham in re.findall(r"api\.call\(\s*['\"](\w+)['\"]", _doc(ten)):
-				self.assertTrue(callable(getattr(portal, ham, None)), f"{ten}: {ham}")
+			ds = re.findall(r"api\.call\(\s*['\"](\w+)['\"]", _doc(ten))
+			self.assertTrue(ds, f"{ten}: không quét được lời gọi api.call nào")
+			for ham in ds:
+				self.assertIn(ham, _endpoint_that_portal(), f"{ten}: {ham}")
 
 	def test_chi_tiet_khong_ve_gia_khi_server_giau(self):
 		nguon = _doc("views/ChiTietBaoGia.vue")
-		self.assertIn("bg.hien_gia", nguon)
 		self.assertIn("quotation=", nguon)
+		mau = nguon.split("<template>", 1)[1]
+		# Mỗi con số tiền phải nằm trên phần tử mang `v-if="bg.hien_gia"` của
+		# CHÍNH nó: giữa thẻ mở đó và `{{ … }}` chỉ được có chữ (và một <b>),
+		# không có thẻ nào khác. Vẽ giá không điều kiện là hỏng test này.
+		for bieu_thuc in ("fmtVND(it.rate)", "fmtVND(it.amount)", "fmtVND(bg.tong_tien)"):
+			tat_ca = mau.count(bieu_thuc)
+			self.assertGreaterEqual(tat_ca, 1, bieu_thuc)
+			co_cong = re.findall(
+				r'<\w+\b[^>]*\bv-if="bg\.hien_gia"[^>]*>(?:\s*<b>)?[^<>]*' + re.escape(bieu_thuc),
+				mau,
+			)
+			self.assertEqual(len(co_cong), tat_ca, f"{bieu_thuc} bị vẽ ngoài v-if bg.hien_gia")
+
+	def test_thong_bao_gia_chua_co_theo_co_cua_server(self):
+		self.assertIn(
+			"v-if=\"!bg.hien_gia && bg.nhom === 'dang_bao_gia'\"",
+			_doc("views/ChiTietBaoGia.vue"),
+		)
+
+	def test_sua_so_luong_chan_so_khong_hop_le(self):
+		nguon = _doc("views/ChiTietBaoGia.vue")
+		ham = nguon.split("function guiSuaSoLuong", 1)[1].split("\n}\n", 1)[0]
+		self.assertIn("loiSoLuong(bg.value.items, soLuongMoi.value)", ham)
+		# Kiểm lỗi TRƯỚC khi dựng danh sách dòng gửi đi.
+		self.assertLess(ham.index("loiSoLuong("), ham.index("dongDaSua("))
+
+	def test_duyet_phieu_bao_dung_chung_tu_sinh_ra(self):
+		nguon = _doc("views/ChiTietYeuCau.vue")
+		self.assertIn("thongBaoSauDuyet(kq)", nguon)
+		# Câu khẳng định "đã tạo đơn" không còn nằm cứng trong bảng toast.
+		self.assertNotRegex(nguon, r"de_xuat_duyet_phieu[^\n]*đơn hàng đã được tạo")
+
+	def test_phieu_mo_tu_tab_bao_gia_quay_lai_dung_tab(self):
+		nguon = _doc("views/ChiTietYeuCau.vue")
+		khoi = nguon.split("const quayLaiTo = computed(", 1)[1].split("\n})", 1)[0]
+		self.assertIn("route.query.tu === 'bao-gia'", khoi)
+		self.assertIn("name: 'bao-gia'", khoi)
+		self.assertIn("name: 'yeu-cau'", khoi)
 
 	def test_chi_tiet_dung_ba_cot_ten_hang_chung(self):
 		# Quy tắc Mã / Tên mặt hàng / Tên thường gọi của mọi bảng mặt hàng
