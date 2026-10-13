@@ -44,6 +44,10 @@ SK_HOA_DON = "hoa_don"
 # nó là hệ quả của việc khách đồng ý (đã có dòng `khach_dong_y` riêng).
 SK_GHI_GIA_BANG_GIA = "ghi_gia_bang_gia"
 
+# Spec 2026-10-12 — yêu cầu báo giá bằng Quotation.
+SK_BAO_GIA_TAO = "bao_gia_tao"
+SK_BAO_GIA_HET_HAN = "bao_gia_het_han"
+
 
 def ghi(su_kien, *, customer, vai, khoa_phong=None, de_xuat=None,
         sales_order=None, nguoi_thao_tac=None, ghi_chu=None,

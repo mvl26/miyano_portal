@@ -160,4 +160,8 @@ def quet_bao_gia_het_han(moc=None) -> int:
         cap_nhat_yeu_cau_goc(so, "Hết hạn")
         _gui_email_het_han(so, han)
         dem += 1
-    return dem
+    # Spec 2026-10-12 §4.6 — yêu cầu báo giá mới là Quotation. Vòng lặp trên
+    # vẫn phải chạy cho tới khi hết đơn "Mua lẻ" dở của luồng cũ.
+    from miyano_portal import bao_gia
+
+    return dem + bao_gia.quet_het_han(hom_nay)

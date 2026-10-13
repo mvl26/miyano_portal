@@ -582,3 +582,87 @@ def sua_so_luong(ten: str, dong: list) -> dict:
 	return {
 		"trang_thai_moi": bg.get("workflow_state"), "thay_doi": thay_doi, "ap_dung": ap_dung,
 	}
+
+
+# Trạng thái MỚI của báo giá → sự kiện nhật ký. Bước phía khách (đồng ý, từ
+# chối, sửa số lượng) tự ghi ở hàm của nó, kèm người bấm.
+_SU_KIEN_THEO_TRANG_THAI = {
+	TT_CHO_KHACH: "SK_MIYANO_BAO_GIA",
+	TT_MIYANO_TU_CHOI: "SK_MIYANO_TU_CHOI",
+	TT_HET_HAN: "SK_BAO_GIA_HET_HAN",
+}
+
+
+def ghi_nhat_ky_chuyen_trang_thai(doc, method=None) -> None:
+	"""Hook `on_update` — một dòng nhật ký khi báo giá của cổng CHUYỂN tới một
+	trạng thái trong bảng trên. Chỉ khi trạng thái thật sự đổi."""
+	from miyano_portal import nhat_ky
+
+	if doc.get("custom_nguon_don") != NGUON_CONG:
+		return
+	truoc, nay = _trang_thai_truoc(doc), doc.get("workflow_state")
+	if not truoc or truoc == nay or nay not in _SU_KIEN_THEO_TRANG_THAI:
+		return
+	nhat_ky.ghi(
+		getattr(nhat_ky, _SU_KIEN_THEO_TRANG_THAI[nay]), customer=doc.party_name,
+		khoa_phong=doc.get("custom_khoa_phong"), de_xuat=doc.get("custom_de_xuat"),
+		vai=nhat_ky.VAI_HE_THONG if nay == TT_HET_HAN else nhat_ky.VAI_MIYANO,
+		ghi_chu=(doc.get("custom_ly_do_tu_choi") or None) if nay == TT_MIYANO_TU_CHOI else None,
+	)
+
+
+def _gui_email_het_han(bg, han) -> None:
+	"""Email hai phía. Lỗi gửi mail không được chặn việc đóng báo giá."""
+	from miyano_portal.portal_bao_gia import _email_sales_phu_trach
+
+	han_str = formatdate(han, "dd/mm/yyyy")
+	noi_dung = (
+		f"<p>Báo giá <b>{bg.name}</b> (khách hàng {bg.party_name}) đã hết hiệu lực "
+		f"ngày <b>{han_str}</b> mà chưa được đồng ý trên cổng khách hàng.</p>"
+		"<p>Nếu vẫn cần hàng, vui lòng gửi yêu cầu báo giá mới.</p>"
+	)
+	for nguoi_nhan in {bg.get("contact_email"), _email_sales_phu_trach(bg.party_name)}:
+		if not nguoi_nhan:
+			continue
+		try:
+			frappe.sendmail(
+				recipients=[nguoi_nhan], subject=f"Báo giá {bg.name} đã hết hiệu lực",
+				message=noi_dung, reference_doctype="Quotation", reference_name=bg.name,
+				now=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title="bao_gia: gửi email hết hạn thất bại", message=frappe.get_traceback()
+			)
+
+
+def quet_het_han(moc=None) -> int:
+	"""Spec §4.6 — đóng mọi báo giá CỦA CỔNG ở "Chờ khách đồng ý" có `valid_till` trước
+	`moc` (mặc định hôm nay). Gọi từ job hằng ngày `portal_bao_gia.
+	quet_bao_gia_het_han`, chạy dưới Administrator nên không cần nâng quyền.
+	Job gốc `set_expired_status` của ERPNext chỉ đụng Quotation đã Submit."""
+	from frappe.model.workflow import apply_workflow
+
+	hom_nay = getdate(moc) if moc else getdate(nowdate())
+	dem = 0
+	for ten in frappe.get_all(
+		"Quotation",
+		# CHỈ báo giá của cổng. Form Quotation của ERPNext tự điền `valid_till`
+		# (+1 tháng) cho báo giá nhân viên tự lập; quét cả chúng là tự đóng
+		# những báo giá không ai coi là "hết hạn theo cổng".
+		filters={
+			"workflow_state": TT_CHO_KHACH, "docstatus": 0,
+			"custom_nguon_don": NGUON_CONG, "valid_till": ("<", hom_nay),
+		},
+		pluck="name",
+	):
+		bg = frappe.get_doc("Quotation", ten)
+		han = bg.valid_till
+		bg = apply_workflow(bg, HD_HET_HAN)
+		bg.add_comment(
+			"Comment",
+			f"[Hệ thống] Báo giá hết hiệu lực ngày {formatdate(han, 'dd/mm/yyyy')} — tự đóng.",
+		)
+		_gui_email_het_han(bg, han)
+		dem += 1
+	return dem

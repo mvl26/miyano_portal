@@ -11,6 +11,7 @@ from frappe.utils import get_datetime, now_datetime
 
 TRANG_THAI_TREO = "Chờ Miyano xác nhận"
 TIEU_DE = "Portal - Đơn treo SLA"
+TIEU_DE_BAO_GIA = "Portal - Báo giá treo SLA"
 
 # E6/NL-11.2 — leo thang yêu cầu hàng hoá đứng quá lâu ở "Mới".
 TRANG_THAI_YEU_CAU_MOI = "Mới"
@@ -135,6 +136,41 @@ def quet_don_treo(moc=None) -> int:
                 "email_content": (
                     f"Đơn {so.name} của {so.customer} đã chờ xác nhận quá "
                     f"{sla:g} giờ làm việc."
+                ),
+            }).insert(ignore_permissions=True)
+        dem += 1
+    # Spec 2026-10-12 §7 — báo giá của cổng nằm ở "Chờ Miyano báo giá" quá
+    # ngưỡng. Cùng ngưỡng `sla_xu_ly_don_gio`, tính từ lần sửa cuối, mỗi báo
+    # giá tối đa một lần mỗi ngày.
+    from miyano_portal import bao_gia
+
+    for bg in frappe.get_all(
+        "Quotation",
+        filters={
+            "workflow_state": bao_gia.TT_CHO_MIYANO, "docstatus": 0,
+            "custom_nguon_don": bao_gia.NGUON_CONG,
+        },
+        fields=["name", "party_name", "modified"],
+    ):
+        if gio_lam_viec_troi_qua(bg.modified, moc=moc) < sla:
+            continue
+        tieu_de = f"{TIEU_DE_BAO_GIA}: {bg.name}"
+        if frappe.db.exists(
+            "Notification Log",
+            {"subject": tieu_de, "creation": (">=", hom_nay + " 00:00:00")},
+        ):
+            continue
+        for u in nguoi_nhan:
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": tieu_de,
+                "for_user": u,
+                "type": "Alert",
+                "document_type": "Quotation",
+                "document_name": bg.name,
+                "email_content": (
+                    f"Yêu cầu báo giá {bg.name} của {bg.party_name} đã chờ Miyano "
+                    f"báo giá quá {sla:g} giờ làm việc."
                 ),
             }).insert(ignore_permissions=True)
         dem += 1

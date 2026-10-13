@@ -488,6 +488,9 @@ doc_events = {
 		"before_submit": [
 			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",
 		],
+		"on_update": [
+			"miyano_portal.bao_gia.ghi_nhat_ky_chuyen_trang_thai",
+		],
 	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
 	# "Từ chối". Áp cho MỌI Sales Order, không riêng đơn từ cổng.
