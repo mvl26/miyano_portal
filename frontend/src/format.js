@@ -225,6 +225,9 @@ export const NHAN_SU_KIEN = {
   // Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực trong
   // bảng giá của họ; `ghi_chu` của dòng nhật ký liệt kê mặt hàng → giá mới.
   ghi_gia_bang_gia: 'Ghi giá vào bảng giá',
+  // Spec 2026-10-12 — yêu cầu báo giá là một Quotation, có sự kiện riêng.
+  bao_gia_tao: 'Gửi yêu cầu báo giá cho Miyano',
+  bao_gia_het_han: 'Báo giá hết hạn',
 }
 
 export function nhanSuKien(su_kien) {
@@ -242,9 +245,11 @@ const MAU_SU_KIEN = {
   khoa_xin_sua: 'benh-vien',
   quan_ly_duyet_sua: 'benh-vien',
   khach_gui_lai_bao_gia: 'benh-vien',
+  bao_gia_tao: 'benh-vien',
   // --green — MIYANO thao tác.
   miyano_xac_nhan: 'miyano',
   miyano_bao_gia: 'miyano',
+  bao_gia_het_han: 'miyano',
   giao_hang: 'miyano',
   hoa_don: 'miyano',
   // --red — việc ĐI LÙI.

@@ -73,6 +73,7 @@ import { fmtVND, addWorkDaysISO, todayISO } from '../format'
 import {
   coGia, dongKhopMa, laTangBangGia, tangTuNguonGia, thanhTienDong, tomTatGio,
 } from '../gio-hang'
+import { dichSauDatHang } from '../bao-gia'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
@@ -894,7 +895,8 @@ async function guiDuyet() {
 // đây: làm cả hai sẽ đẻ ra hai chứng từ cho một lần bấm.
 //
 // Chỉ gửi mã và số lượng: tầng và giá của từng dòng do server suy lại từ
-// Price List lúc dựng đơn (§4.2), giỏ trộn ra hai đơn (§4.1).
+// Price List lúc dựng đơn (§4.2); giỏ trộn ra một đơn và một yêu cầu báo giá
+// (§4.1, spec 2026-10-12 §5).
 async function datHang() {
   if (dangGui.value) return
   if (gioTrong()) {
@@ -932,11 +934,31 @@ async function datHang() {
     items.value = []
     datNgoai.value = []
     dnMoRong.value = false
-    if ((res.don || []).length === 2) {
-      // §4.1/§7 — giỏ trộn ra HAI đơn. Màn xác nhận bên dưới chỉ biết nói về
-      // một mã đơn, nên về danh sách, nơi cả hai đứng cạnh nhau.
-      showToast('Đã tạo 2 đơn: 1 đơn đặt ngay, 1 đơn chờ báo giá.', 'success')
-      router.push({ name: 'yeu-cau' })
+    // Spec 2026-10-12 §5 — hàng chờ báo giá nay ra một YÊU CẦU BÁO GIÁ, không
+    // ra "đơn chờ báo giá". Thẻ xác nhận bên dưới chỉ biết nói về MỘT mã đơn,
+    // nên chỉ kết quả có đúng một đơn mới tới đó (`dichSauDatHang`).
+    const sau = dichSauDatHang(res)
+    if (sau.loai === 'tron') {
+      // Giỏ trộn ra MỘT đơn và MỘT yêu cầu báo giá: về danh sách đơn hàng,
+      // tab bên cạnh đang mang huy hiệu của yêu cầu báo giá.
+      showToast('Đã tạo 1 đơn đặt ngay và 1 yêu cầu báo giá.', 'success')
+      router.push(sau.to)
+      return
+    }
+    if (sau.loai === 'bao_gia') {
+      // Chỉ có hàng chưa có giá / chưa có mã: không có đơn nào để hiện màn
+      // xác nhận đơn, sang thẳng yêu cầu báo giá vừa tạo.
+      showToast(
+        res.da_ton_tai ? 'Yêu cầu báo giá này đã được gửi trước đó.' : 'Đã gửi yêu cầu báo giá cho Miyano.',
+        'success'
+      )
+      router.push(sau.to)
+      return
+    }
+    if (sau.loai !== 'don') {
+      // Server không trả mã đơn lẫn mã báo giá: không dựng thẻ "Mã đơn" rỗng.
+      showToast('Đã gửi yêu cầu.', 'success')
+      router.push(sau.to)
       return
     }
     if (res.da_ton_tai) showToast(`Đơn ${res.sales_order} đã được tạo trước đó.`)
@@ -1264,8 +1286,9 @@ onMounted(async () => {
 
     <!-- ==================== BƯỚC 2 — GIỎ HÀNG ==================== -->
     <template v-else>
-      <!-- Nhánh quản lý: xác nhận MỘT đơn vừa đặt. Giỏ trộn ra hai đơn thì
-           `datHang()` đã đưa về danh sách, không tới đây. -->
+      <!-- Nhánh quản lý: xác nhận MỘT đơn vừa đặt. Giỏ trộn, hoặc giỏ chỉ ra
+           yêu cầu báo giá, thì `datHang()` đã điều hướng đi nơi khác
+           (`dichSauDatHang`), không tới đây. -->
       <div v-if="donDaDat" class="card success">
         <div style="font-size: 52px">✅</div>
         <h2 style="margin: 10px 0 6px">Đã đặt hàng!</h2>

@@ -43,7 +43,13 @@ class TestGiaoDienBangGia(FrappeTestCase):
 	def test_man_dat_hang_ve_danh_sach_khi_ra_hai_phieu(self):
 		s = _doc("views/LapPhieu.vue")
 		self.assertIn("res.phieu_cung_lan_dat", s)
-		self.assertRegex(s, r"res\.don\b")
+		# Nhánh quản lý: việc đọc `res.don` (một đơn hay hai chứng từ) nay nằm
+		# ở `dichSauDatHang` của `bao-gia.js` (spec 2026-10-12 §5) — canh cả
+		# chỗ màn GỌI hàm lẫn chỗ hàm ĐỌC `don`, và đích "về danh sách".
+		self.assertIn("dichSauDatHang(res)", s)
+		ham = _doc("bao-gia.js").split("export function dichSauDatHang", 1)[1]
+		self.assertRegex(ham, r"res\?\.don\b")
+		self.assertRegex(ham, r"don\.length === 2\) return \{ loai: 'tron', to: \{ name: 'yeu-cau' \} \}")
 		self.assertNotRegex(s, r"portal_order_place'[^)]*\bcontract\b")
 
 	def test_trang_chu_va_ho_so_khong_con_hop_dong(self):

@@ -1,0 +1,75 @@
+"""Nối dây giao diện của tab "Yêu cầu báo giá" (spec 2026-10-12 §6)."""
+
+import re
+from pathlib import Path
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+
+from miyano_portal.api import portal
+
+SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
+
+
+def _doc(ten):
+	return (SRC / ten).read_text()
+
+
+class TestBaoGiaGiaoDien(FrappeTestCase):
+	def test_hai_route(self):
+		router = _doc("router.js")
+		self.assertIn("path: '/yeu-cau-bao-gia', name: 'bao-gia'", router)
+		self.assertIn("path: '/yeu-cau-bao-gia/:ten', name: 'bao-gia-detail'", router)
+
+	def test_muc_nav_sang_o_ca_hai_tab(self):
+		app = _doc("App.vue")
+		self.assertIn("name === 'bao-gia'", app)
+		self.assertIn("name === 'bao-gia-detail'", app)
+
+	def test_ca_hai_man_danh_sach_co_dai_tab(self):
+		for ten in ("views/YeuCauList.vue", "views/BaoGiaList.vue"):
+			self.assertIn("<TabDonBaoGia", _doc(ten), ten)
+
+	def test_nhom_cua_frontend_khop_backend(self):
+		nguon = _doc("bao-gia.js")
+		khoa = re.search(r"NHOM_BAO_GIA = \[([^\]]+)\]", nguon).group(1)
+		self.assertEqual(tuple(re.findall(r"'(\w+)'", khoa)), portal.NHOM_BAO_GIA)
+
+	def test_khoa_nhom_khong_lot_vao_giai_doan(self):
+		khoi = re.search(r"export const GIAI_DOAN = \[([^\]]+)\]", _doc("format.js")).group(1)
+		for khoa in ("dang_bao_gia", "cho_dong_y", "da_dong"):
+			self.assertNotIn(khoa, khoi)
+
+	def test_endpoint_frontend_goi_deu_ton_tai(self):
+		for ten in ("views/BaoGiaList.vue", "views/ChiTietBaoGia.vue",
+		            "components/TabDonBaoGia.vue"):
+			for ham in re.findall(r"api\.call\(\s*['\"](\w+)['\"]", _doc(ten)):
+				self.assertTrue(callable(getattr(portal, ham, None)), f"{ten}: {ham}")
+
+	def test_chi_tiet_khong_ve_gia_khi_server_giau(self):
+		nguon = _doc("views/ChiTietBaoGia.vue")
+		self.assertIn("bg.hien_gia", nguon)
+		self.assertIn("quotation=", nguon)
+
+	def test_chi_tiet_dung_ba_cot_ten_hang_chung(self):
+		# Quy tắc Mã / Tên mặt hàng / Tên thường gọi của mọi bảng mặt hàng
+		# trên cổng (`ten-hang.js`): bảng của màn báo giá không tự vẽ ô riêng.
+		nguon = _doc("views/ChiTietBaoGia.vue")
+		self.assertIn("<CotTenHang head />", nguon)
+		self.assertIn('<CotTenHang :ma="it.item_code"', nguon)
+
+	def test_su_kien_nhat_ky_moi_co_nhan(self):
+		fmt = _doc("format.js")
+		for khoa in ("bao_gia_tao", "bao_gia_het_han"):
+			self.assertIn(f"{khoa}:", fmt)
+
+	def test_dashboard_co_the_bao_gia(self):
+		self.assertIn("bao_gia_cho_dong_y", _doc("views/Dashboard.vue"))
+
+	def test_dat_hang_khong_hien_ma_don_rong(self):
+		# Giỏ chỉ có hàng chờ báo giá không sinh đơn: màn Đặt hàng hỏi
+		# `dichSauDatHang` (bao-gia.js) chứ không tự coi kết quả là một đơn.
+		nguon = _doc("views/LapPhieu.vue")
+		self.assertIn("dichSauDatHang(res)", nguon)
+		self.assertIn("1 đơn đặt ngay và 1 yêu cầu báo giá", nguon)
+		self.assertNotIn("1 đơn chờ báo giá", nguon)

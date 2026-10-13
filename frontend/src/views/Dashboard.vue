@@ -17,7 +17,7 @@ const orders = ref([])
 // lấy từ `portal_dashboard_kpi`, một truy vấn đếm/cộng RIÊNG trên TOÀN BỘ
 // dữ liệu của khách, không phụ thuộc cỡ trang. Không còn cần gọi
 // `portal_invoices` ở màn này — danh sách hoá đơn không hiện ở Dashboard.
-const kpi = ref({ don_cho_xac_nhan: 0, don_dang_giao: 0, hoa_don_chua_thanh_toan: 0 })
+const kpi = ref({ bao_gia_cho_dong_y: 0, don_cho_xac_nhan: 0, don_dang_giao: 0, hoa_don_chua_thanh_toan: 0 })
 
 const now = new Date()
 const updatedAt = `${fmtDate(now.toISOString())} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -64,6 +64,10 @@ function openOrder(name) {
     </div>
 
     <div class="kpis">
+      <router-link :to="{ name: 'bao-gia', query: { nhom: 'cho_dong_y' } }" class="card kpi" style="text-decoration: none; color: inherit">
+        <div class="n" style="color: var(--orange)">{{ kpi.bao_gia_cho_dong_y }}</div>
+        <div class="t">Báo giá chờ đồng ý</div>
+      </router-link>
       <div class="card kpi"><div class="n">{{ kpi.don_cho_xac_nhan }}</div><div class="t">Đơn chờ xác nhận</div></div>
       <div class="card kpi"><div class="n">{{ kpi.don_dang_giao }}</div><div class="t">Đơn đang giao</div></div>
       <div class="card kpi"><div class="n">{{ kpi.hoa_don_chua_thanh_toan }}</div><div class="t">Hoá đơn chưa thanh toán</div></div>

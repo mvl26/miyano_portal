@@ -119,7 +119,10 @@ function isActive(key) {
     // "Duyệt". Giữ lại thì một link CŨ mang `?tu=duyet` (thông báo đã gửi
     // đi, tab được ghim) mở ra không có mục nav nào sáng — mục nó từng
     // sáng thì không còn, mục còn lại thì tự loại mình.
+    // Spec 2026-10-12 §6 — tab "Yêu cầu báo giá" và màn chi tiết của nó nằm
+    // trong cùng mục nav này.
     return name === 'yeu-cau' || name === 'order-detail' || name === 'de-xuat-detail'
+      || name === 'bao-gia' || name === 'bao-gia-detail'
   }
   if (key === 'kho') {
     return [

@@ -741,6 +741,11 @@ onMounted(async () => {
           >{{ phieu.phieu_cung_lan_dat.ma_de_xuat || phieu.phieu_cung_lan_dat.name }}</router-link>
           ({{ phieu.phieu_cung_lan_dat.trang_thai }})
         </p>
+        <p v-if="phieu?.bao_gia" style="margin-top: 4px">
+          <router-link :to="{ name: 'bao-gia-detail', params: { ten: phieu.bao_gia } }">
+            Xem yêu cầu báo giá {{ phieu.bao_gia }} →
+          </router-link>
+        </p>
         <p v-if="lyDoTuChoi" class="tag" style="color: var(--red); margin-top: 8px">
           Lý do từ chối: {{ lyDoTuChoi }}
         </p>

@@ -28,6 +28,7 @@ import { fmtVND, fmtDate, giaiDoanBadge, nhanGiaiDoan, khoaGiaiDoan, GIAI_DOAN }
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
+import TabDonBaoGia from '../components/TabDonBaoGia.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -251,6 +252,8 @@ onMounted(async () => {
     <div v-else class="mb10">
       <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
     </div>
+
+    <TabDonBaoGia dang="don" />
 
     <!-- Ô lọc khoa — CHỈ quản lý. Đứng TRÊN dải chip: quản lý chọn khoa
          trước ("khoa nào đang mua gì"), rồi mới lọc giai đoạn trong khoa
