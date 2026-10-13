@@ -338,6 +338,10 @@ def _sinh_don(bg):
 	so.custom_request_id = bg.custom_request_id + HAU_TO_DON
 	so.custom_hdnt = None
 	so.ignore_pricing_rule = 1
+	# BẪY ERPNext: mapper chép lịch thanh toán của báo giá, mà hạn của nó là
+	# NGÀY LẬP báo giá. Đơn lập hôm nay: đồng ý khác ngày là bị chặn "Due Date
+	# ... cannot be before Posting Date". Xoá để `set_payment_schedule` dựng lại.
+	so.payment_schedule = []
 	# Gán tường minh, không dựa vào việc mapper chép trường cùng tên.
 	so.custom_khoa_phong = bg.get("custom_khoa_phong")
 	so.custom_de_xuat = bg.get("custom_de_xuat")
@@ -381,6 +385,10 @@ def dong_y(ten: str) -> dict:
 
 	# Khoá dòng: hai người cùng bấm thì người sau chờ, rồi thấy "đã đồng ý".
 	bg = frappe.get_doc("Quotation", ten, for_update=True)
+	# Báo giá nhân viên tự lập trên Desk không có mã yêu cầu để tra đơn và
+	# không đi vòng đồng ý của cổng: từ chối trước mọi nhánh khác.
+	if bg.get("custom_nguon_don") != NGUON_CONG or not bg.get("custom_request_id"):
+		frappe.throw("Báo giá này không phải của cổng khách hàng.", frappe.ValidationError)
 	if bg.get("workflow_state") == TT_DA_DONG_Y:
 		return {
 			"bao_gia": bg.name, "sales_order": don_cua_bao_gia(bg, khoa=True),
@@ -415,10 +423,9 @@ def dong_y(ten: str) -> dict:
 		bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
 	except Exception:
 		loi = frappe.get_traceback(with_context=True)
-		try:
-			frappe.db.rollback(save_point="bao_gia_ghi_gia")
-		except Exception:
-			loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
+		# Lùi savepoint mà hỏng là máy chủ đã lùi CẢ giao dịch (deadlock...):
+		# đơn vừa sinh không còn nữa. Để lỗi nổi lên, không báo thành công.
+		frappe.db.rollback(save_point="bao_gia_ghi_gia")
 		frappe.log_error(
 			title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
 			message=loi, reference_doctype="Sales Order", reference_name=so.name,

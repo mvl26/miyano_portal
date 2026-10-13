@@ -16,21 +16,21 @@ class TestBaoGiaDongY(NenBaoGia):
 		super().setUp()
 		self.ql = self._quan_ly("bgdy.ql@demo.miyano", self.kh_a)
 
-	def _phieu(self, ngay_can=None):
+	def _phieu(self, ngay_can=None, ma_de_xuat=None):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua", "customer": self.kh_a,
 			"khoa_phong": self.khoa_huyethoc, "ly_do_yeu_cau": "Hết hàng trong kho khoa",
 			"ten_don_hang": "Đợt thử báo giá", "ghi_chu": "Giao giờ hành chính",
 			"ngay_can": ngay_can or add_days(nowdate(), 10),
-			"trang_thai": "Đã duyệt",
+			"trang_thai": "Đã duyệt", "ma_de_xuat": ma_de_xuat,
 			"items": [{"item_code": self.item_boi_so, "so_luong_de_xuat": 20, "so_luong_duyet": 20}],
 		})
 		doc.insert(ignore_permissions=True)
 		return doc
 
-	def _cho_khach(self, gia=7000, gia_dong_co_gia=None, ngay_can=None):
+	def _cho_khach(self, gia=7000, gia_dong_co_gia=None, ngay_can=None, ma_de_xuat=None):
 		"""Một báo giá của cổng đã được Miyano điền giá và gửi khách."""
-		phieu = self._phieu(ngay_can)
+		phieu = self._phieu(ngay_can, ma_de_xuat)
 		kq = bao_gia.tao_bao_gia(
 			self.kh_a,
 			items=[
@@ -65,6 +65,7 @@ class TestBaoGiaDongY(NenBaoGia):
 		self.assertEqual((bg.workflow_state, bg.docstatus), (bao_gia.TT_DA_DONG_Y, 1))
 		self.assertEqual(kq["trang_thai_moi"], bao_gia.TT_DA_DONG_Y)
 		self.assertFalse(kq["da_ton_tai"])
+		self.assertFalse(frappe.flags.bao_gia_dong_y_qua_cong)
 
 	def test_sinh_dung_mot_don_theo_bao_gia(self):
 		bg, phieu = self._cho_khach()
@@ -169,6 +170,7 @@ class TestBaoGiaDongY(NenBaoGia):
 		with patch.object(bao_gia, "_sinh_don", side_effect=frappe.ValidationError("hỏng")):
 			with self.assertRaises(frappe.ValidationError):
 				self._dong_y(bg)
+		self.assertFalse(frappe.flags.bao_gia_dong_y_qua_cong)
 		self.assertEqual(
 			frappe.db.get_value("Quotation", bg.name, ["workflow_state", "docstatus"]),
 			(bao_gia.TT_CHO_KHACH, 0),
@@ -194,3 +196,65 @@ class TestBaoGiaDongY(NenBaoGia):
 		frappe.set_user(self.ql)
 		bao_gia.dong_y(bg.name)
 		self.assertEqual(frappe.session.user, self.ql)
+
+	def test_dong_y_khac_ngay_lap_bao_gia(self):
+		"""Vòng sửa 1 — báo giá lập hôm kia: lịch thanh toán của nó (hạn = ngày
+		lập) không được theo sang đơn, nếu không đơn lập hôm nay bị chặn vì hạn
+		thanh toán đứng trước ngày chứng từ."""
+		bg, _ = self._cho_khach()
+		hom_kia = add_days(nowdate(), -2)
+		frappe.db.set_value(
+			"Quotation", bg.name, "transaction_date", hom_kia, update_modified=False
+		)
+		lich = frappe.get_all(
+			"Payment Schedule", filters={"parent": bg.name, "parenttype": "Quotation"},
+			pluck="name",
+		)
+		self.assertTrue(lich, "fixture: báo giá phải có lịch thanh toán")
+		for ten in lich:
+			frappe.db.set_value(
+				"Payment Schedule", ten, "due_date", hom_kia, update_modified=False
+			)
+		so = frappe.get_doc("Sales Order", self._dong_y(bg)["sales_order"])
+		self.assertTrue(so.payment_schedule)
+		for d in so.payment_schedule:
+			self.assertGreaterEqual(getdate(d.due_date), getdate(so.transaction_date))
+
+	def test_bao_gia_khong_cua_cong_bi_tu_choi(self):
+		"""Vòng sửa 1 — báo giá nhân viên tự lập trên Desk không đi đường này."""
+		bg = self._bao_gia_tho(nguon="Nội bộ")
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._dong_y(bg)
+		self.assertIn("không phải của cổng khách hàng", str(ctx.exception))
+		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 0)
+
+	def test_bao_gia_cong_thieu_ma_yeu_cau_bi_tu_choi(self):
+		bg = self._bao_gia_tho()
+		frappe.db.set_value("Quotation", bg.name, "custom_request_id", None)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._dong_y(bg)
+		self.assertIn("không phải của cổng khách hàng", str(ctx.exception))
+
+	def test_don_mang_ma_de_xuat_cua_phieu(self):
+		"""Vòng sửa 1 — mã đơn là mã khách đang cầm trên phiếu."""
+		ma = "BGDY-" + frappe.generate_hash(length=8).upper()
+		bg, _ = self._cho_khach(ma_de_xuat=ma)
+		kq = self._dong_y(bg)
+		self.assertEqual(kq["sales_order"], ma)
+		self.assertEqual(frappe.db.get_value("Sales Order", ma, "custom_ma_tra_cuu"), ma)
+
+	def test_lui_savepoint_ghi_gia_hong_thi_khong_bao_thanh_cong(self):
+		"""Vòng sửa 1 — lùi savepoint hỏng nghĩa là máy chủ đã lùi CẢ giao dịch
+		(deadlock...): đơn vừa sinh không còn, không được trả về như đã xong."""
+		bg, _ = self._cho_khach()
+		lui_that = frappe.db.rollback
+
+		def lui(*args, save_point=None, **kw):
+			if save_point == "bao_gia_ghi_gia":
+				raise frappe.db.InternalError("SAVEPOINT bao_gia_ghi_gia does not exist")
+			return lui_that(*args, save_point=save_point, **kw)
+
+		with patch.object(bang_gia_khach, "ghi_gia_da_dong_y", side_effect=RuntimeError("hỏng")):
+			with patch.object(frappe.db, "rollback", side_effect=lui):
+				with self.assertRaises(frappe.db.InternalError):
+					self._dong_y(bg)
