@@ -12,6 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO, TRANG_THAI_CHO_KHACH
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.test_e6_mua_le import (
     BVBM, PXN, RETAIL_CO_GIA, USER_BVBM, USER_PXN, VT_HDNT, _rid, _seed_mua_le,
 )
@@ -34,7 +35,10 @@ class TestBaoGiaPdf(FrappeTestCase):
         frappe.set_user("Administrator")
 
     def _don_cho_khach_dong_y(self):
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 3}]),
             dat_ngoai=json.dumps([
                 {"ten_hang": "Găng tay nitrile size M", "dvt": "Hộp", "so_luong": 5},
@@ -87,7 +91,10 @@ class TestBaoGiaPdf(FrappeTestCase):
         self.assertNotIn("200,000", html)
 
     def test_pdf_khong_chua_dong_giu_cho(self):
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([]),
             dat_ngoai=json.dumps([{"ten_hang": "Dây truyền dịch", "dvt": "Cái", "so_luong": 20}]),
             request_id=_rid(),
@@ -108,11 +115,15 @@ class TestBaoGiaPdf(FrappeTestCase):
     def test_don_chua_gui_khach_thi_khong_tai_duoc(self):
         """Đơn còn ở "Chờ xác nhận" = sales chưa chốt giá. Cho tải là lộ
         giá nháp và biến một con số đang sửa thành cam kết với khách."""
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             request_id=_rid(),
             mode="ban_le",
         )
+        self.assertTrue(res["sales_order"])
         with self.assertRaises(frappe.ValidationError):
             portal.portal_bao_gia_pdf(order=res["sales_order"])
 

@@ -21,6 +21,7 @@ from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO, han_hieu_luc_bao_gia
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 BVBM = "Bệnh viện Bạch Mai"
@@ -116,6 +117,20 @@ def _seed_mua_le():
     frappe.db.set_value("Item", RETAIL_NGUNG_KD, "disabled", 1)
 
 
+def _bao_gia_cua(case, res, don=None):
+    """Spec 2026-10-12 §5 — giỏ còn hàng chưa có giá hoặc dòng gõ tay không còn
+    sinh Sales Order "Mua lẻ": đường đặt trả `sales_order = None` cùng một
+    Quotation ở "Chờ Miyano báo giá", và phiếu đứng sau mang `bao_gia`."""
+    don = don or res
+    case.assertIsNone(don["sales_order"])
+    bg = frappe.get_doc("Quotation", don["bao_gia"])
+    case.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
+    case.assertEqual(
+        frappe.db.get_value("Portal De Xuat Mua", don["de_xuat"], "bao_gia"), bg.name
+    )
+    return bg
+
+
 class TestDatHangBanLe(FrappeTestCase):
     def setUp(self):
         _seed_mua_le()
@@ -162,7 +177,10 @@ class TestDatHangBanLe(FrappeTestCase):
         ordered_qty_truoc = frappe.db.get_value("Blanket Order Item", boi_name, "ordered_qty")
         self.assertEqual(float(ordered_qty_truoc), 30.0)
 
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
             mode="ban_le", request_id=_rid(),
         )
@@ -210,9 +228,9 @@ class TestDatHangBanLe(FrappeTestCase):
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             mode="ban_le", request_id=rid,
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(so.customer, PXN)
-        self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual(bg.party_name, PXN)
+        self.assertEqual(bg.items[0].item_code, RETAIL_CO_GIA)
 
     # ---------- review C-2 (Critical) — BR-R7 không được lách qua hoa/thường ----------
     # Đảo theo spec 2026-10-09 (giá theo Price List).
@@ -292,10 +310,9 @@ class TestDatHangBanLe(FrappeTestCase):
             items=json.dumps([{"item_code": RETAIL_THIEU_GIA, "qty": 1}]),
             mode="ban_le", request_id=_rid(),
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(so.items[0].item_code, RETAIL_THIEU_GIA)
-        self.assertEqual(float(so.items[0].rate), 0.0)
-        self.assertEqual(so.workflow_state, "Chờ xác nhận")
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual(bg.items[0].item_code, RETAIL_THIEU_GIA)
+        self.assertEqual(float(bg.items[0].rate), 0.0)
 
     # ---------- TC-E6-03 / BR-R7 — đảo ở Task 4, đảo lần nữa theo spec
     # 2026-10-09 (hợp đồng khung không còn được hỏi lúc dựng đơn) ----------
@@ -374,14 +391,12 @@ class TestDatHangBanLe(FrappeTestCase):
             bo, json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             mode="hdnt", request_id=_rid(),
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
-        self.assertEqual(float(so.items[0].rate), 0.0)
-        self.assertFalse(so.items[0].blanket_order)
-        self.assertEqual(
-            so.custom_loai_don, "Mua lẻ",
-            "đơn còn dòng chưa có giá phải đi qua vòng báo giá của Miyano",
-        )
+        # Spec 2026-10-12 §5 — "vòng báo giá của Miyano" nay là một Quotation,
+        # không còn là Sales Order "Mua lẻ".
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual(bg.items[0].item_code, RETAIL_CO_GIA)
+        self.assertEqual(float(bg.items[0].rate), 0.0)
+        self.assertFalse(bg.items[0].blanket_order)
 
         # Ca thứ hai: mặt hàng CÓ giá trong price list của khách nhưng
         # KHÔNG nằm trong Blanket Order Item của hợp đồng. Ca này chịu tải
@@ -411,15 +426,15 @@ class TestDatHangBanLe(FrappeTestCase):
             bo, json.dumps([{"item_code": ngoai, "qty": 1}]),
             mode="hdnt", request_id=_rid(),
         )
-        so2 = frappe.get_doc("Sales Order", res2["sales_order"])
-        self.assertEqual(so2.items[0].item_code, ngoai)
+        bg2 = _bao_gia_cua(self, res2)
+        self.assertEqual(bg2.items[0].item_code, ngoai)
         self.assertEqual(
-            float(so2.items[0].rate), 0.0,
+            float(bg2.items[0].rate), 0.0,
             "có giá trong bảng giá KHÔNG đồng nghĩa có hợp đồng — dòng ngoài "
             "hợp đồng phải vào đơn với rate 0 để Miyano báo giá, chứ không "
             "được âm thầm lấy giá 15000 của bảng giá",
         )
-        self.assertFalse(so2.items[0].blanket_order)
+        self.assertFalse(bg2.items[0].blanket_order)
 
     def test_boi_so_ngay_giao_dia_chi_van_kiem_o_che_do_le(self):
         """BR-O11/O13 vẫn áp cho nhánh mua lẻ — dùng lại đúng
@@ -446,7 +461,12 @@ class TestDatHangBanLe(FrappeTestCase):
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             mode="ban_le", request_id=rid,
         )
-        self.assertEqual(res1["sales_order"], res2["sales_order"])
+        # Spec 2026-10-12 §5 — giỏ này sinh Quotation; bấm lại trả đúng
+        # Quotation và phiếu cũ.
+        _bao_gia_cua(self, res1)
+        self.assertEqual(res1["bao_gia"], res2["bao_gia"])
+        self.assertEqual(res1["de_xuat"], res2["de_xuat"])
+        self.assertIsNone(res2["sales_order"])
         self.assertTrue(res2["da_ton_tai"])
 
     # ---------- thiết kế lại mua lẻ §4.3 — dòng "đặt ngoài" ----------
@@ -463,9 +483,10 @@ class TestDatHangBanLe(FrappeTestCase):
             ]),
             mode="ban_le", request_id=_rid(),
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(len(so.custom_dat_ngoai), 1)
-        dong = so.custom_dat_ngoai[0]
+        # Spec 2026-10-12 §5 — chứng từ đang đặt nay là một Quotation.
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual(len(bg.custom_dat_ngoai), 1)
+        dong = bg.custom_dat_ngoai[0]
         self.assertEqual(dong.ten_hang, "Găng tay phẫu thuật cỡ 7.5")
         self.assertEqual(dong.dvt, "Đôi")
         self.assertEqual(float(dong.so_luong), 20.0)
@@ -474,8 +495,8 @@ class TestDatHangBanLe(FrappeTestCase):
         self.assertFalse(dong.da_xu_ly, "chưa khớp mã hàng thì chưa 'đã xử lý'")
         # Dòng "đặt ngoài" KHÔNG được lọt vào `items` (ERPNext bắt buộc
         # item_code trên mỗi Sales Order Item, §3).
-        self.assertEqual(len(so.items), 1)
-        self.assertEqual(so.items[0].item_code, RETAIL_CO_GIA)
+        self.assertEqual(len(bg.items), 1)
+        self.assertEqual(bg.items[0].item_code, RETAIL_CO_GIA)
 
     def test_dat_ngoai_thieu_ten_hang_bi_chan(self):
         with self.assertRaises(frappe.ValidationError):
@@ -554,9 +575,10 @@ class TestDatHangBanLe(FrappeTestCase):
         # ngoài nằm ở đơn thứ hai chứ không còn chung đơn với dòng có giá.
         self.assertEqual(len(so.custom_dat_ngoai), 0)
         self.assertEqual(len(res["don"]), 2)
-        so2 = frappe.get_doc("Sales Order", res["don"][1]["sales_order"])
-        self.assertEqual(len(so2.custom_dat_ngoai), 1)
-        self.assertEqual(so2.custom_dat_ngoai[0].ten_hang, "X")
+        # Spec 2026-10-12 §5 — chứng từ thứ hai nay là một Quotation.
+        bg2 = _bao_gia_cua(self, res, res["don"][1])
+        self.assertEqual(len(bg2.custom_dat_ngoai), 1)
+        self.assertEqual(bg2.custom_dat_ngoai[0].ten_hang, "X")
 
     def test_gio_hang_chi_co_dat_ngoai_van_dat_duoc(self):
         """SUPERSEDED bởi spec 2026-08-15 §3.4 (xem
@@ -572,8 +594,8 @@ class TestDatHangBanLe(FrappeTestCase):
             dat_ngoai=json.dumps([{"ten_hang": "X", "dvt": "Cái", "so_luong": 1}]),
             mode="ban_le", request_id=_rid(),
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual([i.item_code for i in so.items], [ITEM_GIU_CHO])
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual([i.item_code for i in bg.items], [ITEM_GIU_CHO])
 
     # ---------- thiết kế lại mua lẻ §4.3/§4.4 — đồng bộ da_xu_ly + chốt xác nhận ----------
     def test_da_xu_ly_tu_dong_theo_item_khop(self):
@@ -581,7 +603,10 @@ class TestDatHangBanLe(FrappeTestCase):
         THẬT — không phải `frappe.db.set_value` bypass, vì chính hook đang
         được kiểm ở đây) — `da_xu_ly` phải TỰ chuyển 1, không ai được tự tay
         tick field `read_only` này."""
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             dat_ngoai=json.dumps([{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 10}]),
             mode="ban_le", request_id=_rid(),
@@ -601,7 +626,10 @@ class TestDatHangBanLe(FrappeTestCase):
         dòng đặt ngoài chưa khớp `item_khop`. Không có chốt này, một đơn có
         thể được duyệt/giao trong khi khách vẫn còn yêu cầu chưa ai đụng
         tới — khách trả tiền cho thứ họ không nhận được."""
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1}]),
             dat_ngoai=json.dumps([{"ten_hang": "Kim luồn 24G", "dvt": "Cái", "so_luong": 10}]),
             mode="ban_le", request_id=_rid(),
@@ -662,10 +690,12 @@ class TestDatHangBanLe(FrappeTestCase):
             ]),
             mode="ban_le", request_id=_rid(),
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(so.docstatus, 0, "đơn phải TẠO ĐƯỢC dù phép giao company rỗng")
+        # Spec 2026-10-12 §5 — giỏ này sinh Quotation; phép rơi về company mặc
+        # định là của `dat_hang._xay_don`, Quotation chép lại company đó.
+        bg = _bao_gia_cua(self, res)
+        self.assertEqual(bg.docstatus, 0, "yêu cầu phải TẠO ĐƯỢC dù phép giao company rỗng")
         self.assertEqual(
-            so.company, frappe.defaults.get_global_default("company"),
+            bg.company, frappe.defaults.get_global_default("company"),
             "company phải rơi về Global Defaults.default_company khi không suy được",
         )
 
@@ -1118,7 +1148,10 @@ def _tao_so_dat_ngoai_cho_khach(customer, user, items=None, dat_ngoai=None):
     dict tay không có định danh ổn định để khớp trong
     `portal_order_sua_so_luong`)."""
     frappe.set_user(user)
-    res = portal.portal_order_place(
+    # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ này;
+    # đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+    res = don_mua_le_cu.dat_truc_tiep(
+        customer,
         items=json.dumps(items or []),
         dat_ngoai=json.dumps(dat_ngoai or []),
         mode="ban_le", request_id=_rid(),

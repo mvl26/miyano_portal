@@ -128,8 +128,11 @@ class TestYeuCauList(FrappeTestCase):
 		# `test_bao_gia_endpoint.py`), không còn ở danh sách này. `f.item`
 		# không có giá, nên mọi phiếu dựng từ nó sẽ rời khỏi đúng danh sách
 		# các bài dưới đây đang đo. Phiếu chưa có đơn vì thế dùng một mã CÓ
-		# giá trong Price List của khách; `_duyet_that` vẫn dùng `f.item`
-		# (đơn giá 0, đi vòng báo giá) như cũ.
+		# giá trong Price List của khách.
+		#
+		# Spec 2026-10-12 §5 — `_duyet_that` cũng dùng mã có giá: phiếu gồm
+		# dòng chưa có giá nay sinh Quotation chứ không sinh đơn, mà mọi bài
+		# dưới đây đo danh sách theo ĐƠN sinh ra từ đường duyệt thật.
 		self.item_co_gia = self._dam_bao_item_co_gia()
 		self.khoa_huyethoc = f.khoa_huyethoc  # dưới kh_a
 		self.khoa_b = f.khoa_duoc             # dưới kh_b
@@ -253,7 +256,7 @@ class TestYeuCauList(FrappeTestCase):
 		"""Phiếu đi TRỌN đường thật: lập → gửi duyệt → quản lý duyệt → đơn.
 
 		Trả `(ten_phieu, ten_don)`."""
-		ten = self._tao_phieu(customer, khoa_phong, owner, item=self.item)
+		ten = self._tao_phieu(customer, khoa_phong, owner)
 		doc = frappe.get_doc("Portal De Xuat Mua", ten)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
@@ -278,10 +281,9 @@ class TestYeuCauList(FrappeTestCase):
 		from frappe.model.workflow import apply_workflow
 
 		so = frappe.get_doc("Sales Order", ten_don)
-		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn từ phiếu đề xuất
-		# là đơn báo giá (dòng giá 0): không "Gửi duyệt" thẳng được nữa, phải
-		# điền giá rồi đi "Gửi khách duyệt" -> "Khách đồng ý" mới tới
-		# "Chờ Miyano xác nhận".
+		# Đơn đi "Gửi khách duyệt" -> "Khách đồng ý" mới tới "Chờ Miyano xác
+		# nhận". Từ spec 2026-10-12 §5 đơn của `_duyet_that` là đơn "Theo bảng
+		# giá" (đã có giá); phép ghi giá dưới đây chỉ còn đổi con số.
 		for d in so.items:
 			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
 		so.reload()

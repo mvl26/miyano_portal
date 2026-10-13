@@ -120,12 +120,16 @@ class TestPhieuBangGia(FrappeTestCase):
 		self.assertEqual(float(doc.items[0].don_gia or 0), 0.0)
 		kq = de_xuat_duyet.duyet_va_tao_don(ten, self.quan_ly)
 		self.assertEqual(kq["canh_bao_gia"], [])
+		# Spec 2026-10-12 §5 — phiếu chờ báo giá sinh Quotation ở "Chờ Miyano
+		# báo giá", không sinh Sales Order "Mua lẻ" nữa.
+		self.assertIsNone(kq["sales_order"])
 		self.assertEqual(
-			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
-			"Mua lẻ",
+			frappe.db.get_value("Quotation", kq["bao_gia"], "workflow_state"),
+			"Chờ Miyano báo giá",
 		)
+		self.assertEqual(self._doc_moi(ten).bao_gia, kq["bao_gia"])
 		dong = frappe.db.get_value(
-			"Sales Order Item", {"parent": kq["sales_order"]},
+			"Quotation Item", {"parent": kq["bao_gia"]},
 			["rate", "custom_nguon_gia"], as_dict=True,
 		)
 		self.assertEqual(float(dong.rate), 0.0)

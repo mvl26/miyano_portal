@@ -176,6 +176,17 @@ class TestNguonGiaDong(FrappeTestCase):
 			for d in frappe.get_doc("Sales Order", sales_order).items
 		}
 
+	def _dong_bao_gia(self, kq, ten_phieu):
+		"""Spec 2026-10-12 §5 — phiếu còn dòng chưa có giá sinh Quotation ở "Chờ
+		Miyano báo giá", không sinh Sales Order "Mua lẻ". Trả dòng theo mã."""
+		self.assertIsNone(kq["sales_order"])
+		bg = frappe.get_doc("Quotation", kq["bao_gia"])
+		self.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", ten_phieu, "bao_gia"), bg.name
+		)
+		return {d.item_code: d for d in bg.items}
+
 	# ---- _suy_nguon_gia() -------------------------------------------
 
 	# Đảo theo spec 2026-10-09 (giá theo Price List).
@@ -413,13 +424,9 @@ class TestNguonGiaDong(FrappeTestCase):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(kq["canh_bao_gia"], [])
-		dong = self._dong_don(kq["sales_order"])[item]
+		dong = self._dong_bao_gia(kq, doc.name)[item]
 		self.assertEqual(float(dong.rate), 0.0)
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
-		self.assertEqual(
-			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
-			"Mua lẻ",
-		)
 
 	def test_quan_ly_ha_dong_mat_gia_ve_0_thi_duyet_duoc_phan_con_lai(self):
 		"""`_kiem_gia_doi` chỉ xét dòng SẼ VÀO ĐƠN. Dòng "Bảng giá" mất giá
@@ -570,7 +577,7 @@ class TestNguonGiaDong(FrappeTestCase):
 			"ly_do": "gia_doi",
 		}])
 
-		theo_ma = self._dong_don(kq["sales_order"])
+		theo_ma = self._dong_bao_gia(kq, doc.name)
 		self.assertEqual(sorted(theo_ma), sorted([self.item_co_gia, self.item_chua_gia]))
 		self.assertEqual(float(theo_ma[self.item_co_gia].rate), 150.0)
 		self.assertEqual(theo_ma[self.item_co_gia].custom_nguon_gia, "Bảng giá")
@@ -609,15 +616,11 @@ class TestNguonGiaDong(FrappeTestCase):
 
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(kq["canh_bao_gia"], [])
-		dong = self._dong_don(kq["sales_order"])[self.item_chua_gia]
+		dong = self._dong_bao_gia(kq, doc.name)[self.item_chua_gia]
 		self.assertEqual(float(dong.qty), 2.0)
 		self.assertEqual(float(dong.rate), 0.0)
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 		self.assertFalse(dong.blanket_order)
-		self.assertEqual(
-			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
-			"Mua lẻ",
-		)
 
 		doc.reload()
 		self.assertEqual(doc.trang_thai, "Đã duyệt")

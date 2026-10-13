@@ -34,7 +34,7 @@ from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 
 COMPANY = "Miyano Việt Nam"
 WAREHOUSE = "Stores - MYN"
@@ -144,6 +144,18 @@ def _item2():
 	return ten
 
 
+def _item_chua_gia():
+	"""Vật tư KHÔNG có giá trong Price List nào — cho bài đo dòng chờ báo giá."""
+	ten = "_TEST DX DUYET CHUA GIA"
+	if not frappe.db.exists("Item", ten):
+		frappe.get_doc({
+			"doctype": "Item", "item_code": ten, "item_name": ten,
+			"item_group": frappe.db.get_value("Item Group", {}, "name"),
+			"stock_uom": "Nos", "is_stock_item": 0,
+		}).insert(ignore_permissions=True)
+	return ten
+
+
 class TestDeXuatDuyet(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -152,6 +164,10 @@ class TestDeXuatDuyet(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.item = f.item
 		self.item2 = _item2()
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item, self.item2)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
@@ -245,11 +261,22 @@ class TestDeXuatDuyet(FrappeTestCase):
 		"""Spec 2026-10-09 §4.3 — đóng dấu và cảnh báo giá chỉ áp cho dòng
 		"Bảng giá". Dòng "Chờ báo giá" chưa có giá ở đâu cả, nên `don_gia`
 		phải RỖNG và không có gì để cảnh báo."""
-		doc = self.phieu_huyethoc
+		# Vật tư dùng chung của lớp nay có giá (xem `setUp`); bài này cần một
+		# mã CHƯA có giá.
+		doc = self._cho_duyet([{"item_code": _item_chua_gia(), "so_luong_de_xuat": 5}])
 		self.assertEqual(doc.items[0].nguon_gia, "Chờ báo giá")
 		self.assertFalse(doc.items[0].don_gia)
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(kq["canh_bao_gia"], [])
+		# Spec 2026-10-12 §5 — phiếu chờ báo giá sinh Quotation, không sinh đơn.
+		self.assertIsNone(kq["sales_order"])
+		self.assertEqual(
+			frappe.db.get_value("Quotation", kq["bao_gia"], "workflow_state"),
+			"Chờ Miyano báo giá",
+		)
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "bao_gia"), kq["bao_gia"]
+		)
 
 	def test_bam_duyet_hai_lan_khong_tao_hai_don(self):
 		"""§5.2 — `request_id` chuyển xuống tầng phiếu: bấm Duyệt hai lần
@@ -552,6 +579,10 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
@@ -675,6 +706,10 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		# Khoa THỨ HAI trong CÙNG bệnh viện kh_a — để quản lý có gì đó khác

@@ -33,7 +33,7 @@ from miyano_portal import dat_hang, de_xuat_duyet
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 
 COMPANY = "Miyano Việt Nam"
 
@@ -85,6 +85,10 @@ class TestMaDonHang(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.khoa_huyethoc = f.khoa_huyethoc
 		self.item = self._tao_item("_TEST DX MA DON ITEM")
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")

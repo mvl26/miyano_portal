@@ -29,6 +29,16 @@ def dung_fixture(case):
 	# rác trong `tests/`: chúng đều chạy trước đúng lời gọi này, và mười
 	# tám bản sao của cùng một mẹo gỡ chốt là mười tám chỗ để trôi lệch khi
 	# chốt đổi lần sau.
+	# Yêu cầu báo giá nháp của test trước đi TRƯỚC phiếu (spec 2026-10-12 §5):
+	# xoá phiếu mới nhất làm Frappe lùi bộ đếm tên, phiếu của test sau nhận lại
+	# đúng tên cũ, và một Quotation còn sống mang `custom_request_id` = tên đó
+	# sẽ bị `tao_bao_gia` coi là báo giá của phiếu mới. Cùng bẫy mà các hàm
+	# `_don_phieu_cu` đã chặn cho Sales Order; đặt ở đây một lần cho mọi bộ test.
+	for ten in frappe.get_all(
+		"Quotation", filters={"party_name": ["like", "_TEST DX%"], "docstatus": 0},
+		pluck="name",
+	):
+		frappe.delete_doc("Quotation", ten, force=True, ignore_permissions=True)
 	frappe.db.sql(
 		"""UPDATE `tabPortal De Xuat Mua`
 		   SET trang_thai = 'Nháp', ma_de_xuat = NULL
@@ -52,6 +62,38 @@ def dung_fixture(case):
 		khoa_duoc=khoa_duoc,
 		item=item,
 	)
+
+
+BANG_GIA_TEST = "_TEST DX BANG GIA"
+
+
+def khai_gia(customer, *ma_hang, gia=1000):
+	"""Cho các mã `ma_hang` một giá trong Price List của `customer`.
+
+	Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation chứ
+	không sinh Sales Order. Bộ test nào đo NHÁNH ĐƠN của đường duyệt hay đường
+	đặt trực tiếp (liên kết ngược, mã đơn, nhật ký, danh sách...) gọi hàm này
+	trong `setUp` để hai đường thật vẫn ra đơn "Theo bảng giá". Khách chưa có
+	Price List thì nhận `BANG_GIA_TEST`; đã có thì giữ nguyên bảng đó.
+	"""
+	bang = frappe.db.get_value("Customer", customer, "default_price_list")
+	if not bang:
+		bang = BANG_GIA_TEST
+		if not frappe.db.exists("Price List", bang):
+			frappe.get_doc({
+				"doctype": "Price List", "price_list_name": bang,
+				"currency": "VND", "selling": 1, "enabled": 1,
+			}).insert(ignore_permissions=True)
+		frappe.db.set_value("Customer", customer, "default_price_list", bang)
+	for ma in ma_hang:
+		loc = {"item_code": ma, "price_list": bang, "selling": 1}
+		if frappe.db.exists("Item Price", loc):
+			frappe.db.set_value("Item Price", loc, "price_list_rate", gia)
+		else:
+			frappe.get_doc({
+				"doctype": "Item Price", "price_list_rate": gia, **loc,
+			}).insert(ignore_permissions=True)
+	return bang
 
 
 def _customer(ten, ma_ngan):

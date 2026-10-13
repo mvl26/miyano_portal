@@ -157,10 +157,24 @@ class TestPhongBiLoiCoCauTruc(FrappeTestCase):
         # Đảo theo spec 2026-10-09 (giá theo Price List). §4.1 — giỏ trộn ra
         # HAI đơn: dòng có giá ở đơn đầu, dòng chờ báo giá ở đơn thứ hai.
         self.assertEqual(len(kq["don"]), 2)
+        # Spec 2026-10-12 §5 — chứng từ thứ hai (dòng chờ báo giá) nay là một
+        # Quotation ở "Chờ Miyano báo giá", không còn là Sales Order "Mua lẻ".
+        bg = kq["don"][1]
+        self.assertIsNone(bg["sales_order"])
+        self.assertEqual(
+            frappe.db.get_value("Quotation", bg["bao_gia"], "workflow_state"),
+            "Chờ Miyano báo giá",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Portal De Xuat Mua", bg["de_xuat"], "bao_gia"),
+            bg["bao_gia"],
+        )
         theo_ma = {
             d.item_code: d
-            for don in kq["don"]
-            for d in frappe.get_doc("Sales Order", don["sales_order"]).items
+            for d in (
+                frappe.get_doc("Sales Order", kq["don"][0]["sales_order"]).items
+                + frappe.get_doc("Quotation", bg["bao_gia"]).items
+            )
         }
         don_dau = frappe.get_doc("Sales Order", kq["sales_order"])
         self.assertEqual([d.item_code for d in don_dau.items], [VT])

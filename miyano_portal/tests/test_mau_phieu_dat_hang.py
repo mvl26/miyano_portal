@@ -12,6 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.setup.install_print_formats import HTML, NAME
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.test_e6_mua_le import (
 	BVBM, RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le,
 )
@@ -30,7 +31,10 @@ class TestMauPhieuDatHang(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user(USER_BVBM)
 		frappe.db.set_value("Customer", BVBM, "custom_cho_phep_mua_le", 1)
-		res = portal.portal_order_place(
+		# Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+		# này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+		res = don_mua_le_cu.dat_truc_tiep(
+			BVBM,
 			items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 1234}]),
 			dat_ngoai=json.dumps([]),
 			request_id=_rid(),

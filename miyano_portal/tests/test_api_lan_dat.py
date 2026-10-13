@@ -118,8 +118,16 @@ class TestApiLanDat(FrappeTestCase):
 		frappe.set_user(self.quan_ly)
 		kq = de_xuat.de_xuat_duyet_phieu(a, duyet_ca_hai=1)
 		self.assertTrue(kq["sales_order"])
-		self.assertTrue(kq["phieu_cung_lan_dat"]["sales_order"])
+		# Spec 2026-10-12 §5 — phiếu kia là phiếu chờ báo giá: duyệt nó sinh
+		# một Quotation, không sinh Sales Order "Mua lẻ".
+		kia = kq["phieu_cung_lan_dat"]
+		self.assertIsNone(kia["sales_order"])
 		frappe.set_user("Administrator")
+		self.assertEqual(
+			frappe.db.get_value("Quotation", kia["bao_gia"], "workflow_state"),
+			"Chờ Miyano báo giá",
+		)
+		self.assertEqual(frappe.db.get_value(DT, b, "bao_gia"), kia["bao_gia"])
 		for ten in (a, b):
 			self.assertEqual(frappe.db.get_value(DT, ten, "trang_thai"), "Đã duyệt")
 
@@ -204,8 +212,11 @@ class TestApiLanDat(FrappeTestCase):
 			fields=["item_code", "qty"],
 		)
 		self.assertEqual({d.item_code: float(d.qty) for d in dong_a}, {self.co_gia: 4.0})
+		# Spec 2026-10-12 §5 — phiếu kia (chờ báo giá) sinh Quotation.
+		self.assertIsNone(kq["phieu_cung_lan_dat"]["sales_order"])
+		self.assertTrue(kq["phieu_cung_lan_dat"]["bao_gia"])
 		dong_b = frappe.get_all(
-			"Sales Order Item", filters={"parent": kq["phieu_cung_lan_dat"]["sales_order"]},
+			"Quotation Item", filters={"parent": kq["phieu_cung_lan_dat"]["bao_gia"]},
 			fields=["item_code", "qty"],
 		)
 		self.assertEqual({d.item_code: float(d.qty) for d in dong_b}, {self.chua_gia: sl_b})
@@ -239,7 +250,16 @@ class TestApiLanDat(FrappeTestCase):
 		rows = portal.portal_yeu_cau_cua_toi(limit=100)["rows"]
 		theo_phieu = {r["de_xuat"]: r for r in rows}
 		self.assertTrue(theo_phieu[a]["ma_lan_dat"])
-		self.assertEqual(theo_phieu[a]["ma_lan_dat"], theo_phieu[b]["ma_lan_dat"])
+		# Spec 2026-10-12 §6.1 — phiếu chờ báo giá chưa có đơn (`b`) nay thuộc
+		# tab "Yêu cầu báo giá", không còn ở danh sách này. Mã lần đặt của `a`
+		# vẫn phải là mã chung của hai phiếu.
+		self.assertNotIn(b, theo_phieu)
+		self.assertIn(
+			b, [r["de_xuat"] for r in portal.portal_bao_gia_danh_sach(limit=100)["rows"]]
+		)
+		self.assertEqual(
+			theo_phieu[a]["ma_lan_dat"], frappe.db.get_value(DT, b, "ma_lan_dat")
+		)
 		self.assertEqual(theo_phieu[le]["ma_lan_dat"], "")
 		self.assertTrue(all("ma_lan_dat" in r for r in rows))
 
@@ -276,7 +296,9 @@ class TestApiLanDat(FrappeTestCase):
 		rows = portal.portal_yeu_cau_cua_toi(limit=100)["rows"]
 		theo_phieu = {r["de_xuat"]: r for r in rows}
 		self.assertIn(a, theo_phieu)
-		self.assertIn(b, theo_phieu)
+		# Spec 2026-10-12 §6.1 — phiếu chờ báo giá chưa có đơn (`b`) nay thuộc
+		# tab "Yêu cầu báo giá", không còn ở danh sách này.
+		self.assertNotIn(b, theo_phieu)
 		self.assertTrue(all(r["ma_lan_dat"] == "" for r in rows))
 
 	def test_thieu_cot_lan_dat_danh_sach_phieu_van_chay_va_tra_rong(self):

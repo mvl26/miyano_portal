@@ -413,7 +413,12 @@ class TestDatHangGop(FrappeTestCase):
 		self.assertTrue(doc.co_dong_cho_bao_gia())
 
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		# Spec 2026-10-12 §5 — phiếu còn dòng chờ báo giá / dòng gõ tay sinh
+		# một Quotation ở "Chờ Miyano báo giá" mang cả ba tầng, không sinh
+		# Sales Order "Mua lẻ".
+		self.assertIsNone(kq["sales_order"])
+		so = frappe.get_doc("Quotation", kq["bao_gia"])
+		self.assertEqual(so.workflow_state, "Chờ Miyano báo giá")
 		theo_ma = {d.item_code: d for d in so.items}
 		self.assertEqual(sorted(theo_ma), sorted([self.item_hd, self.item_ngoai]))
 		self.assertEqual(float(theo_ma[self.item_hd].rate), 100.0)
@@ -428,7 +433,8 @@ class TestDatHangGop(FrappeTestCase):
 
 		doc.reload()
 		self.assertEqual(doc.trang_thai, "Đã duyệt")
-		self.assertEqual(doc.sales_order, kq["sales_order"])
+		self.assertEqual(doc.bao_gia, kq["bao_gia"])
+		self.assertFalse(doc.sales_order)
 
 	def test_mat_hang_hop_dong_bi_ngung_kinh_doanh_van_bi_chan(self):
 		"""GHIM hành vi ĐỔI ở Task 4 mà chưa test nào phủ: hàm dựng gộp áp

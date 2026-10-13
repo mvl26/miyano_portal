@@ -16,7 +16,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import de_xuat_duyet, portal_context
+from miyano_portal import portal_context
 from miyano_portal.api import de_xuat, portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	SO_LUONG_XIN_SUA_TRONG,
@@ -26,6 +26,7 @@ from miyano_portal.portal_thong_bao_khach import (
 	TIEN_TO_DE_XUAT_GUI_DUYET,
 	TIEN_TO_DE_XUAT_XIN_SUA,
 )
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
@@ -142,7 +143,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.gui_duyet()
 		# `gui_duyet()` tự đóng dấu `so_luong_duyet` = số khoa đề xuất (C2).
 		doc.reload()
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		kq = don_mua_le_cu.duyet_thanh_don(doc.name, self.user_quan_ly)
 		self.don_da_duyet = kq["sales_order"]
 		self.phieu_da_duyet = kq["de_xuat"]
 		frappe.db.set_value(
@@ -416,7 +417,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()
 		doc.reload()
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		kq = don_mua_le_cu.duyet_thanh_don(doc.name, self.user_quan_ly)
 		phieu, don = kq["de_xuat"], kq["sales_order"]
 
 		so = frappe.get_doc("Sales Order", don)
@@ -615,7 +616,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.gui_duyet()
 		# `gui_duyet()` tự đóng dấu `so_luong_duyet` (C2) — không gán tay.
 		doc.reload()
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		kq = don_mua_le_cu.duyet_thanh_don(doc.name, self.user_quan_ly)
 		return kq["de_xuat"], kq["sales_order"]
 
 	def test_xin_sua_don_HDNT_bi_chan_ngay_va_phieu_giu_nguyen_da_duyet(self):
@@ -799,7 +800,7 @@ class TestDeXuatSuaSauDuyet(FrappeTestCase):
 		doc.items[1].so_luong_duyet = 0     # quản lý BỎ mặt hàng thứ hai
 		doc.save(ignore_permissions=True)
 		doc.reload()
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		kq = don_mua_le_cu.duyet_thanh_don(doc.name, self.user_quan_ly)
 		frappe.db.set_value(
 			"Sales Order", kq["sales_order"], "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,

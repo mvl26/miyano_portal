@@ -276,7 +276,12 @@ class TestTachPhieu(FrappeTestCase):
 		frappe.set_user(self.quan_ly)
 		rid = frappe.generate_hash(length=12)
 		kq = portal.portal_order_place(**self._gio_tron(rid))
-		self.assertEqual([d["loai_don"] for d in kq["don"]], ["Theo bảng giá", "Mua lẻ"])
+		# Spec 2026-10-12 §5 — phần chờ báo giá sinh Quotation, không sinh Sales
+		# Order "Mua lẻ".
+		self.assertEqual(
+			[d["loai_don"] for d in kq["don"]], ["Theo bảng giá", "Yêu cầu báo giá"]
+		)
+		self.assertIsNone(kq["don"][1]["sales_order"])
 		self.assertEqual(kq["sales_order"], kq["don"][0]["sales_order"])
 		self.assertEqual(kq["de_xuat"], kq["don"][0]["de_xuat"])
 		for khoa in ("da_ton_tai", "total"):
@@ -289,9 +294,19 @@ class TestTachPhieu(FrappeTestCase):
 		self.assertEqual(b.phieu_cung_lan_dat, a.name)
 		self.assertEqual([r.item_code for r in a.items], [self.co_gia])
 		self.assertEqual([r.item_code for r in b.items], [self.chua_gia])
+		bg = kq["don"][1]["bao_gia"]
 		self.assertEqual(
-			[frappe.db.get_value("Sales Order", d["sales_order"], "custom_request_id")
-			 for d in kq["don"]],
+			frappe.db.get_value("Quotation", bg, "workflow_state"), "Chờ Miyano báo giá"
+		)
+		self.assertEqual(b.bao_gia, bg)
+		self.assertFalse(b.sales_order)
+		self.assertEqual(
+			[
+				frappe.db.get_value(
+					"Sales Order", kq["don"][0]["sales_order"], "custom_request_id"
+				),
+				frappe.db.get_value("Quotation", bg, "custom_request_id"),
+			],
 			[f"{rid}:gia", f"{rid}:baogia"],
 		)
 
@@ -301,11 +316,21 @@ class TestTachPhieu(FrappeTestCase):
 		tham_so = self._gio_tron(rid)
 		lan1 = portal.portal_order_place(**tham_so)
 		so_don = frappe.db.count("Sales Order", {"customer": self.kh_a})
+		so_bao_gia = frappe.db.count("Quotation", {"party_name": self.kh_a})
 		so_phieu = frappe.db.count(DT, {"customer": self.kh_a})
 		lan2 = portal.portal_order_place(**tham_so)
 		self.assertEqual(
 			[d["sales_order"] for d in lan1["don"]],
 			[d["sales_order"] for d in lan2["don"]],
+		)
+		# Spec 2026-10-12 §5 — chứng từ thứ hai là một Quotation: bấm lại trả
+		# đúng Quotation đó, không sinh thêm.
+		self.assertTrue(lan1["don"][1]["bao_gia"])
+		self.assertEqual(
+			[d["bao_gia"] for d in lan1["don"]], [d["bao_gia"] for d in lan2["don"]]
+		)
+		self.assertEqual(
+			frappe.db.count("Quotation", {"party_name": self.kh_a}), so_bao_gia
 		)
 		self.assertEqual(
 			[d["de_xuat"] for d in lan1["don"]], [d["de_xuat"] for d in lan2["don"]],
@@ -326,11 +351,21 @@ class TestTachPhieu(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self._tao_gia(self.chua_gia, self.price_list, 9000)
 		so_don = frappe.db.count("Sales Order", {"customer": self.kh_a})
+		so_bao_gia = frappe.db.count("Quotation", {"party_name": self.kh_a})
 		frappe.set_user(self.quan_ly)
 		lan2 = portal.portal_order_place(**tham_so)
 		self.assertEqual(
 			[d["sales_order"] for d in lan1["don"]],
 			[d["sales_order"] for d in lan2["don"]],
+		)
+		# Spec 2026-10-12 §5 — chứng từ thứ hai là một Quotation: dù mặt hàng
+		# vừa có giá, bấm lại vẫn trả đúng Quotation cũ chứ không sinh đơn.
+		self.assertTrue(lan1["don"][1]["bao_gia"])
+		self.assertEqual(
+			[d["bao_gia"] for d in lan1["don"]], [d["bao_gia"] for d in lan2["don"]]
+		)
+		self.assertEqual(
+			frappe.db.count("Quotation", {"party_name": self.kh_a}), so_bao_gia
 		)
 		self.assertEqual(frappe.db.count("Sales Order", {"customer": self.kh_a}), so_don)
 
@@ -367,15 +402,20 @@ class TestTachPhieu(FrappeTestCase):
 		self.assertEqual(len(cua_b["don"]), 1)
 		self.assertFalse(cua_b["da_ton_tai"])
 		frappe.set_user("Administrator")
-		don_b = frappe.db.get_value(
-			"Sales Order", cua_b["sales_order"],
-			["customer", "custom_request_id"], as_dict=True,
+		# Spec 2026-10-12 §5 — giỏ một loại toàn hàng chưa có giá của B sinh
+		# một Quotation mang đúng mã trần, không sinh Sales Order "Mua lẻ".
+		self.assertIsNone(cua_b["sales_order"])
+		bg_b = frappe.db.get_value(
+			"Quotation", cua_b["bao_gia"],
+			["party_name", "custom_request_id", "workflow_state"], as_dict=True,
 		)
-		self.assertEqual(don_b.customer, self.kh_b)
-		self.assertEqual(don_b.custom_request_id, rid)
-		self.assertNotIn(
-			cua_b["sales_order"], [d["sales_order"] for d in cua_a["don"]]
+		self.assertEqual(bg_b.workflow_state, "Chờ Miyano báo giá")
+		self.assertEqual(bg_b.party_name, self.kh_b)
+		self.assertEqual(bg_b.custom_request_id, rid)
+		self.assertEqual(
+			frappe.db.get_value(DT, cua_b["de_xuat"], "bao_gia"), cua_b["bao_gia"]
 		)
+		self.assertNotIn(cua_b["bao_gia"], [d["bao_gia"] for d in cua_a["don"]])
 
 	def test_quan_ly_dat_gio_tron_thieu_request_id_bi_tu_choi_nhu_gio_mot_loai(self):
 		"""Thiếu `request_id` thì `dat_hang.tao_sales_order` từ chối (BR-O12).
@@ -388,6 +428,11 @@ class TestTachPhieu(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Sales Order", {"customer": self.kh_a}), so_don)
 		self.assertFalse(frappe.db.exists(
 			"Sales Order", {"custom_request_id": ["like", "None:%"]}
+		))
+		# Spec 2026-10-12 §5 — phần chờ báo giá nay là Quotation: cũng không
+		# được có Quotation nào mang mã "None:…".
+		self.assertFalse(frappe.db.exists(
+			"Quotation", {"custom_request_id": ["like", "None:%"]}
 		))
 
 

@@ -405,6 +405,19 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		):
 			frappe.delete_doc("Sales Order", r, force=True, ignore_permissions=True)
 
+	def _bao_gia_cua(self, kq, doc):
+		"""Spec 2026-10-12 §5 — phiếu có dòng gõ tay nay sinh Quotation ở "Chờ
+		Miyano báo giá", không sinh Sales Order "Mua lẻ". Cây cầu ba bài dưới
+		canh vì thế là phiếu → Quotation (`custom_dat_ngoai`): đó là chứng từ
+		nhân viên Miyano mở để tìm nguồn hàng."""
+		self.assertIsNone(kq["sales_order"])
+		bg = frappe.get_doc("Quotation", kq["bao_gia"])
+		self.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "bao_gia"), bg.name
+		)
+		return bg
+
 	def test_chin_truong_theo_dong_sang_don(self):
 		from miyano_portal import de_xuat_duyet
 
@@ -417,10 +430,10 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		dong = [d for d in (so.get("custom_dat_ngoai") or [])
 		        if d.ten_hang == "Găng tay nitrile không bột size M"]
-		self.assertEqual(len(dong), 1, "Dòng gõ tay không sang được đơn hàng")
+		self.assertEqual(len(dong), 1, "Dòng gõ tay không sang được yêu cầu báo giá")
 		r = dong[0]
 
 		# Khẳng định GIÁ TRỊ THẬT chứ không chỉ khoá có mặt: một bài
@@ -452,7 +465,7 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		r = (so.get("custom_dat_ngoai") or [])[0]
 		self.assertEqual(
 			r.get("anh"), '["/private/files/_test_cr03.jpg"]',
@@ -473,7 +486,7 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		r = (so.get("custom_dat_ngoai") or [])[0]
 		self.assertTrue(r.get("khong_co_anh"), "Cờ `khong_co_anh` bị đánh rơi")
 		self.assertEqual(r.get("mo_ta_nhan_dang"), mo_ta)
