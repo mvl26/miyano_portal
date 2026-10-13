@@ -3276,7 +3276,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
 
     # Cùng lý do/khuôn với `portal_order_accept`: transition "Khách không
     # đồng ý" chỉ mở cho "System Manager", không phải role Customer. Xem
-    # docstring `nang_quyen` vì sao không dùng `frappe.set_user()`.
+    # docstring `miyano_portal.nang_quyen` vì sao không dùng `frappe.set_user()`.
     with quyen_he_thong():
         # Lưu thay đổi số lượng TRƯỚC — `apply_workflow()` tự gọi
         # `doc.load_from_db()` NGAY ĐẦU HÀM (frappe/model/workflow.py:102),
@@ -3394,19 +3394,14 @@ def portal_order_huy(order, ly_do) -> dict:
     nguoi_bam = frappe.session.user
     from frappe.model.workflow import apply_workflow
 
-    # Cùng khuôn/lý do với `portal_order_accept` — transition "Khách huỷ"
-    # chỉ mở cho "System Manager", không phải role Customer.
-    session = frappe.local.session
-    frappe.local.user_perms = None
-    session.user = "Administrator"
-    try:
+    # Transition "Khách huỷ" chỉ mở cho "System Manager", không phải role
+    # Customer. Xem docstring `miyano_portal.nang_quyen` vì sao không dùng
+    # `frappe.set_user()`.
+    with quyen_he_thong():
         so = apply_workflow(so, "Khách huỷ")
         so.add_comment(
             "Comment", f"[Portal] Khách huỷ đơn bởi {nguoi_bam} — lý do: {ly_do}"
         )
-    finally:
-        session.user = nguoi_bam
-        frappe.local.user_perms = None
 
     # US-E6.5 cùng khuôn — ghi vào cạnh "Khách huỷ" mà máy trạng thái
     # `Portal Item Request` đã dựng sẵn (CHUYEN_TRANG_THAI_HOP_LE, mọi

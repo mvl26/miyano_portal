@@ -5,7 +5,7 @@ Các bước chuyển trạng thái phía khách (đồng ý, từ chối, sửa
 trên Desk. Endpoint cổng tự kiểm quyền của khách trên đúng chứng từ rồi mới
 vào khối này.
 
-CỐ Ý KHÔNG dùng frappe.set_user() ở đây (code review sau lần merge đầu
+CỐ Ý KHÔNG dùng frappe.set_user() (code review sau lần merge đầu
 phát hiện): frappe.local.session LÀ CÙNG MỘT OBJECT với
 Session.data trong frappe/sessions.py — set_user() ghi đè
 local.session.sid bằng chính chuỗi username (không phải sid thật) và
