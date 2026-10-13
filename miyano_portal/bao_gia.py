@@ -8,7 +8,7 @@ phải kiểm quyền của khách trên đúng báo giá đó trước khi gọ
 """
 
 import frappe
-from frappe.utils import add_days, flt, now_datetime, nowdate
+from frappe.utils import add_days, flt, formatdate, getdate, now_datetime, nowdate
 
 WORKFLOW = "Quotation - Client Portal"
 NGUON_CONG = "Client Portal"
@@ -254,3 +254,183 @@ def chot_gui_khach(doc, method=None) -> None:
 
 	doc.custom_ngay_gui_khach_duyet = now_datetime()
 	doc.valid_till = add_days(nowdate(), hieu_luc_bao_gia_ngay())
+
+
+def qua_han(bg, hom_nay=None) -> bool:
+	"""Báo giá đã quá `valid_till`. Không có hạn thì không bao giờ quá hạn."""
+	if not bg.get("valid_till"):
+		return False
+	return getdate(bg.valid_till) < getdate(hom_nay or nowdate())
+
+
+def don_cua_bao_gia(bg, khoa: bool = False) -> str | None:
+	"""Sales Order đã sinh từ báo giá này, tra theo mã yêu cầu `<rid>:don`.
+
+	`khoa=True` đọc bằng `for update`. Dưới REPEATABLE READ một phép đọc thường
+	nhìn ảnh chụp lấy từ ĐẦU request: request thứ hai của một cú bấm đôi được
+	đánh thức sau khi request đầu commit vẫn KHÔNG thấy đơn vừa sinh, và trả
+	`sales_order = None` cho khách. Đọc có khoá là đọc dữ liệu hiện tại."""
+	rid = bg.get("custom_request_id")
+	if not rid:
+		return None
+	return frappe.db.get_value(
+		"Sales Order", {"custom_request_id": rid + HAU_TO_DON}, "name", for_update=khoa
+	)
+
+
+def _dam_bao_cho_khach(bg) -> None:
+	if bg.get("workflow_state") != TT_CHO_KHACH:
+		frappe.throw(
+			"Báo giá này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
+		)
+
+
+def _dam_bao_con_han(bg) -> None:
+	if qua_han(bg):
+		frappe.local.response["ly_do"] = "qua_han_hieu_luc"
+		frappe.throw(
+			f"Báo giá {bg.name} đã hết hiệu lực ngày "
+			f"{formatdate(bg.valid_till, 'dd/mm/yyyy')}. Gửi yêu cầu báo giá mới nếu "
+			"vẫn cần hàng.",
+			frappe.ValidationError,
+		)
+
+
+def _ngay_giao(phieu) -> str:
+	"""Ngày cần hàng của phiếu gốc nếu chưa trôi qua, không thì ngày mặc định.
+	Báo giá có thể nằm chờ nhiều ngày; chặn khách đồng ý chỉ vì ngày họ chọn
+	lúc gửi yêu cầu đã qua là chặn nhầm chỗ."""
+	from miyano_portal.portal_dat_hang import ngay_giao_mac_dinh
+
+	ngay = phieu.get("ngay_can") if phieu else None
+	if ngay and getdate(ngay) >= getdate(nowdate()):
+		return ngay
+	return ngay_giao_mac_dinh()
+
+
+def _sinh_don(bg):
+	"""Sinh Sales Order "Theo báo giá" từ một Quotation ĐÃ Submit, đưa nó tới
+	"Chờ Miyano xác nhận". Gọi trong khối `quyen_he_thong()`.
+
+	Dùng bản nội bộ `_make_sales_order`: bản whitelist kiểm quyền người gọi,
+	mà khách không có quyền nào trên Quotation.
+	"""
+	from erpnext.selling.doctype.quotation.quotation import _make_sales_order
+	from frappe.model.naming import validate_name
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal.bang_gia_khach import NGUON_BAO_GIA
+	from miyano_portal.dat_hang import _resolve_item_warehouse
+	from miyano_portal.portal_mua_le import xoa_chenh_lech_gia
+
+	phieu = None
+	if bg.get("custom_de_xuat"):
+		phieu = frappe.db.get_value(
+			"Portal De Xuat Mua", bg.custom_de_xuat,
+			["ngay_can", "ghi_chu", "ma_de_xuat"], as_dict=True,
+		)
+	ngay = _ngay_giao(phieu)
+
+	so = _make_sales_order(bg.name, ignore_permissions=True)
+	so.delivery_date = ngay
+	so.custom_nguon_don = NGUON_CONG
+	so.custom_loai_don = LOAI_DON_THEO_BAO_GIA
+	so.custom_request_id = bg.custom_request_id + HAU_TO_DON
+	so.custom_hdnt = None
+	so.ignore_pricing_rule = 1
+	# Gán tường minh, không dựa vào việc mapper chép trường cùng tên.
+	so.custom_khoa_phong = bg.get("custom_khoa_phong")
+	so.custom_de_xuat = bg.get("custom_de_xuat")
+	so.custom_ten_don_hang = bg.get("custom_ten_don_hang") or ""
+	if phieu:
+		so.custom_ma_tra_cuu = phieu.ma_de_xuat
+		so.custom_yeu_cau_khach = phieu.ghi_chu
+	for d in so.items:
+		d.delivery_date = ngay
+		d.warehouse = d.warehouse or _resolve_item_warehouse(d.item_code, so.company)
+		# Đơn giá khách đã đồng ý là đơn giá của đơn. Đặt `price_list_rate`
+		# bằng nó và xoá margin/chiết khấu, nếu không ERPNext tính lại `rate`
+		# từ giá bảng khi lưu.
+		d.price_list_rate = d.rate
+		xoa_chenh_lech_gia(d)
+		d.custom_nguon_gia = NGUON_BAO_GIA
+		d.custom_gia_khach_dong_y = flt(d.rate)
+	# Mã đơn = mã của khách trên phiếu, như đơn sinh từ `duyet_va_tao_don`.
+	if phieu and phieu.ma_de_xuat and not frappe.db.exists("Sales Order", phieu.ma_de_xuat):
+		so.name = validate_name("Sales Order", phieu.ma_de_xuat)
+		so.flags.name_set = True
+	so.flags.ignore_permissions = True
+	so.insert(ignore_permissions=True)
+	# Đơn mới sinh ở trạng thái đầu của workflow. Vòng báo giá đã xong trên
+	# Quotation nên đưa thẳng sang "Chờ Miyano xác nhận" bằng bước chuyển thật.
+	return apply_workflow(so, "Gửi duyệt")
+
+
+def dong_y(ten: str) -> dict:
+	"""Khách đồng ý báo giá (spec §4.4). NGƯỜI GỌI đã kiểm quyền của khách.
+
+	Submit Quotation, sinh Sales Order và gắn đơn vào phiếu gốc là MỘT đơn vị:
+	hỏng bước nào thì lùi cả ba. Ghi giá vào Price List đứng ngoài đơn vị đó —
+	lỗi ở đấy chỉ được ghi Error Log và báo nhân viên.
+	"""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal import bang_gia_khach, nhat_ky
+	from miyano_portal.nang_quyen import quyen_he_thong
+	from miyano_portal.portal_thong_bao import bao_loi_ghi_gia
+
+	# Khoá dòng: hai người cùng bấm thì người sau chờ, rồi thấy "đã đồng ý".
+	bg = frappe.get_doc("Quotation", ten, for_update=True)
+	if bg.get("workflow_state") == TT_DA_DONG_Y:
+		return {
+			"bao_gia": bg.name, "sales_order": don_cua_bao_gia(bg, khoa=True),
+			"da_ton_tai": True, "trang_thai_moi": TT_DA_DONG_Y,
+		}
+	_dam_bao_cho_khach(bg)
+	_dam_bao_con_han(bg)
+
+	nguoi_bam = frappe.session.user
+	khach = bg.party_name
+	frappe.db.savepoint("bao_gia_dong_y")
+	try:
+		with quyen_he_thong():
+			frappe.flags.bao_gia_dong_y_qua_cong = bg.name
+			try:
+				bg = apply_workflow(bg, HD_KHACH_DONG_Y)
+			finally:
+				frappe.flags.bao_gia_dong_y_qua_cong = None
+			bg.add_comment("Comment", f"{HD_KHACH_DONG_Y} bởi {nguoi_bam}")
+			so = _sinh_don(bg)
+		if bg.get("custom_de_xuat"):
+			frappe.db.set_value(
+				"Portal De Xuat Mua", bg.custom_de_xuat, "sales_order", so.name
+			)
+	except Exception:
+		frappe.db.rollback(save_point="bao_gia_dong_y")
+		raise
+
+	try:
+		frappe.db.savepoint("bao_gia_ghi_gia")
+		so.reload()
+		bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
+	except Exception:
+		loi = frappe.get_traceback(with_context=True)
+		try:
+			frappe.db.rollback(save_point="bao_gia_ghi_gia")
+		except Exception:
+			loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
+		frappe.log_error(
+			title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
+			message=loi, reference_doctype="Sales Order", reference_name=so.name,
+		)
+		bao_loi_ghi_gia(khach, so.name)
+
+	nhat_ky.ghi(
+		nhat_ky.SK_KHACH_DONG_Y, customer=khach,
+		khoa_phong=bg.get("custom_khoa_phong"), de_xuat=bg.get("custom_de_xuat"),
+		sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
+	)
+	return {
+		"bao_gia": bg.name, "sales_order": so.name,
+		"da_ton_tai": False, "trang_thai_moi": bg.get("workflow_state"),
+	}
