@@ -170,6 +170,17 @@ def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
         doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
 
 
+def ben_mua(doc) -> str | None:
+    """Khách hàng của một chứng từ bán. Sales Order giữ ở `customer`;
+    Quotation giữ ở `party_name` (và chỉ là khách khi `quotation_to` là
+    "Customer"). Các hook khớp dòng gõ tay chạy trên CẢ HAI doctype, nên phải
+    hỏi qua hàm này: đọc thẳng `doc.customer` trên Quotation cho None, và mọi
+    dòng khớp mã lặng lẽ mất giá bảng."""
+    if doc.doctype == "Quotation":
+        return doc.get("party_name") if doc.get("quotation_to") == "Customer" else None
+    return doc.get("customer")
+
+
 def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
     """QĐ-G13 (Task 13, chủ đầu tư chốt 21/08/2026) — **khớp mã thì CHUYỂN,
     không chỉ dán nhãn.**
@@ -816,7 +827,7 @@ def _gop_hoac_them_dong_hang(doc, item_code: str, qty: float):
 
     # `gia_bang_gia` chỉ trả giá DƯƠNG; `None` = chưa có giá (<= 0 không bao
     # giờ là "bán 0 đồng").
-    gia = bang_gia_khach.gia_bang_gia(doc.customer, item_code)
+    gia = bang_gia_khach.gia_bang_gia(ben_mua(doc), item_code)
     rate = flt(gia)
     nguon = bang_gia_khach.NGUON_BANG_GIA if gia else bang_gia_khach.NGUON_BAO_GIA
 

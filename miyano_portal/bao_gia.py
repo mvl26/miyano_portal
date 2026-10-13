@@ -8,6 +8,7 @@ phải kiểm quyền của khách trên đúng báo giá đó trước khi gọ
 """
 
 import frappe
+from frappe.utils import add_days, flt, now_datetime, nowdate
 
 WORKFLOW = "Quotation - Client Portal"
 NGUON_CONG = "Client Portal"
@@ -202,3 +203,54 @@ def _chen_khong_trung(bg, request_id) -> dict:
 			raise
 		return {"bao_gia": cu.name, "da_ton_tai": True, "total": float(cu.grand_total or 0)}
 	return {"bao_gia": bg.name, "da_ton_tai": False, "total": float(bg.grand_total or 0)}
+
+
+def chot_gui_khach(doc, method=None) -> None:
+	"""Hook `validate` — spec §4.2. Chỉ báo giá của cổng; báo giá nhân viên tự
+	lập do họ tự chịu trách nhiệm về giá và hạn hiệu lực.
+
+	Vào "Chờ khách đồng ý": chặn khi còn dòng gõ tay chưa khớp mã, còn dòng giữ
+	chỗ, hoặc còn dòng chưa có đơn giá; qua chốt thì đóng mốc gửi và hạn hiệu
+	lực. Quay về "Chờ Miyano báo giá" (thu hồi, khách sửa số lượng): xoá mốc và
+	hạn, vì báo giá cũ không còn là thứ khách đang xem.
+	"""
+	from miyano_portal.portal_mua_le import (
+		ITEM_GIU_CHO,
+		hieu_luc_bao_gia_ngay,
+		la_dong_giu_cho,
+	)
+
+	if doc.is_new() or doc.get("custom_nguon_don") != NGUON_CONG:
+		return
+	truoc, nay = _trang_thai_truoc(doc), doc.get("workflow_state")
+	if truoc == nay:
+		return
+	if nay == TT_CHO_MIYANO and truoc == TT_CHO_KHACH:
+		doc.valid_till = None
+		doc.custom_ngay_gui_khach_duyet = None
+		return
+	if nay != TT_CHO_KHACH:
+		return
+
+	loi = []
+	chua_khop = [
+		d.get("ten_hang") or "?" for d in doc.get("custom_dat_ngoai") or []
+		if not d.get("da_xu_ly")
+	]
+	if chua_khop:
+		loi.append("còn hàng khách gõ tay chưa khớp mã: " + ", ".join(chua_khop))
+	if any(la_dong_giu_cho(d.item_code) for d in doc.items):
+		loi.append(f"còn dòng giữ chỗ kỹ thuật {ITEM_GIU_CHO}")
+	thieu_gia = [
+		d.item_code for d in doc.items
+		if not la_dong_giu_cho(d.item_code) and flt(d.rate) <= 0
+	]
+	if thieu_gia:
+		loi.append("còn mặt hàng chưa có đơn giá: " + ", ".join(thieu_gia))
+	if loi:
+		frappe.throw(
+			"Chưa gửi khách được — " + "; ".join(loi) + ".", frappe.ValidationError
+		)
+
+	doc.custom_ngay_gui_khach_duyet = now_datetime()
+	doc.valid_till = add_days(nowdate(), hieu_luc_bao_gia_ngay())

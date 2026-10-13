@@ -58,6 +58,7 @@ doctype_js = {
 	"Sales Order": ["public/js/sales_order.js", "public/js/dat_ngoai_anh.js"],
 	"Portal De Xuat Mua": "public/js/dat_ngoai_anh.js",
 	"Delivery Note": "public/js/delivery_note.js",
+	"Quotation": ["public/js/dat_ngoai_anh.js"],
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -474,8 +475,15 @@ doc_events = {
 	# nhớ: workflow của Quotation phủ CẢ báo giá nhân viên tự lập, nên mỗi
 	# hook phải tự nói rõ nó áp cho báo giá của cổng hay cho mọi báo giá.
 	"Quotation": {
+		"before_validate": [
+			# Cùng hook với Sales Order: khớp mã cho dòng khách gõ tay.
+			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+		],
 		"validate": [
+			# Thứ tự có nghĩa: `dong_bo…` tính `da_xu_ly` mà `chot_gui_khach` đọc.
+			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
 			"miyano_portal.bao_gia.kiem_ly_do_tu_choi",
+			"miyano_portal.bao_gia.chot_gui_khach",
 		],
 		"before_submit": [
 			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",
