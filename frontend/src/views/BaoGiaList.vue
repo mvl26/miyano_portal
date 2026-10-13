@@ -10,7 +10,8 @@ import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
 import TabDonBaoGia from '../components/TabDonBaoGia.vue'
 import {
-  NHOM_BAO_GIA, nhanNhomBaoGia, nhomBaoGiaBadge, khoaNhomBaoGia, dichDongBaoGia,
+  NHOM_BAO_GIA, nhanNhomBaoGia, khoaNhomBaoGia, dichDongBaoGia,
+  nhanDongBaoGia, badgeDongBaoGia,
 } from '../bao-gia'
 
 const route = useRoute()
@@ -161,8 +162,10 @@ onMounted(async () => {
             <td class="right">{{ r.grand_total == null ? '—' : fmtVND(r.grand_total) }}</td>
             <td>{{ r.han_hieu_luc ? fmtDate(r.han_hieu_luc) : '—' }}</td>
             <td>
-              <span class="badge" :class="nhomBaoGiaBadge(r.nhom)">{{ nhanNhomBaoGia(r.nhom) }}</span>
-              <div class="tag" style="margin-top: 2px">{{ r.trang_thai_bao_gia || r.trang_thai_phieu }}</div>
+              <!-- Dòng chưa có báo giá (nhóm `nhap`): huy hiệu là trạng thái
+                   phiếu, dòng phụ là tên nhóm. Dòng đã có báo giá: ngược lại. -->
+              <span class="badge" :class="badgeDongBaoGia(r)">{{ nhanDongBaoGia(r) }}</span>
+              <div class="tag" style="margin-top: 2px">{{ r.trang_thai_bao_gia || nhanNhomBaoGia(r.nhom) }}</div>
             </td>
           </tr>
         </tbody>
@@ -174,7 +177,7 @@ onMounted(async () => {
         <div class="sb">
           <b v-if="r.ma">{{ r.ma }}</b>
           <span v-else class="tag">(chưa gửi duyệt)</span>
-          <span class="badge" :class="nhomBaoGiaBadge(r.nhom)">{{ nhanNhomBaoGia(r.nhom) }}</span>
+          <span class="badge" :class="badgeDongBaoGia(r)">{{ nhanDongBaoGia(r) }}</span>
         </div>
         <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
         <p class="tag" style="margin-top: 4px">

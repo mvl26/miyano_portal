@@ -4,6 +4,8 @@
 // Khoá nhóm KHÁC khoá giai đoạn của tab Đơn hàng (`GIAI_DOAN` ở format.js) và
 // không được nhập vào đó: hai tab là hai vòng đời.
 
+import { deXuatBadge } from './format.js'
+
 export const NHOM_BAO_GIA = ['nhap', 'dang_bao_gia', 'cho_dong_y', 'da_dong_y', 'da_dong']
 
 // Hai nhãn giữa nói rõ việc đang ở phía ai. Nhãn "Chờ báo giá" từng bị đọc
@@ -23,6 +25,20 @@ const BADGE = {
 
 export function nhanNhomBaoGia(khoa) { return NHAN[khoa] || khoa || '' }
 export function nhomBaoGiaBadge(khoa) { return BADGE[khoa] || 'b-gray' }
+
+// Huy hiệu của MỘT DÒNG trong danh sách. Nhóm `nhap` ("Nháp / chờ duyệt nội
+// bộ") gom bốn trạng thái phiếu rất khác nhau — Nháp, Chờ duyệt, Từ chối, Đã
+// huỷ — nên dòng thuộc nhóm đó nói thẳng trạng thái phiếu (cùng màu với màn
+// chi tiết phiếu): quản lý phải nhìn ra phiếu nào đang chờ mình duyệt, kể cả
+// trên thẻ di động. Dòng đã có báo giá giữ nhãn của nhóm.
+export function nhanDongBaoGia(dong) {
+  if (dong.nhom === 'nhap' && dong.trang_thai_phieu) return dong.trang_thai_phieu
+  return nhanNhomBaoGia(dong.nhom)
+}
+export function badgeDongBaoGia(dong) {
+  if (dong.nhom === 'nhap' && dong.trang_thai_phieu) return deXuatBadge(dong.trang_thai_phieu)
+  return nhomBaoGiaBadge(dong.nhom)
+}
 
 export function khoaNhomBaoGia(gt) {
   const s = String(gt || '')

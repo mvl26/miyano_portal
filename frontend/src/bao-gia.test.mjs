@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import {
   NHOM_BAO_GIA, nhanNhomBaoGia, nhomBaoGiaBadge, khoaNhomBaoGia,
   dichDongBaoGia, hanhDongBaoGia, dongDaSua, dichSauDatHang,
-  thongBaoSauDuyet, loiSoLuong,
+  thongBaoSauDuyet, loiSoLuong, nhanDongBaoGia, badgeDongBaoGia,
 } from './bao-gia.js'
 
 test('năm nhóm, đúng thứ tự vòng đời', () => {
@@ -117,4 +117,26 @@ test('số lượng hợp lệ thì không có lỗi', () => {
   assert.equal(loiSoLuong(items, { a: 10, b: 40 }), '')
   assert.equal(loiSoLuong(items, { a: 0.5, b: '7' }), '')
   assert.equal(loiSoLuong([], {}), '')
+})
+
+test('dòng nhóm nháp nói đúng trạng thái phiếu, không gom chung một nhãn', () => {
+  for (const tt of ['Nháp', 'Chờ duyệt', 'Chờ duyệt sửa', 'Từ chối', 'Đã huỷ']) {
+    assert.equal(nhanDongBaoGia({ nhom: 'nhap', trang_thai_phieu: tt }), tt)
+  }
+  assert.equal(badgeDongBaoGia({ nhom: 'nhap', trang_thai_phieu: 'Nháp' }), 'b-gray')
+  assert.equal(badgeDongBaoGia({ nhom: 'nhap', trang_thai_phieu: 'Chờ duyệt' }), 'b-blue')
+  assert.equal(badgeDongBaoGia({ nhom: 'nhap', trang_thai_phieu: 'Từ chối' }), 'b-red')
+  assert.equal(badgeDongBaoGia({ nhom: 'nhap', trang_thai_phieu: 'Đã huỷ' }), 'b-red')
+})
+
+test('dòng nhóm nháp thiếu trạng thái phiếu rơi về nhãn nhóm', () => {
+  assert.equal(nhanDongBaoGia({ nhom: 'nhap', trang_thai_phieu: '' }), 'Nháp / chờ duyệt nội bộ')
+  assert.equal(badgeDongBaoGia({ nhom: 'nhap' }), 'b-gray')
+})
+
+test('dòng đã có báo giá giữ nhãn và huy hiệu của nhóm', () => {
+  const dong = { nhom: 'cho_dong_y', trang_thai_phieu: 'Đã duyệt' }
+  assert.equal(nhanDongBaoGia(dong), 'Chờ anh/chị đồng ý')
+  assert.equal(badgeDongBaoGia(dong), 'b-orange')
+  assert.equal(nhanDongBaoGia({ nhom: 'da_dong', trang_thai_phieu: 'Đã duyệt' }), 'Đã đóng')
 })
