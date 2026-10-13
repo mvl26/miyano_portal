@@ -13,6 +13,7 @@ giá, bệnh viện đồng ý thì mới sinh đơn hàng.
 | **C** | Cả hai | Bảng tra trạng thái và quyền |
 | **D** | Cả hai | Sự cố thường gặp |
 | **E** | Cả hai | Những việc hệ thống cố ý không làm |
+| **F** | Quản trị hệ thống của Miyano | Việc phải làm sau khi cập nhật hệ thống |
 
 **Địa chỉ môi trường thử nghiệm**
 
@@ -139,7 +140,9 @@ Khi Miyano gửi báo giá, đơn vị biết qua ba chỗ:
 
 - Màn **🔔 Thông báo** có dòng "Báo giá … đã sẵn sàng". Bấm vào để mở báo giá.
 - Thẻ **Báo giá chờ đồng ý** trên màn **🏠 Tổng quan**. Bấm thẻ để tới thẳng
-  nhóm "Chờ anh/chị đồng ý".
+  nhóm "Chờ anh/chị đồng ý". Nếu đơn vị còn đơn chờ báo giá của cách làm cũ,
+  ngay dưới thẻ có dòng nhỏ "… đơn cũ chờ đồng ý →" dẫn tới các đơn đó ở tab
+  Đơn hàng.
 - Con số đỏ trên tab **Yêu cầu báo giá**.
 
 ![Hình 6 – Màn Tổng quan: thẻ "Báo giá chờ đồng ý"](hdsd-img/yeu-cau-bao-gia/06-the-tong-quan.png)
@@ -225,10 +228,17 @@ từ chối **không mở lại được**; vẫn cần hàng thì gửi yêu c�
 
 ![Hình 17 – Tab "Đơn hàng": đơn sinh từ báo giá đứng đầu danh sách, giá trị 2.430.000 ₫](hdsd-img/yeu-cau-bao-gia/17-don-o-tab-don-hang.png)
 
+- Mở đơn sẽ thấy **đủ mọi mặt hàng của báo giá**. Mặt hàng vốn là hàng tự khai
+  mang nhãn **Đã khớp với yêu cầu**; bấm **Xem chi tiết** ngay dưới nhãn để xem
+  lại đúng mô tả đơn vị đã khai lúc gửi. Dòng này hiện "—" ở cột SL DUYỆT; số
+  lượng đặt là số ở cột SL ĐẶT.
+
+![Hình 18 – Chi tiết đơn sinh từ báo giá: đủ hai mặt hàng, dòng thứ hai mang nhãn "Đã khớp với yêu cầu" và mô tả đã khai](hdsd-img/yeu-cau-bao-gia/18-don-du-mat-hang.png)
+
 - Giá vừa đồng ý được ghi vào Bảng giá của đơn vị. Lần sau các mặt hàng đó hiện
   **Bảng giá … ₫** trên màn chọn hàng và đặt ngay được.
 
-![Hình 18 – Mặt hàng vừa được báo giá nay hiện "Bảng giá 98.000 ₫"](hdsd-img/yeu-cau-bao-gia/18-gia-moi-tren-danh-muc.png)
+![Hình 19 – Mặt hàng vừa được báo giá nay hiện "Bảng giá 98.000 ₫"](hdsd-img/yeu-cau-bao-gia/19-gia-moi-tren-danh-muc.png)
 
 ## A8. Hạn hiệu lực, và khi Miyano từ chối
 
@@ -243,13 +253,13 @@ nghiệm là 7 ngày kể từ ngày Miyano gửi). Quá ngày đó:
 - Nếu vẫn cần đúng báo giá đó, liên hệ Miyano: quản lý kinh doanh của Miyano có
   thể mở lại và gửi báo giá lần nữa.
 
-![Hình 19 – Báo giá hết hạn: nhãn "Đã đóng" và dòng báo quá hạn](hdsd-img/yeu-cau-bao-gia/19-bao-gia-het-han.png)
+![Hình 20 – Báo giá hết hạn: nhãn "Đã đóng" và dòng báo quá hạn](hdsd-img/yeu-cau-bao-gia/20-bao-gia-het-han.png)
 
 **Miyano từ chối.** Khi Miyano không báo giá được (ví dụ hàng ngừng sản xuất),
 yêu cầu chuyển sang **Đã đóng** kèm lý do, và màn **🔔 Thông báo** có dòng "Yêu
 cầu báo giá … đã bị từ chối".
 
-![Hình 20 – Thông báo Miyano từ chối, kèm lý do](hdsd-img/yeu-cau-bao-gia/20-thong-bao-miyano-tu-choi.png)
+![Hình 21 – Thông báo Miyano từ chối, kèm lý do](hdsd-img/yeu-cau-bao-gia/21-thong-bao-miyano-tu-choi.png)
 
 ## A9. Quản lý và nhân viên khoa
 
@@ -266,7 +276,7 @@ thấy chứng từ."
 **Nhân viên khoa gửi yêu cầu.** Ở giỏ hàng, điền **Lý do yêu cầu** (bắt buộc)
 rồi bấm **Gửi duyệt**.
 
-![Hình 21 – Giỏ của nhân viên khoa: ô "Lý do yêu cầu", nút "Gửi duyệt"](hdsd-img/yeu-cau-bao-gia/21-gio-nhan-vien-khoa.png)
+![Hình 22 – Giỏ của nhân viên khoa: ô "Lý do yêu cầu", nút "Gửi duyệt"](hdsd-img/yeu-cau-bao-gia/22-gio-nhan-vien-khoa.png)
 
 Phiếu nằm ở tab **Yêu cầu báo giá**, nhóm **Nháp / chờ duyệt nội bộ**, nhãn
 "Chờ duyệt".
@@ -275,29 +285,29 @@ Phiếu nằm ở tab **Yêu cầu báo giá**, nhóm **Nháp / chờ duyệt n�
 việc đang chờ), chọn nhóm **Chờ duyệt**. Phiếu yêu cầu báo giá của khoa nằm
 chung hàng chờ với các phiếu đặt hàng khác.
 
-![Hình 22 – Hàng chờ duyệt của quản lý: phiếu yêu cầu báo giá của khoa Huyết học ở dòng đầu](hdsd-img/yeu-cau-bao-gia/22-quan-ly-cho-duyet.png)
+![Hình 23 – Hàng chờ duyệt của quản lý: phiếu yêu cầu báo giá của khoa Huyết học ở dòng đầu](hdsd-img/yeu-cau-bao-gia/23-quan-ly-cho-duyet.png)
 
 Mở phiếu, sửa **SL DUYỆT** nếu cần, rồi bấm **Duyệt** (hoặc **Từ chối** / **Huỷ
 phiếu**).
 
-![Hình 23 – Quản lý mở phiếu của khoa: các nút Duyệt, Từ chối, Huỷ phiếu](hdsd-img/yeu-cau-bao-gia/23-quan-ly-mo-phieu.png)
+![Hình 24 – Quản lý mở phiếu của khoa: các nút Duyệt, Từ chối, Huỷ phiếu](hdsd-img/yeu-cau-bao-gia/24-quan-ly-mo-phieu.png)
 
 Thông báo hiện "Đã duyệt phiếu — yêu cầu báo giá đã gửi cho Miyano." Phiếu có
 thêm dòng **Xem yêu cầu báo giá … →**.
 
-![Hình 24 – Sau khi duyệt: phiếu "Đã duyệt", có đường dẫn sang yêu cầu báo giá](hdsd-img/yeu-cau-bao-gia/24-sau-duyet.png)
+![Hình 25 – Sau khi duyệt: phiếu "Đã duyệt", có đường dẫn sang yêu cầu báo giá](hdsd-img/yeu-cau-bao-gia/25-sau-duyet.png)
 
 Khi Miyano báo giá, nhân viên khoa thấy báo giá của khoa mình với hai nút **Đồng
 ý báo giá** và **Từ chối…**; không có nút Sửa số lượng.
 
-![Hình 25 – Nhân viên khoa xem báo giá: có Đồng ý và Từ chối, không có Sửa số lượng](hdsd-img/yeu-cau-bao-gia/25-nhan-vien-khoa-xem-bao-gia.png)
+![Hình 26 – Nhân viên khoa xem báo giá: có Đồng ý và Từ chối, không có Sửa số lượng](hdsd-img/yeu-cau-bao-gia/26-nhan-vien-khoa-xem-bao-gia.png)
 
 ## A10. Trên điện thoại
 
 Danh sách hiện thành từng thẻ; màn chi tiết giữ đủ các nút. Bảng mặt hàng rộng
 hơn màn hình: **vuốt ngang trong bảng** để xem số lượng, đơn giá và thành tiền.
 
-![Hình 26 – Danh sách và chi tiết yêu cầu báo giá trên điện thoại](hdsd-img/yeu-cau-bao-gia/26-di-dong.png)
+![Hình 27 – Danh sách và chi tiết yêu cầu báo giá trên điện thoại](hdsd-img/yeu-cau-bao-gia/27-di-dong.png)
 
 ---
 
@@ -309,30 +319,30 @@ Mở Desk, vào không gian làm việc **Kho khách hàng**. Dưới mục **Vi
 khách hàng** có lối tắt **Yêu cầu báo giá**; con số bên cạnh là số yêu cầu đang
 chờ Miyano báo giá.
 
-![Hình 27 – Lối tắt "Yêu cầu báo giá" kèm số việc đang chờ](hdsd-img/yeu-cau-bao-gia/27-desk-hang-viec.png)
+![Hình 28 – Lối tắt "Yêu cầu báo giá" kèm số việc đang chờ](hdsd-img/yeu-cau-bao-gia/28-desk-hang-viec.png)
 
 Bấm lối tắt để mở danh sách Báo giá đã lọc sẵn: nguồn là cổng khách hàng, trạng
 thái **Chờ Miyano báo giá**.
 
-![Hình 28 – Danh sách yêu cầu đang chờ Miyano báo giá](hdsd-img/yeu-cau-bao-gia/28-desk-danh-sach.png)
+![Hình 29 – Danh sách yêu cầu đang chờ Miyano báo giá](hdsd-img/yeu-cau-bao-gia/29-desk-danh-sach.png)
 
 Mỗi khi có yêu cầu mới, nhân viên phụ trách khách còn nhận thông báo ở biểu
 tượng chuông: "Portal - Yêu cầu báo giá mới: …".
 
 ## B2. Đọc yêu cầu
 
-Mở một yêu cầu. Tab **Chi tiết** có hai bảng:
+Mở một yêu cầu. Tab **Chi tiết** có:
 
 - **Các mặt hàng** — hàng có mã. Đơn giá bằng 0 là dòng chưa báo giá. Cột
-  **Nguồn giá** ghi "Báo giá".
+  **Nguồn giá** ghi "Báo giá". Yêu cầu chỉ gồm hàng khách gõ tay thì bảng này
+  tạm có một dòng giữ chỗ "HANG-DAT-NGOAI: Hàng đặt ngoài (chờ Miyano khớp
+  mã)"; dòng đó tự mất khi đã khớp mã.
 - **Hàng khách gõ tay (chưa có mã)** — hàng khách tự khai, chờ khớp mã.
+- Ngay dưới bảng đó, khối **Hàng chưa có mã — thông tin khách khai**: ảnh nhãn
+  hộp, mô tả nhận dạng, model, hãng, nước sản xuất, quy cách mà khách đã khai.
+  Trên Đơn bán hàng có hàng khách gõ tay, khối này cũng nằm ở đúng chỗ đó.
 
-![Hình 29 – Yêu cầu báo giá trên Desk: bảng "Các mặt hàng" và bảng "Hàng khách gõ tay (chưa có mã)"](hdsd-img/yeu-cau-bao-gia/29-desk-form-bao-gia.png)
-
-Ảnh nhãn hộp, mô tả nhận dạng, model, hãng, nước sản xuất, quy cách mà khách đã
-khai nằm ở tab **Liên kết**, khối **Hàng chưa có mã — thông tin khách khai**.
-
-![Hình 30 – Tab "Liên kết": khối "Hàng chưa có mã — thông tin khách khai"](hdsd-img/yeu-cau-bao-gia/30-desk-thong-tin-khach-khai.png)
+![Hình 30 – Yêu cầu báo giá trên Desk: bảng "Các mặt hàng", bảng "Hàng khách gõ tay (chưa có mã)" và khối thông tin khách khai ngay bên dưới](hdsd-img/yeu-cau-bao-gia/30-desk-khoi-khach-khai.png)
 
 ## B3. Khớp mã cho hàng khách gõ tay
 
@@ -373,7 +383,7 @@ Hệ thống không cho gửi và nói rõ vướng ở đâu khi còn một tro
 | # | Còn | Thông báo |
 |---|---|---|
 | 1 | Hàng khách gõ tay chưa khớp mã | "Chưa gửi khách được — còn hàng khách gõ tay chưa khớp mã: …" |
-| 2 | Dòng giữ chỗ kỹ thuật (có khi yêu cầu chỉ gồm hàng gõ tay; tự mất khi đã khớp hết mã) | "Chưa gửi khách được — còn dòng giữ chỗ kỹ thuật …" |
+| 2 | Dòng giữ chỗ "HANG-DAT-NGOAI" (có khi yêu cầu chỉ gồm hàng gõ tay; tự mất khi đã khớp mã) | "Chưa gửi khách được — còn dòng giữ chỗ kỹ thuật HANG-DAT-NGOAI." |
 | 3 | Mặt hàng chưa có đơn giá | "Chưa gửi khách được — còn mặt hàng chưa có đơn giá: …" |
 
 Vướng nhiều điều cùng lúc thì một thông báo liệt kê hết.
@@ -382,20 +392,22 @@ Vướng nhiều điều cùng lúc thì một thông báo liệt kê hết.
 
 ![Hình 37 – Bị chặn: còn mặt hàng chưa có đơn giá, nêu rõ mã](hdsd-img/yeu-cau-bao-gia/37-desk-chan-thieu-gia.png)
 
+![Hình 38 – Bị chặn: yêu cầu chỉ có hàng gõ tay, chưa khớp mã nên còn dòng giữ chỗ](hdsd-img/yeu-cau-bao-gia/38-desk-chan-giu-cho.png)
+
 ## B5. "Thu hồi để sửa"
 
 Đã gửi mà phát hiện sai giá: bấm **Các hành động → Thu hồi để sửa**. Yêu cầu
 quay về **Chờ Miyano báo giá**, hạn hiệu lực bị xoá, khách không còn thấy giá.
 Sửa xong bấm **Gửi khách duyệt** lại; báo giá nhận hạn hiệu lực mới.
 
-![Hình 38 – Ở "Chờ khách đồng ý" chỉ có một hành động: "Thu hồi để sửa"](hdsd-img/yeu-cau-bao-gia/38-desk-thu-hoi-de-sua.png)
+![Hình 39 – Ở "Chờ khách đồng ý" chỉ có một hành động: "Thu hồi để sửa"](hdsd-img/yeu-cau-bao-gia/39-desk-thu-hoi-de-sua.png)
 
 ## B6. Khách sửa số lượng thì làm gì
 
 Nhân viên phụ trách nhận thông báo ở biểu tượng chuông: "Portal - Khách sửa số
 lượng báo giá: …".
 
-![Hình 39 – Thông báo khách sửa số lượng](hdsd-img/yeu-cau-bao-gia/39-desk-thong-bao-khach-sua.png)
+![Hình 40 – Thông báo khách sửa số lượng](hdsd-img/yeu-cau-bao-gia/40-desk-thong-bao-khach-sua.png)
 
 Mở yêu cầu:
 
@@ -406,26 +418,28 @@ Mở yêu cầu:
 Xem lại giá theo số lượng mới, sửa nếu cần, rồi bấm **Các hành động → Gửi khách
 duyệt**. Khách không thấy giá cho tới khi bước này xong.
 
-![Hình 40 – Sau khi khách sửa: số lượng 30, đơn giá vẫn 32.000, "Hiệu lực đến" trống](hdsd-img/yeu-cau-bao-gia/40-desk-gia-giu-nguyen.png)
+![Hình 41 – Sau khi khách sửa: số lượng 30, đơn giá vẫn 32.000, "Hiệu lực đến" trống](hdsd-img/yeu-cau-bao-gia/41-desk-gia-giu-nguyen.png)
 
 ## B7. "Từ chối" — bắt buộc có lý do
 
 Khi không báo giá được:
 
-1. Mở khối **Cổng khách hàng** trên biểu mẫu (bấm vào tiêu đề khối để bung ra).
-2. Điền **Lý do từ chối**, ít nhất 10 ký tự. Khách sẽ đọc đúng câu này.
+1. Kéo xuống mục **Cổng khách hàng** trên biểu mẫu.
+2. Điền ô **Lý do từ chối**, ít nhất 10 ký tự. Khách sẽ đọc đúng câu này.
 3. Bấm **Lưu**, rồi **Các hành động → Từ chối**.
 
-![Hình 41 – Ô "Lý do từ chối" trong khối "Cổng khách hàng"](hdsd-img/yeu-cau-bao-gia/41-desk-ly-do-tu-choi.png)
+![Hình 42 – Ô "Lý do từ chối" trong mục "Cổng khách hàng"](hdsd-img/yeu-cau-bao-gia/42-desk-ly-do-tu-choi.png)
 
-Chưa có lý do thì hệ thống chặn:
+Chưa có lý do thì hệ thống chặn và chỉ luôn chỗ phải điền: "Phải nhập lý do từ
+chối (tối thiểu 10 ký tự) trước khi chuyển trạng thái. Nhập ở mục «Cổng khách
+hàng» → ô «Lý do từ chối» rồi lưu, sau đó bấm lại «Từ chối»."
 
-![Hình 42 – Từ chối khi chưa có lý do](hdsd-img/yeu-cau-bao-gia/42-desk-chan-thieu-ly-do.png)
+![Hình 43 – Từ chối khi chưa có lý do: thông báo chỉ chỗ điền](hdsd-img/yeu-cau-bao-gia/43-desk-chan-thieu-ly-do.png)
 
 Yêu cầu sang **Miyano từ chối** và không còn hành động nào. Bệnh viện nhận
 thông báo trên cổng kèm lý do.
 
-![Hình 43 – Trạng thái "Miyano từ chối"](hdsd-img/yeu-cau-bao-gia/43-desk-miyano-tu-choi.png)
+![Hình 44 – Trạng thái "Miyano từ chối"](hdsd-img/yeu-cau-bao-gia/44-desk-miyano-tu-choi.png)
 
 ## B8. "Mở lại" báo giá hết hạn
 
@@ -435,7 +449,7 @@ hạn**. Người có vai **Sales Manager** mở lại được: **Các hành đ
 Báo giá quay về **Chờ Miyano báo giá**, hạn cũ bị xoá, đơn giá giữ nguyên. Xem
 lại giá rồi **Gửi khách duyệt** để khách nhận báo giá với hạn mới.
 
-![Hình 44 – Báo giá hết hạn: hành động duy nhất là "Mở lại"](hdsd-img/yeu-cau-bao-gia/44-desk-mo-lai.png)
+![Hình 45 – Báo giá hết hạn: hành động duy nhất là "Mở lại"](hdsd-img/yeu-cau-bao-gia/45-desk-mo-lai.png)
 
 Báo giá ở **Khách từ chối** và **Miyano từ chối** không mở lại được.
 
@@ -443,20 +457,22 @@ Báo giá ở **Khách từ chối** và **Miyano từ chối** không mở lạ
 
 Khi khách bấm Đồng ý trên cổng, hệ thống tự làm, nhân viên không phải thao tác:
 
-- Yêu cầu báo giá được ghi sổ, trạng thái **Khách đã đồng ý**.
+- Yêu cầu báo giá được ghi sổ, trạng thái **Khách đã đồng ý**. Đầu biểu mẫu có
+  dòng nền xanh: "Khách đã đồng ý trên cổng — hệ thống đã sinh đơn hàng …. Không
+  tạo đơn thứ hai từ báo giá này." Bấm mã đơn trong dòng đó để mở đơn.
 
-![Hình 45 – Báo giá ở "Khách đã đồng ý"](hdsd-img/yeu-cau-bao-gia/45-desk-bao-gia-da-dong-y.png)
+![Hình 46 – Báo giá ở "Khách đã đồng ý": dòng dẫn tới đơn đã sinh; không còn nút tạo đơn](hdsd-img/yeu-cau-bao-gia/46-desk-bao-gia-da-dong-y.png)
 
 - Một **Đơn bán hàng** được tạo ở **Chờ Miyano xác nhận**, mang mã yêu cầu của
   khách. Trong khối **Cổng khách hàng**, **Loại đơn** là **Theo báo giá**. Đơn
   chỉ gồm hàng có mã, đơn giá đúng bằng giá khách đã đồng ý.
 
-![Hình 46 – Đơn "Theo báo giá" ở "Chờ Miyano xác nhận"](hdsd-img/yeu-cau-bao-gia/46-desk-don-theo-bao-gia.png)
+![Hình 47 – Đơn "Theo báo giá" ở "Chờ Miyano xác nhận"](hdsd-img/yeu-cau-bao-gia/47-desk-don-theo-bao-gia.png)
 
 - Đơn giá từng dòng được **ghi vào Bảng giá của khách**. Phần **Hoạt động** của
   đơn ghi bảng giá nào, ai đồng ý, mặt hàng nào, giá cũ → giá mới.
 
-![Hình 47 – Phần Hoạt động của đơn: "[Portal] Ghi giá khách đã đồng ý vào …"](hdsd-img/yeu-cau-bao-gia/47-desk-ghi-gia.png)
+![Hình 48 – Phần Hoạt động của đơn: "[Portal] Ghi giá khách đã đồng ý vào …"](hdsd-img/yeu-cau-bao-gia/48-desk-ghi-gia.png)
 
 Việc còn lại của nhân viên: mở đơn, bấm **Các hành động → Xác nhận** như đơn
 thường.
@@ -467,9 +483,20 @@ giá khách đã đồng ý — gửi khách duyệt lại trước khi xác nh�
 đơn giá về đúng giá đã đồng ý; hoặc nếu thật sự phải đổi giá thì bấm **Gửi
 khách duyệt** trên đơn để khách đồng ý lại.
 
-> Trên báo giá đã đồng ý, Desk vẫn hiện các nút có sẵn của phần mềm (**Tạo**,
-> **Đặt là đã mất**, **Hủy**). Đơn hàng đã được tạo tự động — **không** dùng
-> **Tạo** để lập thêm đơn thứ hai.
+**Báo giá của cổng đã đồng ý được hệ thống giữ chặt với đơn của nó:**
+
+- Trên báo giá không còn nút tạo Đơn bán hàng và nút **Đặt là đã mất**; chỉ còn
+  **Hủy**.
+- Không lập được đơn thứ hai từ báo giá của cổng, kể cả bằng **Lấy mặt hàng từ →
+  Báo giá** trên một đơn nháp. Hệ thống báo: "Báo giá của cổng đã có đơn hàng …
+  — không tạo đơn thứ hai."
+- Báo giá của cổng chưa được khách đồng ý thì không lập đơn tay từ nó được: "Đơn
+  hàng của báo giá … chỉ sinh ra khi khách đồng ý trên cổng — không tạo tay từ
+  báo giá của cổng."
+- **Hủy** báo giá chỉ làm được khi đơn của nó không còn hiệu lực. Đơn còn sống
+  thì hệ thống chặn: "Báo giá … của cổng khách hàng đã sinh đơn hàng … và đơn đó
+  còn hiệu lực. Trước khi huỷ báo giá, phải huỷ đơn hàng … (nếu đã xác nhận)
+  hoặc bấm «Từ chối» trên đơn (nếu còn chờ xác nhận)."
 
 ## B10. Báo giá nhân viên tự lập ngoài cổng
 
@@ -535,16 +562,18 @@ tay, và không hiện trên cổng của khách.
 | Nhân viên khoa không thấy nút **Sửa số lượng** | Chỉ quản lý của đơn vị sửa được số lượng trên báo giá |
 | Nhân viên khoa mở một báo giá, thấy "Không tìm thấy chứng từ." | Báo giá đó thuộc khoa khác hoặc toàn viện |
 | Báo giá hiện "Báo giá đã quá hạn hiệu lực…", không còn nút | Đã quá ngày hiệu lực. Gửi yêu cầu mới, hoặc đề nghị Miyano mở lại |
-| Mở đơn sinh từ báo giá trên cổng, bảng mặt hàng **thiếu** mặt hàng vốn là hàng tự khai | Hạn chế đã biết của bản này: màn chi tiết đơn chưa liệt kê hàng tự khai đã được khớp mã. Giá trị đơn trong danh sách vẫn đủ. Xem đầy đủ bằng **Xem yêu cầu báo giá … →** hoặc bản PDF báo giá |
-| (Desk) Không thấy lối tắt **Yêu cầu báo giá** trong "Kho khách hàng" | Tài khoản cần vai kinh doanh. Nếu đã có vai mà vẫn không thấy, nhờ quản trị hệ thống làm mới bộ nhớ đệm rồi tải lại trang |
+| Trong đơn sinh từ báo giá, một mặt hàng có "—" ở cột SL DUYỆT (có khi cả SL ĐỀ XUẤT) | Đó là mặt hàng không có mã lúc gửi (hàng tự khai, Miyano khớp mã khi báo giá) nên không có dòng tương ứng trên phiếu để duyệt. Cột SL ĐẶT, đơn giá và thành tiền vẫn đúng theo báo giá |
+| (Desk) Không thấy lối tắt **Yêu cầu báo giá** trong "Kho khách hàng" | Tài khoản cần vai kinh doanh. Đã có vai mà vẫn không thấy thì báo quản trị hệ thống (xem Phần F) |
 | (Desk) "Chưa gửi khách được — …" | Xem ba điều kiện ở B4: khớp mã hết hàng gõ tay, điền đủ đơn giá |
-| (Desk) "Phải nhập lý do từ chối (tối thiểu 10 ký tự) trước khi chuyển trạng thái." | Điền **Lý do từ chối** trong khối **Cổng khách hàng**, bấm **Lưu**, rồi **Từ chối** lại |
-| (Desk) Sau khi bấm **Gửi khách duyệt** hiện "Vui lòng cấu hình Tài khoản Email đi mặc định…" | Hệ thống chưa cấu hình email gửi đi. Trạng thái **vẫn chuyển** và khách **vẫn nhận thông báo trên cổng**; chỉ email không được gửi. Báo quản trị hệ thống cấu hình email |
+| (Desk) "Phải nhập lý do từ chối (tối thiểu 10 ký tự) trước khi chuyển trạng thái. Nhập ở mục «Cổng khách hàng» → ô «Lý do từ chối» rồi lưu, sau đó bấm lại «Từ chối»." | Làm đúng như thông báo: điền **Lý do từ chối** trong mục **Cổng khách hàng**, bấm **Lưu**, rồi **Từ chối** lại |
+| (Desk) "Báo giá của cổng đã có đơn hàng … — không tạo đơn thứ hai." | Đơn đã được hệ thống sinh khi khách đồng ý. Mở đơn đó (dòng nền xanh đầu báo giá) thay vì lập đơn mới |
+| (Desk) Không hủy được báo giá, báo "… đã sinh đơn hàng … và đơn đó còn hiệu lực …" | Xử lý đơn trước: hủy đơn (nếu đã xác nhận) hoặc **Từ chối** đơn (nếu còn chờ xác nhận), rồi mới hủy báo giá |
+| (Desk) Sau khi bấm **Gửi khách duyệt** hiện "Vui lòng cấu hình Tài khoản Email đi mặc định…" | Hệ thống chưa cấu hình email gửi đi. Trạng thái **vẫn chuyển** và khách **vẫn nhận thông báo trên cổng**; chỉ email không được gửi. Báo quản trị hệ thống (xem Phần F) |
 | (Desk) Không sửa được biểu mẫu, báo "Biểu mẫu này không thể chỉnh sửa được do Quy trình công việc" | Báo giá đang ở phía khách. Bấm **Thu hồi để sửa** trước |
 | (Desk) Không xác nhận được đơn, báo "… khác giá khách đã đồng ý …" | Đơn giá trên đơn khác giá khách đồng ý. Xem B9 |
 | (Desk) Lịch sử ghi "Administrator" ở bước khách đồng ý / sửa số lượng | Bước của khách do hệ thống thực hiện thay. Người bấm thật được ghi trong dòng bình luận ngay cạnh ("… bởi …") |
 
-![Hình 48 – Hộp báo thiếu cấu hình email sau khi bấm "Gửi khách duyệt": trạng thái vẫn chuyển, chỉ email không gửi được](hdsd-img/yeu-cau-bao-gia/48-desk-thieu-email.png)
+![Hình 49 – Hộp báo thiếu cấu hình email sau khi bấm "Gửi khách duyệt": trạng thái vẫn chuyển, chỉ email không gửi được](hdsd-img/yeu-cau-bao-gia/49-desk-thieu-email.png)
 
 ---
 
@@ -573,3 +602,28 @@ tay, và không hiện trên cổng của khách.
   đó qua **Thu hồi để sửa**.
 - **Báo giá Miyano tự lập trên Desk không hiện lên cổng.** Cổng chỉ hiện báo
   giá bắt nguồn từ yêu cầu của chính bệnh viện.
+
+---
+
+# F — Ghi chú cho quản trị hệ thống của Miyano
+
+Mỗi lần cập nhật hệ thống lên bản có chức năng này, quản trị viên làm đủ ba
+việc; thiếu một việc thì người dùng sẽ gặp các hiện tượng ở Phần D.
+
+1. **Chạy cập nhật cơ sở dữ liệu** của hệ thống. Bước này tạo các trạng thái,
+   hành động, mẫu in báo giá và thông báo mà chức năng cần.
+2. **Khởi động lại các dịch vụ** của hệ thống để bản mới có hiệu lực.
+3. **Dựng lại giao diện và xoá bộ nhớ đệm.** Chưa làm bước này thì nhân viên có
+   thể không thấy lối tắt **Yêu cầu báo giá** trong "Kho khách hàng" dù đã đủ
+   quyền, hoặc biểu mẫu Báo giá còn hiện theo bản cũ. Sau đó nhân viên tải lại
+   trang.
+
+**Email.** Email báo giá, email hết hạn và email từ chối chỉ gửi được khi hệ
+thống đã có **tài khoản email gửi đi mặc định**. Chưa cấu hình thì nhân viên
+thấy hộp "Vui lòng cấu hình Tài khoản Email đi mặc định từ Công cụ > Tài khoản
+Email" sau mỗi lần gửi báo giá hoặc từ chối; thông báo trên cổng vẫn tới khách,
+riêng email thì không.
+
+**Việc hằng ngày tự chạy.** Mỗi ngày hệ thống tự đóng các báo giá quá hạn hiệu
+lực. Số ngày hiệu lực đặt trong phần cài đặt của cổng khách hàng (đang là 7
+ngày).
