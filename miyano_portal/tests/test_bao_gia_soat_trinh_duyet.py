@@ -187,14 +187,57 @@ class TestChotBaoGiaDaCoDon(NenSoatTrinhDuyet):
 			2,
 		)
 
-	def test_don_da_xoa_van_khong_tao_tay_duoc(self):
-		"""Đơn của báo giá cổng chỉ sinh ra khi khách đồng ý."""
-		so, bg, phieu = self._don_tu_bao_gia_co_dong_go_tay()
-		frappe.db.set_value("Portal De Xuat Mua", phieu.name, "sales_order", None)
-		frappe.delete_doc("Sales Order", so.name, force=True)
+	def test_don_da_bi_tu_choi_van_khong_tao_tay_don_khac(self):
+		"""Đơn của báo giá cổng chỉ sinh ra khi khách đồng ý: đơn đó bị Miyano
+		từ chối cũng không mở đường tạo tay một đơn khác từ cùng báo giá."""
+		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
+		self._tu_choi_don(so)
 		so2 = self._don_thu_hai(bg)
-		with self.assertRaisesRegex(frappe.ValidationError, "chỉ sinh ra khi khách đồng ý"):
+		with self.assertRaisesRegex(frappe.ValidationError, so.name):
 			so2.insert()
+
+	def test_keo_dong_bao_gia_cong_vao_don_nhap_da_luu_bi_tu_choi(self):
+		"""«Lấy mặt hàng từ → Báo giá» trên một đơn nháp ĐÃ LƯU không đi qua
+		`insert`: chốt phải đứng ở `validate`."""
+		from erpnext.selling.doctype.quotation.quotation import make_sales_order
+
+		from miyano_portal import dat_hang
+
+		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 10}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		nhap = frappe.get_doc("Sales Order", kq["sales_order"])
+		nhap = make_sales_order(bg.name, target_doc=nhap)
+		self.assertTrue([d for d in nhap.items if d.get("prevdoc_docname") == bg.name])
+		with self.assertRaisesRegex(frappe.ValidationError, so.name):
+			nhap.save()
+		self.assertFalse(frappe.db.exists(
+			"Sales Order Item", {"parent": kq["sales_order"], "prevdoc_docname": bg.name}
+		))
+
+	def test_don_hop_le_van_luu_va_xac_nhan_duoc(self):
+		so, _bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
+		so.save()
+		so = apply_workflow(so, "Xác nhận")
+		self.assertEqual(so.docstatus, 1)
+
+	def test_keo_dong_bao_gia_noi_bo_vao_don_nhap_van_duoc(self):
+		from erpnext.selling.doctype.quotation.quotation import make_sales_order
+
+		from miyano_portal import dat_hang
+
+		bg = self._bao_gia_tho(nguon="Nội bộ")
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		bg = apply_workflow(bg, bao_gia.HD_GHI_NHAN)
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 10}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		nhap = make_sales_order(bg.name, target_doc=frappe.get_doc("Sales Order", kq["sales_order"]))
+		nhap.save()
+		self.assertTrue([d for d in nhap.items if d.get("prevdoc_docname") == bg.name])
 
 	def test_bao_gia_noi_bo_van_tao_don_binh_thuong(self):
 		bg = self._bao_gia_tho(nguon="Nội bộ")
@@ -208,23 +251,67 @@ class TestChotBaoGiaDaCoDon(NenSoatTrinhDuyet):
 
 	def test_ban_sua_doi_va_ban_sao_khong_bi_chan(self):
 		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
-		# Bản «Amend»: Desk chép cả trường `no_copy`, đơn gốc đã huỷ.
+		# Bản «Amend» của CHÍNH đơn hợp lệ, kể cả khi mã yêu cầu không đi theo.
 		sua_doi = frappe.copy_doc(so)
 		sua_doi.amended_from = so.name
-		sua_doi.items[0].prevdoc_docname = bg.name
+		sua_doi.custom_request_id = None
+		self.assertTrue([d for d in sua_doi.items if d.get("prevdoc_docname") == bg.name])
 		bao_gia.chan_don_thu_hai_tu_bao_gia_cong(sua_doi)
+		# `amended_from` trỏ tới một đơn KHÁC không phải giấy thông hành.
+		from miyano_portal import dat_hang
+
+		khac = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_ngoai, "qty": 10}],
+			request_id=frappe.generate_hash(length=12),
+		)["sales_order"]
+		chau = frappe.copy_doc(so)
+		chau.custom_request_id = None
+		chau.amended_from = khac
+		with self.assertRaisesRegex(frappe.ValidationError, so.name):
+			bao_gia.chan_don_thu_hai_tu_bao_gia_cong(chau)
+		# Bản sửa đổi của bản sửa đổi: lần ngược chuỗi `amended_from` tới đơn gốc.
+		frappe.db.set_value(
+			"Sales Order", khac, {"amended_from": so.name, "custom_request_id": None}
+		)
+		bao_gia.chan_don_thu_hai_tu_bao_gia_cong(chau)
 		# Bản «Duplicate»: `prevdoc_docname` là `no_copy` nên không còn trỏ về báo giá.
 		ban_sao = frappe.copy_doc(so, ignore_no_copy=False)
 		self.assertFalse([d for d in ban_sao.items if d.get("prevdoc_docname")])
 		bao_gia.chan_don_thu_hai_tu_bao_gia_cong(ban_sao)
-		# Đơn đã lưu (không phải đơn mới) không bị xét lại.
-		bao_gia.chan_don_thu_hai_tu_bao_gia_cong(so)
+
+	def _tu_choi_don(self, so):
+		so.custom_ly_do_tu_choi = "Không còn nguồn hàng cho đợt này"
+		so.save()
+		so = apply_workflow(so, portal.WF_TU_CHOI)
+		self.assertEqual((so.workflow_state, so.docstatus), (portal.WF_TU_CHOI, 0))
+		return so
 
 	def test_khong_huy_duoc_bao_gia_khi_don_con_song(self):
 		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
-		with self.assertRaisesRegex(frappe.ValidationError, f"huỷ đơn hàng {so.name} trước"):
+		self.assertEqual(so.workflow_state, "Chờ Miyano xác nhận")
+		with self.assertRaises(frappe.ValidationError) as ctx:
 			bg.cancel()
+		loi = str(ctx.exception)
+		self.assertIn(so.name, loi)
+		self.assertIn("«Từ chối»", loi)
+		# Đơn nháp còn phiếu gốc trỏ vào: Frappe không cho xoá.
+		self.assertNotIn("xoá", loi)
+		self.assertNotIn("xóa", loi)
 		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 1)
+
+	def test_don_bi_miyano_tu_choi_thi_huy_duoc_bao_gia(self):
+		"""«Từ chối» là trạng thái KẾT THÚC ở docstatus 0: đơn không bao giờ
+		tới docstatus 2, đòi "huỷ đơn trước" là khoá báo giá vĩnh viễn."""
+		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
+		self._tu_choi_don(so)
+		bg.cancel()
+		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 2)
+
+	def test_don_khach_huy_thi_huy_duoc_bao_gia(self):
+		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
+		frappe.db.set_value("Sales Order", so.name, "workflow_state", portal.WF_KHACH_HUY)
+		bg.cancel()
+		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 2)
 
 	def test_chot_huy_bo_qua_don_da_huy_va_bao_gia_noi_bo(self):
 		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
@@ -240,8 +327,9 @@ class TestChotBaoGiaDaCoDon(NenSoatTrinhDuyet):
 		)
 		self.assertIn(
 			"miyano_portal.bao_gia.chan_don_thu_hai_tu_bao_gia_cong",
-			su_kien["Sales Order"]["before_insert"],
+			su_kien["Sales Order"]["validate"],
 		)
+		self.assertNotIn("before_insert", su_kien["Sales Order"])
 
 	def test_desk_go_nut_tao_don_va_dat_la_da_mat(self):
 		ma = _bo_chu_thich((JS / "quotation.js").read_text(encoding="utf-8"))
@@ -292,12 +380,14 @@ class TestKhoiKhachKhaiDuoiBang(NenBaoGia):
 
 	def test_bang_dat_ngoai_khong_nam_trong_muc_thu_gon(self):
 		for dt in ("Sales Order", "Quotation"):
-			muc = None
+			muc, thay = None, False
 			for f in frappe.get_meta(dt).fields:
 				if f.fieldtype == "Section Break":
 					muc = f
 				if f.fieldname == "custom_dat_ngoai":
+					thay = True
 					self.assertFalse(muc and muc.collapsible, dt)
+			self.assertTrue(thay, f"{dt} không có bảng custom_dat_ngoai")
 
 
 class TestLyDoTuChoiDeThay(NenBaoGia):

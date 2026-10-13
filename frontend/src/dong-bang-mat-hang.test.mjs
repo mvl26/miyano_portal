@@ -5,6 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { boSungDongChiCoTrenDon } from './dong-bang-mat-hang.js'
+import { choBaoGiaTrenDon } from './gia-dong-don.js'
 
 // Đúng ca đã lộ: phiếu gốc có 1 mã; đơn "Theo báo giá" có 2 dòng, dòng sau vốn
 // là hàng khách gõ tay được Miyano khớp mã trên báo giá.
@@ -86,4 +87,27 @@ test('BangMatHang.vue đi qua hàm này ở cuối `dong`, không tự dựng da
   assert.match(vue, /import \{ boSungDongChiCoTrenDon \} from '\.\.\/\.\.\/dong-bang-mat-hang'/)
   assert.match(vue, /return boSungDongChiCoTrenDon\(co_ban, props\.don\)/)
   assert.doesNotMatch(vue, /\n  return co_ban\n/)
+})
+
+test('hai dòng cùng mã KHÁC đơn giá: không in một đơn giá trái với thành tiền', () => {
+  const don = { items: [
+    { item_code: 'X', item_name: 'X', uom: 'Cái', qty: 2, rate: 100, amount: 200 },
+    { item_code: 'X', item_name: 'X', uom: 'Cái', qty: 3, rate: 150, amount: 450 },
+  ] }
+  const r = boSungDongChiCoTrenDon([], don)[0]
+  assert.equal(r.so_luong_tren_don, 5)
+  assert.equal(r.thanh_tien_tren_don, 650)
+  // `null` → bảng in "—" (không "0 ₫", không "Chờ báo giá": xem `gia-dong-don.js`).
+  assert.equal(r.don_gia_tren_don, null)
+  assert.equal(choBaoGiaTrenDon(r), false)
+  // Ba dòng, dòng thứ ba trùng giá dòng đầu: vẫn là giá lẫn lộn.
+  don.items.push({ item_code: 'X', item_name: 'X', uom: 'Cái', qty: 1, rate: 100, amount: 100 })
+  assert.equal(boSungDongChiCoTrenDon([], don)[0].don_gia_tren_don, null)
+})
+
+test('BangMatHang.vue in "—" cho đơn giá null, không gọi fmtVND(null)', () => {
+  const vue = readFileSync(
+    new URL('./components/chi-tiet/BangMatHang.vue', import.meta.url), 'utf8'
+  )
+  assert.match(vue, /v-else-if="row\.don_gia_tren_don !== null && row\.don_gia_tren_don !== undefined">\{\{ fmtVND\(row\.don_gia_tren_don\) \}\}/)
 })
