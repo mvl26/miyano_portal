@@ -1,6 +1,7 @@
 import frappe
 
 from miyano_portal.kho import can_cu_duyet
+from miyano_portal.nang_quyen import quyen_he_thong
 from miyano_portal import bang_gia_khach, dat_hang, einvoice
 from miyano_portal.dat_hang import (
     _customer_addresses,
@@ -2905,43 +2906,12 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
     nguoi_bam = frappe.session.user
     from frappe.model.workflow import apply_workflow
 
-    # CỐ Ý KHÔNG dùng frappe.set_user() ở đây (code review sau lần merge đầu
-    # phát hiện): frappe.local.session LÀ CÙNG MỘT OBJECT với
-    # Session.data trong frappe/sessions.py — set_user() ghi đè
-    # local.session.sid bằng chính chuỗi username (không phải sid thật) và
-    # xoá sạch local.session.data (mất csrf_token...). Session.update()
-    # (app.py, cuối MỌI request thật) vẫn dùng self.sid GỐC (biến riêng của
-    # Session, không đổi) làm khoá `frappe.cache.hset("session", self.sid,
-    # self.data)` — nên nó ghi ĐÈ cache session THẬT của chính khách đang gọi
-    # bằng self.data đã hỏng. Gọi set_user() lần hai để "trả lại" chỉ khiến
-    # nó tệ hơn: sid bị đặt lại thành username (không phải sid gốc), data
-    # thành dict rỗng — không phải dữ liệu session gốc. Kết quả: khách mở
-    # báo giá lâu (vượt threshold update session giữa chừng) rồi bấm Đồng ý
-    # thì mọi POST sau đó trên tab đang mở lỗi CSRF tới khi tải lại trang.
-    #
-    # apply_workflow() chỉ tra vai trò qua frappe.get_roles() ->
-    # frappe.session.user (frappe/model/workflow.py, frappe/permissions.py
-    # get_roles() cache theo user nên an toàn khi đổi qua đổi lại) — không
-    # đọc sid hay session.data ở đâu cả. Nên chỉ cần đổi ĐÚNG MỘT thuộc tính
-    # `session.user`, không đụng `sid`/`data`, là đủ để apply_workflow chạy
-    # dưới quyền hệ thống mà không có gì trên session thật của khách để
-    # khôi phục sai.
-    session = frappe.local.session
-    frappe.local.user_perms = None  # tránh dùng nhầm cache quyền của người cũ
-    session.user = "Administrator"
-    try:
+    with quyen_he_thong():
         so = apply_workflow(so, hanh_dong)
         noi_dung = f"{hanh_dong} bởi {nguoi_bam}"
         if ghi_chu:
             noi_dung += f" — lý do: {ghi_chu}"
         so.add_comment("Comment", noi_dung)
-    finally:
-        # Trả phiên về NGAY, kể cả khi apply_workflow ném: bỏ finally là để
-        # phần còn lại của request chạy dưới quyền Administrator. CHỈ đổi
-        # lại `session.user` — `sid`/`data` của khách chưa từng bị đụng tới
-        # nên không có gì để khôi phục sai (xem giải thích ở trên).
-        session.user = nguoi_bam
-        frappe.local.user_perms = None
 
     if action == "dong_y":
         # US-E6.5 — cạnh "Đã chuyển thành đơn" mà Phần A đã dựng sẵn trong
@@ -3305,14 +3275,9 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     from frappe.model.workflow import apply_workflow
 
     # Cùng lý do/khuôn với `portal_order_accept`: transition "Khách không
-    # đồng ý" chỉ mở cho "System Manager", không phải role Customer. Đổi
-    # DUY NHẤT `session.user` (KHÔNG đụng `sid`/`data`) — xem chú thích dài
-    # ở `portal_order_accept` giải thích vì sao `frappe.set_user()` không an
-    # toàn ở đây.
-    session = frappe.local.session
-    frappe.local.user_perms = None
-    session.user = "Administrator"
-    try:
+    # đồng ý" chỉ mở cho "System Manager", không phải role Customer. Xem
+    # docstring `nang_quyen` vì sao không dùng `frappe.set_user()`.
+    with quyen_he_thong():
         # Lưu thay đổi số lượng TRƯỚC — `apply_workflow()` tự gọi
         # `doc.load_from_db()` NGAY ĐẦU HÀM (frappe/model/workflow.py:102),
         # nên gọi nó trên `so` đang mang thay đổi CHƯA LƯU sẽ XOÁ SẠCH thay
@@ -3331,9 +3296,6 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             "nhận\" để báo giá lại:<br>" + "<br>".join(thay_doi)
         )
         so.add_comment("Comment", noi_dung)
-    finally:
-        session.user = nguoi_bam
-        frappe.local.user_perms = None
 
     bao_khach_sua_so_luong(customer, so.name, thay_doi)
 
