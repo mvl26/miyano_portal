@@ -379,19 +379,26 @@ def portal_order_place(
 ) -> dict:
     """API Spec §1.1 — quản lý đặt hàng trực tiếp từ giỏ.
 
-    Trả `{"sales_order", "de_xuat", "da_ton_tai", "total", "loai_don",
-    "don": [{"sales_order", "de_xuat", "loai_don"}]}`. `don` có 1 hoặc 2
-    phần tử; các khoá cấp cao nhất là của phần tử ĐẦU (client cũ chỉ đọc
-    chúng).
+    Trả `{"sales_order", "bao_gia", "de_xuat", "da_ton_tai", "total",
+    "loai_don", "don": [{"sales_order", "bao_gia", "de_xuat", "loai_don"}]}`.
+    `don` có 1 hoặc 2 phần tử; các khoá cấp cao nhất là của phần tử ĐẦU
+    (client cũ chỉ đọc chúng).
 
-    Spec 2026-10-09 §4.1 — giỏ trộn hàng có giá trong Price List với hàng
-    chờ báo giá (kể cả dòng gõ tay `dat_ngoai`) ra HAI đơn, mỗi đơn một
-    `Portal De Xuat Mua` đứng sau; hai phiếu mang chung `ma_lan_dat` và trỏ
-    nhau qua `phieu_cung_lan_dat`. Đơn đầu là đơn "Theo bảng giá". Hai đơn
-    nhận `request_id` gốc kèm hậu tố `:gia` / `:baogia`; giỏ một loại giữ
-    nguyên `request_id` của client. Bấm lại cùng `request_id` trả đúng (các)
-    đơn và phiếu đã tạo, không tạo thêm. Thiếu `request_id` thì
-    `dat_hang.tao_sales_order` từ chối, giỏ trộn hay không cũng vậy.
+    Spec 2026-10-12 §5 — phần còn hàng chưa có giá trong Price List hoặc có
+    dòng gõ tay `dat_ngoai` sinh một Quotation ở "Chờ Miyano báo giá", KHÔNG
+    sinh Sales Order "Mua lẻ" nữa. Phần tử đó có `sales_order = None`,
+    `bao_gia` là tên Quotation, `loai_don = "Yêu cầu báo giá"`; phần tử là
+    đơn có `bao_gia = None`.
+
+    Spec 2026-10-09 §4.1 — giỏ trộn hàng có giá với hàng chờ báo giá (kể cả
+    dòng gõ tay) ra HAI chứng từ, mỗi chứng từ một `Portal De Xuat Mua` đứng
+    sau; hai phiếu mang chung `ma_lan_dat` và trỏ nhau qua
+    `phieu_cung_lan_dat`. Chứng từ đầu là đơn "Theo bảng giá", chứng từ sau
+    là Quotation. Hai chứng từ nhận `request_id` gốc kèm hậu tố `:gia` /
+    `:baogia`; giỏ một loại giữ nguyên `request_id` của client. Bấm lại cùng
+    `request_id` trả đúng (các) chứng từ và phiếu đã tạo, không tạo thêm.
+    Thiếu `request_id` thì `dat_hang.tao_sales_order` / `bao_gia.tao_bao_gia`
+    từ chối, giỏ trộn hay không cũng vậy.
 
     `contract`, `mode` — [KHÔNG CÒN QUYẾT ĐỊNH GÌ, spec 2026-10-09 §4.2].
     Giá lấy từ Price List theo từng dòng; đơn và phiếu không còn gắn hợp
@@ -455,9 +462,15 @@ def portal_order_place(
         # sang `X:gia` rồi chết ở chốt BR-O12 của `tao_sales_order` ("Mã yêu
         # cầu không hợp lệ") dù B chưa từng dùng mã đó. Trùng mã THẬT với
         # khách khác vẫn do `tao_sales_order` từ chối như cũ.
+        #
+        # Spec 2026-10-12 §5 — một lô đã chạy có thể đã sinh Quotation chứ
+        # không phải Sales Order.
+        if frappe.db.exists(
+            "Sales Order", {"custom_request_id": ["in", list(ds_rid)], "customer": customer}
+        ):
+            return True
         return bool(frappe.db.exists(
-            "Sales Order",
-            {"custom_request_id": ["in", list(ds_rid)], "customer": customer},
+            "Quotation", {"custom_request_id": ["in", list(ds_rid)], "party_name": customer}
         ))
 
     # Spec 2026-10-09 §4.1 — giỏ trộn ra HAI đơn. Giỏ một loại giữ nguyên
@@ -482,20 +495,47 @@ def portal_order_place(
 
     don = []
     for lo_items, lo_ngoai, rid in lo:
-        kq = dat_hang.tao_sales_order(
-            customer, mode=mode, items=lo_items, dat_ngoai=lo_ngoai,
-            po=po, delivery_date=delivery_date, note=note, address=address,
-            request_id=rid, khoa_phong=khoa,
-        )
+        # Spec 2026-10-12 §5 — lô còn dòng chưa có giá hoặc dòng gõ tay sinh
+        # Quotation. Lần bấm lại đi đúng nhánh của lần đầu, dù Price List vừa
+        # có thêm hay mất giá: lô đã sinh Quotation thì trả Quotation đó, lô
+        # đã sinh Sales Order thì trả đơn đó. Hỏi lại Price List ở đây sẽ sinh
+        # thêm một chứng từ thứ hai cho cùng một mã yêu cầu.
+        if frappe.db.exists("Quotation", {"custom_request_id": rid, "party_name": customer}):
+            di_bao_gia = True
+        elif frappe.db.exists("Sales Order", {"custom_request_id": rid, "customer": customer}):
+            di_bao_gia = False
+        else:
+            di_bao_gia = bao_gia.can_bao_gia(customer, lo_items, lo_ngoai)
+        if di_bao_gia:
+            kq = bao_gia.tao_bao_gia(
+                customer, items=lo_items, dat_ngoai=lo_ngoai,
+                delivery_date=delivery_date, note=note, address=address,
+                request_id=rid, khoa_phong=khoa,
+            )
+            kq["sales_order"] = None
+            kq["loai_don"] = "Yêu cầu báo giá"
+        else:
+            kq = dat_hang.tao_sales_order(
+                customer, mode=mode, items=lo_items, dat_ngoai=lo_ngoai,
+                po=po, delivery_date=delivery_date, note=note, address=address,
+                request_id=rid, khoa_phong=khoa,
+            )
+            kq["bao_gia"] = None
+            kq["loai_don"] = frappe.db.get_value(
+                "Sales Order", kq["sales_order"], "custom_loai_don"
+            )
         kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
             customer=customer, khoa_phong=khoa, mode=mode, contract=None,
             dat_ngoai=lo_ngoai, delivery_date=delivery_date, address=address,
             note=note, request_id=rid, ten_don_hang=ten_don_hang,
             sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
+            bao_gia_ten=kq["bao_gia"],
         )
-        kq["loai_don"] = frappe.db.get_value(
-            "Sales Order", kq["sales_order"], "custom_loai_don"
-        )
+        if kq["bao_gia"] and not kq.get("da_ton_tai"):
+            bao_gia.bao_nhan_vien(
+                frappe.get_doc("Quotation", kq["bao_gia"]), "Portal - Yêu cầu báo giá mới",
+                f"Khách hàng <b>{customer}</b> vừa gửi yêu cầu báo giá <b>{kq['bao_gia']}</b>.",
+            )
         don.append(kq)
 
     if len(don) == 2 and don[0]["de_xuat"] and don[1]["de_xuat"]:
@@ -508,8 +548,8 @@ def portal_order_place(
     return {
         **don[0],
         "don": [
-            {"sales_order": d["sales_order"], "de_xuat": d["de_xuat"],
-             "loai_don": d["loai_don"]}
+            {"sales_order": d["sales_order"], "bao_gia": d["bao_gia"],
+             "de_xuat": d["de_xuat"], "loai_don": d["loai_don"]}
             for d in don
         ],
     }
@@ -517,7 +557,7 @@ def portal_order_place(
 
 def _dam_bao_phieu_tu_duyet(
     customer, khoa_phong, mode, contract, dat_ngoai, delivery_date, address,
-    note, request_id, sales_order, da_ton_tai, ten_don_hang=None,
+    note, request_id, sales_order, da_ton_tai, ten_don_hang=None, bao_gia_ten=None,
 ) -> str | None:
     """§5.5 — một `Portal De Xuat Mua` "Đã duyệt" đứng sau MỌI đơn quản lý
     đặt trực tiếp, `nguoi_duyet` là chính họ, `tu_duyet = 1`.
@@ -541,10 +581,12 @@ def _dam_bao_phieu_tu_duyet(
         # danh của lần bấm này, chỉ là hệ quả của nó. `request_id` mới thật
         # sự là thứ BR-O12 dùng để nhận ra "đây là cú bấm lại", nên đây mới
         # là điều kiện CHÍNH XÁC, không phải suy đoán qua kết quả phụ.
+        #
+        # Tra theo chứng từ thật đứng sau: phiếu của một yêu cầu báo giá mang
+        # `bao_gia`, không mang `sales_order` (spec 2026-10-12 §5).
+        khoa_tra = {"bao_gia": bao_gia_ten} if bao_gia_ten else {"sales_order": sales_order}
         return frappe.db.get_value(
-            "Portal De Xuat Mua",
-            {"sales_order": sales_order, "request_id": request_id},
-            "name",
+            "Portal De Xuat Mua", {**khoa_tra, "request_id": request_id}, "name"
         )
 
     # Đọc lại dòng hàng THẬT từ chính Sales Order vừa tạo — canonical hoá
@@ -552,6 +594,9 @@ def _dam_bao_phieu_tu_duyet(
     # (BR-R… chuẩn hoá case/khoảng trắng), không viết lại lần hai ở đây.
     # Bỏ dòng giữ chỗ kỹ thuật `ITEM_GIU_CHO` — nó không phải một mặt hàng
     # khoa "đề xuất", chỉ để ERPNext lưu được đơn toàn dòng đặt ngoài.
+    bang_dong, cha = (
+        ("Quotation Item", bao_gia_ten) if bao_gia_ten else ("Sales Order Item", sales_order)
+    )
     dong = [
         {
             "item_code": r.item_code,
@@ -559,7 +604,7 @@ def _dam_bao_phieu_tu_duyet(
             "so_luong_duyet": r.qty,
         }
         for r in frappe.get_all(
-            "Sales Order Item", filters={"parent": sales_order},
+            bang_dong, filters={"parent": cha},
             fields=["item_code", "qty"],
         )
         if r.item_code != ITEM_GIU_CHO
@@ -577,6 +622,7 @@ def _dam_bao_phieu_tu_duyet(
         "hdnt": contract if mode == "hdnt" else None,
         "ngay_can": delivery_date, "dia_chi_giao": address,
         "request_id": request_id, "sales_order": sales_order,
+        "bao_gia": bao_gia_ten,
         "items": dong, "dat_ngoai": frappe.parse_json(dat_ngoai) if isinstance(
             dat_ngoai, str
         ) else (dat_ngoai or []),
@@ -605,17 +651,23 @@ def _dam_bao_phieu_tu_duyet(
         doc.ma_de_xuat = None
     doc.insert(ignore_permissions=True)
 
-    gia_tri_don = {
-        "custom_de_xuat": doc.name,
-        "custom_ma_tra_cuu": doc.ma_de_xuat,
-    }
-    if cot_ten_don_hang_ton_tai():
-        # Nhánh QUẢN LÝ ĐẶT THẲNG — đường thứ hai từ CÙNG một giỏ hàng
-        # (`portal_order_place`), song song với `de_xuat_duyet.duyet_va_tao_
-        # don` của nhân viên khoa. Sửa một nhánh mà quên nhánh kia là đúng
-        # một nửa người dùng gõ tên xong không thấy tên đâu.
-        gia_tri_don["custom_ten_don_hang"] = doc.get("ten_don_hang") or ""
-    frappe.db.set_value("Sales Order", sales_order, gia_tri_don)
+    if bao_gia_ten:
+        frappe.db.set_value("Quotation", bao_gia_ten, {
+            "custom_de_xuat": doc.name,
+            "custom_ten_don_hang": doc.get("ten_don_hang") or "",
+        })
+    else:
+        gia_tri_don = {
+            "custom_de_xuat": doc.name,
+            "custom_ma_tra_cuu": doc.ma_de_xuat,
+        }
+        if cot_ten_don_hang_ton_tai():
+            # Nhánh QUẢN LÝ ĐẶT THẲNG — đường thứ hai từ CÙNG một giỏ hàng
+            # (`portal_order_place`), song song với `de_xuat_duyet.duyet_va_tao_
+            # don` của nhân viên khoa. Sửa một nhánh mà quên nhánh kia là đúng
+            # một nửa người dùng gõ tên xong không thấy tên đâu.
+            gia_tri_don["custom_ten_don_hang"] = doc.get("ten_don_hang") or ""
+        frappe.db.set_value("Sales Order", sales_order, gia_tri_don)
 
     # Task 4 — ghi SAU `doc.insert()`: trước điểm đó `doc.name` còn rỗng
     # (đơn tự duyệt của quản lý — hàm này SINH RA phiếu, không đi qua
@@ -625,8 +677,9 @@ def _dam_bao_phieu_tu_duyet(
     # đó, tương tự `duyet_va_tao_don`.
     from miyano_portal import nhat_ky
     nhat_ky.ghi(
-        nhat_ky.SK_DON_TAO, customer=customer, khoa_phong=khoa_phong,
-        de_xuat=doc.name, sales_order=sales_order, vai=nhat_ky.VAI_HE_THONG,
+        nhat_ky.SK_BAO_GIA_TAO if bao_gia_ten else nhat_ky.SK_DON_TAO,
+        customer=customer, khoa_phong=khoa_phong, de_xuat=doc.name,
+        sales_order=sales_order, vai=nhat_ky.VAI_HE_THONG,
     )
     return doc.name
 

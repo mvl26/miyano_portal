@@ -482,7 +482,8 @@ def de_xuat_duyet_phieu(ten, dieu_chinh=None, duyet_ca_hai=0) -> dict:
 		# endpoint này; ai thêm duyệt uỷ quyền vào đây phải đổi CẢ HAI lời gọi.
 		kq_kia = de_xuat_duyet.duyet_va_tao_don(doc_kia.name, frappe.session.user)
 		kq["phieu_cung_lan_dat"] = {
-			"sales_order": kq_kia["sales_order"], "de_xuat": kq_kia["de_xuat"],
+			"sales_order": kq_kia["sales_order"], "bao_gia": kq_kia.get("bao_gia"),
+			"de_xuat": kq_kia["de_xuat"],
 		}
 	return kq
 

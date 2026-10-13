@@ -26,7 +26,7 @@ muc` bị xoá).
 
 import frappe
 
-from miyano_portal import dat_hang, nhat_ky
+from miyano_portal import bao_gia, dat_hang, nhat_ky
 from miyano_portal.portal_context import cot_ten_don_hang_ton_tai
 
 
@@ -59,6 +59,15 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	# báo cho một lần duyệt chưa từng xảy ra.
 	canh_bao_gia = _kiem_gia_doi(doc)
 
+	# Spec 2026-10-12 §5 — phiếu còn dòng chưa có giá hoặc dòng gõ tay sinh
+	# một Quotation, không sinh Sales Order "Mua lẻ" nữa. Hỏi lại Price List
+	# LÚC DUYỆT: phiếu chờ báo giá mà mọi dòng vừa có giá thì đi thẳng đơn.
+	dat_ngoai = [d.as_dict() for d in doc.dat_ngoai]
+	if bao_gia.can_bao_gia(doc.customer, dong, dat_ngoai):
+		return _duyet_va_tao_bao_gia(
+			doc, dong, dat_ngoai, nguoi_duyet, tu_cach, uy_quyen, canh_bao_gia
+		)
+
 	kq = dat_hang.tao_sales_order(
 		doc.customer,
 		# Task 4 — KHÔNG còn `mode=`. Hàm dựng đơn đã gộp làm một và quyết
@@ -68,7 +77,7 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		# KHÔNG truyền `contract` (spec 2026-10-09): `doc.hdnt` chỉ còn là
 		# field LEGACY trên phiếu cũ, đơn không còn gắn hợp đồng khung nào.
 		items=dong,
-		dat_ngoai=[d.as_dict() for d in doc.dat_ngoai],
+		dat_ngoai=dat_ngoai,
 		delivery_date=doc.ngay_can, address=doc.dia_chi_giao,
 		note=doc.ghi_chu, request_id=doc.request_id or doc.name,
 		khoa_phong=doc.khoa_phong,
@@ -138,7 +147,45 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		de_xuat=doc.name, sales_order=kq["sales_order"], vai=nhat_ky.VAI_HE_THONG,
 	)
 	return {
-		"sales_order": kq["sales_order"], "de_xuat": doc.name,
+		"sales_order": kq["sales_order"], "bao_gia": None, "de_xuat": doc.name,
+		"canh_bao_gia": canh_bao_gia,
+	}
+
+
+def _duyet_va_tao_bao_gia(doc, dong, dat_ngoai, nguoi_duyet, tu_cach, uy_quyen,
+                          canh_bao_gia) -> dict:
+	"""Nhánh Quotation của `duyet_va_tao_don`. Cùng thứ tự với nhánh đơn: tạo
+	chứng từ, gắn vào phiếu, rồi mới `duyet()`."""
+	kq = bao_gia.tao_bao_gia(
+		doc.customer, items=dong, dat_ngoai=dat_ngoai,
+		delivery_date=doc.ngay_can, address=doc.dia_chi_giao, note=doc.ghi_chu,
+		request_id=doc.request_id or doc.name, khoa_phong=doc.khoa_phong,
+	)
+	if kq.get("da_ton_tai"):
+		frappe.throw(
+			f'Yêu cầu báo giá {kq["bao_gia"]} đã được tạo trước đó cho mã yêu cầu '
+			f'"{doc.request_id or doc.name}" — phiếu này có thể đã được duyệt rồi. '
+			"Tải lại trang để xem trạng thái mới nhất; nếu phiếu vẫn đang chờ "
+			"duyệt thì liên hệ Miyano, KHÔNG bấm duyệt lại.",
+			frappe.ValidationError,
+		)
+	doc.bao_gia = kq["bao_gia"]
+	doc.duyet(nguoi_duyet, tu_cach=tu_cach, uy_quyen=uy_quyen)
+	frappe.db.set_value("Quotation", kq["bao_gia"], {
+		"custom_de_xuat": doc.name,
+		"custom_ten_don_hang": doc.get("ten_don_hang") or "",
+	})
+	nhat_ky.ghi(
+		nhat_ky.SK_BAO_GIA_TAO, customer=doc.customer, khoa_phong=doc.khoa_phong,
+		de_xuat=doc.name, vai=nhat_ky.VAI_HE_THONG,
+	)
+	bao_gia.bao_nhan_vien(
+		frappe.get_doc("Quotation", kq["bao_gia"]), "Portal - Yêu cầu báo giá mới",
+		f"Khách hàng <b>{doc.customer}</b> vừa gửi yêu cầu báo giá "
+		f"<b>{kq['bao_gia']}</b> ({doc.ma_de_xuat or doc.name}).",
+	)
+	return {
+		"sales_order": None, "bao_gia": kq["bao_gia"], "de_xuat": doc.name,
 		"canh_bao_gia": canh_bao_gia,
 	}
 

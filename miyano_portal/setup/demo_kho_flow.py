@@ -558,6 +558,15 @@ def _dat_don(contract: str, po: str, gio_hang: list[dict], ghi_chu: str) -> str:
 			delivery_date=_ngay(3),
 			note=ghi_chu,
 		)
+	if not kq["sales_order"]:
+		# Spec 2026-10-12 §5 — giỏ còn mã chưa có giá sinh Quotation chứ không
+		# sinh đơn. Luồng demo cần một đơn để xác nhận và giao; dừng ở đây với
+		# lời nói rõ, thay vì để bước sau vỡ trên một tên đơn rỗng.
+		frappe.throw(
+			f"Giỏ demo (PO {po}) có mặt hàng chưa có giá trong Price List nên "
+			f"cổng sinh yêu cầu báo giá {kq.get('bao_gia')}, không sinh đơn. "
+			"Khai giá cho mọi mặt hàng demo rồi chạy lại."
+		)
 	_log(f"Đặt đơn {kq['sales_order']} (PO {po})")
 	return kq["sales_order"]
 
