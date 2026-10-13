@@ -379,7 +379,7 @@ def einvoice_query(user=None):
     return _customer_condition("Fast EInvoice Document", user)
 
 
-# Ba doctype DUY NHẤT mang khái niệm khoa phòng (`custom_khoa_phong` trực
+# Bốn doctype DUY NHẤT mang khái niệm khoa phòng (`custom_khoa_phong` trực
 # tiếp hoặc quy về đơn cha) — SONG SINH với `api/portal.py::_THONG_BAO_
 # DOCTYPE_LOC_KHOA` (không import chéo được, hai module không có quan hệ
 # phụ thuộc: `permissions.py` phục vụ tầng hook, `api/portal.py` phục vụ
