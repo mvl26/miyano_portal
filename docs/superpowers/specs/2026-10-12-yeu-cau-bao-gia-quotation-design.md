@@ -451,3 +451,28 @@ Viết test trước cho từng phần.
 - Nhiều phiên bản báo giá cho cùng một yêu cầu (amend). Sửa giá xảy ra trên
   chính bản nháp qua "Thu hồi để sửa".
 - Dùng trạng thái `Lost` và lý do mất đơn của ERPNext cho báo giá bị từ chối.
+
+## 13. Đính chính sau khi đọc mã (13/10/2026)
+
+Lúc lập kế hoạch triển khai, đối chiếu với mã của nhánh Price List cho thấy
+vài câu ở trên không khớp thực tế. Bảng "Đính chính spec" ở đầu
+`docs/superpowers/plans/2026-10-13-yeu-cau-bao-gia-quotation.md` là bản có
+hiệu lực cho các điểm sau:
+
+- §4.4: không có tiền lệ `frappe.db.set_value` cho trạng thái đơn. Đơn sinh từ
+  báo giá tới "Chờ Miyano xác nhận" bằng bước chuyển «Gửi duyệt» thật.
+- §3.1: `custom_dat_ngoai` trên Quotation cũng `no_copy`; đơn sinh ra không
+  mang dòng gõ tay. Thêm `Quotation Item.custom_nguon_gia`.
+- §7: không có job nào quét đơn chờ báo giá hôm nay; ngưỡng quá hạn xử lý của
+  báo giá là `sla_xu_ly_don_gio`. Mẫu in tên "Miyano - Yêu cầu báo giá".
+- §6.3, §6.4: màn chi tiết là view mới dùng lại component con; thẻ Dashboard
+  là thẻ mới; thêm endpoint `portal_bao_gia_dem`.
+- §8: đã đo — tài khoản cổng có dòng `Portal User` trên Customer qua được chốt
+  trang web của ERPNext cho cả Sales Order lẫn Quotation. `/quotations` bị
+  chặn trong đợt này; `/orders` là lỗ có từ trước, ngoài phạm vi.
+- §10: `bang_gia_khach.ghi_gia_da_dong_y` không đổi; nó nhận Sales Order vừa
+  sinh.
+
+Chưa quyết trong spec, kế hoạch chọn: đồng ý / từ chối cho mọi tài khoản trong
+phạm vi; sửa số lượng chỉ quản lý; nhân viên khoa chưa có đường "xin sửa số
+lượng" cho báo giá.
