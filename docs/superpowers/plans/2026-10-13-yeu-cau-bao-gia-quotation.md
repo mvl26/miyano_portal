@@ -55,7 +55,7 @@ Quyết định spec để ngỏ, kế hoạch chọn (đổi được, mỗi c�
 
 ## Review Focus
 
-1. **Hai người cùng bấm Đồng ý.** Chỉ được sinh MỘT đơn; lần sau trả về đúng đơn đó. Test: Task 7 `test_goi_lai_khong_sinh_don_thu_hai`.
+1. **Hai người cùng bấm Đồng ý.** Chỉ được sinh MỘT đơn; lần sau trả về đúng đơn đó. Test: Task 7 `test_goi_lai_khong_sinh_don_thu_hai`. Giới hạn đã biết: test chạy tuần tự trong MỘT giao dịch nên không dựng được cuộc đua thật. Hai phép đọc có khoá (`get_doc(..., for_update=True)` trong `dong_y`, `don_cua_bao_gia(bg, khoa=True)` ở đường trả sớm) là thứ chống cuộc đua dưới REPEATABLE READ; người soát mã kiểm bằng mắt rằng cả hai còn đó.
 2. **Nhân viên Miyano gõ đơn giá khác giá Price List.** Đơn sinh ra phải mang đúng đơn giá khách đã đồng ý, không bị `set_missing_values` hay trường margin kéo về giá bảng. Test: Task 7 `test_gia_don_dung_gia_khach_dong_y_khi_khac_bang_gia`.
 3. **Dòng gõ tay được khớp vào mã ĐÃ CÓ giá trong Price List.** Dòng hàng sinh ra phải nhận giá bảng (trên Quotation không có cột `customer`, đọc nhầm thì mọi dòng lặng lẽ về giá 0). Test: Task 6 `test_khop_ma_co_gia_bang_gia_nhan_gia_bang`.
 4. **Báo giá quá hạn nhưng job chưa chạy.** Khách bấm Đồng ý phải bị từ chối với thông báo hết hạn. Test: Task 7 `test_qua_han_khong_dong_y_duoc`.
@@ -107,7 +107,18 @@ Expected: hai commit tài liệu (spec, plan) nằm trên đầu `origin/main`, 
 - [ ] **Step 3: Kiểm APP đã được nhả**
 
 Run: `cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal && git status --short && git branch --show-current`
-Expected: không còn thay đổi dở nào ngoài ba file `test_e7*`. Nếu còn thay đổi khác hoặc chưa chắc phiên kia đã xong: DỪNG và hỏi chủ dự án. Chỉ khi chủ dự án đồng ý mới chuyển APP sang nhánh này (`git switch feat/yeu-cau-bao-gia-quotation`), và từ đó mọi sửa đổi làm trong APP.
+Expected: không còn thay đổi dở nào ngoài ba file `test_e7*`. Nếu còn thay đổi khác hoặc chưa chắc phiên kia đã xong: DỪNG và hỏi chủ dự án. Chỉ khi chủ dự án đồng ý mới làm Step 3b.
+
+- [ ] **Step 3b: Đưa nhánh vào APP**
+
+Một nhánh không thể được checkout ở hai worktree, nên gỡ worktree trước (hai commit tài liệu đã nằm trên nhánh):
+
+Run: `git -C /home/hoangvietyeuem/worktrees/miyano_portal-bao-gia-quotation status --short | wc -l && git -C /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal worktree remove /home/hoangvietyeuem/worktrees/miyano_portal-bao-gia-quotation && cd /home/hoangvietyeuem/frappe-bench-yhct/apps/miyano_portal && rm -f miyano_portal/doi_sanh_ton.py miyano_portal/tests/test_doi_sanh_ton.py && git switch feat/yeu-cau-bao-gia-quotation && git status --short`
+Expected: dòng đầu `0` (worktree sạch); sau `git switch`, `git status` không báo `doi_sanh_ton.py` bị xoá hay chưa theo dõi. Hai lệnh `rm -f` gỡ hai symlink tạm của tính năng đối sánh tồn kho (đã vào `main`, nên file thật có sẵn trong nhánh); nếu chúng không phải symlink mà là file thật đang được theo dõi thì `git switch` tự đặt lại đúng.
+
+Việc dọn còn nợ của tính năng đối sánh tồn kho, làm luôn ở đây vì APP vừa nhận `main`: mở một Sales Order nháp trên Desk, xác nhận bảng "Đối sánh tồn kho" hiện đúng MỘT lần ngay dưới lưới mặt hàng; nếu hiện hai lần thì xoá Client Script tạm `TAM - Doi sanh ton kho tren Sales Order` (báo chủ dự án trước khi xoá).
+
+Từ đây mọi sửa đổi và mọi đường dẫn `git add` của kế hoạch làm trong APP.
 
 - [ ] **Step 4: Ghi lỗi nền của bộ test**
 
@@ -441,7 +452,11 @@ class NenBaoGia(FrappeTestCase):
 			**them,
 		})
 		bg.insert(ignore_permissions=True)
-		return bg
+		# Trả bản NẠP LẠI: `insert(ignore_permissions=True)` để lại
+		# `flags.ignore_permissions` trên đối tượng, và `frappe.has_permission`
+		# / `frappe.has_website_permission` cho qua ngay khi thấy cờ đó — mọi
+		# test về quyền trên đối tượng vừa chèn sẽ xanh giả.
+		return frappe.get_doc("Quotation", bg.name)
 ```
 
 - [ ] **Step 2: Viết test hỏng**
@@ -1752,7 +1767,7 @@ git commit -m "feat(portal): khop dong go tay tren Quotation va chot gui khach d
 - Consumes: `quyen_he_thong()` (Task 4); `erpnext.selling.doctype.quotation.quotation._make_sales_order(source_name, target_doc=None, ignore_permissions=False, args=None)` (trả Sales Order CHƯA lưu, đòi Quotation đã Submit); `bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=None)`; `bang_gia_khach.NGUON_BAO_GIA`; `portal_mua_le.xoa_chenh_lech_gia(dong)`; `dat_hang._resolve_item_warehouse(item_code, company)`; `portal_thong_bao.bao_loi_ghi_gia(customer, sales_order)`; `nhat_ky.ghi(...)`.
 - Produces:
   - `bao_gia.dong_y(ten: str) -> dict` trả `{"bao_gia": str, "sales_order": str, "da_ton_tai": bool, "trang_thai_moi": str}`. NGƯỜI GỌI đã kiểm quyền của khách.
-  - `bao_gia.don_cua_bao_gia(bg) -> str | None` — tên Sales Order đã sinh từ báo giá (tra theo `custom_request_id = <rid>:don`).
+  - `bao_gia.don_cua_bao_gia(bg, khoa=False) -> str | None` — tên Sales Order đã sinh từ báo giá (tra theo `custom_request_id = <rid>:don`); `khoa=True` đọc `for update`.
   - `bao_gia.qua_han(bg, hom_nay=None) -> bool`.
 
 - [ ] **Step 1: Viết test hỏng**
@@ -1975,12 +1990,19 @@ def qua_han(bg, hom_nay=None) -> bool:
 	return getdate(bg.valid_till) < getdate(hom_nay or nowdate())
 
 
-def don_cua_bao_gia(bg) -> str | None:
-	"""Sales Order đã sinh từ báo giá này, tra theo mã yêu cầu `<rid>:don`."""
+def don_cua_bao_gia(bg, khoa: bool = False) -> str | None:
+	"""Sales Order đã sinh từ báo giá này, tra theo mã yêu cầu `<rid>:don`.
+
+	`khoa=True` đọc bằng `for update`. Dưới REPEATABLE READ một phép đọc thường
+	nhìn ảnh chụp lấy từ ĐẦU request: request thứ hai của một cú bấm đôi được
+	đánh thức sau khi request đầu commit vẫn KHÔNG thấy đơn vừa sinh, và trả
+	`sales_order = None` cho khách. Đọc có khoá là đọc dữ liệu hiện tại."""
 	rid = bg.get("custom_request_id")
 	if not rid:
 		return None
-	return frappe.db.get_value("Sales Order", {"custom_request_id": rid + HAU_TO_DON}, "name")
+	return frappe.db.get_value(
+		"Sales Order", {"custom_request_id": rid + HAU_TO_DON}, "name", for_update=khoa
+	)
 
 
 def _dam_bao_cho_khach(bg) -> None:
@@ -2088,7 +2110,7 @@ def dong_y(ten: str) -> dict:
 	bg = frappe.get_doc("Quotation", ten, for_update=True)
 	if bg.get("workflow_state") == TT_DA_DONG_Y:
 		return {
-			"bao_gia": bg.name, "sales_order": don_cua_bao_gia(bg),
+			"bao_gia": bg.name, "sales_order": don_cua_bao_gia(bg, khoa=True),
 			"da_ton_tai": True, "trang_thai_moi": TT_DA_DONG_Y,
 		}
 	_dam_bao_cho_khach(bg)
@@ -2475,7 +2497,7 @@ git commit -m "feat(portal): khach tu choi va sua so luong tren bao gia, giu don
 **Interfaces:**
 - Consumes: `bao_gia.bao_nhan_vien`, `qua_han`; `portal_sla.gio_lam_viec_troi_qua(tu_luc, moc=None)`, `_sla_gio()`, `_nguoi_nhan()`; `portal_bao_gia._email_sales_phu_trach(customer)`.
 - Produces:
-  - `bao_gia.quet_het_han(moc=None) -> int` — chuyển "Báo giá hết hạn" mọi Quotation ở "Chờ khách đồng ý" có `valid_till` trước `moc`.
+  - `bao_gia.quet_het_han(moc=None) -> int` — chuyển "Báo giá hết hạn" mọi Quotation CỦA CỔNG ở "Chờ khách đồng ý" có `valid_till` trước `moc`. Báo giá nhân viên tự lập không bị quét.
   - `bao_gia.ghi_nhat_ky_chuyen_trang_thai(doc, method=None)` — hook `on_update`.
   - `nhat_ky.SK_BAO_GIA_TAO = "bao_gia_tao"`, `nhat_ky.SK_BAO_GIA_HET_HAN = "bao_gia_het_han"`.
   - `portal_sla.TIEU_DE_BAO_GIA = "Portal - Báo giá treo SLA"`.
@@ -2517,6 +2539,14 @@ class TestBaoGiaHetHan(NenBaoGia):
 
 	def test_bao_gia_con_han_khong_bi_dung(self):
 		bg = self._cho_khach()
+		self.assertEqual(bao_gia.quet_het_han(), 0)
+		self.assertEqual(
+			frappe.db.get_value("Quotation", bg.name, "workflow_state"), bao_gia.TT_CHO_KHACH
+		)
+
+	def test_bao_gia_noi_bo_khong_bi_job_dong(self):
+		bg = apply_workflow(self._bao_gia_tho(nguon="Nội bộ"), bao_gia.HD_GUI_KHACH)
+		self._lui_han(bg, 30)
 		self.assertEqual(bao_gia.quet_het_han(), 0)
 		self.assertEqual(
 			frappe.db.get_value("Quotation", bg.name, "workflow_state"), bao_gia.TT_CHO_KHACH
@@ -2651,7 +2681,7 @@ def _gui_email_het_han(bg, han) -> None:
 
 
 def quet_het_han(moc=None) -> int:
-	"""Spec §4.6 — đóng mọi báo giá ở "Chờ khách đồng ý" có `valid_till` trước
+	"""Spec §4.6 — đóng mọi báo giá CỦA CỔNG ở "Chờ khách đồng ý" có `valid_till` trước
 	`moc` (mặc định hôm nay). Gọi từ job hằng ngày `portal_bao_gia.
 	quet_bao_gia_het_han`, chạy dưới Administrator nên không cần nâng quyền.
 	Job gốc `set_expired_status` của ERPNext chỉ đụng Quotation đã Submit."""
@@ -2661,7 +2691,13 @@ def quet_het_han(moc=None) -> int:
 	dem = 0
 	for ten in frappe.get_all(
 		"Quotation",
-		filters={"workflow_state": TT_CHO_KHACH, "docstatus": 0, "valid_till": ("<", hom_nay)},
+		# CHỈ báo giá của cổng. Form Quotation của ERPNext tự điền `valid_till`
+		# (+1 tháng) cho báo giá nhân viên tự lập; quét cả chúng là tự đóng
+		# những báo giá không ai coi là "hết hạn theo cổng".
+		filters={
+			"workflow_state": TT_CHO_KHACH, "docstatus": 0,
+			"custom_nguon_don": NGUON_CONG, "valid_till": ("<", hom_nay),
+		},
 		pluck="name",
 	):
 		bg = frappe.get_doc("Quotation", ten)
@@ -2671,8 +2707,7 @@ def quet_het_han(moc=None) -> int:
 			"Comment",
 			f"[Hệ thống] Báo giá hết hiệu lực ngày {formatdate(han, 'dd/mm/yyyy')} — tự đóng.",
 		)
-		if bg.get("custom_nguon_don") == NGUON_CONG:
-			_gui_email_het_han(bg, han)
+		_gui_email_het_han(bg, han)
 		dem += 1
 	return dem
 ```
@@ -2741,7 +2776,7 @@ Trong `portal_sla.py`: thêm hằng `TIEU_DE_BAO_GIA = "Portal - Báo giá treo 
 - [ ] **Step 6: Chạy, xác nhận qua**
 
 Run: `bench --site erptest.local clear-cache && bench --site erptest.local run-tests --app miyano_portal --module miyano_portal.tests.test_bao_gia_het_han`
-Expected: `Ran 7 tests` … `OK`.
+Expected: `Ran 8 tests` … `OK`.
 
 - [ ] **Step 7: Job cũ không đổi hành vi**
 
@@ -3594,7 +3629,12 @@ def _bao_gia_pdf_quotation(ten) -> None:
             "Mẫu in báo giá chưa sẵn sàng. Vui lòng liên hệ quản trị viên hệ thống.",
             frappe.ValidationError,
         )
-    pdf = frappe.get_print("Quotation", bg.name, print_format=NAME_YCBG, as_pdf=True)
+    # Tài khoản cổng không có DocPerm trên Quotation, và hook
+    # `bao_gia_khong_qua_trang_web` (Task 3) đóng luôn đường lui trang web mà
+    # `frappe.get_print` rơi về. Quyền của khách đã được `_bao_gia_cua_toi`
+    # kiểm ở trên; chỉ riêng việc dựng PDF chạy dưới quyền hệ thống.
+    with quyen_he_thong():
+        pdf = frappe.get_print("Quotation", bg.name, print_format=NAME_YCBG, as_pdf=True)
     frappe.local.response.filename = f"BaoGia-{bg.name}.pdf"
     frappe.local.response.filecontent = pdf
     frappe.local.response.type = "pdf"
@@ -3697,14 +3737,16 @@ from miyano_portal import bao_gia, de_xuat_duyet
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.tests.nen_bao_gia import NenBaoGia
-from miyano_portal.tests.test_tach_phieu import TestTachPhieu
+from miyano_portal.tests import test_tach_phieu as tp
 
 DONG_GO_TAY = {"ten_hang": "Kim sinh thiết thử", "dvt": "Cái", "so_luong": 2}
 
 
 class TestBaoGiaReNhanh(NenBaoGia):
 	# Quản lý có Contact gắn với khách: ERPNext từ chối `contact_person` lạ.
-	_quan_ly_cua = TestTachPhieu._quan_ly_cua
+	# Nhập MODULE chứ không nhập lớp: lớp test nhập thẳng vào đây sẽ bị bộ
+	# chạy test coi là test của file này và chạy lại toàn bộ.
+	_quan_ly_cua = tp.TestTachPhieu._quan_ly_cua
 
 	def setUp(self):
 		super().setUp()
@@ -5079,6 +5121,8 @@ Nêu trong thông điệp bàn giao:
 - Trên site thật: chạy `bench migrate` (patch v1_42), rồi kiểm số Quotation có sẵn đã nhận trạng thái (Task 0 Step 5).
 - `/orders` của ERPNext vẫn mở với tài khoản cổng có dòng `Portal User` (lỗ có từ trước, ngoài phạm vi).
 - Nhân viên khoa chưa có đường "xin sửa số lượng" cho báo giá.
+- Số PO khách gõ ở giỏ (`po`) không đi theo yêu cầu báo giá: phiếu không có trường giữ nó, nên đơn "Theo báo giá" không có `custom_so_po_khach` (đơn "Mua lẻ" cũ thì có). Muốn giữ thì thêm một trường trên Quotation ở đợt sau.
+- Với nhân viên Miyano: workflow phủ mọi Quotation (Q6), nên báo giá tự lập trên Desk không còn nút Submit trực tiếp; đi «Gửi khách duyệt» rồi «Ghi nhận khách đồng ý» thì nút tạo Sales Order của ERPNext mới hiện.
 - Mã luồng `"Mua lẻ"` cũ còn nguyên; gỡ ở đợt riêng khi không còn đơn `"Mua lẻ"` nào mở.
 
 
