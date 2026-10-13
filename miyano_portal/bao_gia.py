@@ -89,7 +89,8 @@ def kiem_ly_do_tu_choi(doc, method=None) -> None:
 	if len((doc.get("custom_ly_do_tu_choi") or "").strip()) < LY_DO_TOI_THIEU:
 		frappe.throw(
 			f"Phải nhập lý do từ chối (tối thiểu {LY_DO_TOI_THIEU} ký tự) trước khi "
-			"chuyển trạng thái.",
+			"chuyển trạng thái. Nhập ở mục «Cổng khách hàng» → ô «Lý do từ chối» rồi "
+			"lưu, sau đó bấm lại «Từ chối».",
 			frappe.ValidationError,
 		)
 
@@ -301,6 +302,94 @@ def don_cua_bao_gia(bg, khoa: bool = False) -> str | None:
 	return frappe.db.get_value(
 		"Sales Order", {"custom_request_id": rid + HAU_TO_DON}, "name", for_update=khoa
 	)
+
+
+def bao_gia_cua_don(so) -> str | None:
+	"""Chiều ngược của `don_cua_bao_gia`: Quotation của cổng đã sinh ra đơn
+	"Theo báo giá" này, tra theo cùng mã yêu cầu (đơn mang `<rid>:don`).
+
+	Báo giá phải cùng khách với đơn: mã yêu cầu là dữ liệu trên chứng từ,
+	không phải bằng chứng sở hữu. NGƯỜI GỌI đã kiểm quyền trên đơn."""
+	rid = so.get("custom_request_id") or ""
+	if so.get("custom_loai_don") != LOAI_DON_THEO_BAO_GIA or not rid.endswith(HAU_TO_DON):
+		return None
+	return frappe.db.get_value(
+		"Quotation",
+		{
+			"custom_request_id": rid[: -len(HAU_TO_DON)], "custom_nguon_don": NGUON_CONG,
+			"party_name": so.get("customer"),
+		},
+		"name",
+	)
+
+
+def dong_go_tay_da_khop_cua_don(so) -> list:
+	"""Các dòng khách gõ tay ĐÃ KHỚP MÃ trên báo giá nguồn của một đơn "Theo
+	báo giá", chỉ những dòng mà mã khớp còn nằm trên đơn.
+
+	`Quotation.custom_dat_ngoai` là `no_copy` nên đơn sinh ra không mang dòng
+	gõ tay nào; không có hàm này thì cổng không biết mặt hàng nào trên đơn ứng
+	với thứ khách đã mô tả. Trả dòng bảng con; người gọi tự chọn trường để lộ."""
+	ten = bao_gia_cua_don(so)
+	if not ten:
+		return []
+	tren_don = {d.item_code for d in so.get("items") or []}
+	return [
+		d for d in frappe.get_doc("Quotation", ten).get("custom_dat_ngoai") or []
+		if d.da_xu_ly and d.item_khop in tren_don
+	]
+
+
+def chan_huy_khi_con_don(doc, method=None) -> None:
+	"""Hook `before_cancel` của Quotation — chỉ báo giá của cổng.
+
+	Đơn sinh từ báo giá còn nháp thì ERPNext không coi là ràng buộc (nó chỉ
+	nhìn chứng từ đã Submit): huỷ báo giá lúc đó để lại đơn và phiếu gốc trỏ
+	vào một báo giá đã huỷ."""
+	if doc.get("custom_nguon_don") != NGUON_CONG:
+		return
+	don = don_cua_bao_gia(doc)
+	if don and frappe.db.get_value("Sales Order", don, "docstatus") != 2:
+		frappe.throw(
+			f"Báo giá {doc.name} của cổng khách hàng đã sinh đơn hàng {don}. Phải "
+			f"huỷ đơn hàng {don} trước (đơn còn nháp thì xoá) rồi mới huỷ được báo giá.",
+			frappe.ValidationError,
+		)
+
+
+def chan_don_thu_hai_tu_bao_gia_cong(doc, method=None) -> None:
+	"""Hook `before_insert` của Sales Order.
+
+	Báo giá của cổng chỉ sinh đơn qua `dong_y` → `_sinh_don`, nơi đơn nhận mã
+	yêu cầu `<rid của báo giá>:don`. «Tạo → Đơn bán hàng» trên Desk đi cùng
+	mapper nhưng không có mã đó; ERPNext chỉ trừ số "đã đặt" theo đơn ĐÃ
+	Submit, nên khi đơn đầu còn nháp nó cho ra một đơn thứ hai đủ mọi dòng.
+
+	Bỏ qua: báo giá nội bộ, đơn không trỏ về báo giá nào, và bản «Amend»
+	(`amended_from` — đơn gốc đã huỷ, không phải đơn thứ hai)."""
+	if not doc.is_new() or doc.get("amended_from"):
+		return
+	nguon = {d.get("prevdoc_docname") for d in doc.get("items") or []} - {None, ""}
+	if not nguon:
+		return
+	for bg in frappe.get_all(
+		"Quotation", filters={"name": ["in", list(nguon)], "custom_nguon_don": NGUON_CONG},
+		fields=["name", "custom_request_id"],
+	):
+		rid = bg.custom_request_id
+		if rid and doc.get("custom_request_id") == rid + HAU_TO_DON:
+			continue
+		don = don_cua_bao_gia(bg)
+		if don:
+			frappe.throw(
+				f"Báo giá của cổng đã có đơn hàng {don} — không tạo đơn thứ hai.",
+				frappe.ValidationError,
+			)
+		frappe.throw(
+			f"Đơn hàng của báo giá {bg.name} chỉ sinh ra khi khách đồng ý trên cổng "
+			"— không tạo tay từ báo giá của cổng.",
+			frappe.ValidationError,
+		)
 
 
 def _dam_bao_cua_cong(bg) -> None:

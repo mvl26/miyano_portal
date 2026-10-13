@@ -18,7 +18,10 @@ def them_truong():
 			{
 				"fieldname": "custom_sec_cong_khach_hang", "label": "Cổng khách hàng",
 				"fieldtype": "Section Break", "insert_after": "amended_from",
-				"collapsible": 1,
+				# Mở sẵn: ô «Lý do từ chối» nằm trong mục này, và bước «Từ chối»
+				# đòi nó. Ghi `0` TƯỜNG MINH — `create_custom_fields` chỉ cập
+				# nhật khoá được nêu, bỏ khoá đi thì site đã cài vẫn thu gọn.
+				"collapsible": 0,
 			},
 			# Bốn trường dưới đây `no_copy`: bản «Duplicate» / «Amend» trên Desk
 			# không mang `custom_request_id` (cũng `no_copy`), nên nếu còn mang

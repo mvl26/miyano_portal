@@ -1838,6 +1838,24 @@ def _hoa_don_cua_don(order: str, customer: str) -> list:
     ]
 
 
+def _dat_ngoai_cho_khach(d) -> dict:
+    """MỘT dòng "hàng chưa có mã" như cổng được thấy. Danh sách khoá tường
+    minh: dòng có thể đến từ đơn hoặc từ báo giá nguồn của đơn, và không
+    trường nào khác của hai chứng từ đó đi theo."""
+    return {
+        "name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt,
+        "so_luong": float(d.so_luong or 0),
+        "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
+        "item_khop": d.item_khop or "",
+        "model_ma": d.model_ma or "", "hang_san_xuat": d.hang_san_xuat or "",
+        "nuoc_san_xuat": d.nuoc_san_xuat or "", "quy_cach": d.quy_cach or "",
+        "ncc_hien_tai": d.ncc_hien_tai or "",
+        "gia_hien_tai": float(d.gia_hien_tai or 0),
+        "anh": d.anh or "", "khong_co_anh": bool(d.khong_co_anh),
+        "mo_ta_nhan_dang": d.mo_ta_nhan_dang or "",
+    }
+
+
 @frappe.whitelist()
 def portal_order_track(order) -> dict:
     # Bước 8 — chặn theo KHOA trước tiên: `dam_bao_xem_duoc` tự no-op cho
@@ -2159,16 +2177,16 @@ def portal_order_track(order) -> dict:
             # `anh` giữ nguyên dạng chuỗi JSON như đã lưu — client tự tách.
             # KHÔNG trả đường dẫn tệp nào khác: ảnh riêng tư chỉ đi qua
             # `portal_dat_ngoai_xem_anh`, kiểm sở hữu từng lần xem.
-            {"name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
-             "ghi_chu": d.ghi_chu or "", "da_xu_ly": bool(d.da_xu_ly),
-             "item_khop": d.item_khop or "",
-             "model_ma": d.model_ma or "", "hang_san_xuat": d.hang_san_xuat or "",
-             "nuoc_san_xuat": d.nuoc_san_xuat or "", "quy_cach": d.quy_cach or "",
-             "ncc_hien_tai": d.ncc_hien_tai or "",
-             "gia_hien_tai": float(d.gia_hien_tai or 0),
-             "anh": d.anh or "", "khong_co_anh": bool(d.khong_co_anh),
-             "mo_ta_nhan_dang": d.mo_ta_nhan_dang or ""}
-            for d in (so.get("custom_dat_ngoai") or [])
+            _dat_ngoai_cho_khach(d)
+            # Đơn "Theo báo giá" không mang dòng gõ tay (`custom_dat_ngoai`
+            # của Quotation là `no_copy`): mặt hàng vốn là dòng khách gõ tay
+            # chỉ còn dấu vết trên báo giá nguồn. Trả các dòng ĐÃ KHỚP của báo
+            # giá đó, cùng đúng bộ khoá — không thì bảng mặt hàng không nói
+            # được mã nào ứng với thứ khách đã mô tả. Đọc SAU hai chốt quyền
+            # ở đầu hàm; `bao_gia_cua_don` đòi báo giá cùng khách với đơn.
+            for d in (
+                so.get("custom_dat_ngoai") or bao_gia.dong_go_tay_da_khop_cua_don(so)
+            )
         ],
         "deliveries": deliveries,
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field

@@ -496,6 +496,10 @@ doc_events = {
 		"before_submit": [
 			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",
 		],
+		"before_cancel": [
+			# Báo giá của cổng còn đơn sinh ra chưa huỷ thì không huỷ được.
+			"miyano_portal.bao_gia.chan_huy_khi_con_don",
+		],
 		"on_update": [
 			"miyano_portal.bao_gia.ghi_nhat_ky_chuyen_trang_thai",
 		],
@@ -524,6 +528,12 @@ doc_events = {
 		# Phần CẤM của kế hoạch (bẫy 4) vẫn giữ tuyệt đối: chốt KHÔNG nằm
 		# trong `validate()` của doctype con — Frappe không bao giờ gọi hàm
 		# đó khi document CHA lưu.
+		"before_insert": [
+			# Báo giá của cổng chỉ sinh đơn qua `bao_gia.dong_y`: chặn «Tạo →
+			# Đơn bán hàng» trên Desk cho ra đơn thứ hai. Tự bỏ qua báo giá nội
+			# bộ, đơn không trỏ về báo giá, và bản «Amend».
+			"miyano_portal.bao_gia.chan_don_thu_hai_tu_bao_gia_cong",
+		],
 		"before_validate": [
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
 			# Đơn báo giá vào "Chờ khách đồng ý" → dấu nguồn giá của từng dòng

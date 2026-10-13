@@ -20,7 +20,25 @@ frappe.provide("miyano_portal");
 // Dựng MỘT khối đọc-được ngay trên form, không sửa lưới: lưới đã kín ngân
 // sách cột (xem `description` của `model_ma`), và nhồi thêm vào đó sẽ lại
 // đẩy rơi cột khớp mã như lần trước.
+//
+// Khối nằm NGAY DƯỚI bảng `custom_dat_ngoai`, không qua `frm.dashboard`:
+// Frappe 15 đặt mọi khối dashboard vào tab "Liên kết", còn người khớp mã làm
+// việc ở tab "Chi tiết" — mở chứng từ ra là không thấy ảnh và mô tả của
+// khách (lộ khi chạy trình duyệt thật 13/10/2026; cùng lỗi và cùng cách chữa
+// với bảng "Đối sánh tồn kho" trong `sales_order.js`).
+//
+// KHÔNG khai `const`/`let` ở cấp ngoài cùng của file này: Frappe chạy JS của
+// form như một thẻ <script> toàn cục, và file này nạp cho HAI doctype — lần
+// nạp thứ hai sẽ ném "Identifier has already been declared" và làm chết toàn
+// bộ JS của form đó.
 miyano_portal.hien_thong_tin_hang_moi = function (frm) {
+	const LOP_KHOI_KHACH_KHAI = "mvl-hang-moi-khach-khai";
+	// Khối không do dashboard quản nên Frappe không tự dọn, và một form dùng
+	// lại cho mọi chứng từ: gỡ khối cũ TRƯỚC mọi lối thoát sớm.
+	$(frm.wrapper).find("." + LOP_KHOI_KHACH_KHAI).remove();
+	const bang = frm.fields_dict.custom_dat_ngoai && frm.fields_dict.custom_dat_ngoai.$wrapper;
+	if (!bang || !bang.length) return;
+
 	const dong = (frm.doc.custom_dat_ngoai || []).filter(
 		(d) => d.model_ma || d.hang_san_xuat || d.nuoc_san_xuat || d.quy_cach
 			|| d.ncc_hien_tai || d.gia_hien_tai || d.anh || d.mo_ta_nhan_dang
@@ -71,8 +89,10 @@ miyano_portal.hien_thong_tin_hang_moi = function (frm) {
 		</div>`;
 	}).join("");
 
-	frm.dashboard.add_section(
-		`<div style="padding:.5rem 0">${the}</div>`,
-		__("Hàng chưa có mã — thông tin khách khai")
-	);
+	$(`<div class="${LOP_KHOI_KHACH_KHAI}" style="margin:.25rem 0 1rem">
+		<div class="text-muted" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem">
+			${__("Hàng chưa có mã — thông tin khách khai")}
+		</div>
+		${the}
+	</div>`).insertAfter(bang);
 };

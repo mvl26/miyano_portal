@@ -18,6 +18,7 @@ import api from '../../api'
 import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
 import { NHAN_CHO_BAO_GIA, choBaoGiaTrenDon } from '../../gia-dong-don'
+import { boSungDongChiCoTrenDon } from '../../dong-bang-mat-hang'
 import TheHangMoi from './TheHangMoi.vue'
 import CotTenHang from '../CotTenHang.vue'
 
@@ -118,7 +119,10 @@ const dong = computed(() => {
       chi_tu_yeu_cau: true,
     })
   }
-  return co_ban
+  // Lưới cuối: mọi dòng CÒN LẠI của đơn mà phiếu và `dat_ngoai` đều không có
+  // (đơn "Theo báo giá": dòng Miyano khớp mã / thêm trên báo giá). Bất biến
+  // "mọi mã trên đơn đều có trong bảng" sống ở `dong-bang-mat-hang.js`.
+  return boSungDongChiCoTrenDon(co_ban, props.don)
 })
 
 const coPhieu = computed(() => !!props.phieu)
@@ -442,7 +446,10 @@ function toggleChiTietKhop(row) {
             {{ fmtNgay(canCu(row)?.con_dung_duoc) }}
           </td>
           <td v-if="coPhieu" class="right" title="Khoá vĩnh viễn từ lúc gửi duyệt">
-            {{ row.so_luong_de_xuat }}
+            <!-- `null` = dòng chỉ có trên đơn, không có số đề xuất nào: "—",
+                 không để ô trống. -->
+            <template v-if="row.so_luong_de_xuat !== null && row.so_luong_de_xuat !== undefined">{{ row.so_luong_de_xuat }}</template>
+            <span v-else class="tag" title="Mặt hàng này không có trên phiếu yêu cầu — Miyano đưa vào đơn khi báo giá">—</span>
             <span
               v-if="coCanCuKho && coCanhBaoDatKhiChuaCan(row)"
               title="Còn dùng được lâu mà vẫn đặt — xem kỹ"
@@ -476,6 +483,7 @@ function toggleChiTietKhop(row) {
               </span>
             </template>
             <template v-else-if="row.so_luong_duyet !== null && row.so_luong_duyet !== undefined">{{ row.so_luong_duyet }}</template>
+            <span v-else-if="row.chi_tren_don" class="tag" title="Mặt hàng này không có trên phiếu yêu cầu — Miyano đưa vào đơn khi báo giá">—</span>
             <span v-else class="tag" title="Dòng này Miyano khớp từ yêu cầu gõ tay của khoa — không đi qua bước đóng dấu SL duyệt">—</span>
           </td>
           <td v-if="coCotXinSua" class="right">
