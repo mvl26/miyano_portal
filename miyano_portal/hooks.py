@@ -462,6 +462,17 @@ doc_events = {
 	"Blanket Order": {
 		"on_submit": "miyano_portal.gia_hdnt.tu_hdnt",
 	},
+	# Spec 2026-10-12 — yêu cầu báo giá bằng Quotation. Thêm hook ở đây thì
+	# nhớ: workflow của Quotation phủ CẢ báo giá nhân viên tự lập, nên mỗi
+	# hook phải tự nói rõ nó áp cho báo giá của cổng hay cho mọi báo giá.
+	"Quotation": {
+		"validate": [
+			"miyano_portal.bao_gia.kiem_ly_do_tu_choi",
+		],
+		"before_submit": [
+			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",
+		],
+	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
 	# "Từ chối". Áp cho MỌI Sales Order, không riêng đơn từ cổng.
 	#

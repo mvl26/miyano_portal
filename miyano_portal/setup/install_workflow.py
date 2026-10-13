@@ -52,3 +52,98 @@ def install_portal_workflow():
     })
     wf.insert(ignore_permissions=True)
     return wf
+
+
+def _bao_gia_states():
+    from miyano_portal import bao_gia as bg
+
+    # (trạng thái, docstatus, vai được sửa tại chỗ, kiểu hiển thị)
+    return [
+        (bg.TT_CHO_MIYANO, "0", "Sales User", ""),
+        # Đang ở phía khách: muốn sửa giá phải "Thu hồi để sửa", không sửa tại chỗ.
+        (bg.TT_CHO_KHACH, "0", "System Manager", "Warning"),
+        (bg.TT_DA_DONG_Y, "1", "Sales Manager", "Success"),
+        (bg.TT_KHACH_TU_CHOI, "0", "Sales Manager", "Danger"),
+        (bg.TT_MIYANO_TU_CHOI, "0", "Sales Manager", "Danger"),
+        (bg.TT_HET_HAN, "0", "System Manager", "Danger"),
+    ]
+
+
+def _bao_gia_transitions():
+    from miyano_portal import bao_gia as bg
+
+    # (từ, hành động, tới, vai, điều kiện)
+    return [
+        (bg.TT_CHO_MIYANO, bg.HD_GUI_KHACH, bg.TT_CHO_KHACH, "Sales User", None),
+        (bg.TT_CHO_MIYANO, bg.HD_TU_CHOI, bg.TT_MIYANO_TU_CHOI, "Sales User", None),
+        (bg.TT_CHO_KHACH, bg.HD_THU_HOI, bg.TT_CHO_MIYANO, "Sales User", None),
+        (bg.TT_CHO_KHACH, bg.HD_KHACH_DONG_Y, bg.TT_DA_DONG_Y, "System Manager", None),
+        (bg.TT_CHO_KHACH, bg.HD_KHACH_TU_CHOI, bg.TT_KHACH_TU_CHOI, "System Manager", None),
+        (bg.TT_CHO_KHACH, bg.HD_KHACH_SUA_SL, bg.TT_CHO_MIYANO, "System Manager", None),
+        (bg.TT_CHO_KHACH, bg.HD_HET_HAN, bg.TT_HET_HAN, "System Manager", None),
+        # Báo giá nhân viên tự lập cho khách ngoài cổng: khách không có tài
+        # khoản nên nhân viên ghi nhận. Điều kiện chặn bấm thay khách của cổng.
+        (bg.TT_CHO_KHACH, bg.HD_GHI_NHAN, bg.TT_DA_DONG_Y, "Sales User",
+         f'doc.custom_nguon_don != "{bg.NGUON_CONG}"'),
+    ]
+
+
+def install_quotation_workflow():
+    """Spec 2026-10-12 §4.1. Frappe cho mỗi doctype MỘT workflow hoạt động và
+    nó phủ mọi chứng từ, nên workflow này phủ cả Quotation nhân viên tự lập.
+    Chạy lại được: đã có thì không đụng."""
+    from miyano_portal import bao_gia as bg
+
+    for ten, _ds, _vai, kieu in _bao_gia_states():
+        if not frappe.db.exists("Workflow State", ten):
+            frappe.get_doc({
+                "doctype": "Workflow State", "workflow_state_name": ten, "style": kieu,
+            }).insert(ignore_permissions=True)
+    for _tu, hanh_dong, _toi, _vai, _dk in _bao_gia_transitions():
+        if not frappe.db.exists("Workflow Action Master", hanh_dong):
+            frappe.get_doc({
+                "doctype": "Workflow Action Master", "workflow_action_name": hanh_dong,
+            }).insert(ignore_permissions=True)
+    if frappe.db.exists("Workflow", bg.WORKFLOW):
+        return frappe.get_doc("Workflow", bg.WORKFLOW)
+    wf = frappe.get_doc({
+        "doctype": "Workflow",
+        "workflow_name": bg.WORKFLOW,
+        "document_type": "Quotation",
+        "is_active": 1,
+        "workflow_state_field": "workflow_state",
+        "states": [
+            {"state": ten, "doc_status": ds, "allow_edit": vai}
+            for ten, ds, vai, _kieu in _bao_gia_states()
+        ],
+        "transitions": [
+            {"state": tu, "action": hd, "next_state": toi, "allowed": vai,
+             "condition": dk, "allow_self_approval": 1}
+            for tu, hd, toi, vai, dk in _bao_gia_transitions()
+        ],
+    })
+    wf.insert(ignore_permissions=True)
+    return wf
+
+
+def gan_trang_thai_bao_gia_cu() -> int:
+    """Quotation có TRƯỚC workflow chưa mang `workflow_state`. Gán theo
+    docstatus để chúng không kẹt: nháp → chờ Miyano báo giá, đã Submit → khách
+    đã đồng ý. Chứng từ đã huỷ để nguyên. Trả số dòng vừa gán."""
+    from miyano_portal import bao_gia as bg
+
+    if not frappe.db.has_column("Quotation", "workflow_state"):
+        return 0
+    dem = 0
+    for docstatus, trang_thai in ((0, bg.TT_CHO_MIYANO), (1, bg.TT_DA_DONG_Y)):
+        ten = frappe.db.sql_list(
+            "select name from `tabQuotation` where docstatus = %s "
+            "and coalesce(workflow_state, '') = ''",
+            docstatus,
+        )
+        for t in ten:
+            frappe.db.set_value(
+                "Quotation", t, "workflow_state", trang_thai, update_modified=False
+            )
+        dem += len(ten)
+    return dem

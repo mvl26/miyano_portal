@@ -96,5 +96,17 @@ def them_truong():
 		frappe.clear_cache(doctype="Sales Order")
 
 
+def cai_workflow():
+	from miyano_portal.setup.install_workflow import (
+		gan_trang_thai_bao_gia_cu,
+		install_quotation_workflow,
+	)
+
+	install_quotation_workflow()
+	frappe.clear_cache(doctype="Quotation")
+	gan_trang_thai_bao_gia_cu()
+
+
 def execute():
 	them_truong()
+	cai_workflow()
