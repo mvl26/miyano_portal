@@ -2,7 +2,7 @@ import frappe
 
 from miyano_portal.kho import can_cu_duyet
 from miyano_portal.nang_quyen import quyen_he_thong
-from miyano_portal import bang_gia_khach, bao_gia, dat_hang, einvoice
+from miyano_portal import bang_gia_khach, bao_gia, dat_hang, einvoice, ten_hang
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
@@ -291,18 +291,11 @@ def portal_catalog_gop(
     tong = _dem(filters)
     rows = _trang(filters, start, limit)
 
-    # MỘT truy vấn cho cả trang, chỉ tên của CHÍNH khách này.
-    ten_goi_theo_ma: dict[str, list] = {}
-    if co_bang_ten and rows:
-        for t in frappe.get_all(
-            "Item Ten Thuong Goi",
-            filters={
-                "parenttype": "Item", "customer": customer,
-                "parent": ["in", [r.item_code for r in rows]],
-            },
-            fields=["parent", "ten_thuong_goi"], order_by="idx asc",
-        ):
-            ten_goi_theo_ma.setdefault(t.parent, []).append(t.ten_thuong_goi)
+    # MỘT truy vấn cho cả trang, chỉ tên của CHÍNH khách này — cùng hàm với
+    # mọi bảng mặt hàng khác của cổng (`ten_hang.py`).
+    ten_goi_theo_ma = ten_hang.ten_thuong_goi_theo_ma(
+        customer, [r.item_code for r in rows]
+    )
 
     # Spec 2026-10-09 §3 — MỘT truy vấn giá cho cả trang; mã vắng mặt trong
     # dict = chưa có giá. Hợp đồng không còn được hỏi ở đây (Q3).

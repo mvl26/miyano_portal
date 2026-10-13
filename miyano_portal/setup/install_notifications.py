@@ -37,7 +37,8 @@ DEFS = [
             "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận "
             "và chuyển sang xử lý.\n\nThời gian giao hàng dự kiến:\n"
             "{% for row in doc.items %}{% if not la_dong_giu_cho(row.item_code) %}"
-            "\n- {{ row.item_name or row.item_code }} ({{ row.item_code }}): "
+            # Mã → Tên, cùng thứ tự với cổng, Desk và mẫu in (`ten_hang.py`).
+            "\n- {{ row.item_code }} — {{ row.item_name or row.item_code }}: "
             "{{ frappe.utils.formatdate(row.delivery_date or doc.delivery_date, 'dd/MM/yyyy') }}"
             "{% endif %}{% endfor %}"
             "\n\nNếu lịch giao thay đổi, Miyano sẽ thông báo lại trên cổng khách hàng."

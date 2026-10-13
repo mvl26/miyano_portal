@@ -12,6 +12,7 @@ import api from '../api'
 import { fmtDate } from '../format'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
+import CotTenHang from '../components/CotTenHang.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -233,10 +234,10 @@ onMounted(nap)
         </p>
 
         <div style="overflow-x: auto">
-          <table style="min-width: 640px">
+          <table style="min-width: 820px">
             <thead>
               <tr>
-                <th>Mặt hàng</th>
+                <CotTenHang head />
                 <th style="text-align: right">SL giao</th>
                 <th style="text-align: right">Nhận tốt</th>
                 <th style="text-align: right">Hỏng, trả lại</th>
@@ -246,13 +247,12 @@ onMounted(nap)
             </thead>
             <tbody>
               <tr v-for="r in rows" :key="r.item_code">
-                <td>
-                  <b>{{ r.item_name || r.item_code }}</b><br />
-                  <span class="tag">{{ r.item_code }} · {{ r.uom }}</span>
+                <CotTenHang :ma="r.item_code" :ten="r.item_name || ''">
+                  <div class="tag">{{ r.uom }}</div>
                   <p v-if="!daGui && loiDong(r)" class="tag" style="color: var(--red); margin: 4px 0 0">
                     {{ loiDong(r) }}
                   </p>
-                </td>
+                </CotTenHang>
                 <td style="text-align: right">{{ r.sl_giao }}</td>
                 <td style="text-align: right">
                   <input

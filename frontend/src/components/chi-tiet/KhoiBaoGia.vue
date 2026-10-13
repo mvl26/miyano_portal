@@ -12,11 +12,20 @@
 import { computed, ref, watch } from 'vue'
 import { fmtVND, fmtDate } from '../../format'
 import { showToast } from '../../toast'
+import { ghepTenThuongGoi, tenMatHang } from '../../ten-hang'
+import { napTenHang, tenTrongKho } from '../../useTenHang'
 
 const props = defineProps({
   don: { type: Object, required: true },
   dangGui: { type: Boolean, default: false },
 })
+
+// Tên thường gọi của các dòng trong báo giá — kho tên dùng chung (`ten-hang.js`).
+watch(
+  () => (props.don?.items || []).map((it) => it.item_code),
+  (ma) => napTenHang(ma),
+  { immediate: true }
+)
 const emit = defineEmits(['sua-so-luong'])
 
 // LOAI_DON_BAO_GIA — bản sao THÊM của giá trị `"Mua lẻ"` (xem chú thích đầy
@@ -152,7 +161,8 @@ function moGuiLai() {
       </p>
       <div v-for="it in don.items" :key="'sl-' + it.item_code" class="rowline">
         <span>
-          <b>{{ it.item_code }}</b> — {{ it.item_name }}
+          <b>{{ it.item_code }}</b> — {{ tenMatHang(it.item_name, tenTrongKho(it.item_code)?.item_name) }}
+          <br /><span class="dong-ten-goi">Tên thường gọi: {{ ghepTenThuongGoi(tenTrongKho(it.item_code)?.ten_thuong_goi) }}</span>
           <br /><span class="tag">{{ it.uom }} · hiện {{ it.qty }} · {{ fmtVND(it.rate) }}/{{ it.uom }}</span>
         </span>
         <input

@@ -657,3 +657,10 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 /* Bộ lọc Nhóm vật tư / Nhà cung cấp ở màn Đặt hàng (`LapPhieu.vue`) — hai
    ô cạnh nhau, xuống một cột trên điện thoại. */
 .bo-loc { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
+
+/* Tên mặt hàng không bao giờ bị cắt (quy tắc `ten-hang.js`): ô tên và ô tên
+   thường gọi tự xuống dòng, kể cả một từ dài không có khoảng trắng; ô mã giữ
+   trên một dòng khi còn chỗ nhưng vẫn bẻ được khi mã dài hơn cột. */
+td.o-ten { white-space: normal; overflow-wrap: anywhere; min-width: 11rem; }
+td.o-ma { overflow-wrap: anywhere; min-width: 7rem; }
+.dong-ten-goi { font-size: 12px; color: var(--gray); overflow-wrap: anywhere; }

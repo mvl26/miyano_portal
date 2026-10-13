@@ -12,6 +12,7 @@ function csrfToken() {
 const API_PREFIX = '/api/method/miyano_portal.api.portal.'
 const KHO_PREFIX = '/api/method/miyano_portal.api.kho.'
 const DE_XUAT_PREFIX = '/api/method/miyano_portal.api.de_xuat.'
+const HANG_HOA_PREFIX = '/api/method/miyano_portal.api.hang_hoa.'
 
 // ---------------------------------------------------------------------------
 // Dịch lỗi từ server thành một câu người dùng ĐỌC ĐƯỢC (Vòng sửa 2, 04/09/2026)
@@ -165,6 +166,11 @@ export async function callKho(method, args) {
 // Gọi một whitelist method của module đề xuất mua (miyano_portal.api.de_xuat).
 export async function callDeXuat(method, args) {
   return callUrl(DE_XUAT_PREFIX + method, args)
+}
+
+// Gọi một whitelist method của module tên mặt hàng (miyano_portal.api.hang_hoa).
+export async function callHangHoa(method, args) {
+  return callUrl(HANG_HOA_PREFIX + method, args)
 }
 
 // URL tải file (GET, mở tab mới hoặc gán vào href) của một method kho trả về

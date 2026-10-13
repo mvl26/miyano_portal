@@ -19,6 +19,7 @@ import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
 import { NHAN_CHO_BAO_GIA, choBaoGiaTrenDon } from '../../gia-dong-don'
 import TheHangMoi from './TheHangMoi.vue'
+import CotTenHang from '../CotTenHang.vue'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -212,7 +213,7 @@ function laBoMatHang(row) {
 // như bảng cũ
 // (luôn 3 hoặc 4).
 const soCotTong = computed(() => {
-  let n = 2 // Mặt hàng, ĐVT — hai cột luôn có mặt
+  let n = 4 // Mã, Tên mặt hàng, Tên thường gọi (`CotTenHang`), ĐVT — luôn có mặt
   if (coPhieu.value) n += 1 // SL đề xuất
   if (coCotDuyet.value) n += 1
   if (coCotXinSua.value) n += 1
@@ -333,7 +334,7 @@ function toggleChiTietKhop(row) {
     <table>
       <thead>
         <tr>
-          <th>Mặt hàng</th>
+          <CotTenHang head />
           <th>ĐVT</th>
           <!-- CR-04 §3 — bốn cột căn cứ tồn kho, BÊN TRÁI "SL đề xuất". Gate
                theo `coCanCuKho` (điều kiện MÀN DUYỆT), không theo dữ liệu:
@@ -386,10 +387,8 @@ function toggleChiTietKhop(row) {
         <tr
           :style="khongDuyet(row) ? 'text-decoration: line-through; color: var(--gray)' : ''"
         >
-          <td>
-            <b>{{ row.item_code }}</b>
-            <template v-if="row.item_name"> — {{ row.item_name }}</template>
-            <br />
+          <CotTenHang :ma="row.item_code" :ten="row.item_name || ''">
+            <div>
             <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
             <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
             <!-- Nhãn + lối vào chi tiết cho dòng Miyano khớp từ hàng gõ tay
@@ -407,7 +406,8 @@ function toggleChiTietKhop(row) {
                 @click="toggleChiTietKhop(row)"
               >{{ chiTietMoRong[row.item_code] ? '▾' : '▸' }} Xem chi tiết</button>
             </template>
-          </td>
+            </div>
+          </CotTenHang>
           <td>{{ row.dvt }}</td>
           <!-- CR-04 §3/§4 — bốn ô này đọc QUA `canCu(row)` (KHÔNG với thẳng
                `canCuKho[row.item_code]` rải rác), và dùng `fmtSl`/`fmtNgay`

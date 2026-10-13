@@ -77,6 +77,8 @@ import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
 import LocChon from '../components/LocChon.vue'
+import CotTenHang from '../components/CotTenHang.vue'
+import { ghepTenThuongGoi } from '../ten-hang'
 
 const route = useRoute()
 const router = useRouter()
@@ -1052,20 +1054,14 @@ onMounted(async () => {
           <table>
             <thead>
               <tr>
-                <th>Mã</th><th>Tên mặt hàng</th><th>Nhóm</th><th>ĐVT</th>
+                <CotTenHang head /><th>Nhóm</th><th>ĐVT</th>
                 <th>Tình trạng</th><th>Giá</th>
                 <th style="width: 130px">Số lượng</th><th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="r in searchResults" :key="r.item_code">
-                <td><b>{{ r.item_code }}</b></td>
-                <td>
-                  {{ r.item_name }}
-                  <div v-if="r.ten_thuong_goi?.length" class="muted sm">
-                    Tên thường gọi: {{ r.ten_thuong_goi.join(', ') }}
-                  </div>
-                </td>
+                <CotTenHang :ma="r.item_code" :ten="r.item_name" :ten-goi="r.ten_thuong_goi || []" />
                 <td><span class="tag">{{ r.nhom_vat_tu || '—' }}</span></td>
                 <td>{{ r.dvt }}</td>
                 <td>
@@ -1091,9 +1087,7 @@ onMounted(async () => {
         <template v-else>
           <div v-for="r in searchResults" :key="r.item_code" class="card item mb10">
             <div class="nm">{{ r.item_code }} · {{ r.item_name }}</div>
-            <div v-if="r.ten_thuong_goi?.length" class="muted sm">
-              Tên thường gọi: {{ r.ten_thuong_goi.join(', ') }}
-            </div>
+            <div class="dong-ten-goi">Tên thường gọi: {{ ghepTenThuongGoi(r.ten_thuong_goi) }}</div>
             <div class="tag" style="margin: 2px 0 6px">
               {{ r.dvt }}<template v-if="r.nhom_vat_tu"> · {{ r.nhom_vat_tu }}</template>
             </div>
@@ -1295,18 +1289,16 @@ onMounted(async () => {
           <table>
             <thead>
               <tr>
-                <th>MÃ</th><th>TÊN VẬT TƯ</th><th>ĐVT</th>
+                <CotTenHang head /><th>ĐVT</th>
                 <th style="width: 150px">SL</th>
                 <th class="right">ĐƠN GIÁ</th><th class="right">THÀNH TIỀN</th><th></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="r in items" :key="r.item_code">
-                <td><b>{{ r.item_code }}</b></td>
-                <td>
-                  {{ r.item_name }}
+                <CotTenHang :ma="r.item_code" :ten="r.item_name">
                   <div><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></div>
-                </td>
+                </CotTenHang>
                 <td>{{ r.dvt }}</td>
                 <td>
                   <!-- KHÔNG `min="1"`: mâu thuẫn với chính quyết định "số
@@ -1337,6 +1329,7 @@ onMounted(async () => {
                   {{ d.ten_hang || '(chưa đặt tên)' }}
                   <div><span class="badge b-orange">Chờ báo giá</span></div>
                 </td>
+                <td class="tag">—</td>
                 <td>{{ d.dvt || '—' }}</td>
                 <td>{{ d.so_luong || '—' }}</td>
                 <td class="right">—</td>
@@ -1344,7 +1337,7 @@ onMounted(async () => {
                 <td><button class="btn-o btn-sm btn-danger" @click="xoaDongDatNgoai(i)">Xoá</button></td>
               </tr>
               <tr v-if="!tongDongGio">
-                <td colspan="7" class="tag">
+                <td colspan="8" class="tag">
                   Giỏ chưa có mặt hàng nào — quay lại bước <b>Chọn hàng</b> để thêm.
                 </td>
               </tr>

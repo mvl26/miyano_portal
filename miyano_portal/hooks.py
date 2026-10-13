@@ -25,7 +25,7 @@ required_apps = ["frappe/frappe", "erpnext"]
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/miyano_portal/css/miyano_portal.css"
+app_include_css = "/assets/miyano_portal/css/desk_ten_hang.css"
 # app_include_js = "/assets/miyano_portal/js/miyano_portal.js"
 
 # include js, css files in header of web template
