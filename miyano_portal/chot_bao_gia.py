@@ -31,6 +31,17 @@ def _trang_thai_truoc(doc) -> str | None:
 	return truoc.get("workflow_state") if truoc else None
 
 
+def co_gia_khach_dong_y(doc) -> bool:
+	"""Đơn mang giá khách ĐÃ ĐỒNG Ý trên từng dòng: đơn "Mua lẻ" của luồng cũ
+	(khách đồng ý trên chính đơn) và đơn "Theo báo giá" (khách đồng ý trên
+	Quotation, spec 2026-10-12 §4.5). KHÁC `di_vong_bao_gia`: đơn "Theo báo
+	giá" không đi vòng báo giá trên Sales Order, nhưng vẫn không được xác nhận
+	với một đơn giá khách chưa từng đồng ý."""
+	from miyano_portal.bao_gia import LOAI_DON_THEO_BAO_GIA
+
+	return di_vong_bao_gia(doc) or doc.get("custom_loai_don") == LOAI_DON_THEO_BAO_GIA
+
+
 def chuan_hoa_dau_truoc_khi_gui_khach(doc, method=None) -> None:
 	"""Đơn báo giá VÀO "Chờ khách đồng ý": dấu nguồn giá của MỌI dòng phải nói
 	thật về con số khách sắp được hỏi (luật R14/R16, `portal_mua_le.
@@ -111,7 +122,7 @@ def kiem_chuyen_trang_thai(doc, method=None) -> None:
 
 def kiem_gia_khop_gia_da_dong_y(doc, method=None) -> None:
 	"""§5.4 — chốt 3: không xác nhận đơn khi giá lệch giá khách đã đồng ý."""
-	if doc.get("custom_nguon_don") != "Client Portal" or not di_vong_bao_gia(doc):
+	if doc.get("custom_nguon_don") != "Client Portal" or not co_gia_khach_dong_y(doc):
 		return
 	lech = [
 		d.item_code for d in doc.items

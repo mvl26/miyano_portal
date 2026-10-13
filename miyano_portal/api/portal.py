@@ -2,7 +2,7 @@ import frappe
 
 from miyano_portal.kho import can_cu_duyet
 from miyano_portal.nang_quyen import quyen_he_thong
-from miyano_portal import bang_gia_khach, bao_gia, dat_hang, einvoice, ten_hang
+from miyano_portal import bang_gia_khach, bao_gia, chot_bao_gia, dat_hang, einvoice, ten_hang
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
@@ -3320,7 +3320,7 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # Dấu giá đã đồng ý đóng TRƯỚC savepoint: ghi giá hỏng không được cuốn
         # dấu theo (chốt 3 chỉ bắt khi dấu > 0). Savepoint để lỗi giữa chừng
         # không để lại nửa số giá đã ghi; nhân viên phụ trách được báo.
-        if di_vong_bao_gia(so):
+        if chot_bao_gia.co_gia_khach_dong_y(so):
             so.reload()
             bang_gia_khach.dong_dau_gia_khach_dong_y(so)
             try:
