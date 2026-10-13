@@ -2,6 +2,8 @@ import frappe
 
 from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
 
+TEN_TB_BAO_GIA = "Portal - Yêu cầu báo giá sẵn sàng"
+
 DEFS = [
     {
         # Brief 2026-08-15 (trang thông báo) Phần 1 — CỐ Ý KHÔNG bật
@@ -213,6 +215,31 @@ DEFS = [
         # khi mẫu in đã tồn tại vì tự nó gọi `install_portal_print_formats()`
         # trước khi set. Xem thêm `v1_15.gioi_han_bao_gia_pdf_mua_le` (patch
         # cập nhật `condition` cho bản ghi đã cài trên site, review I-2).
+    },
+    {
+        # Spec 2026-10-12 §7 — bản cho Quotation của "Portal - Báo giá sẵn
+        # sàng". Bản trên Sales Order giữ lại cho đơn "Mua lẻ" cũ.
+        # `attach_print`/`print_format` do patch v1_42 đặt SAU khi mẫu in đã
+        # có: `print_format` là Link, được kiểm ngay lúc insert.
+        "name": TEN_TB_BAO_GIA,
+        "subject": "Báo giá {{ doc.name }} đã sẵn sàng",
+        "document_type": "Quotation",
+        "event": "Value Change",
+        "value_changed": "workflow_state",
+        "condition": (
+            "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.workflow_state == 'Chờ khách đồng ý'"
+        ),
+        "message": (
+            "Kính gửi Quý khách,\n\nMiyano đã gửi báo giá {{ doc.name }}, tổng giá "
+            "trị {{ frappe.utils.fmt_money(doc.grand_total, currency='VND') }}.\n\n"
+            "{% if doc.valid_till %}Báo giá có hiệu lực đến hết ngày "
+            "{{ frappe.utils.formatdate(doc.valid_till, 'dd/mm/yyyy') }}. Sau thời "
+            "hạn này, nếu Quý khách chưa phản hồi, báo giá sẽ tự động đóng.\n\n"
+            "{% endif %}Vui lòng đăng nhập cổng khách hàng, mở tab \"Yêu cầu báo "
+            "giá\" để xem chi tiết và xác nhận."
+        ),
+        "send_system_notification": 1,
     },
 ]
 

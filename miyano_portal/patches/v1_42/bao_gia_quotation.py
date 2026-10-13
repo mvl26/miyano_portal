@@ -107,6 +107,29 @@ def cai_workflow():
 	gan_trang_thai_bao_gia_cu()
 
 
+def cai_mau_in_thong_bao_hang_viec():
+	from miyano_portal.setup.install_kho_workspace import install_kho_workspace
+	from miyano_portal.setup.install_notifications import (
+		TEN_TB_BAO_GIA,
+		install_portal_notifications,
+	)
+	from miyano_portal.setup.install_print_formats import (
+		NAME_YCBG,
+		install_portal_print_formats,
+	)
+
+	install_portal_print_formats()
+	install_portal_notifications()
+	if frappe.db.exists("Notification", TEN_TB_BAO_GIA) and frappe.db.exists(
+		"Print Format", NAME_YCBG
+	):
+		frappe.db.set_value(
+			"Notification", TEN_TB_BAO_GIA, {"attach_print": 1, "print_format": NAME_YCBG}
+		)
+	install_kho_workspace()
+
+
 def execute():
 	them_truong()
 	cai_workflow()
+	cai_mau_in_thong_bao_hang_viec()

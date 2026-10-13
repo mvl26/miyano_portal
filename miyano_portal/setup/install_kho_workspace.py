@@ -49,6 +49,16 @@ _CONG_KHACH_SHORTCUTS = [
 		"color": "blue",
 		"stats_filter": {"trang_thai": "Mới"},
 	},
+	{
+		# Spec 2026-10-12 §7 — hàng việc của bộ phận báo giá.
+		"label": "Yêu cầu báo giá",
+		"link_to": "Quotation",
+		"color": "purple",
+		"stats_filter": {
+			"custom_nguon_don": "Client Portal",
+			"workflow_state": "Chờ Miyano báo giá",
+		},
+	},
 ]
 
 _CONG_KHACH_REPORTS = [

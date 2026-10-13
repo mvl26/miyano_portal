@@ -125,7 +125,17 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.js = (_goc() / "public" / "js" / "sales_order.js").read_text(encoding="utf-8")
+		# Task 10 (2026-10-12): hàm dựng khối chuyển sang file dùng chung với
+		# Quotation; `sales_order.js` chỉ còn LỜI GỌI trong `refresh`.
+		cls.js = (_goc() / "public" / "js" / "hang_moi_khach_khai.js").read_text(
+			encoding="utf-8"
+		)
+		cls.js_so = (_goc() / "public" / "js" / "sales_order.js").read_text(
+			encoding="utf-8"
+		)
+		cls.ma_so = "\n".join(
+			d for d in cls.js_so.splitlines() if not d.strip().startswith("//")
+		)
 		# Lột chú thích JS trước khi soi: chính chú thích giải thích tính năng
 		# này có chứa mọi chuỗi bài dưới tìm. Lỗi "khớp chỗ nói thay cho chỗ
 		# dùng" đã xảy ra BỐN lần trong phiên.
@@ -136,7 +146,7 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 	def test_co_khoi_hien_thong_tin_hang_moi(self):
 		self.assertIn("hien_thong_tin_hang_moi", self.ma)
 		self.assertRegex(
-			self.ma, r"function\s+hien_thong_tin_hang_moi",
+			self.ma, r"miyano_portal\.hien_thong_tin_hang_moi\s*=\s*function",
 			"Không có hàm dựng khối thông tin hàng mới trên Desk",
 		)
 
@@ -146,10 +156,8 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 		Đây là lớp lỗi mà `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt
 		BẢY lần trong dự án này.
 		"""
-		i_ham = self.ma.find("function hien_thong_tin_hang_moi")
-		truoc = self.ma[:i_ham] if i_ham != -1 else self.ma
 		self.assertIn(
-			"hien_thong_tin_hang_moi(frm)", truoc,
+			"miyano_portal.hien_thong_tin_hang_moi(frm)", self.ma_so,
 			"`hien_thong_tin_hang_moi` được định nghĩa nhưng KHÔNG được gọi "
 			"trong `refresh` — khối sẽ không bao giờ hiện",
 		)

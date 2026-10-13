@@ -55,10 +55,18 @@ doctype_js = {
 	# mà bảng đó sống trên CẢ `Sales Order` LẪN `Portal De Xuat Mua` — nên
 	# phải nạp ở CẢ HAI form, nếu không ô ảnh chỉ vẽ ở một màn và không ai
 	# biết màn kia vẫn hiện chuỗi JSON thô.
-	"Sales Order": ["public/js/sales_order.js", "public/js/dat_ngoai_anh.js"],
+	"Sales Order": [
+		"public/js/hang_moi_khach_khai.js",
+		"public/js/sales_order.js",
+		"public/js/dat_ngoai_anh.js",
+	],
 	"Portal De Xuat Mua": "public/js/dat_ngoai_anh.js",
 	"Delivery Note": "public/js/delivery_note.js",
-	"Quotation": ["public/js/dat_ngoai_anh.js"],
+	"Quotation": [
+		"public/js/hang_moi_khach_khai.js",
+		"public/js/quotation.js",
+		"public/js/dat_ngoai_anh.js",
+	],
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
