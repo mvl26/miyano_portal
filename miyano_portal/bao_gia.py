@@ -340,35 +340,72 @@ def dong_go_tay_da_khop_cua_don(so) -> list:
 	]
 
 
+def _don_con_song(ten: str) -> bool:
+	"""Đơn còn đi tiếp được: chưa huỷ (docstatus 2) và không nằm ở một trạng
+	thái KẾT THÚC của workflow đơn hàng mà vẫn ở docstatus 0 — «Từ chối»
+	(Miyano từ chối) và «Khách huỷ». Hai trạng thái đó không bao giờ tới
+	docstatus 2, nên chỉ nhìn docstatus là coi một đơn đã chết là còn sống."""
+	# Nhập muộn: `api.portal` nhập module này ở đầu file.
+	from miyano_portal.api.portal import WF_KHACH_HUY, WF_TU_CHOI
+
+	don = frappe.db.get_value("Sales Order", ten, ["docstatus", "workflow_state"], as_dict=True)
+	if not don or don.docstatus == 2:
+		return False
+	return don.workflow_state not in (WF_TU_CHOI, WF_KHACH_HUY)
+
+
 def chan_huy_khi_con_don(doc, method=None) -> None:
 	"""Hook `before_cancel` của Quotation — chỉ báo giá của cổng.
 
 	Đơn sinh từ báo giá còn nháp thì ERPNext không coi là ràng buộc (nó chỉ
-	nhìn chứng từ đã Submit): huỷ báo giá lúc đó để lại đơn và phiếu gốc trỏ
-	vào một báo giá đã huỷ."""
+	nhìn chứng từ đã Submit): huỷ báo giá lúc đó để lại một đơn đang chạy và
+	phiếu gốc trỏ vào một báo giá đã huỷ. Đơn đã chết (`_don_con_song`) thì
+	không còn gì để giữ. Lời nhắc KHÔNG bảo xoá đơn nháp: phiếu gốc trỏ vào
+	đơn nên Frappe không cho xoá."""
 	if doc.get("custom_nguon_don") != NGUON_CONG:
 		return
 	don = don_cua_bao_gia(doc)
-	if don and frappe.db.get_value("Sales Order", don, "docstatus") != 2:
+	if don and _don_con_song(don):
 		frappe.throw(
-			f"Báo giá {doc.name} của cổng khách hàng đã sinh đơn hàng {don}. Phải "
-			f"huỷ đơn hàng {don} trước (đơn còn nháp thì xoá) rồi mới huỷ được báo giá.",
+			f"Báo giá {doc.name} của cổng khách hàng đã sinh đơn hàng {don} và đơn "
+			f"đó còn hiệu lực. Trước khi huỷ báo giá, phải huỷ đơn hàng {don} (nếu "
+			"đã xác nhận) hoặc bấm «Từ chối» trên đơn (nếu còn chờ xác nhận).",
 			frappe.ValidationError,
 		)
 
 
+def _la_ban_sua_doi_cua(doc, rid_don: str) -> bool:
+	"""`doc` là bản «Amend» (trực tiếp hoặc qua nhiều đời) của đơn mang mã yêu
+	cầu `rid_don`. Mã yêu cầu của đơn là `unique` + `no_copy`, nên không dựa
+	vào việc bản sửa đổi còn mang nó; lần ngược `amended_from` tới đơn gốc."""
+	ten = doc.get("amended_from")
+	for _ in range(20):
+		if not ten:
+			return False
+		goc = frappe.db.get_value(
+			"Sales Order", ten, ["custom_request_id", "amended_from"], as_dict=True
+		)
+		if not goc:
+			return False
+		if goc.custom_request_id == rid_don:
+			return True
+		ten = goc.amended_from
+	return False
+
+
 def chan_don_thu_hai_tu_bao_gia_cong(doc, method=None) -> None:
-	"""Hook `before_insert` của Sales Order.
+	"""Hook `validate` của Sales Order.
 
 	Báo giá của cổng chỉ sinh đơn qua `dong_y` → `_sinh_don`, nơi đơn nhận mã
-	yêu cầu `<rid của báo giá>:don`. «Tạo → Đơn bán hàng» trên Desk đi cùng
-	mapper nhưng không có mã đó; ERPNext chỉ trừ số "đã đặt" theo đơn ĐÃ
-	Submit, nên khi đơn đầu còn nháp nó cho ra một đơn thứ hai đủ mọi dòng.
+	yêu cầu `<rid của báo giá>:don`. Dòng mang `prevdoc_docname` trỏ về một báo
+	giá của cổng vì thế chỉ được nằm trên ĐÚNG đơn đó, hoặc trên bản «Amend»
+	của nó. Hai lối khác trên Desk đi cùng mapper mà không có mã đó: «Tạo →
+	Đơn bán hàng» trên báo giá (đơn mới) và «Lấy mặt hàng từ → Báo giá» trên
+	một đơn nháp ĐÃ LƯU — nên chốt ở `validate`, không ở `before_insert`.
+	ERPNext chỉ trừ số "đã đặt" theo đơn ĐÃ Submit, nên khi đơn đầu còn nháp
+	cả hai lối đều cho ra đủ mọi dòng lần nữa.
 
-	Bỏ qua: báo giá nội bộ, đơn không trỏ về báo giá nào, và bản «Amend»
-	(`amended_from` — đơn gốc đã huỷ, không phải đơn thứ hai)."""
-	if not doc.is_new() or doc.get("amended_from"):
-		return
+	Không đụng: báo giá nội bộ, đơn không trỏ về báo giá nào."""
 	nguon = {d.get("prevdoc_docname") for d in doc.get("items") or []} - {None, ""}
 	if not nguon:
 		return
@@ -376,8 +413,10 @@ def chan_don_thu_hai_tu_bao_gia_cong(doc, method=None) -> None:
 		"Quotation", filters={"name": ["in", list(nguon)], "custom_nguon_don": NGUON_CONG},
 		fields=["name", "custom_request_id"],
 	):
-		rid = bg.custom_request_id
-		if rid and doc.get("custom_request_id") == rid + HAU_TO_DON:
+		rid_don = (bg.custom_request_id or "") + HAU_TO_DON
+		if bg.custom_request_id and (
+			doc.get("custom_request_id") == rid_don or _la_ban_sua_doi_cua(doc, rid_don)
+		):
 			continue
 		don = don_cua_bao_gia(bg)
 		if don:

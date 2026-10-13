@@ -31,6 +31,9 @@ export function boSungDongChiCoTrenDon(dong, don) {
       r.so_luong_tren_don += Number(it.qty) || 0
       r.thanh_tien_tren_don += Number(it.amount) || 0
       r.da_giao_tren_don += Number(it.delivered_qty) || 0
+      // Các dòng gộp KHÁC đơn giá: không có một đơn giá nào đúng với SL ×
+      // giá = thành tiền. `null` → bảng in "—"; thành tiền vẫn là tổng thật.
+      if (soHoacNull(it.rate) !== r.don_gia_tren_don) r.don_gia_tren_don = null
       continue
     }
     if (theoMa.has(ma)) continue
