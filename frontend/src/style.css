@@ -658,9 +658,25 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
    ô cạnh nhau, xuống một cột trên điện thoại. */
 .bo-loc { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 12px; }
 
-/* Tên mặt hàng không bao giờ bị cắt (quy tắc `ten-hang.js`): ô tên và ô tên
-   thường gọi tự xuống dòng, kể cả một từ dài không có khoảng trắng; ô mã giữ
-   trên một dòng khi còn chỗ nhưng vẫn bẻ được khi mã dài hơn cột. */
-td.o-ten { white-space: normal; overflow-wrap: anywhere; min-width: 11rem; }
-td.o-ma { overflow-wrap: anywhere; min-width: 7rem; }
+/* Ba cột Mã → Tên mặt hàng → Tên thường gọi (`CotTenHang.vue`, quy tắc ở
+   `ten-hang.js`) có bề ngang CỐ ĐỊNH, như nhau ở mọi bảng mặt hàng của cổng
+   (chủ đầu tư 13/10/2026): cột không co giãn theo nội dung từng trang, nên
+   cùng một mặt hàng xuống dòng ở cùng một chỗ trên mọi màn. Tên không bao giờ
+   bị cắt — chữ dài hơn cột thì xuống dòng, kể cả một từ không có khoảng
+   trắng. Bảng nhiều cột hơn khung thì cuộn ngang (`overflow-x: auto`). Đổi bề
+   ngang thì đổi ba biến này, không sửa từng bảng. */
+:root {
+  --cot-ma: 10rem;
+  --cot-ten: 15rem;
+  --cot-ten-goi: 10rem;
+}
+th.cot-ma, td.cot-ma { width: var(--cot-ma); min-width: var(--cot-ma); max-width: var(--cot-ma); }
+th.cot-ten, td.cot-ten { width: var(--cot-ten); min-width: var(--cot-ten); max-width: var(--cot-ten); }
+th.cot-ten-goi, td.cot-ten-goi {
+  width: var(--cot-ten-goi); min-width: var(--cot-ten-goi); max-width: var(--cot-ten-goi);
+}
+td.cot-ma, td.cot-ten, td.cot-ten-goi { white-space: normal; overflow-wrap: anywhere; }
 .dong-ten-goi { font-size: 12px; color: var(--gray); overflow-wrap: anywhere; }
+/* Ba cột trên giữ nguyên bề ngang, nên phần co lại khi thiếu chỗ là các cột
+   còn lại — nhãn trạng thái trong bảng không được vỡ thành ba dòng vì thế. */
+td .badge { white-space: nowrap; }

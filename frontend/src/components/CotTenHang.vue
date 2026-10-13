@@ -36,16 +36,16 @@ const tenGoiHien = computed(() =>
 
 <template>
   <template v-if="head">
-    <th>{{ TIEU_DE_COT.ma }}</th>
-    <th>{{ TIEU_DE_COT.ten }}</th>
-    <th>{{ TIEU_DE_COT.tenGoi }}</th>
+    <th class="cot-ma">{{ TIEU_DE_COT.ma }}</th>
+    <th class="cot-ten">{{ TIEU_DE_COT.ten }}</th>
+    <th class="cot-ten-goi">{{ TIEU_DE_COT.tenGoi }}</th>
   </template>
   <template v-else>
-    <td class="o-ma"><b>{{ ma || '—' }}</b></td>
-    <td class="o-ten">
+    <td class="cot-ma"><b>{{ ma || '—' }}</b></td>
+    <td class="cot-ten">
       {{ tenHien }}
       <slot />
     </td>
-    <td class="o-ten">{{ tenGoiHien }}</td>
+    <td class="cot-ten-goi">{{ tenGoiHien }}</td>
   </template>
 </template>
