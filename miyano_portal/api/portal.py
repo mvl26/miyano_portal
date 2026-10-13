@@ -1326,7 +1326,11 @@ def _truy_van_tab_bao_gia() -> tuple[str, dict]:
         tham_so["khoa"] = khoa
         dk += " and p.khoa_phong = %(khoa)s"
     trong = f"""
-        select p.name as de_xuat, coalesce(p.bao_gia, '') as bao_gia,
+        select p.name as de_xuat,
+               -- Tên báo giá chỉ đi ra khi phép nối bên dưới NHẬN nó: phiếu
+               -- trỏ sang một báo giá không qua được phép nối mà vẫn mang tên
+               -- ra thì màn danh sách dẫn tới một trang chi tiết từ chối.
+               coalesce(q.name, '') as bao_gia,
                coalesce(p.sales_order, '') as sales_order,
                coalesce(nullif(p.ma_de_xuat, ''), '') as ma,
                coalesce(p.ten_don_hang, '') as ten_don_hang,
@@ -1336,12 +1340,23 @@ def _truy_van_tab_bao_gia() -> tuple[str, dict]:
                q.grand_total as grand_total, q.valid_till as han_hieu_luc,
                {_sql_nhom_bao_gia("q")} as nhom
         from `tabPortal De Xuat Mua` p
+        -- Ba vế sau `q.name = p.bao_gia` là bản SQL của
+        -- `_la_bao_gia_cong_cua()`: sửa một bên thì sửa bên kia.
         left join `tabQuotation` q
                on q.name = p.bao_gia and q.quotation_to = 'Customer'
               and q.party_name = %(kh)s and q.custom_nguon_don = '{bao_gia.NGUON_CONG}'
         where {dk} and {_sql_thuoc_tab_bao_gia("p")}
     """
     return trong, tham_so
+
+
+def _kep_trang_bao_gia(limit, start) -> tuple[int, int]:
+    """`limit` trong 1..200, `start` >= 0 — cùng lối `cint` rồi kẹp của
+    `portal_thong_bao_list`. Giá trị âm hay không phải số từ client không
+    được thành lỗi SQL."""
+    limit = min(max(frappe.utils.cint(limit) or 20, 1), 200)
+    start = max(frappe.utils.cint(start), 0)
+    return limit, start
 
 
 @frappe.whitelist()
@@ -1353,6 +1368,7 @@ def portal_bao_gia_danh_sach(nhom=None, khoa_phong=None, limit=20, start=0) -> d
         frappe.throw(f"Nhóm không hợp lệ: {nhom}", frappe.ValidationError)
     if not _cot_bao_gia_ton_tai():
         return {"rows": [], "tong": 0}
+    limit, start = _kep_trang_bao_gia(limit, start)
     trong, tham_so = _truy_van_tab_bao_gia()
     dieu_kien = []
     if nhom:
@@ -1367,7 +1383,7 @@ def portal_bao_gia_danh_sach(nhom=None, khoa_phong=None, limit=20, start=0) -> d
         f"""select * from ({trong}) t{dk_ngoai}
             order by t.thoi_diem desc, t.de_xuat desc
             limit %(limit)s offset %(start)s""",
-        {**tham_so, "limit": int(limit), "start": int(start)},
+        {**tham_so, "limit": limit, "start": start},
         as_dict=True,
     )
     for r in rows:
@@ -1390,29 +1406,52 @@ def portal_bao_gia_dem() -> dict:
     return {"cho_dong_y": int(n)}
 
 
-def _bao_gia_cua_toi(ten: str):
+def _la_bao_gia_cong_cua(gt, customer) -> bool:
+    """Báo giá này có phải của CỔNG và của đúng khách `customer` không.
+
+    MỘT chỗ cho phép kiểm sở hữu (spec §8): `_bao_gia_cua_toi` và
+    `_lien_ket_thong_bao` cùng hỏi hàm này. Bản SQL của nó nằm ở phép nối
+    trong `_truy_van_tab_bao_gia`. Quotation dùng `party_name`, không có cột
+    `customer`. `gt` là `Document` hoặc dict có ba trường dưới đây.
+    """
+    return bool(
+        gt and customer
+        and gt.get("quotation_to") == "Customer"
+        and gt.get("party_name") == customer
+        and gt.get("custom_nguon_don") == bao_gia.NGUON_CONG
+    )
+
+
+def _bao_gia_cua_toi(ten):
     """Chốt hai trục cho MỌI endpoint báo giá (spec §8). Trả `Document`.
 
-    Quotation dùng `party_name`, không có cột `customer`: các hàm kiểm của
-    Sales Order không dùng lại được. Báo giá không phải của cổng (nhân viên tự
-    lập) không hiện, kể cả khi cùng khách. Mọi lý do từ chối trả CÙNG một
-    thông điệp: không xác nhận cả sự tồn tại của báo giá thuộc khách khác.
+    `ten` phải là CHUỖI: `frappe.get_doc`/`frappe.db.get_value` nhận cả dict
+    bộ lọc, và thân JSON của request đưa dict tới nguyên vẹn — một bộ lọc kèm
+    `grand_total` sẽ biến "tìm thấy / không tìm thấy" thành máy dò đúng cột mà
+    endpoint đang giấu. Nạp MỘT lần theo đúng tên đó rồi kiểm trên chính bản
+    đã nạp (như `_phieu_cua_toi`), không kiểm một truy vấn rồi nạp truy vấn
+    khác.
+
+    Báo giá không phải của cổng (nhân viên tự lập) không hiện, kể cả khi cùng
+    khách. Mọi lý do từ chối trả CÙNG một thông điệp: không xác nhận cả sự
+    tồn tại của báo giá thuộc khách khác. Hỏi `exists` trước khi nạp vì
+    `get_doc` trên một tên không có để lại thông điệp "… not found" trong
+    `message_log`, thứ đi ra client và phân biệt được hai ca.
     """
     tv = get_portal_member()
-    gt = frappe.db.get_value(
-        "Quotation", ten,
-        ["quotation_to", "party_name", "custom_nguon_don", "custom_khoa_phong"],
-        as_dict=True,
-    )
-    if (
-        not gt or gt.quotation_to != "Customer" or gt.party_name != tv.customer
-        or gt.custom_nguon_don != bao_gia.NGUON_CONG
-    ):
+    if not isinstance(ten, str) or not ten or not frappe.db.exists("Quotation", ten):
+        raise frappe.PermissionError(LOI_KHONG_THAY)
+    try:
+        bg = frappe.get_doc("Quotation", ten)
+    except frappe.DoesNotExistError:
+        frappe.clear_last_message()
+        raise frappe.PermissionError(LOI_KHONG_THAY) from None
+    if not _la_bao_gia_cong_cua(bg, tv.customer):
         raise frappe.PermissionError(LOI_KHONG_THAY)
     khoa = pham_vi_don().get("custom_khoa_phong")
-    if khoa and gt.custom_khoa_phong != khoa:
+    if khoa and bg.get("custom_khoa_phong") != khoa:
         raise frappe.PermissionError(LOI_KHONG_THAY)
-    return frappe.get_doc("Quotation", ten)
+    return bg
 
 
 _NHOM_THEO_TRANG_THAI = {
@@ -3015,6 +3054,8 @@ def portal_bao_gia_pdf(order=None, quotation=None) -> None:
     `customer` của đơn với khách suy từ PHIÊN (Quyết định nền số 7) — không
     nhận `customer` từ client dưới bất kỳ hình thức nào.
     """
+    if not order and not quotation:
+        frappe.throw("Thiếu mã chứng từ.", frappe.ValidationError)
     if quotation:
         return _bao_gia_pdf_quotation(quotation)
     dam_bao_xem_duoc("Sales Order", order)
@@ -3766,10 +3807,7 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
                 "Quotation", document_name,
                 ["quotation_to", "party_name", "custom_nguon_don"], as_dict=True,
             )
-            if (
-                not gt or gt.quotation_to != "Customer" or gt.party_name != customer
-                or gt.custom_nguon_don != bao_gia.NGUON_CONG
-            ):
+            if not _la_bao_gia_cong_cua(gt, customer):
                 return None
             return f"/yeu-cau-bao-gia/{document_name}"
 
@@ -3852,9 +3890,9 @@ def _pham_vi_phien_hien_tai() -> dict | None:
         return None
 
 
-# `_lien_ket_thong_bao`/`dam_bao_xem_duoc` biết quy đúng ba doctype này về
-# đơn cha. `Customer Stock Receipt`/`Portal Delivery Inspection` KHÔNG có
-# mặt ở đây — CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
+# `_lien_ket_thong_bao`/`dam_bao_xem_duoc` biết quy đúng bốn doctype này về
+# đơn cha (Quotation mang thẳng `custom_khoa_phong`, spec 2026-10-12 §8).
+# `Customer Stock Receipt`/`Portal Delivery Inspection` KHÔNG có mặt ở đây — CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
 # nào (`Customer Warehouse` không gắn khoa phòng, xem thiết kế "kho khách
 # hàng"), nên một thông báo "đã nhập hàng" là thông tin cấp bệnh viện, cùng
 # hạng với `portal_catalog_gop` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ

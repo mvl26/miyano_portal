@@ -414,8 +414,8 @@ def notification_khoa_query(user=None) -> str:
 
     Hàm này thêm ĐÚNG vế khoa còn thiếu, dùng LẠI `_dieu_kien_khoa_qua_don_
     cha` — KHÔNG viết lại logic quy-về-đơn-cha (cùng nguyên tắc
-    `_khoa_query_condition` ngay trên). CHỈ áp cho ba doctype có khái niệm
-    khoa phòng (`_THONG_BAO_DOCTYPE_LOC_KHOA`, cùng bộ ba với `api/
+    `_khoa_query_condition` ngay trên). CHỈ áp cho bốn doctype có khái niệm
+    khoa phòng (`_THONG_BAO_DOCTYPE_LOC_KHOA`, cùng bộ bốn với `api/
     portal.py::_THONG_BAO_DOCTYPE_LOC_KHOA`) — thông báo KHÁC (`Customer
     Stock Receipt`/kho, `Portal Delivery Inspection`/kiểm hàng, thông báo
     hệ thống nội bộ Miyano...) giữ NGUYÊN hành vi cũ, không âm thầm mở rộng
