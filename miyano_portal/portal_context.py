@@ -475,6 +475,8 @@ def dam_bao_xem_duoc(
             (name,),
         )
         cua = hang[0][0] if len(hang) == 1 else None
+    elif doctype == "Quotation":
+        cua = frappe.db.get_value("Quotation", name, "custom_khoa_phong")
     else:
         raise NotImplementedError(
             f"dam_bao_xem_duoc chưa biết quy {doctype} về đơn cha — "

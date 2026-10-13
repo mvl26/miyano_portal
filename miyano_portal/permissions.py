@@ -305,6 +305,64 @@ def de_xuat_item_query(user=None) -> str:
     )
 
 
+def bao_gia_query(user=None) -> str:
+    """Spec 2026-10-12 §8 — lớp phòng thủ THỨ HAI cho Quotation.
+
+    Vai `Customer` không có DocPerm nào trên Quotation nên với tài khoản cổng
+    hôm nay hàm này không bao giờ được gọi tới. Nó chỉ có nghĩa nếu về sau ai
+    đó cấp quyền đọc: khi đó họ vẫn chỉ thấy báo giá CỦA CỔNG, của khách mình,
+    của khoa mình. Quotation dùng `party_name`, không có cột `customer`.
+    """
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    customers = get_allowed_customers(user)
+    if not customers:
+        return "1=0"
+    joined = ", ".join(frappe.db.escape(c) for c in customers)
+    dk = (
+        "`tabQuotation`.`quotation_to` = 'Customer' and "
+        f"`tabQuotation`.`party_name` in ({joined}) and "
+        "`tabQuotation`.`custom_nguon_don` = 'Client Portal'"
+    )
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return "1=0"
+    khoa = pv.get("custom_khoa_phong")
+    if khoa:
+        dk += f" and `tabQuotation`.`custom_khoa_phong` = {frappe.db.escape(khoa)}"
+    return dk
+
+
+def bao_gia_has_permission(doc, ptype=None, user=None):
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return True
+    if doc.get("quotation_to") != "Customer" or doc.get("custom_nguon_don") != "Client Portal":
+        return False
+    if doc.get("party_name") not in get_allowed_customers(user):
+        return False
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return False
+    khoa = pv.get("custom_khoa_phong")
+    return not khoa or doc.get("custom_khoa_phong") == khoa
+
+
+def bao_gia_khong_qua_trang_web(doc, ptype=None, user=None, verbose=False):
+    """Hook `has_website_permission` của Quotation.
+
+    ERPNext đăng ký sẵn một hook cho Quotation, cho qua mọi tài khoản có dòng
+    `Portal User` trên Customer. Đường đó không qua DocPerm, không biết trục
+    khoa, và là thứ `/quotations/<tên>`, `/printview`, `download_pdf` rơi về
+    khi DocPerm từ chối. Frappe từ chối nếu BẤT KỲ hook nào trả giá trị sai,
+    nên trả False ở đây là đủ đóng cả ba. Cổng đọc báo giá qua endpoint riêng.
+    """
+    return not _is_restricted_user(user or frappe.session.user)
+
+
 def einvoice_query(user=None):
     """E7 — `Fast EInvoice Document` là doctype của MODULE KHÁC (team Dev,
     `apps/erpnext/erpnext/einvoice/`), mảng `permissions` của nó chỉ còn

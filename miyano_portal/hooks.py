@@ -186,6 +186,7 @@ permission_query_conditions = {
 	"Delivery Note": "miyano_portal.permissions.delivery_query",
 	"Sales Invoice": "miyano_portal.permissions.invoice_query",
 	"Blanket Order": "miyano_portal.permissions.blanket_query",
+	"Quotation": "miyano_portal.permissions.bao_gia_query",
 	# E6 — Portal Item Request mang `customer` trực tiếp, cùng hình dạng bốn
 	# doctype trên (KHÔNG phải hình dạng kho/permissions.py). Không có
 	# DocPerm nào cho role Customer trên doctype này (xem JSON) nên đây, như
@@ -259,6 +260,7 @@ has_permission = {
 	"Delivery Note": "miyano_portal.permissions.generic_has_permission",
 	"Sales Invoice": "miyano_portal.permissions.generic_has_permission",
 	"Blanket Order": "miyano_portal.permissions.generic_has_permission",
+	"Quotation": "miyano_portal.permissions.bao_gia_has_permission",
 	# E6 — cùng khuôn Sales Order/Delivery Note/... ở trên (customer trực
 	# tiếp), không phải khuôn kho_child_has_permission (customer qua `kho`).
 	"Portal Item Request": "miyano_portal.permissions.generic_has_permission",
@@ -356,6 +358,12 @@ has_permission = {
 	# MODULE-LEVEL frappe.has_permission(doctype, ptype, doc) mà /printview
 	# dùng. Lỗ /printview được đóng bởi việc gỡ DocPerm ở trên, KHÔNG phải
 	# bởi override đó.
+}
+
+# Spec 2026-10-12 §8 — đóng đường trang web có sẵn của ERPNext cho Quotation
+# (`/quotations/<tên>`, `/printview`, `download_pdf`). Xem docstring hàm.
+has_website_permission = {
+	"Quotation": "miyano_portal.permissions.bao_gia_khong_qua_trang_web",
 }
 
 # DocType Class
@@ -686,6 +694,7 @@ override_whitelisted_methods = {
 # trước khi sửa gì ở đây.
 before_request = [
 	"miyano_portal.rest_guard.chan_rest_doctype_con",
+	"miyano_portal.rest_guard.chan_trang_bao_gia_erpnext",
 ]
 # after_request = ["miyano_portal.utils.after_request"]
 
