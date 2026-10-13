@@ -113,7 +113,52 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 			self.assertIn(f"{khoa}:", fmt)
 
 	def test_dashboard_co_the_bao_gia(self):
-		self.assertIn("bao_gia_cho_dong_y", _doc("views/Dashboard.vue"))
+		nguon = _doc("views/Dashboard.vue")
+		mau = nguon.split("<template>", 1)[1]
+		the = re.search(
+			r"<router-link :to=\"\{ name: 'bao-gia', query: \{ nhom: 'cho_dong_y' \} \}\""
+			r".*?</router-link>", mau, re.S,
+		).group(0)
+		self.assertIn("{{ kpi.bao_gia_cho_dong_y }}", the)
+		# Thẻ trỏ sang tab báo giá chỉ mang con số của tab báo giá.
+		self.assertNotIn("don_cu_cho_dong_y", the)
+
+	def test_dashboard_don_cu_cho_dong_y_tro_sang_tab_don_hang(self):
+		nguon = _doc("views/Dashboard.vue")
+		self.assertIn("don_cu_cho_dong_y: 0", nguon.split("<template>", 1)[0])
+		mau = nguon.split("<template>", 1)[1]
+		lien_ket = re.search(
+			r"<router-link\b[^>]*v-if=\"kpi\.don_cu_cho_dong_y > 0\"[^>]*>.*?</router-link>",
+			mau, re.S,
+		)
+		self.assertIsNotNone(lien_ket, "thiếu đường dẫn đơn cũ chờ đồng ý")
+		lien_ket = lien_ket.group(0)
+		self.assertIn("{ name: 'yeu-cau', query: { chip: 'cho_khach_dong_y' } }", lien_ket)
+		self.assertIn("{{ kpi.don_cu_cho_dong_y }} đơn cũ chờ đồng ý", lien_ket)
+		# Không lồng <a> trong <a>: đường dẫn này đứng ngoài thẻ báo giá.
+		the = re.search(
+			r"<router-link :to=\"\{ name: 'bao-gia'.*?</router-link>", mau, re.S
+		).group(0)
+		self.assertNotIn(lien_ket, the)
+		self.assertIn("cho_khach_dong_y", _doc("format.js"))
+
+	def test_dong_nhom_nhap_hien_trang_thai_phieu_ca_tren_di_dong(self):
+		"""I1 — nhóm "Nháp / chờ duyệt nội bộ" gom Nháp, Chờ duyệt, Từ chối, Đã
+		huỷ. Huy hiệu của dòng nhóm đó phải nói đúng trạng thái phiếu, ở cả
+		bảng lẫn thẻ di động."""
+		mau = _doc("views/BaoGiaList.vue").split("<template>", 1)[1]
+		ban, di_dong = mau.split("<template v-else>", 1)
+		huy_hieu = (
+			'<span class="badge" :class="badgeDongBaoGia(r)">{{ nhanDongBaoGia(r) }}</span>'
+		)
+		self.assertEqual(ban.count(huy_hieu), 1)
+		self.assertEqual(di_dong.count(huy_hieu), 1)
+		# Không còn huy hiệu nào chỉ vẽ theo nhóm.
+		self.assertNotIn("nhomBaoGiaBadge", mau)
+		nguon = _doc("bao-gia.js")
+		ham = nguon.split("export function nhanDongBaoGia", 1)[1].split("\n}\n", 1)[0]
+		self.assertIn("dong.nhom === 'nhap'", ham)
+		self.assertIn("dong.trang_thai_phieu", ham)
 
 	def test_dat_hang_khong_hien_ma_don_rong(self):
 		# Giỏ chỉ có hàng chờ báo giá không sinh đơn: màn Đặt hàng hỏi

@@ -5,8 +5,8 @@ from unittest.mock import patch
 import frappe
 from frappe.model.workflow import apply_workflow
 
-from miyano_portal import bao_gia
-from miyano_portal.api import portal
+from miyano_portal import bao_gia, dat_hang
+from miyano_portal.api import de_xuat, portal
 from miyano_portal.portal_context import LOI_KHONG_THAY
 from miyano_portal.tests.nen_bao_gia import NenBaoGia
 
@@ -68,6 +68,86 @@ class TestBaoGiaEndpoint(NenBaoGia):
 		self.assertIn(nhap_gia.name, don)
 		self.assertNotIn(nhap_bg.name, don)
 		self.assertNotIn(co_bg.name, don)
+
+	# ---- I1: hàng chờ duyệt của quản lý là hàng việc chéo loại
+
+	def test_phieu_cho_bao_gia_dang_cho_duyet_co_trong_hang_cho_duyet(self):
+		cho_bg = self._phieu(self.item_boi_so, trang_thai="Chờ duyệt")
+		cho_gia = self._phieu(self.item_ngoai, trang_thai="Chờ duyệt")
+		nhap_bg = self._phieu(self.item_boi_so)
+		co_bg, _ = self._phieu_co_bao_gia()
+
+		def ten(**loc):
+			kq = self._goi(self.ql_a, portal.portal_yeu_cau_cua_toi, **loc)
+			return {r["de_xuat"] for r in kq["rows"]}, kq["tong"]
+
+		hang_cho, tong = ten(giai_doan="cho_duyet")
+		self.assertEqual(hang_cho, {cho_bg.name, cho_gia.name})
+		self.assertEqual(tong, 2)
+		# Nhãn cũ của chip (link đã gửi cho bệnh viện) đi cùng một luật.
+		self.assertEqual(ten(giai_doan="Chờ duyệt")[0], hang_cho)
+		# Con số của chip = con số huy hiệu nav (`cho-duyet.js` cộng hai lời gọi).
+		huy_hieu = sum(
+			len(self._goi(self.ql_a, de_xuat.de_xuat_danh_sach, trang_thai=tt, limit=200))
+			for tt in ("Chờ duyệt", "Chờ duyệt sửa")
+		)
+		self.assertEqual(tong, huy_hieu)
+
+		# "Tất cả" và mọi chip khác vẫn bỏ phiếu thuần chờ báo giá chưa có đơn.
+		tat_ca, _ = ten()
+		self.assertIn(cho_gia.name, tat_ca)
+		for vang in (cho_bg.name, nhap_bg.name, co_bg.name):
+			self.assertNotIn(vang, tat_ca)
+		for chip in portal.GIAI_DOAN_HOP_LE:
+			if chip == portal.GIAI_DOAN_CHO_DUYET:
+				continue
+			with self.subTest(chip=chip):
+				co, _ = ten(giai_doan=chip)
+				for vang in (cho_bg.name, nhap_bg.name, co_bg.name):
+					self.assertNotIn(vang, co)
+		# Và phiếu đó vẫn ở tab báo giá.
+		bg_rows = self._goi(self.ql_a, portal.portal_bao_gia_danh_sach)["rows"]
+		dong = next(r for r in bg_rows if r["de_xuat"] == cho_bg.name)
+		self.assertEqual((dong["nhom"], dong["trang_thai_phieu"]), ("nhap", "Chờ duyệt"))
+
+	def test_hang_cho_duyet_van_kep_khoa(self):
+		self._phieu(self.item_boi_so, trang_thai="Chờ duyệt")
+		khoa_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": self.kh_a,
+			"ten_khoa_phong": "Khoa thử hàng chờ duyệt", "ma_khoa": "BGCD", "active": 1,
+		}).insert(ignore_permissions=True).name
+		kq = self._goi(
+			self.ql_a, portal.portal_yeu_cau_cua_toi, giai_doan="cho_duyet", khoa_phong=khoa_khac
+		)
+		self.assertEqual((kq["rows"], kq["tong"]), ([], 0))
+		self.assertEqual(
+			self._goi(self.ql_b, portal.portal_yeu_cau_cua_toi, giai_doan="cho_duyet")["tong"], 0
+		)
+
+	# ---- I4: báo giá hết hạn được Miyano mở lại
+
+	def test_bao_gia_mo_lai_ve_nhom_miyano_dang_bao_gia_va_giau_gia(self):
+		phieu, bg = self._phieu_co_bao_gia()
+		frappe.db.set_value("Quotation", bg.name, {
+			"valid_till": frappe.utils.add_days(frappe.utils.nowdate(), -2),
+			"transaction_date": frappe.utils.add_days(frappe.utils.nowdate(), -9),
+		}, update_modified=False)
+		self.assertEqual(bao_gia.quet_het_han(), 1)
+		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, bg.name)
+		self.assertEqual((ct["nhom"], ct["hien_gia"]), ("da_dong", True))
+
+		bg.reload()
+		apply_workflow(bg, bao_gia.HD_MO_LAI)
+		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, bg.name)
+		self.assertEqual(ct["nhom"], "dang_bao_gia")
+		self.assertFalse(ct["hien_gia"])
+		self.assertIsNone(ct["items"][0]["rate"])
+		self.assertIsNone(ct["tong_tien"])
+		self.assertEqual((ct["han_hieu_luc"], ct["het_han"]), ("", False))
+		self.assertFalse(ct["duoc_dong_y"])
+		rows = self._goi(self.ql_a, portal.portal_bao_gia_danh_sach)["rows"]
+		dong = next(r for r in rows if r["de_xuat"] == phieu.name)
+		self.assertEqual((dong["nhom"], dong["grand_total"]), ("dang_bao_gia", None))
 
 	def test_tab_bao_gia_du_nam_nhom(self):
 		nhap = self._phieu(self.item_boi_so)
@@ -348,12 +428,39 @@ class TestBaoGiaEndpoint(NenBaoGia):
 
 	# ---- tổng quan và thông báo
 
+	def _kpi(self):
+		kq = self._goi(self.ql_a, portal.portal_dashboard_kpi)
+		return kq["bao_gia_cho_dong_y"], kq["don_cu_cho_dong_y"]
+
 	def test_kpi_dem_bao_gia_cho_dong_y(self):
-		truoc = self._goi(self.ql_a, portal.portal_dashboard_kpi)["bao_gia_cho_dong_y"]
+		bg_truoc, don_truoc = self._kpi()
 		self._phieu_co_bao_gia()
+		self.assertEqual(self._kpi(), (bg_truoc + 1, don_truoc))
+		# Thẻ trỏ sang tab báo giá: con số của nó là con số của tab đó.
 		self.assertEqual(
-			self._goi(self.ql_a, portal.portal_dashboard_kpi)["bao_gia_cho_dong_y"], truoc + 1
+			self._kpi()[0],
+			self._goi(self.ql_a, portal.portal_bao_gia_danh_sach, nhom="cho_dong_y")["tong"],
 		)
+
+	def test_kpi_don_mua_le_cu_dem_rieng(self):
+		"""M3 — đơn "Mua lẻ" cũ đang chờ khách không nằm ở tab báo giá, nên
+		không được cộng vào con số của thẻ trỏ sang tab đó."""
+		bg_truoc, don_truoc = self._kpi()
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[{"item_code": self.item_boi_so, "qty": 20}],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(so.custom_loai_don, "Mua lẻ")
+		so.items[0].rate = 7000
+		so.save()
+		apply_workflow(so, "Gửi khách duyệt")
+		self.assertEqual(self._kpi(), (bg_truoc, don_truoc + 1))
+		# Đường dẫn "đơn cũ chờ đồng ý" trỏ tới chip này: đơn phải nằm ở đó.
+		rows = self._goi(
+			self.ql_a, portal.portal_yeu_cau_cua_toi, giai_doan="cho_khach_dong_y"
+		)["rows"]
+		self.assertIn(so.name, {r["sales_order"] for r in rows})
 
 	def test_duong_dan_thong_bao(self):
 		_, bg = self._phieu_co_bao_gia()

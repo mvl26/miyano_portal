@@ -1,5 +1,7 @@
 """Hai đường tạo đơn rẽ sang Quotation (spec 2026-10-12 §5)."""
 
+from unittest.mock import patch
+
 import frappe
 
 from miyano_portal import bao_gia, de_xuat_duyet
@@ -184,3 +186,74 @@ class TestBaoGiaReNhanh(NenBaoGia):
 		self._dat(items=[{"item_code": self.item_boi_so, "qty": 20}], dat_ngoai=[DONG_GO_TAY],
 		          khoa_phong=self.khoa_huyethoc)
 		self.assertEqual(frappe.db.count("Sales Order", {"custom_loai_don": "Mua lẻ"}), truoc)
+
+	# ---- M4: mã mới chạy trên site chưa `bench migrate`
+
+	def _khong_cham_quotation(self):
+		"""Chạy khối lệnh với `bao_gia.san_sang()` = False và trả mọi câu SQL
+		đã chạy: không câu nào được nhắc tới bảng Quotation (cột
+		`custom_request_id` của nó chưa có)."""
+		that = frappe.db.sql
+		cau = []
+
+		def gia(query, *a, **kw):
+			cau.append(str(query))
+			return that(query, *a, **kw)
+
+		return cau, patch.object(bao_gia, "san_sang", return_value=False), patch.object(
+			frappe.local.db, "sql", side_effect=gia
+		)
+
+	def test_san_sang_tren_site_da_migrate(self):
+		self.assertIs(bao_gia.san_sang(), True)
+
+	def test_chua_san_sang_gio_chua_gia_van_sinh_don_mua_le(self):
+		so_bg = frappe.db.count("Quotation")
+		cau, khong_san_sang, nghe_sql = self._khong_cham_quotation()
+		with khong_san_sang, nghe_sql:
+			kq = self._dat(items=[{"item_code": self.item_boi_so, "qty": 20}],
+			               khoa_phong=self.khoa_huyethoc)
+		self.assertIsNone(kq["bao_gia"])
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"), "Mua lẻ"
+		)
+		self.assertEqual(frappe.db.count("Quotation"), so_bg)
+		self.assertTrue(cau)
+		self.assertEqual([c for c in cau if "tabQuotation" in c], [])
+
+	def test_chua_san_sang_gio_co_gia_khong_cham_quotation(self):
+		cau, khong_san_sang, nghe_sql = self._khong_cham_quotation()
+		with khong_san_sang, nghe_sql:
+			kq = self._dat(items=[{"item_code": self.item_ngoai, "qty": 10}],
+			               khoa_phong=self.khoa_huyethoc)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
+			"Theo bảng giá",
+		)
+		self.assertTrue(cau)
+		self.assertEqual([c for c in cau if "tabQuotation" in c], [])
+
+	def test_chua_san_sang_gio_tron_ra_hai_don(self):
+		cau, khong_san_sang, nghe_sql = self._khong_cham_quotation()
+		with khong_san_sang, nghe_sql:
+			kq = self._dat(items=[
+				{"item_code": self.item_ngoai, "qty": 10},
+				{"item_code": self.item_boi_so, "qty": 20},
+			], khoa_phong=self.khoa_huyethoc)
+		self.assertEqual([d["loai_don"] for d in kq["don"]], ["Theo bảng giá", "Mua lẻ"])
+		self.assertEqual([d["bao_gia"] for d in kq["don"]], [None, None])
+		self.assertEqual([c for c in cau if "tabQuotation" in c], [])
+
+	def test_chua_san_sang_duyet_phieu_van_sinh_don_mua_le(self):
+		doc = self._phieu_cho_duyet(self.item_boi_so)
+		cau, khong_san_sang, nghe_sql = self._khong_cham_quotation()
+		with khong_san_sang, nghe_sql:
+			kq = self._duyet(doc)
+		self.assertIsNone(kq["bao_gia"])
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"), "Mua lẻ"
+		)
+		doc.reload()
+		self.assertEqual((doc.trang_thai, doc.sales_order), ("Đã duyệt", kq["sales_order"]))
+		self.assertFalse(doc.bao_gia)
+		self.assertEqual([c for c in cau if "tabQuotation" in c], [])

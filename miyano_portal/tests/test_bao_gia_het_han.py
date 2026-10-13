@@ -1,8 +1,11 @@
 """Hết hạn, quá hạn xử lý và nhật ký của báo giá (spec 2026-10-12 §4.6, §7)."""
 
+from unittest.mock import patch
+
 import frappe
+from frappe.model import workflow as wf_goc
 from frappe.model.workflow import apply_workflow
-from frappe.utils import add_days, add_to_date, now_datetime, nowdate
+from frappe.utils import add_days, add_to_date, getdate, now_datetime, nowdate
 
 from miyano_portal import bao_gia, nhat_ky, portal_bao_gia, portal_sla
 from miyano_portal.tests.nen_bao_gia import NenBaoGia
@@ -95,3 +98,88 @@ class TestBaoGiaHetHan(NenBaoGia):
 			self.assertFalse(frappe.db.exists(
 				"Notification Log", {"subject": f"{portal_sla.TIEU_DE_BAO_GIA}: {bg.name}"}
 			))
+
+	# ---- M1: một báo giá hỏng không làm dừng cả đợt quét
+
+	def test_mot_bao_gia_loi_khong_dung_ca_dot_quet(self):
+		hong, lanh = self._cho_khach(), self._cho_khach()
+		for bg in (hong, lanh):
+			self._lui_han(bg, 1)
+		that = wf_goc.apply_workflow
+
+		def gia(doc, hanh_dong):
+			if doc.name == hong.name:
+				raise frappe.ValidationError("báo giá này lưu hỏng")
+			return that(doc, hanh_dong)
+
+		with patch.object(wf_goc, "apply_workflow", side_effect=gia):
+			self.assertEqual(bao_gia.quet_het_han(), 1)
+		self.assertEqual(
+			frappe.db.get_value("Quotation", lanh.name, "workflow_state"), bao_gia.TT_HET_HAN
+		)
+		self.assertEqual(
+			frappe.db.get_value("Quotation", hong.name, "workflow_state"), bao_gia.TT_CHO_KHACH
+		)
+		self.assertTrue(frappe.db.exists(
+			"Error Log", {"reference_doctype": "Quotation", "reference_name": hong.name}
+		))
+		self.assertFalse(frappe.db.exists(
+			"Error Log", {"reference_doctype": "Quotation", "reference_name": lanh.name}
+		))
+		# Đợt quét sau (hết lỗi) đóng nốt báo giá còn lại.
+		self.assertEqual(bao_gia.quet_het_han(), 1)
+
+	# ---- I4: mở lại báo giá hết hạn
+
+	def _het_han_tu_yeu_cau(self):
+		kq = bao_gia.tao_bao_gia(
+			self.kh_a, items=[{"item_code": self.item_boi_so, "qty": 20}],
+			request_id=frappe.generate_hash(length=12), khoa_phong=self.khoa_huyethoc,
+		)
+		bg = frappe.get_doc("Quotation", kq["bao_gia"])
+		bg.items[0].rate = bg.items[0].price_list_rate = 7000
+		bg.save()
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		self._lui_han(bg, 3)
+		self.assertEqual(bao_gia.quet_het_han(), 1)
+		bg.reload()
+		self.assertEqual(bg.workflow_state, bao_gia.TT_HET_HAN)
+		return bg
+
+	def test_mo_lai_xoa_han_cu_giu_don_gia(self):
+		bg = self._het_han_tu_yeu_cau()
+		self.assertTrue(bg.valid_till)
+		self.assertTrue(bg.custom_ngay_gui_khach_duyet)
+		bg = apply_workflow(bg, bao_gia.HD_MO_LAI)
+		bg.reload()
+		self.assertEqual((bg.workflow_state, bg.docstatus), (bao_gia.TT_CHO_MIYANO, 0))
+		self.assertFalse(bg.valid_till)
+		self.assertFalse(bg.custom_ngay_gui_khach_duyet)
+		self.assertEqual(bg.items[0].rate, 7000)
+
+	def test_tron_vong_het_han_mo_lai_gui_lai_khach_dong_y(self):
+		ql = self._quan_ly("bghh.ql@demo.miyano", self.kh_a)
+		bg = self._het_han_tu_yeu_cau()
+		bg = apply_workflow(bg, bao_gia.HD_MO_LAI)
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		self.assertEqual(bg.workflow_state, bao_gia.TT_CHO_KHACH)
+		self.assertGreaterEqual(getdate(bg.valid_till), getdate(nowdate()))
+		self.assertTrue(bg.custom_ngay_gui_khach_duyet)
+		frappe.set_user(ql)
+		try:
+			kq = bao_gia.dong_y(bg.name)
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(kq["trang_thai_moi"], bao_gia.TT_DA_DONG_Y)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual((so.custom_loai_don, so.items[0].rate), ("Theo báo giá", 7000))
+
+	def test_bao_gia_noi_bo_mo_lai_khong_bi_dung_han(self):
+		"""Hook chỉ dọn hạn cho báo giá của cổng."""
+		bg = apply_workflow(self._bao_gia_tho(nguon="Nội bộ"), bao_gia.HD_GUI_KHACH)
+		han = bg.valid_till
+		frappe.db.set_value("Quotation", bg.name, "workflow_state", bao_gia.TT_HET_HAN)
+		bg.reload()
+		bg = apply_workflow(bg, bao_gia.HD_MO_LAI)
+		self.assertEqual(bg.workflow_state, bao_gia.TT_CHO_MIYANO)
+		self.assertEqual(getdate(bg.valid_till), getdate(han))

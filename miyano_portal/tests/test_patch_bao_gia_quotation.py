@@ -20,14 +20,29 @@ class TestPatchBaoGiaQuotation(FrappeTestCase):
 		self.assertEqual(meta.get_field("custom_ngay_gui_khach_duyet").fieldtype, "Datetime")
 		self.assertTrue(meta.get_field("custom_request_id").unique)
 
-	def test_bon_truong_khong_chep_sang_don(self):
+	def test_truong_khong_chep_sang_ban_sao_va_don(self):
 		bao_gia_quotation.them_truong()
 		meta = frappe.get_meta("Quotation")
 		for ten in (
 			"custom_request_id", "custom_ngay_gui_khach_duyet",
 			"custom_ly_do_tu_choi", "custom_dat_ngoai",
+			# Bản sao / bản amend trên Desk không có mã yêu cầu: nó phải là báo
+			# giá "Nội bộ", không mang phiếu, khoa và tên của yêu cầu gốc.
+			"custom_nguon_don", "custom_de_xuat", "custom_khoa_phong", "custom_ten_don_hang",
 		):
 			self.assertEqual(meta.get_field(ten).no_copy, 1, ten)
+
+	def test_truong_da_co_duoc_cap_nhat_no_copy(self):
+		"""Site đã chạy patch bản trước: `create_custom_fields` phải SỬA Custom
+		Field đang có, không chỉ tạo field mới."""
+		ten = frappe.db.get_value(
+			"Custom Field", {"dt": "Quotation", "fieldname": "custom_nguon_don"}, "name"
+		)
+		frappe.db.set_value("Custom Field", ten, "no_copy", 0)
+		frappe.clear_cache(doctype="Quotation")
+		bao_gia_quotation.them_truong()
+		self.assertEqual(frappe.db.get_value("Custom Field", ten, "no_copy"), 1)
+		self.assertEqual(frappe.get_meta("Quotation").get_field("custom_nguon_don").no_copy, 1)
 
 	def test_dau_nguon_gia_tren_dong_bao_gia(self):
 		bao_gia_quotation.them_truong()

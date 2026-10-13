@@ -140,3 +140,34 @@ class TestBaoGiaTuChoiSua(NenBaoGia):
 			)
 		self.assertIn("không phải của cổng khách hàng", str(ctx.exception))
 
+	# ---- M2: dữ liệu `dong` hỏng từ client
+
+	def test_dong_khong_phai_danh_sach(self):
+		bg = self._cho_khach()
+		dong = self._dong(bg, self.item_boi_so)
+		for hong in ({"name": dong.name, "qty": 40}, 5, "abc"):
+			with self.subTest(dong=hong):
+				with self.assertRaises(frappe.ValidationError) as ctx:
+					self._voi_khach(bao_gia.sua_so_luong, bg.name, hong)
+				self.assertIn("không hợp lệ", str(ctx.exception))
+
+	def test_phan_tu_khong_phai_dict(self):
+		bg = self._cho_khach()
+		dong = self._dong(bg, self.item_boi_so)
+		for hong in ([dong.name], [None], [[dong.name, 40]], [5]):
+			with self.subTest(dong=hong):
+				with self.assertRaises(frappe.ValidationError) as ctx:
+					self._voi_khach(bao_gia.sua_so_luong, bg.name, hong)
+				self.assertIn("không hợp lệ", str(ctx.exception))
+
+	def test_so_luong_khong_huu_han(self):
+		bg = self._cho_khach()
+		dong = self._dong(bg, self.item_boi_so)
+		for so in ("nan", "inf", "-inf", float("nan"), float("inf")):
+			with self.subTest(qty=so):
+				with self.assertRaises(frappe.ValidationError) as ctx:
+					self._voi_khach(bao_gia.sua_so_luong, bg.name, [{"name": dong.name, "qty": so}])
+				self.assertIn("số lượng không hợp lệ", str(ctx.exception))
+		bg.reload()
+		self.assertEqual(bg.workflow_state, bao_gia.TT_CHO_KHACH)
+		self.assertEqual(self._dong(bg, self.item_boi_so).qty, 20)

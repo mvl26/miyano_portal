@@ -135,6 +135,36 @@ class TestDonTheoBaoGia(NenBaoGia):
 		self.assertEqual(so.items[0].custom_gia_khach_dong_y, 9000)
 		self.assertEqual(bang_gia_khach.gia_bang_gia(self.kh_a, self.item_boi_so), 9000)
 
+	def test_khong_gui_duyet_gia_khach_da_tu_choi(self):
+		"""I5 — nhân viên sửa giá, gửi khách duyệt lại, khách KHÔNG đồng ý: đơn
+		về "Chờ xác nhận" với dấu giá đã đồng ý về 0. «Gửi duyệt» từ đó là đưa
+		một đơn giá khách vừa từ chối tới chỗ «Xác nhận»."""
+		so, _ = self._don_theo_bao_gia()
+		so.items[0].rate = so.items[0].price_list_rate = 9000
+		so.save()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self._voi_khach(
+			portal.portal_order_accept, so.name, "khong_dong_y", "Giá mới cao hơn giá đã đồng ý"
+		)
+		so.reload()
+		self.assertEqual(so.workflow_state, "Chờ xác nhận")
+		self.assertEqual(so.items[0].custom_gia_khach_dong_y, 0)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			apply_workflow(so, "Gửi duyệt")
+		self.assertIn("Gửi khách duyệt", str(ctx.exception))
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", so.name, "workflow_state"), "Chờ xác nhận"
+		)
+		# Lối ra: gửi khách duyệt lại, khách đồng ý thì đơn đi tiếp được.
+		so.reload()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		self._voi_khach(portal.portal_order_accept, so.name, "dong_y")
+		so.reload()
+		self.assertEqual(so.workflow_state, "Chờ Miyano xác nhận")
+		self.assertEqual(so.items[0].custom_gia_khach_dong_y, 9000)
+		so = apply_workflow(so, "Xác nhận")
+		self.assertEqual(so.docstatus, 1)
+
 	# ---- luồng cũ
 
 	def test_don_mua_le_cu_van_dong_y_duoc(self):

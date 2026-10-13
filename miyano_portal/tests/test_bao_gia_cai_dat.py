@@ -42,6 +42,42 @@ class TestBaoGiaCaiDat(NenBaoGia):
 		bg.custom_nguon_don = "Nội bộ"
 		self.assertFalse(frappe.safe_eval(tb.condition, None, ngu_canh))
 
+	def test_thong_bao_miyano_tu_choi(self):
+		ten = install_notifications.TEN_TB_BAO_GIA_TU_CHOI
+		self.assertEqual(ten, "Portal - Yêu cầu báo giá bị từ chối")
+		tb = frappe.get_doc("Notification", ten)
+		self.assertEqual((tb.document_type, tb.event, tb.value_changed),
+		                 ("Quotation", "Value Change", "workflow_state"))
+		self.assertEqual((tb.enabled, tb.send_system_notification), (1, 1))
+		self.assertEqual((tb.attach_print or 0, tb.print_format), (0, None))
+		san_sang = frappe.get_doc("Notification", install_notifications.TEN_TB_BAO_GIA)
+		self.assertEqual(
+			[r.receiver_by_document_field for r in tb.recipients],
+			[r.receiver_by_document_field for r in san_sang.recipients],
+		)
+		self.assertIn("doc.custom_ly_do_tu_choi", tb.message)
+
+		bg = self._bao_gia_tho()
+		ngu_canh = {"doc": bg, "frappe": frappe}
+		# Chờ Miyano báo giá: không gửi.
+		self.assertFalse(frappe.safe_eval(tb.condition, None, ngu_canh))
+		# Khách tự từ chối: không phải tin báo cho khách.
+		bg.workflow_state = bao_gia.TT_KHACH_TU_CHOI
+		self.assertFalse(frappe.safe_eval(tb.condition, None, ngu_canh))
+		bg.workflow_state = bao_gia.TT_MIYANO_TU_CHOI
+		self.assertTrue(frappe.safe_eval(tb.condition, None, ngu_canh))
+		# Báo giá nhân viên tự lập: không gửi.
+		bg.custom_nguon_don = "Nội bộ"
+		self.assertFalse(frappe.safe_eval(tb.condition, None, ngu_canh))
+
+	def test_thong_bao_miyano_tu_choi_neu_ly_do(self):
+		tb = frappe.get_doc("Notification", install_notifications.TEN_TB_BAO_GIA_TU_CHOI)
+		bg = self._bao_gia_tho()
+		bg.custom_ly_do_tu_choi = "Miyano không phân phối mặt hàng này."
+		noi_dung = frappe.render_template(tb.message, {"doc": bg})
+		self.assertIn("Miyano không phân phối mặt hàng này.", noi_dung)
+		self.assertIn(bg.name, frappe.render_template(tb.subject, {"doc": bg}))
+
 	def test_loi_tat_hang_viec(self):
 		ws = frappe.get_doc("Workspace", install_kho_workspace.TITLE)
 		sc = [s for s in ws.shortcuts if s.label == "Yêu cầu báo giá"]
@@ -61,6 +97,14 @@ class TestBaoGiaCaiDat(NenBaoGia):
 		)
 		self.assertEqual(
 			frappe.db.count("Notification", {"name": install_notifications.TEN_TB_BAO_GIA}), 1
+		)
+		self.assertEqual(
+			frappe.db.count(
+				"Notification", {"name": install_notifications.TEN_TB_BAO_GIA_TU_CHOI}
+			), 1,
+		)
+		self.assertEqual(
+			len(frappe.get_doc("Workflow", bao_gia.WORKFLOW).transitions), 9
 		)
 
 	def test_khoi_hang_moi_dung_chung_hai_form(self):
