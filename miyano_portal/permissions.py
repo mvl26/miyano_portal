@@ -386,7 +386,7 @@ def einvoice_query(user=None):
 # tầng endpoint). Đổi một bên PHẢI soát bên còn lại — cùng khuôn "hai nơi
 # định nghĩa một khái niệm PHẢI khớp nhau" đã ghi ở nhiều chỗ khác trong đề
 # án (vd. `_TRANG_THAI_GHI_DE_WORKFLOW`/`_so_status_vi_full`).
-_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
+_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice", "Quotation")
 
 
 def notification_khoa_query(user=None) -> str:
@@ -466,6 +466,11 @@ def notification_khoa_query(user=None) -> str:
                 "Sales Invoice", "Sales Invoice Item", "sales_order", escaped
             )
             + "))"
+        ),
+        "Quotation": (
+            f"exists (select 1 from `tabQuotation` where "
+            f"`tabQuotation`.name = {dname_col} and "
+            f"`tabQuotation`.custom_khoa_phong = {escaped})"
         ),
     }
     ve_theo_loai = " or ".join(

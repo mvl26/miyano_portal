@@ -42,6 +42,14 @@ DA_AP_PHAM_VI: set[str] = {
 	# CẢ HAI nhánh, cộng lưới `_cot_khoa_phong_ton_tai()` fail-closed cho
 	# nhánh đơn — xem docstring endpoint.
 	"portal_yeu_cau_cua_toi",
+	# Yêu cầu báo giá (spec 2026-10-12 §6, §8). Tài khoản cổng không có
+	# DocPerm trên Quotation nên không lớp nào khác lọc hộ: hai endpoint
+	# danh sách/đếm đi qua `_truy_van_tab_bao_gia()` (SQL thô, tự kẹp
+	# `get_portal_member()` + `pham_vi_don()`), bốn endpoint còn lại mở đầu
+	# bằng `_bao_gia_cua_toi()` — cùng hai trục, cộng chốt nguồn "Client
+	# Portal". `portal_bao_gia_pdf(quotation=...)` cũng qua chốt đó.
+	"portal_bao_gia_danh_sach", "portal_bao_gia_dem", "portal_bao_gia_chi_tiet",
+	"portal_bao_gia_dong_y", "portal_bao_gia_tu_choi", "portal_bao_gia_sua_so_luong",
 	"portal_order_history", "portal_order_track", "portal_dashboard_kpi",
 	"portal_deliveries", "portal_invoices", "portal_reorder",
 	"portal_order_accept", "portal_order_sua_so_luong", "portal_order_huy",

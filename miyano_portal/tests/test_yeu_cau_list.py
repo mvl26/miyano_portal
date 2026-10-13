@@ -123,6 +123,14 @@ class TestYeuCauList(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a, self.kh_b = f.kh_a, f.kh_b
 		self.item = f.item
+		# Spec 2026-10-12 §6.1 — phiếu CHƯA có đơn mà chỉ gồm dòng chờ báo giá
+		# nay thuộc tab "Yêu cầu báo giá" (`portal_bao_gia_danh_sach`, canh ở
+		# `test_bao_gia_endpoint.py`), không còn ở danh sách này. `f.item`
+		# không có giá, nên mọi phiếu dựng từ nó sẽ rời khỏi đúng danh sách
+		# các bài dưới đây đang đo. Phiếu chưa có đơn vì thế dùng một mã CÓ
+		# giá trong Price List của khách; `_duyet_that` vẫn dùng `f.item`
+		# (đơn giá 0, đi vòng báo giá) như cũ.
+		self.item_co_gia = self._dam_bao_item_co_gia()
 		self.khoa_huyethoc = f.khoa_huyethoc  # dưới kh_a
 		self.khoa_b = f.khoa_duoc             # dưới kh_b
 
@@ -190,11 +198,36 @@ class TestYeuCauList(FrappeTestCase):
 			"ten_khoa_phong": ten, "ma_khoa": ma, "active": 1,
 		}).insert(ignore_permissions=True).name
 
-	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1):
+	def _dam_bao_item_co_gia(self):
+		ten = "_TEST DX ITEM CO GIA"
+		if not frappe.db.exists("Item", ten):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ten, "item_name": ten,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Nos", "is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		bang = "_TEST DX YC PRICE"
+		if not frappe.db.exists("Price List", bang):
+			frappe.get_doc({
+				"doctype": "Price List", "price_list_name": bang,
+				"currency": "VND", "selling": 1, "enabled": 1,
+			}).insert(ignore_permissions=True)
+		for khach in (self.kh_a, self.kh_b):
+			frappe.db.set_value("Customer", khach, "default_price_list", bang)
+		loc = {"item_code": ten, "price_list": bang, "selling": 1}
+		if not frappe.db.exists("Item Price", loc):
+			frappe.get_doc({
+				"doctype": "Item Price", "price_list_rate": 1000, **loc,
+			}).insert(ignore_permissions=True)
+		return ten
+
+	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1, item=None):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": customer, "khoa_phong": khoa_phong,
-			"items": [{"item_code": self.item, "so_luong_de_xuat": so_luong}],
+			"items": [{
+				"item_code": item or self.item_co_gia, "so_luong_de_xuat": so_luong,
+			}],
 		})
 		doc.insert(ignore_permissions=True)
 		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", owner)
@@ -220,7 +253,7 @@ class TestYeuCauList(FrappeTestCase):
 		"""Phiếu đi TRỌN đường thật: lập → gửi duyệt → quản lý duyệt → đơn.
 
 		Trả `(ten_phieu, ten_don)`."""
-		ten = self._tao_phieu(customer, khoa_phong, owner)
+		ten = self._tao_phieu(customer, khoa_phong, owner, item=self.item)
 		doc = frappe.get_doc("Portal De Xuat Mua", ten)
 		doc.ly_do_yeu_cau = "cần gấp"
 		doc.gui_duyet()

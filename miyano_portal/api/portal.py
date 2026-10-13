@@ -2,7 +2,7 @@ import frappe
 
 from miyano_portal.kho import can_cu_duyet
 from miyano_portal.nang_quyen import quyen_he_thong
-from miyano_portal import bang_gia_khach, dat_hang, einvoice
+from miyano_portal import bang_gia_khach, bao_gia, dat_hang, einvoice
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
@@ -11,6 +11,7 @@ from miyano_portal.dat_hang import (
 from miyano_portal.api.de_xuat import _phieu_cua_toi
 from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
+    LOI_KHONG_THAY,
     _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
     cot_lan_dat_ton_tai,
@@ -1069,6 +1070,72 @@ def _sql_giai_doan(tt: str, so: str) -> str:
     end"""
 
 
+# ---------------------------------------------------------------------------
+# Yêu cầu báo giá (spec 2026-10-12 §6). Hai tab của màn danh sách dùng CHUNG
+# các mảnh SQL dưới đây: tab này nhận đúng những phiếu tab kia bỏ ra, nên một
+# luật viết hai lần là hai tab hoặc cùng hiện, hoặc cùng giấu một phiếu.
+# ---------------------------------------------------------------------------
+NHOM_BAO_GIA = ("nhap", "dang_bao_gia", "cho_dong_y", "da_dong_y", "da_dong")
+
+# Trạng thái mà khách được xem đơn giá. "Chờ Miyano báo giá" KHÔNG có ở đây,
+# kể cả khi báo giá còn giữ giá gợi ý sau một lần khách sửa số lượng: giá
+# Miyano chưa gửi lại không phải là báo giá.
+_BAO_GIA_HIEN_GIA = (
+    bao_gia.TT_CHO_KHACH, bao_gia.TT_DA_DONG_Y, bao_gia.TT_KHACH_TU_CHOI, bao_gia.TT_HET_HAN,
+)
+
+
+def _cot_bao_gia_ton_tai() -> bool:
+    """Lưới an toàn lúc triển khai: mã mới chạy trên site chưa `bench migrate`
+    thì chưa có cột `bao_gia` trên phiếu."""
+    return frappe.db.has_column("Portal De Xuat Mua", "bao_gia")
+
+
+def _sql_phieu_cho_bao_gia(p: str) -> str:
+    """Phiếu THUẦN chờ báo giá: có dòng chờ báo giá hoặc dòng gõ tay, và không
+    có dòng nào đã có giá. Phiếu nháp còn trộn (chưa gửi duyệt nên chưa tách)
+    không thuộc nhóm này."""
+    return f"""(
+        (exists (select 1 from `tabPortal De Xuat Mua Item` i
+                 where i.parent = {p}.name and i.nguon_gia = 'Chờ báo giá')
+         or exists (select 1 from `tabSales Order Dat Ngoai Item` d
+                    where d.parent = {p}.name and d.parenttype = 'Portal De Xuat Mua'))
+        and not exists (select 1 from `tabPortal De Xuat Mua Item` i2
+                        where i2.parent = {p}.name
+                          and i2.nguon_gia in ('Bảng giá', 'Hợp đồng'))
+    )"""
+
+
+def _sql_thuoc_tab_bao_gia(p: str) -> str:
+    """§6.1 — có `bao_gia`, hoặc chưa có cả đơn lẫn báo giá mà là phiếu chờ báo
+    giá. Phiếu có `sales_order` mà không có `bao_gia` là đơn "Mua lẻ" của luồng
+    cũ: ở lại tab Đơn hàng."""
+    return (
+        f"(coalesce({p}.bao_gia, '') != '' or (coalesce({p}.sales_order, '') = '' "
+        f"and {_sql_phieu_cho_bao_gia(p)}))"
+    )
+
+
+def _sql_an_khoi_tab_don(p: str) -> str:
+    """§6.4 — tab Đơn hàng chỉ bỏ phiếu chờ báo giá CHƯA có đơn. Phiếu đã có
+    đơn (khách đã đồng ý) hiện ở cả hai tab: bên kia là báo giá, bên này là
+    đơn sinh ra từ nó."""
+    return (
+        f"(coalesce({p}.sales_order, '') = '' and (coalesce({p}.bao_gia, '') != '' "
+        f"or {_sql_phieu_cho_bao_gia(p)}))"
+    )
+
+
+def _sql_nhom_bao_gia(q: str) -> str:
+    return f"""case
+        when {q}.name is null then 'nhap'
+        when {q}.workflow_state = '{bao_gia.TT_CHO_MIYANO}' then 'dang_bao_gia'
+        when {q}.workflow_state = '{bao_gia.TT_CHO_KHACH}' then 'cho_dong_y'
+        when {q}.workflow_state = '{bao_gia.TT_DA_DONG_Y}' then 'da_dong_y'
+        else 'da_dong'
+    end"""
+
+
 @frappe.whitelist()
 def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -> dict:
     """QĐ-G11 — danh sách HỢP NHẤT phiếu đề xuất + đơn hàng, MỘT dòng cho
@@ -1151,6 +1218,10 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
         "coalesce(p.ma_lan_dat, '')" if cot_lan_dat_ton_tai() else "''"
     )
     co_nhanh_don = co_cot_khoa or not khoa
+    # Spec 2026-10-12 §6.4 — phiếu chờ báo giá chưa có đơn thuộc tab kia.
+    an_bao_gia = (
+        f" and not {_sql_an_khoi_tab_don('p')}" if _cot_bao_gia_ton_tai() else ""
+    )
 
     nhanh_phieu = f"""
         select 'phieu' as nguon, p.name as de_xuat, p.sales_order as sales_order,
@@ -1176,7 +1247,7 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
                {cot_lan_dat} as ma_lan_dat
         from `tabPortal De Xuat Mua` p
         left join `tabSales Order` so on so.name = p.sales_order
-        where {dk_phieu}
+        where {dk_phieu}{an_bao_gia}
     """
     # Đơn KHÔNG đứng sau phiếu nào — đơn cũ (có trước luồng duyệt) và đơn
     # của sáu tài khoản quản lý đang chạy thật. `not exists` trên
@@ -1245,6 +1316,212 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
     return {"rows": rows, "tong": int(tong)}
 
 
+def _truy_van_tab_bao_gia() -> tuple[str, dict]:
+    """SQL trong và tham số của tab báo giá, đã kẹp phạm vi khách + khoa."""
+    tv = get_portal_member()
+    tham_so = {"kh": tv.customer}
+    dk = "p.customer = %(kh)s"
+    khoa = pham_vi_don().get("custom_khoa_phong")
+    if khoa:
+        tham_so["khoa"] = khoa
+        dk += " and p.khoa_phong = %(khoa)s"
+    trong = f"""
+        select p.name as de_xuat, coalesce(p.bao_gia, '') as bao_gia,
+               coalesce(p.sales_order, '') as sales_order,
+               coalesce(nullif(p.ma_de_xuat, ''), '') as ma,
+               coalesce(p.ten_don_hang, '') as ten_don_hang,
+               coalesce(p.khoa_phong, '') as khoa_phong, p.creation as thoi_diem,
+               p.trang_thai as trang_thai_phieu, p.owner as owner,
+               coalesce(q.workflow_state, '') as trang_thai_bao_gia,
+               q.grand_total as grand_total, q.valid_till as han_hieu_luc,
+               {_sql_nhom_bao_gia("q")} as nhom
+        from `tabPortal De Xuat Mua` p
+        left join `tabQuotation` q
+               on q.name = p.bao_gia and q.quotation_to = 'Customer'
+              and q.party_name = %(kh)s and q.custom_nguon_don = '{bao_gia.NGUON_CONG}'
+        where {dk} and {_sql_thuoc_tab_bao_gia("p")}
+    """
+    return trong, tham_so
+
+
+@frappe.whitelist()
+def portal_bao_gia_danh_sach(nhom=None, khoa_phong=None, limit=20, start=0) -> dict:
+    """Tab "Yêu cầu báo giá" (spec 2026-10-12 §6.2). SQL thô như
+    `portal_yeu_cau_cua_toi`, vì vai Customer không có DocPerm trên phiếu lẫn
+    Quotation; hàm tự kẹp phạm vi khách và khoa."""
+    if nhom and nhom not in NHOM_BAO_GIA:
+        frappe.throw(f"Nhóm không hợp lệ: {nhom}", frappe.ValidationError)
+    if not _cot_bao_gia_ton_tai():
+        return {"rows": [], "tong": 0}
+    trong, tham_so = _truy_van_tab_bao_gia()
+    dieu_kien = []
+    if nhom:
+        tham_so["nhom"] = nhom
+        dieu_kien.append("t.nhom = %(nhom)s")
+    if khoa_phong:
+        tham_so["kp"] = khoa_phong
+        dieu_kien.append("t.khoa_phong = %(kp)s")
+    dk_ngoai = (" where " + " and ".join(dieu_kien)) if dieu_kien else ""
+    tong = frappe.db.sql(f"select count(*) from ({trong}) t{dk_ngoai}", tham_so)[0][0]
+    rows = frappe.db.sql(
+        f"""select * from ({trong}) t{dk_ngoai}
+            order by t.thoi_diem desc, t.de_xuat desc
+            limit %(limit)s offset %(start)s""",
+        {**tham_so, "limit": int(limit), "start": int(start)},
+        as_dict=True,
+    )
+    for r in rows:
+        duoc_xem_gia = r["trang_thai_bao_gia"] in _BAO_GIA_HIEN_GIA
+        r["grand_total"] = float(r["grand_total"] or 0) if duoc_xem_gia else None
+        r["han_hieu_luc"] = str(r["han_hieu_luc"]) if r.get("han_hieu_luc") else ""
+        r["owner"] = r.get("owner") or ""
+    return {"rows": rows, "tong": int(tong)}
+
+
+@frappe.whitelist()
+def portal_bao_gia_dem() -> dict:
+    """Số báo giá đang chờ khách đồng ý — huy hiệu trên tab."""
+    if not _cot_bao_gia_ton_tai():
+        return {"cho_dong_y": 0}
+    trong, tham_so = _truy_van_tab_bao_gia()
+    n = frappe.db.sql(
+        f"select count(*) from ({trong}) t where t.nhom = 'cho_dong_y'", tham_so
+    )[0][0]
+    return {"cho_dong_y": int(n)}
+
+
+def _bao_gia_cua_toi(ten: str):
+    """Chốt hai trục cho MỌI endpoint báo giá (spec §8). Trả `Document`.
+
+    Quotation dùng `party_name`, không có cột `customer`: các hàm kiểm của
+    Sales Order không dùng lại được. Báo giá không phải của cổng (nhân viên tự
+    lập) không hiện, kể cả khi cùng khách. Mọi lý do từ chối trả CÙNG một
+    thông điệp: không xác nhận cả sự tồn tại của báo giá thuộc khách khác.
+    """
+    tv = get_portal_member()
+    gt = frappe.db.get_value(
+        "Quotation", ten,
+        ["quotation_to", "party_name", "custom_nguon_don", "custom_khoa_phong"],
+        as_dict=True,
+    )
+    if (
+        not gt or gt.quotation_to != "Customer" or gt.party_name != tv.customer
+        or gt.custom_nguon_don != bao_gia.NGUON_CONG
+    ):
+        raise frappe.PermissionError(LOI_KHONG_THAY)
+    khoa = pham_vi_don().get("custom_khoa_phong")
+    if khoa and gt.custom_khoa_phong != khoa:
+        raise frappe.PermissionError(LOI_KHONG_THAY)
+    return frappe.get_doc("Quotation", ten)
+
+
+_NHOM_THEO_TRANG_THAI = {
+    bao_gia.TT_CHO_MIYANO: "dang_bao_gia",
+    bao_gia.TT_CHO_KHACH: "cho_dong_y",
+    bao_gia.TT_DA_DONG_Y: "da_dong_y",
+}
+
+
+@frappe.whitelist()
+def portal_bao_gia_chi_tiet(ten) -> dict:
+    bg = _bao_gia_cua_toi(ten)
+    trang_thai = bg.get("workflow_state") or ""
+    hien_gia = trang_thai in _BAO_GIA_HIEN_GIA
+    het_han = bao_gia.qua_han(bg)
+    cho_khach = trang_thai == bao_gia.TT_CHO_KHACH
+    ma = ""
+    if bg.get("custom_de_xuat"):
+        ma = frappe.db.get_value("Portal De Xuat Mua", bg.custom_de_xuat, "ma_de_xuat") or ""
+    return {
+        "bao_gia": bg.name,
+        "trang_thai": trang_thai,
+        "nhom": _NHOM_THEO_TRANG_THAI.get(trang_thai, "da_dong"),
+        "de_xuat": bg.get("custom_de_xuat") or "",
+        "sales_order": bao_gia.don_cua_bao_gia(bg) or "",
+        "ma": ma,
+        "ten_don_hang": bg.get("custom_ten_don_hang") or "",
+        "khoa_phong": bg.get("custom_khoa_phong") or "",
+        "ngay_tao": str(bg.transaction_date),
+        "han_hieu_luc": str(bg.valid_till) if bg.get("valid_till") else "",
+        "het_han": het_han,
+        "hien_gia": hien_gia,
+        "tong_tien": float(bg.grand_total or 0) if hien_gia else None,
+        "ly_do_tu_choi": bg.get("custom_ly_do_tu_choi") or "",
+        "duoc_dong_y": cho_khach and not het_han,
+        "duoc_sua_so_luong": cho_khach and not het_han and la_quan_ly(),
+        "items": [
+            {
+                "name": d.name, "item_code": d.item_code, "item_name": d.item_name,
+                "uom": d.uom, "qty": float(d.qty or 0),
+                "rate": float(d.rate or 0) if hien_gia else None,
+                "amount": float(d.amount or 0) if hien_gia else None,
+            }
+            for d in bg.items if d.item_code != ITEM_GIU_CHO
+        ],
+        "dat_ngoai": [
+            {
+                "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
+                "da_xu_ly": int(d.da_xu_ly or 0), "item_khop": d.get("item_khop") or "",
+            }
+            for d in bg.get("custom_dat_ngoai") or []
+        ],
+    }
+
+
+@frappe.whitelist()
+def portal_bao_gia_dong_y(ten) -> dict:
+    """Khách đồng ý báo giá → sinh đơn hàng (spec §4.4). Mọi tài khoản trong
+    phạm vi bấm được, như `portal_order_accept`."""
+    bg = _bao_gia_cua_toi(ten)
+    return bao_gia.dong_y(bg.name)
+
+
+@frappe.whitelist()
+def portal_bao_gia_tu_choi(ten, ly_do=None) -> dict:
+    bg = _bao_gia_cua_toi(ten)
+    return bao_gia.tu_choi(bg.name, ly_do)
+
+
+@frappe.whitelist()
+def portal_bao_gia_sua_so_luong(ten, dong) -> dict:
+    """Chỉ quản lý. Nhân viên khoa không có đường "xin sửa" cho báo giá trong
+    đợt này (kế hoạch 2026-10-13, mục quyết định để ngỏ)."""
+    bg = _bao_gia_cua_toi(ten)
+    if not la_quan_ly():
+        raise frappe.PermissionError(
+            "Chỉ quản lý của quý đơn vị sửa được số lượng trên báo giá."
+        )
+    kq = bao_gia.sua_so_luong(bg.name, dong)
+    if bg.get("custom_de_xuat") and kq["ap_dung"]:
+        _dong_bo_so_luong_duyet_ve_phieu(bg.custom_de_xuat, kq["ap_dung"])
+    return {"trang_thai_moi": kq["trang_thai_moi"], "thay_doi": kq["thay_doi"]}
+
+
+def _bao_gia_pdf_quotation(ten) -> None:
+    from miyano_portal.setup.install_print_formats import NAME_YCBG
+
+    bg = _bao_gia_cua_toi(ten)
+    # Chỉ từ lúc báo giá ĐÃ GỬI cho khách: trước đó giá chưa phải báo giá.
+    if bg.get("workflow_state") not in _BAO_GIA_HIEN_GIA:
+        frappe.throw(
+            "Báo giá này chưa được gửi. Vui lòng đợi Miyano báo giá.", frappe.ValidationError
+        )
+    if not frappe.db.exists("Print Format", NAME_YCBG):
+        frappe.throw(
+            "Mẫu in báo giá chưa sẵn sàng. Vui lòng liên hệ quản trị viên hệ thống.",
+            frappe.ValidationError,
+        )
+    # Tài khoản cổng không có DocPerm trên Quotation, và hook
+    # `bao_gia_khong_qua_trang_web` (Task 3) đóng luôn đường lui trang web mà
+    # `frappe.get_print` rơi về. Quyền của khách đã được `_bao_gia_cua_toi`
+    # kiểm ở trên; chỉ riêng việc dựng PDF chạy dưới quyền hệ thống.
+    with quyen_he_thong():
+        pdf = frappe.get_print("Quotation", bg.name, print_format=NAME_YCBG, as_pdf=True)
+    frappe.local.response.filename = f"BaoGia-{bg.name}.pdf"
+    frappe.local.response.filecontent = pdf
+    frappe.local.response.type = "pdf"
+
+
 def _dem_don_theo_trang_thai(trang_thai: str) -> int:
     filters, or_filters = _dieu_kien_loc_trang_thai_don(trang_thai)
     filters = filters + _pham_vi_filters()
@@ -1282,6 +1559,16 @@ def portal_dashboard_kpi() -> dict:
             filters=[["outstanding_amount", ">", 0]]
             + _loc_qua_don_cha("Sales Invoice Item", "sales_order"),
             fields=["count(distinct `tabSales Invoice`.name) as n"],
+        )[0].n,
+        # Spec 2026-10-12 §6.4 — báo giá chờ đồng ý: Quotation của luồng mới,
+        # cộng đơn "Mua lẻ" còn dở của luồng cũ.
+        "bao_gia_cho_dong_y": portal_bao_gia_dem()["cho_dong_y"] + frappe.get_list(
+            "Sales Order",
+            filters=[
+                ["workflow_state", "=", TRANG_THAI_CHO_KHACH], ["docstatus", "=", 0],
+                ["custom_loai_don", "=", "Mua lẻ"],
+            ] + _pham_vi_filters(),
+            fields=["count(name) as n"],
         )[0].n,
     }
 
@@ -2717,7 +3004,7 @@ def _tra_ban_scan_da_ky(doc) -> tuple[bool, str | None]:
 
 
 @frappe.whitelist()
-def portal_bao_gia_pdf(order) -> None:
+def portal_bao_gia_pdf(order=None, quotation=None) -> None:
     """§3.6 — tải PDF báo giá của MỘT đơn mua lẻ.
 
     Cùng khuôn `kho_phieu_pdf`/`portal_einvoice_download` (Quyết định nền số
@@ -2728,6 +3015,8 @@ def portal_bao_gia_pdf(order) -> None:
     `customer` của đơn với khách suy từ PHIÊN (Quyết định nền số 7) — không
     nhận `customer` từ client dưới bất kỳ hình thức nào.
     """
+    if quotation:
+        return _bao_gia_pdf_quotation(quotation)
     dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
     so = frappe.db.get_value(
@@ -3472,6 +3761,18 @@ def _lien_ket_thong_bao(document_type, document_name, customer) -> str | None:
             # vào đường đơn thì phiếu Chờ duyệt chưa có đơn nào để trỏ.
             return f"/yeu-cau/phieu/{document_name}"
 
+        if document_type == "Quotation":
+            gt = frappe.db.get_value(
+                "Quotation", document_name,
+                ["quotation_to", "party_name", "custom_nguon_don"], as_dict=True,
+            )
+            if (
+                not gt or gt.quotation_to != "Customer" or gt.party_name != customer
+                or gt.custom_nguon_don != bao_gia.NGUON_CONG
+            ):
+                return None
+            return f"/yeu-cau-bao-gia/{document_name}"
+
         if document_type == "Sales Invoice":
             if frappe.db.get_value("Sales Invoice", document_name, "customer") != customer:
                 return None
@@ -3558,7 +3859,7 @@ def _pham_vi_phien_hien_tai() -> dict | None:
 # hàng"), nên một thông báo "đã nhập hàng" là thông tin cấp bệnh viện, cùng
 # hạng với `portal_catalog_gop` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ
 # quên áp phạm vi.
-_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
+_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice", "Quotation")
 
 
 def _thong_bao_trong_pham_vi(document_type, document_name, pham_vi: dict | None) -> bool:
