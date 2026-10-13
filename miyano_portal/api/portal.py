@@ -452,6 +452,11 @@ def portal_order_place(
         frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else (dat_ngoai or [])
     )
     co_gia, cho_bao_gia = tach_phieu.chia_dong(customer, ds_items)
+    # Lưới an toàn lúc triển khai (`bao_gia.san_sang`): site chưa `bench
+    # migrate` chưa có cột `Quotation.custom_request_id`, mà hàm này hỏi cột đó
+    # cho MỌI giỏ. Chưa sẵn sàng thì không câu nào dưới đây chạm bảng Quotation
+    # và mọi lô đi đường cũ (`tao_sales_order`, hàng chưa giá ra đơn "Mua lẻ").
+    co_bao_gia = bao_gia.san_sang()
     rid_gia = f"{request_id}{tach_phieu.HAU_TO_GIA}"
     rid_bao_gia = f"{request_id}{tach_phieu.HAU_TO_BAO_GIA}"
 
@@ -469,6 +474,8 @@ def portal_order_place(
             "Sales Order", {"custom_request_id": ["in", list(ds_rid)], "customer": customer}
         ):
             return True
+        if not co_bao_gia:
+            return False
         return bool(frappe.db.exists(
             "Quotation", {"custom_request_id": ["in", list(ds_rid)], "party_name": customer}
         ))
@@ -500,7 +507,9 @@ def portal_order_place(
         # có thêm hay mất giá: lô đã sinh Quotation thì trả Quotation đó, lô
         # đã sinh Sales Order thì trả đơn đó. Hỏi lại Price List ở đây sẽ sinh
         # thêm một chứng từ thứ hai cho cùng một mã yêu cầu.
-        if frappe.db.exists("Quotation", {"custom_request_id": rid, "party_name": customer}):
+        if not co_bao_gia:
+            di_bao_gia = False
+        elif frappe.db.exists("Quotation", {"custom_request_id": rid, "party_name": customer}):
             di_bao_gia = True
         elif frappe.db.exists("Sales Order", {"custom_request_id": rid, "customer": customer}):
             di_bao_gia = False
@@ -1265,8 +1274,16 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
     )
     co_nhanh_don = co_cot_khoa or not khoa
     # Spec 2026-10-12 §6.4 — phiếu chờ báo giá chưa có đơn thuộc tab kia.
+    #
+    # TRỪ chip "Chờ duyệt": đó là HÀNG VIỆC DUYỆT của quản lý, chéo loại. Huy
+    # hiệu nav (`frontend/src/cho-duyet.js`) đếm MỌI phiếu "Chờ duyệt" / "Chờ
+    # duyệt sửa" rồi dẫn tới `?chip=cho_duyet`; giấu phiếu chờ báo giá ở đây
+    # thì quản lý bấm huy hiệu N mà danh sách ít hơn N, và phiếu cần duyệt
+    # nằm lẫn với nháp / từ chối / huỷ ở tab kia. Phiếu đó vẫn hiện ở tab báo
+    # giá. Mọi chip khác và "Tất cả" giữ nguyên luật loại.
     an_bao_gia = (
-        f" and not {_sql_an_khoi_tab_don('p')}" if _cot_bao_gia_ton_tai() else ""
+        f" and not {_sql_an_khoi_tab_don('p')}"
+        if _cot_bao_gia_ton_tai() and giai_doan != GIAI_DOAN_CHO_DUYET else ""
     )
 
     nhanh_phieu = f"""
@@ -1661,9 +1678,12 @@ def portal_dashboard_kpi() -> dict:
             + _loc_qua_don_cha("Sales Invoice Item", "sales_order"),
             fields=["count(distinct `tabSales Invoice`.name) as n"],
         )[0].n,
-        # Spec 2026-10-12 §6.4 — báo giá chờ đồng ý: Quotation của luồng mới,
-        # cộng đơn "Mua lẻ" còn dở của luồng cũ.
-        "bao_gia_cho_dong_y": portal_bao_gia_dem()["cho_dong_y"] + frappe.get_list(
+        # Spec 2026-10-12 §6.4 — HAI con số, vì chúng nằm ở hai màn: thẻ "Báo
+        # giá chờ đồng ý" trỏ sang tab báo giá nên chỉ đếm Quotation; đơn "Mua
+        # lẻ" còn dở của luồng cũ nằm ở tab Đơn hàng (chip `cho_khach_dong_y`)
+        # và có con số + đường dẫn riêng.
+        "bao_gia_cho_dong_y": portal_bao_gia_dem()["cho_dong_y"],
+        "don_cu_cho_dong_y": frappe.get_list(
             "Sales Order",
             filters=[
                 ["workflow_state", "=", TRANG_THAI_CHO_KHACH], ["docstatus", "=", 0],

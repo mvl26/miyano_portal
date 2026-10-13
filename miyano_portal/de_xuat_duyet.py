@@ -63,7 +63,10 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	# một Quotation, không sinh Sales Order "Mua lẻ" nữa. Hỏi lại Price List
 	# LÚC DUYỆT: phiếu chờ báo giá mà mọi dòng vừa có giá thì đi thẳng đơn.
 	dat_ngoai = [d.as_dict() for d in doc.dat_ngoai]
-	if bao_gia.can_bao_gia(doc.customer, dong, dat_ngoai):
+	#
+	# `bao_gia.san_sang()` — site chưa `bench migrate` chưa có cột của Quotation:
+	# đi đường cũ bên dưới (đơn "Mua lẻ"), không chạm bảng Quotation.
+	if bao_gia.san_sang() and bao_gia.can_bao_gia(doc.customer, dong, dat_ngoai):
 		return _duyet_va_tao_bao_gia(
 			doc, dong, dat_ngoai, nguoi_duyet, tu_cach, uy_quyen, canh_bao_gia
 		)

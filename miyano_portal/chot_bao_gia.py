@@ -96,6 +96,24 @@ def kiem_chuyen_trang_thai(doc, method=None) -> None:
 			"giá trước khi Miyano xác nhận.",
 			frappe.ValidationError,
 		)
+	# Cũng chốt 1, cho đơn "Theo báo giá": khách KHÔNG đồng ý giá sửa lại thì
+	# đơn về "Chờ xác nhận" với dấu giá đã đồng ý về 0 (khối cuối hàm), và chốt
+	# 3 chỉ xét dấu > 0 — «Gửi duyệt» từ đó là đưa một đơn giá khách vừa từ
+	# chối tới «Xác nhận». Đơn mới sinh từ `bao_gia._sinh_don` đóng dấu TRƯỚC
+	# khi chuyển nên không dính.
+	if nay == TT_CHO_MIYANO and truoc == TT_CHO_XAC_NHAN and co_gia_khach_dong_y(doc):
+		chua_dong_y = [
+			d.item_code for d in doc.items
+			if d.item_code != ITEM_GIU_CHO
+			and d.get("custom_nguon_gia") == NGUON_BAO_GIA
+			and flt(d.get("custom_gia_khach_dong_y")) <= 0
+		]
+		if chua_dong_y:
+			frappe.throw(
+				"Khách chưa đồng ý đơn giá của " + ", ".join(chua_dong_y) + " — dùng "
+				"«Gửi khách duyệt» để khách đồng ý giá trước khi Miyano xác nhận.",
+				frappe.ValidationError,
+			)
 
 	# Chốt 2: không gửi khách báo giá khi còn dòng chưa có giá (<= 0 là chưa
 	# có giá, không phải giá 0).

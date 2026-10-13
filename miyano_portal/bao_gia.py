@@ -7,6 +7,8 @@ trên Quotation: mọi hàm ghi ở đây chạy bước chuyển trạng thái 
 phải kiểm quyền của khách trên đúng báo giá đó trước khi gọi vào đây.
 """
 
+import math
+
 import frappe
 from frappe.utils import add_days, flt, formatdate, getdate, now_datetime, nowdate
 
@@ -30,8 +32,30 @@ HD_KHACH_TU_CHOI = "Khách từ chối"
 HD_KHACH_SUA_SL = "Khách sửa số lượng"
 HD_HET_HAN = "Báo giá hết hạn"
 HD_GHI_NHAN = "Ghi nhận khách đồng ý"
+# Lối ra duy nhất của "Báo giá hết hạn" (Sales Manager). "Khách từ chối" và
+# "Miyano từ chối" không có lối ra: đó là trạng thái kết thúc.
+HD_MO_LAI = "Mở lại"
 
 LY_DO_TOI_THIEU = 10
+
+
+_san_sang_cache: bool | None = None
+
+
+def san_sang() -> bool:
+	"""Có cột `Quotation.custom_request_id` THẬT trong CSDL không (patch v1_42).
+
+	Lưới an toàn lúc triển khai, cùng khuôn `portal_context.
+	cot_ten_don_hang_ton_tai()` (cache cấp tiến trình): mã mới chạy trên site
+	CHƯA `bench migrate` mà hỏi cột này là MariaDB ném 1054, và hai đường đặt
+	hàng hỏi nó cho MỌI giỏ — kể cả giỏ toàn hàng có giá. Chưa sẵn sàng thì
+	hai đường đó đi đường cũ (`dat_hang.tao_sales_order`, đơn "Mua lẻ") và
+	không đụng tới bảng Quotation. Không `log_error`: thiếu cột chỉ làm cổng
+	chạy theo luồng cũ, không che lỗ quyền nào."""
+	global _san_sang_cache
+	if _san_sang_cache is None:
+		_san_sang_cache = bool(frappe.db.has_column("Quotation", "custom_request_id"))
+	return _san_sang_cache
 
 
 def _trang_thai_truoc(doc) -> str | None:
@@ -211,8 +235,9 @@ def chot_gui_khach(doc, method=None) -> None:
 
 	Vào "Chờ khách đồng ý": chặn khi còn dòng gõ tay chưa khớp mã, còn dòng giữ
 	chỗ, hoặc còn dòng chưa có đơn giá; qua chốt thì đóng mốc gửi và hạn hiệu
-	lực. Quay về "Chờ Miyano báo giá" (thu hồi, khách sửa số lượng): xoá mốc và
-	hạn, vì báo giá cũ không còn là thứ khách đang xem.
+	lực. Quay về "Chờ Miyano báo giá" (thu hồi, khách sửa số lượng, hoặc mở
+	lại một báo giá hết hạn): xoá mốc và hạn, vì báo giá cũ không còn là thứ
+	khách đang xem — lần gửi lại đóng hạn mới. Đơn giá giữ nguyên làm gợi ý.
 	"""
 	from miyano_portal.portal_mua_le import (
 		ITEM_GIU_CHO,
@@ -225,7 +250,7 @@ def chot_gui_khach(doc, method=None) -> None:
 	truoc, nay = _trang_thai_truoc(doc), doc.get("workflow_state")
 	if truoc == nay:
 		return
-	if nay == TT_CHO_MIYANO and truoc == TT_CHO_KHACH:
+	if nay == TT_CHO_MIYANO and truoc in (TT_CHO_KHACH, TT_HET_HAN):
 		doc.valid_till = None
 		doc.custom_ngay_gui_khach_duyet = None
 		return
@@ -525,12 +550,19 @@ def sua_so_luong(ten: str, dong: list) -> dict:
 	_dam_bao_cho_khach(bg)
 	_dam_bao_con_han(bg)
 	if isinstance(dong, str):
-		dong = frappe.parse_json(dong)
+		try:
+			dong = frappe.parse_json(dong)
+		except ValueError:
+			dong = None
+	# Thân request là của client: sai hình dạng phải ra một lời từ chối rõ,
+	# không phải AttributeError (lỗi 500) từ `.get` trên thứ không phải dict.
+	if not isinstance(dong, list) or not all(isinstance(yc, dict) for yc in dong):
+		frappe.throw("Danh sách dòng sửa số lượng không hợp lệ.", frappe.ValidationError)
 
 	theo_ten = {d.name: d for d in bg.items if not la_dong_giu_cho(d.item_code)}
 	thay_doi: list[str] = []
 	ap_dung: dict[str, float] = {}
-	for yc in dong or []:
+	for yc in dong:
 		hang = theo_ten.get(yc.get("name"))
 		if not hang:
 			frappe.throw(
@@ -541,6 +573,10 @@ def sua_so_luong(ten: str, dong: list) -> dict:
 		try:
 			moi = float(yc.get("qty"))
 		except (TypeError, ValueError):
+			moi = math.nan
+		# `float("nan")` / `float("inf")` đổi được thành số nhưng không phải số
+		# lượng: nan lọt mọi phép so sánh bên dưới.
+		if not math.isfinite(moi):
 			frappe.throw(f"{hang.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
 		if moi <= 0:
 			frappe.throw(
@@ -640,7 +676,10 @@ def quet_het_han(moc=None) -> int:
 	"""Spec §4.6 — đóng mọi báo giá CỦA CỔNG ở "Chờ khách đồng ý" có `valid_till` trước
 	`moc` (mặc định hôm nay). Gọi từ job hằng ngày `portal_bao_gia.
 	quet_bao_gia_het_han`, chạy dưới Administrator nên không cần nâng quyền.
-	Job gốc `set_expired_status` của ERPNext chỉ đụng Quotation đã Submit."""
+	Job gốc `set_expired_status` của ERPNext chỉ đụng Quotation đã Submit.
+
+	Mỗi báo giá một savepoint: một báo giá lưu hỏng được lùi riêng, ghi Error
+	Log rồi bỏ qua — không làm dừng cả đợt quét. Trả số báo giá ĐÃ đóng."""
 	from frappe.model.workflow import apply_workflow
 
 	hom_nay = getdate(moc) if moc else getdate(nowdate())
@@ -656,13 +695,23 @@ def quet_het_han(moc=None) -> int:
 		},
 		pluck="name",
 	):
-		bg = frappe.get_doc("Quotation", ten)
-		han = bg.valid_till
-		bg = apply_workflow(bg, HD_HET_HAN)
-		bg.add_comment(
-			"Comment",
-			f"[Hệ thống] Báo giá hết hiệu lực ngày {formatdate(han, 'dd/mm/yyyy')} — tự đóng.",
-		)
+		frappe.db.savepoint("bao_gia_het_han")
+		try:
+			bg = frappe.get_doc("Quotation", ten)
+			han = bg.valid_till
+			bg = apply_workflow(bg, HD_HET_HAN)
+			bg.add_comment(
+				"Comment",
+				f"[Hệ thống] Báo giá hết hiệu lực ngày {formatdate(han, 'dd/mm/yyyy')} — tự đóng.",
+			)
+		except Exception:
+			loi = frappe.get_traceback(with_context=True)
+			frappe.db.rollback(save_point="bao_gia_het_han")
+			frappe.log_error(
+				title=f"bao_gia: không đóng được báo giá hết hạn {ten}", message=loi,
+				reference_doctype="Quotation", reference_name=ten,
+			)
+			continue
 		_gui_email_het_han(bg, han)
 		dem += 1
 	return dem

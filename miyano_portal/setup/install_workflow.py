@@ -85,7 +85,18 @@ def _bao_gia_transitions():
         # khoản nên nhân viên ghi nhận. Điều kiện chặn bấm thay khách của cổng.
         (bg.TT_CHO_KHACH, bg.HD_GHI_NHAN, bg.TT_DA_DONG_Y, "Sales User",
          f'doc.custom_nguon_don != "{bg.NGUON_CONG}"'),
+        _canh_mo_lai(),
     ]
+
+
+def _canh_mo_lai():
+    """Lối ra duy nhất của "Báo giá hết hạn" (chủ dự án chốt 13/10/2026):
+    Sales Manager mở lại, báo giá về "Chờ Miyano báo giá" để gửi khách lần
+    nữa. Đứng CUỐI danh sách bước chuyển: `mo_rong_workflow_bao_gia()` nối nó
+    vào cuối workflow đã cài, nên site mới và site nâng cấp ra cùng thứ tự."""
+    from miyano_portal import bao_gia as bg
+
+    return (bg.TT_HET_HAN, bg.HD_MO_LAI, bg.TT_CHO_MIYANO, "Sales Manager", None)
 
 
 def install_quotation_workflow():
@@ -124,6 +135,34 @@ def install_quotation_workflow():
     })
     wf.insert(ignore_permissions=True)
     return wf
+
+
+def mo_rong_workflow_bao_gia() -> bool:
+    """Thêm bước "Báo giá hết hạn" → «Mở lại» → "Chờ Miyano báo giá" vào
+    workflow ĐÃ CÀI (`install_quotation_workflow()` thoát sớm khi workflow đã
+    có). Cùng khuôn `patches/v1_41/gia_theo_price_list.mo_rong_workflow`:
+    idempotent theo nội dung, chỉ thêm khi chưa có đúng bộ bốn khoá. Site mới
+    có sẵn bước này từ `_bao_gia_transitions()`, nên ở đó hàm không làm gì.
+    Workflow Action Master do `install_quotation_workflow()` đảm bảo."""
+    from miyano_portal import bao_gia as bg
+
+    if not frappe.db.exists("Workflow", bg.WORKFLOW):
+        return False
+    state, action, next_state, allowed, condition = _canh_mo_lai()
+    wf = frappe.get_doc("Workflow", bg.WORKFLOW)
+    if not {state, next_state} <= {s.state for s in wf.states}:
+        return False
+    if (state, action, next_state, allowed) in {
+        (t.state, t.action, t.next_state, t.allowed) for t in wf.transitions
+    }:
+        return False
+    wf.append("transitions", {
+        "state": state, "action": action, "next_state": next_state, "allowed": allowed,
+        "condition": condition, "allow_self_approval": 1,
+    })
+    wf.flags.ignore_permissions = True
+    wf.save()
+    return True
 
 
 def gan_trang_thai_bao_gia_cu() -> int:

@@ -3,6 +3,7 @@ import frappe
 from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
 
 TEN_TB_BAO_GIA = "Portal - Yêu cầu báo giá sẵn sàng"
+TEN_TB_BAO_GIA_TU_CHOI = "Portal - Yêu cầu báo giá bị từ chối"
 
 DEFS = [
     {
@@ -239,6 +240,28 @@ DEFS = [
             "hạn này, nếu Quý khách chưa phản hồi, báo giá sẽ tự động đóng.\n\n"
             "{% endif %}Vui lòng đăng nhập cổng khách hàng, mở tab \"Yêu cầu báo "
             "giá\" để xem chi tiết và xác nhận."
+        ),
+        "send_system_notification": 1,
+    },
+    {
+        # Miyano từ chối một yêu cầu báo giá của cổng: bệnh viện phải được báo,
+        # kèm đúng lý do nhân viên đã nhập (`bao_gia.kiem_ly_do_tu_choi` bắt
+        # buộc có). Cùng khuôn "Portal - Đơn bị từ chối"; cùng người nhận với
+        # thông báo "sẵn sàng" ở trên. Không đính kèm bản in: không có báo giá
+        # nào để in. Khách tự từ chối ("Khách từ chối") không đi qua đây.
+        "name": TEN_TB_BAO_GIA_TU_CHOI,
+        "subject": "Yêu cầu báo giá {{ doc.name }} đã bị từ chối",
+        "document_type": "Quotation",
+        "event": "Value Change",
+        "value_changed": "workflow_state",
+        "condition": (
+            "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.workflow_state == 'Miyano từ chối'"
+        ),
+        "message": (
+            "Kính gửi Quý khách,\n\nMiyano rất tiếc chưa thể báo giá cho yêu cầu "
+            "{{ doc.name }}.\n\nLý do: {{ doc.custom_ly_do_tu_choi }}\n\nQuý khách "
+            "có thể xem chi tiết ở tab \"Yêu cầu báo giá\" trên cổng khách hàng."
         ),
         "send_system_notification": 1,
     },

@@ -20,25 +20,34 @@ def them_truong():
 				"fieldtype": "Section Break", "insert_after": "amended_from",
 				"collapsible": 1,
 			},
+			# Bốn trường dưới đây `no_copy`: bản «Duplicate» / «Amend» trên Desk
+			# không mang `custom_request_id` (cũng `no_copy`), nên nếu còn mang
+			# nguồn "Client Portal" thì khách thấy nút Đồng ý mà `bao_gia.
+			# _dam_bao_cua_cong` từ chối, và nhân viên cũng không ghi nhận thay
+			# được. Bản sao là một báo giá "Nội bộ" bình thường. Hệ quả: mapper
+			# Quotation → Sales Order không chép chúng nữa — `bao_gia._sinh_don`
+			# gán tường minh cả bốn lên đơn.
 			{
 				"fieldname": "custom_nguon_don", "label": "Nguồn",
 				"fieldtype": "Select", "options": "Nội bộ\nClient Portal",
 				"default": "Nội bộ", "insert_after": "custom_sec_cong_khach_hang",
-				"read_only": 1, "in_standard_filter": 1,
+				"read_only": 1, "in_standard_filter": 1, "no_copy": 1,
 			},
 			{
 				"fieldname": "custom_de_xuat", "label": "Phiếu gốc",
 				"fieldtype": "Link", "options": "Portal De Xuat Mua",
 				"insert_after": "custom_nguon_don", "read_only": 1, "search_index": 1,
+				"no_copy": 1,
 			},
 			{
 				"fieldname": "custom_khoa_phong", "label": "Khoa phòng",
 				"fieldtype": "Link", "options": "Customer Department",
 				"insert_after": "custom_de_xuat", "read_only": 1, "search_index": 1,
+				"no_copy": 1,
 			},
 			{
 				"fieldname": "custom_ten_don_hang", "label": "Tên đơn hàng",
-				"fieldtype": "Data", "insert_after": "custom_khoa_phong",
+				"fieldtype": "Data", "insert_after": "custom_khoa_phong", "no_copy": 1,
 			},
 			{
 				"fieldname": "custom_request_id", "label": "Mã yêu cầu",
@@ -100,9 +109,12 @@ def cai_workflow():
 	from miyano_portal.setup.install_workflow import (
 		gan_trang_thai_bao_gia_cu,
 		install_quotation_workflow,
+		mo_rong_workflow_bao_gia,
 	)
 
 	install_quotation_workflow()
+	# Workflow cài từ bản trước chưa có bước «Mở lại» của báo giá hết hạn.
+	mo_rong_workflow_bao_gia()
 	frappe.clear_cache(doctype="Quotation")
 	gan_trang_thai_bao_gia_cu()
 
