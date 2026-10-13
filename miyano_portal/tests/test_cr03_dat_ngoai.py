@@ -351,7 +351,17 @@ class TestOrderTrackTraDuChinTruong(_CR03Fixture):
 		# việc "có bị bỏ sót trường nào không".
 		import inspect
 
-		than = inspect.getsource(portal.portal_order_track)
+		# Dict của một dòng nay dựng ở `_dat_ngoai_cho_khach` (13/10/2026: dòng
+		# đến từ đơn HOẶC từ báo giá nguồn của đơn "Theo báo giá", cùng một
+		# hàm). Soi đúng chỗ dựng, VÀ ghim rằng endpoint đi qua hàm đó — soi
+		# riêng helper thì gỡ lời gọi khỏi endpoint bài vẫn xanh. Giá trị thật
+		# qua endpoint: `test_bao_gia_soat_trinh_duyet.TestChinTruongQuaTrack`.
+		self.assertRegex(
+			inspect.getsource(portal.portal_order_track),
+			r'"dat_ngoai":\s*\[(?:\s*#[^\n]*\n)*\s*_dat_ngoai_cho_khach\(d\)',
+			"`portal_order_track` không dựng `dat_ngoai` qua `_dat_ngoai_cho_khach`",
+		)
+		than = inspect.getsource(portal._dat_ngoai_cho_khach)
 		for khoa in list(mong_doi) + ["anh", "khong_co_anh", "mo_ta_nhan_dang", "gia_hien_tai"]:
 			with self.subTest(truong=khoa):
 				self.assertIn(

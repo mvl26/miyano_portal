@@ -162,6 +162,66 @@ class TestChiTietDonDuMatHang(NenSoatTrinhDuyet):
 			self.assertIn(ma, html)
 
 
+CHIN_TRUONG = {
+	"model_ma": "NBG-100-M", "hang_san_xuat": "Ansell", "nuoc_san_xuat": "Malaysia",
+	"quy_cach": "hộp 100 chiếc", "ncc_hien_tai": "Công ty ABC", "gia_hien_tai": 185000.0,
+	"anh": "", "khong_co_anh": True,
+	"mo_ta_nhan_dang": "Hộp màu xanh dương, in chữ Nitrile Exam Gloves",
+}
+
+
+class TestChinTruongQuaTrack(NenSoatTrinhDuyet):
+	"""Chín trường CR-03 của dòng gõ tay đi qua `portal_order_track` với GIÁ
+	TRỊ THẬT, ở cả hai nguồn dòng của `_dat_ngoai_cho_khach`. Vế hành vi của
+	`test_cr03_dat_ngoai.TestOrderTrackTraDuChinTruong` (vế đó soi mã nguồn)."""
+
+	def _dong(self):
+		return {
+			"ten_hang": "Găng tay chín trường", "dvt": "Hộp", "so_luong": 3,
+			**{**CHIN_TRUONG, "khong_co_anh": 1},
+		}
+
+	def _khang_dinh(self, dong):
+		self.assertEqual(dong["ten_hang"], "Găng tay chín trường")
+		for khoa, gt in CHIN_TRUONG.items():
+			with self.subTest(truong=khoa):
+				self.assertEqual(dong[khoa], gt)
+
+	def test_don_mua_le_cu_dong_tu_chinh_don(self):
+		from miyano_portal import dat_hang
+
+		kq = dat_hang.tao_sales_order(
+			self.kh_a, items=[], dat_ngoai=[self._dong()],
+			request_id=frappe.generate_hash(length=12),
+		)
+		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		self.assertEqual(so.custom_loai_don, "Mua lẻ")
+		self.assertEqual(len(so.custom_dat_ngoai), 1)
+		tra = self._voi_khach(portal.portal_order_track, so.name)
+		self.assertEqual(len(tra["dat_ngoai"]), 1)
+		self._khang_dinh(tra["dat_ngoai"][0])
+		self.assertFalse(tra["dat_ngoai"][0]["da_xu_ly"])
+
+	def test_don_theo_bao_gia_dong_tu_bao_gia_nguon(self):
+		kq = bao_gia.tao_bao_gia(
+			self.kh_a, items=[], dat_ngoai=[self._dong()],
+			request_id=frappe.generate_hash(length=12), khoa_phong=self.khoa_huyethoc,
+		)
+		bg = frappe.get_doc("Quotation", kq["bao_gia"])
+		bg.custom_dat_ngoai[0].item_khop = self.item_ngoai
+		bg.save()
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		so = frappe.get_doc(
+			"Sales Order", self._voi_khach(bao_gia.dong_y, bg.name)["sales_order"]
+		)
+		self.assertEqual(so.custom_loai_don, bao_gia.LOAI_DON_THEO_BAO_GIA)
+		self.assertFalse(so.get("custom_dat_ngoai"))
+		tra = self._voi_khach(portal.portal_order_track, so.name)
+		self.assertEqual(len(tra["dat_ngoai"]), 1)
+		self._khang_dinh(tra["dat_ngoai"][0])
+		self.assertEqual(tra["dat_ngoai"][0]["item_khop"], self.item_ngoai)
+
+
 class TestChotBaoGiaDaCoDon(NenSoatTrinhDuyet):
 	"""P-2 — báo giá của cổng đã có đơn: không đơn thứ hai, không huỷ báo giá."""
 
