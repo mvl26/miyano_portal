@@ -278,6 +278,13 @@ def don_cua_bao_gia(bg, khoa: bool = False) -> str | None:
 	)
 
 
+def _dam_bao_cua_cong(bg) -> None:
+	"""Báo giá nhân viên tự lập trên Desk không có mã yêu cầu để tra đơn và
+	không đi vòng khách đồng ý/từ chối/sửa của cổng: từ chối trước mọi nhánh."""
+	if bg.get("custom_nguon_don") != NGUON_CONG or not bg.get("custom_request_id"):
+		frappe.throw("Báo giá này không phải của cổng khách hàng.", frappe.ValidationError)
+
+
 def _dam_bao_cho_khach(bg) -> None:
 	if bg.get("workflow_state") != TT_CHO_KHACH:
 		frappe.throw(
@@ -385,10 +392,7 @@ def dong_y(ten: str) -> dict:
 
 	# Khoá dòng: hai người cùng bấm thì người sau chờ, rồi thấy "đã đồng ý".
 	bg = frappe.get_doc("Quotation", ten, for_update=True)
-	# Báo giá nhân viên tự lập trên Desk không có mã yêu cầu để tra đơn và
-	# không đi vòng đồng ý của cổng: từ chối trước mọi nhánh khác.
-	if bg.get("custom_nguon_don") != NGUON_CONG or not bg.get("custom_request_id"):
-		frappe.throw("Báo giá này không phải của cổng khách hàng.", frappe.ValidationError)
+	_dam_bao_cua_cong(bg)
 	if bg.get("workflow_state") == TT_DA_DONG_Y:
 		return {
 			"bao_gia": bg.name, "sales_order": don_cua_bao_gia(bg, khoa=True),
@@ -440,4 +444,141 @@ def dong_y(ten: str) -> dict:
 	return {
 		"bao_gia": bg.name, "sales_order": so.name,
 		"da_ton_tai": False, "trang_thai_moi": bg.get("workflow_state"),
+	}
+
+
+def bao_nhan_vien(bg, tieu_de: str, noi_dung: str) -> int:
+	"""Notification Log cho nhân viên phụ trách khách (đường lui: Sales
+	Manager), trỏ tới Quotation. Không bao giờ ném lỗi: chạy sau một việc ĐÃ
+	thành công. Trả số thông báo vừa tạo."""
+	try:
+		from miyano_portal.portal_thong_bao import _nguoi_nhan_kiem_hang
+
+		dem = 0
+		for nguoi in _nguoi_nhan_kiem_hang(bg.party_name):
+			frappe.get_doc({
+				"doctype": "Notification Log", "subject": f"{tieu_de}: {bg.name}",
+				"for_user": nguoi, "type": "Alert",
+				"document_type": "Quotation", "document_name": bg.name,
+				"email_content": noi_dung,
+			}).insert(ignore_permissions=True)
+			dem += 1
+		return dem
+	except Exception:
+		frappe.log_error(
+			title=f"bao_gia: không báo được nhân viên về {bg.name}",
+			message=frappe.get_traceback(),
+		)
+		return 0
+
+
+def tu_choi(ten: str, ly_do: str | None = None) -> dict:
+	"""Khách từ chối báo giá. Lý do tuỳ chọn. NGƯỜI GỌI đã kiểm quyền."""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal import nhat_ky
+	from miyano_portal.nang_quyen import quyen_he_thong
+
+	bg = frappe.get_doc("Quotation", ten, for_update=True)
+	_dam_bao_cua_cong(bg)
+	_dam_bao_cho_khach(bg)
+	ly_do = (ly_do or "").strip()
+	nguoi_bam = frappe.session.user
+	if ly_do:
+		# Ghi thẳng: `apply_workflow` nạp lại chứng từ từ CSDL trước khi lưu.
+		frappe.db.set_value(
+			"Quotation", bg.name, "custom_ly_do_tu_choi", ly_do, update_modified=False
+		)
+	with quyen_he_thong():
+		bg = apply_workflow(bg, HD_KHACH_TU_CHOI)
+		bg.add_comment(
+			"Comment",
+			f"{HD_KHACH_TU_CHOI} bởi {nguoi_bam}" + (f" — lý do: {ly_do}" if ly_do else ""),
+		)
+	bao_nhan_vien(
+		bg, "Portal - Khách từ chối báo giá",
+		f"Khách hàng <b>{bg.party_name}</b> đã từ chối báo giá <b>{bg.name}</b>."
+		+ (f"<br>Lý do: {frappe.utils.escape_html(ly_do)}" if ly_do else ""),
+	)
+	nhat_ky.ghi(
+		nhat_ky.SK_KHACH_KHONG_DONG_Y, customer=bg.party_name,
+		khoa_phong=bg.get("custom_khoa_phong"), de_xuat=bg.get("custom_de_xuat"),
+		vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ly_do or None,
+	)
+	return {"trang_thai_moi": bg.get("workflow_state")}
+
+
+def sua_so_luong(ten: str, dong: list) -> dict:
+	"""Khách sửa số lượng các dòng ĐÃ CÓ trên báo giá (spec §4.3). Không thêm,
+	không xoá, không đặt về 0. Đơn giá giữ nguyên làm gợi ý; báo giá quay về
+	"Chờ Miyano báo giá" và hook `chot_gui_khach` xoá hạn hiệu lực.
+	NGƯỜI GỌI đã kiểm quyền."""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal import nhat_ky
+	from miyano_portal.nang_quyen import quyen_he_thong
+	from miyano_portal.portal_dat_hang import kiem_boi_so
+	from miyano_portal.portal_mua_le import la_dong_giu_cho
+
+	bg = frappe.get_doc("Quotation", ten, for_update=True)
+	_dam_bao_cua_cong(bg)
+	_dam_bao_cho_khach(bg)
+	_dam_bao_con_han(bg)
+	if isinstance(dong, str):
+		dong = frappe.parse_json(dong)
+
+	theo_ten = {d.name: d for d in bg.items if not la_dong_giu_cho(d.item_code)}
+	thay_doi: list[str] = []
+	ap_dung: dict[str, float] = {}
+	for yc in dong or []:
+		hang = theo_ten.get(yc.get("name"))
+		if not hang:
+			frappe.throw(
+				"Không tìm thấy dòng hàng trong báo giá — không thêm được dòng mới "
+				"qua sửa số lượng.",
+				frappe.ValidationError,
+			)
+		try:
+			moi = float(yc.get("qty"))
+		except (TypeError, ValueError):
+			frappe.throw(f"{hang.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
+		if moi <= 0:
+			frappe.throw(
+				f"{hang.item_code}: số lượng phải lớn hơn 0. Không cần mặt hàng "
+				"nào nữa thì từ chối báo giá.",
+				frappe.ValidationError,
+			)
+		loi = kiem_boi_so(hang.item_code, moi)
+		if loi:
+			frappe.throw(loi["thong_diep"], frappe.ValidationError)
+		if flt(hang.qty) == moi:
+			continue
+		thay_doi.append(f"{hang.item_code}: {flt(hang.qty):g} → {moi:g}")
+		hang.qty = moi
+		ap_dung[hang.item_code] = moi
+	if not thay_doi:
+		frappe.throw("Không có thay đổi số lượng nào để gửi.", frappe.ValidationError)
+
+	nguoi_bam = frappe.session.user
+	with quyen_he_thong():
+		# Lưu TRƯỚC: `apply_workflow` nạp lại chứng từ từ CSDL ngay đầu hàm.
+		bg.save()
+		bg = apply_workflow(bg, HD_KHACH_SUA_SL)
+		bg.add_comment(
+			"Comment",
+			f"[Portal] {HD_KHACH_SUA_SL} bởi {nguoi_bam}:<br>" + "<br>".join(thay_doi),
+		)
+	bao_nhan_vien(
+		bg, "Portal - Khách sửa số lượng báo giá",
+		f"Khách hàng <b>{bg.party_name}</b> vừa sửa số lượng trên báo giá "
+		f"<b>{bg.name}</b>; báo giá đã về \"{TT_CHO_MIYANO}\" để xem lại giá:<br>"
+		+ "<br>".join(thay_doi),
+	)
+	nhat_ky.ghi(
+		nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA, customer=bg.party_name,
+		khoa_phong=bg.get("custom_khoa_phong"), de_xuat=bg.get("custom_de_xuat"),
+		vai=nhat_ky.VAI_QUAN_LY, ghi_chu=f"{len(thay_doi)} dòng thay đổi",
+	)
+	return {
+		"trang_thai_moi": bg.get("workflow_state"), "thay_doi": thay_doi, "ap_dung": ap_dung,
 	}
