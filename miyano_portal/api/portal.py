@@ -1439,18 +1439,34 @@ def _bao_gia_cua_toi(ten):
     `message_log`, thứ đi ra client và phân biệt được hai ca.
     """
     tv = get_portal_member()
-    if not isinstance(ten, str) or not ten or not frappe.db.exists("Quotation", ten):
+    bg = _nap_bao_gia_trong_pham_vi(ten, tv.customer)
+    # Dòng `raise` DUY NHẤT của mọi ca từ chối. Frappe gửi traceback cho client
+    # (`exc`, khi `allow_error_traceback` bật): mỗi lý do một dòng `raise` thì
+    # số dòng lại phân biệt được "không tồn tại" với "của khách khác".
+    if bg is None:
         raise frappe.PermissionError(LOI_KHONG_THAY)
+    return bg
+
+
+def _nap_bao_gia_trong_pham_vi(ten, customer):
+    """`Document` nếu người gọi được thấy báo giá này, `None` cho MỌI lý do
+    còn lại. Không ném lỗi phân biệt lý do — xem `_bao_gia_cua_toi`."""
+    if not isinstance(ten, str) or not ten or not frappe.db.exists("Quotation", ten):
+        return None
     try:
         bg = frappe.get_doc("Quotation", ten)
     except frappe.DoesNotExistError:
         frappe.clear_last_message()
-        raise frappe.PermissionError(LOI_KHONG_THAY) from None
-    if not _la_bao_gia_cong_cua(bg, tv.customer):
-        raise frappe.PermissionError(LOI_KHONG_THAY)
-    khoa = pham_vi_don().get("custom_khoa_phong")
+        return None
+    if not _la_bao_gia_cong_cua(bg, customer):
+        return None
+    try:
+        khoa = pham_vi_don().get("custom_khoa_phong")
+    except frappe.PermissionError:
+        # Nhân viên khoa chưa được gán khoa: không có phạm vi nào để xét.
+        return None
     if khoa and bg.get("custom_khoa_phong") != khoa:
-        raise frappe.PermissionError(LOI_KHONG_THAY)
+        return None
     return bg
 
 
@@ -3892,7 +3908,8 @@ def _pham_vi_phien_hien_tai() -> dict | None:
 
 # `_lien_ket_thong_bao`/`dam_bao_xem_duoc` biết quy đúng bốn doctype này về
 # đơn cha (Quotation mang thẳng `custom_khoa_phong`, spec 2026-10-12 §8).
-# `Customer Stock Receipt`/`Portal Delivery Inspection` KHÔNG có mặt ở đây — CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
+# `Customer Stock Receipt`/`Portal Delivery Inspection` KHÔNG có mặt ở đây —
+# CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
 # nào (`Customer Warehouse` không gắn khoa phòng, xem thiết kế "kho khách
 # hàng"), nên một thông báo "đã nhập hàng" là thông tin cấp bệnh viện, cùng
 # hạng với `portal_catalog_gop` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ

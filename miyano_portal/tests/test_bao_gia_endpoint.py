@@ -135,6 +135,9 @@ class TestBaoGiaEndpoint(NenBaoGia):
 		}).insert(ignore_permissions=True).name
 		nv = self._dam_bao_thanh_vien("bgep.nv@demo.miyano", self.kh_a, "Nhân viên khoa", khoa_khac)
 		self.assertEqual(self._goi(nv, portal.portal_bao_gia_danh_sach)["rows"], [])
+		# Đòi ĐÚNG lời từ chối chung, không chỉ kiểu lỗi: nhân viên khoa vốn bị
+		# `portal_bao_gia_sua_so_luong` từ chối vì không phải quản lý, nên chỉ
+		# đòi PermissionError thì dòng đó không chứng minh chốt khoa chạy trước.
 		for ham, tham_so in (
 			(portal.portal_bao_gia_chi_tiet, (bg.name,)),
 			(portal.portal_bao_gia_dong_y, (bg.name,)),
@@ -142,8 +145,8 @@ class TestBaoGiaEndpoint(NenBaoGia):
 			(portal.portal_bao_gia_sua_so_luong, (bg.name, [{"name": bg.items[0].name, "qty": 40}])),
 			(portal.portal_bao_gia_pdf, (None, bg.name)),
 		):
-			with self.assertRaises(frappe.PermissionError, msg=ham.__name__):
-				self._goi(nv, ham, *tham_so)
+			with self.subTest(ham=ham.__name__):
+				self._loi_khong_thay(nv, ham, *tham_so)
 		self.assertEqual(
 			frappe.db.get_value("Quotation", bg.name, "workflow_state"), bao_gia.TT_CHO_KHACH
 		)
@@ -188,6 +191,52 @@ class TestBaoGiaEndpoint(NenBaoGia):
 			self.ql_b, portal.portal_bao_gia_chi_tiet, "SAL-QTN-KHONG-CO-THAT"
 		)
 		self.assertEqual((cua_khach_khac, khong_ton_tai), ([], []))
+
+	def test_moi_ca_tu_choi_di_ra_tu_CUNG_mot_dong_ma(self):
+		"""Frappe gửi cả traceback cho client (`exc`, khi `allow_error_
+		traceback` bật — mặc định). Mỗi lý do từ chối một dòng `raise` riêng thì
+		số dòng trong traceback lại phân biệt được "không tồn tại" với "có,
+		nhưng của khách khác" — đúng cặp mà thông điệp chung đang giấu."""
+		import traceback
+
+		_, bg = self._phieu_co_bao_gia()
+		noi_bo = self._bao_gia_tho(nguon="Nội bộ")
+		khoa_khac = frappe.get_doc({
+			"doctype": "Customer Department", "customer": self.kh_a,
+			"ten_khoa_phong": "Khoa thử một dòng từ chối", "ma_khoa": "BGMD", "active": 1,
+		}).insert(ignore_permissions=True).name
+		nv = self._dam_bao_thanh_vien("bgep.md@demo.miyano", self.kh_a, "Nhân viên khoa", khoa_khac)
+		chua_khoa = self._dam_bao_thanh_vien(
+			"bgep.md2@demo.miyano", self.kh_a, "Nhân viên khoa", khoa_khac
+		)
+		frappe.db.set_value("Portal Member", {"user": chua_khoa}, "khoa_phong", None)
+
+		ca = {
+			"dict bộ lọc": (self.ql_a, {"name": bg.name, "grand_total": [">", 1]}),
+			"tên không tồn tại": (self.ql_a, "SAL-QTN-KHONG-CO-THAT"),
+			"của khách khác": (self.ql_b, bg.name),
+			"nội bộ cùng khách": (self.ql_a, noi_bo.name),
+			"khác khoa": (nv, bg.name),
+			"nhân viên chưa gán khoa": (chua_khoa, bg.name),
+		}
+		dau_vet = {}
+		for nhan, (user, ten) in ca.items():
+			frappe.clear_messages()
+			# `try` trần, không `assertRaises`: unittest gỡ `__traceback__`
+			# khỏi lỗi nó giữ lại, mà traceback chính là thứ đang đo.
+			try:
+				self._goi(user, portal.portal_bao_gia_chi_tiet, ten)
+			except frappe.PermissionError as loi:
+				khung = traceback.extract_tb(loi.__traceback__)[-1]
+				dau_vet[nhan] = (
+					type(loi), str(loi), khung.name, khung.lineno, frappe.get_message_log(),
+				)
+			else:
+				self.fail(f"{nhan}: không bị từ chối")
+		mau = dau_vet["tên không tồn tại"]
+		self.assertEqual(mau[:3], (frappe.PermissionError, LOI_KHONG_THAY, "_bao_gia_cua_toi"))
+		self.assertEqual(mau[4], [])
+		self.assertEqual(dau_vet, {nhan: mau for nhan in ca})
 
 	def test_phieu_tro_bao_gia_khong_noi_duoc_thi_khong_dua_ten_bao_gia(self):
 		"""Phiếu trỏ sang báo giá không qua được phép nối (ở đây: báo giá nội
