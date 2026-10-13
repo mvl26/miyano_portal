@@ -22,6 +22,7 @@
   "dia_chi_giao",
   "request_id",
   "sales_order",
+  "bao_gia",
   "sec_hang",
   "items",
   "sec_dat_ngoai",
@@ -148,6 +149,15 @@
    "options": "Sales Order",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "bao_gia",
+   "fieldtype": "Link",
+   "label": "Yêu cầu báo giá",
+   "options": "Quotation",
+   "read_only": 1,
+   "no_copy": 1,
+   "search_index": 1
   },
   {
    "fieldname": "sec_hang",
