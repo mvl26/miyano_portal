@@ -8,7 +8,6 @@ một bảng nữa chỉ tạo thêm một thứ phải giữ đồng bộ.
 import frappe
 from frappe.utils import today
 
-TIEN_TO = "Portal - Thiếu giá"
 TIEN_TO_CHENH_LECH = "Portal - Chênh lệch nhận hàng"
 TIEN_TO_YEU_CAU_MOI = "Portal - Yêu cầu hàng hoá mới"
 TIEN_TO_HO_TRO_HDDT = "Portal - Yêu cầu hỗ trợ HĐĐT"
@@ -59,56 +58,50 @@ def _nguoi_nhan_kiem_hang(customer: str) -> list[str]:
     ]
 
 
-def bao_thieu_gia(customer: str, item_code: str) -> bool:
-    """NL-1.4 / US-E1.4. Trả `True` nếu vừa gửi, `False` nếu không gửi.
+def bao_loi_ghi_gia(customer: str, sales_order: str) -> int:
+    """Spec 2026-10-09 §5.2 — khách đã đồng ý báo giá nhưng giá chưa vào được
+    Price List của họ. Báo nhân viên phụ trách (đường lui Sales Manager, như
+    biên bản kiểm hàng) để tự cập nhật bảng giá. Trả số thông báo vừa tạo.
 
-    Chống spam theo CẶP (khách, mặt hàng) mỗi ngày một lần — không phải theo
-    khách: chặn cả mặt hàng thứ hai là giấu mất một nhu cầu thật của họ.
-
-    Không bao giờ ném lỗi. Hàm này chạy trên đường mà khách đang bị chặn đặt
-    hàng; một trục trặc ở khâu thông báo nội bộ không được phép thay thế
-    thông điệp mà khách cần đọc.
+    Không bao giờ ném lỗi: chạy sau khi việc đồng ý đã thành công, một trục
+    trặc ở khâu thông báo nội bộ không được biến thành lỗi cho khách.
     """
-    nguoi_nhan = _sales_phu_trach(customer)
-    if not nguoi_nhan:
-        return False
-
-    chu_de = f"{TIEN_TO}: {item_code} ({customer})"
-    da_gui = frappe.db.exists(
-        "Notification Log",
-        {
-            "subject": chu_de,
-            "for_user": nguoi_nhan,
-            "creation": [">=", f"{today()} 00:00:00"],
-        },
-    )
-    if da_gui:
-        return False
-
-    frappe.get_doc({
-        "doctype": "Notification Log",
-        "subject": chu_de,
-        "for_user": nguoi_nhan,
-        "type": "Alert",
-        "email_content": (
-            f"Khách hàng <b>{customer}</b> không đặt được mặt hàng "
-            f"<b>{item_code}</b> vì mặt hàng này chưa có giá trong bảng giá "
-            f"của họ. Bổ sung Item Price để khách đặt được."
-        ),
-    }).insert(ignore_permissions=True)
-    return True
+    try:
+        so_gui = 0
+        for nguoi in _nguoi_nhan_kiem_hang(customer):
+            frappe.get_doc({
+                "doctype": "Notification Log",
+                "subject": f"Portal - Chưa ghi được giá vào bảng giá: {sales_order} ({customer})",
+                "for_user": nguoi,
+                "type": "Alert",
+                "document_type": "Sales Order",
+                "document_name": sales_order,
+                "email_content": (
+                    f"Khách hàng <b>{customer}</b> đã đồng ý báo giá trên đơn "
+                    f"<b>{sales_order}</b> nhưng hệ thống chưa ghi được giá vào "
+                    f"bảng giá của họ (xem Error Log). Cần cập nhật Item Price thủ công."
+                ),
+            }).insert(ignore_permissions=True)
+            so_gui += 1
+        return so_gui
+    except Exception:
+        frappe.log_error(
+            title=f"Không báo được lỗi ghi giá của đơn {sales_order}",
+            message=frappe.get_traceback(with_context=True),
+        )
+        return 0
 
 
 def bao_yeu_cau_moi(customer: str, name: str, ten_hang: str) -> int:
     """US-E6.3 — báo yêu cầu hàng hoá mới cho sales phụ trách VÀ mọi
     `Purchase User`. Trả số Notification Log vừa tạo.
 
-    Khác `bao_thieu_gia`/`bao_chenh_lech`: không chống spam theo cửa sổ thời
+    Khác `bao_yeu_cau_ho_tro_hddt`: không chống spam theo cửa sổ thời
     gian, vì sự kiện gọi hàm này (tạo `Portal Item Request`) tự nó chỉ xảy ra
     đúng MỘT lần trong đời một `name` — không có "lần tạo thứ hai" cho cùng
     một yêu cầu để phải chặn.
 
-    Không bao giờ ném lỗi, cùng lý do với hai hàm trên: đây là hiệu ứng phụ
+    Không bao giờ ném lỗi, cùng lý do với `bao_loi_ghi_gia`: đây là hiệu ứng phụ
     sau khi yêu cầu ĐÃ được ghi nhận thành công, không được phép biến việc đó
     thành lỗi cho khách.
     """
@@ -157,8 +150,7 @@ def bao_yeu_cau_ho_tro_hddt(customer: str, sales_invoice: str, fei: str | None =
     Chống spam theo CẶP (hoá đơn, ngày) mỗi người nhận — review round 1 M-8:
     khách vô tình bấm lại nút nhiều lần (double-click, tải lại trang) không
     được tạo một Notification Log riêng cho mỗi lần bấm; ý định "vẫn đang
-    chờ" của một yêu cầu thật vẫn giữ được vì cửa sổ chặn chỉ một ngày, cùng
-    khuôn `bao_thieu_gia`.
+    chờ" của một yêu cầu thật vẫn giữ được vì cửa sổ chặn chỉ một ngày.
     """
     nguoi_nhan = set()
     for role in _ROLE_KE_TOAN_HDDT:
@@ -209,9 +201,7 @@ def bao_khach_sua_so_luong(customer: str, order: str, thay_doi: list) -> bool:
     KHÔNG chống spam theo cửa sổ thời gian: mỗi lần gọi hàm này ứng với
     ĐÚNG một lần khách bấm "Gửi lại để báo giá" — một `name` (mã đơn) có thể
     hợp lệ nhận nhiều thông báo khác nhau qua thời gian (sửa lần 1, sales
-    báo giá lại, khách sửa lần 2...), khác `bao_thieu_gia` (chặn theo NGÀY
-    vì một mặt hàng thiếu giá là MỘT sự kiện lặp lại mỗi lần khách thử đặt).
-    Cùng khuôn `bao_yeu_cau_moi`.
+    báo giá lại, khách sửa lần 2...). Cùng khuôn `bao_yeu_cau_moi`.
 
     Không bao giờ ném lỗi: đây là hiệu ứng phụ SAU KHI đơn đã ghi nhận thay
     đổi thành công, không được phép biến việc đó thành lỗi cho khách.
@@ -239,13 +229,13 @@ def bao_khach_sua_so_luong(customer: str, order: str, thay_doi: list) -> bool:
 def bao_chenh_lech(customer: str, phieu: str) -> bool:
     """US-E3.3 / BR-K17. Trả `True` nếu vừa gửi, `False` nếu không gửi.
 
-    Chống spam theo PHIẾU (không phải theo ngày như `bao_thieu_gia`): một
+    Chống spam theo PHIẾU (không phải theo ngày): một
     `Customer Stock Receipt` chỉ ghi sổ (submit) đúng một lần trong đời của
     tên chứng từ đó — không có "lần ghi sổ thứ hai" cho cùng một `name` để
     phải chặn theo cửa sổ thời gian. Vẫn kiểm tồn tại trước khi insert để gọi
     lại (ví dụ do lỗi transient rồi retry) không sinh trùng.
 
-    Không bao giờ ném lỗi — cùng lý do với `bao_thieu_gia`: đây là một thông
+    Không bao giờ ném lỗi: đây là một thông
     báo phụ trợ, không được phép biến việc ghi sổ (đã thành công) thành lỗi.
     Người gọi (`CustomerStockReceipt.on_submit`) cũng tự bọc lại một lớp nữa,
     nhưng hàm này vẫn tự chịu trách nhiệm không ném lỗi cho đúng thiết kế.

@@ -72,7 +72,7 @@ def list_rows(
     dropdown ở NhatKy.vue/BaoCaoNXT.vue (hai màn đó gọi KHÔNG truyền
     `limit`). `limit=None` (mặc định) giữ NGUYÊN hành vi cũ — trả list đầy
     đủ. Chỉ khi `limit` được truyền mới cắt trang, và hình dạng trả về đổi
-    sang `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`).
+    sang `{"rows": [...], "tong": N}` (khuôn `portal_catalog_gop`).
 
     Cắt trang TRƯỚC khi tính `_thong_ke_90n()` (mỗi dòng tốn thêm 2 truy
     vấn) — cắt sau sẽ tính thống kê cho toàn bộ danh mục rồi vứt phần

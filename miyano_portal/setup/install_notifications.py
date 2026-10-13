@@ -25,7 +25,21 @@ DEFS = [
         "document_type": "Sales Order",
         "event": "Submit",
         "condition": "doc.custom_nguon_don == 'Client Portal'",
-        "message": "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận và chuyển sang xử lý.",
+        # Thời gian giao hàng (09/10/2026) — nêu ngày giao dự kiến TỪNG mặt
+        # hàng, đúng con số cổng hiện ở cột "Dự kiến giao" (`Sales Order
+        # Item.delivery_date`). Mỗi mặt hàng một gạch đầu dòng, không dùng
+        # bảng: thư này là Markdown và phải đọc được cả ở dạng chữ thuần.
+        # `la_dong_giu_cho` — dòng giữ chỗ nội bộ đã bị lọc khỏi cổng, thư
+        # không được phơi nó ra bằng đường khác.
+        "message": (
+            "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận "
+            "và chuyển sang xử lý.\n\nThời gian giao hàng dự kiến:\n"
+            "{% for row in doc.items %}{% if not la_dong_giu_cho(row.item_code) %}"
+            "\n- {{ row.item_name or row.item_code }} ({{ row.item_code }}): "
+            "{{ frappe.utils.formatdate(row.delivery_date or doc.delivery_date, 'dd/MM/yyyy') }}"
+            "{% endif %}{% endfor %}"
+            "\n\nNếu lịch giao thay đổi, Miyano sẽ thông báo lại trên cổng khách hàng."
+        ),
         # Brief 2026-08-15 (trang thông báo) — sự kiện HƯỚNG VỀ KHÁCH: bật kèm
         # System Notification (Notification Log) để hiện trên trang Thông báo
         # cổng, cùng khuôn "Portal - Báo giá sẵn sàng" đã bật từ v1_14. Bản ghi
@@ -49,7 +63,17 @@ DEFS = [
         "document_type": "Delivery Note",
         "event": "Submit",
         "condition": "",
-        "message": "Kính gửi Quý khách,\n\nĐơn hàng của Quý khách đã được xuất giao theo phiếu giao hàng {{ doc.name }}.",
+        # Thời gian giao hàng (09/10/2026) — `custom_thoi_gian_giao` do Miyano
+        # nhập trên phiếu (hook `validate` đã điền khi để trống, nên tới lúc
+        # ghi sổ nó luôn có); `{% if %}` chỉ để một phiếu bất thường không
+        # in ra dòng "Thời gian giao hàng:" trống.
+        "message": (
+            "Kính gửi Quý khách,\n\nĐơn hàng của Quý khách đã được xuất giao theo "
+            "phiếu giao hàng {{ doc.name }}."
+            "{% if doc.custom_thoi_gian_giao %}\n\nThời gian giao hàng: "
+            "{{ frappe.utils.format_datetime(doc.custom_thoi_gian_giao, 'dd/MM/yyyy HH:mm') }}."
+            "{% endif %}"
+        ),
         "send_system_notification": 1,
     },
     {

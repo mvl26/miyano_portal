@@ -28,7 +28,7 @@
 | QĐ-5 | **Mua lẻ ngoài hợp đồng khung**: danh mục toàn bộ Item, không hiện giá, mọi phiếu đều qua báo giá của sales (thiết kế lại 15/08 — bỏ "nhánh A đặt thẳng theo giá bán lẻ" của bản gốc). Bật/tắt theo từng khách, **mặc định BẬT** từ 15/08 |
 | QĐ-6 | Đơn mua lẻ lập từ báo giá phải được khách **Đồng ý trên cổng** (trạng thái "Chờ khách đồng ý", có log, báo giá có hạn hiệu lực) |
 | QĐ-7 | Hoá đơn điện tử: khách tải được **XML gốc + PDF bản thể hiện + link tra cứu CQT** trên cổng |
-| QĐ-8 | *(góp ý review 12/08)* **Hạn mức khai 0 trong hợp đồng khung = đặt KHÔNG GIỚI HẠN** — hiển thị "Không giới hạn", không kiểm/không chặn hạn mức cho dòng đó (BR-O15) |
+| QĐ-8 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>*(góp ý review 12/08)* **Hạn mức khai 0 trong hợp đồng khung = đặt KHÔNG GIỚI HẠN** — hiển thị "Không giới hạn", không kiểm/không chặn hạn mức cho dòng đó (BR-O15) |
 | QĐ-9 | *(góp ý review 12/08)* **Cấp phát cho khoa phòng/cá nhân**: theo dõi trên chính phiếu Xuất sử dụng — khoa phòng là danh mục cứng (bắt buộc chọn **theo cấu hình từng kho**), người nhận là ô nhập tự do có gợi ý lịch sử; "phiếu lĩnh online" của khoa phòng đưa vào backlog (VĐ-14) |
 
 **Tài liệu này KHÔNG phải hướng dẫn thao tác.** Phần "bấm nút nào, ở màn nào" của từng trường dữ liệu nằm ở
@@ -180,17 +180,17 @@ theo trạng thái đầu của workflow — `portal_order_place` **không** t�
 
 | Mã | Tình huống | Chốt chặn / phát hiện | Xử lý | Nhãn |
 |---|---|---|---|---|
-| NL-1.1 | hợp đồng khung hết hiệu lực hoặc khách không có hợp đồng khung nào còn hiệu lực | So `from_date`/`to_date` của `Blanket Order` với ngày hiện tại | Danh mục khoá đặt hàng, hiển thị cảnh báo + đầu mối sales phụ trách; **lịch sử đơn thuộc hợp đồng khung cũ vẫn tra cứu được** | Hiện có |
-| NL-1.2 | Một mặt hàng đã dùng **hết** hạn mức (đã đặt đủ tổng hạn mức > 0) | Hạn mức còn lại tính từ `Blanket Order` | Ô số lượng và nút thêm giỏ bị khoá tại dòng, ghi "Hết hạn mức". **Phân biệt** với hạn mức *khai* bằng 0 = Không giới hạn (NL-1.11) | Hiện có, mở rộng |
-| NL-1.3 | Tổng đặt (sau khi gộp dòng trùng mã) vượt hạn mức còn lại | `portal_order_place` — kiểm sau khi gộp (BR-O2) | Chặn toàn đơn; báo **một lần đủ mọi mã hàng sai**, kèm số còn được đặt của từng mã (BR-O3) | Hiện có |
-| NL-1.4 | Mặt hàng không có giá trong `Price List` của khách | BR-O5 tại `portal_order_place` | Chặn đặt hàng, nêu rõ mã hàng; **[MỚI]** đồng thời notification cho sales phụ trách để bổ sung giá — khách không phải tự đi đòi giá | Hiện có, mở rộng |
+| NL-1.1 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>hợp đồng khung hết hiệu lực hoặc khách không có hợp đồng khung nào còn hiệu lực | So `from_date`/`to_date` của `Blanket Order` với ngày hiện tại | Danh mục khoá đặt hàng, hiển thị cảnh báo + đầu mối sales phụ trách; **lịch sử đơn thuộc hợp đồng khung cũ vẫn tra cứu được** | Hiện có |
+| NL-1.2 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Một mặt hàng đã dùng **hết** hạn mức (đã đặt đủ tổng hạn mức > 0) | Hạn mức còn lại tính từ `Blanket Order` | Ô số lượng và nút thêm giỏ bị khoá tại dòng, ghi "Hết hạn mức". **Phân biệt** với hạn mức *khai* bằng 0 = Không giới hạn (NL-1.11) | Hiện có, mở rộng |
+| NL-1.3 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Tổng đặt (sau khi gộp dòng trùng mã) vượt hạn mức còn lại | `portal_order_place` — kiểm sau khi gộp (BR-O2) | Chặn toàn đơn; báo **một lần đủ mọi mã hàng sai**, kèm số còn được đặt của từng mã (BR-O3) | Hiện có |
+| NL-1.4 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Mặt hàng không có giá trong `Price List` của khách | BR-O5 tại `portal_order_place` | Chặn đặt hàng, nêu rõ mã hàng; **[MỚI]** đồng thời notification cho sales phụ trách để bổ sung giá — khách không phải tự đi đòi giá | Hiện có, mở rộng |
 | NL-1.5 | Địa chỉ giao không thuộc đơn vị (giả mạo request) | BR-O1 tại `portal_order_place` | Chặn, trả lỗi 403; không lộ địa chỉ của khách khác | Hiện có |
 | NL-1.6 | Số lượng sai bội số quy cách đóng gói (VD bội số 10, nhập 15) | BR-O11 — kiểm ở giỏ hàng (tức thời) và kiểm lại ở `portal_order_place` (chốt) | Báo lỗi ngay tại dòng, nêu bội số đúng; server là chốt chặn cuối | **MỚI** |
 | NL-1.7 | Ngày giao mong muốn ở quá khứ hoặc sớm hơn chuẩn giao | BR-O13 — mặc định +2 ngày làm việc, chặn ngày quá khứ | Báo lỗi tại trường, gợi ý ngày hợp lệ gần nhất | **MỚI** |
 | NL-1.8 | Mất mạng / timeout đúng lúc bấm "Xác nhận đặt hàng" → nguy cơ bấm lại tạo đơn trùng | BR-O12 — mỗi lần mở màn xác nhận sinh một `request_id`; server nhớ id đã xử lý | Nút khoá khi đang gửi; gửi lại cùng `request_id` → trả về **đơn đã tạo**, không tạo đơn thứ hai | **MỚI** |
 | NL-1.9 | Phiên đăng nhập hết hạn giữa chừng | HTTP 401/403 từ API | Đưa về màn đăng nhập; giỏ hàng lưu phía máy chủ theo tài khoản nên **không mất** | **MỚI** |
 | NL-1.10 | Hai người dùng cùng đơn vị đặt song song, tổng vượt hạn mức (race) | Kiểm tại `portal_order_place` là chốt thời điểm đặt; kiểm lần cuối khi Miyano **xác nhận** (submit) là chốt sau cùng của ERPNext | Đơn đặt sau bị chặn hoặc bị phát hiện lúc xác nhận → xử lý theo NL-2.4 | Hiện có (2 tầng chốt) |
-| NL-1.11 | Hạn mức của mặt hàng trong hợp đồng khung **khai bằng 0** | Quy ước QĐ-8 / BR-O15 | Hiểu là **KHÔNG GIỚI HẠN**: hiển thị nhãn "Không giới hạn", không kiểm hạn mức; dòng SO **không gắn** `against_blanket_order` (cơ chế gốc ERPNext coi 0 là cấm đặt); vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt luỹ kế | **MỚI** |
+| NL-1.11 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Hạn mức của mặt hàng trong hợp đồng khung **khai bằng 0** | Quy ước QĐ-8 / BR-O15 | Hiểu là **KHÔNG GIỚI HẠN**: hiển thị nhãn "Không giới hạn", không kiểm hạn mức; dòng SO **không gắn** `against_blanket_order` (cơ chế gốc ERPNext coi 0 là cấm đặt); vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt luỹ kế | **MỚI** |
 
 ### 4.2 QT2 — Miyano xử lý đơn: máy trạng thái + duyệt theo ngưỡng **[Hiện có, mở rộng]**
 
@@ -723,8 +723,8 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 | Mã | Quy tắc | Nơi thực thi | Nhãn |
 |---|---|---|---|
 | BR-O1 | Chỉ đặt theo hợp đồng khung thuộc chính đơn vị mình; địa chỉ giao cũng phải thuộc đơn vị mình | `portal_order_place` | Hiện có |
-| BR-O2 | Các dòng giỏ trùng mã hàng phải **gộp trước** khi kiểm hạn mức | `portal_order_place` | Hiện có |
-| BR-O3 | Vượt hạn mức thì chặn, báo **tất cả** mã hàng sai một lần kèm số còn lại | `portal_order_place` | Hiện có |
+| BR-O2 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Các dòng giỏ trùng mã hàng phải **gộp trước** khi kiểm hạn mức | `portal_order_place` | Hiện có |
+| BR-O3 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Vượt hạn mức thì chặn, báo **tất cả** mã hàng sai một lần kèm số còn lại | `portal_order_place` | Hiện có |
 | BR-O4 | Mỗi dòng xuất từ kho mặc định **của chính mặt hàng đó** | `_resolve_item_warehouse` | Hiện có |
 | BR-O5 | Không có giá bán trong `Price List` của khách → chặn đặt | `portal_order_place` | Hiện có |
 | BR-O6 | Hạn mức trừ theo `Blanket Order` (`against_blanket_order = 1`) — cơ chế gốc ERPNext | `portal_order_place` | Hiện có |
@@ -736,7 +736,7 @@ UC-01…UC-41 giữ nguyên từ bản as-built **[Hiện có]**; các UC mới 
 | BR-O12 | **Idempotency**: một `request_id` chỉ tạo tối đa một `Sales Order`; gửi lại trả về đơn đã tạo | `portal_order_place` | **MỚI** |
 | BR-O13 | Ngày giao mong muốn: mặc định +2 ngày làm việc, không nhận ngày quá khứ | Giỏ hàng + `portal_order_place` | **MỚI** |
 | BR-O14 | Từ chối đơn **bắt buộc có lý do**; lý do đi vào email cho khách | Workflow + Notification | **MỚI** |
-| BR-O15 | **Hạn mức 0 = không giới hạn** (QĐ-8): dòng Blanket Order có qty = 0 → cổng hiển thị "Không giới hạn"; BR-O2/O3 chỉ áp cho dòng có hạn mức > 0; dòng SO tương ứng **không gắn** `against_blanket_order` (cơ chế gốc ERPNext sẽ coi 0 là cấm đặt) nhưng vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt; cảnh báo dùng ≥ 80% hạn mức bỏ qua dòng này; màn khai Blanket Order phía Desk hiển thị chú thích quy ước để tránh nhập nhầm 0 | `portal_catalog`, `portal_order_place` | **MỚI** |
+| BR-O15 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>**Hạn mức 0 = không giới hạn** (QĐ-8): dòng Blanket Order có qty = 0 → cổng hiển thị "Không giới hạn"; BR-O2/O3 chỉ áp cho dòng có hạn mức > 0; dòng SO tương ứng **không gắn** `against_blanket_order` (cơ chế gốc ERPNext sẽ coi 0 là cấm đặt) nhưng vẫn gắn `custom_hdnt` để truy vết và thống kê SL đã đặt; cảnh báo dùng ≥ 80% hạn mức bỏ qua dòng này; màn khai Blanket Order phía Desk hiển thị chú thích quy ước để tránh nhập nhầm 0 | `portal_catalog`, `portal_order_place` | **MỚI** |
 
 ### 6.2 Kho khách hàng (BR-K)
 
@@ -787,7 +787,7 @@ móc không ném lỗi; FEFO chỉ gợi ý; import luôn xem trước; mẫu in
 |---|---|
 | BR-R1 | Mua lẻ bật/tắt **theo từng khách** (`Customer.custom_cho_phep_mua_le`), mặc định **BẬT** từ 15/08 (đổi từ tắt — `v1_15.bat_mua_le_mac_dinh`); sales tắt thủ công cho khách cụ thể khi cần (nợ quá hạn, chỉ cho mua theo hợp đồng — thay VĐ-13, không còn yêu cầu khách tự xác nhận trước khi bật) |
 | BR-R2 | Giỏ hợp đồng khung và giỏ mua lẻ **tách riêng**, mỗi giỏ đặt thành một `Sales Order` riêng — không trộn hai loại dòng trong một đơn (khác Price List, khác cơ chế kiểm soát) |
-| BR-R3 | *(sửa 15/08)* Dòng mua lẻ luôn vào đơn với `rate = 0` — không còn tra giá ở bước đặt hàng; sales điền giá khi báo giá (§4.10). Price List bán lẻ (`Settings.price_list_ban_le`) không còn dùng ở đường đọc danh mục |
+| BR-R3 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>*(sửa 15/08)* Dòng mua lẻ luôn vào đơn với `rate = 0` — không còn tra giá ở bước đặt hàng; sales điền giá khi báo giá (§4.10). Price List bán lẻ (`Settings.price_list_ban_le`) không còn dùng ở đường đọc danh mục |
 | BR-R4 | Đơn mua lẻ: không gắn Blanket Order, không trừ hạn mức, `custom_loai_don = "Mua lẻ"`, **luôn** qua Miyano xác nhận và chịu duyệt ngưỡng BR-O9 |
 | BR-R5 | Đơn lập từ báo giá phải được khách **Đồng ý trên cổng** (log người bấm + thời điểm); báo giá có hiệu lực N ngày (Settings), quá hạn tự đóng; khách tải được PDF báo giá (§4.10) |
 | BR-R6 | *(sửa 15/08)* Danh mục mua lẻ = **toàn bộ** Item đang hoạt động (`disabled = 0`), không còn lọc theo `custom_ban_le_portal` — không hiện giá nên không còn lý do giấu bớt mặt hàng |
@@ -1007,7 +1007,7 @@ chứng từ bán hàng song ngữ. **[Hiện có]** — mẫu thật của từ
 | VĐ-4 | Workflow áp cho mọi `Sales Order` | Đã chấp nhận |
 | VĐ-5 | Chưa có mẫu phiếu in thật của từng bệnh viện | Chờ nghiệp vụ cung cấp; dùng TT107/TT200 |
 | VĐ-6 | Một khách một kho (`unique` tầng CSDL) | Giữ; nhu cầu nhiều kho/khoa phòng đánh giá sau — đổi schema + `get_portal_kho` trả danh sách |
-| VĐ-7 **[MỚI]** | **Hoàn hạn mức** khi (a) Close SO giao dở (NL-2.8) và (b) trả hàng (NL-3.9): `ordered_qty` của Blanket Order không tự giảm trong hai tình huống này | Cần xác nhận cơ chế kỹ thuật: script điều chỉnh khi Close/Return; nếu không làm, chấp nhận hạn mức "mất" phần đã đặt |
+| VĐ-7 **[MỚI]** | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>**Hoàn hạn mức** khi (a) Close SO giao dở (NL-2.8) và (b) trả hàng (NL-3.9): `ordered_qty` của Blanket Order không tự giảm trong hai tình huống này | Cần xác nhận cơ chế kỹ thuật: script điều chỉnh khi Close/Return; nếu không làm, chấp nhận hạn mức "mất" phần đã đặt |
 | VĐ-8 **[MỚI]** | Giá trị `nguong_duyet_2_tang` | Đề xuất 50.000.000 ₫; chủ đầu tư chốt số khi triển khai |
 | VĐ-9 **[MỚI]** | Phê duyệt nội bộ phía khách (FR-A4 BRD V1) | Backlog — bật theo nhu cầu từng khách, không nằm trong v2.0 |
 | VĐ-10 **[MỚI]** | Điều khoản chia sẻ dữ liệu kho (gồm hàng mua ngoài) trong hợp đồng dịch vụ | Pháp chế soạn trước khi bật tính năng kho cho khách mới |

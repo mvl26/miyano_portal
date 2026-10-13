@@ -24,37 +24,6 @@ class TestPortalRead(FrappeTestCase):
             self.assertIn("name", a)
             self.assertIn("display", a)
 
-    def test_contracts_and_catalog(self):
-        contracts = portal.portal_contracts()
-        self.assertTrue(contracts)
-        bo = contracts[0]["name"]
-        catalog = portal.portal_catalog(bo)
-        codes = {r["item_code"] for r in catalog}
-        self.assertEqual(codes, {"VT0005", "HC0009"})
-        vt = next(r for r in catalog if r["item_code"] == "VT0005")
-        self.assertEqual(vt["remaining"], 10000)
-        self.assertEqual(vt["rate"], 1200)
-
-    def test_contracts_expose_item_count(self):
-        contracts = portal.portal_contracts()
-        self.assertTrue(contracts)
-        c = contracts[0]
-        self.assertIn("item_count", c)
-        # the seeded contract has the two catalog items above
-        self.assertEqual(c["item_count"], len(portal.portal_catalog(c["name"])))
-        self.assertGreaterEqual(c["item_count"], 1)
-
-    def test_catalog_exposes_quota_and_group_fields(self):
-        contracts = portal.portal_contracts()
-        catalog = portal.portal_catalog(contracts[0]["name"])
-        vt = next(r for r in catalog if r["item_code"] == "VT0005")
-        for f in ("total", "used", "item_group", "remaining", "uom", "vat_pct"):
-            self.assertIn(f, vt)
-        # remaining is derived from total - used
-        self.assertEqual(vt["remaining"], vt["total"] - vt["used"])
-        self.assertEqual(vt["total"], 10000)
-        self.assertIsInstance(vt["item_group"], str)
-
     def test_invoices_status_is_vietnamese_and_has_due_date(self):
         rows = portal.portal_invoices()["rows"]
         english = {"Unpaid", "Paid", "Overdue", "Partly Paid", "Draft",
@@ -72,6 +41,9 @@ class TestPortalRead(FrappeTestCase):
         self.assertEqual(portal._invoice_status_vi("Paid"), "Đã thanh toán")
         self.assertEqual(portal._invoice_status_vi("Overdue"), "Quá hạn")
 
-    def test_catalog_rejects_foreign_contract(self):
-        with self.assertRaises(frappe.PermissionError):
-            portal.portal_catalog("nonexistent-bo")
+    def test_ba_endpoint_hop_dong_va_danh_muc_cu_da_go(self):
+        """Spec 2026-10-09 §7 — không màn nào còn gọi ba endpoint này nên
+        chúng bị xoá hẳn; để lại là để lại ba đường đọc hợp đồng/hạn mức
+        không ai canh."""
+        for ten in ("portal_contracts", "portal_catalog", "portal_catalog_ban_le"):
+            self.assertFalse(hasattr(portal, ten), ten)

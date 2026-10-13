@@ -39,7 +39,7 @@ Mục tiêu của `miyano_portal`:
 | # | Mục tiêu | Chỉ báo đạt được |
 |---|---|---|
 | MT1 | Khách tự đặt hàng theo hợp đồng nguyên tắc, không qua trung gian | Đơn hàng sinh thẳng thành `Sales Order` với `custom_nguon_don = "Client Portal"` |
-| MT2 | Hạn mức hợp đồng được máy kiểm, không kiểm bằng mắt | Vượt hạn mức bị chặn ngay lúc đặt, kèm số còn lại |
+| MT2 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Hạn mức hợp đồng được máy kiểm, không kiểm bằng mắt | Vượt hạn mức bị chặn ngay lúc đặt, kèm số còn lại |
 | MT3 | Khách tự tra cứu đơn / phiếu giao / hoá đơn / công nợ | Không còn yêu cầu tra cứu qua nhân viên kinh doanh |
 | MT4 | Bệnh viện quản lý kho của mình ngay trên cổng, có lô và hạn dùng | Sổ kho, thẻ kho, báo cáo NXT, cảnh báo hạn dùng |
 | MT5 | Hàng Miyano giao đến tự chảy vào kho khách, không nhập lại | Phiếu nhập **nháp** tự sinh từ `Delivery Note` |
@@ -246,7 +246,7 @@ Bảng dựng từ `frontend/src/router.js` (17 route) đối chiếu với các
 |---|---|---|---|
 | UC-01 | Đăng nhập cổng | `/portal/login` | trang web riêng, không qua SPA |
 | UC-02 | Xem tổng quan | `/portal/dashboard` | `portal_me`, `portal_order_history`, `portal_invoices` |
-| UC-03 | Xem hợp đồng nguyên tắc và hạn mức còn lại | `/portal/catalog` | `portal_contracts` |
+| UC-03 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Xem hợp đồng nguyên tắc và hạn mức còn lại | `/portal/catalog` | `portal_contracts` |
 | UC-04 | Xem danh mục hàng theo hợp đồng, có giá riêng | `/portal/catalog` | `portal_catalog` |
 | UC-05 | Đặt hàng từ giỏ | `/portal/cart` | `portal_order_place` |
 | UC-06 | Xem lịch sử đơn hàng | `/portal/orders` | `portal_order_history` |
@@ -293,12 +293,12 @@ Bảng dựng từ `frontend/src/router.js` (17 route) đối chiếu với các
 
 | Mã | Quy tắc | Nơi thực thi |
 |---|---|---|
-| BR-O1 | Chỉ đặt được theo hợp đồng nguyên tắc thuộc chính đơn vị mình; địa chỉ giao cũng phải thuộc đơn vị mình | `portal_order_place` |
-| BR-O2 | Các dòng giỏ hàng trùng mã hàng phải được **gộp trước** khi kiểm hạn mức. Nếu kiểm từng dòng riêng lẻ, hai dòng cùng mã đều "lọt" trong khi tổng vượt hạn mức | `portal_order_place` |
-| BR-O3 | Vượt hạn mức thì chặn, và báo **tất cả** mã hàng sai một lần kèm số còn lại, không báo từng cái | `portal_order_place` |
+| BR-O1 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Chỉ đặt được theo hợp đồng nguyên tắc thuộc chính đơn vị mình; địa chỉ giao cũng phải thuộc đơn vị mình | `portal_order_place` |
+| BR-O2 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Các dòng giỏ hàng trùng mã hàng phải được **gộp trước** khi kiểm hạn mức. Nếu kiểm từng dòng riêng lẻ, hai dòng cùng mã đều "lọt" trong khi tổng vượt hạn mức | `portal_order_place` |
+| BR-O3 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Vượt hạn mức thì chặn, và báo **tất cả** mã hàng sai một lần kèm số còn lại, không báo từng cái | `portal_order_place` |
 | BR-O4 | Mỗi dòng xuất từ kho mặc định **của chính mặt hàng đó**, không ép cả đơn về một kho — nếu không, mặt hàng để ở kho khác sẽ làm `Delivery Note` báo âm kho | `_resolve_item_warehouse` |
-| BR-O5 | Không có giá bán trong `Price List` của khách → chặn đặt hàng | `portal_order_place` |
-| BR-O6 | Hạn mức trừ theo `Blanket Order` nhờ `against_blanket_order = 1` trên từng dòng — cơ chế gốc của ERPNext, không tự tính | `portal_order_place` |
+| BR-O5 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Không có giá bán trong `Price List` của khách → chặn đặt hàng | `portal_order_place` |
+| BR-O6 | **Đã thay bởi quyết định 09/10/2026** — xem docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md.<br>Hạn mức trừ theo `Blanket Order` nhờ `against_blanket_order = 1` trên từng dòng — cơ chế gốc của ERPNext, không tự tính | `portal_order_place` |
 | BR-O7 | Trạng thái hiển thị cho khách suy ra từ `status` + `per_delivered`: đã bắt đầu giao (`per_delivered > 0`) mà chưa xong thì luôn là "Đang giao", vì `status` gốc gộp lẫn "Đang xử lý" và "Đang giao" | `_so_status_vi` |
 | BR-O8 | Khách không huỷ được đơn, chỉ gửi yêu cầu huỷ kèm lý do | `portal_request_cancel` |
 

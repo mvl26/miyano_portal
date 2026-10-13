@@ -29,6 +29,7 @@ from miyano_portal.api import de_xuat as api_de_xuat
 from miyano_portal.api import portal as api_portal
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 from miyano_portal.tests.test_de_xuat_duyet import _don_phieu_cu
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 TEN = "Bổ sung vật tư tiêu hao khoa Huyết học tháng 9/2026 — đợt sau kiểm kê"
 
@@ -204,7 +205,7 @@ class TestTenDonHangDuongQuanLyDatThang(FrappeTestCase):
 		seed_demo()
 		frappe.set_user("bvbm@demo.miyano")
 		self.addCleanup(frappe.set_user, "Administrator")
-		self.bo = api_portal.portal_contracts()[0]["name"]
+		self.bo = hop_dong_hieu_luc_dau_tien()
 
 	def test_ten_TOI_DUOC_ca_don_LAN_phieu_tu_duyet(self):
 		res = api_portal.portal_order_place(

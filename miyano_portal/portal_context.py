@@ -340,6 +340,28 @@ def cot_ten_don_hang_ton_tai() -> bool:
     return _cot_ten_don_hang_cache
 
 
+_cot_lan_dat_cache: bool | None = None
+
+
+def cot_lan_dat_ton_tai() -> bool:
+    """Có HAI cột `Portal De Xuat Mua.ma_lan_dat` / `phieu_cung_lan_dat` THẬT
+    trong CSDL không (patch v1_41, spec 2026-10-09 §4.1).
+
+    CÙNG KHUÔN và cùng lý do với `cot_ten_don_hang_ton_tai()` ngay trên: một
+    site chạy mã mới TRƯỚC khi patch thêm cột sẽ ném 1054 ở danh sách yêu cầu
+    và màn chi tiết — hai màn mọi người dùng mở đầu tiên. Hai cột này chỉ để
+    HIỂN THỊ mối nối giữa hai phiếu tách, nên thiếu cột thì trả rỗng / `None`
+    (phiếu trông như phiếu lẻ) và không `log_error`. Hai cột do cùng một lần
+    nạp lại doctype tạo ra, nhưng hỏi cả hai: thiếu một cũng là thiếu."""
+    global _cot_lan_dat_cache
+    if _cot_lan_dat_cache is None:
+        _cot_lan_dat_cache = bool(
+            frappe.db.has_column("Portal De Xuat Mua", "ma_lan_dat")
+            and frappe.db.has_column("Portal De Xuat Mua", "phieu_cung_lan_dat")
+        )
+    return _cot_lan_dat_cache
+
+
 # Task 9 (§12 Q4) — CÙNG KHUÔN `_cot_khoa_ton_tai`/`_cot_khoa_phong_ton_tai`
 # ở trên: cache CẤP TIẾN TRÌNH cho cột `Sales Order.custom_de_xuat` (patch
 # v1_24), dùng bởi `dam_bao_duoc_sua_don_da_duyet()`. Tách biến RIÊNG với
@@ -597,82 +619,3 @@ def get_allowed_khos(user: str | None = None) -> list[str]:
         filters={"customer": ["in", customers], "active": 1},
         pluck="name",
     )
-
-
-def han_muc_con(blanket_order: str, item_code: str) -> tuple[float | None, float]:
-    """Hạn mức còn lại của một mặt hàng trong HĐNT, và số đã đặt luỹ kế.
-
-    Trả `(None, da_dat)` khi dòng hợp đồng khai `qty = 0`: theo QĐ-8 / BR-O15
-    đó là quy ước **KHÔNG GIỚI HẠN**, không phải "hết hạn mức".
-
-    Phân biệt được ba trạng thái là toàn bộ lý do hàm này trả tuple thay vì
-    một con số:
-
-    - `(None, n)` — không giới hạn, đã đặt n
-    - `(0.0, n)`  — hết hạn mức, hoặc mặt hàng không có trong hợp đồng
-    - `(x, n)`    — còn x
-
-    Bản cũ (`remaining_qty`) trả `qty - ordered_qty` nên gộp hai trạng thái
-    đầu vào cùng một con số ≤ 0. Với dòng khai 0 đã đặt 30 nó ra **-30**, và
-    `portal_order_place` so `qty > rem` khiến mọi số lượng đều bị chặn kèm
-    thông báo "vượt hạn mức (còn -30)" — mặt hàng khai hạn mức 0 không đặt
-    được, đúng ngược quy ước.
-    """
-    row = frappe.get_all(
-        "Blanket Order Item",
-        filters={"parent": blanket_order, "item_code": item_code},
-        fields=["qty", "ordered_qty"],
-        limit=1,
-    )
-    if not row:
-        # Không có trong hợp đồng = không đặt được. CỐ Ý khác `None`: gộp hai
-        # thứ này là cách mở toang hạn mức cho mọi mặt hàng lạ.
-        return 0.0, 0.0
-    tong = float(row[0].qty or 0)
-    da_dat = float(row[0].ordered_qty or 0)
-    if tong == 0:
-        return None, da_dat
-    return tong - da_dat, da_dat
-
-
-def ten_khoa_da_tieu(blanket_order: str) -> str:
-    """Tên các khoa đã tiêu hạn mức của một hợp đồng khung, để ghép vào
-    thông điệp "hết hạn mức".
-
-    §5.6 đòi hết hạn mức thì THẤT BẠI KÈM TÊN KHOA đã tiêu mất — không có
-    ngoại lệ cho nhánh nào. Tách ra module-level (vòng sửa 1 Task 4/5/9,
-    review độc lập) vì có ĐÚNG HAI nhánh ném lỗi hạn mức trong app —
-    `de_xuat_duyet._kiem_han_muc` (đường duyệt phiếu) và
-    `dat_hang._xay_don` (đường tạo đơn, chạy cho CẢ giỏ hàng quản lý) —
-    và trước vòng sửa chỉ nhánh thứ nhất nêu tên khoa. Hai bản chép tay là
-    hai bản sẽ lệch nhau.
-
-    `docstatus < 2` (còn NHÁP + ĐÃ NỘP, loại ĐÃ HUỶ): đơn nháp vẫn đang
-    giữ chỗ hạn mức trên thực tế vận hành, và đây là đúng bộ lọc nhánh
-    duyệt phiếu đã dùng từ trước — giữ nguyên, không đổi ngầm.
-
-    Trả `"khoa khác"` khi không tra được khoa nào (đơn cũ chưa gắn khoa,
-    hoặc hạn mức bị tiêu bởi đơn cấp bệnh viện) — thà nói mờ còn hơn để
-    câu thông báo cụt mất vế ai đã tiêu.
-    """
-    khoa_da_tieu = frappe.get_all(
-        "Sales Order",
-        filters={"custom_hdnt": blanket_order, "docstatus": ["<", 2]},
-        fields=["distinct custom_khoa_phong as khoa"],
-    )
-    return ", ".join(
-        frappe.db.get_value("Customer Department", r.khoa, "ten_khoa_phong")
-        or "Toàn viện" for r in khoa_da_tieu if r.khoa
-    ) or "khoa khác"
-
-
-def remaining_qty(blanket_order: str, item_code: str) -> float:
-    """Chữ ký cũ, giữ cho mã và test đã có.
-
-    KHÔNG phân biệt được "không giới hạn" — nó trả `inf`, đủ để mọi phép so
-    `qty > rem` đi qua, nhưng chỗ nào cần biết ĐÓ LÀ không giới hạn (để bỏ
-    `against_blanket_order`, để loại khỏi mẫu số phần trăm) thì phải gọi
-    thẳng `han_muc_con`.
-    """
-    con_lai, _ = han_muc_con(blanket_order, item_code)
-    return float("inf") if con_lai is None else con_lai

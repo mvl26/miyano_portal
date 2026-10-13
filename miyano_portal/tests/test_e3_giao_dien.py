@@ -203,14 +203,26 @@ class TestPortalOrderTrackDotGiao(_KhoDnTestCase):
 		# một quyết định CÓ Ý THỨC, đúng như comment ngay trên yêu cầu: field
 		# này đã làm test đỏ khi vừa xuất hiện, và nó vào hợp đồng §1.2 vì
 		# khách cần biết đợt giao nào đã kiểm ngay trên màn chi tiết đơn.
+		# `thoi_gian_giao` (09/10/2026): thời điểm giao THẬT do Miyano nhập trên
+		# phiếu giao (`custom_thoi_gian_giao`), khác `ngay` là ngày ghi sổ. Vào
+		# hợp đồng §1.2 có chủ ý, cùng cách `kiem_hang` đã vào: field này làm
+		# test đỏ khi vừa xuất hiện. Đọc lại từ CSDL thay vì so với một hằng
+		# số — hook `validate` điền nó từ ngày giờ ghi sổ của chính phiếu.
+		tgg1, tgg2 = (
+			frappe.db.get_value("Delivery Note", dn.name, "custom_thoi_gian_giao")
+			for dn in (dn1, dn2)
+		)
+		self.assertTrue(tgg1 and tgg2)
 		self.assertEqual(g1, {
 			"so_dot": 1, "delivery_note": dn1.name, "ngay": dn1.posting_date,
+			"thoi_gian_giao": tgg1,
 			"phan_tram": 60, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
 			"kiem_hang": None,
 			"phieu_nhap": {"name": phieu1.name, "trang_thai": "Nháp", "co_chenh_lech": False},
 		})
 		self.assertEqual(g2, {
 			"so_dot": 2, "delivery_note": dn2.name, "ngay": dn2.posting_date,
+			"thoi_gian_giao": tgg2,
 			"phan_tram": 40, "van_chuyen": "", "awb": "", "co_hoa_don_nhap": False,
 			"kiem_hang": None,
 			"phieu_nhap": {"name": phieu2.name, "trang_thai": "Đã ghi sổ", "co_chenh_lech": False},

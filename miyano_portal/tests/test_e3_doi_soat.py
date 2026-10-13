@@ -32,10 +32,9 @@ ITEM = "MYN-GLOVE-M"  # không có batch/hạn — đúng tiền đề của TC-
 # không phải qua frappe.get_doc trực tiếp (xem test_TC_E3_03_qua_api_...).
 BM_USER = "bvbm@demo.miyano"
 
-# Cùng địa chỉ với USER_SALES của test_e1_thieu_gia_va_reorder.py: dùng
-# `bao_thieu_gia`/`bao_chenh_lech` chung một khuôn "sales phụ trách" của
-# Customer, nên dùng lại đúng một user demo cho gọn. Tự tạo (idempotent) thay
-# vì trông cậy vào việc site đã có sẵn từ trước.
+# "Sales phụ trách" (`Customer.account_manager`) — người nhận của
+# `bao_chenh_lech`. Tự tạo (idempotent) thay vì trông cậy vào việc site đã có
+# sẵn từ trước.
 SALES_USER = "sales_user@demo.miyano"
 
 

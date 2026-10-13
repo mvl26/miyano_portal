@@ -3,7 +3,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api, { logout } from '../api'
 import { store } from '../store'
-import { fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 
 const router = useRouter()
@@ -12,7 +11,6 @@ const isMobile = useIsMobile()
 const loading = ref(true)
 const error = ref('')
 const me = ref(null)
-const contracts = ref([])
 
 async function doLogout() {
   await logout()
@@ -21,13 +19,9 @@ async function doLogout() {
 
 onMounted(async () => {
   try {
-    const [meRes, contractsRes] = await Promise.all([
-      store.me ? Promise.resolve(store.me) : api.call('portal_me'),
-      api.call('portal_contracts'),
-    ])
+    const meRes = store.me || (await api.call('portal_me'))
     me.value = meRes
     store.setMe(meRes)
-    contracts.value = contractsRes || []
   } catch (e) {
     error.value = e.message || 'Không tải được hồ sơ.'
   } finally {
@@ -51,7 +45,7 @@ onMounted(async () => {
     <div v-else class="grid2">
       <div>
         <!-- Thông tin đơn vị -->
-        <div class="card mb10" style="margin-bottom: 14px">
+        <div class="card">
           <div class="h3">🏥 {{ me.customer_name }}</div>
           <p class="tag">
             <template v-if="me.tax_id">MST: {{ me.tax_id }}</template>
@@ -60,30 +54,6 @@ onMounted(async () => {
           <h4 style="margin: 16px 0 8px">Địa chỉ giao hàng</h4>
           <p v-if="!me.addresses?.length" class="tag">Chưa có địa chỉ.</p>
           <p v-for="a in me.addresses" :key="a.name" style="font-size: 13px">• {{ a.display }}</p>
-        </div>
-
-        <!-- Hợp đồng nguyên tắc -->
-        <div class="card">
-          <div class="h3">Hợp đồng khung</div>
-          <p v-if="!contracts.length" class="tag">Chưa có hợp đồng còn hiệu lực.</p>
-          <div v-else style="overflow-x: auto">
-            <table>
-              <thead>
-                <tr><th>Số HĐ</th><th>Hiệu lực</th><th>Mặt hàng</th><th style="min-width: 120px">Hạn mức đã dùng</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in contracts" :key="c.name">
-                  <td><b>{{ c.name }}</b></td>
-                  <td>{{ fmtDate(c.from_date) }} – {{ fmtDate(c.to_date) }}</td>
-                  <td>{{ c.item_count }}</td>
-                  <td>
-                    {{ c.used_pct }}%
-                    <div class="bar"><i :style="{ width: Math.min(c.used_pct, 100) + '%' }"></i></div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
 

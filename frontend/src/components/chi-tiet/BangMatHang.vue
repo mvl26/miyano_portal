@@ -17,6 +17,7 @@ import { ref, computed } from 'vue'
 import api from '../../api'
 import { fmtVND, fmtDate, todayISO, addDaysISO } from '../../format'
 import { THE_KHO_COLUMNS } from '../../kho-bao-cao-columns'
+import { NHAN_CHO_BAO_GIA, choBaoGiaTrenDon } from '../../gia-dong-don'
 import TheHangMoi from './TheHangMoi.vue'
 
 const props = defineProps({
@@ -64,7 +65,11 @@ const dong = computed(() => {
         so_luong_tren_don: it.qty,   // Ruling preflight #2 — nuôi cột "SL đặt"
         don_gia_tren_don: it.rate,
         thanh_tien_tren_don: it.amount,
+        // Dấu "Bảng giá" / "Báo giá" của dòng đơn — dòng phiếu nhận khoá này
+        // từ server (`de_xuat_chi_tiet`). Xem `gia-dong-don.js`.
+        nguon_gia_tren_don: it.nguon_gia,
         da_giao_tren_don: it.delivered_qty,
+        ngay_giao_du_kien: it.ngay_giao_du_kien,
       }))
 
   // MỘT BẢNG, KHÔNG BA (chủ đầu tư 08/09/2026: "sau khi đã khớp mã hàng từ
@@ -102,7 +107,9 @@ const dong = computed(() => {
       so_luong_tren_don: hang ? Number(hang.qty) : null,
       don_gia_tren_don: hang ? Number(hang.rate) : null,
       thanh_tien_tren_don: hang ? Number(hang.amount) : null,
+      nguon_gia_tren_don: hang?.nguon_gia || null,
       da_giao_tren_don: hang ? Number(hang.delivered_qty) : null,
+      ngay_giao_du_kien: hang?.ngay_giao_du_kien || null,
       ghi_chu_quan_ly: '',
       yeu_cau_khop: ycs,
       // Dòng KHÔNG có mặt trên phiếu — quản lý không được sửa SL duyệt của
@@ -125,6 +132,45 @@ const coCotXinSua = computed(() => props.phieu?.trang_thai === 'Chờ duyệt s�
 const coCotDaGiao = computed(
   () => coDon.value && (props.don.deliveries || []).length > 0
 )
+// Cột "Dự kiến giao" (09/10/2026) — chỉ hiện khi có ÍT NHẤT một dòng mang
+// ngày. Server trả `null` cho mọi dòng khi đơn CHƯA được Miyano xác nhận
+// (trước mốc đó ngày trên dòng là "ngày cần" do khách gõ, chưa phải lời hứa
+// của Miyano) — luật đó sống ở server, ở đây chỉ đọc kết quả.
+const coCotDuKienGiao = computed(
+  () => coDon.value && dong.value.some((r) => r.ngay_giao_du_kien)
+)
+// Cột "Đơn giá" của PHIẾU CHƯA CÓ ĐƠN (spec 2026-10-09 §7) — giá bảng giá
+// đóng dấu lên dòng lúc gửi duyệt (§4.3). Có đơn rồi thì ba cột của đơn nói
+// giá thật, cột này nhường chỗ.
+//
+// "Có giá" đòi CẢ HAI: dòng thuộc nguồn có giá (`"Bảng giá"`, hoặc `"Hợp
+// đồng"` của phiếu cũ) VÀ đơn giá dương. Chỉ nhìn `don_gia` là sai: một dòng
+// từng được đóng dấu rồi mất giá trong bảng giá bị lật sang "Chờ báo giá" ở
+// lần gửi lại mà vẫn giữ con số cũ (xem `_suy_nguon_gia` của doctype) — in con
+// số đó ra là báo giá cho một dòng đang chờ Miyano báo giá.
+const NGUON_CO_GIA = ['Bảng giá', 'Hợp đồng']
+function coGiaPhieu(row) {
+  return NGUON_CO_GIA.includes(row.nguon_gia) && Number(row.don_gia) > 0
+}
+// Phiếu Nháp không hiện cột: chưa gửi thì chưa đóng dấu, còn phiếu thu hồi về
+// Nháp mang giá của LẦN GỬI TRƯỚC trong khi màn Đặt hàng hiện giá hôm nay —
+// hai màn nói hai giá. Phiếu toàn hàng chờ báo giá cũng không có gì để hiện.
+const coCotGiaPhieu = computed(
+  () => coPhieu.value && !coDon.value && props.phieu.trang_thai !== 'Nháp'
+    && dong.value.some(coGiaPhieu)
+)
+// Chữ của ô khi dòng KHÔNG có giá: dòng nguồn có giá mà thiếu con số thì "—"
+// (nó không đi vòng báo giá), mọi dòng khác là "Chờ báo giá".
+function nhanGiaPhieu(row) {
+  if (coGiaPhieu(row)) return fmtVND(row.don_gia)
+  return NGUON_CO_GIA.includes(row.nguon_gia) ? '—' : 'Chờ báo giá'
+}
+// Dòng đã giao đủ thì "dự kiến" hết nghĩa — in ngày ra là mời khách chờ một
+// lần giao đã xong.
+function daGiaoDu(row) {
+  const dat = Number(row.so_luong_tren_don)
+  return dat > 0 && Number(row.da_giao_tren_don) >= dat
+}
 
 // M1 (Task 4) — "hạ về 0" chỉ có nghĩa SAU khi quản lý đã thật sự cầm phiếu
 // lên xử lý. Ở "Nháp"/"Chờ duyệt", `so_luong_duyet` mới là bản sao mặc định
@@ -162,14 +208,18 @@ function laBoMatHang(row) {
 
 // Số cột thật đang hiện — nuôi `colspan` của dòng "Chưa có dòng hàng nào."
 // Đếm động vì bộ cột co giãn theo giai đoạn (coPhieu/coCotDuyet/coCotXinSua/
-// coDon/coCotDaGiao), không phải một hằng số như bảng cũ (luôn 3 hoặc 4).
+// coCotGiaPhieu/coDon/coCotDaGiao/coCotDuKienGiao), không phải một hằng số
+// như bảng cũ
+// (luôn 3 hoặc 4).
 const soCotTong = computed(() => {
   let n = 2 // Mặt hàng, ĐVT — hai cột luôn có mặt
   if (coPhieu.value) n += 1 // SL đề xuất
   if (coCotDuyet.value) n += 1
   if (coCotXinSua.value) n += 1
+  if (coCotGiaPhieu.value) n += 1
   if (coDon.value) n += 3 // SL đặt, Đơn giá, Thành tiền
   if (coCotDaGiao.value) n += 1
+  if (coCotDuKienGiao.value) n += 1
   if (coPhieu.value) n += 1 // Ghi chú quản lý
   if (coCanCuKho.value) n += 4 // Tồn hiện có, Đang về, Dùng TB/ngày, Còn dùng được
   return n
@@ -303,6 +353,7 @@ function toggleChiTietKhop(row) {
           <th v-if="coPhieu" class="right">SL đề xuất</th>
           <th v-if="coCotDuyet" class="right">SL duyệt</th>
           <th v-if="coCotXinSua" class="right">SL xin sửa</th>
+          <th v-if="coCotGiaPhieu" class="right">Đơn giá</th>
           <!-- Ruling preflight #2 — SỐ THẬT TRÊN ĐƠN, không phải `so_luong_
                duyet`. Hai con số này lệch nhau khi Miyano khớp một dòng gõ
                tay vào đơn (Ruling P51: `_gop_hoac_them_dong_hang` cộng
@@ -314,6 +365,7 @@ function toggleChiTietKhop(row) {
           <th v-if="coDon" class="right">Đơn giá</th>
           <th v-if="coDon" class="right">Thành tiền</th>
           <th v-if="coCotDaGiao" class="right">Đã giao</th>
+          <th v-if="coCotDuKienGiao">Dự kiến giao</th>
           <!-- `min-width` bằng `rem` (không phải `px`) — co giãn theo cỡ
                chữ người dùng đặt trong trình duyệt, và là cột NÊN rộng khi
                còn chỗ. Bảng đã nằm trong khung `overflow-x: auto` nên đòi
@@ -430,6 +482,10 @@ function toggleChiTietKhop(row) {
             <span v-if="row.so_luong_xin_sua !== null && row.so_luong_xin_sua !== undefined">{{ row.so_luong_xin_sua }}</span>
             <span v-else class="tag">—</span>
           </td>
+          <td v-if="coCotGiaPhieu" class="right">
+            <template v-if="coGiaPhieu(row)">{{ nhanGiaPhieu(row) }}</template>
+            <span v-else class="tag">{{ nhanGiaPhieu(row) }}</span>
+          </td>
           <!-- Ruling preflight #2 — SL đặt: chỉ "—" khi dòng KHÔNG có mặt
                trên đơn (quản lý đã hạ về 0 lúc duyệt); `null` và "chưa có
                đơn" là hai khoá khác nhau ở tầng server, ở đây gộp lại vì cả
@@ -444,25 +500,31 @@ function toggleChiTietKhop(row) {
                `format.js`: `Number(v || 0)`) nên PHẢI chặn ở đây, gọi thẳng
                `fmtVND` sẽ nói với khoa rằng hàng của họ giá 0. -->
           <td v-if="coDon" class="right">
-            <!-- Giá 0 trên một dòng ĐÃ KHỚP MÃ nghĩa là MIYANO CHƯA BÁO GIÁ,
-                 không phải "miễn phí": `_gop_hoac_them_dong_hang` chỉ tự lấy
-                 đơn giá khi mặt hàng thuộc một hợp đồng khung còn hiệu lực,
-                 ngoài ra để 0 và chờ Miyano điền. Câu này chuyển nguyên từ
-                 bảng "Đã khớp mã" cũ — bỏ nó lúc gộp bảng là nói với khoa
-                 rằng hàng của họ giá 0. Chỉ áp cho dòng khớp: một dòng hàng
-                 thường giá 0 là chuyện khác (hàng tặng kèm), không đoán hộ. -->
-            <template v-if="row.yeu_cau_khop && !row.don_gia_tren_don">
-              <span class="tag">Chờ Miyano báo giá</span>
+            <!-- Giá <= 0 trên một dòng của đơn báo giá nghĩa là MIYANO CHƯA BÁO
+                 GIÁ, không phải "miễn phí" (spec 2026-10-09: giá <= 0 là chưa
+                 có giá). Áp cho dòng mang dấu "Báo giá" và cho dòng gõ tay đã
+                 khớp mã — `_gop_hoac_them_dong_hang` chỉ tự lấy đơn giá khi
+                 mặt hàng có giá trong bảng giá của khách (§4.4), ngoài ra để
+                 0 và chờ Miyano điền. Luật nằm ở `gia-dong-don.js`. -->
+            <template v-if="choBaoGiaTrenDon(row)">
+              <span class="tag">{{ NHAN_CHO_BAO_GIA }}</span>
             </template>
             <template v-else-if="row.don_gia_tren_don !== null && row.don_gia_tren_don !== undefined">{{ fmtVND(row.don_gia_tren_don) }}</template>
             <template v-else>—</template>
           </td>
           <td v-if="coDon" class="right">
-            <template v-if="row.thanh_tien_tren_don !== null && row.thanh_tien_tren_don !== undefined">{{ fmtVND(row.thanh_tien_tren_don) }}</template>
+            <!-- Chưa có đơn giá thì chưa có thành tiền: "—", không "0 ₫". -->
+            <template v-if="choBaoGiaTrenDon(row)">—</template>
+            <template v-else-if="row.thanh_tien_tren_don !== null && row.thanh_tien_tren_don !== undefined">{{ fmtVND(row.thanh_tien_tren_don) }}</template>
             <template v-else>—</template>
           </td>
           <td v-if="coCotDaGiao" class="right">
             <template v-if="row.da_giao_tren_don !== null && row.da_giao_tren_don !== undefined">{{ row.da_giao_tren_don }}</template>
+            <template v-else>—</template>
+          </td>
+          <td v-if="coCotDuKienGiao">
+            <span v-if="daGiaoDu(row)" class="badge b-green">Đã giao</span>
+            <template v-else-if="row.ngay_giao_du_kien">{{ fmtDate(row.ngay_giao_du_kien) }}</template>
             <template v-else>—</template>
           </td>
           <!-- C1 (chép từ DeXuatDetail.vue) — cột riêng ở bảng gộp thay vì

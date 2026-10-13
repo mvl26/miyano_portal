@@ -62,6 +62,19 @@ export const ACTIONS_DE_XUAT = [
   { method: 'de_xuat_duyet_phieu', label: 'Duyệt', variant: 'success',
     when: (d, me) => d.trang_thai === 'Chờ duyệt' && me.la_quan_ly },
 
+  // Spec 2026-10-09 §7 — phiếu này và phiếu "cùng lần đặt" (giỏ trộn bị tách
+  // làm hai, §4.1) đều đang chờ duyệt: một cú bấm duyệt cả hai. CÙNG endpoint
+  // với "Duyệt", thêm hằng số `duyet_ca_hai` (khuôn `{key, const}` của
+  // `don-actions.js`). Server tự kiểm phiếu kia trước khi ghi bất cứ gì; điều
+  // chỉnh số lượng trên màn chỉ áp cho phiếu đang mở.
+  //
+  // `phieu_cung_lan_dat` do `de_xuat_chi_tiet` trả kèm `trang_thai` của phiếu
+  // kia, và chỉ khi người gọi mở được phiếu đó — không suy lại ở đây.
+  { method: 'de_xuat_duyet_phieu', label: 'Duyệt cả hai', variant: 'success',
+    args: [{ key: 'duyet_ca_hai', const: 1 }],
+    when: (d, me) => d.trang_thai === 'Chờ duyệt'
+      && d.phieu_cung_lan_dat?.trang_thai === 'Chờ duyệt' && me.la_quan_ly },
+
   { method: 'de_xuat_tu_choi', label: 'Từ chối', variant: 'secondary',
     when: (d, me) => d.trang_thai === 'Chờ duyệt' && me.la_quan_ly,
     args: [{ key: 'ly_do', label: 'Lý do từ chối', type: 'textarea', required: true }] },

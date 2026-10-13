@@ -179,6 +179,59 @@ class TestChiTietGopBackend(FrappeTestCase):
 		self.assertEqual(float(dong["thanh_tien_tren_don"]), 15000.0)
 		self.assertEqual(float(dong["da_giao_tren_don"]), 3.0)
 
+	def test_dong_tra_dau_nguon_gia_cua_dong_don_o_ca_hai_duong(self):
+		"""Final-fix S-7 — bảng mặt hàng phân biệt "dòng báo giá chưa có giá"
+		(in "Chờ báo giá") với dòng cũ giá 0 bằng DẤU của dòng đơn, không đoán
+		từ con số. Cả hai đường nuôi bảng (`de_xuat_chi_tiet` khi có phiếu,
+		`portal_order_track` khi chỉ có đơn) phải trả dấu đó."""
+		phieu = self._phieu_da_duyet(so_luong=10)
+		loc = {"parent": phieu.sales_order, "item_code": self.item}
+		frappe.db.set_value(
+			"Sales Order Item", loc,
+			{"rate": 0, "amount": 0, "custom_nguon_gia": "Báo giá"},
+			update_modified=False,
+		)
+		frappe.set_user(self.quan_ly)
+		dong = next(
+			d for d in de_xuat.de_xuat_chi_tiet(ten=phieu.name)["items"]
+			if d["item_code"] == self.item
+		)
+		self.assertEqual(dong["nguon_gia_tren_don"], "Báo giá")
+		self.assertEqual(float(dong["don_gia_tren_don"]), 0.0)
+		hang = next(
+			i for i in portal.portal_order_track(order=phieu.sales_order)["items"]
+			if i["item_code"] == self.item
+		)
+		self.assertEqual(hang["nguon_gia"], "Báo giá")
+
+		# Dòng đơn CŨ (trước spec 2026-10-09) không có dấu → `None`, không rỗng.
+		frappe.set_user("Administrator")
+		frappe.db.set_value(
+			"Sales Order Item", loc, "custom_nguon_gia", "", update_modified=False)
+		frappe.set_user(self.quan_ly)
+		dong = next(
+			d for d in de_xuat.de_xuat_chi_tiet(ten=phieu.name)["items"]
+			if d["item_code"] == self.item
+		)
+		self.assertIsNone(dong["nguon_gia_tren_don"])
+		hang = next(
+			i for i in portal.portal_order_track(order=phieu.sales_order)["items"]
+			if i["item_code"] == self.item
+		)
+		self.assertIsNone(hang["nguon_gia"])
+
+	def test_phieu_chua_co_don_khong_co_dau_nguon_gia_tren_don(self):
+		doc = frappe.get_doc({
+			"doctype": "Portal De Xuat Mua",
+			"customer": self.kh_a, "khoa_phong": self.khoa_a,
+			"ly_do_yeu_cau": "x",
+			"items": [{"item_code": self.item, "so_luong_de_xuat": 5}],
+		}).insert(ignore_permissions=True)
+		frappe.set_user(self.quan_ly)
+		dong = de_xuat.de_xuat_chi_tiet(ten=doc.name)["items"][0]
+		self.assertIn("nguon_gia_tren_don", dong)
+		self.assertIsNone(dong["nguon_gia_tren_don"])
+
 	def test_chi_tiet_phieu_chua_co_don_tra_None_khong_phai_0(self):
 		"""`0` và "chưa có đơn" là HAI ca khác nhau, đừng gộp — cùng lý do
 		`so_luong_tren_don` đã trả `None` (Ruling P51). Một bảng in `0 ₫`

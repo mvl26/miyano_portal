@@ -25,16 +25,18 @@ Mapping (see module docstring of export_supplycore.py for the source side):
     SC Customer           -> Customer (+ Contact when email present,
                               + Address("Shipping") when shipping_address present)
     SC Sales Framework Contract (+ SFC Item)
-                          -> Blanket Order (Selling) + a per-contract Price
-                              List "HĐNT-<contract_number>" with Item Price
-                              rows, and Customer.default_price_list set to it.
+                          -> Blanket Order (Selling) + the contract unit
+                              prices (> 0) as Item Price rows in the
+                              customer's OWN Price List (created/split on
+                              demand by bang_gia_khach.dam_bao_bang_gia_rieng;
+                              spec 2026-10-09 §6). No per-contract price list.
 """
 
 import json
 from contextlib import contextmanager
 
 import frappe
-from frappe.utils import random_string
+from frappe.utils import flt, random_string
 
 STANDARD_SELLING_PRICE_LIST = "Standard Selling"
 DEFAULT_CURRENCY = "VND"
@@ -271,9 +273,25 @@ def _ensure_address(customer: dict) -> bool:
 
 
 def _ensure_contract(contract: dict, company: str, customer_name_by_sc_id: dict) -> dict:
-    """Ensure the per-contract Price List (+ Item Price rows) and the
-    Blanket Order for a single SC Sales Framework Contract. Also points the
-    customer's default_price_list at the contract price list.
+    """Ensure the Blanket Order for a single SC Sales Framework Contract and
+    copy its unit prices into the customer's OWN Price List.
+
+    Spec 2026-10-09 §6: the portal prices from ONE source, the customer's
+    Price List. The importer used to create a "HĐNT-<contract_number>" list
+    per contract and repoint Customer.default_price_list at the newest one,
+    which orphaned every earlier price; it now leaves default_price_list
+    alone except through ``dam_bao_bang_gia_rieng`` (creates a list for a
+    customer without one, splits a list shared with another customer).
+
+    Price rows: only ``unit_price > 0`` (<= 0 means "not priced yet", never
+    "sells for 0"), and only when the contract line's UOM is empty or equal
+    to the item's stock UOM - the UOM every portal price is read at. A
+    priced line in another UOM gets NO Item Price (no conversion is
+    attempted) and is reported in ``skipped_lines`` with the reason; the
+    line itself stays on the Blanket Order. An item the customer
+    already has a price for is left untouched, so re-running the import
+    neither duplicates rows nor overwrites a price edited since.
+    ``price_lists`` counts a list only when one was created for the customer.
 
     Contract lines whose item_code doesn't resolve to an existing Item are
     dropped (and reported in ``skipped_lines``) rather than failing the
@@ -318,32 +336,6 @@ def _ensure_contract(contract: dict, company: str, customer_name_by_sc_id: dict)
         result["skip_reason"] = "no valid item lines (all referenced items are missing/unresolvable)"
         return result
 
-    price_list_name = f"HĐNT-{contract_number}"
-    if _ensure_price_list(price_list_name):
-        result["price_lists"] += 1
-
-    for sfc_item in valid_items:
-        item_code = sfc_item.get("item")
-        if frappe.db.exists(
-            "Item Price", {"item_code": item_code, "price_list": price_list_name, "selling": 1}
-        ):
-            continue
-        frappe.get_doc(
-            {
-                "doctype": "Item Price",
-                "item_code": item_code,
-                "price_list": price_list_name,
-                "uom": sfc_item.get("uom"),
-                "selling": 1,
-                "price_list_rate": sfc_item.get("unit_price") or 0,
-                "currency": DEFAULT_CURRENCY,
-            }
-        ).insert(ignore_permissions=True)
-        result["item_prices"] += 1
-
-    if frappe.db.get_value("Customer", customer_name, "default_price_list") != price_list_name:
-        frappe.db.set_value("Customer", customer_name, "default_price_list", price_list_name)
-
     existing_bo = frappe.db.get_value(
         "Blanket Order",
         {"customer": customer_name, "order_no": contract_number, "blanket_order_type": "Selling"},
@@ -371,6 +363,47 @@ def _ensure_contract(contract: dict, company: str, customer_name_by_sc_id: dict)
         )
         bo.insert(ignore_permissions=True)
         result["blanket_orders"] += 1
+
+    from miyano_portal import bang_gia_khach
+
+    price_list_before = frappe.db.get_value("Customer", customer_name, "default_price_list")
+    price_list_name = bang_gia_khach.dam_bao_bang_gia_rieng(customer_name)
+    if price_list_name != price_list_before:
+        result["price_lists"] += 1
+
+    already_priced = bang_gia_khach.gia_bang_gia_nhieu(
+        customer_name, [sfc_item.get("item") for sfc_item in valid_items]
+    )
+    for sfc_item in valid_items:
+        item_code = sfc_item.get("item")
+        unit_price = flt(sfc_item.get("unit_price"))
+        if unit_price <= 0:
+            continue
+        # A contract price is per the CONTRACT line's UOM; the portal reads
+        # prices per the item's stock UOM. Writing a per-box price where a
+        # per-piece price is read would get charged as is, so do not write
+        # it and do not guess a conversion: report it, the item shows as
+        # "chờ báo giá" until someone enters the right price.
+        line_uom = sfc_item.get("uom")
+        stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+        if line_uom and line_uom != stock_uom:
+            result["skipped_lines"].append(
+                {
+                    "item_code": item_code,
+                    "error": (
+                        f"price not imported: contract UOM {line_uom!r} differs from the item's "
+                        f"stock UOM {stock_uom!r} (line kept on the Blanket Order, no Item Price written)"
+                    ),
+                }
+            )
+            continue
+        if item_code in already_priced:
+            continue
+        bang_gia_khach.ghi_gia_vao_bang(
+            price_list_name, customer_name, item_code, unit_price, DEFAULT_CURRENCY
+        )
+        already_priced[item_code] = unit_price
+        result["item_prices"] += 1
 
     return result
 

@@ -32,7 +32,10 @@ _DH_STYLE = """
 # `blanket_order` khác nằm trên từng DÒNG (một đơn có thể gom dòng của nhiều
 # hợp đồng, khi đó `custom_hdnt` để trống — xem `dat_hang._xay_don`). Số in ra
 # là `order_no` (số hợp đồng hai bên ký); chưa khai thì in mã Blanket Order —
-# đúng thứ cổng đang hiện cho khách dưới nhãn "HĐNT".
+# đúng thứ cổng từng hiện cho khách dưới nhãn "HĐNT". Đơn đặt từ cổng sau
+# spec 2026-10-09 không còn mang `custom_hdnt` / `blanket_order`, nên với
+# chúng dòng "Theo Hợp đồng số" in dãy chấm để điền tay; khối này còn tác
+# dụng cho đơn cũ và đơn nhân viên Miyano lập trên Desk có gắn hợp đồng.
 #
 # `nguoi_dat`: `contact_person` là KHOÁ nội bộ dạng "<khách>-<khách>-11",
 # không phải họ tên — phải tra `Contact.full_name`.

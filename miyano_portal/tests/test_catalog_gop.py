@@ -1,20 +1,13 @@
-"""Task 3 (gộp luồng đặt hàng, 2026-08-19) — `portal_catalog_gop`, endpoint
-tìm kiếm gộp BA TẦNG cho màn Lập phiếu (`LapPhieu.vue`, Task 8, chạy song
-song với task này).
+"""`portal_catalog_gop` — endpoint tìm kiếm danh mục cho màn Lập phiếu
+(`LapPhieu.vue`).
 
-Hình dạng trả về ĐÃ ĐÓNG BĂNG — xem `hop-dong-endpoint-tim-kiem.md`:
-`{"rows": [{item_code, item_name, dvt, tang, don_gia, blanket_order,
-boi_so}], "tong": int}`. `don_gia`/`blanket_order`/`boi_so` là `None` (KHÔNG
-phải `0`) khi không áp dụng — `0` là một giá/bội số HỢP LỆ.
-
-Tầng suy THEO DÒNG, đối chiếu MỌI Blanket Order còn hiệu lực của khách
-(Ruling P14) — endpoint dùng LẠI `nguon_gia_theo_ma_cho_khach()` (extract từ
-`PortalDeXuatMua._nguon_gia_theo_ma()`, module `portal_de_xuat_mua`, Task 2).
-Phép PHÂN ĐỊNH khi một mã thuộc nhiều hợp đồng ("hết hạn sớm nhất thắng,
-trùng `to_date` thì `name` nhỏ hơn thắng") + mutation test cho nó đã có ở
-`test_nguon_gia_dong.py` — KHÔNG lặp lại ở đây, bộ test này chỉ kiểm phần
-ĐÃ NỐI DÂY đúng qua endpoint (khách đúng, hợp đồng đúng, giá đúng, boi_so
-đúng, phân trang đúng), không phải logic phân định tự nó.
+Spec `docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §3:
+mỗi dòng mang đúng các khoá `item_code, item_name, dvt, boi_so, nhom_vat_tu,
+ten_thuong_goi, trang_thai_hang, tang, don_gia`; `tang` là `"bang_gia"` hoặc
+`"cho_bao_gia"`, suy từ Price List của khách — hợp đồng khung KHÔNG còn được
+hỏi. Phần phân tầng/giá kiểm ở `test_gia_bang_gia_tren_danh_muc.py` (mượn
+`setUp` và các hàm dựng dữ liệu của lớp này); file này kiểm tìm kiếm, phân
+trang, thứ tự, bội số, tình trạng hàng, các bộ lọc và cách ly.
 
 Gọi THẲNG `portal_api.portal_catalog_gop(...)` sau khi `frappe.set_user()`
 sang một Portal Member thật (không mock `get_portal_customer`) — cùng khuôn
@@ -23,18 +16,14 @@ DocPerm trên các doctype cổng, nên đường sống DUY NHẤT của một 
 là tầng endpoint tự suy khách từ phiên đăng nhập, và test phải đi ĐÚNG
 đường đó để không false-green qua một context giả.
 
-`FrappeTestCase` rollback MỘT LẦN mỗi CLASS — dọn `Blanket Order` của
-`_TEST DX%` ở ĐẦU MỖI test method (không chỉ 1 lần trong `setUp` — ở đây
-`setUp` CHÍNH LÀ nơi tạo Blanket Order cho từng method, nhưng dọn được đặt
-TRƯỚC khi tạo mới, đúng bẫy Task 2 đã ghi lại (`task-2-report.md`): hợp
-đồng "mồ côi" của method trước vẫn còn hiệu lực ở method sau (rollback chỉ
-chạy hết CLASS, không hết từng method), và vì `to_date` của mọi hợp đồng
-test giống hệt nhau, tie-break `name asc` sẽ luôn chọn hợp đồng CŨ NHẤT
-(tên nhỏ nhất, method chạy alphabet TRƯỚC) — không phải hợp đồng của chính
-method đang chạy. Không dọn thì `test_cach_ly_khach_a_thay_dung_hop_dong_
-cua_minh` sẽ xanh vì đọc TRÚNG hợp đồng của chính nó tình cờ trùng tên nhỏ
-nhất, không phải vì luật customer-wide chạy đúng.
+Fixture VẪN dựng hai hợp đồng khung đã nộp (của khách A và khách B) dù
+endpoint không đọc chúng: chúng là vế đối chứng — có hợp đồng còn hiệu lực
+mà tầng, giá và thứ tự vẫn không đổi. `FrappeTestCase` rollback MỘT LẦN mỗi
+CLASS, còn `setUp` tạo hợp đồng cho TỪNG method, nên phải dọn hợp đồng
+`_TEST DX%` của method trước ở đầu mỗi method.
 """
+
+import unicodedata
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -45,13 +34,19 @@ from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 COMPANY = "Miyano Việt Nam"
 
 
+def _khoa_sap_nhu_db(ten):
+	"""Khoá sắp xấp xỉ collation `utf8mb4_unicode_ci`: bỏ dấu, không phân biệt
+	hoa/thường."""
+	khong_dau = "".join(
+		c for c in unicodedata.normalize("NFD", ten) if unicodedata.category(c) != "Mn"
+	)
+	return khong_dau.casefold()
+
+
 def _don_bo_cu():
 	"""Dọn Blanket Order `_TEST DX%` trước khi mỗi test method tự dựng hợp
-	đồng riêng — xem lý do rò rỉ ở docstring module.
-
-	I2 / Ruling P18 (review vòng 1, `nguon_gia_theo_ma_cho_khach()` đòi
-	`docstatus == 1`) — `bo_a`/`bo_b` bên dưới giờ SUBMIT thật; bản ghi đã
-	nộp không xoá thẳng được, phải HUỶ trước."""
+	đồng riêng — xem docstring module. Bản ghi đã nộp không xoá thẳng được,
+	phải HUỶ trước."""
 	for r in frappe.get_all(
 		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]}, fields=["name", "docstatus"]
 	):
@@ -80,15 +75,10 @@ class TestPortalCatalogGop(FrappeTestCase):
 		self.item_chi_b = self._tao_item("_TEST DX GOP CHI B", "Chỉ thuộc hợp đồng B GOPTEST")
 		self.item_b_cuoi = self._tao_item("_TEST DX GOP ZZZ B", "ZZZ GOPTEST chi B")
 
-		# -- Task 10 -----------------------------------------------------------
-		# HAI mặt hàng CÓ TRẦN hạn mức (`qty > 0`) trong hợp đồng của khách A.
-		# CỐ Ý không tái dùng `self.item_hd`: dòng đó khai `qty = 0`, mà theo
-		# QĐ-8/BR-O15 `0` nghĩa là KHÔNG GIỚI HẠN — một test hạn mức dựng trên
-		# nó sẽ xanh vì `han_muc_con()` trả `None`, không phải vì phép tính
-		# hạn mức chạy đúng. Tên hàng bắt đầu bằng "GOPTEST" để phép sắp xếp
-		# "hàng hợp đồng đứng trước" (QĐ-G10) là một khẳng định THẬT: theo
-		# `item_name asc` thuần, ba mã ngoài hợp đồng ("Chỉ thuộc…", "Có bội
-		# số…", "Còn hàng…") đứng TRƯỚC hai mã này.
+		# Hai mặt hàng thuộc hợp đồng của khách A, tên bắt đầu bằng "GOPTEST" để
+		# bài thứ tự là một khẳng định THẬT: theo `item_name asc` thuần, ba mã
+		# ngoài hợp đồng ("Chỉ thuộc…", "Có bội số…", "Con hang…") đứng TRƯỚC hai
+		# mã này; một phép sắp "hàng hợp đồng trước" sẽ đẩy chúng lên đầu.
 		self.item_han_muc = self._tao_item("_TEST DX GOP HAN MUC", "GOPTEST han muc con")
 		self.item_het_hm = self._tao_item("_TEST DX GOP HET HM", "GOPTEST het han muc")
 		# Mặt hàng CÓ tồn Miyano thật (`tabBin`) — vế dương cho cột "Tình
@@ -100,10 +90,8 @@ class TestPortalCatalogGop(FrappeTestCase):
 
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
-		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
-		# `nguon_gia_theo_ma_cho_khach()` (dùng chung với `_suy_nguon_gia()`
-		# của `Portal De Xuat Mua`) giờ đòi hợp đồng đã NỘP mới tính "còn
-		# hiệu lực" — bản NHÁP không còn đủ, thống nhất với BR-R7.
+		# SUBMIT thật: hợp đồng đối chứng phải CÒN HIỆU LỰC (`docstatus == 1`)
+		# thì "hợp đồng không quyết định gì" mới là một khẳng định có nghĩa.
 		self.bo_a = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": self.kh_a, "company": COMPANY,
@@ -117,12 +105,6 @@ class TestPortalCatalogGop(FrappeTestCase):
 		}).insert(ignore_permissions=True)
 		self.bo_a.submit()
 		self.bo_a = self.bo_a.name
-		# `ordered_qty` ghi SAU khi nộp, thẳng vào DB: ERPNext tự tính lại cột
-		# này từ các Sales Order gắn hợp đồng, nên đặt nó lúc `insert()` sẽ bị
-		# vòng đời tài liệu ghi đè. Ở đây cần MỘT trạng thái hạn mức đã tiêu
-		# mà không phải dựng cả một Sales Order chỉ để lấy con số đó.
-		self._dat_da_dat(self.bo_a, self.item_han_muc, 60)
-		self._dat_da_dat(self.bo_a, self.item_het_hm, 50)
 
 		self.bo_b = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
@@ -131,30 +113,16 @@ class TestPortalCatalogGop(FrappeTestCase):
 			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
 			"items": [
 				{"item_code": self.item_chi_b, "qty": 0, "ordered_qty": 0, "rate": 50000},
-				# Tên xếp CUỐI bảng chữ cái trong tập "GOPTEST" — nếu phép
-				# sắp xếp quay về `item_name` thuần, dòng này rơi xuống cuối
-				# và bài `test_khach_b_...` đỏ. Thiếu nó, `item_chi_b` tình cờ
-				# đứng đầu theo alphabet và bài đó xanh vì may, không phải vì
-				# luật "hàng hợp đồng của CHÍNH khách đứng trước" chạy đúng.
 				{"item_code": self.item_b_cuoi, "qty": 0, "ordered_qty": 0, "rate": 51000},
 			],
 		}).insert(ignore_permissions=True)
 		self.bo_b.submit()
 		self.bo_b = self.bo_b.name
 
-		# M-4 (review vòng 1) — bảng giá khai giá KHÁC hợp đồng (125.000).
-		# Trước đó hai bên cùng 125.000 nên bài `test_ma_trong_hop_dong_la_
-		# tang_hop_dong_co_gia` không phân biệt được gì: đảo ngược thứ tự tra
-		# của QĐ-G12 vẫn xanh. Con số này phải KHÔNG BAO GIỜ xuất hiện trong
-		# `don_gia` của một dòng hợp đồng.
-		#
-		# SỬA 25/08 — phải đặt SAU MỌI `submit()` hợp đồng ở trên. Trước đó
-		# nó đứng trước `self.bo_a.submit()`, mà hook `Blanket Order.on_submit`
-		# (`gia_hdnt.tu_hdnt` → `dong_bo_khach`) GHI ĐÈ chính dòng Item Price
-		# đó về 125.000 — bằng đúng giá hợp đồng. Mười dòng sau, giá trị phân
-		# biệt đã bốc hơi và bài test xanh KỂ CẢ khi đảo ngược thứ tự tra giá:
-		# fixture tự tay xoá mất thứ duy nhất nó dựng lên để kiểm. Khuôn đúng
-		# đã có sẵn ở `test_gia_tu_hop_dong.py` (xoá/dựng lại giá SAU submit).
+		# Bảng giá khai giá KHÁC hợp đồng (125.000) để phân biệt được nguồn.
+		# Phải đặt SAU MỌI `submit()` hợp đồng ở trên: hook `Blanket Order.
+		# on_submit` (`gia_hdnt.tu_hdnt` → `dong_bo_khach`) GHI ĐÈ chính dòng
+		# Item Price đó về giá hợp đồng.
 		self._tao_gia(self.item_hd, self.price_list, 111000)
 
 		self.user_a = self._dam_bao_thanh_vien(
@@ -193,13 +161,6 @@ class TestPortalCatalogGop(FrappeTestCase):
 				"doctype": "Bin", "item_code": item_code,
 				"warehouse": kho, "actual_qty": so_luong,
 			}).insert(ignore_permissions=True)
-
-	def _dat_da_dat(self, blanket_order, item_code, so_luong):
-		ten_dong = frappe.db.get_value(
-			"Blanket Order Item", {"parent": blanket_order, "item_code": item_code}, "name"
-		)
-		self.assertTrue(ten_dong, f"Không thấy dòng {item_code} trong {blanket_order}.")
-		frappe.db.set_value("Blanket Order Item", ten_dong, "ordered_qty", so_luong)
 
 	def _tao_price_list(self):
 		ten = "_TEST DX GOP PRICE"
@@ -247,30 +208,16 @@ class TestPortalCatalogGop(FrappeTestCase):
 				return r
 		self.fail(f"Không thấy dòng {item_code} trong kết quả trả về: {rows}")
 
-	# -- test tối thiểu (brief) ----------------------------------------------
+	# -- tìm kiếm và cách ly ---------------------------------------------------
 
-	def test_ma_trong_hop_dong_la_tang_hop_dong_co_gia(self):
-		"""Vế DƯƠNG — mã trong hợp đồng còn hiệu lực → `tang == "hop_dong"`,
-		`don_gia` là số THẬT (không chỉ not-None), `blanket_order` đúng tên
-		hợp đồng thắng cuộc."""
-		frappe.set_user(self.user_a)
-		out = portal_api.portal_catalog_gop(tu_khoa=self.item_hd)
-		row = self._row(out["rows"], self.item_hd)
-		self.assertEqual(row["tang"], "hop_dong")
-		self.assertEqual(
-			row["don_gia"], 125000.0,
-			"phải là giá HỢP ĐỒNG (125.000), không phải giá bảng giá (111.000)",
-		)
-		self.assertEqual(row["blanket_order"], self.bo_a)
-
-	def test_ma_ngoai_hop_dong_la_tang_cho_bao_gia_gia_none(self):
-		"""`don_gia` phải là `None`, KHÔNG phải `0` — `0` là giá hợp lệ."""
+	def test_ma_chua_co_gia_la_tang_cho_bao_gia_gia_none(self):
+		"""`don_gia` phải là `None`, KHÔNG phải `0` — màn hình đọc `None` là
+		"chưa có giá", còn `0` sẽ hiện thành "0 đ"."""
 		frappe.set_user(self.user_a)
 		out = portal_api.portal_catalog_gop(tu_khoa=self.item_ngoai)
 		row = self._row(out["rows"], self.item_ngoai)
 		self.assertEqual(row["tang"], "cho_bao_gia")
 		self.assertIsNone(row["don_gia"])
-		self.assertIsNone(row["blanket_order"])
 
 	def test_tim_khong_dau_van_ra(self):
 		"""Collation `utf8mb4_unicode_ci` khớp "kep phau thuat" với "Kẹp
@@ -280,33 +227,15 @@ class TestPortalCatalogGop(FrappeTestCase):
 		out = portal_api.portal_catalog_gop(tu_khoa="kep phau thuat goptest999")
 		self._row(out["rows"], self.item_co_dau)
 
-	def test_cach_ly_khach_a_thay_dung_hop_dong_cua_minh(self):
-		"""Vế DƯƠNG của cách ly — dòng của A phải trỏ ĐÚNG TÊN hợp đồng của
-		A, không chỉ "không phải của B"."""
-		frappe.set_user(self.user_a)
-		out = portal_api.portal_catalog_gop(tu_khoa=self.item_hd)
-		row = self._row(out["rows"], self.item_hd)
-		self.assertEqual(row["blanket_order"], self.bo_a)
-
 	def test_cach_ly_khach_a_khong_thay_gia_hop_dong_cua_khach_b(self):
 		"""Mã CHỈ thuộc hợp đồng của B — khách A tìm ra (danh mục dùng
-		chung), nhưng KHÔNG thấy `tang`/`don_gia`/`blanket_order` của hợp
-		đồng B."""
+		chung), nhưng giá B đàm phán (hook nộp hợp đồng chép nó vào bảng giá
+		của B, nếu B có) không được hiện với A."""
 		frappe.set_user(self.user_a)
 		out = portal_api.portal_catalog_gop(tu_khoa=self.item_chi_b)
 		row = self._row(out["rows"], self.item_chi_b)
 		self.assertEqual(row["tang"], "cho_bao_gia")
 		self.assertIsNone(row["don_gia"])
-		self.assertIsNone(row["blanket_order"])
-
-	def test_khach_b_thay_dung_hop_dong_cua_minh(self):
-		"""Vế DƯƠNG còn lại — B cũng phải thấy ĐÚNG hợp đồng của B, không
-		phải chỉ A mới được kiểm."""
-		frappe.set_user(self.user_b)
-		out = portal_api.portal_catalog_gop(tu_khoa=self.item_chi_b)
-		row = self._row(out["rows"], self.item_chi_b)
-		self.assertEqual(row["tang"], "hop_dong")
-		self.assertEqual(row["blanket_order"], self.bo_b)
 
 	# -- Ruling P16 — boi_so ---------------------------------------------------
 
@@ -340,9 +269,7 @@ class TestPortalCatalogGop(FrappeTestCase):
 		self.assertEqual(trang0["tong"], trang1["tong"])
 		self.assertGreaterEqual(trang0["tong"], 2)
 
-	# -- tham số contract (lọc theo MỘT hợp đồng, không tắt tra hợp đồng) ---
-
-	# -- Task 10 — trạng thái hàng (đúng cơ chế màn mua lẻ) --------------------
+	# -- tình trạng hàng (đúng cơ chế màn mua lẻ) ------------------------------
 
 	def test_moi_dong_mang_trang_thai_hang_theo_ton_miyano(self):
 		"""Vế DƯƠNG hai chiều — mặt hàng CÓ tồn `tabBin` phải ra "Còn hàng",
@@ -353,92 +280,10 @@ class TestPortalCatalogGop(FrappeTestCase):
 		self.assertEqual(self._row(out["rows"], self.item_ton_kho)["trang_thai_hang"], "Còn hàng")
 		self.assertEqual(self._row(out["rows"], self.item_ngoai)["trang_thai_hang"], "Liên hệ")
 
-	# -- Task 10 — hạn mức còn lại cho dòng hợp đồng (QĐ-G8) -------------------
-
-	def test_dong_hop_dong_mang_han_muc_con_that(self):
-		"""Trần 100, đã đặt 60 → còn 40. Ba con số phải ĐỀU đúng: màn hình
-		hiện "còn 40/100", và câu cảnh báo vượt hạn mức nêu chính số 40."""
-		frappe.set_user(self.user_a)
-		row = self._row(
-			portal_api.portal_catalog_gop(tu_khoa=self.item_han_muc)["rows"], self.item_han_muc
-		)
-		self.assertEqual(row["tang"], "hop_dong")
-		self.assertEqual(row["remaining"], 40.0)
-		self.assertEqual(row["total"], 100.0)
-		self.assertEqual(row["used"], 60.0)
-		self.assertFalse(row["khong_gioi_han"])
-
-	def test_dong_het_han_muc_tra_0_khong_phai_none(self):
-		""""Hết hạn mức" (`0.0`) phải PHÂN BIỆT ĐƯỢC với "không giới hạn"
-		(`None`) — gộp hai thứ này là cách chắc chắn hiện sai một trong hai."""
-		frappe.set_user(self.user_a)
-		row = self._row(
-			portal_api.portal_catalog_gop(tu_khoa=self.item_het_hm)["rows"], self.item_het_hm
-		)
-		self.assertEqual(row["remaining"], 0.0)
-		self.assertIsNotNone(row["remaining"])
-		self.assertFalse(row["khong_gioi_han"])
-
-	def test_dong_khai_qty_0_la_khong_gioi_han(self):
-		"""QĐ-8/BR-O15 — dòng hợp đồng khai `qty = 0` nghĩa KHÔNG GIỚI HẠN,
-		không phải "hết hạn mức"."""
-		frappe.set_user(self.user_a)
-		row = self._row(
-			portal_api.portal_catalog_gop(tu_khoa=self.item_hd)["rows"], self.item_hd
-		)
-		self.assertTrue(row["khong_gioi_han"])
-		self.assertIsNone(row["remaining"])
-
-	def test_dong_cho_bao_gia_khong_mang_han_muc(self):
-		"""Không có hợp đồng thì không có hạn mức nào để nói — `None` cả ba,
-		và `khong_gioi_han` phải là `False` (dòng này KHÔNG "không giới hạn",
-		nó chỉ không thuộc hợp đồng nào)."""
-		frappe.set_user(self.user_a)
-		row = self._row(
-			portal_api.portal_catalog_gop(tu_khoa=self.item_ngoai)["rows"], self.item_ngoai
-		)
-		self.assertEqual(row["tang"], "cho_bao_gia")
-		self.assertIsNone(row["remaining"])
-		self.assertIsNone(row["total"])
-		self.assertIsNone(row["used"])
-		self.assertFalse(row["khong_gioi_han"])
-
-	# -- Task 10 — QĐ-G10: hàng trong hợp đồng của khách đứng TRƯỚC -----------
-
-	def test_hang_hop_dong_cua_khach_dung_truoc_danh_muc_chung(self):
-		"""Trang đầu là hàng trong hợp đồng của CHÍNH khách, hết rồi mới tới
-		danh mục chung. Theo `item_name asc` thuần, ba mã ngoài hợp đồng
-		("Chỉ thuộc…", "Con hang…", "Có bội số…") đứng TRƯỚC hai mã hợp đồng
-		("GOPTEST han muc…", "GOPTEST het…") — nên bài này đỏ ngay nếu phép
-		sắp xếp quay về `item_name` thuần."""
-		frappe.set_user(self.user_a)
-		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=50)
-		tang = [r["tang"] for r in out["rows"]]
-		self.assertEqual(
-			tang[:2], ["hop_dong", "hop_dong"],
-			f"Hai dòng đầu phải là hàng hợp đồng của khách A: {out['rows']}",
-		)
-		self.assertNotIn("hop_dong", tang[2:])
-		self.assertEqual(
-			[r["item_code"] for r in out["rows"][:2]],
-			[self.item_han_muc, self.item_het_hm],
-		)
-
-	def test_trang_vat_qua_ranh_gioi_hop_dong_va_danh_muc_chung(self):
-		"""Trang cắt NGANG ranh giới hai nửa — dòng cuối của nửa hợp đồng và
-		dòng đầu của danh mục chung phải nằm CÙNG một trang, không mất dòng
-		nào và không lặp dòng nào."""
-		frappe.set_user(self.user_a)
-		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", start=1, limit=2)
-		self.assertEqual(len(out["rows"]), 2)
-		self.assertEqual(out["rows"][0]["item_code"], self.item_het_hm)
-		self.assertEqual(out["rows"][0]["tang"], "hop_dong")
-		self.assertEqual(out["rows"][1]["tang"], "cho_bao_gia")
-
 	def test_lat_het_cac_trang_ra_dung_tong_khong_lap_khong_sot(self):
-		"""`tong` phải là tổng của CẢ HAI nửa. Lật từng trang một (limit=2)
-		rồi đối chiếu với một lần gọi lấy hết — phép chia hai nửa mà đếm sai
-		sẽ hiện ra ở đây dưới dạng dòng lặp hoặc dòng biến mất."""
+		"""Lật từng trang một (limit=2) rồi đối chiếu với một lần gọi lấy hết
+		— thứ tự không tất định hoặc `tong` đếm sai sẽ hiện ra ở đây dưới dạng
+		dòng lặp hoặc dòng biến mất."""
 		frappe.set_user(self.user_a)
 		het = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=500)
 		self.assertEqual(het["tong"], len(het["rows"]))
@@ -449,25 +294,19 @@ class TestPortalCatalogGop(FrappeTestCase):
 			[r["item_code"] for r in lat], [r["item_code"] for r in het["rows"]]
 		)
 
-	def test_khach_b_thay_hang_hop_dong_cua_MINH_dung_truoc(self):
-		"""Vế DƯƠNG còn lại của cách ly — thứ tự "hợp đồng trước" phải theo
-		hợp đồng của CHÍNH người đang đăng nhập, không phải một danh sách ưu
-		tiên dùng chung cho mọi khách."""
-		frappe.set_user(self.user_b)
-		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=50)
-		self.assertEqual(
-			[r["item_code"] for r in out["rows"][:2]], [self.item_chi_b, self.item_b_cuoi]
-		)
-		self.assertEqual([r["tang"] for r in out["rows"][:2]], ["hop_dong", "hop_dong"])
-		self.assertNotIn("hop_dong", [r["tang"] for r in out["rows"][2:]])
-
-	def test_contract_cua_khach_khac_bi_chan(self):
-		"""Cùng chốt cách ly với `portal_catalog` — truyền `contract` không
-		thuộc khách đang đăng nhập phải bị chặn, kèm thông điệp."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_thu_tu_thuan_theo_ten_khong_uu_tien_hang_hop_dong(self):
+		"""Trước đây hàng trong hợp đồng của khách đứng đầu (QĐ-G10); nay MỘT
+		thứ tự theo tên cho mọi khách. Khoá sắp bỏ dấu rồi `casefold` để khớp
+		collation `utf8mb4_unicode_ci` của cột `item_name` (không phân biệt
+		dấu): "Có bội số…" đứng trước "Con hang…"."""
 		frappe.set_user(self.user_a)
-		with self.assertRaises(frappe.PermissionError) as ctx:
-			portal_api.portal_catalog_gop(contract=self.bo_b)
-		self.assertIn("không thuộc", str(ctx.exception))
+		out = portal_api.portal_catalog_gop(tu_khoa="GOPTEST", limit=200)
+		ten = [r["item_name"] for r in out["rows"]]
+		self.assertEqual(ten, sorted(ten, key=_khoa_sap_nhu_db))
+		# Hai mã hợp đồng của A KHÔNG đứng đầu — chốt vế "không ưu tiên".
+		ma = [r["item_code"] for r in out["rows"]]
+		self.assertGreater(ma.index(self.item_han_muc), ma.index(self.item_boi_so))
 
 	# -- Nhóm vật tư (28/09/2026, patch v1_36) --------------------------------
 

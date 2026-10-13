@@ -245,7 +245,15 @@ class TestYeuCauList(FrappeTestCase):
 		from frappe.model.workflow import apply_workflow
 
 		so = frappe.get_doc("Sales Order", ten_don)
-		so = apply_workflow(so, "Gửi duyệt")
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn từ phiếu đề xuất
+		# là đơn báo giá (dòng giá 0): không "Gửi duyệt" thẳng được nữa, phải
+		# điền giá rồi đi "Gửi khách duyệt" -> "Khách đồng ý" mới tới
+		# "Chờ Miyano xác nhận".
+		for d in so.items:
+			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
+		so.reload()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		so = apply_workflow(so, "Khách đồng ý")
 		# BR-O14/NL-2.1 (`portal_duyet_don.kiem_ly_do_tu_choi`) — không có
 		# lý do thì KHÔNG chuyển sang "Từ chối" được. Phải GHI XUỐNG CSDL,
 		# không gán trên object: `apply_workflow` mở đầu bằng

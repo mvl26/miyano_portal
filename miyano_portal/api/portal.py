@@ -1,7 +1,7 @@
 import frappe
 
 from miyano_portal.kho import can_cu_duyet
-from miyano_portal import dat_hang, einvoice, gia_hdnt
+from miyano_portal import bang_gia_khach, dat_hang, einvoice
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
@@ -12,13 +12,13 @@ from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
+    cot_lan_dat_ton_tai,
     cot_ten_don_hang_ton_tai,
     dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
     duoc_sua_don_da_duyet,
     get_portal_customer,
     get_portal_member,
-    han_muc_con,
     khoa_phong_cho_don,
     la_quan_ly,
     lien_he_nguoi_dung,
@@ -31,13 +31,14 @@ from miyano_portal.portal_mua_le import (
     cap_nhat_yeu_cau_goc,
     di_vong_bao_gia,
     han_hieu_luc_bao_gia,
-    items_san_sang_giao,
-    items_thuoc_hdnt_hieu_luc,
     la_dong_giu_cho,
     qua_han_hieu_luc,
     trang_thai_hang,
+    xoa_chenh_lech_gia,
 )
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
+from miyano_portal.portal_thoi_gian_giao import COT_CAN as COT_THOI_GIAN_GIAO
+from miyano_portal.portal_thoi_gian_giao import thoi_gian_giao_cua_dn
 from miyano_portal.miyano_portal.doctype.portal_delivery_inspection.portal_delivery_inspection import (
     TT_TU_CHOI,
 )
@@ -48,7 +49,6 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
     TRANG_THAI_DA_HUY,
     TRANG_THAI_NHAP,
     TRANG_THAI_TU_CHOI,
-    nguon_gia_theo_ma_cho_khach,
 )
 from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
@@ -56,6 +56,7 @@ from miyano_portal.portal_kiem_hang import (
 )
 from miyano_portal.portal_thong_bao import (
     bao_khach_sua_so_luong,
+    bao_loi_ghi_gia,
     bao_yeu_cau_ho_tro_hddt,
 )
 
@@ -121,301 +122,87 @@ def portal_me() -> dict:
 
 
 @frappe.whitelist()
-def portal_contracts() -> list:
-    customer = get_portal_customer()
-    today = frappe.utils.today()
-    rows = frappe.get_all(
-        "Blanket Order",
-        filters={
-            "customer": customer,
-            "blanket_order_type": "Selling",
-            # review M-1 (E6 phần B) — thêm `docstatus: 1` + `from_date <=
-            # hôm nay`: trước bản này danh sách "hợp đồng của tôi" có thể lẫn
-            # một Blanket Order còn NHÁP (chưa ai ký ở Desk) hoặc chưa tới
-            # ngày hiệu lực, khiến khách tưởng mình đã có hợp đồng đang chạy.
-            # Cùng bộ điều kiện với `portal_mua_le.items_thuoc_hdnt_hieu_luc`
-            # (BR-R7) — hai nơi định nghĩa "HĐNT còn hiệu lực" PHẢI khớp
-            # nhau: lệch nhau nghĩa là khách thấy hợp đồng ở màn này nhưng
-            # BR-R7 lại không (hoặc ngược lại) coi mặt hàng của nó là "thuộc
-            # HĐNT hiệu lực" ở màn mua lẻ.
-            "docstatus": 1,
-            "from_date": ["<=", today],
-            "to_date": [">=", today],
-        },
-        fields=["name", "from_date", "to_date"],
-        order_by="to_date asc",
-    )
-    for r in rows:
-        # `qty > 0` là điểm mấu chốt (BR-O15): dòng khai 0 = KHÔNG GIỚI HẠN
-        # nên không có mẫu số. Để nó vào thì % ra một con số vô nghĩa và cảnh
-        # báo "đã dùng ≥ 80% hạn mức" sẽ báo động sai.
-        agg = frappe.db.sql(
-            """select sum(qty) q, sum(ordered_qty) o
-               from `tabBlanket Order Item` where parent=%s and qty > 0""",
-            r["name"],
-        )[0]
-        total, ordered = float(agg[0] or 0), float(agg[1] or 0)
-        r["used_pct"] = round(ordered / total * 100, 1) if total else 0
-        # Số mặt hàng vẫn đếm ĐỦ, kể cả dòng không giới hạn — khách vẫn đặt
-        # được chúng, chỉ là không có trần.
-        r["item_count"] = frappe.db.count("Blanket Order Item", {"parent": r["name"]})
-    return rows
-
-
-@frappe.whitelist()
-def portal_catalog(contract: str) -> list:
-    customer = get_portal_customer()
-    # isolation: the contract must belong to the caller's customer
-    if frappe.db.get_value("Blanket Order", contract, "customer") != customer:
-        raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
-    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
-    out = []
-    for row in frappe.get_all(
-        "Blanket Order Item",
-        filters={"parent": contract},
-        fields=["item_code", "rate", "qty", "ordered_qty"],
-    ):
-        item = frappe.db.get_value(
-            "Item", row["item_code"], ["item_name", "stock_uom", "item_group"], as_dict=True
-        )
-        # QĐ-G12 (Task 12) — TRƯỚC đây chỗ này tra `Item Price` rồi mới rơi
-        # về `row["rate"]`, tức THỨ TỰ NGƯỢC với đường đặt hàng. Sau QĐ-G12
-        # đơn lấy giá HỢP ĐỒNG trước, nên để nguyên là dựng lại đúng điểm
-        # lệch cả kế hoạch này sinh ra để xoá: khách nhìn một giá trên danh
-        # mục, đơn mang một giá khác (VD hợp đồng 88.000 / bảng giá 55.000).
-        # `or 0` giữ nguyên hành vi cũ khi không tra được gì ở đâu cả —
-        # `row["rate"]` lúc đó cũng là 0.
-        rate = gia_hdnt.gia_dong_hop_dong(row["item_code"], contract, price_list) or 0
-        con_lai, da_dat = han_muc_con(contract, row["item_code"])
-        out.append({
-            "item_code": row["item_code"],
-            "item_name": item.item_name if item else row["item_code"],
-            "uom": item.stock_uom if item else "",
-            "item_group": (item.item_group if item else "") or "",
-            "rate": float(rate),
-            "vat_pct": 0,
-            "total": float(row["qty"] or 0),
-            "used": da_dat,
-            # `None` chứ không phải 0: giao diện phải phân biệt "không giới
-            # hạn" (NL-1.11) với "hết hạn mức" (NL-1.2) — bản cũ trả
-            # `max(total - used, 0.0)` nên hai trạng thái này trông y hệt
-            # nhau, và mặt hàng khai 0 hiện ra là "Hết hạn mức".
-            "remaining": None if con_lai is None else max(con_lai, 0.0),
-            "khong_gioi_han": con_lai is None,
-            "boi_so_dat": int(
-                frappe.db.get_value("Item", row["item_code"], "custom_boi_so_dat") or 0
-            ),
-        })
-    return out
-
-
-@frappe.whitelist()
-def portal_catalog_ban_le(tim_kiem=None, nhom=None, start=0, limit=50) -> dict:
-    """API Spec §2.2 / thiết kế lại mua lẻ §4.1 — danh mục mua lẻ = TOÀN BỘ
-    `Item` đang hoạt động, KHÔNG còn là tập tuyển chọn.
-
-    BR-R1/NL-10.1 (chốt "phải bật cờ `Customer.custom_cho_phep_mua_le` mới
-    xem được danh mục") đã BỎ HẲN 21/08 — chủ đầu tư chốt 19/08: nghiệp vụ
-    này áp dụng cho toàn bộ khách hàng, không còn khách nào bị chặn ở đây.
-
-    §4.1 — "Bỏ bộ lọc `custom_ban_le_portal`": nguyên tắc chủ dự án đặt ra
-    "khách không cần biết Miyano có gì; họ đặt hàng, Miyano có trách nhiệm
-    gửi hàng" — filter cũ buộc khách phải biết trước Miyano có mặt hàng đó
-    hay không. Hệ quả trực tiếp: KHÔNG còn gọi `price_list_ban_le()`/`_gia_
-    hien_hanh` ở đây — danh mục không hiện giá (mọi phiếu mua lẻ đều đi qua
-    báo giá, §4.5), nên VĐ-12 ("Price List bán lẻ phải chuẩn hoá trước khi
-    bật nhánh A") tự tan cho đường ĐỌC này.
-
-    Phân trang PHÍA SERVER (§4.1) — bắt buộc, không phải tối ưu: danh mục cũ
-    là vài chục mã tuyển chọn, danh mục mới là TOÀN BỘ `tabItem` của Miyano,
-    có thể vài nghìn dòng. `start`/`limit` cùng khuôn `portal_order_history`
-    (api/portal.py) — KHÔNG dùng khuôn `trang`/`so_dong_moi_trang` của
-    `kho/dutru.py`: hàm đó dựng toàn bộ danh sách trong Python rồi cắt lát
-    (chấp nhận được cho vài trăm dòng kho của MỘT khách), ở đây phải cắt lát
-    NGAY TRONG TRUY VẤN SQL (`limit_start`/`limit_page_length`) để không tải
-    toàn bộ `tabItem` vào bộ nhớ mỗi lần gọi.
-    """
-    customer = get_portal_customer()
-
-    # review C-1 — `ITEM_GIU_CHO` (`HANG-DAT-NGOAI`) là item KỸ THUẬT NỘI BỘ:
-    # `disabled=0`, `is_sales_item=1` (patch v1_15 cần vậy để đơn "toàn hàng
-    # chưa có mã" lưu được, §3.4) nên nếu không loại tường minh ở đây, nó lọt
-    # thẳng vào danh mục như một sản phẩm khách duyệt được — đúng thứ nguyên
-    # tắc nền "khách không cần biết Miyano có gì" cấm. Loại bằng `name` (==
-    # `item_code` chính tắc), KHÔNG lọc qua `is_sales_item`/`disabled`: hai cờ
-    # đó phục vụ mục đích khác (bật/tắt bán, còn kinh doanh hay không) và có
-    # thể đổi độc lập với việc đây là item giữ chỗ hay không.
-    filters = {"disabled": 0, "name": ["!=", ITEM_GIU_CHO]}
-    if nhom:
-        filters["item_group"] = nhom
-    or_filters = None
-    if tim_kiem:
-        # Tìm theo cả mã lẫn tên — `filters` của `get_all` AND với nhau, nên
-        # điều kiện "khớp mã HOẶC tên" phải đi qua `or_filters`.
-        or_filters = [
-            ["item_code", "like", f"%{tim_kiem}%"],
-            ["item_name", "like", f"%{tim_kiem}%"],
-        ]
-    start = max(0, int(start or 0))
-    limit = max(1, int(limit or 50))
-
-    # `frappe.db.count` KHÔNG nhận `or_filters` — phải đếm qua `get_all` với
-    # ĐÚNG bộ filters/or_filters của truy vấn trang dưới, nếu không `tong`
-    # sẽ lặng lẽ bỏ qua điều kiện tìm kiếm khi `tim_kiem` có giá trị.
-    tong = frappe.get_all(
-        "Item", filters=filters, or_filters=or_filters,
-        fields=["count(name) as tong"],
-    )[0].tong
-
-    rows = frappe.get_all(
-        "Item", filters=filters, or_filters=or_filters,
-        fields=["item_code", "item_name", "description", "stock_uom"],
-        # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
-        # TẤT ĐỊNH giữa hai trang (không có nó, hai mã cùng tên có thể rơi
-        # vào CẢ HAI trang hoặc KHÔNG trang nào tuỳ thứ tự trả về của MariaDB).
-        order_by="item_name asc, name asc",
-        limit_start=start, limit_page_length=limit,
-    )
-
-    thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
-    # review I-3 — tín hiệu "chưa sẵn sàng giao" NGAY TẠI DANH MỤC, một truy
-    # vấn cho cả trang thay vì gọi resolve_ban_le_company() N lần. Chỉ tính
-    # cho ĐÚNG các dòng của trang hiện tại — không phải toàn bộ danh mục.
-    san_sang = items_san_sang_giao([r.item_code for r in rows])
-
-    out = []
-    for r in rows:
-        # review M-3 — `Item.description` là Text Editor (HTML) và ERPNext
-        # TỰ ĐỘNG chép `item_name` vào đây làm giá trị khởi tạo khi tạo
-        # Item — bản trước trả thẳng `r.description or ""` nên cột "Quy
-        # cách" trên danh mục lẻ thường hiện lại CHÍNH TÊN HÀNG (hoặc một
-        # đoạn `<div>…</div>` thô nếu ai đó gõ mô tả có định dạng), sai loại
-        # dữ liệu khách nhìn thấy. Bóc HTML rồi bỏ nếu nó chỉ là bản sao của
-        # tên hàng — thà trống còn hơn thông tin sai.
-        quy_cach = frappe.utils.strip_html(r.description or "").strip()
-        if quy_cach == (r.item_name or "").strip():
-            quy_cach = ""
-        out.append({
-            "item_code": r.item_code,
-            "ten": r.item_name,
-            "quy_cach": quy_cach,
-            "dvt": r.stock_uom,
-            "trang_thai_hang": trang_thai_hang(r.item_code),
-            # BR-R7/§4.2 — GIỮ NGUYÊN cờ này (chốt an ninh của E1, không
-            # được nới): mặt hàng đang thuộc HĐNT còn hiệu lực của khách
-            # vẫn hiện ra (khác trước: KHÔNG còn biến mất im lặng), nhưng
-            # client phải hiện mờ kèm lý do "Có trong HĐNT — đặt ở chế độ
-            # Theo HĐNT" và khoá nút thêm giỏ Mua lẻ cho dòng này.
-            "thuoc_hdnt": r.item_code in thuoc_hdnt,
-            # review I-3 — False: admin CHƯA khai Item Default (company/kho)
-            # cho mặt hàng này. Phần C nên khoá nút thêm giỏ và hiện "Miyano
-            # đang cập nhật, vui lòng liên hệ" thay vì để khách điền hết giỏ
-            # mới nhận lỗi ở bước Xác nhận.
-            "san_sang_ban": r.item_code in san_sang,
-        })
-    return {"items": out, "tong": tong, "start": start, "limit": limit}
-
-
-@frappe.whitelist()
 def portal_catalog_gop(
-    tu_khoa=None, contract=None, start=0, limit=50, nhom_vat_tu=None, nha_cung_cap=None,
+    tu_khoa=None, start=0, limit=50, nhom_vat_tu=None, nha_cung_cap=None,
     may_su_dung=None, ten_thuong_goi=None,
 ) -> dict:
-    """Task 3 (gộp luồng đặt hàng, 21/08/2026) — MỘT endpoint tìm kiếm gộp
-    BA TẦNG cho màn Lập phiếu (`LapPhieu.vue`, Task 8, chạy song song).
-    Hình dạng trả về ĐÃ ĐÓNG BĂNG (`hop-dong-endpoint-tim-kiem.md`, Task 8
-    code thẳng vào nó) — KHÔNG tự đổi khoá/kiểu dữ liệu ở đây:
+    """Endpoint tìm kiếm danh mục cho màn Lập phiếu (`LapPhieu.vue`) — mỗi
+    mặt hàng thuộc MỘT trong HAI TẦNG, suy từ Price List của khách (spec
+    `docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §3,
+    chủ đầu tư chốt 09/10/2026). Trả về:
 
-        {"rows": [{item_code, item_name, dvt, tang, don_gia,
-                   blanket_order, boi_so,
-                   trang_thai_hang, total, used, remaining,
-                   khong_gioi_han}], "tong": int}
+        {"rows": [{item_code, item_name, dvt, boi_so, nhom_vat_tu,
+                   ten_thuong_goi, trang_thai_hang, tang, don_gia}],
+         "tong": int, "nhom_vat_tu_ds": [...], "nha_cung_cap_ds": [...],
+         "may_su_dung_ds": [...]}
 
-    `tang` chỉ nhận `"hop_dong"` hoặc `"cho_bao_gia"`. `don_gia`/
-    `blanket_order`/`boi_so` là `None` (KHÔNG phải `0`) khi không áp dụng —
-    `0` là một giá/bội số HỢP LỆ, dùng nó làm "rỗng" sẽ không phân biệt
-    được đúng lúc cần phân biệt nhất. Tầng 3 (hàng chưa có mã) KHÔNG đến từ
-    đây — đó là dòng khách gõ tay, đi qua bảng "đặt ngoài" của phiếu.
+    Tầng và giá:
 
-    Ruling P14 — tầng suy THEO DÒNG, đối chiếu MỌI Blanket Order còn hiệu
-    lực của khách đang đăng nhập (`nguon_gia_theo_ma_cho_khach()`, module
-    `portal_de_xuat_mua`, CÙNG hàm `PortalDeXuatMua._suy_nguon_gia()` gọi —
-    KHÔNG viết một bản suy giá thứ hai ở đây: luật này quyết định giá, hai
-    bản lệch nhau sớm muộn cũng ra hai giá khác nhau cho cùng một mặt
-    hàng). Tham số `contract`, nếu truyền, CHỈ thu hẹp DANH SÁCH mã hàng
-    hiện ra (mã phải thuộc đúng hợp đồng đó) — nó KHÔNG tắt việc tra hợp
-    đồng: không truyền `contract` không có nghĩa "đừng suy tầng", tầng vẫn
-    luôn suy customer-wide.
+    * `tang == "bang_gia"` — mặt hàng CÓ giá trong bảng giá của khách;
+      `don_gia` là con số đó (`float`).
+    * `tang == "cho_bao_gia"` — chưa có giá; `don_gia` là `None` (KHÔNG
+      phải `0`: `<= 0` nghĩa là "chưa khai giá", không phải "bán 0 đồng").
+    * Nguồn giá DUY NHẤT là `bang_gia_khach.gia_bang_gia_nhieu()` — cùng
+      module mà mọi nơi cần giá của cổng hỏi — gọi MỘT lần cho cả trang.
+      "Có giá" theo đúng luật của hàm đó: dòng `Item Price` bán, giá
+      dương, còn hiệu lực hôm nay, trong `Customer.default_price_list`
+      của khách đang đăng nhập, không gắn khách khác/nhà cung cấp/lô.
+    * Hợp đồng khung (`Blanket Order`) KHÔNG được hỏi ở đây (Q3): nó
+      không quyết định tầng, giá hay thứ tự, và dòng trả về không mang
+      khoá hợp đồng/hạn mức nào.
+    * Hàng chưa có mã KHÔNG đến từ đây — đó là dòng khách gõ tay, đi qua
+      bảng "đặt ngoài" của phiếu.
 
     Cách ly (BR — vai trò khách): `get_portal_customer()` suy khách từ
-    CHÍNH phiên đăng nhập, không nhận `customer` từ client — cùng khuôn
-    `portal_catalog`/`portal_catalog_ban_le` ở trên. `role Customer` có
-    ZERO DocPerm trên `Item`/`Blanket Order` nên dùng `frappe.get_all`/
-    `frappe.db.*` (không `frappe.get_list`/`doc.check_permission()` — hai
-    đường đó ném `PermissionError` cho một Website User trước khi chạy tới
-    đây).
+    CHÍNH phiên đăng nhập, không nhận `customer` từ client. `role Customer`
+    có ZERO DocPerm trên `Item` nên dùng `frappe.get_all`/`frappe.db.*`
+    (không `frappe.get_list`/`doc.check_permission()` — hai đường đó ném
+    `PermissionError` cho một Website User trước khi chạy tới đây).
 
-    Phân trang PHÍA SERVER, NGAY TRONG TRUY VẤN SQL (`limit_start`/
-    `limit_page_length`, cùng khuôn `portal_order_history`/`portal_catalog_
-    ban_le`) — KHÔNG dựng toàn bộ danh mục trong Python rồi cắt lát:
-    `tabItem` là TOÀN BỘ danh mục Miyano.
+    Thứ tự và phân trang: MỘT truy vấn, `item_name asc, name asc`, như nhau
+    cho mọi khách; cắt trang PHÍA SERVER, NGAY TRONG SQL (`limit_start`/
+    `limit_page_length`) — KHÔNG dựng toàn bộ danh mục trong Python rồi cắt
+    lát: `tabItem` là TOÀN BỘ danh mục Miyano. `tong` đếm theo đúng bộ lọc
+    của truy vấn trang.
 
-    Task 10 (gộp "Đặt hàng" và "Lập phiếu", 21/08/2026) — BỔ SUNG, không
-    đổi khoá cũ:
+    Các khoá/tham số còn lại:
 
+    * `boi_so` — `Item.custom_boi_so_dat`; `None` (không phải `0`) khi
+      không ràng buộc bội số.
     * `trang_thai_hang` — ĐÚNG cơ chế màn mua lẻ đang dùng (`portal_mua_le.
       trang_thai_hang`, đọc tồn Miyano thật ở `tabBin`), KHÔNG dựng cơ chế
       thứ hai: hai cách trả lời "còn hàng không" sớm muộn cũng trả lời khác
       nhau cho cùng một mã.
-    * `total`/`used`/`remaining`/`khong_gioi_han` — hạn mức còn lại cho
-      dòng TẦNG 1, dùng LẠI `portal_context.han_muc_con()` (nguồn duy nhất
-      của luật hạn mức) và ĐÚNG bộ khoá `portal_catalog` đã trả cho màn cũ,
-      để giao diện không phải học hai phương ngữ cho cùng một thứ.
-      `remaining is None` + `khong_gioi_han is True` = khai `qty = 0`, quy
-      ước KHÔNG GIỚI HẠN (QĐ-8/BR-O15); `remaining == 0.0` = HẾT hạn mức —
-      gộp hai trạng thái này là cách chắc chắn hiện sai một trong hai.
-      Dòng tầng 2 không thuộc hợp đồng nào nên cả bốn khoá đều rỗng
-      (`None`/`False`), không phải "không giới hạn".
-    * THỨ TỰ — QĐ-G10: hàng trong hợp đồng của CHÍNH khách đứng TRƯỚC, hết
-      rồi mới tới danh mục chung. Làm bằng HAI truy vấn phân đôi (`name in`
-      / `name not in` tập mã hợp đồng), mỗi truy vấn vẫn cắt trang trong
-      SQL — KHÔNG nhét `CASE WHEN` vào `order_by` (`DatabaseQuery.validate_
-      order_by_and_group_by` của Frappe soi từng vế theo tên cột, một biểu
-      thức sẽ bị từ chối) và KHÔNG kéo cả danh mục về Python để sắp xếp.
-      `tong` là tổng hai nửa — hai nửa là một PHÂN HOẠCH của đúng bộ lọc cũ
-      nên con số không đổi so với bản một truy vấn.
-
-    Nhóm vật tư (28/09/2026, patch v1_36) — BỔ SUNG, không đổi khoá cũ:
-    tham số `nhom_vat_tu` lọc theo `Item.custom_nhom_vat_tu`; mỗi dòng mang
-    thêm khoá `nhom_vat_tu` (`None` khi hàng chưa phân nhóm), và kết quả
-    mang thêm `nhom_vat_tu_ds` — danh sách nhóm đọc từ meta, để cổng dựng
-    nút lọc từ ĐÚNG nguồn mà phép kiểm tham số dùng.
-
-    Nhà cung cấp (28/09/2026, patch v1_37) — cùng khuôn: tham số
-    `nha_cung_cap` (tên `Supplier`) lọc theo bảng `Item.supplier_items`; kết
-    quả mang thêm `nha_cung_cap_ds` = `[{value, label}]`, CHỈ gồm NCC đang
-    gắn với ít nhất một mặt hàng khách thấy được (không phải mọi Supplier —
-    chọn một NCC không có hàng nào là một ngõ cụt).
-
-    Máy sử dụng (28/09/2026, patch v1_38) — cùng khuôn NCC: tham số
-    `may_su_dung` (tên `Dong May`) lọc theo bảng `Item.custom_may_su_dung`;
-    kết quả mang thêm `may_su_dung_ds` = `[{value, label}]`, chỉ gồm máy
-    đang gắn với ít nhất một mặt hàng.
-
-    Tên thường gọi (02/10/2026, patch v1_39): `tu_khoa` vẫn khớp mã hoặc
-    `item_name` — đúng tên XUẤT HOÁ ĐƠN. Tham số `ten_thuong_goi` khớp bảng
-    `Item.custom_ten_thuong_goi`, CHỈ các dòng có `customer` = khách đang đăng
-    nhập (cách ly: tên bệnh viện A tự đặt không lộ sang B). Mỗi dòng trả thêm
-    `ten_thuong_goi` = danh sách tên thường gọi CỦA CHÍNH khách này.
+    * Nhóm vật tư (patch v1_36): tham số `nhom_vat_tu` lọc theo
+      `Item.custom_nhom_vat_tu`; mỗi dòng mang khoá `nhom_vat_tu` (`None`
+      khi hàng chưa phân nhóm), và kết quả mang `nhom_vat_tu_ds` — danh
+      sách nhóm đọc từ meta, để cổng dựng nút lọc từ ĐÚNG nguồn mà phép
+      kiểm tham số dùng.
+    * Nhà cung cấp (patch v1_37): tham số `nha_cung_cap` (tên `Supplier`)
+      lọc theo bảng `Item.supplier_items`; `nha_cung_cap_ds` = `[{value,
+      label}]`, CHỈ gồm NCC đang gắn với ít nhất một mặt hàng khách thấy
+      được (chọn một NCC không có hàng nào là một ngõ cụt).
+    * Máy sử dụng (patch v1_38) — cùng khuôn NCC: tham số `may_su_dung`
+      (tên `Dong May`) lọc theo bảng `Item.custom_may_su_dung`;
+      `may_su_dung_ds` = `[{value, label}]`, chỉ gồm máy đang gắn với ít
+      nhất một mặt hàng.
+    * Tên thường gọi (patch v1_39): `tu_khoa` khớp mã hoặc `item_name` —
+      đúng tên XUẤT HOÁ ĐƠN. Tham số `ten_thuong_goi` khớp bảng
+      `Item.custom_ten_thuong_goi`, CHỈ các dòng có `customer` = khách đang
+      đăng nhập (cách ly: tên bệnh viện A tự đặt không lộ sang B). Mỗi dòng
+      trả `ten_thuong_goi` = danh sách tên thường gọi CỦA CHÍNH khách này.
+    * Giá trị lạ của `nhom_vat_tu`/`nha_cung_cap`/`may_su_dung` bị từ chối
+      rõ ràng, không lặng lẽ thành "không lọc".
     """
     customer = get_portal_customer()
     start = max(0, int(start or 0))
     limit = max(1, int(limit or 50))
 
-    # Cùng khuôn `portal_catalog_ban_le` — loại item KỸ THUẬT NỘI BỘ
-    # (`HANG-DAT-NGOAI`) khỏi danh mục khách nhìn thấy. Dùng danh sách
-    # điều kiện (không phải dict) vì `contract` bên dưới có thể thêm một
-    # điều kiện THỨ HAI trên cùng field `name` — dict filters của
+    # Loại item KỸ THUẬT NỘI BỘ (`HANG-DAT-NGOAI`) khỏi danh mục khách nhìn
+    # thấy: nó `disabled=0`, `is_sales_item=1` (đơn toàn hàng chưa có mã cần
+    # vậy mới lưu được) nên không loại tường minh thì lọt ra như một sản phẩm. Dùng danh sách
+    # điều kiện (không phải dict) vì các bộ lọc NCC/máy/tên thường gọi bên
+    # dưới thêm điều kiện THỨ HAI trên cùng field `name` — dict filters của
     # `frappe.get_all` không biểu diễn được hai điều kiện trên một field.
     filters = [["disabled", "=", 0], ["name", "!=", ITEM_GIU_CHO]]
     or_filters = None
@@ -437,9 +224,11 @@ def portal_catalog_gop(
     if nha_cung_cap:
         if nha_cung_cap not in {x["value"] for x in ds_ncc}:
             frappe.throw(f"Nhà cung cấp không hợp lệ: {nha_cung_cap}")
-        # Tách thành tập mã rồi `name in` — cùng khuôn nhánh `contract`; KHÔNG
-        # lọc thẳng qua bảng con trong `get_all` (join bảng con nhân dòng khi
-        # một item khai trùng NCC, `tong` và phân trang sẽ lệch).
+        # Tách thành tập mã rồi `name in`; KHÔNG lọc thẳng qua bảng con trong
+        # `get_all` (join bảng con nhân dòng khi một item khai trùng NCC,
+        # `tong` và phân trang sẽ lệch). `or [""]` — mảng rỗng cho `["name",
+        # "in", []]` không tất định trên mọi bản Frappe; không mã nào khớp
+        # thì kết quả phải là RỖNG, không phải "bỏ qua điều kiện".
         ma_cua_ncc = frappe.get_all(
             "Item Supplier",
             filters={"parenttype": "Item", "supplier": nha_cung_cap},
@@ -472,73 +261,33 @@ def portal_catalog_gop(
         )
         filters.append(["name", "in", ma_cua_may or [""]])
 
-    if contract:
-        # Isolation — cùng chốt `portal_catalog`: hợp đồng truyền vào phải
-        # thuộc chính khách đang đăng nhập.
-        if frappe.db.get_value("Blanket Order", contract, "customer") != customer:
-            raise frappe.PermissionError("Hợp đồng không thuộc đơn vị của bạn.")
-        ma_thuoc_hop_dong = frappe.get_all(
-            "Blanket Order Item", filters={"parent": contract}, pluck="item_code",
-        )
-        # `or [""]` — mảng rỗng cho `["name", "in", []]` không tất định
-        # trên mọi bản Frappe; một hợp đồng không mặt hàng nào thì kết quả
-        # phải là RỖNG, không phải "bỏ qua điều kiện".
-        filters.append(["name", "in", ma_thuoc_hop_dong or [""]])
-
-    # MỘT truy vấn cho CẢ TRANG (không lặp theo từng dòng) — hợp đồng
-    # thắng cuộc của khách là customer-wide, không phụ thuộc từ khoá tìm.
-    # Phải tính TRƯỚC phần truy vấn danh mục: chính tập mã này chia danh
-    # mục làm hai nửa (QĐ-G10).
-    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
-    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
-    ma_hop_dong = sorted(thang_cuoc)
-
     COT = ["item_code", "item_name", "stock_uom", "custom_boi_so_dat"]
     # Site chưa chạy patch v1_36 chưa có cột này — chọn nó sẽ làm SẬP cả màn
     # Đặt hàng chứ không chỉ mất bộ lọc.
     if ds_nhom:
         COT.append("custom_nhom_vat_tu")
-    # `item_name` không unique — thêm `name` làm tiebreak để thứ tự
-    # TẤT ĐỊNH giữa hai trang, cùng lý do `portal_catalog_ban_le`.
+    # `item_name` không unique — thêm `name` làm tiebreak để thứ tự TẤT
+    # ĐỊNH giữa hai trang: không có nó, hai mã cùng tên có thể rơi vào CẢ
+    # HAI trang hoặc KHÔNG trang nào tuỳ thứ tự trả về của MariaDB.
     THU_TU = "item_name asc, name asc"
 
     def _dem(dk):
         # `frappe.db.count` KHÔNG nhận `or_filters` — đếm qua `get_all` với
-        # ĐÚNG bộ filters/or_filters của truy vấn trang dưới (cùng lý do
-        # `portal_catalog_ban_le` đã ghi), nếu không `tong` sẽ lặng lẽ bỏ
-        # qua điều kiện tìm kiếm khi `tu_khoa` có giá trị.
+        # ĐÚNG bộ filters/or_filters của truy vấn trang dưới, nếu không
+        # `tong` sẽ lặng lẽ bỏ qua điều kiện tìm kiếm khi `tu_khoa` có giá
+        # trị.
         return frappe.get_all(
             "Item", filters=dk, or_filters=or_filters, fields=["count(name) as tong"],
         )[0].tong
 
     def _trang(dk, bat_dau, so_dong):
-        if so_dong <= 0:
-            return []
         return frappe.get_all(
             "Item", filters=dk, or_filters=or_filters, fields=COT, order_by=THU_TU,
             limit_start=bat_dau, limit_page_length=so_dong,
         )
 
-    if ma_hop_dong:
-        dk_hop_dong = filters + [["name", "in", ma_hop_dong]]
-        dk_chung = filters + [["name", "not in", ma_hop_dong]]
-        tong_hop_dong = _dem(dk_hop_dong)
-        tong = tong_hop_dong + _dem(dk_chung)
-        if start < tong_hop_dong:
-            rows = _trang(dk_hop_dong, start, limit)
-            # Nửa hợp đồng đã hết giữa chừng trang này → phần còn lại của
-            # trang lấy từ ĐẦU nửa danh mục chung (offset 0, không phải
-            # `start`): đó đúng là dòng kế tiếp trong thứ tự gộp.
-            rows += _trang(dk_chung, 0, limit - len(rows))
-        else:
-            rows = _trang(dk_chung, start - tong_hop_dong, limit)
-    else:
-        # Khách chưa có hợp đồng nào còn hiệu lực — không có nửa nào để tách.
-        # CỐ Ý không đi qua `["name", "not in", []]`: mảng rỗng trong toán tử
-        # tập hợp không tất định trên mọi bản Frappe (cùng bẫy `or [""]` ở
-        # nhánh `contract` phía trên).
-        tong = _dem(filters)
-        rows = _trang(filters, start, limit)
+    tong = _dem(filters)
+    rows = _trang(filters, start, limit)
 
     # MỘT truy vấn cho cả trang, chỉ tên của CHÍNH khách này.
     ten_goi_theo_ma: dict[str, list] = {}
@@ -553,47 +302,25 @@ def portal_catalog_gop(
         ):
             ten_goi_theo_ma.setdefault(t.parent, []).append(t.ten_thuong_goi)
 
+    # Spec 2026-10-09 §3 — MỘT truy vấn giá cho cả trang; mã vắng mặt trong
+    # dict = chưa có giá. Hợp đồng không còn được hỏi ở đây (Q3).
+    gia_theo_ma = bang_gia_khach.gia_bang_gia_nhieu(
+        customer, [r.item_code for r in rows]
+    )
     out = []
     for r in rows:
-        bo = thang_cuoc.get(r.item_code)
-        # Ruling P16 — `0`/chưa khai đều nghĩa là "không ràng buộc bội số",
-        # trả `None` (KHÔNG phải `0`) để khớp quy ước "0 là giá trị hợp lệ"
-        # của cả hợp đồng đóng băng lẫn `kiem_boi_so()` (`portal_dat_hang.py`).
-        boi_so = int(r.custom_boi_so_dat or 0) or None
-        dong = {
+        gia = gia_theo_ma.get(r.item_code)
+        out.append({
             "item_code": r.item_code, "item_name": r.item_name, "dvt": r.stock_uom,
-            "boi_so": boi_so,
+            # `0`/chưa khai đều là "không ràng buộc bội số" → `None`, cùng
+            # quy ước `kiem_boi_so()` (`portal_dat_hang.py`).
+            "boi_so": int(r.custom_boi_so_dat or 0) or None,
             "nhom_vat_tu": r.get("custom_nhom_vat_tu") or None,
             "ten_thuong_goi": ten_goi_theo_ma.get(r.item_code, []),
             "trang_thai_hang": trang_thai_hang(r.item_code),
-        }
-        if bo:
-            # ĐÚNG nguồn giá cả bốn nơi dùng (`gia_hdnt.gia_dong_hop_dong`,
-            # QĐ-G12) — bốn đường tra giá khác nhau sớm muộn cũng lệch. Màn
-            # Lập phiếu phải hiện ĐÚNG con số mà đơn sẽ mang: trước Task 12
-            # nó hiện `null` cho mọi mã chỉ có giá trên hợp đồng, rồi cổng
-            # chặn đơn ở bước gửi — mâu thuẫn khách không tự giải thích được.
-            don_gia = gia_hdnt.gia_dong_hop_dong(r.item_code, bo, price_list)
-            con_lai, da_dat = han_muc_con(bo, r.item_code)
-            dong.update({
-                "tang": "hop_dong",
-                "don_gia": float(don_gia) if don_gia is not None else None,
-                "blanket_order": bo,
-                # Cùng bộ khoá `portal_catalog` — xem docstring. `remaining`
-                # `None` CHỈ khi không giới hạn, và `khong_gioi_han` là khoá
-                # phân định, không phải suy từ `remaining` ở tầng hiển thị.
-                "total": float(con_lai + da_dat) if con_lai is not None else 0.0,
-                "used": da_dat,
-                "remaining": None if con_lai is None else max(con_lai, 0.0),
-                "khong_gioi_han": con_lai is None,
-            })
-        else:
-            dong.update({
-                "tang": "cho_bao_gia", "don_gia": None, "blanket_order": None,
-                "total": None, "used": None, "remaining": None,
-                "khong_gioi_han": False,
-            })
-        out.append(dong)
+            "tang": "bang_gia" if gia is not None else "cho_bao_gia",
+            "don_gia": gia,
+        })
     return {
         "rows": out, "tong": tong,
         "nhom_vat_tu_ds": ds_nhom, "nha_cung_cap_ds": ds_ncc, "may_su_dung_ds": ds_may,
@@ -655,24 +382,36 @@ def portal_order_place(
     contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
     request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None, ten_don_hang=None,
 ) -> dict:
-    """API Spec §1.1 — `mode`: `"hdnt"` (mặc định, [Hiện có]) | `"ban_le"`
-    (E6 phần B, [MỚI]). Tham số vẫn tên `contract` (không phải `hdnt` như
-    JSON mẫu của API Spec) để KHÔNG đổi chữ ký mà `frontend/src/views/
-    Cart.vue` (đã chạy thật) đang gọi — đổi tên tham số ở đây là đổi API mà
-    không có gì buộc phần C phải đổi theo, một chỗ lệch tài liệu đã có từ
-    trước E6, không phải lỗi tạo mới ở đây.
+    """API Spec §1.1 — quản lý đặt hàng trực tiếp từ giỏ.
+
+    Trả `{"sales_order", "de_xuat", "da_ton_tai", "total", "loai_don",
+    "don": [{"sales_order", "de_xuat", "loai_don"}]}`. `don` có 1 hoặc 2
+    phần tử; các khoá cấp cao nhất là của phần tử ĐẦU (client cũ chỉ đọc
+    chúng).
+
+    Spec 2026-10-09 §4.1 — giỏ trộn hàng có giá trong Price List với hàng
+    chờ báo giá (kể cả dòng gõ tay `dat_ngoai`) ra HAI đơn, mỗi đơn một
+    `Portal De Xuat Mua` đứng sau; hai phiếu mang chung `ma_lan_dat` và trỏ
+    nhau qua `phieu_cung_lan_dat`. Đơn đầu là đơn "Theo bảng giá". Hai đơn
+    nhận `request_id` gốc kèm hậu tố `:gia` / `:baogia`; giỏ một loại giữ
+    nguyên `request_id` của client. Bấm lại cùng `request_id` trả đúng (các)
+    đơn và phiếu đã tạo, không tạo thêm. Thiếu `request_id` thì
+    `dat_hang.tao_sales_order` từ chối, giỏ trộn hay không cũng vậy.
+
+    `contract`, `mode` — [KHÔNG CÒN QUYẾT ĐỊNH GÌ, spec 2026-10-09 §4.2].
+    Giá lấy từ Price List theo từng dòng; đơn và phiếu không còn gắn hợp
+    đồng khung. Hai tham số ở lại trong chữ ký vì client đang chạy thật vẫn
+    gửi; `contract` không được đọc ở đây, `mode` chỉ còn được
+    `tao_sales_order` kiểm chính tả.
 
     Vỏ mỏng (bước 1, tách lõi đặt hàng — xem `dat_hang.py`): xác định khách
-    hàng từ PHIÊN ĐĂNG NHẬP rồi giao toàn bộ việc tạo Sales Order cho
-    `dat_hang.tao_sales_order`, KHÔNG ĐỔI. Task 7 (§5.5) thêm ĐÚNG hai việc
-    quanh lõi đó, không đụng vào chính nó:
+    hàng từ PHIÊN ĐĂNG NHẬP rồi giao việc tạo từng Sales Order cho
+    `dat_hang.tao_sales_order`.
 
-    C1 (review vòng sửa 1, CRITICAL — SỬA LẠI ở Task 7, bình luận cũ ở đây
-    nói SAI thực tế mới, xem QĐ điều phối viên 19/08/2026 trong
-    `task-7-report.md`): bản TRƯỚC Task 7 chặn bằng cách "không có tham số
-    `khoa_phong` trong chữ ký". Nhưng §5.5 đòi giỏ hàng của QUẢN LÝ có ô
-    chọn khoa (mặc định "Toàn viện") — nên tham số `khoa_phong` giờ CÓ mặt,
-    và phép chặn A-đóng-dấu-thành-B chuyển sang `portal_context.
+    C1 (review vòng sửa 1, CRITICAL — SỬA LẠI ở Task 7, xem QĐ điều phối
+    viên 19/08/2026 trong `task-7-report.md`): §5.5 đòi giỏ hàng của QUẢN LÝ
+    có ô chọn khoa (mặc định "Toàn viện") nên tham số `khoa_phong` CÓ mặt,
+    và phép chặn A-đóng-dấu-thành-B nằm ở `portal_context.
     khoa_phong_cho_don()`, hàm role-aware DUY NHẤT được phép đọc/ghi
     `khoa_phong` cho đường ghi này:
       * Nhân viên khoa KHÔNG được gọi endpoint này chút nào nữa (chặn ở
@@ -683,28 +422,18 @@ def portal_order_place(
         không nhận thẳng giá trị client gửi mà không kiểm.
 
     §5.5 (thân bài, "mọi đơn trên hệ thống đều có đúng MỘT chứng từ đề nghị
-    đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong Sales Order,
-    hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau, `nguoi_duyet`
-    là chính quản lý. CỐ Ý KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`
-    (QĐ điều phối viên 19/08 — SỬA LẠI ở review M3, chữ dùng lần đầu SAI,
-    xem `task-7-report.md`): CẢ HAI đường đều NÉM (`frappe.throw`, đều
-    `ValidationError`) khi vượt hạn mức — không phải một MỀM một CỨNG.
-    Khác biệt thật là dữ liệu ĐI KÈM lúc ném: `dat_hang.tao_sales_order`
-    (nhánh HĐNT) ghi `frappe.local.response["loi"]` — danh sách CÓ CẤU
-    TRÚC theo từng dòng hàng (`item_code`/`ly_do`/`thong_diep`) — TRƯỚC khi
-    throw, mà nhiều test (`test_e1_loi_co_cau_truc.py` và các test E1
-    khác) đọc trực tiếp từ `frappe.local.response["loi"]` sau khi bắt
-    `ValidationError` từ kết quả hàm NÀY. `_kiem_han_muc` (bên trong
-    `duyet_va_tao_don`) chỉ `frappe.throw` một câu văn xuôi PHẲNG, không
-    ghi gì vào `frappe.local.response`. Route qua `duyet_va_tao_don` sẽ mất
-    dữ liệu có cấu trúc đó cho MỌI người gọi, không riêng nhân viên khoa —
-    trong khi sáu tài khoản đang chạy thật đều là quản lý và đi qua đúng
-    đường này mỗi ngày. (`bi_loai`/`ly_do` là khoá của MỘT HÀM KHÁC hẳn,
-    `portal_reorder` — không liên quan gì tới đường này; đừng nhầm.)
+    đứng sau") — sau khi `dat_hang.tao_sales_order` tạo xong một Sales
+    Order, hàm này GHI một `Portal De Xuat Mua` "Đã duyệt" đứng sau,
+    `nguoi_duyet` là chính quản lý (`_dam_bao_phieu_tu_duyet`). CỐ Ý KHÔNG
+    route qua `de_xuat_duyet.duyet_va_tao_don`: phiếu này SINH RA đã "Đã
+    duyệt", không có ai chờ duyệt; và `duyet_va_tao_don` coi `da_ton_tai`
+    là LỖI, trong khi ở đây bấm lại cùng `request_id` phải trả đơn cũ
+    (BR-O12). Lỗi theo dòng hàng vẫn ra `frappe.local.response["loi"]` do
+    `tao_sales_order` ghi trước khi ném.
     """
     if not la_quan_ly():
-        # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL/hạn mức khó
-        # hiểu lộ ra từ tầng dưới. Chặn TRƯỚC khi chạm bất kỳ thứ gì khác
+        # §5.5 câu cuối — chặn HẲN, không phải một lỗi CSDL khó hiểu lộ
+        # ra từ tầng dưới. Chặn TRƯỚC khi chạm bất kỳ thứ gì khác
         # (customer, khoa_phong_cho_don, dat_hang) — không để lỡ tạo ra bất
         # kỳ chứng từ nào rồi mới từ chối.
         frappe.throw(
@@ -714,19 +443,81 @@ def portal_order_place(
         )
     customer = get_portal_customer()
     khoa = khoa_phong_cho_don(khoa_phong)
-    kq = dat_hang.tao_sales_order(
-        customer,
-        mode=mode, contract=contract, items=items, dat_ngoai=dat_ngoai,
-        po=po, delivery_date=delivery_date, note=note, address=address,
-        request_id=request_id, khoa_phong=khoa,
+    from miyano_portal import tach_phieu
+
+    ds_items = frappe.parse_json(items) if isinstance(items, str) else (items or [])
+    ds_ngoai = (
+        frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else (dat_ngoai or [])
     )
-    kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
-        customer=customer, khoa_phong=khoa, mode=mode, contract=contract,
-        dat_ngoai=dat_ngoai, delivery_date=delivery_date, address=address,
-        note=note, request_id=request_id, ten_don_hang=ten_don_hang,
-        sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
-    )
-    return kq
+    co_gia, cho_bao_gia = tach_phieu.chia_dong(customer, ds_items)
+    rid_gia = f"{request_id}{tach_phieu.HAU_TO_GIA}"
+    rid_bao_gia = f"{request_id}{tach_phieu.HAU_TO_BAO_GIA}"
+
+    def _da_co_don(*ds_rid):
+        # Lọc CẢ `customer`: câu hỏi là "lần bấm trước CỦA KHÁCH NÀY đã chia
+        # giỏ thế nào". Không lọc thì khách B gửi `X` trong khi khách A đã
+        # có đơn `X:gia` sẽ bị coi là "đã tách" — giỏ một loại của B bị ép
+        # sang `X:gia` rồi chết ở chốt BR-O12 của `tao_sales_order` ("Mã yêu
+        # cầu không hợp lệ") dù B chưa từng dùng mã đó. Trùng mã THẬT với
+        # khách khác vẫn do `tao_sales_order` từ chối như cũ.
+        return bool(frappe.db.exists(
+            "Sales Order",
+            {"custom_request_id": ["in", list(ds_rid)], "customer": customer},
+        ))
+
+    # Spec 2026-10-09 §4.1 — giỏ trộn ra HAI đơn. Giỏ một loại giữ nguyên
+    # `request_id` của client (tương thích với mọi đơn đã tạo trước đây).
+    #
+    # Lần BẤM LẠI theo đúng cách chia của lần đầu, KHÔNG chia lại theo Price
+    # List hiện tại: giá có thể xuất hiện/mất đi giữa hai lần bấm, và chia
+    # lại sẽ đổi `request_id` thực dùng → đơn thứ ba. Thiếu `request_id` thì
+    # không dựng hậu tố ("None:gia" sẽ lọt chốt BR-O12): đi một lô, để
+    # `tao_sales_order` từ chối như mọi giỏ khác.
+    if not request_id or _da_co_don(request_id):
+        tron = False
+    elif _da_co_don(rid_gia, rid_bao_gia):
+        tron = True
+    else:
+        tron = bool(co_gia and (cho_bao_gia or ds_ngoai))
+
+    if tron:
+        lo = [(co_gia, [], rid_gia), (cho_bao_gia, ds_ngoai, rid_bao_gia)]
+    else:
+        lo = [(ds_items, ds_ngoai, request_id)]
+
+    don = []
+    for lo_items, lo_ngoai, rid in lo:
+        kq = dat_hang.tao_sales_order(
+            customer, mode=mode, items=lo_items, dat_ngoai=lo_ngoai,
+            po=po, delivery_date=delivery_date, note=note, address=address,
+            request_id=rid, khoa_phong=khoa,
+        )
+        kq["de_xuat"] = _dam_bao_phieu_tu_duyet(
+            customer=customer, khoa_phong=khoa, mode=mode, contract=None,
+            dat_ngoai=lo_ngoai, delivery_date=delivery_date, address=address,
+            note=note, request_id=rid, ten_don_hang=ten_don_hang,
+            sales_order=kq["sales_order"], da_ton_tai=bool(kq.get("da_ton_tai")),
+        )
+        kq["loai_don"] = frappe.db.get_value(
+            "Sales Order", kq["sales_order"], "custom_loai_don"
+        )
+        don.append(kq)
+
+    if len(don) == 2 and don[0]["de_xuat"] and don[1]["de_xuat"]:
+        # Mã lần đặt = mã của phiếu đầu (cùng quy ước đường khoa gửi duyệt);
+        # khách chưa có Mã ngắn thì phiếu không có mã, rơi về tên phiếu. Bấm
+        # lại ghi đúng các giá trị cũ.
+        ma = frappe.db.get_value("Portal De Xuat Mua", don[0]["de_xuat"], "ma_de_xuat")
+        tach_phieu.lien_ket(don[0]["de_xuat"], don[1]["de_xuat"], ma or don[0]["de_xuat"])
+
+    return {
+        **don[0],
+        "don": [
+            {"sales_order": d["sales_order"], "de_xuat": d["de_xuat"],
+             "loai_don": d["loai_don"]}
+            for d in don
+        ],
+    }
 
 
 def _dam_bao_phieu_tu_duyet(
@@ -861,8 +652,9 @@ def _so_status_vi(so_status, per_delivered=None):
     if so_status == "Closed":
         # NL-2.8 — đóng sớm KHÁC huỷ: phần đã giao vẫn là hàng khách đã nhận.
         # Gộp chung vào "Đã huỷ" khiến khách tưởng không nhận được gì.
-        # TODO(VĐ-7): phần chưa giao hiện KHÔNG được hoàn vào hạn mức Blanket
-        # Order. Chỉ làm khi chủ đầu tư chốt cơ chế — xem BA §VĐ-7.
+        # VĐ-7 (hoàn phần chưa giao vào hạn mức Blanket Order) đã khép theo
+        # spec 2026-10-09 §9: đơn từ cổng không còn tiêu hạn mức hợp đồng
+        # nào, nên không có gì để hoàn.
         return "Hoàn thành (đóng sớm)"
     if so_status == "Cancelled":
         return "Đã huỷ"
@@ -1055,7 +847,7 @@ def _pham_vi_filters() -> list:
 @frappe.whitelist()
 def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     """Brief 2026-08-15 (phân trang) — hình dạng trả về ĐỔI từ list sang
-    `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
+    `{"rows": [...], "tong": N}` (khuôn `portal_catalog_gop`), LUÔN
     LUÔN — endpoint này không nuôi dropdown nào (khác ba endpoint kiêm-
     hai-vai của api/kho.py), chỉ nguồn cho đúng màn Orders.vue + preview ở
     Dashboard.vue. Đã cập nhật MỌI caller (Dashboard.vue, test_e2e_flow.py,
@@ -1352,6 +1144,11 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
         "coalesce(so.custom_ten_don_hang, '')"
         if cot_ten_don_hang_ton_tai() else "''"
     )
+    # Mã lần đặt của hai phiếu tách — `''` khi site chưa chạy patch v1_41
+    # (cùng lập trường với cột tên: một ô trống, không phải một lỗi 500).
+    cot_lan_dat = (
+        "coalesce(p.ma_lan_dat, '')" if cot_lan_dat_ton_tai() else "''"
+    )
     co_nhanh_don = co_cot_khoa or not khoa
 
     nhanh_phieu = f"""
@@ -1372,7 +1169,10 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
                so.status as so_status, so.per_delivered as per_delivered,
                so.workflow_state as workflow_state, so.grand_total as grand_total,
                p.name as khoa_sap_xep,
-               {_sql_giai_doan("p.trang_thai", "so")} as giai_doan
+               {_sql_giai_doan("p.trang_thai", "so")} as giai_doan,
+               -- Mã lần đặt chung của hai phiếu tách (spec 2026-10-09 §7);
+               -- rỗng với phiếu không tách và với đơn không đứng sau phiếu.
+               {cot_lan_dat} as ma_lan_dat
         from `tabPortal De Xuat Mua` p
         left join `tabSales Order` so on so.name = p.sales_order
         where {dk_phieu}
@@ -1385,7 +1185,7 @@ def portal_yeu_cau_cua_toi(limit=20, start=0, giai_doan=None, khoa_phong=None) -
         select 'don', null, so.name, so.name,
                {cot_ten_don}, {cot_khoa_don}, so.creation, null, null,
                so.status, so.per_delivered, so.workflow_state, so.grand_total,
-               so.name, {_sql_giai_doan("null", "so")}
+               so.name, {_sql_giai_doan("null", "so")}, ''
         from `tabSales Order` so
         where {dk_don}
           and not exists (
@@ -1748,11 +1548,15 @@ def portal_order_track(order) -> dict:
     for dn_name in dn_names:
         dn = frappe.db.get_value(
             "Delivery Note", dn_name,
-            ["name", "posting_date", "status", "lr_no", "transporter_name"],
+            ["name", "status", "lr_no", "transporter_name", *COT_THOI_GIAN_GIAO],
             as_dict=True,
         )
         if not dn:
             continue
+        # Thời điểm giao THẬT do Miyano nhập trên phiếu; phiếu cũ chưa có thì
+        # lùi về ngày giờ ghi sổ (xem `portal_thoi_gian_giao`). `posting_date`
+        # vẫn trả riêng bên dưới — đó là ngày ghi sổ, một sự thật khác.
+        thoi_gian_giao = thoi_gian_giao_cua_dn(dn)
         dn_qty = frappe.db.sql(
             """select sum(qty) from `tabDelivery Note Item`
                where parent=%s and against_sales_order=%s""",
@@ -1776,6 +1580,7 @@ def portal_order_track(order) -> dict:
         row = {
             "name": dn["name"],
             "posting_date": dn.get("posting_date"),
+            "thoi_gian_giao": thoi_gian_giao,
             "status": dn.get("status"),
             "percent": pct,
             "carrier": dn.get("transporter_name") or "",
@@ -1792,6 +1597,7 @@ def portal_order_track(order) -> dict:
             "so_dot": so_dot,
             "delivery_note": dn["name"],
             "ngay": dn.get("posting_date"),
+            "thoi_gian_giao": thoi_gian_giao,
             "phan_tram": pct,
             "van_chuyen": dn.get("transporter_name") or "",
             "awb": dn.get("lr_no") or "",
@@ -1904,14 +1710,23 @@ def portal_order_track(order) -> dict:
         "items": [
             # `name` — Việc 1 (brief 2026-08-15) — `portal_order_sua_so_luong`
             # khớp dòng payload khách gửi lên với dòng THẬT trên đơn qua
-            # `item_code` (duy nhất trong MỘT đơn, xem `_xay_don_ban_le`
+            # `item_code` (duy nhất trong MỘT đơn, xem `dat_hang._xay_don`
             # aggregate theo item_code khi tạo đơn); `name` đi kèm ở đây để
             # client có thể tham chiếu nếu cần, cùng khuôn với `dat_ngoai`
             # bên dưới (dat_ngoai không có khoá tự nhiên nào khác).
             {"name": i.name, "item_code": i.item_code,
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
-             "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0)}
+             "rate": float(i.rate or 0), "uom": i.uom, "amount": float(i.amount or 0),
+             # Dấu "Bảng giá" / "Báo giá" của dòng (spec 2026-10-09 §4.2) —
+             # `None` với dòng cũ chưa có dấu. Bảng mặt hàng in "Chờ báo
+             # giá" cho dòng "Báo giá" chưa có giá thay vì "0 ₫".
+             "nguon_gia": i.get("custom_nguon_gia") or None,
+             # Thời gian giao hàng (09/10/2026) — `None` khi đơn CHƯA được
+             # Miyano xác nhận: trước mốc đó `delivery_date` là "ngày cần"
+             # do chính khách gõ lúc đặt, in nó ra dưới chữ "Dự kiến giao"
+             # là để Miyano cam kết một ngày mình chưa hề xem.
+             "ngay_giao_du_kien": i.delivery_date if so.docstatus == 1 else None}
             for i in so.items
             if i.item_code != ITEM_GIU_CHO
         ],
@@ -2969,14 +2784,18 @@ def portal_bao_gia_pdf(order) -> None:
 
 @frappe.whitelist()
 def portal_reorder(order: str) -> dict:
-    """UC-14 / US-E1.5 — điền lại giỏ theo một đơn cũ, theo GIÁ HIỆN HÀNH.
+    """UC-14 / US-E1.5 — điền lại giỏ theo một đơn cũ, theo GIÁ HIỆN HÀNH
+    trong Price List của khách (spec 2026-10-09 §4.4).
 
-    Dòng nào không còn đặt được thì vào `bi_loai` kèm mã lý do để giao diện
-    dịch sang thông điệp FormSpec §5. Im lặng bỏ bớt dòng là cách chắc chắn
-    khiến khách đặt thiếu hàng mà không biết.
+    Mặt hàng chưa có giá KHÔNG bị loại: nó vào giỏ ở tầng chờ báo giá
+    (`tang = "cho_bao_gia"`, `gia_hien_hanh = None`), đúng như khi khách tự
+    chọn nó từ danh mục. Không còn tra hợp đồng khung hay hạn mức, nên số
+    lượng giữ nguyên như đơn cũ.
 
-    Dòng còn đặt được một phần thì HẠ số lượng xuống phần còn lại chứ không
-    loại cả dòng — còn 1 mà đơn cũ đặt 3 thì khách vẫn nên đặt được 1.
+    Dòng không còn đặt được (mặt hàng đã ngừng kinh doanh) vào `bi_loai` kèm
+    mã lý do để giao diện dịch sang thông điệp. Im lặng bỏ bớt dòng là cách
+    chắc chắn khiến khách đặt thiếu hàng mà không biết. Dòng giữ chỗ kỹ thuật
+    `ITEM_GIU_CHO` thì bỏ qua hẳn — nó chưa bao giờ là thứ khách đặt.
     """
     dam_bao_xem_duoc("Sales Order", order)
     customer = get_portal_customer()
@@ -2987,53 +2806,26 @@ def portal_reorder(order: str) -> dict:
     if so.customer != customer:
         raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
 
-    # I-1 / Ruling P31 (review vòng 1) — SUY LẠI hợp đồng thắng cuộc THEO
-    # TỪNG DÒNG, không tin `so.custom_hdnt` của đơn cũ. Hai lý do, cả hai đều
-    # là lỗi thật:
-    #   * `custom_hdnt` không kiểm hiệu lực. Hợp đồng hết hạn 31/12, ngày
-    #     02/01 khách bấm "Đặt lại đơn cũ" → giỏ hiện giá VÀ hạn mức của một
-    #     hợp đồng đã chết, rồi lúc xác nhận `_xay_don` (vốn luôn suy lại)
-    #     tính theo hợp đồng kế nhiệm. Số hiện lúc xác nhận không phải số
-    #     trên đơn — đường SỐNG, frontend đang gọi mỗi ngày;
-    #   * `custom_hdnt` có thể là tham số CLIENT gửi lên khi đơn trải nhiều
-    #     hợp đồng (xem `tao_sales_order`), nên nó không phải bằng chứng về
-    #     hợp đồng của một DÒNG cụ thể.
-    # Dùng ĐÚNG hàm mà `_xay_don`/`portal_catalog_gop` dùng — Ruling P28:
-    # một sự thật, một nguồn. Giá và hạn mức của cùng một dòng phải hỏi
-    # CÙNG một hợp đồng, nếu không giỏ lại tự mâu thuẫn với chính nó.
-    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
-    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+    # Giá hỏi `bang_gia_khach` — ĐÚNG nguồn mà `dat_hang._xay_don` dùng lúc
+    # dựng đơn, nên giỏ đặt lại và đơn sắp lập không thể nói hai giá khác
+    # nhau cho cùng một mã. KHÔNG đọc `rate` hay `custom_hdnt` của đơn cũ:
+    # đó là giá của ngày lập đơn cũ, không phải giá hôm nay. Một truy vấn
+    # cho cả đơn.
+    gia_theo_ma = bang_gia_khach.gia_bang_gia_nhieu(
+        customer, [d.item_code for d in so.items]
+    )
     gio_hang, bi_loai = [], []
-
     for dong in so.items:
-        contract = thang_cuoc.get(dong.item_code)
-        if not contract:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "ngoai_hdnt"})
+        if dong.item_code == ITEM_GIU_CHO:
             continue
-
-        con_lai, _ = han_muc_con(contract, dong.item_code)
-        if con_lai is not None and con_lai <= 0:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "het_han_muc"})
+        # Cùng chốt (và cùng mã lý do) với `dat_hang._xay_don`: đưa một mặt
+        # hàng ngừng kinh doanh vào giỏ là để khách bị từ chối ở bước gửi.
+        if frappe.db.get_value("Item", dong.item_code, "disabled"):
+            bi_loai.append({
+                "item_code": dong.item_code, "ly_do": "mat_hang_ngung_kinh_doanh",
+            })
             continue
-
-        # QĐ-G12 (Task 12) — ĐÚNG hàm mà `_xay_don` dùng. Trước Task 12 đây
-        # là phép tra `Item Price` THỨ SÁU, độc lập, nên "đặt lại đơn cũ"
-        # vẫn trả `thieu_gia` cho đúng mặt hàng mà đặt mới đã đặt được:
-        # cùng một mã, hai câu trả lời khác nhau tuỳ khách bấm nút nào.
-        # `contract` ở đây là hợp đồng THẮNG CUỘC vừa suy lại cho chính
-        # dòng này (`thang_cuoc.get(...)` ngay đầu vòng lặp), KHÔNG phải
-        # `so.custom_hdnt` của đơn cũ — xem khối Ruling P31 phía trên, nơi
-        # giải thích vì sao không được tin `custom_hdnt`. Đó cũng đúng là
-        # hợp đồng vòng lặp này vừa dùng để tính hạn mức, nên giá và hạn
-        # mức của một dòng luôn hỏi CÙNG một hợp đồng.
-        gia = gia_hdnt.gia_dong_hop_dong(dong.item_code, contract, price_list)
-        if not gia:
-            bi_loai.append({"item_code": dong.item_code, "ly_do": "thieu_gia"})
-            continue
-
-        qty = float(dong.qty)
-        if con_lai is not None:
-            qty = min(qty, con_lai)
+        gia = gia_theo_ma.get(dong.item_code)
         # Kèm tên và ĐVT: giỏ hàng dựng thẳng từ payload này, thiếu chúng thì
         # khách nhìn thấy mã hàng trần và không có đơn vị tính.
         gio_hang.append({
@@ -3041,9 +2833,9 @@ def portal_reorder(order: str) -> dict:
             "item_name": dong.item_name
             or frappe.db.get_value("Item", dong.item_code, "item_name"),
             "uom": dong.uom or "",
-            "qty": qty,
-            "gia_hien_hanh": float(gia),
-            "remaining": None if con_lai is None else con_lai,
+            "qty": float(dong.qty),
+            "tang": "bang_gia" if gia is not None else "cho_bao_gia",
+            "gia_hien_hanh": gia,
         })
 
     return {"gio_hang": gio_hang, "bi_loai": bi_loai}
@@ -3159,6 +2951,32 @@ def portal_order_accept(order, action, ly_do=None) -> dict:
         # KHÔNG được để một trục trặc ở đây làm hỏng việc đồng ý đã ghi
         # nhận thành công phía trên (xem docstring của hàm).
         cap_nhat_yeu_cau_goc(so, "Đã chuyển thành đơn")
+
+        # Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực
+        # trong Price List của họ. Bọc lỗi CỐ Ý: việc đồng ý đã thành công,
+        # một trục trặc ở bảng giá không được biến nó thành lỗi cho khách.
+        # Dấu giá đã đồng ý đóng TRƯỚC savepoint: ghi giá hỏng không được cuốn
+        # dấu theo (chốt 3 chỉ bắt khi dấu > 0). Savepoint để lỗi giữa chừng
+        # không để lại nửa số giá đã ghi; nhân viên phụ trách được báo.
+        if di_vong_bao_gia(so):
+            so.reload()
+            bang_gia_khach.dong_dau_gia_khach_dong_y(so)
+            try:
+                frappe.db.savepoint("ghi_gia_da_dong_y")
+                bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
+            except Exception:
+                loi = frappe.get_traceback(with_context=True)
+                try:
+                    frappe.db.rollback(save_point="ghi_gia_da_dong_y")
+                except Exception:
+                    # Savepoint không còn (giao dịch đã bị bỏ): giữ lỗi gốc.
+                    loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
+                frappe.log_error(
+                    title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
+                    message=loi,
+                    reference_doctype="Sales Order", reference_name=so.name,
+                )
+                bao_loi_ghi_gia(so.customer, so.name)
     elif action == "khong_dong_y":
         # review I-5/NL-10.4 — BA §4.10 ghi rõ "lý do lưu vào đơn VÀ yêu
         # cầu gốc". Bản trước chỉ ghi Comment lên `so` (dòng phía trên) —
@@ -3213,7 +3031,9 @@ def portal_order_sua_so_luong(order, dong) -> dict:
 
     Task 7 — câu mở trước đây viết "trên một đơn Mua lẻ", mô tả một phép so
     chuỗi mà mã bên dưới KHÔNG còn thực hiện. Từ Task 4 đơn TRỘN (chín dòng
-    hợp đồng + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3), nên
+    có giá sẵn + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3; từ
+    spec 2026-10-09 §4.1 cổng tách giỏ trộn thành hai đơn lúc đặt, nên đơn
+    trộn chủ yếu còn ở dữ liệu cũ), nên
     nó cũng sửa được số lượng — đó chính là gốc của lỗi Critical C1 ngày
     19/08 và là thứ mô hình gộp gỡ ra. Chốt hỏi `portal_mua_le.
     di_vong_bao_gia(so)`, không hỏi "có phải đơn mua lẻ không".
@@ -3240,8 +3060,12 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
     báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc
     Miyano vào một mức giá ở sản lượng khác hẳn mà không ai đồng ý. Nên:
-    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của MỌI dòng đã
-    đổi số lượng bị đặt về 0 (báo giá cũ hết hiệu lực cho dòng đó).
+    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của mọi dòng
+    "Báo giá" (cùng dòng đơn cũ chưa có dấu) đã đổi số lượng bị đặt về 0
+    (báo giá cũ hết hiệu lực cho dòng đó). Dòng "Bảng giá" thì khác (spec
+    2026-10-09 §4.4): giá của nó là giá Price List, không phải giá đàm phán
+    theo sản lượng, nên đọc lại giá bảng hôm nay; mã đã mất giá trong bảng
+    thì dòng thành "Báo giá" ở 0.
 
     Chuyển trạng thái DÙNG LẠI transition "Khách không đồng ý" ("Chờ khách
     đồng ý" -> "Chờ xác nhận", allowed "System Manager") — brief: "KHÔNG
@@ -3305,11 +3129,11 @@ def portal_order_sua_so_luong(order, dong) -> dict:
     doi_items = dong.get("items") or []
     doi_dat_ngoai = dong.get("dat_ngoai") or []
 
-    # review (I-4 tương tự _xay_don_ban_le) — dòng giữ chỗ kỹ thuật nội bộ
+    # review (I-4 tương tự `dat_hang._xay_don`) — dòng giữ chỗ kỹ thuật nội bộ
     # KHÔNG BAO GIỜ là một dòng khách "sửa được": không lộ ra `portal_order_
     # track` (đã lọc `ITEM_GIU_CHO`) nên khách bình thường không có cách nào
     # gõ đúng mã này, nhưng payload có thể bị sửa tay — chặn tường minh,
-    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `_xay_don_ban_le`.
+    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `dat_hang._xay_don`.
     for d in doi_items:
         if la_dong_giu_cho((d.get("item_code") or "").strip()):
             frappe.throw(
@@ -3380,17 +3204,43 @@ def portal_order_sua_so_luong(order, dong) -> dict:
             doi_items_ap_dung[i.item_code] = 0.0
             continue
         if float(i.qty or 0) != qty_moi:
-            thay_doi.append(
-                f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
-                "còn hiệu lực, chờ báo giá lại)"
-            )
+            # Spec 2026-10-09 §4.4 — giá của dòng đổi số lượng tuỳ DẤU của
+            # dòng. `rate` VÀ `price_list_rate` luôn đặt CÙNG nhau: chỉ đặt
+            # `rate` mà để nguyên `price_list_rate` có nguy cơ một luồng tính
+            # giá khác của ERPNext coi `price_list_rate` là nguồn sự thật và
+            # ghi đè lại `rate` khi lưu.
+            if i.get("custom_nguon_gia") == bang_gia_khach.NGUON_BANG_GIA:
+                # Dòng "Bảng giá" không mang giá đàm phán theo sản lượng —
+                # giá của nó là giá bảng, đúng ở mọi số lượng. Đọc lại giá
+                # HÔM NAY của bảng thay vì về 0 rồi bắt nhân viên gõ lại.
+                gia = bang_gia_khach.gia_bang_gia(so.customer, i.item_code) or 0
+                if gia:
+                    thay_doi.append(
+                        f"{i.item_code}: {i.qty} → {qty_moi} (giá theo bảng "
+                        f"giá: {gia})"
+                    )
+                else:
+                    # Mã đã mất giá trong bảng từ lúc lập đơn → thành dòng
+                    # chờ báo giá như mọi mã chưa có giá.
+                    thay_doi.append(
+                        f"{i.item_code}: {i.qty} → {qty_moi} (mặt hàng không "
+                        "còn giá trong bảng giá, chờ báo giá)"
+                    )
+                    i.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
+                i.rate = gia
+                i.price_list_rate = gia
+                # Bẫy margin của ERPNext — xem `xoa_chenh_lech_gia`.
+                xoa_chenh_lech_gia(i)
+            else:
+                # Dòng "Báo giá" (và dòng đơn cũ chưa có dấu): đơn giá báo
+                # cho N hộp không còn đúng ở M hộp → về 0, báo giá lại.
+                thay_doi.append(
+                    f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
+                    "còn hiệu lực, chờ báo giá lại)"
+                )
+                i.rate = 0
+                i.price_list_rate = 0
             i.qty = qty_moi
-            # `rate` VÀ `price_list_rate` — cả hai về 0. Chỉ đặt `rate` mà để
-            # nguyên `price_list_rate` có nguy cơ một luồng tính giá khác của
-            # ERPNext coi `price_list_rate` là nguồn sự thật và ghi đè lại
-            # `rate` khi lưu; đặt cả hai về 0 loại hẳn khả năng đó.
-            i.rate = 0
-            i.price_list_rate = 0
             doi_items_ap_dung[i.item_code] = qty_moi
         giu_items.append(i)
 
@@ -3418,7 +3268,7 @@ def portal_order_sua_so_luong(order, dong) -> dict:
         frappe.throw("Không có thay đổi số lượng nào để gửi.", frappe.ValidationError)
 
     # §3.4 — ERPNext không lưu được `items` rỗng (xem docstring
-    # `_xay_don_ban_le`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
+    # `dat_hang._xay_don`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
     # còn gì để Miyano báo giá lại — hướng khách sang nút Huỷ (huỷ THẬT,
     # đóng đơn ngay) thay vì để endpoint này chặn mập mờ.
     giu_items_that = [i for i in giu_items if i.item_code != ITEM_GIU_CHO]
@@ -3749,7 +3599,7 @@ def _pham_vi_phien_hien_tai() -> dict | None:
 # mặt ở đây — CỐ Ý: kho là tài sản của CẢ bệnh viện, không thuộc riêng khoa
 # nào (`Customer Warehouse` không gắn khoa phòng, xem thiết kế "kho khách
 # hàng"), nên một thông báo "đã nhập hàng" là thông tin cấp bệnh viện, cùng
-# hạng với `portal_catalog` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ
+# hạng với `portal_catalog_gop` — lọc nó theo khoa sẽ là lỗi, không phải một chỗ
 # quên áp phạm vi.
 _THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
 
@@ -3913,7 +3763,7 @@ def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
     dam_bao_xem_duoc("Delivery Note", delivery_note)
     dn = frappe.db.get_value(
         "Delivery Note", delivery_note,
-        ["name", "customer", "docstatus", "posting_date"], as_dict=True,
+        ["name", "customer", "docstatus", *COT_THOI_GIAN_GIAO], as_dict=True,
     )
     if not dn or dn.customer != customer:
         # Gộp "không tồn tại" và "của khách khác" vào một câu trả lời — không
@@ -3924,6 +3774,14 @@ def _dn_kiem_hang_cua_khach(delivery_note: str, customer: str) -> frappe._dict:
             "Phiếu giao này chưa được ghi sổ hoặc đã huỷ.", frappe.ValidationError
         )
     return dn
+
+
+def _ngay_giao_cua_dn(dn):
+    """Ngày giao hiện trên màn kiểm hàng — CÙNG nguồn với khối "Giao hàng"
+    của màn đơn (`thoi_gian_giao_cua_dn`), để hai màn nói về một đợt giao
+    không ra hai ngày."""
+    thoi_gian = thoi_gian_giao_cua_dn(dn)
+    return thoi_gian.date() if thoi_gian else None
 
 
 @frappe.whitelist()
@@ -3940,11 +3798,11 @@ def portal_kiem_hang_get(delivery_note) -> dict:
 
     bien_ban = bien_ban_cua_dn(delivery_note)
     if bien_ban:
-        return {"delivery_note": delivery_note, "ngay_giao": dn.posting_date,
+        return {"delivery_note": delivery_note, "ngay_giao": _ngay_giao_cua_dn(dn),
                 "bien_ban": bien_ban, "dong_goc": dong_goc, "moi": False}
     return {
         "delivery_note": delivery_note,
-        "ngay_giao": dn.posting_date,
+        "ngay_giao": _ngay_giao_cua_dn(dn),
         "moi": True,
         "dong_goc": dong_goc,
         "bien_ban": {

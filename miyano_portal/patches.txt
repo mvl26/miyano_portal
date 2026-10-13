@@ -79,3 +79,5 @@ miyano_portal.patches.v1_36.them_nhom_vat_tu_vao_item
 miyano_portal.patches.v1_37.hien_bang_nha_cung_cap_tren_item
 miyano_portal.patches.v1_38.them_may_su_dung_vao_item
 miyano_portal.patches.v1_39.them_ten_thuong_goi_vao_item
+miyano_portal.patches.v1_40.them_thoi_gian_giao_hang
+miyano_portal.patches.v1_41.gia_theo_price_list

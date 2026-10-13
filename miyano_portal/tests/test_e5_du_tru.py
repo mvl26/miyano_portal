@@ -384,9 +384,13 @@ class TestPhanTrangVaTheDem(_KhoBmTestCase):
 class TestGioBoSung(_KhoBmTestCase):
 	"""US-E5.3 — dữ liệu để màn giao diện quyết định hiện nút nào."""
 
-	def test_vat_tu_thuoc_hdnt_hieu_luc_co_co_dat_duoc_hdnt(self):
-		"""TC-E5-05 (nhánh thuộc HĐNT) — VT0005 nằm trong Blanket Order còn
-		hiệu lực của Bệnh viện Bạch Mai (seed_demo.py)."""
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_vat_tu_khop_ma_miyano_tra_item_code_khong_con_co_hdnt(self):
+		"""TC-E5-05 — vật tư khớp một Item của Miyano: dòng mang đúng
+		`item_code` (thứ màn giao diện cần để đưa vào giỏ bổ sung). Trước đây
+		bài này khẳng định cờ `dat_duoc_hdnt = True` vì VT0005 nằm trong
+		Blanket Order còn hiệu lực; cổng không còn phân biệt hàng trong/ngoài
+		hợp đồng nên cờ đã bỏ khỏi payload."""
 		today = _today()
 		vt2 = frappe.get_doc({
 			"doctype": "Customer Warehouse Item", "kho": self.K,
@@ -399,13 +403,15 @@ class TestGioBoSung(_KhoBmTestCase):
 		frappe.set_user(BM_USER)
 		out = kho_api.kho_canh_bao_ton()
 		row = next(r for r in out["dong"] if r["vat_tu"] == vt2.name)
-		self.assertTrue(row["dat_duoc_hdnt"])
 		self.assertEqual(row["item_code"], "VT0005")
+		self.assertNotIn("dat_duoc_hdnt", row)
+		self.assertIn("sl_goi_y", row)
 
-	def test_vat_tu_ngoai_hdnt_item_code_rong_khong_dat_duoc_hdnt(self):
-		"""TC-E5-05 (nhánh ngoài HĐNT) — vật tư RIÊNG của kho (không khớp
-		Item nào của Miyano, item_code để trống có chủ đích) -> chỉ có thể
-		"Nhờ Miyano tìm nguồn", không được gắn cờ dat_duoc_hdnt. Tạo vật tư
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
+	def test_vat_tu_rieng_cua_kho_tra_item_code_rong(self):
+		"""TC-E5-05 (nhánh "Nhờ Miyano tìm nguồn") — vật tư RIÊNG của kho
+		(không khớp Item nào của Miyano, item_code để trống có chủ đích) ->
+		`item_code` rỗng, không còn cờ `dat_duoc_hdnt`. Tạo vật tư
 		MỚI trong chính test này (không dựa vào item_code của self.VT/vt_bm
 		từ seed_kho_demo — rule "đừng đếm tuyệt đối trên dữ liệu ngoài tầm
 		setUp": Item "MYN-GLOVE-M" có thể đã tồn tại thật trên site dev do
@@ -422,29 +428,8 @@ class TestGioBoSung(_KhoBmTestCase):
 		frappe.set_user(BM_USER)
 		out = kho_api.kho_canh_bao_ton()
 		row = next(r for r in out["dong"] if r["vat_tu"] == vt_rieng.name)
-		self.assertFalse(row["dat_duoc_hdnt"])
 		self.assertEqual(row["item_code"], "")
-
-	def test_vat_tu_co_item_code_nhung_hdnt_da_het_han_khong_dat_duoc_hdnt(self):
-		"""item_code có thật (VT0005) nhưng khách KHÔNG có Blanket Order hiệu
-		lực (PXN ABC — seed_demo.py chỉ tạo Blanket Order cho khách đầu tiên)
-		-> vẫn phải là "ngoài HĐNT", không suy diễn theo item_code một mình."""
-		today = _today()
-		kho_pxn = self.kho["kho_pxn"]
-		frappe.db.delete("Customer Stock Ledger Entry", {"kho": kho_pxn})
-		frappe.db.delete("Customer Stock Lot Balance", {"kho": kho_pxn})
-		vt_pxn = frappe.get_doc({
-			"doctype": "Customer Warehouse Item", "kho": kho_pxn,
-			"ma_vat_tu": "VT-PXN-VT0005", "ten_vat_tu": "Vật tư PXN dùng mã VT0005",
-			"dvt": "Cái", "item_code": "VT0005", "lead_time_ngay": 3,
-		}).insert(ignore_permissions=True)
-		_nhap(kho_pxn, vt_pxn.name, 100, frappe.utils.add_days(today, -40))
-		_xuat(kho_pxn, vt_pxn.name, 10, frappe.utils.add_days(today, -35))
-
-		frappe.set_user(PXN_USER)
-		out = kho_api.kho_canh_bao_ton()
-		row = next(r for r in out["dong"] if r["vat_tu"] == vt_pxn.name)
-		self.assertFalse(row["dat_duoc_hdnt"])
+		self.assertNotIn("dat_duoc_hdnt", row)
 
 
 # ============================================================= Cách ly kho

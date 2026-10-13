@@ -31,8 +31,8 @@ def kiem_boi_so(item_code: str, qty) -> dict | None:
     với nhu cầu họ vừa nói ra.
 
     Mặt hàng không tồn tại cũng trả `None` — không phải việc của hàm này.
-    Mặt hàng lạ đã bị chặn ở tầng hạn mức và tầng giá trước đó; ném lỗi ở đây
-    chỉ làm rối thông điệp mà khách nhận được.
+    Mặt hàng lạ không đi tiếp được ở tầng dựng đơn (`dat_hang`); ném lỗi ở
+    đây chỉ làm rối thông điệp mà khách nhận được.
     """
     boi_so = int(frappe.db.get_value("Item", item_code, "custom_boi_so_dat") or 0)
     if boi_so <= 0:

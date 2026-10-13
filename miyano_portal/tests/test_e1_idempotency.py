@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
 from miyano_portal.setup.seed_demo import seed_demo
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 VT = "VT0005"  # hạn mức 10.000 trong seed_demo — thoải mái cho các ca dưới
 
@@ -29,7 +30,7 @@ class TestIdempotencyDatHang(FrappeTestCase):
         seed_demo()
         frappe.set_user("bvbm@demo.miyano")
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
 
     def _dat(self, request_id, qty=1):
         return portal.portal_order_place(
@@ -312,7 +313,7 @@ class TestBoiSoVaNgayGiaoQuaAPI(FrappeTestCase):
         self.addCleanup(frappe.db.set_value, "Item", VT, "custom_boi_so_dat", 0)
         frappe.set_user("bvbm@demo.miyano")
         self.addCleanup(frappe.set_user, "Administrator")
-        self.bo = portal.portal_contracts()[0]["name"]
+        self.bo = hop_dong_hieu_luc_dau_tien()
 
     # TC-E1-03
     def test_sai_boi_so_bi_chan_du_gui_thang_api(self):

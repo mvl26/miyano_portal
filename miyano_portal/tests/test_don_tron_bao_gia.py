@@ -109,11 +109,14 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
 		self._tao_gia(self.item_hd, self.price_list, 100)
-		# CỐ Ý cho mặt hàng NGOÀI hợp đồng một giá trong CÙNG bảng giá:
-		# dòng tầng 2 phải ra `rate = 0` vì nó KHÔNG thuộc hợp đồng nào,
-		# không phải vì tình cờ không tra được giá (bẫy false-green đã ghi
-		# ở `test_dat_hang_gop.py`).
-		self._tao_gia(self.item_ngoai, self.price_list, 777)
+		# Đảo theo spec 2026-10-09 (giá theo Price List). Tầng của một dòng
+		# giờ là "có giá trong Price List của khách hay chưa", không phải
+		# "thuộc hợp đồng hay không" — nên dòng chờ báo giá của đơn trộn là
+		# mã KHÔNG có dòng giá nào (trước đây fixture cố ý gài 777 cho nó).
+		for ten in frappe.get_all(
+			"Item Price", filters={"item_code": self.item_ngoai, "selling": 1}, pluck="name"
+		):
+			frappe.delete_doc("Item Price", ten, force=True)
 
 		self.bo = self._bo(self.kh_a, [
 			{"item_code": self.item_hd, "qty": 50, "rate": 100},
@@ -153,10 +156,8 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 			)
 
 	def _bo(self, customer, items):
-		"""SUBMIT thật — Ruling P18: "còn hiệu lực" đòi `docstatus == 1`.
-		Hợp đồng CHƯA submit cho `rate = 0` và không gắn `blanket_order`,
-		tức "đơn thuần hợp đồng" của bài tương thích ngược sẽ THẬT RA là
-		một đơn tầng 2 đóng dấu "Mua lẻ" — bài xanh vì lý do sai."""
+		"""SUBMIT thật — hợp đồng còn hiệu lực là vế ĐỐI CHỨNG: từ spec
+		2026-10-09 nó không còn quyết định giá hay tầng của dòng nào."""
 		doc = frappe.get_doc({
 			"doctype": "Blanket Order", "blanket_order_type": "Selling",
 			"customer": customer, "company": COMPANY,
@@ -168,8 +169,8 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		return doc.name
 
 	def _don_tron(self):
-		"""Đơn TRỘN: một dòng hợp đồng (có giá) + một dòng tầng 2 (chờ báo
-		giá). Kiểm luôn TIỀN ĐỀ của fixture — không có hai khẳng định này
+		"""Đơn TRỘN: một dòng có giá trong Price List + một dòng chờ báo
+		giá. Kiểm luôn TIỀN ĐỀ của fixture — không có các khẳng định này
 		thì mọi bài dưới đây có thể xanh trên một fixture hỏng."""
 		kq = dat_hang.tao_sales_order(
 			self.kh_a,
@@ -181,14 +182,18 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		)
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		theo_ma = {d.item_code: d for d in so.items}
-		self.assertEqual(theo_ma[self.item_hd].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List).
+		self.assertEqual(theo_ma[self.item_hd].custom_nguon_gia, "Bảng giá")
+		self.assertFalse(theo_ma[self.item_hd].blanket_order)
 		self.assertEqual(float(theo_ma[self.item_hd].rate), 100.0)
+		self.assertEqual(theo_ma[self.item_ngoai].custom_nguon_gia, "Báo giá")
 		self.assertEqual(float(theo_ma[self.item_ngoai].rate), 0.0)
 		return so
 
 	def _don_thuan_hop_dong(self):
-		"""Đơn THUẦN hợp đồng — đường sáu tài khoản bệnh viện đang đi mỗi
-		ngày. Kiểm tiền đề y hệt lý do trên."""
+		"""Đơn mọi dòng ĐÃ CÓ GIÁ ("Theo bảng giá"; trước spec 2026-10-09
+		là đơn thuần hợp đồng "Theo HĐNT") — đường sáu tài khoản bệnh viện
+		đang đi mỗi ngày. Kiểm tiền đề y hệt lý do trên."""
 		kq = dat_hang.tao_sales_order(
 			self.kh_a,
 			items=[{"item_code": self.item_hd, "qty": 4}],
@@ -196,7 +201,9 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		)
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(len(so.items), 1)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
+		# Đảo theo spec 2026-10-09 (giá theo Price List).
+		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+		self.assertFalse(so.items[0].blanket_order)
 		self.assertEqual(float(so.items[0].rate), 100.0)
 		return so
 

@@ -399,6 +399,12 @@ doc_events = {
 			"miyano_portal.portal_kiem_hang.dong_bo_trang_thai_thu_hoi",
 		],
 		"on_cancel": "miyano_portal.kho.delivery_hook.on_delivery_note_cancel",
+		# Thời gian giao hàng (09/10/2026) — điền `custom_thoi_gian_giao` khi
+		# còn trống, LÚC GHI SỔ: ở `validate` nó đóng băng giờ lưu nháp đầu
+		# tiên, sớm hơn lúc hàng thật sự đi. Chỉ GÁN, không bao giờ ném lỗi —
+		# khác các chốt `before_submit` thường thấy, hook này không chặn gì
+		# (xem docstring hàm).
+		"before_submit": "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
 		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
 		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
 		# chứng từ không khớp tài khoản cổng nào của khách, nghĩa là
@@ -435,22 +441,20 @@ doc_events = {
 		# Hoá đơn phát hành".
 		"on_update": "miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 	},
-	# Ký HĐNT (Selling) → dựng luôn Item Price trong bảng giá của khách.
+	# Ký HĐNT (Selling) → chép đơn giá hợp đồng vào Price List của khách.
 	#
-	# CẬP NHẬT Task 12 (QĐ-G12, 21/08/2026) — chú thích cũ ở đây nói rằng
-	# cổng CHỈ chấp nhận đơn giá đến từ `Item Price` và rằng giữ nguyên phép
-	# tra đó mới là đúng. CẢ HAI vế nay đã SAI: với một dòng hợp đồng, cổng
-	# đọc `Blanket Order Item.rate` TRƯỚC (`gia_hdnt.gia_dong_hop_dong`),
-	# bảng giá chỉ còn là bước lui. Lý do đổi: hook này chạy ĐÚNG MỘT LẦN
-	# lúc trình ký, nên mọi hợp đồng ký trước khi nó ra đời và mọi hợp đồng
-	# nạp bằng import không bao giờ được đồng bộ — và chỗ hổng đó im lặng,
-	# biểu hiện ra thành "chưa có giá trong hợp đồng" cho một hợp đồng có
-	# rate rành rành.
+	# Spec 2026-10-09 (giá theo Price List) — cổng định giá theo MỘT nguồn:
+	# Price List của khách (`bang_gia_khach`). Hook này là đường DUY NHẤT để
+	# giá hợp đồng tới được cổng: không có nó, hàng đã ký giá vẫn hiện "chờ
+	# báo giá" cho tới khi ai đó nhập tay `Item Price`. (Từ 21/08 đến 09/10
+	# cổng đọc thẳng `Blanket Order Item.rate` — QĐ-G12 — và hook chỉ giữ
+	# `Item Price` khớp cho phía Desk; phép đọc đó đã gỡ.) Nhiều hợp đồng
+	# cùng khai một mã thì ghi theo luật phân định `gia_hdnt.
+	# THU_TU_PHAN_DINH` (Ruling P30).
 	#
-	# Hook VẪN CẦN, chỉ đổi vai: nó không còn là điều kiện để khách đặt được
-	# hàng, mà là thứ giữ `Item Price` khớp với hợp đồng cho phía ERPNext —
-	# báo cáo, hoá đơn, và giá Desk tự điền khi nhân viên Miyano dựng chứng
-	# từ bằng tay. Ruling P30: nó ghi theo ĐÚNG luật phân định của cổng.
+	# Hook chạy ĐÚNG MỘT LẦN lúc trình ký, nên hợp đồng ký trước khi nó ra
+	# đời và hợp đồng nạp bằng import phải được đồng bộ bằng patch (`v1_13`,
+	# `v1_26`, `v1_41`).
 	#
 	# `on_submit` là đủ: `Blanket Order Item.rate` KHÔNG `allow_on_submit`
 	# (đã kiểm JSON doctype), nên giá chỉ đổi được bằng cách sửa đổi hợp đồng
@@ -467,7 +471,8 @@ doc_events = {
 	"Sales Order": {
 		# Task 13 (QĐ-G13, chủ đầu tư chốt 21/08/2026) — khớp mã cho một
 		# dòng "đặt ngoài" thì CHUYỂN nó thành dòng hàng thật trong `items`,
-		# lấy giá hợp đồng bằng hàm dùng chung (QĐ-G14).
+		# lấy giá từ Price List của khách (`bang_gia_khach.gia_bang_gia`, spec
+		# 2026-10-09 §4.4 — thay QĐ-G14 "giá hợp đồng").
 		#
 		# Ở `before_validate` chứ KHÔNG `validate`, và đây là lý do: hook
 		# của app chạy SAU method cùng tên của chính doctype
@@ -483,6 +488,12 @@ doc_events = {
 		# đó khi document CHA lưu.
 		"before_validate": [
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+			# Đơn báo giá vào "Chờ khách đồng ý" → dấu nguồn giá của từng dòng
+			# theo luật R14/R16 (dòng "Bảng giá" bị sửa giá tay, dòng thêm tay
+			# trên Desk là dòng "Báo giá"). SAU hook trên (dòng vừa gộp đã có
+			# dấu) và ở `before_validate` vì nó có thể đổi `rate` — xem
+			# docstring hàm.
+			"miyano_portal.chot_bao_gia.chuan_hoa_dau_truoc_khi_gui_khach",
 		],
 		"validate": [
 			"miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
@@ -497,6 +508,10 @@ doc_events = {
 			# gọi khi cha lưu, đây là nơi DUY NHẤT chốt này chạy được cho
 			# mọi đường ghi (cổng lẫn Desk).
 			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
+			# Giá theo Price List, spec 2026-10-09 §5.1 — chốt 1 và 2 trên bước
+			# chuyển trạng thái: đơn báo giá không "Gửi duyệt" thẳng, không
+			# gửi khách khi còn dòng chưa có giá. Chạy sau `ghi_ngay_gui_khach_duyet`.
+			"miyano_portal.chot_bao_gia.kiem_chuyen_trang_thai",
 		],
 		"before_submit": [
 			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
@@ -514,6 +529,8 @@ doc_events = {
 			# không bắt được dòng giữ chỗ `ITEM_GIU_CHO` còn sót lại trong
 			# `items` dù mọi dòng đặt ngoài đã khớp mã. Xem docstring hàm.
 			"miyano_portal.portal_mua_le.kiem_khong_con_dong_giu_cho",
+			# Spec 2026-10-09 §5.4 — chốt 3: giá phải khớp giá khách đã đồng ý.
+			"miyano_portal.chot_bao_gia.kiem_gia_khop_gia_da_dong_y",
 		],
 		# Cùng lý do/chốt với "Delivery Note"/"Sales Invoice" ở trên —
 		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối"/"Báo giá sẵn

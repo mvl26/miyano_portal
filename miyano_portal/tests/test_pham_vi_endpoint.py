@@ -107,13 +107,9 @@ MIEN_PHAM_VI: dict[str, str] = {
 		"Đừng đọc bốn khoá này là bằng chứng 'cấp bệnh viện' như phần còn "
 		"lại của endpoint — đó là hai lý do miễn khác nhau đứng cạnh nhau."
 	),
-	"portal_contracts": "hợp đồng khung ký ở cấp bệnh viện, không thuộc khoa nào",
-	"portal_catalog": "danh mục hàng theo hợp đồng — cấp bệnh viện",
-	"portal_catalog_ban_le": "danh mục hàng bán lẻ — cấp bệnh viện",
 	"portal_catalog_gop": (
-		"Task 3 (21/08/2026) — cùng khuôn portal_catalog/portal_catalog_"
-		"ban_le: danh mục hàng tìm kiếm gộp là dữ liệu CẤP BỆNH VIỆN (Item/"
-		"Blanket Order không có trục khoa phòng), không phải dữ liệu của "
+		"Task 3 (21/08/2026) — danh mục hàng tìm kiếm gộp là dữ liệu CẤP BỆNH VIỆN (Item/"
+		"Item Price không có trục khoa phòng), không phải dữ liệu của "
 		"một PHIẾU/ĐƠN cụ thể. `get_portal_customer()` đã tự scope theo "
 		"khách hàng (trục bệnh viện) — không có khoa nào để lọc thêm."
 	),
