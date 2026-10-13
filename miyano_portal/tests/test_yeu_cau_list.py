@@ -44,6 +44,7 @@ from miyano_portal.api import de_xuat, portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
@@ -262,6 +263,24 @@ class TestYeuCauList(FrappeTestCase):
 		doc.gui_duyet()
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
+		return kq["de_xuat"], kq["sales_order"]
+
+	def _duyet_mua_le_cu(self):
+		"""Phiếu chờ báo giá ĐÃ có một Sales Order "Mua lẻ" đứng sau — đơn dở
+		của luồng cũ (spec 2026-10-12 §9). Đường duyệt thật không còn sinh ra
+		nó (§5), nên đơn dựng bằng `dat_hang.tao_sales_order` trực tiếp. Theo
+		§6.1 phiếu này Ở LẠI danh sách đơn hàng. Trả `(ten_phieu, ten_don)`."""
+		ten = self._tao_phieu(
+			self.kh_a, self.khoa_huyethoc, self.user_huyethoc, item=self.item
+		)
+		doc = frappe.get_doc("Portal De Xuat Mua", ten)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		kq = don_mua_le_cu.duyet_thanh_don(ten, self.user_quan_ly)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
+			"Mua lẻ",
+		)
 		return kq["de_xuat"], kq["sales_order"]
 
 	def _miyano_tu_choi(self, ten_don):
@@ -563,12 +582,13 @@ class TestYeuCauList(FrappeTestCase):
 		Ghim khoá bằng CHUỖI VIẾT THẲNG, không qua hằng số `GIAI_DOAN_*`:
 		so với hằng số thì bài test đi theo mọi lần đổi giá trị và không
 		còn ghim gì cả."""
+		phieu, don = self._duyet_mua_le_cu()
 		frappe.db.set_value(
-			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Sales Order", don, "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
-		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		dong = self._tim_theo_phieu(kq, phieu)
 		self.assertEqual(dong["giai_doan"], "cho_khach_dong_y")
 		# Nhãn CHI TIẾT của đơn vẫn đi kèm — giai đoạn gộp không được nuốt
 		# mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
@@ -588,8 +608,9 @@ class TestYeuCauList(FrappeTestCase):
 		nó nổ: mục đích là bài này đỏ ở CẤP KHẲNG ĐỊNH (so hai tập, đọc ra
 		ngay vế nào ném) chứ không đỏ ở cấp exception, nơi thông báo lỗi
 		không nói được vế kia trả về gì."""
+		phieu, don = self._duyet_mua_le_cu()
 		frappe.db.set_value(
-			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Sales Order", don, "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,
 		)
 
@@ -601,7 +622,7 @@ class TestYeuCauList(FrappeTestCase):
 			return {r["de_xuat"] for r in self._dong(kq)}
 
 		theo_khoa = _tap("cho_khach_dong_y")
-		self.assertIn(self.phieu_da_duyet, theo_khoa)
+		self.assertIn(phieu, theo_khoa)
 		self.assertEqual(_tap("Chờ báo giá"), theo_khoa)
 
 	def test_giai_doan_cua_phieu_bi_tu_choi(self):

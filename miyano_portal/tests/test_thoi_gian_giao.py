@@ -20,7 +20,7 @@ from miyano_portal.api import de_xuat, portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.setup.install_notifications import DEFS
 from miyano_portal.tests import test_chi_tiet_gop as goc
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 
 COMPANY = "Miyano Việt Nam"
 
@@ -63,6 +63,10 @@ class _Base(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.khoa_a = f.khoa_huyethoc
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu còn mã chưa có giá nay sinh Quotation. Lớp
+		# này đo ĐƠN sinh ra từ đường duyệt thật (`_phieu_da_duyet`), nên vật
+		# tư có giá trong Price List của khách và đơn là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.quan_ly = self._thanh_vien("tgg.ql@demo.miyano", "Quản lý", None)
 		self.nhan_vien = self._thanh_vien(
 			"tgg.nv@demo.miyano", "Nhân viên khoa", self.khoa_a

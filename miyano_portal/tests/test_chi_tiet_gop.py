@@ -99,7 +99,7 @@ class TestChiTietGopBackend(FrappeTestCase):
 			c.save(ignore_permissions=True)
 		return email
 
-	def _phieu_da_duyet(self, so_luong=10):
+	def _phieu_da_duyet(self, so_luong=10, mua_le_cu=False):
 		"""Phiếu đi qua ĐƯỜNG DUYỆT THẬT (`de_xuat_duyet.duyet_va_tao_don`),
 		KHÔNG gán tay `phieu.sales_order` — gán tay là ghim một trạng thái
 		rồi đo lại chính nó, đúng kiểu fixture-che-cổng dự án đã dính bảy
@@ -113,8 +113,15 @@ class TestChiTietGopBackend(FrappeTestCase):
 		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", self.nhan_vien)
 		doc.reload()
 		doc.gui_duyet()
-		from miyano_portal import de_xuat_duyet
-		de_xuat_duyet.duyet_va_tao_don(doc.name, self.quan_ly)
+		if mua_le_cu:
+			# Đơn "Mua lẻ" đang dở của luồng cũ (spec 2026-10-12 §9): đường
+			# duyệt thật không còn sinh ra nó, dựng bằng `tao_sales_order`
+			# trực tiếp.
+			from miyano_portal.tests import don_mua_le_cu
+			don_mua_le_cu.duyet_thanh_don(doc.name, self.quan_ly)
+		else:
+			from miyano_portal import de_xuat_duyet
+			de_xuat_duyet.duyet_va_tao_don(doc.name, self.quan_ly)
 		doc.reload()
 		return doc
 
@@ -188,7 +195,17 @@ class TestChiTietGopBackend(FrappeTestCase):
 		(in "Chờ báo giá") với dòng cũ giá 0 bằng DẤU của dòng đơn, không đoán
 		từ con số. Cả hai đường nuôi bảng (`de_xuat_chi_tiet` khi có phiếu,
 		`portal_order_track` khi chỉ có đơn) phải trả dấu đó."""
-		phieu = self._phieu_da_duyet(so_luong=10)
+		# Bài này nói về dòng CHỜ BÁO GIÁ trên một đơn "Mua lẻ" cũ: gỡ giá của
+		# vật tư (`setUp` vừa khai) để đơn dựng ra đúng là đơn đó.
+		for ten in frappe.get_all(
+			"Item Price", filters={"item_code": self.item, "selling": 1}, pluck="name"
+		):
+			frappe.delete_doc("Item Price", ten, force=True)
+		phieu = self._phieu_da_duyet(so_luong=10, mua_le_cu=True)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", phieu.sales_order, "custom_loai_don"),
+			"Mua lẻ",
+		)
 		loc = {"parent": phieu.sales_order, "item_code": self.item}
 		frappe.db.set_value(
 			"Sales Order Item", loc,

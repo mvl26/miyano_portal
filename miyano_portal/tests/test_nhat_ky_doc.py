@@ -290,9 +290,9 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		from frappe.model.workflow import apply_workflow
 		frappe.set_user("Administrator")
 		so = frappe.get_doc("Sales Order", ten_don)
-		# Đảo theo spec 2026-10-09 (giá theo Price List). Đơn báo giá (dòng
-		# giá 0) không "Gửi duyệt" thẳng được: điền giá, gửi khách, khách
-		# đồng ý rồi mới "Xác nhận".
+		# Đơn đi gửi khách, khách đồng ý rồi mới "Xác nhận". Từ spec 2026-10-12
+		# §5 đơn của lớp này là đơn "Theo bảng giá" (đã có giá); phép ghi giá
+		# dưới đây chỉ còn đổi con số.
 		for d in so.items:
 			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
 		so.reload()
