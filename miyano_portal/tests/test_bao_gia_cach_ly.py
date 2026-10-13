@@ -2,9 +2,8 @@
 bệnh viện này sang bệnh viện khác."""
 
 import frappe
-import requests
 
-from miyano_portal import permissions, search_guard
+from miyano_portal import permissions, rest_guard, search_guard
 from miyano_portal.portal_context import dam_bao_xem_duoc
 from miyano_portal.tests import test_rest_guard as rg
 from miyano_portal.tests.nen_bao_gia import NenBaoGia
@@ -104,6 +103,46 @@ class TestBaoGiaCachLy(NenBaoGia):
 			"doctype": "Customer Department", "customer": self.kh_a,
 			"ten_khoa_phong": "Khoa thử cách ly báo giá", "ma_khoa": "BGCL", "active": 1,
 		}).insert(ignore_permissions=True).name
+
+
+class TestChanTrangBaoGiaErpnext(NenBaoGia):
+	"""Chạy trong tiến trình test, không cần tiến trình web nên không bao giờ skip.
+
+	Bộ định tuyến Frappe (`PathResolver`) `strip("/ ")` hai đầu, bỏ đuôi `.html`
+	rồi so khớp phân biệt hoa thường: guard phải chuẩn hoá y hệt.
+	"""
+
+	CHAN = (
+		"/quotations", "/quotations/", "/quotations.html", "/quotations.html/",
+		"//quotations", "/quotations ", "/quotations/SAL-QTN-1",
+		"/quotations/SAL-QTN-1.html",
+	)
+	MO = ("/portal/yeu-cau", "/quotations-khac", "/api/method/ping")
+
+	def _goi(self, duong_dan, user):
+		frappe.set_user(user)
+		old = getattr(frappe.local, "request", None)
+		frappe.local.request = frappe._dict(path=duong_dan)
+		try:
+			rest_guard.chan_trang_bao_gia_erpnext()
+		finally:
+			frappe.local.request = old
+
+	def test_khach_cong_bi_chan_moi_bien_the(self):
+		ql = self._quan_ly("bgcl.ql.chan@demo.miyano", self.kh_a)
+		for duong_dan in self.CHAN:
+			with self.subTest(duong_dan=duong_dan):
+				with self.assertRaises(frappe.PermissionError):
+					self._goi(duong_dan, ql)
+
+	def test_duong_khac_van_mo(self):
+		ql = self._quan_ly("bgcl.ql.chan@demo.miyano", self.kh_a)
+		for duong_dan in self.MO:
+			with self.subTest(duong_dan=duong_dan):
+				self._goi(duong_dan, ql)
+
+	def test_nhan_vien_noi_bo_khong_bi_chan(self):
+		self._goi("/quotations", "Administrator")
 
 
 class TestBaoGiaHTTP(NenBaoGia):

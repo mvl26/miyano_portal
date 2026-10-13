@@ -197,8 +197,14 @@ def chan_trang_bao_gia_erpnext():
     """
     if not getattr(frappe.local, "request", None):
         return
-    duong_dan = (frappe.request.path or "").rstrip("/")
-    if duong_dan != "/quotations" and not duong_dan.startswith("/quotations/"):
+    # Chuẩn hoá Y HỆT bộ định tuyến (`PathResolver.__init__` strip "/ " hai
+    # đầu; `resolve_path` bỏ đuôi ".html"; so khớp luật Werkzeug phân biệt
+    # hoa thường nên KHÔNG hạ chữ thường). Hẹp hơn là mở lại đúng lỗ này.
+    duong_dan = (frappe.request.path or "").strip("/ ")
+    if duong_dan.endswith(".html"):
+        duong_dan = duong_dan[:-5]
+    duong_dan = duong_dan.strip("/ ")
+    if duong_dan != "quotations" and not duong_dan.startswith("quotations/"):
         return
     if not _la_khach_cong(frappe.session.user):
         return
