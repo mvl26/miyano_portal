@@ -125,7 +125,17 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.js = (_goc() / "public" / "js" / "sales_order.js").read_text(encoding="utf-8")
+		# Task 10 (2026-10-12): hàm dựng khối chuyển sang file dùng chung với
+		# Quotation; `sales_order.js` chỉ còn LỜI GỌI trong `refresh`.
+		cls.js = (_goc() / "public" / "js" / "hang_moi_khach_khai.js").read_text(
+			encoding="utf-8"
+		)
+		cls.js_so = (_goc() / "public" / "js" / "sales_order.js").read_text(
+			encoding="utf-8"
+		)
+		cls.ma_so = "\n".join(
+			d for d in cls.js_so.splitlines() if not d.strip().startswith("//")
+		)
 		# Lột chú thích JS trước khi soi: chính chú thích giải thích tính năng
 		# này có chứa mọi chuỗi bài dưới tìm. Lỗi "khớp chỗ nói thay cho chỗ
 		# dùng" đã xảy ra BỐN lần trong phiên.
@@ -136,7 +146,7 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 	def test_co_khoi_hien_thong_tin_hang_moi(self):
 		self.assertIn("hien_thong_tin_hang_moi", self.ma)
 		self.assertRegex(
-			self.ma, r"function\s+hien_thong_tin_hang_moi",
+			self.ma, r"miyano_portal\.hien_thong_tin_hang_moi\s*=\s*function",
 			"Không có hàm dựng khối thông tin hàng mới trên Desk",
 		)
 
@@ -146,10 +156,8 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 		Đây là lớp lỗi mà `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt
 		BẢY lần trong dự án này.
 		"""
-		i_ham = self.ma.find("function hien_thong_tin_hang_moi")
-		truoc = self.ma[:i_ham] if i_ham != -1 else self.ma
 		self.assertIn(
-			"hien_thong_tin_hang_moi(frm)", truoc,
+			"miyano_portal.hien_thong_tin_hang_moi(frm)", self.ma_so,
 			"`hien_thong_tin_hang_moi` được định nghĩa nhưng KHÔNG được gọi "
 			"trong `refresh` — khối sẽ không bao giờ hiện",
 		)
@@ -301,20 +309,34 @@ class TestCotDonGiaChoDongDaKhopMa(FrappeTestCase):
 		"""Giá 0 nghĩa là MIYANO CHƯA BÁO GIÁ, không phải "miễn phí".
 
 		Khớp được mã CHƯA CHẮC đã có giá: `_gop_hoac_them_dong_hang` chỉ tự
-		lấy đơn giá khi mặt hàng thuộc một hợp đồng khung còn hiệu lực; ngoài
-		ra để 0 và chờ Miyano điền.
+		lấy đơn giá khi mặt hàng có giá trong Price List của khách (spec
+		2026-10-09 §4.4); ngoài ra để 0 và chờ Miyano điền.
 
 		In "0 ₫" là nói với khoa một con số SAI — cùng luật với "—" của CR-04:
 		chưa biết thì đừng in một con số.
+
+		Final-fix S-7 (12/10/2026): luật chuyển sang `gia-dong-don.js`
+		(`choBaoGiaTrenDon`, canh bằng `gia-dong-don.test.mjs`) vì nó nay áp
+		cho CẢ dòng mang dấu "Báo giá" chứ không riêng dòng đã khớp mã; nhãn
+		thống nhất một cách gọi "Chờ báo giá" (trước đây dòng khớp mã ghi "Chờ
+		Miyano báo giá"). Ô Thành tiền của dòng đó in "—".
 		"""
-		self.assertIn(
-			"Chờ Miyano báo giá", self.ma,
+		luat = (_goc().parent / "frontend" / "src" / "gia-dong-don.js").read_text(encoding="utf-8")
+		self.assertIn("NHAN_CHO_BAO_GIA = 'Chờ báo giá'", luat)
+		self.assertRegex(
+			luat, r"if \(row\.yeu_cau_khop\) return true",
+			"Dòng đã khớp mã chưa có giá phải là dòng chờ báo giá",
+		)
+		self.assertNotIn("Chờ Miyano báo giá", self.ma, "chỉ còn MỘT cách gọi")
+		self.assertRegex(
+			self.ma,
+			r'<template v-if="choBaoGiaTrenDon\(row\)">\s*'
+			r'<span class="tag">\{\{ NHAN_CHO_BAO_GIA \}\}</span>',
 			"Giá 0 không được in thành số — phải nói rõ là chưa báo giá",
 		)
 		self.assertRegex(
-			self.ma,
-			r'v-if="row\.yeu_cau_khop && !row\.don_gia_tren_don"',
-			"Không có nhánh phân biệt đã-có-giá với chưa-báo-giá cho dòng đã khớp",
+			self.ma, r'<template v-if="choBaoGiaTrenDon\(row\)">—</template>',
+			"Thành tiền của dòng chưa có giá phải in \"—\", không \"0 ₫\"",
 		)
 
 	def test_dong_khop_KHONG_bia_ra_so_luong_duyet(self):

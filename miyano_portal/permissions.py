@@ -305,6 +305,64 @@ def de_xuat_item_query(user=None) -> str:
     )
 
 
+def bao_gia_query(user=None) -> str:
+    """Spec 2026-10-12 §8 — lớp phòng thủ THỨ HAI cho Quotation.
+
+    Vai `Customer` không có DocPerm nào trên Quotation nên với tài khoản cổng
+    hôm nay hàm này không bao giờ được gọi tới. Nó chỉ có nghĩa nếu về sau ai
+    đó cấp quyền đọc: khi đó họ vẫn chỉ thấy báo giá CỦA CỔNG, của khách mình,
+    của khoa mình. Quotation dùng `party_name`, không có cột `customer`.
+    """
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return ""
+    customers = get_allowed_customers(user)
+    if not customers:
+        return "1=0"
+    joined = ", ".join(frappe.db.escape(c) for c in customers)
+    dk = (
+        "`tabQuotation`.`quotation_to` = 'Customer' and "
+        f"`tabQuotation`.`party_name` in ({joined}) and "
+        "`tabQuotation`.`custom_nguon_don` = 'Client Portal'"
+    )
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return "1=0"
+    khoa = pv.get("custom_khoa_phong")
+    if khoa:
+        dk += f" and `tabQuotation`.`custom_khoa_phong` = {frappe.db.escape(khoa)}"
+    return dk
+
+
+def bao_gia_has_permission(doc, ptype=None, user=None):
+    user = user or frappe.session.user
+    if not _is_restricted_user(user):
+        return True
+    if doc.get("quotation_to") != "Customer" or doc.get("custom_nguon_don") != "Client Portal":
+        return False
+    if doc.get("party_name") not in get_allowed_customers(user):
+        return False
+    try:
+        pv = pham_vi_don(user)
+    except frappe.PermissionError:
+        return False
+    khoa = pv.get("custom_khoa_phong")
+    return not khoa or doc.get("custom_khoa_phong") == khoa
+
+
+def bao_gia_khong_qua_trang_web(doc, ptype=None, user=None, verbose=False):
+    """Hook `has_website_permission` của Quotation.
+
+    ERPNext đăng ký sẵn một hook cho Quotation, cho qua mọi tài khoản có dòng
+    `Portal User` trên Customer. Đường đó không qua DocPerm, không biết trục
+    khoa, và là thứ `/quotations/<tên>`, `/printview`, `download_pdf` rơi về
+    khi DocPerm từ chối. Frappe từ chối nếu BẤT KỲ hook nào trả giá trị sai,
+    nên trả False ở đây là đủ đóng cả ba. Cổng đọc báo giá qua endpoint riêng.
+    """
+    return not _is_restricted_user(user or frappe.session.user)
+
+
 def einvoice_query(user=None):
     """E7 — `Fast EInvoice Document` là doctype của MODULE KHÁC (team Dev,
     `apps/erpnext/erpnext/einvoice/`), mảng `permissions` của nó chỉ còn
@@ -321,14 +379,14 @@ def einvoice_query(user=None):
     return _customer_condition("Fast EInvoice Document", user)
 
 
-# Ba doctype DUY NHẤT mang khái niệm khoa phòng (`custom_khoa_phong` trực
+# Bốn doctype DUY NHẤT mang khái niệm khoa phòng (`custom_khoa_phong` trực
 # tiếp hoặc quy về đơn cha) — SONG SINH với `api/portal.py::_THONG_BAO_
 # DOCTYPE_LOC_KHOA` (không import chéo được, hai module không có quan hệ
 # phụ thuộc: `permissions.py` phục vụ tầng hook, `api/portal.py` phục vụ
 # tầng endpoint). Đổi một bên PHẢI soát bên còn lại — cùng khuôn "hai nơi
 # định nghĩa một khái niệm PHẢI khớp nhau" đã ghi ở nhiều chỗ khác trong đề
 # án (vd. `_TRANG_THAI_GHI_DE_WORKFLOW`/`_so_status_vi_full`).
-_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice")
+_THONG_BAO_DOCTYPE_LOC_KHOA = ("Sales Order", "Delivery Note", "Sales Invoice", "Quotation")
 
 
 def notification_khoa_query(user=None) -> str:
@@ -356,8 +414,8 @@ def notification_khoa_query(user=None) -> str:
 
     Hàm này thêm ĐÚNG vế khoa còn thiếu, dùng LẠI `_dieu_kien_khoa_qua_don_
     cha` — KHÔNG viết lại logic quy-về-đơn-cha (cùng nguyên tắc
-    `_khoa_query_condition` ngay trên). CHỈ áp cho ba doctype có khái niệm
-    khoa phòng (`_THONG_BAO_DOCTYPE_LOC_KHOA`, cùng bộ ba với `api/
+    `_khoa_query_condition` ngay trên). CHỈ áp cho bốn doctype có khái niệm
+    khoa phòng (`_THONG_BAO_DOCTYPE_LOC_KHOA`, cùng bộ bốn với `api/
     portal.py::_THONG_BAO_DOCTYPE_LOC_KHOA`) — thông báo KHÁC (`Customer
     Stock Receipt`/kho, `Portal Delivery Inspection`/kiểm hàng, thông báo
     hệ thống nội bộ Miyano...) giữ NGUYÊN hành vi cũ, không âm thầm mở rộng
@@ -408,6 +466,11 @@ def notification_khoa_query(user=None) -> str:
                 "Sales Invoice", "Sales Invoice Item", "sales_order", escaped
             )
             + "))"
+        ),
+        "Quotation": (
+            f"exists (select 1 from `tabQuotation` where "
+            f"`tabQuotation`.name = {dname_col} and "
+            f"`tabQuotation`.custom_khoa_phong = {escaped})"
         ),
     }
     ve_theo_loai = " or ".join(

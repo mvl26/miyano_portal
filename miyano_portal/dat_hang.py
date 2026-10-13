@@ -1,4 +1,5 @@
-"""Lõi đặt hàng — dựng dòng hàng, kiểm hạn mức HĐNT, định giá, tạo Sales Order.
+"""Lõi đặt hàng — dựng dòng hàng, định giá theo Price List của khách, tạo
+Sales Order.
 
 Tách khỏi `api/portal.py` ngày 18/08/2026 (bước 1,
 `docs/superpowers/plans/2026-08-18-nen-phan-quyen-khoa-phong.md`) vì sắp có
@@ -7,18 +8,16 @@ phòng. Ở đường đó, người bấm nút KHÁC người đặt hàng, nê
 khách hàng từ phiên đăng nhập nữa — nó NHẬN `customer` làm tham số, và việc
 xác định khách hàng thuộc về người gọi.
 
-Hai đường tính giá và kiểm hạn mức là hai đường sẽ lệch nhau. Chỉ có một.
+Hai đường định giá là hai đường sẽ lệch nhau. Chỉ có một — và từ spec
+2026-10-09 (giá theo Price List) nó hỏi đúng MỘT nguồn: `bang_gia_khach`.
+Cổng không còn định giá hay kiểm hạn mức theo hợp đồng khung.
 """
 
 import frappe
 from frappe.model.naming import validate_name
 from frappe.utils import flt
 
-from miyano_portal import gia_hdnt
-from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
-    nguon_gia_theo_ma_cho_khach,
-)
-from miyano_portal.portal_context import han_muc_con, ten_khoa_da_tieu
+from miyano_portal import bang_gia_khach
 from miyano_portal.portal_dat_hang import (
     kiem_boi_so,
     kiem_ngay_giao,
@@ -31,7 +30,6 @@ from miyano_portal.portal_mua_le import (
     la_dong_giu_cho,
     resolve_ban_le_company,
 )
-from miyano_portal.portal_thong_bao import bao_thieu_gia
 
 
 def _customer_addresses(customer: str) -> list:
@@ -186,62 +184,42 @@ def _insert_so_idempotent(so, request_id) -> dict:
     return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
 
 
-def _selling_price_list_mac_dinh() -> str:
-    """Thiết kế lại mua lẻ §4.5 — `Sales Order.selling_price_list` vẫn
-    `reqd=1` ở tầng ERPNext (không phải field app này khai), nên đơn mua lẻ
-    vẫn cần MỘT price list hợp lệ để insert được, dù không còn dùng nó để
-    TRA GIÁ (rate = 0, sales điền sau). KHÔNG dùng `price_list_ban_le()`
-    (Miyano Portal Settings) cho việc này nữa — §4.1 đã "ngừng phụ thuộc"
-    field đó cho nhánh mua lẻ; dùng lại đúng price list mặc định hệ thống
-    (`Selling Settings.selling_price_list`, ERPNext tự set khi cài đặt),
-    rơi về "Standard Selling" nếu Settings đó trống."""
-    return frappe.db.get_single_value("Selling Settings", "selling_price_list") or "Standard Selling"
-
-
-def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
+def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
              address, po, note, request_id):
-    """Task 4 (gộp luồng đặt hàng, 21/08/2026) — MỘT hàm dựng đơn duy nhất,
-    quyết định hạ xuống TỪNG DÒNG.
+    """MỘT hàm dựng đơn duy nhất của cổng; giá và tầng quyết định ở TỪNG
+    DÒNG, theo Price List của khách (spec 2026-10-09 §3.2, §4.2).
 
-    Thay `_xay_don_hdnt` + `_xay_don_ban_le` (đã xoá). Hai hàm đó rẽ theo
-    tham số `mode` ở ĐẦU HÀM, tức "đơn này theo hợp đồng hay chờ báo giá"
-    được chốt MỘT LẦN CHO CẢ ĐƠN — chính là mô hình cấp-ĐƠN mà cả kế hoạch
-    này sinh ra để xoá (cùng họ với `Portal De Xuat Mua.loai_don` đã bỏ ở
-    Task 2). Hai vách ngăn nó dựng lên, cả hai đều bị xoá ở đây:
+    Hai loại dòng có mã, cộng dòng gõ tay:
 
-      * `mode="hdnt"` từ chối thẳng mọi dòng `dat_ngoai` ("Dòng đặt ngoài
-        chỉ áp dụng cho chế độ Mua lẻ") — nên một giỏ vừa có hàng hợp đồng
-        vừa có hàng chưa có mã KHÔNG đặt được;
-      * `mode="ban_le"` từ chối thẳng mọi mặt hàng đang thuộc hợp đồng còn
-        hiệu lực (BR-R7) — nên cùng giỏ đó cũng không đi lối kia được.
-        BR-R7 sinh ra để chặn "khách hết hạn mức né sang mua lẻ"; dưới một
-        hàm dựng DUY NHẤT nó không còn cần thiết vì không còn "lối kia" để
-        né: dòng thuộc hợp đồng LUÔN được định giá theo hợp đồng và LUÔN bị
-        trừ hạn mức, dù người gọi có nghĩ mình đang mua lẻ hay không.
+      | Dòng                       | Xử lý                                   |
+      |----------------------------|-----------------------------------------|
+      | Có giá trong Price List    | `rate = price_list_rate` = giá bảng giá, |
+      |                            | dấu `custom_nguon_gia = "Bảng giá"`      |
+      | Chưa có giá                | `rate = price_list_rate = 0`, dấu        |
+      |                            | `"Báo giá"`, Miyano báo giá sau          |
+      | Chưa có mã (khách gõ tay)  | vào `custom_dat_ngoai`, KHÔNG vào `items` |
 
-    Ba loại dòng (§13 spec, bảng của Task 4):
+    "Có giá" hỏi `bang_gia_khach.gia_bang_gia_nhieu()` — đúng nguồn mà danh
+    mục `portal_catalog_gop` đang dùng, nên khách không thể thấy một tầng
+    trên màn lập phiếu rồi nhận một tầng khác trên đơn.
 
-      | Dòng                  | Xử lý                                     |
-      |-----------------------|-------------------------------------------|
-      | Có trong hợp đồng     | giá hợp đồng, gắn `blanket_order`, trừ hạn mức |
-      | Có mã, ngoài hợp đồng | `rate = 0`, Miyano báo giá sau            |
-      | Chưa có mã            | vào `custom_dat_ngoai`, KHÔNG vào `items` |
+    Hợp đồng khung (Blanket Order) KHÔNG còn được hỏi ở đây (§4.2): không
+    lấy giá từ hợp đồng, không kiểm hạn mức, không gắn `blanket_order` /
+    `against_blanket_order` lên dòng (ERPNext tự chặn đặt vượt số lượng hợp
+    đồng khi dòng mang liên kết đó), không ghi `custom_hdnt`, không suy
+    `company` từ hợp đồng. Hệ quả đã được chấp nhận: `ordered_qty` trên hợp
+    đồng ở ERP không còn tăng theo đơn từ cổng. Một mặt hàng hợp đồng có
+    khai giá nhưng Price List của khách trống là dòng CHỜ BÁO GIÁ.
 
-    "Dòng nào thuộc hợp đồng nào" hỏi `nguon_gia_theo_ma_cho_khach()` —
-    ĐÚNG hàm mà `Portal De Xuat Mua._suy_nguon_gia()` (màn lập phiếu) và
-    `api/portal.portal_catalog_gop` (màn tìm kiếm) đang dùng. Ba nơi cùng
-    một luật (Ruling P14: customer-wide, hết hạn sớm nhất thắng, trùng
-    `to_date` thì `name` nhỏ hơn thắng; Ruling P18: "còn hiệu lực" là
-    `docstatus == 1`). Tự viết lại luật ở đây là dựng đúng thứ Task 2/3 đã
-    tách ra để tránh: khách thấy một tầng trên màn lập phiếu rồi nhận một
-    tầng khác trên đơn.
-
-    `contract` KHÔNG còn quyết định gì về từng dòng — nó chỉ còn là thứ
-    người gọi CŨ truyền vào để ghi `custom_hdnt` khi không suy được. Xem
-    `tao_sales_order` để biết vì sao nó vẫn được kiểm quyền sở hữu.
+    Loại đơn (`custom_loai_don`) suy từ dòng: còn ít nhất một dòng chưa có
+    giá hoặc một dòng gõ tay thì `"Mua lẻ"` (đi vòng báo giá), ngược lại
+    `"Theo bảng giá"`.
     """
-    thang_cuoc = nguon_gia_theo_ma_cho_khach(customer)
-    price_list = frappe.db.get_value("Customer", customer, "default_price_list")
+    # Spec 2026-10-09 §4.2 — giá và tầng của từng dòng đến từ Price List của
+    # khách. Bảo đảm bảng riêng TRƯỚC khi tra: đơn phải mang đúng bảng đó
+    # (mục 7.3), kể cả khi mọi dòng còn chờ báo giá.
+    price_list = bang_gia_khach.dam_bao_bang_gia_rieng(customer)
+    gia_theo_ma = bang_gia_khach.gia_bang_gia_nhieu(customer, list(aggregated))
 
     # BR-O3 — báo HẾT trong một lần. `loi` là phong bì máy đọc được theo
     # `30_API_Spec` §1.1 (`ly_do` + số liệu kèm theo); văn xuôi cho
@@ -253,11 +231,10 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
     if loi_ngay:
         loi.append(loi_ngay)
 
-    # Mỗi phần tử: {item_code, qty, rate, hop_dong, gan_hop_dong}.
-    #   `hop_dong`     — hợp đồng THẮNG CUỘC của dòng (None = tầng 2). Quyết
-    #                    định `company`/`custom_hdnt`/`custom_loai_don`.
-    #   `gan_hop_dong` — hợp đồng GẮN LÊN DÒNG ĐƠN, None cả với dòng hợp
-    #                    đồng KHÔNG GIỚI HẠN (BR-O15, xem dưới).
+    # Mỗi phần tử: {item_code, qty, rate, nguon_gia}.
+    #   `nguon_gia` — dấu ghi lên `Sales Order Item.custom_nguon_gia`:
+    #                 "Bảng giá" (có giá) / "Báo giá" (chưa có giá); `None`
+    #                 cho dòng giữ chỗ kỹ thuật. Quyết định `custom_loai_don`.
     hop_le: list[dict] = []
     for item_code, qty in aggregated.items():
         if qty <= 0:
@@ -267,18 +244,16 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
                 "thong_diep": f"{item_code}: số lượng phải > 0",
             })
             continue
-        # Mỗi mặt hàng chỉ báo MỘT lý do, xét theo thứ tự này:
-        #   bội số  — lỗi nhập liệu, khách sửa được ngay; và kiểm hạn mức
-        #             trên một số lượng sai bội số cho ra `con_lai` gây
-        #             hiểu nhầm;
-        #   giá     — bế tắc tuyệt đối, giảm số lượng không cứu được;
-        #   hạn mức — xét sau cùng, khi số lượng đã hợp lệ và hàng đã có giá.
+        # Mỗi mặt hàng chỉ báo MỘT lý do, xét theo thứ tự: bội số (lỗi nhập
+        # liệu, khách sửa được ngay) → mã giữ chỗ → ngừng kinh doanh. "Chưa
+        # có giá" KHÔNG còn là lỗi (spec 2026-10-09 §4.2): dòng đó thành
+        # dòng chờ báo giá ở cuối vòng này.
         loi_boi_so = kiem_boi_so(item_code, qty)
         if loi_boi_so:
             loi.append(loi_boi_so)
             continue
         # review C-1 — chốt Ở ĐƯỜNG GHI, cạnh chốt danh mục ở
-        # `portal_catalog_ban_le`. `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ
+        # `portal_catalog_gop`. `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ
         # (§3.4) mà hàm NÀY tự chèn vào `hop_le` phía dưới KHI CẦN (đơn toàn
         # hàng chưa có mã) — nhưng client cũng có thể gửi thẳng mã này trong
         # payload `items`, y như bất kỳ item_code nào khác. Không có chốt
@@ -298,7 +273,7 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
             })
             continue
         # Phòng thủ tầng hai, retarget theo §4.1: danh mục
-        # `portal_catalog_ban_le` giờ chỉ lọc `disabled=0` (KHÔNG còn lọc
+        # `portal_catalog_gop` chỉ lọc `disabled=0` (KHÔNG còn lọc
         # `custom_ban_le_portal` — cờ đó không còn là điều kiện thành viên
         # danh mục, §6 "chỉ ngừng dùng để lọc"). Client có thể gửi THẲNG một
         # mã hàng bất kỳ tới đây — không tin payload, tự kiểm lại đúng điều
@@ -311,91 +286,19 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
                 "thong_diep": f"{item_code} đã ngừng kinh doanh, không đặt được.",
             })
             continue
-        # ---- PHÂN TẦNG THEO DÒNG (thay cho BR-R7 + rẽ nhánh theo `mode`) --
-        #
-        # BR-R7 cũ chặn ở ĐÂY: mặt hàng thuộc hợp đồng còn hiệu lực bị từ
-        # chối thẳng khỏi giỏ "mua lẻ", để khách hết hạn mức không né sang
-        # lối kia mua tiếp (NL-10.7). Giờ không còn "lối kia": cùng một mặt
-        # hàng đó rơi vào nhánh `if bo_dong` ngay dưới — được định giá theo
-        # hợp đồng và bị TRỪ HẠN MỨC như thường, bất kể người gọi tưởng
-        # mình đang ở chế độ nào. Cơ chế hạn mức của E1 được bảo vệ bằng
-        # chính phép kiểm `han_muc_con` dưới đây, không còn bằng một lời từ
-        # chối. Phép chuẩn hoá `item_code` về `Item.name` chính tắc (review
-        # C-2, chống lách qua hoa/thường) vẫn nằm ở `tao_sales_order` TRƯỚC
-        # khi gộp `aggregated`, không đụng.
-        bo_dong = thang_cuoc.get(item_code)
-        if not bo_dong:
-            # Tầng 2 — có mã nhưng ngoài mọi hợp đồng còn hiệu lực. §4.5:
-            # `rate = 0`, sales điền giá khi báo giá; KHÔNG kiểm hạn mức
-            # (dòng này không thuộc hợp đồng nào để mà trừ), KHÔNG gắn
-            # `blanket_order`/`against_blanket_order` (BR-R4).
-            hop_le.append({
-                "item_code": item_code, "qty": qty, "rate": 0,
-                "hop_dong": None, "gan_hop_dong": None,
-            })
-            continue
-
-        # Tầng 1 — dòng hợp đồng.
-        # US-E1.4 — kiểm giá phải nằm TRONG vòng gom này. Bản trước ném ngay
-        # ở mặt hàng thiếu giá đầu tiên tại vòng dựng đơn, nên giỏ vừa vượt
-        # hạn mức vừa thiếu giá bắt khách gửi hai lần — đúng thứ BR-O3 cấm.
-        # QĐ-G12 (Task 12) — giá của dòng hợp đồng lấy từ CHÍNH hợp đồng
-        # `bo_dong` vừa suy ra, bảng giá chỉ là bước lui. KHÔNG còn gác
-        # `if price_list` ở đây: bước 1 không cần bảng giá nào, phép kiểm
-        # nằm trong `gia_dong_hop_dong()` (xem docstring hàm đó).
-        rate = gia_hdnt.gia_dong_hop_dong(item_code, bo_dong, price_list)
-        if not rate:
-            # Khách không phải tự đi đòi giá. Báo sales phụ trách ngay, tối
-            # đa một lần mỗi ngày cho mỗi cặp (khách, mặt hàng).
-            bao_thieu_gia(customer, item_code)
-            loi.append({
-                "item_code": item_code,
-                "ly_do": "thieu_gia",
-                # Nguyên văn ma trận FormSpec §5, dòng NL-1.4.
-                "thong_diep": (
-                    f"{item_code} chưa có giá trong hợp đồng. "
-                    f"Miyano đã nhận được thông báo để bổ sung."
-                ),
-            })
-            continue
-        con_lai, _da_dat = han_muc_con(bo_dong, item_code)
-        if con_lai is None:
-            # BR-O15 — hạn mức khai 0 = KHÔNG GIỚI HẠN. Không kiểm, và
-            # KHÔNG gắn `against_blanket_order` cho dòng này: cơ chế gốc của
-            # ERPNext đối chiếu cờ đó với `qty` của Blanket Order Item, thấy
-            # 0 thì hiểu là CẤM ĐẶT và chặn ngay lúc submit. Truy vết về hợp
-            # đồng vẫn còn qua `so.custom_hdnt` ở đầu đơn.
-            hop_le.append({
-                "item_code": item_code, "qty": qty, "rate": rate,
-                "hop_dong": bo_dong, "gan_hop_dong": None,
-            })
-            continue
-        if qty > con_lai:
-            loi.append({
-                "item_code": item_code,
-                # §5 tách hai mã: hết sạch là `het_han_muc`, còn ít hơn số
-                # khách đòi là `vuot_han_muc` — giao diện xử lý khác nhau.
-                "ly_do": "het_han_muc" if con_lai <= 0 else "vuot_han_muc",
-                "con_lai": con_lai,
-                # Nguyên văn ma trận FormSpec §5, dòng NL-1.3, CỘNG vế
-                # "Đã dùng bởi" (vòng sửa 1, review độc lập): §5.6 đòi mọi
-                # thất bại hạn mức phải nêu TÊN KHOA đã tiêu mất, không có
-                # ngoại lệ cho nhánh nào. Trước đó chỉ `de_xuat_duyet.
-                # _kiem_han_muc` nêu, nên đơn đặt qua giỏ hàng quản lý —
-                # và mọi dòng mà nhánh kia bỏ qua — nhận một thông điệp
-                # không cho người dùng đường nào để gỡ. Câu gốc giữ NGUYÊN
-                # VĂN ở đầu (test cũ khẳng định đúng chuỗi đó), vế mới nối
-                # vào sau.
-                "thong_diep": (
-                    f"Không đặt được: {item_code} chỉ còn {con_lai:g} "
-                    f"theo hạn mức hợp đồng khung. "
-                    f"Đã dùng bởi: {ten_khoa_da_tieu(bo_dong)}."
-                ),
-            })
-            continue
+        # ---- PHÂN TẦNG THEO DÒNG (spec 2026-10-09 §3.2) -----------------
+        # Có giá dương trong Price List của khách → dòng "Bảng giá", mang
+        # đúng giá đó. Không có → dòng "Báo giá", `rate = 0`, sales điền giá
+        # khi báo giá. Giá `<= 0` là "chưa có giá", không phải "bán 0 đồng"
+        # — `gia_bang_gia_nhieu` chỉ trả mã có giá DƯƠNG.
+        gia = gia_theo_ma.get(item_code)
         hop_le.append({
-            "item_code": item_code, "qty": qty, "rate": rate,
-            "hop_dong": bo_dong, "gan_hop_dong": bo_dong,
+            "item_code": item_code, "qty": qty,
+            "rate": gia or 0,
+            "nguon_gia": (
+                bang_gia_khach.NGUON_BANG_GIA if gia
+                else bang_gia_khach.NGUON_BAO_GIA
+            ),
         })
 
     dong_dat_ngoai: list[dict] = []
@@ -490,10 +393,7 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
         # đọc — ghi riêng vào `aggregated` (cho `resolve_ban_le_company`) mà
         # không ghi vào đây thì dòng giữ chỗ không bao giờ thành một dòng
         # thật trên đơn, và `so.items` vẫn rỗng như trước khi có Task 5.
-        hop_le.append({
-            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0,
-            "hop_dong": None, "gan_hop_dong": None,
-        })
+        hop_le.append({"item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0, "nguon_gia": None})
 
     # ---- suy `company` -------------------------------------------------
     #
@@ -505,31 +405,15 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
     # vì `calculate_taxes_and_totals` không có gì để tính) — nên giỏ
     # `items` (KHÔNG tính `dat_ngoai`) vẫn phải khác rỗng.
     #
-    # Task 4 — giỏ có dòng HỢP ĐỒNG thì company lấy theo HỢP ĐỒNG (đúng
-    # hành vi `_xay_don_hdnt` cũ: `so.company = bo.company`), KHÔNG qua
-    # `resolve_ban_le_company()`. Lý do không phải "giữ cho giống": hàm đó
-    # GIAO tập company của mọi mặt hàng trong giỏ, nên một dòng tầng 2
-    # thiếu `Item Default` sẽ làm phép giao RỖNG và kéo cả đơn hợp đồng
-    # rơi về `default_company` — sai sổ, sai kho, cho một đơn mà hợp đồng
-    # đã nói rõ company nào. `sorted()[0]` khi nhiều hợp đồng khác company:
-    # TẤT ĐỊNH tuyệt đối (một Sales Order chỉ có MỘT company); trường hợp
-    # này không tồn tại ở Miyano hôm nay (một company duy nhất) nhưng để
-    # `set` tự chọn thì hai lần đặt cùng một giỏ có thể ra hai company.
-    company_hop_dong = sorted({
-        frappe.db.get_value("Blanket Order", d["hop_dong"], "company")
-        for d in hop_le if d["hop_dong"]
-    } - {None})
-    if company_hop_dong:
-        company = company_hop_dong[0]
-    else:
-        # Chủ dự án đã quyết: đừng chốt cứng company vào mặt khách nữa —
-        # `resolve_ban_le_company()` giờ TỰ rơi về `default_company` khi
-        # phép giao rỗng, để nhân viên back-office sửa trên đơn nháp nếu
-        # cần. Chỉ còn dừng ở đây khi site KHÔNG CÓ Company nào — lúc đó
-        # ERPNext không lưu nổi một Sales Order thật (`company` là
-        # `reqd=1`), và đây đúng là lỗi cấu hình hệ thống, không phải lỗi
-        # của giỏ hàng khách.
-        company = resolve_ban_le_company(list(aggregated.keys()))
+    # Spec 2026-10-09 §4.2 — MỌI đơn suy `company` qua
+    # `resolve_ban_le_company()`; hợp đồng khung không còn quyết định
+    # company của đơn. Hàm đó TỰ rơi về `default_company` khi phép giao
+    # rỗng (chủ dự án đã quyết: đừng chốt cứng company vào mặt khách), để
+    # nhân viên back-office sửa trên đơn nháp nếu cần. Chỉ còn dừng ở đây
+    # khi site KHÔNG CÓ Company nào — lúc đó ERPNext không lưu nổi một
+    # Sales Order thật (`company` là `reqd=1`), và đây đúng là lỗi cấu hình
+    # hệ thống, không phải lỗi của giỏ hàng khách.
+    company = resolve_ban_le_company(list(aggregated.keys()))
     if not company:
         frappe.throw(
             "Hệ thống chưa có công ty (Company) nào được cấu hình. "
@@ -537,22 +421,19 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
             frappe.ValidationError,
         )
 
-    # ---- suy `custom_hdnt` / `custom_loai_don` ở ĐẦU ĐƠN ---------------
+    # ---- suy `custom_loai_don` ở ĐẦU ĐƠN (spec 2026-10-09 §3.2, §4.2) --
     #
-    # Ruling P8 — `Sales Order.custom_loai_don` KHÔNG bị xoá (khác
-    # `Portal De Xuat Mua.loai_don`): ~15 chỗ đọc, gồm thông báo tự động và
-    # vòng báo giá. Ở đây giữ đúng HAI giá trị cũ và suy chúng từ DÒNG:
-    # còn bất kỳ dòng nào chưa có giá (tầng 2, hoặc dòng đặt ngoài) thì đơn
-    # PHẢI đi qua vòng báo giá của Miyano → "Mua lẻ"; đơn thuần hợp đồng
-    # giữ nguyên "Theo HĐNT" như hôm nay.
+    # Còn ít nhất một dòng chưa có giá ("Báo giá"), một dòng gõ tay, hoặc
+    # đơn chỉ có dòng giữ chỗ (`nguon_gia = None`) thì đơn PHẢI đi qua vòng
+    # báo giá của Miyano → "Mua lẻ" (giữ nguyên chuỗi cũ, nhiều chốt đang
+    # đọc đúng nó). Mọi dòng đều có giá → "Theo bảng giá".
     #
     # ĐÂY LÀ CHỖ DUY NHẤT ĐÓNG DẤU, và dấu đóng MỘT LẦN lúc lập đơn. Mọi
-    # CHỐT đọc dấu này đều đi qua `portal_mua_le.di_vong_bao_gia()` (Task 6,
-    # QĐ-G2b) — đừng so chuỗi `== "Mua lẻ"` ở chỗ mới: từ Task 4 giá trị đó
-    # KHÔNG còn nghĩa "đơn mua lẻ" nữa.
-    bo_tren_don = sorted({d["hop_dong"] for d in hop_le if d["hop_dong"]})
+    # CHỐT đọc dấu này đều đi qua `portal_mua_le.di_vong_bao_gia()` — đừng
+    # so chuỗi `== "Mua lẻ"` ở chỗ mới: giá trị đó KHÔNG có nghĩa "đơn mua
+    # lẻ", nó có nghĩa "đơn còn dòng chờ báo giá".
     con_dong_chua_co_gia = bool(dong_dat_ngoai) or any(
-        not d["hop_dong"] for d in hop_le
+        d["nguon_gia"] != bang_gia_khach.NGUON_BANG_GIA for d in hop_le
     )
 
     so = frappe.new_doc("Sales Order")
@@ -560,19 +441,23 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
     so.company = company
     so.transaction_date = frappe.utils.today()
     so.delivery_date = delivery_date
-    # Đơn có dòng hợp đồng phải mang bảng giá của hợp đồng — `rate` từng
-    # dòng đã tính sẵn ở trên, nhưng `selling_price_list` là thứ nhân viên
-    # Miyano nhìn/dùng lại khi báo giá phần còn lại của đơn.
-    so.selling_price_list = (
-        (price_list if bo_tren_don else None) or _selling_price_list_mac_dinh()
-    )
+    # §4.2 / mục 7.3 — đơn LUÔN mang bảng giá riêng của khách, kể cả khi
+    # mọi dòng còn chờ báo giá: đó là bảng nhân viên Miyano nhìn và ghi vào
+    # khi báo giá.
+    so.selling_price_list = price_list
+    # Ruling R19 — cổng có ĐÚNG MỘT nguồn giá. Không tắt thì một Pricing Rule
+    # bán hàng của ERPNext khớp mặt hàng/khách sẽ chiết khấu `rate` ngay lúc
+    # lưu đơn (và mỗi lần nhân viên lưu lại trên Desk): khách thấy một giá
+    # trên màn đặt hàng, nhận một giá khác trên đơn, và dòng "Bảng giá" thôi
+    # bằng giá bảng. Cờ nằm trên ĐƠN nên phủ cả dòng thêm sau khi khớp mã.
+    so.ignore_pricing_rule = 1
     so.custom_nguon_don = "Client Portal"
-    # Suy được ĐÚNG MỘT hợp đồng thì dùng nó; nhiều hợp đồng trên một đơn
-    # thì không có "hợp đồng của đơn" nào để ghi (truy vết thật nằm trên
-    # từng DÒNG, `Sales Order Item.blanket_order`). `contract` chỉ còn là
-    # đường lui cho người gọi CŨ truyền tường minh.
-    so.custom_hdnt = bo_tren_don[0] if len(bo_tren_don) == 1 else contract
-    so.custom_loai_don = LOAI_DON_BAO_GIA if con_dong_chua_co_gia else "Theo HĐNT"
+    # §4.2 — đơn mới từ cổng không còn mang hợp đồng khung ở đầu đơn.
+    so.custom_hdnt = None
+    so.custom_loai_don = (
+        LOAI_DON_BAO_GIA if con_dong_chua_co_gia
+        else bang_gia_khach.LOAI_DON_BANG_GIA
+    )
     so.custom_request_id = request_id
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
@@ -595,40 +480,32 @@ def _xay_don(customer, contract, aggregated, dat_ngoai, delivery_date,
                 f"Không tìm thấy kho giao hàng cho mặt hàng {d['item_code']} tại "
                 f"công ty {company}. Vui lòng liên hệ quản trị viên hệ thống."
             )
+        # R15 — cổng đặt theo đơn vị GỐC và giá bảng tính theo đơn vị gốc
+        # (`gia_bang_gia_nhieu`). ERPNext thì mặc định `uom` của dòng mới
+        # theo `Item.sales_uom`; để nó tự điền, một mã khai `sales_uom` là
+        # thùng sẽ ra dòng "3 thùng" mang giá của MỘT đơn vị gốc.
+        dvt_goc = frappe.db.get_value("Item", d["item_code"], "stock_uom")
         dong = {
-            "item_code": d["item_code"],
-            "qty": d["qty"],
-            # Tầng 1 mang giá hợp đồng; tầng 2 và dòng giữ chỗ mang 0
-            # (§4.5 — sales điền giá khi báo giá).
-            "rate": d["rate"],
-            "warehouse": item_warehouse,
-            "delivery_date": delivery_date,
-        }
-        if not d["rate"]:
-            # BẪY ERPNext, phát hiện bằng test khi gộp hai hàm dựng (giá
-            # 777 cố ý gài cho mặt hàng TẦNG 2 trong `test_dat_hang_gop`):
-            # `taxes_and_totals.calculate_item_values` có nhánh
-            # `elif item.price_list_rate: if not item.rate: item.rate =
-            # price_list_rate` — `rate = 0` là FALSY, nên ERPNext ÂM THẦM
-            # thay 0 bằng giá trong bảng giá của đơn. Trước Task 4 nhánh
-            # mua lẻ thoát nạn chỉ vì nó dùng bảng giá mặc định hệ thống
-            # (thường không có dòng giá cho hàng lẻ) — một sự may mắn, không
-            # phải một chốt. Đơn TRỘN mang bảng giá hợp đồng của khách nên
-            # cái may đó hết. Gán tường minh `price_list_rate = 0` để
-            # `set_missing_item_details` không điền hộ (nó chỉ điền khi
-            # field đang là `None`) và nhánh trên không kích hoạt.
+            "item_code": d["item_code"], "qty": d["qty"], "rate": d["rate"],
+            "uom": dvt_goc, "stock_uom": dvt_goc, "conversion_factor": 1,
+            "warehouse": item_warehouse, "delivery_date": delivery_date,
+            "custom_nguon_gia": d["nguon_gia"],
+            # Đặt CẢ HAI `rate` và `price_list_rate` (§4.2):
+            # `price_list_rate` là thứ ERPNext coi là nguồn khi tính lại
+            # dòng lúc `insert()`.
             #
-            # CHỈ áp cho dòng giá 0 — dòng tầng 1 để nguyên cho ERPNext tự
-            # điền `price_list_rate` y như trước Task 4 (giữ nguyên vẹn
-            # hành vi đơn thuần hợp đồng, kể cả phần chiết khấu/quy đổi ĐVT
-            # mà app này không tính).
-            dong["price_list_rate"] = 0
-        if d["gan_hop_dong"]:
-            # BR-R4 — CHỈ dòng hợp đồng mới gắn; dòng tầng 2 không thuộc hạn
-            # mức nào, và dòng hợp đồng KHÔNG GIỚI HẠN cố ý bỏ (BR-O15, xem
-            # nhánh `con_lai is None` ở trên).
-            dong["blanket_order"] = d["gan_hop_dong"]
-            dong["against_blanket_order"] = 1
+            # BẪY ERPNext với dòng giá 0: `taxes_and_totals.
+            # calculate_item_values` có nhánh `elif item.price_list_rate:
+            # if not item.rate: item.rate = price_list_rate` — `rate = 0` là
+            # FALSY, nên nếu để `price_list_rate` là `None` thì
+            # `set_missing_item_details` tự tra bảng giá của đơn rồi ERPNext
+            # ÂM THẦM thay 0 bằng giá đó. Đơn giờ luôn mang bảng giá của
+            # chính khách, và phép tra của ERPNext KHÔNG trùng luật với
+            # `gia_bang_gia_nhieu` — nên dòng chờ báo giá phải mang 0 TƯỜNG
+            # MINH (`set_missing_item_details` chỉ điền khi field đang là
+            # `None`). Không gắn `blanket_order` / `against_blanket_order`.
+            "price_list_rate": d["rate"],
+        }
         so.append("items", dong)
     for dong in dong_dat_ngoai:
         so.append("custom_dat_ngoai", dong)
@@ -664,15 +541,18 @@ def tao_sales_order(
     khoa nào — hợp lệ (đường duyệt đề nghị mua của quản lý bệnh viện, hoặc
     khách chưa dùng mô hình khoa phòng).
 
-    `mode` — [KHÔNG CÒN TÁC DỤNG từ Task 4]. Hàm dựng đơn đã gộp làm một và
-    quyết định theo TỪNG DÒNG (xem `_xay_don`), nên không còn "chế độ" nào
-    để chọn. Tham số ở lại vì hai lý do, không phải vì lười: (a) nó là
-    tham số của endpoint công khai `portal_order_place`, mà `Cart.vue` đang
-    chạy thật vẫn gửi — bỏ chữ ký là làm gãy cổng đang chạy trước khi
-    Task 10 gộp hai màn đặt hàng; (b) hơn 40 lời gọi trong bộ test cũ vẫn
-    truyền nó, và im lặng đổi hành vi của chúng đáng lo hơn là giữ một tham
-    số bị làm ngơ tường minh. Giá trị vẫn được kiểm hợp lệ để một client
+    `mode` — [KHÔNG CÒN TÁC DỤNG]. Hàm dựng đơn chỉ có một và quyết định
+    theo TỪNG DÒNG (xem `_xay_don`), nên không còn "chế độ" nào để chọn.
+    Tham số ở lại vì nó là tham số của endpoint công khai
+    `portal_order_place` mà client đang chạy thật vẫn gửi, và nhiều lời gọi
+    trong bộ test vẫn truyền nó — giữ một tham số bị làm ngơ tường minh an
+    toàn hơn là làm gãy chữ ký. Giá trị vẫn được kiểm hợp lệ để một client
     gửi sai chính tả không lặng lẽ đi tiếp.
+
+    `contract` — [KHÔNG CÒN QUYẾT ĐỊNH GÌ VỀ ĐƠN, spec 2026-10-09 §4.2]. Đơn
+    không còn lấy giá, kiểm hạn mức hay ghi `custom_hdnt` theo hợp đồng
+    khung. Tham số ở lại cùng lý do với `mode`; khi người gọi CÓ truyền thì
+    hợp đồng đó vẫn phải thuộc đúng `customer` (xem phép kiểm bên dưới).
     """
     mode = (mode or "hdnt").strip()
     if mode not in ("hdnt", "ban_le"):
@@ -682,9 +562,9 @@ def tao_sales_order(
 
     # BR-O12 — chống tạo đơn trùng. Bắt buộc, không tuỳ chọn: để tuỳ chọn thì
     # một client cũ vẫn tạo được đơn trùng và quy tắc chỉ còn là trang trí.
-    # Áp dụng CHUNG cho cả hai chế độ — mỗi lần bấm xác nhận (dù ngăn HĐNT
-    # hay ngăn Mua lẻ) đều mang một request_id riêng (30_API_Spec §2 — "mỗi
-    # ngăn xác nhận riêng → hai Sales Order riêng, mỗi cái một request_id").
+    # Mỗi Sales Order một `request_id`: giỏ trộn được tầng gọi tách thành
+    # hai lần gọi hàm này, mỗi lần một mã riêng (`request_id` gốc + hậu tố
+    # `tach_phieu.HAU_TO_GIA` / `HAU_TO_BAO_GIA`, spec 2026-10-09 §4.1).
     if not request_id:
         frappe.throw(
             "Thiếu mã yêu cầu đặt hàng. Tải lại trang rồi thử lại.",
@@ -708,18 +588,13 @@ def tao_sales_order(
             "total": float(da_co.grand_total or 0),
         }
 
-    # Task 4 — chỉ kiểm khi người gọi THẬT SỰ truyền một hợp đồng. Bản
-    # trước kiểm theo `mode`, và đó chính là lỗi Ruling P19: một phiếu đề
-    # xuất tạo qua UI thật luôn có `hdnt = None` (`de_xuat_tao_nhap()` tạo
-    # phiếu Nháp TRƯỚC khi người dùng chọn mặt hàng, `de_xuat_luu_nhap()`
-    # không có tham số `hdnt` để sửa lại), nên phiếu THUẦN hợp đồng đi
-    # `mode="hdnt"` + `contract=None` → `frappe.db.get_value("Blanket
-    # Order", None, ...)` rơi vào `get_values_from_single()` của Frappe và
-    # trả `None` → PermissionError chỉ vào hoàn toàn sai chỗ. Không có
-    # hợp đồng nào để kiểm thì không có gì để từ chối: từng dòng tự tìm
-    # hợp đồng của nó ở `_xay_don()`, và hàm đó chỉ nhìn hợp đồng CỦA
-    # CHÍNH `customer` (`nguon_gia_theo_ma_cho_khach`) nên phép cách ly
-    # khách hàng KHÔNG hề bị nới ra.
+    # Chỉ kiểm khi người gọi THẬT SỰ truyền một hợp đồng (Ruling P19: phiếu
+    # đề xuất tạo qua UI thật luôn có `hdnt = None`, và `frappe.db.get_value
+    # ("Blanket Order", None, ...)` trả `None` → PermissionError chỉ vào sai
+    # chỗ). `contract` không còn đi vào đơn (spec 2026-10-09 §4.2), nhưng
+    # phép kiểm quyền sở hữu GIỮ NGUYÊN: một client gửi tên hợp đồng của
+    # khách khác vẫn phải bị từ chối rõ ràng, không được đi tiếp như thể
+    # tham số đó hợp lệ.
     if contract:
         bo = frappe.db.get_value(
             "Blanket Order", contract, ["customer"], as_dict=True
@@ -758,30 +633,22 @@ def tao_sales_order(
     # BR-O13 — mặc định +2 NGÀY LÀM VIỆC (bỏ T7/CN), không phải +2 ngày lịch.
     delivery_date = delivery_date or ngay_giao_mac_dinh()
 
-    # Aggregate the incoming cart by item_code so duplicate lines for the same
-    # item can't each pass the quota check individually while together
-    # exceeding the remaining quota (duplicate-line quota bypass).
+    # Gộp giỏ theo `item_code`: một mặt hàng gửi lên nhiều dòng thành MỘT
+    # dòng đơn với tổng số lượng — bội số đặt hàng được kiểm trên tổng đó,
+    # và giá/tầng được tra một lần cho mỗi mã.
     #
     # review C-2 — CHUẨN HOÁ `item_code` VỀ `Item.name` CHÍNH TẮC ngay tại
     # đây, TRƯỚC khi gộp. `tabItem` chạy collation `utf8mb4_unicode_ci`
     # (case-insensitive, PAD SPACE): MariaDB coi "VT0005", "vt0005",
-    # "VT0005 " là CÙNG MỘT BẢN GHI, nhưng khoá gộp `aggregated` trước đây
-    # là chuỗi Python thô — "VT0005" và "vt0005" tách thành HAI khoá riêng
-    # trong dict, mỗi khoá đi qua `han_muc_con`/kiểm BR-R7 ĐỘC LẬP trên cùng
-    # một mặt hàng thật. Hai hậu quả của cùng một lỗ:
-    #   (a) nhánh HĐNT — "duplicate-line quota bypass" mà comment ở trên
-    #       tuyên bố đã chặn thực ra CHƯA chặn hết: 2 dòng "VT0005"/"vt0005"
-    #       mỗi dòng dưới hạn mức riêng lẻ vẫn lọt dù tổng vượt hạn mức thật;
-    #   (b) nhánh mua lẻ (BR-R7) — "vt0005" không khớp phần tử "VT0005" của
-    #       set `thuoc_hdnt` (so sánh bằng Python `in`, không qua DB), nên
-    #       một mặt hàng đang thuộc HĐNT hiệu lực lách được BR-R7 chỉ bằng
-    #       cách gõ mã hàng bằng chữ thường — và Frappe vẫn LƯU đơn với
-    #       item_code chính tắc thật (`_validate_links` tự chuẩn hoá Link
-    #       field về `name`), tức đây không phải "đơn rác", mà là một Sales
-    #       Order thật trên đúng mặt hàng BR-R7 phải chặn.
+    # "VT0005 " là CÙNG MỘT BẢN GHI, nhưng khoá gộp `aggregated` là chuỗi
+    # Python thô — không chuẩn hoá thì "VT0005" và "vt0005" tách thành HAI
+    # khoá, tức hai dòng đơn cho cùng một mặt hàng thật, mỗi dòng qua phép
+    # kiểm bội số ĐỘC LẬP; và "vt0005" tra hụt giá trong
+    # `gia_bang_gia_nhieu` (kết quả khoá theo `Item.name` chính tắc, so
+    # bằng Python) nên một dòng CÓ giá bị đóng dấu "Báo giá".
     # Mã không tra ra Item thật bị từ chối NGAY, không để lọt xuống các
-    # tầng kiểm phía dưới rồi lộ ra một thông điệp khó hiểu (hạn mức/giá của
-    # một mặt hàng không tồn tại).
+    # tầng kiểm phía dưới rồi lộ ra một thông điệp khó hiểu về một mặt hàng
+    # không tồn tại.
     aggregated = {}
     for line in items:
         raw_code = (line.get("item_code") or "").strip()
@@ -795,7 +662,7 @@ def tao_sales_order(
         aggregated[item_code] = aggregated.get(item_code, 0) + qty
 
     so = _xay_don(
-        customer, contract, aggregated, dat_ngoai, delivery_date,
+        customer, aggregated, dat_ngoai, delivery_date,
         address, po, note, request_id,
     )
 

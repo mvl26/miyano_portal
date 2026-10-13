@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
 from miyano_portal.api import portal as api
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal import portal_kiem_hang as kh
 
 COMPANY = "Miyano Việt Nam"
@@ -661,7 +662,11 @@ class TestKiemHangDuLieuThat(_KiemHangBase):
 		frappe.db.set_value("Customer", self.customer, "custom_cho_phep_mua_le", 1)
 		self._nhu_khach()
 		try:
-			dat = api.portal_order_place(
+			# Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho
+			# giỏ này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order`
+			# trực tiếp.
+			dat = don_mua_le_cu.dat_truc_tiep(
+				self.customer,
 				items=[{"item_code": ITEM, "qty": 4}],
 				mode="ban_le",
 				request_id=frappe.generate_hash(length=12),

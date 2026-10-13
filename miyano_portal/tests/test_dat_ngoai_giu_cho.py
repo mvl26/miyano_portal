@@ -14,6 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.test_e6_mua_le import (
     BVBM, RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le,
 )
@@ -44,12 +45,20 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
             request_id=_rid(),
             mode="ban_le",
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
+        # Spec 2026-10-12 §5 — giỏ toàn dòng gõ tay sinh Quotation, không
+        # sinh Sales Order; dòng giữ chỗ nay nằm trên Quotation.
+        self.assertIsNone(res["sales_order"])
+        frappe.set_user("Administrator")
+        bg = frappe.get_doc("Quotation", res["bao_gia"])
+        self.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
         self.assertEqual(
-            [i.item_code for i in so.items], [ITEM_GIU_CHO],
-            "đơn toàn hàng lạ phải có đúng MỘT dòng giữ chỗ",
+            frappe.db.get_value("Portal De Xuat Mua", res["de_xuat"], "bao_gia"), bg.name
         )
-        self.assertEqual(len(so.custom_dat_ngoai), 2)
+        self.assertEqual(
+            [i.item_code for i in bg.items], [ITEM_GIU_CHO],
+            "yêu cầu toàn hàng lạ phải có đúng MỘT dòng giữ chỗ",
+        )
+        self.assertEqual(len(bg.custom_dat_ngoai), 2)
 
     def test_gio_hon_hop_KHONG_chen_dong_giu_cho(self):
         res = portal.portal_order_place(
@@ -58,8 +67,15 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
             request_id=_rid(),
             mode="ban_le",
         )
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        ma = [i.item_code for i in so.items]
+        # Spec 2026-10-12 §5 — giỏ có dòng gõ tay sinh Quotation.
+        self.assertIsNone(res["sales_order"])
+        frappe.set_user("Administrator")
+        bg = frappe.get_doc("Quotation", res["bao_gia"])
+        self.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
+        self.assertEqual(
+            frappe.db.get_value("Portal De Xuat Mua", res["de_xuat"], "bao_gia"), bg.name
+        )
+        ma = [i.item_code for i in bg.items]
         self.assertNotIn(
             ITEM_GIU_CHO, ma,
             "chèn giữ chỗ vào giỏ hỗn hợp sẽ thu hẹp resolve_ban_le_company()",
@@ -78,7 +94,10 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
             )
 
     def test_khong_submit_duoc_khi_con_dong_chua_khop_ma(self):
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([]),
             dat_ngoai=json.dumps(DAT_NGOAI_MAU),
             request_id=_rid(),
@@ -107,7 +126,10 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         (thêm lại nó ở một lần lưu KHÔNG chuyển dòng nào, nên phép gỡ tự
         động không chạm tới).
         """
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([]),
             dat_ngoai=json.dumps(DAT_NGOAI_MAU),
             request_id=_rid(),
@@ -149,7 +171,10 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         self.assertEqual(so.docstatus, 0, "chốt mới phải chặn TRƯỚC khi ghi nhận submit")
 
     def test_cong_khong_bao_gio_thay_dong_giu_cho(self):
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([]),
             dat_ngoai=json.dumps(DAT_NGOAI_MAU),
             request_id=_rid(),
@@ -167,21 +192,24 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
 
     def test_danh_muc_ban_le_khong_chua_item_giu_cho(self):
         """review C-1(a) — `ITEM_GIU_CHO` có `disabled=0`, `is_sales_item=1`
-        (bắt buộc để đơn toàn hàng chưa có mã lưu được, §3.4) nên nếu
-        `portal_catalog_ban_le` không loại nó tường minh, nó lọt vào danh
-        mục như một sản phẩm khách duyệt được — đã kiểm trên site thật,
-        `tim_kiem="đặt ngoài"` khớp ngay chính tên item giữ chỗ."""
-        res = portal.portal_catalog_ban_le(tim_kiem="đặt ngoài")
-        ma = [r["item_code"] for r in res["items"]]
+        (bắt buộc để đơn toàn hàng chưa có mã lưu được, §3.4) nên nếu danh
+        mục không loại nó tường minh, nó lọt vào như một sản phẩm khách duyệt
+        được — đã kiểm trên site thật, từ khoá "đặt ngoài" khớp ngay chính
+        tên item giữ chỗ.
+
+        Bài này từng hỏi `portal_catalog_ban_le`; endpoint đó đã gỡ (spec
+        2026-10-09 §7) và chốt sống tiếp ở danh mục gộp `portal_catalog_gop`
+        — danh mục DUY NHẤT khách còn nhìn thấy."""
+        res = portal.portal_catalog_gop(tu_khoa="đặt ngoài")
+        ma = [r["item_code"] for r in res["rows"]]
         self.assertNotIn(
             ITEM_GIU_CHO, ma,
             "item giữ chỗ là chi tiết kỹ thuật nội bộ, không phải sản phẩm",
         )
-        # Danh mục không lọc theo `tim_kiem` (không có gì khác khớp từ khoá
-        # này trong seed) — nếu khác 0 thì phải KHÔNG chứa ITEM_GIU_CHO ở tất
-        # cả các trang, không chỉ trang đầu.
-        res_toan_bo = portal.portal_catalog_ban_le(limit=1000)
-        self.assertNotIn(ITEM_GIU_CHO, [r["item_code"] for r in res_toan_bo["items"]])
+        # Tìm thẳng bằng CHÍNH mã giữ chỗ cũng không được ra nó — từ khoá
+        # khớp cả cột mã lẫn cột tên, nên đây là phép hỏi trực diện nhất.
+        res_toan_bo = portal.portal_catalog_gop(tu_khoa=ITEM_GIU_CHO, limit=1000)
+        self.assertNotIn(ITEM_GIU_CHO, [r["item_code"] for r in res_toan_bo["rows"]])
 
     def test_payload_gui_thang_item_giu_cho_bi_tu_choi(self):
         """review C-1(b) — đường ghi phải tự chốt lại, không tin danh mục đã
@@ -204,7 +232,10 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         thẳng đơn ở docstatus=0 (chưa submit, không cần đi qua chốt) để kiểm
         RIÊNG mẫu in — độc lập với chốt ở (a), không phụ thuộc chốt đó luôn
         đúng ở mọi đường ghi trong tương lai."""
-        res = portal.portal_order_place(
+        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
+        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+        res = don_mua_le_cu.dat_truc_tiep(
+            BVBM,
             items=json.dumps([]),
             dat_ngoai=json.dumps(DAT_NGOAI_MAU),
             request_id=_rid(),

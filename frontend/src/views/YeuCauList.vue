@@ -28,6 +28,7 @@ import { fmtVND, fmtDate, giaiDoanBadge, nhanGiaiDoan, khoaGiaiDoan, GIAI_DOAN }
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
+import TabDonBaoGia from '../components/TabDonBaoGia.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -252,6 +253,8 @@ onMounted(async () => {
       <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
     </div>
 
+    <TabDonBaoGia dang="don" />
+
     <!-- Ô lọc khoa — CHỈ quản lý. Đứng TRÊN dải chip: quản lý chọn khoa
          trước ("khoa nào đang mua gì"), rồi mới lọc giai đoạn trong khoa
          đó. Mang từ `DuyetList.vue` sang cùng lúc màn đó nghỉ. -->
@@ -310,6 +313,11 @@ onMounted(async () => {
             <td style="min-width: 14rem">
               <b v-if="r.ma">{{ r.ma }}</b>
               <span v-else class="tag">(chưa gửi duyệt)</span>
+              <!-- Spec 2026-10-09 §7 — hai phiếu tách từ một giỏ trộn mang
+                   CÙNG mã lần đặt; nhãn này là thứ duy nhất trên danh sách
+                   cho thấy hai dòng là một lần đặt. Phiếu không tách thì
+                   `ma_lan_dat` rỗng. -->
+              <span v-if="r.ma_lan_dat" class="tag lan-dat">Lần đặt {{ r.ma_lan_dat }}</span>
               <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
             </td>
             <td>{{ tenKhoa(r.khoa_phong) }}</td>
@@ -352,6 +360,7 @@ onMounted(async () => {
           <span v-else class="tag">(chưa gửi duyệt)</span>
           <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ nhanGiaiDoan(r.giai_doan) }}</span>
         </div>
+        <div v-if="r.ma_lan_dat" class="tag">Lần đặt {{ r.ma_lan_dat }}</div>
         <!-- Cùng chỗ, cùng lý do với bảng desktop: ngay dưới mã, TRÊN dòng
              dữ liệu phụ. Sửa một trong hai nhánh mà quên nhánh kia là đúng
              một nửa người dùng (điện thoại) không thấy tên. -->
@@ -382,6 +391,10 @@ onMounted(async () => {
    chủ đầu tư 08/09/2026: "tên đơn hàng có thể dài".
    Kích thước bằng `rem`: co giãn theo cỡ chữ người dùng đặt trong trình
    duyệt, thứ `px` bỏ qua hoàn toàn. */
+.lan-dat {
+  margin-left: 0.375rem;
+  white-space: nowrap;
+}
 .ten-don {
   margin-top: 0.125rem;
   font-size: 0.8125rem;

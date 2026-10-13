@@ -2,6 +2,9 @@ import frappe
 
 from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
 
+TEN_TB_BAO_GIA = "Portal - Yêu cầu báo giá sẵn sàng"
+TEN_TB_BAO_GIA_TU_CHOI = "Portal - Yêu cầu báo giá bị từ chối"
+
 DEFS = [
     {
         # Brief 2026-08-15 (trang thông báo) Phần 1 — CỐ Ý KHÔNG bật
@@ -25,7 +28,22 @@ DEFS = [
         "document_type": "Sales Order",
         "event": "Submit",
         "condition": "doc.custom_nguon_don == 'Client Portal'",
-        "message": "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận và chuyển sang xử lý.",
+        # Thời gian giao hàng (09/10/2026) — nêu ngày giao dự kiến TỪNG mặt
+        # hàng, đúng con số cổng hiện ở cột "Dự kiến giao" (`Sales Order
+        # Item.delivery_date`). Mỗi mặt hàng một gạch đầu dòng, không dùng
+        # bảng: thư này là Markdown và phải đọc được cả ở dạng chữ thuần.
+        # `la_dong_giu_cho` — dòng giữ chỗ nội bộ đã bị lọc khỏi cổng, thư
+        # không được phơi nó ra bằng đường khác.
+        "message": (
+            "Kính gửi Quý khách,\n\nĐơn hàng {{ doc.name }} đã được Miyano xác nhận "
+            "và chuyển sang xử lý.\n\nThời gian giao hàng dự kiến:\n"
+            "{% for row in doc.items %}{% if not la_dong_giu_cho(row.item_code) %}"
+            # Mã → Tên, cùng thứ tự với cổng, Desk và mẫu in (`ten_hang.py`).
+            "\n- {{ row.item_code }} — {{ row.item_name or row.item_code }}: "
+            "{{ frappe.utils.formatdate(row.delivery_date or doc.delivery_date, 'dd/MM/yyyy') }}"
+            "{% endif %}{% endfor %}"
+            "\n\nNếu lịch giao thay đổi, Miyano sẽ thông báo lại trên cổng khách hàng."
+        ),
         # Brief 2026-08-15 (trang thông báo) — sự kiện HƯỚNG VỀ KHÁCH: bật kèm
         # System Notification (Notification Log) để hiện trên trang Thông báo
         # cổng, cùng khuôn "Portal - Báo giá sẵn sàng" đã bật từ v1_14. Bản ghi
@@ -49,7 +67,17 @@ DEFS = [
         "document_type": "Delivery Note",
         "event": "Submit",
         "condition": "",
-        "message": "Kính gửi Quý khách,\n\nĐơn hàng của Quý khách đã được xuất giao theo phiếu giao hàng {{ doc.name }}.",
+        # Thời gian giao hàng (09/10/2026) — `custom_thoi_gian_giao` do Miyano
+        # nhập trên phiếu (hook `validate` đã điền khi để trống, nên tới lúc
+        # ghi sổ nó luôn có); `{% if %}` chỉ để một phiếu bất thường không
+        # in ra dòng "Thời gian giao hàng:" trống.
+        "message": (
+            "Kính gửi Quý khách,\n\nĐơn hàng của Quý khách đã được xuất giao theo "
+            "phiếu giao hàng {{ doc.name }}."
+            "{% if doc.custom_thoi_gian_giao %}\n\nThời gian giao hàng: "
+            "{{ frappe.utils.format_datetime(doc.custom_thoi_gian_giao, 'dd/MM/yyyy HH:mm') }}."
+            "{% endif %}"
+        ),
         "send_system_notification": 1,
     },
     {
@@ -189,6 +217,53 @@ DEFS = [
         # khi mẫu in đã tồn tại vì tự nó gọi `install_portal_print_formats()`
         # trước khi set. Xem thêm `v1_15.gioi_han_bao_gia_pdf_mua_le` (patch
         # cập nhật `condition` cho bản ghi đã cài trên site, review I-2).
+    },
+    {
+        # Spec 2026-10-12 §7 — bản cho Quotation của "Portal - Báo giá sẵn
+        # sàng". Bản trên Sales Order giữ lại cho đơn "Mua lẻ" cũ.
+        # `attach_print`/`print_format` do patch v1_42 đặt SAU khi mẫu in đã
+        # có: `print_format` là Link, được kiểm ngay lúc insert.
+        "name": TEN_TB_BAO_GIA,
+        "subject": "Báo giá {{ doc.name }} đã sẵn sàng",
+        "document_type": "Quotation",
+        "event": "Value Change",
+        "value_changed": "workflow_state",
+        "condition": (
+            "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.workflow_state == 'Chờ khách đồng ý'"
+        ),
+        "message": (
+            "Kính gửi Quý khách,\n\nMiyano đã gửi báo giá {{ doc.name }}, tổng giá "
+            "trị {{ frappe.utils.fmt_money(doc.grand_total, currency='VND') }}.\n\n"
+            "{% if doc.valid_till %}Báo giá có hiệu lực đến hết ngày "
+            "{{ frappe.utils.formatdate(doc.valid_till, 'dd/mm/yyyy') }}. Sau thời "
+            "hạn này, nếu Quý khách chưa phản hồi, báo giá sẽ tự động đóng.\n\n"
+            "{% endif %}Vui lòng đăng nhập cổng khách hàng, mở tab \"Yêu cầu báo "
+            "giá\" để xem chi tiết và xác nhận."
+        ),
+        "send_system_notification": 1,
+    },
+    {
+        # Miyano từ chối một yêu cầu báo giá của cổng: bệnh viện phải được báo,
+        # kèm đúng lý do nhân viên đã nhập (`bao_gia.kiem_ly_do_tu_choi` bắt
+        # buộc có). Cùng khuôn "Portal - Đơn bị từ chối"; cùng người nhận với
+        # thông báo "sẵn sàng" ở trên. Không đính kèm bản in: không có báo giá
+        # nào để in. Khách tự từ chối ("Khách từ chối") không đi qua đây.
+        "name": TEN_TB_BAO_GIA_TU_CHOI,
+        "subject": "Yêu cầu báo giá {{ doc.name }} đã bị từ chối",
+        "document_type": "Quotation",
+        "event": "Value Change",
+        "value_changed": "workflow_state",
+        "condition": (
+            "doc.custom_nguon_don == 'Client Portal' and "
+            "doc.workflow_state == 'Miyano từ chối'"
+        ),
+        "message": (
+            "Kính gửi Quý khách,\n\nMiyano rất tiếc chưa thể báo giá cho yêu cầu "
+            "{{ doc.name }}.\n\nLý do: {{ doc.custom_ly_do_tu_choi }}\n\nQuý khách "
+            "có thể xem chi tiết ở tab \"Yêu cầu báo giá\" trên cổng khách hàng."
+        ),
+        "send_system_notification": 1,
     },
 ]
 

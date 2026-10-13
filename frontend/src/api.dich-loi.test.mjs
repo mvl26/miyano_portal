@@ -31,10 +31,10 @@ test('lột thẻ HTML thô (đúng ca bắt được ở lượt chạy thử t
 })
 
 test('_dichLoiMayChu lột thẻ HTML cho lỗi KHÔNG PHẢI lỗi quyền/phiên', () => {
-  const raw = '<b>Số lượng</b> vượt hạn mức cho phép.'
+  const raw = '<b>Số lượng</b> phải là bội số của 10. Gần nhất: 20.'
   const ket_qua = _dichLoiMayChu(raw, 'ValidationError', 417)
   assert.doesNotMatch(ket_qua, CO_THE_HTML, 'không được dựng HTML thô ra toast')
-  assert.match(ket_qua, /Số lượng.*vượt hạn mức cho phép/)
+  assert.match(ket_qua, /Số lượng.*phải là bội số của 10\. Gần nhất: 20\./)
 })
 
 test('_dichLoiMayChu đổi thông điệp mang RÁC KỸ THUẬT (thẻ HTML + "whitelist"/"CSRF") thành câu tiếng Việt cố định', () => {
@@ -108,11 +108,11 @@ test('_trichLoiTuResponse đọc được message từ `_server_messages` JSON l
   // 2), chỉ khác nguồn field.
   const data = {
     _server_messages: JSON.stringify([
-      JSON.stringify({ message: 'Số lượng vượt hạn mức cho phép.', indicator: 'red' }),
+      JSON.stringify({ message: 'Số lượng phải là bội số của 10. Gần nhất: 20.', indicator: 'red' }),
     ]),
   }
   const { msg, errName } = _trichLoiTuResponse(data)
-  assert.equal(msg, 'Số lượng vượt hạn mức cho phép.')
+  assert.equal(msg, 'Số lượng phải là bội số của 10. Gần nhất: 20.')
   assert.equal(errName, '')
 })
 

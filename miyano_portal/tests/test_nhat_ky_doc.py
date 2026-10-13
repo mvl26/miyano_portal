@@ -27,7 +27,7 @@ from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua i
 	TRANG_THAI_NHAP,
 )
 from miyano_portal.portal_context import lien_he_nguoi_dung
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 
 
 class TestLienHeNguoiDung(FrappeTestCase):
@@ -137,6 +137,10 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a, self.kh_b = f.kh_a, f.kh_b
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.khoa_huyethoc = f.khoa_huyethoc  # dưới kh_a
 		self.khoa_duoc_b = f.khoa_duoc  # dưới kh_b
 
@@ -286,7 +290,14 @@ class TestPortalNhatKyYeuCau(FrappeTestCase):
 		from frappe.model.workflow import apply_workflow
 		frappe.set_user("Administrator")
 		so = frappe.get_doc("Sales Order", ten_don)
-		so = apply_workflow(so, "Gửi duyệt")
+		# Đơn đi gửi khách, khách đồng ý rồi mới "Xác nhận". Từ spec 2026-10-12
+		# §5 đơn của lớp này là đơn "Theo bảng giá" (đã có giá); phép ghi giá
+		# dưới đây chỉ còn đổi con số.
+		for d in so.items:
+			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
+		so.reload()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		so = apply_workflow(so, "Khách đồng ý")
 		so = apply_workflow(so, "Xác nhận")
 		return so
 

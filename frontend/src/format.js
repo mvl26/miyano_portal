@@ -196,8 +196,8 @@ export function daysUntil(iso) {
   return Math.round((target - now) / 86400000)
 }
 
-// Task 7 (nhật ký thao tác + dòng thời gian, spec §6/§7/§9) — 18 khoá sự
-// kiện của sổ nhật ký. `miyano_portal/nhat_ky.py` (các hằng `SK_*`) là
+// Task 7 (nhật ký thao tác + dòng thời gian, spec §6/§7/§9) — các khoá sự
+// kiện của sổ nhật ký (18 khoá gốc + `ghi_gia_bang_gia`). `miyano_portal/nhat_ky.py` (các hằng `SK_*`) là
 // NGUỒN DUY NHẤT của danh sách khoá — bảng dưới đây chỉ ÁNH XẠ, không định
 // nghĩa lại. Ruling P54 lặp ở đây đúng như `GIAI_DOAN`/`NHAN_GIAI_DOAN`
 // phía trên: `su_kien` LƯU xuống CSDL là khoá, và sổ này là bản ghi VĨNH
@@ -222,6 +222,12 @@ export const NHAN_SU_KIEN = {
   khach_huy_don: 'Huỷ đơn hàng',
   giao_hang: 'Giao hàng',
   hoa_don: 'Xuất hoá đơn',
+  // Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực trong
+  // bảng giá của họ; `ghi_chu` của dòng nhật ký liệt kê mặt hàng → giá mới.
+  ghi_gia_bang_gia: 'Ghi giá vào bảng giá',
+  // Spec 2026-10-12 — yêu cầu báo giá là một Quotation, có sự kiện riêng.
+  bao_gia_tao: 'Gửi yêu cầu báo giá cho Miyano',
+  bao_gia_het_han: 'Báo giá hết hạn',
 }
 
 export function nhanSuKien(su_kien) {
@@ -239,9 +245,11 @@ const MAU_SU_KIEN = {
   khoa_xin_sua: 'benh-vien',
   quan_ly_duyet_sua: 'benh-vien',
   khach_gui_lai_bao_gia: 'benh-vien',
+  bao_gia_tao: 'benh-vien',
   // --green — MIYANO thao tác.
   miyano_xac_nhan: 'miyano',
   miyano_bao_gia: 'miyano',
+  bao_gia_het_han: 'miyano',
   giao_hang: 'miyano',
   hoa_don: 'miyano',
   // --red — việc ĐI LÙI.
@@ -254,6 +262,7 @@ const MAU_SU_KIEN = {
   khach_huy_don: 'lui',
   // xám — HỆ THỐNG.
   don_tao: 'he-thong',
+  ghi_gia_bang_gia: 'he-thong',
 }
 
 // `vai` có mặt trong chữ ký cho ĐỦ interface (brief Task 7), nhưng CỐ Ý

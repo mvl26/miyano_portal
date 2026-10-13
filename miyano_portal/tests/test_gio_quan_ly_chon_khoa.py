@@ -44,6 +44,7 @@ from miyano_portal.api import portal as portal_api
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
+from miyano_portal.tests.fixtures_de_xuat import khai_gia
 from miyano_portal.tests.test_cach_ly_khoa_phong import ITEM, KHACH, _NenCachLy
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
@@ -53,6 +54,10 @@ LAP_PHIEU = FRONTEND_SRC / "views" / "LapPhieu.vue"
 class TestKhoaThayDonQuanLyDatHo(_NenCachLy):
 	def setUp(self):
 		super().setUp()
+		# Spec 2026-10-12 §5 — giỏ còn mã chưa có giá nay sinh Quotation. Lớp
+		# này đo NHÁNH ĐƠN của đường đặt trực tiếp, nên vật tư có giá trong
+		# Price List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(KHACH, ITEM)
 		# `_NenCachLy._don_sach()` KHÔNG dọn `Portal De Xuat Mua` (lớp gốc
 		# viết trước khi mỗi đơn quản lý đặt thẳng đều sinh một phiếu tự
 		# duyệt đứng sau). Phiếu sót lại của method TRƯỚC vẫn mang

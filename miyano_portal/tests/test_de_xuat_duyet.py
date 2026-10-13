@@ -1,7 +1,7 @@
 """Đường duyệt → Sales Order (Task 6, spec §5.6).
 
 `de_xuat_duyet.duyet_va_tao_don()` là hàm module DUY NHẤT tạo Sales Order từ
-một phiếu đề xuất — nó lo hạn mức + giá + tạo đơn rồi gọi `doc.duyet()`
+một phiếu đề xuất — nó lo kiểm giá + tạo đơn rồi gọi `doc.duyet()`
 (Task 3), nơi DUY NHẤT viết trạng thái "Đã duyệt" + khối truy vết. Ba
 endpoint (`de_xuat_duyet_phieu`/`de_xuat_tu_choi`/`de_xuat_huy`) là chốt
 quyền — chỉ quản lý mới gọi được, đúng khuôn cách ly khoa/khách hàng đã
@@ -12,13 +12,13 @@ MỘT LẦN mỗi CLASS, và `addClassCleanup` chạy NGAY sau khi lớp đó xo
 là cách ly ĐƯỢC giữa các lớp dù không cách ly được giữa các test method
 trong CÙNG một lớp):
 
-  * `TestDeXuatDuyet` — dùng chế độ "Mua lẻ" cho phần lớn test (không cần
-    Item Price/Blanket Order): duyệt sinh đơn, truy vết, điều chỉnh trước
-    duyệt, từ chối, huỷ.
-  * `TestDeXuatDuyetHanMuc` — RIÊNG một lớp vì nó dựng một `Blanket Order`
-    thật cho `_TEST DX A`. Nếu gộp chung lớp trên, mặt hàng `_TEST DX ITEM`
-    sẽ lọt vào `items_thuoc_hdnt_hieu_luc(kh_a)` (BR-R7) và chặn NHẦM các
-    test Mua lẻ khác trong CÙNG lớp (vì không rollback giữa các method).
+  * `TestDeXuatDuyet` — mặt hàng CHƯA có giá trong Price List (dòng "Chờ
+    báo giá") cho phần lớn test: duyệt sinh đơn, truy vết, điều chỉnh
+    trước duyệt, từ chối, huỷ.
+  * `TestDeXuatDuyetBangGia` — RIÊNG một lớp vì nó đặt `Item Price` cho
+    `_TEST DX ITEM` trong Price List của `_TEST DX A`. Nếu gộp chung lớp
+    trên, giá đó còn nguyên ở các method SAU (không rollback giữa các
+    method) và lật dòng của chúng sang "Bảng giá".
   * `TestDeXuatMaTraCuuTrenDonHang` — Step 4b, `custom_ma_tra_cuu` phơi qua
     `portal_order_history`.
 """
@@ -34,7 +34,7 @@ from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 
 COMPANY = "Miyano Việt Nam"
 WAREHOUSE = "Stores - MYN"
@@ -65,24 +65,6 @@ def _don_phieu_cu():
 		"Sales Order", filters={"customer": ["like", "_TEST DX%"], "docstatus": 0}
 	):
 		frappe.delete_doc("Sales Order", r.name, force=True, ignore_permissions=True)
-	# I2 / Ruling P18 (review vòng 1) — dọn Blanket Order `_TEST DX%` TRƯỚC
-	# mỗi method, cùng lý do `_don_phieu_cu()` của `test_nguon_gia_dong.py`
-	# (xem docstring ở đó): `TestDeXuatDuyetHanMuc.setUp()` dựng một
-	# `self.bo` SUBMIT thật MỚI ở mỗi method (`docstatus == 1` từ khi sửa
-	# I2), và `FrappeTestCase` chỉ rollback một lần mỗi CLASS — không dọn
-	# thì hợp đồng của các method TRƯỚC vẫn "còn hiệu lực" (cùng `item`,
-	# cùng `to_date` +365 ngày) ở method SAU, và tie-break "name nhỏ hơn
-	# thắng" sẽ luôn chọn hợp đồng CŨ NHẤT thay vì `self.bo` của CHÍNH
-	# method đó — vỡ đúng những test đọc `row.blanket_order`/`Sales Order
-	# Item.blanket_order`. Trước bản vá I2, hợp đồng NHÁP (`docstatus=0`)
-	# của method trước VẪN "hiệu lực" theo gate `< 2` cũ nên rò rỉ này đã
-	# tồn tại từ trước, chỉ VÔ HẠI vì lớp này chưa từng đọc `blanket_order`.
-	for r in frappe.get_all(
-		"Blanket Order", filters={"customer": ["like", "_TEST DX%"]}, fields=["name", "docstatus"]
-	):
-		if r.docstatus == 1:
-			frappe.get_doc("Blanket Order", r.name).cancel()
-		frappe.delete_doc("Blanket Order", r.name, force=True, ignore_permissions=True)
 	frappe.db.sql(
 		"""UPDATE `tabPortal De Xuat Mua` SET trang_thai = %s
 		   WHERE customer LIKE '\\_TEST DX%%'""",
@@ -162,6 +144,18 @@ def _item2():
 	return ten
 
 
+def _item_chua_gia():
+	"""Vật tư KHÔNG có giá trong Price List nào — cho bài đo dòng chờ báo giá."""
+	ten = "_TEST DX DUYET CHUA GIA"
+	if not frappe.db.exists("Item", ten):
+		frappe.get_doc({
+			"doctype": "Item", "item_code": ten, "item_name": ten,
+			"item_group": frappe.db.get_value("Item Group", {}, "name"),
+			"stock_uom": "Nos", "is_stock_item": 0,
+		}).insert(ignore_permissions=True)
+	return ten
+
+
 class TestDeXuatDuyet(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -170,6 +164,10 @@ class TestDeXuatDuyet(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.item = f.item
 		self.item2 = _item2()
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item, self.item2)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
@@ -259,13 +257,26 @@ class TestDeXuatDuyet(FrappeTestCase):
 			doc.ma_de_xuat,
 		)
 
-	def test_mua_le_khong_dong_dau_gia_va_khong_canh_bao(self):
-		"""§5.6 bẫy #2 chỉ áp dụng HĐNT — Mua lẻ không tra giá ở đâu cả
-		(§4.5), nên `don_gia` phải RỖNG và không có gì để cảnh báo."""
-		doc = self.phieu_huyethoc
+	def test_dong_cho_bao_gia_khong_dong_dau_gia_va_khong_canh_bao(self):
+		"""Spec 2026-10-09 §4.3 — đóng dấu và cảnh báo giá chỉ áp cho dòng
+		"Bảng giá". Dòng "Chờ báo giá" chưa có giá ở đâu cả, nên `don_gia`
+		phải RỖNG và không có gì để cảnh báo."""
+		# Vật tư dùng chung của lớp nay có giá (xem `setUp`); bài này cần một
+		# mã CHƯA có giá.
+		doc = self._cho_duyet([{"item_code": _item_chua_gia(), "so_luong_de_xuat": 5}])
+		self.assertEqual(doc.items[0].nguon_gia, "Chờ báo giá")
 		self.assertFalse(doc.items[0].don_gia)
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(kq["canh_bao_gia"], [])
+		# Spec 2026-10-12 §5 — phiếu chờ báo giá sinh Quotation, không sinh đơn.
+		self.assertIsNone(kq["sales_order"])
+		self.assertEqual(
+			frappe.db.get_value("Quotation", kq["bao_gia"], "workflow_state"),
+			"Chờ Miyano báo giá",
+		)
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "bao_gia"), kq["bao_gia"]
+		)
 
 	def test_bam_duyet_hai_lan_khong_tao_hai_don(self):
 		"""§5.2 — `request_id` chuyển xuống tầng phiếu: bấm Duyệt hai lần
@@ -278,8 +289,8 @@ class TestDeXuatDuyet(FrappeTestCase):
 		cho phiếu MỚI rồi `doc.duyet()`. Với hai phiếu khác nhau tình cờ
 		cùng `request_id` (bẫy `revert_series_if_last` mà chính file này đã
 		ghi ở `_don_phieu_cu`), hệ quả là HAI phiếu cùng nhận MỘT đơn: dòng
-		vừa duyệt không có đơn nào đứng sau, hạn mức không bị trừ, và khoa
-		tưởng đã đặt hàng. Trả về im lặng là cách hỏng tệ nhất ở đây."""
+		vừa duyệt không có đơn nào đứng sau, và khoa tưởng đã đặt hàng. Trả
+		về im lặng là cách hỏng tệ nhất ở đây."""
 		doc = self.phieu_huyethoc
 		a = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		doc.reload()
@@ -451,10 +462,14 @@ class TestDeXuatDuyet(FrappeTestCase):
 		self.assertEqual(doc.trang_thai, "Đã huỷ")
 
 
-class TestDeXuatDuyetHanMuc(FrappeTestCase):
-	"""§5.6 — hạn mức HĐNT là tài nguyên CHUNG giữa các khoa CÙNG một khách
-	hàng. Trừ lúc DUYỆT; hết hạn mức thì thất bại kèm TÊN KHOA đã tiêu mất,
-	không im lặng cắt số lượng.
+class TestDeXuatDuyetBangGia(FrappeTestCase):
+	"""Spec 2026-10-09 §4.3 — giá giữa lúc GỬI và lúc DUYỆT của dòng "Bảng
+	giá": đóng dấu lúc gửi, cảnh báo khi giá đổi, đơn mang giá mới.
+
+	Trước spec đó lớp này (`TestDeXuatDuyetHanMuc`) còn dựng một hợp đồng
+	khung và kiểm hạn mức lúc duyệt; `_kiem_han_muc` đã bị xoá nên hai bài
+	hạn mức đi theo. Ca "vượt hạn mức hợp đồng vẫn duyệt được" nằm ở
+	`test_nguon_gia_dong.py`.
 
 	RIÊNG một lớp — xem docstring đầu file."""
 
@@ -465,55 +480,10 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.item = f.item
 		self.khoa_huyethoc = f.khoa_huyethoc
-		self.khoa_duoc = _dam_bao_khoa(
-			self.kh_a, "Dược (nội bộ, test duyệt hạn mức)", "DXDUYETHM"
-		)
 
 		self.price_list = self._tao_price_list()
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", self.price_list)
 		self._tao_gia(self.item, self.price_list, 100)
-
-		# Hạn mức 5, đã dùng 3 -> còn 2. `ordered_qty` chỉ được ERPNext tự
-		# cập nhật lúc SUBMIT Sales Order (`update_blanket_order`,
-		# `on_submit`/`on_cancel`); cổng chỉ tạo đơn NHÁP nên set thẳng qua
-		# `frappe.db.set_value`, cùng pattern `test_e1_loi_co_cau_truc.py`.
-		# I2 / Ruling P18 (review vòng 1) — SUBMIT thật (`docstatus == 1`):
-		# `_nguon_gia_theo_ma()`/`nguon_gia_theo_ma_cho_khach()` giờ đòi
-		# `docstatus == 1` để tính "còn hiệu lực" (thống nhất với BR-R7,
-		# `items_thuoc_hdnt_hieu_luc()`), khác gate `_kiem_han_muc` bên dưới
-		# (vẫn `docstatus < 2`, KHÔNG đụng — thuộc phạm vi khác). Bản đầu
-		# `.insert()` không `.submit()` từng "hiệu lực" được chỉ vì gate cũ
-		# (`docstatus < 2`) đủ lỏng — đúng dạng fixture-patching quanh gate
-		# mà review vòng 1 đã chỉ ra. `ordered_qty: 3` không bị `.submit()`
-		# đụng tới (xem chú thích cùng nội dung ở `test_nguon_gia_dong.py`).
-		self.bo = frappe.get_doc({
-			"doctype": "Blanket Order", "blanket_order_type": "Selling",
-			"customer": self.kh_a, "company": COMPANY,
-			"from_date": frappe.utils.today(),
-			"to_date": frappe.utils.add_days(frappe.utils.today(), 365),
-			# F-1 (review vòng 1) — `rate = 0` trên hợp đồng là CHƯA KHAI GIÁ,
-			# một trạng thái BÌNH THƯỜNG và có thật (quy ước chốt ở
-			# `gia_hdnt.py`; `bao_thieu_gia` sinh ra để phục vụ đúng nó).
-			# Dòng vẫn là dòng HỢP ĐỒNG (`nguon_gia_theo_ma_cho_khach` xét
-			# THÀNH VIÊN, không xét giá) nhưng giá rơi xuống bảng giá — và
-			# đó là trạng thái DUY NHẤT còn tới được nhánh `gia_doi` sau
-			# QĐ-G12. Xem docstring `test_gia_doi_giua_gui_va_duyet_thi_co_
-			# canh_bao` để biết vì sao.
-			"items": [{"item_code": self.item, "qty": 5, "ordered_qty": 3, "rate": 0}],
-		}).insert(ignore_permissions=True)
-		self.bo.submit()
-		self.bo = self.bo.name
-
-		# Đơn "đã tiêu" của khoa Dược trên CÙNG hợp đồng — `_kiem_han_muc`
-		# chỉ hỏi `custom_hdnt` + `docstatus < 2`, không cần đơn này SUBMIT.
-		frappe.get_doc({
-			"doctype": "Sales Order", "customer": self.kh_a, "company": COMPANY,
-			"transaction_date": frappe.utils.today(),
-			"delivery_date": frappe.utils.add_days(frappe.utils.today(), 5),
-			"selling_price_list": self.price_list,
-			"custom_hdnt": self.bo, "custom_khoa_phong": self.khoa_duoc,
-			"items": [{"item_code": self.item, "qty": 3, "rate": 100, "warehouse": WAREHOUSE}],
-		}).insert(ignore_permissions=True)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -538,124 +508,63 @@ class TestDeXuatDuyetHanMuc(FrappeTestCase):
 				ignore_permissions=True
 			)
 
-
-	def _cho_duyet_vuot_han_muc(self):
+	def _cho_duyet_bang_gia(self, so_luong=2):
+		"""Phiếu "Chờ duyệt" một dòng "Bảng giá" (giá 100, xem `setUp`).
+		KHÔNG khai `hdnt` — đúng dạng mọi phiếu tạo qua giao diện thật."""
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"hdnt": self.bo,
-			"items": [{"item_code": self.item, "so_luong_de_xuat": 10}],
-		})
-		doc.insert(ignore_permissions=True)
-		doc.ly_do_yeu_cau = "cần gấp, vượt hạn mức"
-		doc.gui_duyet()
-		doc.reload()
-		doc.items[0].so_luong_duyet = 10   # hạn mức còn lại chỉ 2 (5 - 3)
-		doc.save(ignore_permissions=True)
-		doc.reload()
-		return doc
-
-	def _cho_duyet_hdnt_thuong(self, so_luong=2):
-		"""HĐNT trong hạn mức (còn lại 2, xem `setUp`) — dùng cho các test
-		giá, không muốn vướng bẫy hạn mức của lớp này."""
-		doc = frappe.get_doc({
-			"doctype": "Portal De Xuat Mua",
-			"customer": self.kh_a, "khoa_phong": self.khoa_huyethoc,
-			"hdnt": self.bo,
 			"items": [{"item_code": self.item, "so_luong_de_xuat": so_luong}],
 		})
 		doc.insert(ignore_permissions=True)
 		doc.ly_do_yeu_cau = "cần giá"
 		doc.gui_duyet()
 		doc.reload()
-		doc.items[0].so_luong_duyet = so_luong
-		doc.save(ignore_permissions=True)
-		doc.reload()
+		self.assertEqual(doc.items[0].nguon_gia, "Bảng giá")
 		return doc
 
-	def test_het_han_muc_thi_duyet_that_bai_kem_ten_khoa(self):
-		"""§5.6 — không im lặng cắt số lượng xuống."""
-		doc = self._cho_duyet_vuot_han_muc()
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		self.assertIn("Dược", str(ctx.exception))    # tên khoa đã tiêu mất
-		# Vế ÂM cũng phải giữ đúng luật §5.6: KHÔNG âm thầm cắt xuống — phiếu
-		# và trạng thái không được đổi khi duyệt thất bại.
-		doc.reload()
-		self.assertEqual(doc.trang_thai, "Chờ duyệt")
-		self.assertEqual(doc.items[0].so_luong_duyet, 10)
+	# ---- §4.3 — đóng dấu + cảnh báo giá -------------------------------
 
-	def test_con_du_han_muc_thi_duyet_thanh_cong(self):
-		"""VẾ DƯƠNG — bắt buộc theo ràng buộc: thiếu nó, một hàm luôn ném lỗi
-		vẫn qua được test trên."""
-		doc = self._cho_duyet_vuot_han_muc()
-		doc.items[0].so_luong_duyet = 2    # đúng bằng phần còn lại
-		doc.save(ignore_permissions=True)
-		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		self.assertEqual(so.items[0].qty, 2)
-		self.assertEqual(so.items[0].blanket_order, self.bo)
-
-	# ---- §5.6 bẫy #2 — đóng dấu + cảnh báo giá (vòng sửa sau report) --
-
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_gui_duyet_dong_dau_don_gia_bang_gia_hien_hanh(self):
 		"""VẾ DƯƠNG — `don_gia` phải CÓ giá trị ngay sau khi gửi duyệt, đúng
-		bằng giá hiện hành lúc đó (100, xem `setUp`)."""
-		doc = self._cho_duyet_hdnt_thuong()
+		bằng giá Price List lúc đó (100, xem `setUp`)."""
+		doc = self._cho_duyet_bang_gia()
 		self.assertEqual(doc.items[0].don_gia, 100)
 
+	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_gia_doi_giua_gui_va_duyet_thi_co_canh_bao(self):
-		"""F-1 (review vòng 1) — VIẾT LẠI cho đúng trạng thái CÓ THẬT.
-
-		Bản trước bài này bẻ `Blanket Order Item.rate` bằng `frappe.db.
-		set_value` trên một hợp đồng ĐÃ TRÌNH KÝ. `rate` không có
-		`allow_on_submit`, nên KHÔNG đường mã nào trong ứng dụng tạo ra được
-		trạng thái đó: sửa giá thật là huỷ → tu chỉnh → trình ký lại, ra một
-		TÊN TÀI LIỆU MỚI, nên `bo_moi != bo_cu` và `_kiem_gia_doi` rẽ sang
-		nhánh `hop_dong_doi`, KHÔNG BAO GIỜ vào `gia_doi`. Nhánh `gia_doi`
-		khi đó có thể hỏng thành luôn-`False` mà ba bài test tự nhận là phủ
-		nó vẫn xanh.
-
-		Nhánh `gia_doi` SAU QĐ-G12 vẫn còn tới được, nhưng chỉ qua ĐÚNG một
-		trạng thái: dòng HỢP ĐỒNG mà hợp đồng CHƯA KHAI GIÁ (`rate = 0`, xem
-		`setUp`), nên giá rơi xuống bảng giá — rồi sales bổ sung/sửa
-		`Item Price` trong lúc phiếu nằm chờ duyệt. Đó là thao tác Miyano
-		làm THẬT mỗi khi nhận thông báo thiếu giá, không phải một trạng thái
-		dựng bằng tay. Với dòng hợp đồng ĐÃ khai giá thì sửa bảng giá không
-		còn đổi được gì — và im lặng là ĐÚNG."""
-		doc = self._cho_duyet_hdnt_thuong()
+		"""Sales sửa `Item Price` trong lúc phiếu nằm chờ duyệt — thao tác
+		Miyano làm thật. Cảnh báo mang ĐÚNG bốn khoá; các khoá `hop_dong_cu`
+		/`hop_dong_moi` và các `ly_do` về hợp đồng đã bị gỡ cùng phần hợp
+		đồng."""
+		doc = self._cho_duyet_bang_gia()
 		self.assertEqual(doc.items[0].don_gia, 100)
-		self._tao_gia(self.item, self.price_list, 150)   # sales bổ sung giá SAU khi gửi
+		self._tao_gia(self.item, self.price_list, 150)   # sales sửa giá SAU khi gửi
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
-		self.assertEqual(len(kq["canh_bao_gia"]), 1)
-		cb = kq["canh_bao_gia"][0]
-		self.assertEqual(cb["item_code"], self.item)
-		self.assertEqual(cb["gia_cu"], 100)
-		self.assertEqual(cb["gia_moi"], 150)
-		# Khẳng định ĐÚNG NHÁNH, không chỉ "có cảnh báo": thiếu dòng này bài
-		# vẫn xanh nếu cảnh báo đến từ `hop_dong_doi` — đúng cách bản trước
-		# tự lừa mình.
-		self.assertEqual(cb["ly_do"], "gia_doi")
-		self.assertEqual(cb["hop_dong_cu"], cb["hop_dong_moi"])
+		self.assertEqual(kq["canh_bao_gia"], [{
+			"item_code": self.item, "gia_cu": 100.0, "gia_moi": 150.0,
+			"ly_do": "gia_doi",
+		}])
 
 	def test_gia_khong_doi_thi_khong_canh_bao(self):
 		"""VẾ DƯƠNG — không báo động giả khi giá không hề đổi."""
-		doc = self._cho_duyet_hdnt_thuong()
+		doc = self._cho_duyet_bang_gia()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertEqual(kq["canh_bao_gia"], [])
 
 	def test_co_canh_bao_gia_van_duyet_duoc(self):
-		"""Chốt bắt buộc — cảnh báo giá CHỈ mang thông tin, không được chặn
-		việc duyệt; Sales Order vẫn phải sinh ra."""
-		doc = self._cho_duyet_hdnt_thuong()
+		"""Chốt bắt buộc — cảnh báo giá ĐỔI chỉ mang thông tin, không được
+		chặn việc duyệt; Sales Order vẫn phải sinh ra."""
+		doc = self._cho_duyet_bang_gia()
 		self._tao_gia(self.item, self.price_list, 150)
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 		self.assertTrue(kq["canh_bao_gia"])
 		self.assertTrue(kq["sales_order"])
 		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual(so.items[0].qty, 2)
-		# Giá tính lại tại thời điểm duyệt (vế 1 của bẫy #2) — đơn phải mang
-		# giá MỚI (150), không phải giá khoa đã thấy lúc gửi (100).
+		# Giá lấy tại thời điểm duyệt — đơn phải mang giá MỚI (150), không
+		# phải giá khoa đã thấy lúc gửi (100).
 		self.assertEqual(so.items[0].rate, 150)
 
 
@@ -670,6 +579,10 @@ class TestDeXuatMaTraCuuTrenDonHang(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		self.user_quan_ly = _dam_bao_thanh_vien(
@@ -772,14 +685,13 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 	`task-7-report.md`, chữ dùng SỬA LẠI ở review M3): `portal_order_place`
 	KHÔNG route qua `de_xuat_duyet.duyet_va_tao_don`. Nó vẫn gọi THẲNG
 	`dat_hang.tao_sales_order` như trước Task 7 — giữ NGUYÊN cách hàm đó
-	báo lỗi vượt hạn mức: ghi `frappe.local.response["loi"]` (danh sách CÓ
-	CẤU TRÚC theo từng dòng hàng) RỒI MỚI `frappe.throw(..., ValidationError)`
-	— nhiều test (`test_e1_loi_co_cau_truc.py` và các test E1 khác) đọc
-	thẳng khoá đó. `_kiem_han_muc` (bên trong `duyet_va_tao_don`) cũng NÉM
-	`ValidationError` (không phải "mềm hơn"), nhưng chỉ một câu văn xuôi
-	PHẲNG, không ghi gì vào `frappe.local.response` — route qua đó sẽ MẤT
-	dữ liệu có cấu trúc cho MỌI người gọi, không riêng nhân viên khoa; sáu
-	tài khoản đang chạy thật đều là quản lý và đi đúng đường này mỗi ngày.
+	báo lỗi: ghi `frappe.local.response["loi"]` (danh sách CÓ CẤU TRÚC theo
+	từng dòng hàng) RỒI MỚI `frappe.throw(..., ValidationError)` — nhiều
+	test (`test_e1_loi_co_cau_truc.py` và các test E1 khác) đọc thẳng khoá
+	đó. Các phép kiểm riêng của `duyet_va_tao_don` (VD chặn dòng "Bảng giá"
+	mất giá) chỉ ném một câu văn xuôi PHẲNG, không ghi gì vào `frappe.local.
+	response`; sáu tài khoản đang chạy thật đều là quản lý và đi đúng đường
+	đặt trực tiếp này mỗi ngày.
 	Chỉ SAU KHI Sales Order tạo xong mới ghi một phiếu "Đã duyệt" đứng sau.
 
 	Cũng theo QĐ đó: thiếu `Customer.custom_ma_ngan` KHÔNG được chặn đơn
@@ -794,6 +706,10 @@ class TestQuanLyDatTrucTiepTuDuyet(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a = f.kh_a
 		self.item = f.item
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 		self.khoa_huyethoc = f.khoa_huyethoc
 
 		# Khoa THỨ HAI trong CÙNG bệnh viện kh_a — để quản lý có gì đó khác

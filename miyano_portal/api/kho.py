@@ -375,7 +375,7 @@ def kho_vat_tu_list(tim=None, ca_tat=0, limit=None, start=0) -> list | dict:
 	`limit`). Phân trang vì vậy TUỲ CHỌN: `limit=None` (mặc định, mọi
 	caller cũ) giữ NGUYÊN hành vi — trả list đầy đủ. Chỉ khi `limit` được
 	truyền mới cắt trang, hình dạng trả về đổi sang `{"rows": [...],
-	"tong": N}` (khuôn `portal_catalog_ban_le`). `tim` là lọc PYTHON
+	"tong": N}` (khuôn `portal_catalog_gop`). `tim` là lọc PYTHON
 	(substring thô trên "mã tên"), không phải SQL LIKE — không thể cắt
 	NGAY TRONG SQL như `kho_phieu_list`: đây là danh mục có lọc bằng
 	Python, phải lọc/đếm `tong` TRƯỚC khi cắt trang, cùng khuôn
@@ -781,7 +781,7 @@ def kho_phieu_list(loai: str, limit=20, start=0, thieu_chung_tu=None, khoa_phong
 	# khuôn mà `kho_lo_goi_y`/`kho_canh_bao_han` đã dùng cho `so_luong`/`so_ngay`.
 	#
 	# Brief 2026-08-15 (phân trang) — ĐỔI hình dạng trả về từ list sang
-	# `{"rows": [...], "tong": N}` (khuôn `portal_catalog_ban_le`), LUÔN
+	# `{"rows": [...], "tong": N}` (khuôn `portal_catalog_gop`), LUÔN
 	# LUÔN (không tuỳ chọn như ba endpoint kiêm-hai-vai kho_vat_tu_list/
 	# kho_ncc_list/kho_khoa_phong_list — endpoint này KHÔNG nuôi dropdown
 	# nào, chỉ nguồn cho đúng hai màn PhieuNhap/PhieuXuat). Đã cập nhật MỌI
@@ -1607,8 +1607,10 @@ def kho_bao_cao_excel(
 def kho_canh_bao_ton(trang_thai=None, trang=1) -> dict:
     """US-E5.2 — dữ liệu màn dự trù: tồn/ADU30/ADU90/ngày phủ/min/ROP/max/
     trạng thái cho mọi vật tư đang dùng của kho, cộng ba thẻ đếm và dữ liệu
-    US-E5.3 (`dat_duoc_hdnt`/`sl_goi_y`) để màn giao diện quyết định hiện nút
-    "Thêm vào giỏ bổ sung" hay "Nhờ Miyano tìm nguồn". Phân trang phía server
+    US-E5.3 (`sl_goi_y`/`item_code`): client suy được từ `item_code` việc
+    vật tư đặt được qua danh mục (có mã) hay phải nhờ Miyano tìm nguồn
+    (không có). Chưa màn nào của `frontend/src` gọi endpoint này. Phân trang
+    phía server
     (DoD) — `trang_thai` lọc theo một trong "thieu"/"sap_thieu"/
     "chua_thiet_lap" khi người dùng bấm một trong ba thẻ đếm."""
     kho = get_portal_kho()

@@ -537,9 +537,11 @@ def _bu_ton_miyano() -> dict:
 def _dat_don(contract: str, po: str, gio_hang: list[dict], ghi_chu: str) -> str:
 	"""Đặt một đơn QUA ĐÚNG endpoint của cổng, dưới phiên của khách.
 
-	Không dựng thẳng Sales Order: chỉ đường này mới đặt `custom_nguon_don`,
-	`custom_hdnt`, `against_blanket_order` và kiểm hạn mức hợp đồng đúng như
-	một đơn khách đặt thật.
+	Không dựng thẳng Sales Order: chỉ đường này mới đặt `custom_nguon_don`
+	và định giá theo Price List của khách đúng như một đơn khách đặt thật.
+	`contract` vẫn được truyền nhưng endpoint không còn đọc nó (spec
+	2026-10-09 §4.2): đơn không mang `custom_hdnt` / `against_blanket_order`
+	và không kiểm hạn mức hợp đồng.
 	"""
 	da_co = frappe.db.get_value(
 		"Sales Order", {"custom_so_po_khach": po, "docstatus": ["<", 2]}, "name"
@@ -555,6 +557,15 @@ def _dat_don(contract: str, po: str, gio_hang: list[dict], ghi_chu: str) -> str:
 			po=po,
 			delivery_date=_ngay(3),
 			note=ghi_chu,
+		)
+	if not kq["sales_order"]:
+		# Spec 2026-10-12 §5 — giỏ còn mã chưa có giá sinh Quotation chứ không
+		# sinh đơn. Luồng demo cần một đơn để xác nhận và giao; dừng ở đây với
+		# lời nói rõ, thay vì để bước sau vỡ trên một tên đơn rỗng.
+		frappe.throw(
+			f"Giỏ demo (PO {po}) có mặt hàng chưa có giá trong Price List nên "
+			f"cổng sinh yêu cầu báo giá {kq.get('bao_gia')}, không sinh đơn. "
+			"Khai giá cho mọi mặt hàng demo rồi chạy lại."
 		)
 	_log(f"Đặt đơn {kq['sales_order']} (PO {po})")
 	return kq["sales_order"]

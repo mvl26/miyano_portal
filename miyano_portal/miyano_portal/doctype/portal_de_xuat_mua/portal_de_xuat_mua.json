@@ -12,6 +12,8 @@
   "col_1",
   "trang_thai",
   "ma_de_xuat",
+  "ma_lan_dat",
+  "phieu_cung_lan_dat",
   "sec_don",
   "ten_don_hang",
   "hdnt",
@@ -20,6 +22,7 @@
   "dia_chi_giao",
   "request_id",
   "sales_order",
+  "bao_gia",
   "sec_hang",
   "items",
   "sec_dat_ngoai",
@@ -85,6 +88,22 @@
    "description": "Mã tra cứu cho người dùng, khác với tên nội bộ (naming_series DXM-.YYYY.-.#####). Sinh lúc Gửi duyệt (Task 2-3), để trống lúc Nháp."
   },
   {
+   "fieldname": "ma_lan_dat",
+   "fieldtype": "Data",
+   "label": "Mã lần đặt",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Hai phiếu tách ra từ cùng một lần đặt (một phiếu hàng có giá, một phiếu hàng chờ báo giá) mang chung mã này. Rỗng với phiếu không bị tách."
+  },
+  {
+   "fieldname": "phieu_cung_lan_dat",
+   "fieldtype": "Link",
+   "options": "Portal De Xuat Mua",
+   "label": "Phiếu cùng lần đặt",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "sec_don",
    "fieldtype": "Section Break",
    "label": "Thông tin đơn"
@@ -130,6 +149,15 @@
    "options": "Sales Order",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "bao_gia",
+   "fieldtype": "Link",
+   "label": "Yêu cầu báo giá",
+   "options": "Quotation",
+   "read_only": 1,
+   "no_copy": 1,
+   "search_index": 1
   },
   {
    "fieldname": "sec_hang",

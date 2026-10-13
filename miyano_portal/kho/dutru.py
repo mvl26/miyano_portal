@@ -60,7 +60,6 @@ import frappe
 
 from miyano_portal.kho import ledger, reports
 from miyano_portal.kho.ledger import EPS
-from miyano_portal.portal_mua_le import items_thuoc_hdnt_hieu_luc
 
 LOAI_XUAT_SU_DUNG = "Xuất sử dụng"
 
@@ -389,8 +388,13 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 	"""Lõi của `kho_canh_bao_ton()` (US-E5.2) — MỌI vật tư ĐANG DÙNG
 	(`active=1`) của một kho, đã áp BR-P3 (loại vật tư chưa khai min/ROP VÀ
 	chưa đủ dữ liệu — không cảnh báo trên dữ liệu không đáng tin) và gắn kèm
-	dữ liệu US-E5.3 (`dat_duoc_hdnt`, `sl_goi_y`) để màn giao diện quyết
-	định hiện nút nào mà không phải gọi thêm API.
+	dữ liệu US-E5.3 (`sl_goi_y`, `item_code`) để client dựng được giỏ bổ
+	sung mà không phải gọi thêm API. Cờ `dat_duoc_hdnt` ("mã này thuộc hợp
+	đồng còn hiệu lực") đã bỏ theo spec 2026-10-09: cổng không còn phân
+	biệt hàng trong/ngoài hợp đồng — vật tư có `item_code` thì đặt được qua
+	danh mục (giá theo Price List), không có thì nhờ Miyano tìm nguồn.
+	`customer` vì thế không còn được đọc; tham số ở lại để không đổi chữ ký
+	với các nơi gọi.
 
 	Không phân trang ở đây — `canh_bao_ton()` bên dưới phân trang SAU KHI đã
 	sắp xếp theo mức độ nghiêm trọng, để trang 1 luôn là những vật tư cần
@@ -404,7 +408,6 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 	if not items:
 		return []
 
-	thuoc_hdnt = items_thuoc_hdnt_hieu_luc(customer)
 	nguong_du_lieu = so_ngay_du_lieu_toi_thieu()
 	# MỘT lượt tính cho CẢ KHO (hai truy vấn) thay vì một cặp truy vấn cho
 	# MỖI vật tư — xem docstring `tieu_thu_theo_kho()`/`ton_kha_dung_theo_kho()`
@@ -436,10 +439,6 @@ def canh_bao_ton_rows(kho: str, customer: str) -> list[dict]:
 			"max": float(max_) if max_ is not None else None,
 			"trang_thai": trang_thai,
 			"sl_goi_y": sl_goi_y_dat(max_, ton, it["boi_so_dat"]),
-			# US-E5.3 — nút nào hiện do CHÍNH màn giao diện quyết định dựa
-			# trên cờ này, không lặp lại tra cứu items_thuoc_hdnt_hieu_luc()
-			# một lần nữa ở tầng UI.
-			"dat_duoc_hdnt": bool(item_code) and item_code in thuoc_hdnt,
 		})
 
 	return sorted(out, key=lambda r: (_MUC_DO_NGHIEM_TRONG.get(r["trang_thai"], 9), r["ten"]))

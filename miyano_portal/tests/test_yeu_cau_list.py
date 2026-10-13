@@ -44,6 +44,7 @@ from miyano_portal.api import de_xuat, portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
+from miyano_portal.tests import don_mua_le_cu
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
@@ -123,6 +124,17 @@ class TestYeuCauList(FrappeTestCase):
 		f = dung_fixture(self)
 		self.kh_a, self.kh_b = f.kh_a, f.kh_b
 		self.item = f.item
+		# Spec 2026-10-12 §6.1 — phiếu CHƯA có đơn mà chỉ gồm dòng chờ báo giá
+		# nay thuộc tab "Yêu cầu báo giá" (`portal_bao_gia_danh_sach`, canh ở
+		# `test_bao_gia_endpoint.py`), không còn ở danh sách này. `f.item`
+		# không có giá, nên mọi phiếu dựng từ nó sẽ rời khỏi đúng danh sách
+		# các bài dưới đây đang đo. Phiếu chưa có đơn vì thế dùng một mã CÓ
+		# giá trong Price List của khách.
+		#
+		# Spec 2026-10-12 §5 — `_duyet_that` cũng dùng mã có giá: phiếu gồm
+		# dòng chưa có giá nay sinh Quotation chứ không sinh đơn, mà mọi bài
+		# dưới đây đo danh sách theo ĐƠN sinh ra từ đường duyệt thật.
+		self.item_co_gia = self._dam_bao_item_co_gia()
 		self.khoa_huyethoc = f.khoa_huyethoc  # dưới kh_a
 		self.khoa_b = f.khoa_duoc             # dưới kh_b
 
@@ -190,11 +202,36 @@ class TestYeuCauList(FrappeTestCase):
 			"ten_khoa_phong": ten, "ma_khoa": ma, "active": 1,
 		}).insert(ignore_permissions=True).name
 
-	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1):
+	def _dam_bao_item_co_gia(self):
+		ten = "_TEST DX ITEM CO GIA"
+		if not frappe.db.exists("Item", ten):
+			frappe.get_doc({
+				"doctype": "Item", "item_code": ten, "item_name": ten,
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"stock_uom": "Nos", "is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+		bang = "_TEST DX YC PRICE"
+		if not frappe.db.exists("Price List", bang):
+			frappe.get_doc({
+				"doctype": "Price List", "price_list_name": bang,
+				"currency": "VND", "selling": 1, "enabled": 1,
+			}).insert(ignore_permissions=True)
+		for khach in (self.kh_a, self.kh_b):
+			frappe.db.set_value("Customer", khach, "default_price_list", bang)
+		loc = {"item_code": ten, "price_list": bang, "selling": 1}
+		if not frappe.db.exists("Item Price", loc):
+			frappe.get_doc({
+				"doctype": "Item Price", "price_list_rate": 1000, **loc,
+			}).insert(ignore_permissions=True)
+		return ten
+
+	def _tao_phieu(self, customer, khoa_phong, owner, so_luong=1, item=None):
 		doc = frappe.get_doc({
 			"doctype": "Portal De Xuat Mua",
 			"customer": customer, "khoa_phong": khoa_phong,
-			"items": [{"item_code": self.item, "so_luong_de_xuat": so_luong}],
+			"items": [{
+				"item_code": item or self.item_co_gia, "so_luong_de_xuat": so_luong,
+			}],
 		})
 		doc.insert(ignore_permissions=True)
 		frappe.db.set_value("Portal De Xuat Mua", doc.name, "owner", owner)
@@ -228,6 +265,24 @@ class TestYeuCauList(FrappeTestCase):
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, self.user_quan_ly)
 		return kq["de_xuat"], kq["sales_order"]
 
+	def _duyet_mua_le_cu(self):
+		"""Phiếu chờ báo giá ĐÃ có một Sales Order "Mua lẻ" đứng sau — đơn dở
+		của luồng cũ (spec 2026-10-12 §9). Đường duyệt thật không còn sinh ra
+		nó (§5), nên đơn dựng bằng `dat_hang.tao_sales_order` trực tiếp. Theo
+		§6.1 phiếu này Ở LẠI danh sách đơn hàng. Trả `(ten_phieu, ten_don)`."""
+		ten = self._tao_phieu(
+			self.kh_a, self.khoa_huyethoc, self.user_huyethoc, item=self.item
+		)
+		doc = frappe.get_doc("Portal De Xuat Mua", ten)
+		doc.ly_do_yeu_cau = "cần gấp"
+		doc.gui_duyet()
+		kq = don_mua_le_cu.duyet_thanh_don(ten, self.user_quan_ly)
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"),
+			"Mua lẻ",
+		)
+		return kq["de_xuat"], kq["sales_order"]
+
 	def _miyano_tu_choi(self, ten_don):
 		"""Đưa đơn tới `workflow_state = "Từ chối"` bằng CHÍNH máy trạng
 		thái (`Chờ xác nhận --Gửi duyệt--> Chờ Miyano xác nhận --Từ chối-->
@@ -245,7 +300,14 @@ class TestYeuCauList(FrappeTestCase):
 		from frappe.model.workflow import apply_workflow
 
 		so = frappe.get_doc("Sales Order", ten_don)
-		so = apply_workflow(so, "Gửi duyệt")
+		# Đơn đi "Gửi khách duyệt" -> "Khách đồng ý" mới tới "Chờ Miyano xác
+		# nhận". Từ spec 2026-10-12 §5 đơn của `_duyet_that` là đơn "Theo bảng
+		# giá" (đã có giá); phép ghi giá dưới đây chỉ còn đổi con số.
+		for d in so.items:
+			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
+		so.reload()
+		so = apply_workflow(so, "Gửi khách duyệt")
+		so = apply_workflow(so, "Khách đồng ý")
 		# BR-O14/NL-2.1 (`portal_duyet_don.kiem_ly_do_tu_choi`) — không có
 		# lý do thì KHÔNG chuyển sang "Từ chối" được. Phải GHI XUỐNG CSDL,
 		# không gán trên object: `apply_workflow` mở đầu bằng
@@ -520,12 +582,13 @@ class TestYeuCauList(FrappeTestCase):
 		Ghim khoá bằng CHUỖI VIẾT THẲNG, không qua hằng số `GIAI_DOAN_*`:
 		so với hằng số thì bài test đi theo mọi lần đổi giá trị và không
 		còn ghim gì cả."""
+		phieu, don = self._duyet_mua_le_cu()
 		frappe.db.set_value(
-			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Sales Order", don, "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,
 		)
 		kq = self._goi(self.user_huyethoc, limit=100)
-		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
+		dong = self._tim_theo_phieu(kq, phieu)
 		self.assertEqual(dong["giai_doan"], "cho_khach_dong_y")
 		# Nhãn CHI TIẾT của đơn vẫn đi kèm — giai đoạn gộp không được nuốt
 		# mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
@@ -545,8 +608,9 @@ class TestYeuCauList(FrappeTestCase):
 		nó nổ: mục đích là bài này đỏ ở CẤP KHẲNG ĐỊNH (so hai tập, đọc ra
 		ngay vế nào ném) chứ không đỏ ở cấp exception, nơi thông báo lỗi
 		không nói được vế kia trả về gì."""
+		phieu, don = self._duyet_mua_le_cu()
 		frappe.db.set_value(
-			"Sales Order", self.don_cua_phieu, "workflow_state",
+			"Sales Order", don, "workflow_state",
 			"Chờ khách đồng ý", update_modified=False,
 		)
 
@@ -558,7 +622,7 @@ class TestYeuCauList(FrappeTestCase):
 			return {r["de_xuat"] for r in self._dong(kq)}
 
 		theo_khoa = _tap("cho_khach_dong_y")
-		self.assertIn(self.phieu_da_duyet, theo_khoa)
+		self.assertIn(phieu, theo_khoa)
 		self.assertEqual(_tap("Chờ báo giá"), theo_khoa)
 
 	def test_giai_doan_cua_phieu_bi_tu_choi(self):

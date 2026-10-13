@@ -39,6 +39,14 @@ SK_KHACH_GUI_LAI_BAO_GIA = "khach_gui_lai_bao_gia"
 SK_KHACH_HUY_DON = "khach_huy_don"
 SK_GIAO_HANG = "giao_hang"
 SK_HOA_DON = "hoa_don"
+# Spec 2026-10-09 §5.2 — giá khách vừa đồng ý được ghi vào Price List của họ
+# (`bang_gia_khach.ghi_gia_da_dong_y`). Vai `he_thong`: không ai bấm "ghi giá",
+# nó là hệ quả của việc khách đồng ý (đã có dòng `khach_dong_y` riêng).
+SK_GHI_GIA_BANG_GIA = "ghi_gia_bang_gia"
+
+# Spec 2026-10-12 — yêu cầu báo giá bằng Quotation.
+SK_BAO_GIA_TAO = "bao_gia_tao"
+SK_BAO_GIA_HET_HAN = "bao_gia_het_han"
 
 
 def ghi(su_kien, *, customer, vai, khoa_phong=None, de_xuat=None,

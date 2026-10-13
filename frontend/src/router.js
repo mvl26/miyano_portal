@@ -3,6 +3,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Dashboard from './views/Dashboard.vue'
 import YeuCauList from './views/YeuCauList.vue'
 import ChiTietYeuCau from './views/ChiTietYeuCau.vue'
+import BaoGiaList from './views/BaoGiaList.vue'
+import ChiTietBaoGia from './views/ChiTietBaoGia.vue'
 import LapPhieu from './views/LapPhieu.vue'
 import Invoices from './views/Invoices.vue'
 import Kho from './views/Kho.vue'
@@ -50,6 +52,10 @@ const routes = [
   // lớp tương thích mà không ai được lợi.
   { path: '/yeu-cau/don/:name', name: 'order-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
   { path: '/yeu-cau/phieu/:ten', name: 'de-xuat-detail', component: ChiTietYeuCau, meta: { title: 'Chi tiết đơn hàng' } },
+  // Spec 2026-10-12 §6 — tab thứ hai của "Danh sách đơn hàng": yêu cầu báo giá
+  // là một Quotation, có danh sách và màn chi tiết riêng.
+  { path: '/yeu-cau-bao-gia', name: 'bao-gia', component: BaoGiaList, meta: { title: 'Yêu cầu báo giá' } },
+  { path: '/yeu-cau-bao-gia/:ten', name: 'bao-gia-detail', component: ChiTietBaoGia, meta: { title: 'Chi tiết yêu cầu báo giá' } },
   // QĐ-G11 — bốn đường CŨ CHUYỂN HƯỚNG, KHÔNG xoá. Chúng nằm trong bookmark
   // của khách VÀ trong link của các thông báo tự động ĐÃ GỬI ĐI; trả 404
   // cho một đường đang chạy là hồi quy, không phải dọn dẹp. Hai đường có

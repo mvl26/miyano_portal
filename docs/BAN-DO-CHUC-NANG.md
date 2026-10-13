@@ -41,11 +41,11 @@ Kiểm kê ngày 21/08/2026, sau khi chủ đầu tư chỉ ra: *"anh thấy v�
 
 | # | Mục menu | Đường dẫn | Làm gì | Phán quyết |
 |---|---|---|---|---|
-| 1 | Tổng quan | `/dashboard` | KPI, công nợ, **đơn hàng gần đây**, hợp đồng khung | Giữ |
+| 1 | Tổng quan | `/dashboard` | KPI, công nợ, **đơn hàng gần đây**, ~~hợp đồng khung~~ (thẻ "Hợp đồng khung" và thanh "Hạn mức đã sử dụng" gỡ 12/10/2026 — cổng không còn hạn mức hợp đồng, xem `docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §7) | Giữ |
 | 2 | Đặt hàng | `/catalog` | Tìm hàng, hai chế độ HĐ/Mua lẻ | **TRÙNG với #5** |
 | 3 | Giỏ hàng | `/cart` | Chốt đơn, ngày giao, địa chỉ | **KHÔNG PHẢI ĐÍCH ĐẾN** — là một bước |
 | 4 | Đơn hàng của tôi | `/orders` | Danh sách Sales Order | **TRÙNG NỬA với #6** |
-| 5 | Lập phiếu đề xuất | `/de-xuat/lap` | Tìm hàng ba tầng, lập phiếu | **TRÙNG với #2** |
+| 5 | Lập phiếu đề xuất | `/de-xuat/lap` | Tìm hàng ba tầng (từ 12/10/2026: hai tầng theo Price List của khách + hàng gõ tay), lập phiếu | **TRÙNG với #2** |
 | 6 | Đề xuất mua | `/de-xuat` | Danh sách phiếu đề xuất | **TRÙNG NỬA với #4** |
 | 7 | Duyệt | `/duyet` | Hàng chờ của quản lý | ~~Giữ~~ → **gỡ 03/09/2026**, về chip `cho_duyet` của #3 |
 | 8 | Kho của tôi | `/kho` | 9 màn con: nhập, xuất, tồn, NCC, nhật ký… | Giữ — module riêng |
@@ -192,10 +192,10 @@ chỗ trống bằng một mục khác: lấp cho đủ số là dựng lại đ
 
 | Thứ đã bỏ | Vì sao |
 |---|---|
-| Bộ chuyển **"Theo hợp đồng khung ｜ Mua lẻ"** | Ruling P1 — khách không có quy tắc nào trong đầu để chọn ngăn. Tầng giá nay suy theo TỪNG DÒNG (`portal_catalog_gop.tang`), một giỏ trộn cả hai loại đi qua đúng một lời gọi (`dat_hang._xay_don`, Task 4). |
-| Giỏ **hai ngăn** + hai nút xác nhận + hai `request_id` | Cùng gốc: không còn "chế độ" nào để tách đơn theo. |
-| Nhãn **"Có trong HĐNT — đặt ở chế độ Theo HĐNT"** (`thuoc_hdnt`) | Nó tồn tại CHỈ để điều hướng giữa hai ngăn. Không còn hai ngăn thì không còn gì để điều hướng — mặt hàng thuộc hợp đồng nay hiện thẳng badge `Giá HĐ …` ngay tại dòng của nó. Cờ `thuoc_hdnt` vẫn còn ở `portal_catalog_ban_le` (endpoint cũ, chưa gỡ). |
-| **Tổng tiền / tạm tính / VAT** ở giỏ | QĐ-G9 — chỉ còn đơn giá TỪNG DÒNG. Tránh việc khoa nhớ một con số rồi đem so với hoá đơn cuối; Miyano báo giá đầy đủ ở bước sau. |
+| Bộ chuyển **"Theo hợp đồng khung ｜ Mua lẻ"** | Ruling P1 — khách không có quy tắc nào trong đầu để chọn ngăn. Tầng giá nay suy theo TỪNG DÒNG (`portal_catalog_gop.tang`). **Từ 12/10/2026 (`docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §3.2, §4.1)** chỉ còn HAI tầng, đọc từ Price List của khách: `bang_gia` (có giá — đặt ngay, Miyano xác nhận) và `cho_bao_gia` (chưa có giá — đi vòng báo giá; giá khách đồng ý được ghi vào Price List). Hợp đồng khung không còn là một tầng: giá hợp đồng vào Price List lúc trình ký. Một giỏ trộn cả hai tầng KHÔNG còn đi thành một đơn: hệ thống tự **tách thành hai phiếu** (hàng có giá / hàng chờ báo giá kèm hàng gõ tay), mỗi phiếu một đơn, nối nhau bằng mã lần đặt và đường dẫn "Phiếu cùng lần đặt"; quản lý có nút "Duyệt cả hai". |
+| Giỏ **hai ngăn** + hai nút xác nhận + hai `request_id` | Cùng gốc: không còn "chế độ" nào để tách đơn theo. Việc tách phiếu từ 12/10/2026 KHÔNG phải hai ngăn quay lại: khách vẫn một giỏ, một nút gửi; hệ thống tách theo việc từng dòng có giá hay chưa (`request_id` gốc + hậu tố `:gia` / `:baogia`) và báo trước "Lần đặt này sẽ tách thành 2 phiếu". |
+| Nhãn **"Có trong HĐNT — đặt ở chế độ Theo HĐNT"** (`thuoc_hdnt`) | Nó tồn tại CHỈ để điều hướng giữa hai ngăn. Không còn hai ngăn thì không còn gì để điều hướng — mặt hàng có giá nay hiện thẳng nhãn `Bảng giá <giá>` ngay tại dòng của nó, hàng chưa có giá hiện `Chờ báo giá` (trước 12/10/2026 là badge `Giá HĐ …`). **Từ 12/10/2026 cổng gỡ hẳn hạn mức hợp đồng:** không còn cột "Hạn mức", cảnh báo vượt hạn mức, tên hợp đồng trong giỏ / đầu phiếu, màn hợp đồng ở Tổng quan và Hồ sơ; cờ `thuoc_hdnt` cùng ba endpoint cũ `portal_contracts`, `portal_catalog`, `portal_catalog_ban_le` đã xoá. Hạn mức của `Blanket Order` chỉ còn là việc của ERP. |
+| **Tổng tiền / tạm tính / VAT** ở giỏ | QĐ-G9 — chỉ còn đơn giá TỪNG DÒNG. Tránh việc khoa nhớ một con số rồi đem so với hoá đơn cuối; Miyano báo giá đầy đủ ở bước sau. **Đã thay 12/10/2026 (`docs/superpowers/specs/2026-10-09-gia-theo-price-list-design.md` §7):** giỏ hiện thành tiền từng dòng CÓ GIÁ và tổng tạm tính của riêng phần có giá; phần chờ báo giá không có số. VAT vẫn không hiện ở giỏ. |
 | Badge **số dòng giỏ hàng** trên nav + nút giỏ ở header mobile | Không còn giỏ toàn cục để đếm. |
 
 ### Đường cũ — chuyển hướng, không 404 (QĐ-G7)

@@ -32,7 +32,10 @@ _DH_STYLE = """
 # `blanket_order` khác nằm trên từng DÒNG (một đơn có thể gom dòng của nhiều
 # hợp đồng, khi đó `custom_hdnt` để trống — xem `dat_hang._xay_don`). Số in ra
 # là `order_no` (số hợp đồng hai bên ký); chưa khai thì in mã Blanket Order —
-# đúng thứ cổng đang hiện cho khách dưới nhãn "HĐNT".
+# đúng thứ cổng từng hiện cho khách dưới nhãn "HĐNT". Đơn đặt từ cổng sau
+# spec 2026-10-09 không còn mang `custom_hdnt` / `blanket_order`, nên với
+# chúng dòng "Theo Hợp đồng số" in dãy chấm để điền tay; khối này còn tác
+# dụng cho đơn cũ và đơn nhân viên Miyano lập trên Desk có gắn hợp đồng.
 #
 # `nguoi_dat`: `contact_person` là KHOÁ nội bộ dạng "<khách>-<khách>-11",
 # không phải họ tên — phải tra `Contact.full_name`.
@@ -304,11 +307,64 @@ HTML_BG = """
 # án). Hai mẫu CŨ còn lại (`HTML_DN`, `HTML_SI`) vẫn dùng `"{:,.0f}"` (dấu
 # phẩy, sai quy ước) — đó là NỢ CŨ, cố ý chưa sửa để không lan phạm vi.
 
+# Spec 2026-10-12 §7 — báo giá gửi khách là một Quotation. Tên KHÁC mẫu
+# "Miyano - Báo giá" của Sales Order (giữ cho đơn "Mua lẻ" cũ): tên Print
+# Format là duy nhất trên cả site.
+NAME_YCBG = "Miyano - Yêu cầu báo giá"
+HTML_YCBG = """
+<div class="print-heading"><h2>BÁO GIÁ / QUOTATION</h2></div>
+<p><b>Khách hàng / Customer:</b> {{ doc.customer_name }}</p>
+<p><b>Số báo giá / Quotation No:</b> {{ doc.name }}
+   &nbsp; <b>Ngày báo giá / Quotation Date:</b>
+   {{ frappe.utils.formatdate(doc.custom_ngay_gui_khach_duyet or doc.transaction_date, "dd/mm/yyyy") }}</p>
+{% if doc.custom_ten_don_hang %}<p><b>Tên đơn hàng / Reference:</b> {{ doc.custom_ten_don_hang }}</p>{% endif %}
+{% if doc.valid_till %}
+<p><b>Hiệu lực đến / Valid Until:</b> {{ frappe.utils.formatdate(doc.valid_till, "dd/mm/yyyy") }}</p>
+{% endif %}
+<table class="table table-bordered">
+  <thead><tr>
+    <th>Mã / Code</th><th>Tên hàng / Item</th><th>ĐVT / UoM</th><th>SL / Qty</th>
+    <th>Đơn giá / Rate</th><th>Thành tiền / Amount</th>
+  </tr></thead>
+  <tbody>
+  {% for i in doc.items %}
+    {%- if not la_dong_giu_cho(i.item_code) %}
+    <tr>
+      <td>{{ i.item_code }}</td><td>{{ i.item_name }}</td><td>{{ i.uom }}</td>
+      <td class="text-right">{{ i.qty }}</td>
+      <td class="text-right">{{ "{:,.0f}".format(i.rate).replace(",", ".") }} ₫</td>
+      <td class="text-right">{{ "{:,.0f}".format(i.amount).replace(",", ".") }} ₫</td>
+    </tr>
+    {%- endif %}
+  {% endfor %}
+  </tbody>
+</table>
+{% set da_khop = doc.get("custom_dat_ngoai") | selectattr("da_xu_ly", "equalto", 1) | list %}
+{% if da_khop %}
+<h4>Hàng quý khách mô tả đã được khớp mã / Matched items</h4>
+<table class="table table-bordered">
+  <thead><tr>
+    <th>Tên hàng khách yêu cầu / Requested</th>
+    <th>Mã đã khớp / Matched code</th>
+    <th>SL / Qty</th>
+  </tr></thead>
+  <tbody>
+  {% for d in da_khop %}
+    <tr><td>{{ d.ten_hang }}</td><td>{{ d.item_khop }}</td>
+        <td class="text-right">{{ d.so_luong }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<p class="text-right"><b>Tổng cộng / Total:</b> {{ "{:,.0f}".format(doc.grand_total).replace(",", ".") }} ₫</p>
+"""
+
 FORMATS = [
     (NAME, "Sales Order", HTML),
     (NAME_DN, "Delivery Note", HTML_DN),
     (NAME_SI, "Sales Invoice", HTML_SI),
     (NAME_BG, "Sales Order", HTML_BG),
+    (NAME_YCBG, "Quotation", HTML_YCBG),
 ]
 
 

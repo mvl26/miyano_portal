@@ -51,8 +51,8 @@ OPENING_STOCK_QTY = 300
 
 BLANKET_FROM_DATE = "2026-01-01"
 # NOT a module-level constant: same rot as seed_demo.py's
-# BLANKET_ORDER_TO_DATE - portal_contracts() filters Blanket Order by
-# `to_date >= today`, so a fixed date eventually goes red. Computed at call
+# BLANKET_ORDER_TO_DATE - the "contract still in force" checks filter
+# Blanket Order by `to_date >= today`, so a fixed date eventually goes red. Computed at call
 # time in _ensure_blanket_order(), relative to today.
 
 

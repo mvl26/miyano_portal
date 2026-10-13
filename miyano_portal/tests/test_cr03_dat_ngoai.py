@@ -351,7 +351,17 @@ class TestOrderTrackTraDuChinTruong(_CR03Fixture):
 		# việc "có bị bỏ sót trường nào không".
 		import inspect
 
-		than = inspect.getsource(portal.portal_order_track)
+		# Dict của một dòng nay dựng ở `_dat_ngoai_cho_khach` (13/10/2026: dòng
+		# đến từ đơn HOẶC từ báo giá nguồn của đơn "Theo báo giá", cùng một
+		# hàm). Soi đúng chỗ dựng, VÀ ghim rằng endpoint đi qua hàm đó — soi
+		# riêng helper thì gỡ lời gọi khỏi endpoint bài vẫn xanh. Giá trị thật
+		# qua endpoint: `test_bao_gia_soat_trinh_duyet.TestChinTruongQuaTrack`.
+		self.assertRegex(
+			inspect.getsource(portal.portal_order_track),
+			r'"dat_ngoai":\s*\[(?:\s*#[^\n]*\n)*\s*_dat_ngoai_cho_khach\(d\)',
+			"`portal_order_track` không dựng `dat_ngoai` qua `_dat_ngoai_cho_khach`",
+		)
+		than = inspect.getsource(portal._dat_ngoai_cho_khach)
 		for khoa in list(mong_doi) + ["anh", "khong_co_anh", "mo_ta_nhan_dang", "gia_hien_tai"]:
 			with self.subTest(truong=khoa):
 				self.assertIn(
@@ -405,6 +415,19 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		):
 			frappe.delete_doc("Sales Order", r, force=True, ignore_permissions=True)
 
+	def _bao_gia_cua(self, kq, doc):
+		"""Spec 2026-10-12 §5 — phiếu có dòng gõ tay nay sinh Quotation ở "Chờ
+		Miyano báo giá", không sinh Sales Order "Mua lẻ". Cây cầu ba bài dưới
+		canh vì thế là phiếu → Quotation (`custom_dat_ngoai`): đó là chứng từ
+		nhân viên Miyano mở để tìm nguồn hàng."""
+		self.assertIsNone(kq["sales_order"])
+		bg = frappe.get_doc("Quotation", kq["bao_gia"])
+		self.assertEqual(bg.workflow_state, "Chờ Miyano báo giá")
+		self.assertEqual(
+			frappe.db.get_value("Portal De Xuat Mua", doc.name, "bao_gia"), bg.name
+		)
+		return bg
+
 	def test_chin_truong_theo_dong_sang_don(self):
 		from miyano_portal import de_xuat_duyet
 
@@ -417,10 +440,10 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		dong = [d for d in (so.get("custom_dat_ngoai") or [])
 		        if d.ten_hang == "Găng tay nitrile không bột size M"]
-		self.assertEqual(len(dong), 1, "Dòng gõ tay không sang được đơn hàng")
+		self.assertEqual(len(dong), 1, "Dòng gõ tay không sang được yêu cầu báo giá")
 		r = dong[0]
 
 		# Khẳng định GIÁ TRỊ THẬT chứ không chỉ khoá có mặt: một bài
@@ -452,7 +475,7 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		r = (so.get("custom_dat_ngoai") or [])[0]
 		self.assertEqual(
 			r.get("anh"), '["/private/files/_test_cr03.jpg"]',
@@ -473,7 +496,7 @@ class TestChinTruongDiSangDonHang(_CR03Fixture):
 		doc.reload()
 		kq = de_xuat_duyet.duyet_va_tao_don(doc.name, "Administrator")
 
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
+		so = self._bao_gia_cua(kq, doc)
 		r = (so.get("custom_dat_ngoai") or [])[0]
 		self.assertTrue(r.get("khong_co_anh"), "Cờ `khong_co_anh` bị đánh rơi")
 		self.assertEqual(r.get("mo_ta_nhan_dang"), mo_ta)

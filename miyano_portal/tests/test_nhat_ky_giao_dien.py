@@ -82,7 +82,7 @@ def _than_object(js_text: str, ten_bang: str) -> str:
 
 def _khoa_su_kien() -> set:
 	"""TOÀN BỘ hằng `SK_*` của `nhat_ky.py` — nguồn DUY NHẤT của danh sách
-	khoá sự kiện (brief Task 7, mục (b)). KHÔNG gõ tay lại 18 chuỗi ở test:
+	khoá sự kiện (brief Task 7, mục (b)). KHÔNG gõ tay lại các chuỗi ở test:
 	một khoá thêm/bớt ở `nhat_ky.py` mà quên đồng bộ tay ở lưới này là
 	đúng kiểu lệch mà lưới sinh ra để bắt."""
 	from miyano_portal import nhat_ky
@@ -112,6 +112,9 @@ MAU_MONG_DOI = {
 	"khach_khong_dong_y": "lui",
 	"khach_huy_don": "lui",
 	"don_tao": "he-thong",
+	# Ruling R10 (spec 2026-10-09 §5.2) — hệ thống ghi giá khách vừa đồng ý vào
+	# bảng giá; không ai bấm nút nào nên là màu trung tính.
+	"ghi_gia_bang_gia": "he-thong",
 }
 
 
@@ -124,7 +127,7 @@ MAU_MONG_DOI = {
 # khối thay thế. Xoá một lớp test mà không kiểm điều nó canh còn ai canh
 # không là cách lặng lẽ nhất để đánh mất một ràng buộc.
 class TestFormatJsNhanSuKien(FrappeTestCase):
-	"""Task 7, Step 1(a) — `format.js` phải có đủ 18 khoá sự kiện (nguồn:
+	"""Task 7, Step 1(a) — `format.js` phải có đủ MỌI khoá sự kiện (nguồn:
 	`nhat_ky.py`) trong CẢ HAI bảng: `NHAN_SU_KIEN` (khoá → nhãn tiếng
 	Việt, khác rỗng) và bảng màu chấm nội bộ mà `mauChamSuKien()` tra
 	(đúng đúng bảng §9.3 — không chỉ "có mặt", mà đúng MÀU).
@@ -141,7 +144,7 @@ class TestFormatJsNhanSuKien(FrappeTestCase):
 		super().setUpClass()
 		cls.format_js = FORMAT_JS.read_text(encoding="utf-8")
 
-	def test_nhan_su_kien_du_18_khoa_khac_rong(self):
+	def test_nhan_su_kien_du_moi_khoa_khac_rong(self):
 		than = _than_object(self.format_js, "NHAN_SU_KIEN")
 		khoa_thieu = []
 		for khoa in _khoa_su_kien():
@@ -154,7 +157,7 @@ class TestFormatJsNhanSuKien(FrappeTestCase):
 			"một sự kiện thật sẽ hiện ra CHUỖI KHOÁ THÔ trước mặt bệnh viện",
 		)
 
-	def test_mau_cham_dung_bang_thiet_ke_du_18_khoa(self):
+	def test_mau_cham_dung_bang_thiet_ke_du_moi_khoa(self):
 		"""§9.3 — mỗi khoá phải map đúng MỘT trong bốn màu, ĐÚNG như bảng
 		thiết kế `MAU_MONG_DOI` (không chỉ "khác rỗng"): một khoá "đi lùi"
 		(`quan_ly_tu_choi`…) lỡ map nhầm sang `benh-vien` (xanh) là đúng
@@ -340,11 +343,11 @@ class TestKhoiDongThoiGianGiaoDien(FrappeTestCase):
 		"""Review vòng 1 (Important, phá thủ công) — reviewer đổi
 		`{{ nhanSuKien(d.su_kien) }}` thành `{{ d.su_kien }}`. Hai bài
 		`TestFormatJsNhanSuKien` chỉ đọc `format.js` (đối chiếu bảng NHÃN
-		có đủ 18 khoá), KHÔNG bài nào canh CHÍNH component có GỌI
+		có đủ mọi khoá), KHÔNG bài nào canh CHÍNH component có GỌI
 		`nhanSuKien()` để tra bảng đó hay không — bảng nhãn đầy đủ không
 		cứu được nếu component không gọi tới nó. Hậu quả: chuỗi khoá thô
 		(`khoa_gui_duyet`) hiện thẳng trước mặt bệnh viện — đúng hậu quả
-		mà ràng buộc "đủ 18 khoá" sinh ra để chặn, xảy ra dù bảng nhãn vẫn
+		mà ràng buộc "đủ mọi khoá" sinh ra để chặn, xảy ra dù bảng nhãn vẫn
 		đầy đủ."""
 		self.assertRegex(
 			self.code,

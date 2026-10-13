@@ -8,7 +8,7 @@ import { reactive } from 'vue'
 // mảng `cartDatNgoai`, phục vụ hai màn `Catalog.vue`/`Cart.vue` nay đã nghỉ.
 // Màn Đặt hàng gộp giữ giỏ TRONG chính nó, và giỏ đó bền vững hơn hẳn: nó là
 // một phiếu `Portal De Xuat Mua` ở trạng thái Nháp trên server, sống qua F5,
-// qua đổi máy, và mang sẵn tầng giá/hợp đồng do server suy — khác một object
+// qua đổi máy, và mang sẵn nguồn giá do server suy — khác một object
 // trong bộ nhớ tab trình duyệt, mất trắng khi tải lại trang.
 //
 // Cái GIỮ LẠI từ khối cũ: `requestId` (BR-O12, chống tạo đơn trùng) — đường

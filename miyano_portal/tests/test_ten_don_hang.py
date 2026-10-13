@@ -27,8 +27,9 @@ from frappe.tests.utils import FrappeTestCase
 from miyano_portal import de_xuat_duyet
 from miyano_portal.api import de_xuat as api_de_xuat
 from miyano_portal.api import portal as api_portal
-from miyano_portal.tests.fixtures_de_xuat import dung_fixture
+from miyano_portal.tests.fixtures_de_xuat import dung_fixture, khai_gia
 from miyano_portal.tests.test_de_xuat_duyet import _don_phieu_cu
+from miyano_portal.tests.fixtures_hop_dong import hop_dong_hieu_luc_dau_tien
 
 TEN = "Bổ sung vật tư tiêu hao khoa Huyết học tháng 9/2026 — đợt sau kiểm kê"
 
@@ -63,6 +64,10 @@ class TestTenDonHangDiTuPhieuSangDon(FrappeTestCase):
 		self.kh_a = f.kh_a
 		self.item = f.item
 		self.khoa = f.khoa_huyethoc
+		# Spec 2026-10-12 §5 — phiếu / giỏ còn mã chưa có giá nay sinh Quotation.
+		# Lớp này đo NHÁNH ĐƠN của đường thật, nên vật tư có giá trong Price
+		# List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(self.kh_a, self.item)
 
 	def _phieu_cho_duyet(self, ten_don_hang=TEN):
 		doc = frappe.get_doc({
@@ -204,7 +209,7 @@ class TestTenDonHangDuongQuanLyDatThang(FrappeTestCase):
 		seed_demo()
 		frappe.set_user("bvbm@demo.miyano")
 		self.addCleanup(frappe.set_user, "Administrator")
-		self.bo = api_portal.portal_contracts()[0]["name"]
+		self.bo = hop_dong_hieu_luc_dau_tien()
 
 	def test_ten_TOI_DUOC_ca_don_LAN_phieu_tu_duyet(self):
 		res = api_portal.portal_order_place(

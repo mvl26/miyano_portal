@@ -1,0 +1,20 @@
+/* Quy tắc hiển thị tên mặt hàng (chủ đầu tư 13/10/2026; xem
+   `miyano_portal/ten_hang.py`): Desk không cắt mã và tên mặt hàng trong lưới
+   dòng hàng của bất kỳ chứng từ nào — Báo giá, Đơn bán hàng, Phiếu giao, Hoá
+   đơn… Frappe mặc định ép mỗi ô lưới một dòng 38px và thay phần thừa bằng "…";
+   hai cột này được phép xuống dòng và dòng lưới cao theo nội dung. */
+.form-grid .grid-row .grid-static-col[data-fieldname="item_code"],
+.form-grid .grid-row .grid-static-col[data-fieldname="item_name"] {
+	height: auto;
+	min-height: 38px;
+	max-height: none;
+}
+
+.form-grid .grid-row .grid-static-col[data-fieldname="item_code"] .static-area,
+.form-grid .grid-row .grid-static-col[data-fieldname="item_name"] .static-area,
+.form-grid .grid-row .grid-static-col[data-fieldname="item_code"] .static-area a {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+	overflow-wrap: anywhere;
+}

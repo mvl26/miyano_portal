@@ -17,10 +17,10 @@
 // TASK 7b — cả hai đường `/yeu-cau/phieu/:ten` và `/yeu-cau/don/:name` nay
 // trỏ vào màn này (xem router.js); `OrderDetail.vue`/`DeXuatDetail.vue` đã
 // nghỉ, xoá khỏi cây view.
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { fmtDate, giaiDoanBadge, nhanGiaiDoan } from '../format'
+import { fmtDate, fmtVND, giaiDoanBadge, nhanGiaiDoan } from '../format'
 import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import { showToast } from '../toast'
@@ -31,6 +31,7 @@ import ReasonModal from '../components/ReasonModal.vue'
 import KhoiHangMoi from '../components/chi-tiet/KhoiHangMoi.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
+import { thongBaoSauDuyet } from '../bao-gia'
 import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
@@ -232,13 +233,19 @@ const coTheSuaNhap = computed(
 // Nút "Quay lại" mang theo bộ lọc đang mở của danh sách (C3). Giữ nguyên cơ
 // chế `?chip=` / `?khoa=` — người dùng vào thẳng bằng URL (link thông báo,
 // tab ghim) không có bước lịch sử nào để `router.back()` lùi.
-const quayLaiTo = computed(() => ({
-  name: 'yeu-cau',
-  query: {
-    ...(route.query.chip ? { chip: String(route.query.chip) } : {}),
-    ...(route.query.khoa ? { khoa: String(route.query.khoa) } : {}),
-  },
-}))
+//
+// Phiếu mở từ tab "Yêu cầu báo giá" (`?tu=bao-gia`, đặt ở `dichDongBaoGia`)
+// quay về đúng tab đó. Mọi giá trị `tu` khác giữ nguyên đường về cũ.
+const quayLaiTo = computed(() => {
+  if (route.query.tu === 'bao-gia') return { name: 'bao-gia' }
+  return {
+    name: 'yeu-cau',
+    query: {
+      ...(route.query.chip ? { chip: String(route.query.chip) } : {}),
+      ...(route.query.khoa ? { khoa: String(route.query.khoa) } : {}),
+    },
+  }
+})
 
 // --- C1: quản lý SỬA rồi mới duyệt (chép nguyên từ DeXuatDetail.vue, đổi
 // `doc.` → `phieu.`) --------------------------------------------------
@@ -291,12 +298,30 @@ const dieuChinhItems = computed(() => {
   return ra
 })
 
+// Hằng số một hành động khai trong `args` (`{key, const}`) — gửi thẳng lên
+// server, không hỏi người dùng. "Duyệt cả hai" mang `duyet_ca_hai: 1` theo
+// đường này.
+function hangSoCuaHanhDong(action) {
+  return Object.fromEntries(
+    (action.args || []).filter((a) => 'const' in a).map((a) => [a.key, a.const])
+  )
+}
+
 // Bấm "Duyệt": không đổi gì thì chạy Y NHƯ CŨ (duyệt nguyên trạng, KHÔNG
 // gửi `dieu_chinh`) — không bắt buộc nhập gì cả. Có đổi thì xác nhận trước,
 // vì hạ một dòng về 0 là bỏ hẳn mặt hàng khỏi đơn gửi Miyano.
+//
+// "Duyệt cả hai" (spec 2026-10-09 §7) đi CÙNG hàm này: cùng endpoint, thêm
+// hằng số `duyet_ca_hai`. Nó LUÔN hỏi lại, vì nó duyệt thêm một phiếu người
+// dùng không nhìn thấy trên màn này — và điều chỉnh số lượng ở bảng bên dưới
+// chỉ áp cho phiếu đang mở (`de_xuat_duyet_phieu` chỉ áp `dieu_chinh` lên
+// `ten`), phiếu kia được duyệt đúng số khoa đề xuất.
 function nhanDuyet(action) {
+  const hangSo = hangSoCuaHanhDong(action)
+  const caHai = !!hangSo.duyet_ca_hai
+  const kia = phieu.value?.phieu_cung_lan_dat
   const items = dieuChinhItems.value
-  if (!items.length) return chayHanhDong(action)
+  if (!items.length && !caHai) return chayHanhDong(action)
   const theoMa = Object.fromEntries((phieu.value.items || []).map((it) => [it.item_code, it]))
   const dong = items.map((r) => {
     const it = theoMa[r.item_code]
@@ -305,12 +330,25 @@ function nhanDuyet(action) {
     if (Number(r.so_luong_duyet) !== cu) return `• ${r.item_code}: ${cu} → ${r.so_luong_duyet}`
     return `• ${r.item_code}: giữ ${cu}, thêm ghi chú`
   })
-  const xacNhan = window.confirm(
-    `Duyệt phiếu với ${items.length} điều chỉnh:\n\n${dong.join('\n')}\n\n` +
-      'Đơn hàng gửi Miyano sẽ theo SỐ ĐÃ DUYỆT ở trên. Tiếp tục?'
-  )
-  if (!xacNhan) return
-  chayHanhDong(action, { dieu_chinh: JSON.stringify({ items }) })
+  const maKia = kia?.ma_de_xuat || kia?.name || ''
+  const cau = []
+  if (caHai) {
+    cau.push(
+      `Duyệt CẢ HAI phiếu của lần đặt ${phieu.value.ma_lan_dat || ''}: phiếu này và phiếu ${maKia}.\n` +
+        `Phiếu ${maKia} được duyệt đúng số lượng khoa đề xuất.`
+    )
+  }
+  if (items.length) {
+    cau.push(
+      `${caHai ? 'Phiếu này được duyệt' : 'Duyệt phiếu'} với ${items.length} điều chỉnh:\n\n${dong.join('\n')}\n\n` +
+        'Đơn hàng gửi Miyano sẽ theo SỐ ĐÃ DUYỆT ở trên.'
+    )
+  }
+  if (!window.confirm(cau.join('\n\n') + ' Tiếp tục?')) return
+  chayHanhDong(action, {
+    ...hangSo,
+    ...(items.length ? { dieu_chinh: JSON.stringify({ items }) } : {}),
+  })
 }
 
 // --- Dispatch hành động chung -----------------------------------------
@@ -318,7 +356,9 @@ const dangChay = ref('')
 const TOAST_THANH_CONG = {
   // Phiếu — chép nguyên từ DeXuatDetail.vue.
   de_xuat_xoa_nhap: 'Đã xoá phiếu.',
-  de_xuat_duyet_phieu: 'Đã duyệt phiếu — đơn hàng đã được tạo.',
+  // Duyệt phiếu KHÔNG có câu cứng ở đây: phiếu có hàng chờ báo giá sinh một
+  // yêu cầu báo giá chứ không sinh đơn, nên câu báo đọc từ KẾT QUẢ server
+  // trả (`thongBaoSauDuyet` ở `bao-gia.js`).
   de_xuat_tu_choi: 'Đã từ chối phiếu.',
   de_xuat_huy: 'Đã huỷ phiếu.',
   de_xuat_duyet_sua: 'Đã đồng ý sửa số lượng — đơn hàng đã cập nhật.',
@@ -342,15 +382,18 @@ async function chayHanhDong(action, extraArgs) {
   try {
     // Chọn module theo `action.nhom` — đơn đi `api.call` kèm `order`, phiếu
     // đi `api.callDeXuat` kèm `ten` (brief Task 7, Step 3).
+    let kq
     if (action.nhom === 'don') {
-      await api.call(action.method, { order: don.value.order, ...(extraArgs || {}) })
+      kq = await api.call(action.method, { order: don.value.order, ...(extraArgs || {}) })
     } else {
-      await api.callDeXuat(action.method, { ten: phieu.value.name, ...(extraArgs || {}) })
+      kq = await api.callDeXuat(action.method, { ten: phieu.value.name, ...(extraArgs || {}) })
     }
     showToast(
-      TOAST_THANH_CONG[action.method + '|' + action.label] ||
-        TOAST_THANH_CONG[action.method] ||
-        `Đã ${action.label}.`
+      action.method === 'de_xuat_duyet_phieu'
+        ? thongBaoSauDuyet(kq)
+        : TOAST_THANH_CONG[action.method + '|' + action.label] ||
+          TOAST_THANH_CONG[action.method] ||
+          `Đã ${action.label}.`
     )
     if (action.method === 'de_xuat_xoa_nhap') {
       // Xoá nháp thì phiếu không còn tồn tại nữa — quay lại danh sách thay
@@ -431,9 +474,7 @@ function onClickAction(action) {
     return chayHanhDong(action)
   }
 
-  const consts = Object.fromEntries(
-    (action.args || []).filter((a) => 'const' in a).map((a) => [a.key, a.const])
-  )
+  const consts = hangSoCuaHanhDong(action)
   const canNhap = (action.args || []).filter((a) => !('const' in a))
   if (!canNhap.length) return chayHanhDong(action, consts)
   if (canNhap.length === 1) {
@@ -536,16 +577,22 @@ async function guiXinSua() {
 
 // --- Nửa ĐƠN (chép từ OrderDetail.vue, đổi `data.` → `don.`) -----------
 
-// Mã lý do do server trả về (`30_API_Spec` §5) → thông điệp cho người đọc.
+// Mã lý do `portal_reorder` trả cho dòng KHÔNG đặt lại được → thông điệp cho
+// người đọc. Spec 2026-10-09 §4.4: hàng chưa có giá không còn bị loại (nó vào
+// giỏ ở tầng chờ báo giá), nên chỉ còn một lý do.
 const LY_DO = {
-  het_han_muc: 'hết hạn mức',
-  ngoai_hdnt: 'ngoài hợp đồng',
-  thieu_gia: 'chưa có giá',
+  mat_hang_ngung_kinh_doanh: 'đã ngừng kinh doanh',
 }
 
 // UC-14 — đặt lại theo đơn cũ, theo giá hiện hành. Tạo thẳng một phiếu Nháp
 // mang đúng các dòng đặt lại được, rồi mở `/dat-hang/<ten>` — KHÔNG còn
 // giỏ toàn cục `/cart` (Task 10).
+//
+// `tang`/`gia_hien_hanh` của `portal_reorder` KHÔNG chép tay sang màn Đặt
+// hàng: phiếu Nháp chỉ lưu mã và số lượng, và `LapPhieu.vue::lamMoiGia()` hỏi
+// lại tầng + giá từ ĐÚNG endpoint mà ô tìm kiếm dùng (cùng nguồn
+// `bang_gia_khach` với `portal_reorder`) cho mọi phiếu Nháp nó mở — giỏ đặt
+// lại nhờ đó hiện giống hệt một giỏ vừa chọn từ danh sách.
 const dangDatLai = ref(false)
 async function datLai() {
   if (dangDatLai.value) return
@@ -588,13 +635,13 @@ async function datLai() {
 // Việc 1/brief 2026-08-15 + controller ruling 2026-08-16 — sửa số lượng
 // trước khi gửi lại báo giá. `KhoiBaoGia.vue` tự validate + tính chênh lệch
 // rồi phát `sua-so-luong` mang sẵn payload; CHA vẫn phải giữ modal xác nhận
-// (`guiLaiOpen`, chép nguyên từ `OrderDetail.vue`) — review Task 7a Critical
-// 2 đã sửa lại đúng chỗ bản đầu bỏ mất: hành động này đặt `rate` các dòng
-// đã đổi về 0 và đẩy đơn về "Chờ xác nhận", khách MẤT báo giá đang có nếu
-// bấm nhầm. `KhoiBaoGia` bày sẵn các dòng để SỬA số, không phải để XÁC
-// NHẬN gửi đi — hai việc khác nhau, và ruling gốc đòi modal riêng cho việc
-// sau. Modal chỉ đóng ở nhánh THÀNH CÔNG (đúng hợp đồng `KhoiBaoGia.vue` đã
-// ghi: "modal xác nhận... KHÔNG đóng khi API lỗi, để khách bấm lại").
+// (`guiLaiOpen`): hành động này đẩy đơn về "Chờ xác nhận" và báo giá đang có
+// của các dòng ĐÃ BÁO GIÁ bị đổi số lượng hết hiệu lực — khách mất nó nếu bấm
+// nhầm. Dòng có giá trong bảng giá thì giữ giá (đọc lại từ bảng giá, spec
+// 2026-10-09 §4.4). `KhoiBaoGia` bày sẵn các dòng để SỬA số, không phải để
+// XÁC NHẬN gửi đi — hai việc khác nhau. Modal chỉ đóng ở nhánh THÀNH CÔNG
+// (đúng hợp đồng `KhoiBaoGia.vue` đã ghi: "modal xác nhận... KHÔNG đóng khi
+// API lỗi, để khách bấm lại").
 const dangSuaSoLuong = ref(false)
 const guiLaiOpen = ref(false)
 const dongGuiLai = ref({ items: [], dat_ngoai: [] })
@@ -625,6 +672,18 @@ async function guiLaiBaoGia() {
     dangSuaSoLuong.value = false
   }
 }
+
+// Đường dẫn "Cùng lần đặt" (và mọi điều hướng phiếu → phiếu, đơn → đơn) chỉ
+// đổi THAM SỐ của route; Vue Router tái dùng đúng instance này nên `onMounted`
+// không chạy lại. Thiếu `watch` thì URL đổi mà màn vẫn hiện phiếu cũ.
+// Rời hẳn màn này cũng làm hai tham số đổi ngay trước khi component bị gỡ
+// (về danh sách: cả hai rỗng; sang `/dat-hang/:ten`: `ten` của một route
+// KHÁC) — chỉ nạp lại khi đích vẫn là một trong hai đường của chính màn này.
+watch(() => [route.params.ten, route.params.name], () => {
+  if (!['de-xuat-detail', 'order-detail'].includes(route.name)) return
+  argModalAction.value = null
+  load()
+})
 
 onMounted(async () => {
   loadKhoaPhongList()
@@ -680,7 +739,22 @@ onMounted(async () => {
           <template v-if="tenKhoa">{{ tenKhoa }}</template>
           <template v-if="don?.order_date"> · Đặt ngày {{ fmtDate(don.order_date) }}</template>
           <template v-if="don?.po_khach"> · Số dự trù: {{ don.po_khach }}</template>
-          <template v-if="don?.hdnt"> · {{ don.hdnt }}</template>
+        </p>
+        <!-- Spec 2026-10-09 §7 — hai phiếu tách từ MỘT lần đặt (giỏ trộn hàng
+             có giá với hàng chờ báo giá). Server chỉ trả `phieu_cung_lan_dat`
+             khi người đang xem mở được phiếu kia. Giữ `query` để nút "Quay
+             lại" ở phiếu kia vẫn về đúng bộ lọc đang mở của danh sách. -->
+        <p v-if="phieu?.phieu_cung_lan_dat" class="tag" style="margin-top: 4px">
+          Cùng lần đặt {{ phieu.ma_lan_dat }}:
+          <router-link
+            :to="{ name: 'de-xuat-detail', params: { ten: phieu.phieu_cung_lan_dat.name }, query: route.query }"
+          >{{ phieu.phieu_cung_lan_dat.ma_de_xuat || phieu.phieu_cung_lan_dat.name }}</router-link>
+          ({{ phieu.phieu_cung_lan_dat.trang_thai }})
+        </p>
+        <p v-if="phieu?.bao_gia" style="margin-top: 4px">
+          <router-link :to="{ name: 'bao-gia-detail', params: { ten: phieu.bao_gia } }">
+            Xem yêu cầu báo giá {{ phieu.bao_gia }} →
+          </router-link>
         </p>
         <p v-if="lyDoTuChoi" class="tag" style="color: var(--red); margin-top: 8px">
           Lý do từ chối: {{ lyDoTuChoi }}
@@ -707,6 +781,24 @@ onMounted(async () => {
         <p v-if="coTheSuaNhap" class="tag" style="margin-bottom: 10px">
           Phiếu đang ở trạng thái Nháp — bảng dưới đây chỉ để xem. Sửa số lượng, thêm/xoá dòng ở màn Đặt hàng.
         </p>
+        <!-- Spec 2026-10-09 §4.3 — giá bảng giá đã đổi (hoặc mất) từ lúc khoa
+             gửi. Server chỉ trả `canh_bao_gia` khi phiếu còn "Chờ duyệt". Giá
+             ĐỔI không chặn duyệt (đơn lấy giá mới); giá MẤT thì server chặn
+             duyệt và `thong_diep` nói phải làm gì. Hiện cho cả chủ phiếu: họ
+             là người phải thu hồi và gửi lại khi một mặt hàng mất giá. -->
+        <div
+          v-if="phieu?.canh_bao_gia?.length"
+          style="border: 1px solid var(--orange); border-radius: 8px; padding: 10px; margin-bottom: 10px"
+        >
+          <b>Giá đã thay đổi so với lúc khoa gửi</b>
+          <p v-for="c in phieu.canh_bao_gia" :key="c.item_code || c.ly_do" class="tag" style="margin: 2px 0">
+            <template v-if="c.ly_do === 'mat_gia'">{{ c.thong_diep }}</template>
+            <template v-else>{{ c.item_code }}: {{ fmtVND(c.gia_cu) }} → {{ fmtVND(c.gia_moi) }}</template>
+          </p>
+          <p v-if="phieu.canh_bao_gia.some((c) => c.ly_do !== 'mat_gia')" class="tag" style="margin: 4px 0 0">
+            Đơn hàng sẽ lấy giá mới khi phiếu được duyệt.
+          </p>
+        </div>
         <div class="flex" style="flex-wrap: wrap">
           <router-link v-if="coTheSuaNhap" :to="{ name: 'dat-hang', params: { ten: phieu.name } }">
             <button class="btn">Sửa nháp</button>
@@ -822,15 +914,15 @@ onMounted(async () => {
       @submit="onSubmitArgModal"
     />
 
-    <!-- controller ruling 2026-08-16 (chép nguyên từ OrderDetail.vue, xem
-         Critical 2 review Task 7a) — "Gửi lại để báo giá" đặt rate về 0 và
-         đẩy đơn về "Chờ xác nhận"; cần một bước xác nhận vì khách MẤT báo
-         giá đang có nếu bấm nhầm. `min-len="0"` — không bắt nhập lý do, chỉ
-         cần xác nhận trong đúng khuôn modal của app. -->
+    <!-- controller ruling 2026-08-16 — "Gửi lại để báo giá" đẩy đơn về "Chờ
+         xác nhận" và làm báo giá của các dòng đã báo giá bị đổi số lượng hết
+         hiệu lực; cần một bước xác nhận vì khách MẤT báo giá đó nếu bấm
+         nhầm. `min-len="0"` — không bắt nhập lý do, chỉ cần xác nhận trong
+         đúng khuôn modal của app. -->
     <ReasonModal
       :open="guiLaiOpen"
       title="Gửi lại để báo giá"
-      desc="Số lượng dòng đã đổi sẽ về giá 0 và đơn chuyển về 'Chờ xác nhận' để Miyano báo giá lại — báo giá hiện tại của các dòng đó KHÔNG còn hiệu lực. Bấm Xác nhận để tiếp tục."
+      desc="Đơn sẽ chuyển về 'Chờ xác nhận'. Mặt hàng có giá trong bảng giá vẫn giữ giá bảng giá; mặt hàng Miyano đã báo giá mà bạn đổi số lượng sẽ được báo giá lại — báo giá hiện tại của các mặt hàng đó KHÔNG còn hiệu lực. Bấm Xác nhận để tiếp tục."
       :min-len="0"
       :submitting="dangSuaSoLuong"
       submit-label="Xác nhận gửi lại"

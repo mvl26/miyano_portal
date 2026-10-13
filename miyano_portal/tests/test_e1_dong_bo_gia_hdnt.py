@@ -25,7 +25,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from miyano_portal import dat_hang, gia_hdnt
+from miyano_portal import bang_gia_khach, dat_hang, gia_hdnt
 from miyano_portal.api import portal
 from miyano_portal.setup.seed_demo import COMPANY, seed_demo
 
@@ -110,6 +110,30 @@ class TestDongBoGia(_GiaFixture):
         self.assertEqual(self._gia(VT), 95000)
         self.assertEqual(self._gia(HC), 1250000)
 
+    def test_ghi_hong_giua_chung_khong_de_lai_gia_nua_voi(self):
+        """Final-fix S-4: dòng thứ hai ghi hỏng → giá dòng thứ nhất KHÔNG được
+        nằm lại trong bảng (một bảng giá nửa vời trông như đã đồng bộ xong),
+        và việc ký hợp đồng vẫn thành công — hook nuốt lỗi như cũ."""
+        from unittest.mock import patch
+
+        that = bang_gia_khach.ghi_gia_vao_bang
+        da_ghi = []
+
+        def hong_o_dong_hai(bang, customer, item_code, gia, tien_te=None):
+            if da_ghi:
+                raise RuntimeError("giả lập: ghi dòng thứ hai hỏng")
+            da_ghi.append(item_code)
+            return that(bang, customer, item_code, gia, tien_te)
+
+        with patch.object(bang_gia_khach, "ghi_gia_vao_bang", side_effect=hong_o_dong_hai):
+            bo = self._hdnt()
+
+        self.assertEqual(da_ghi, [VT], "dòng thứ nhất phải đã được ghi thật trước khi hỏng")
+        self.assertEqual(frappe.db.get_value("Blanket Order", bo.name, "docstatus"), 1)
+        self.assertIsNone(self._gia(VT), "giá dòng thứ nhất phải được lùi lại")
+        self.assertIsNone(self._gia(HC))
+        self.assertEqual(frappe.db.count("Item Price", {"price_list": BANG_GIA}), 0)
+
     def test_item_price_dung_uom_va_currency_cua_bang_gia(self):
         self._hdnt()
         row = frappe.db.get_value(
@@ -128,6 +152,14 @@ class TestDongBoGia(_GiaFixture):
         self.assertEqual(
             frappe.db.count("Item Price", {"item_code": VT, "price_list": BANG_GIA}), 1
         )
+
+    def test_rate_khong_tron_chay_lai_khong_ghi_lai(self):
+        """Rate hợp đồng nhiều chữ số lẻ: lần chạy sau so theo giá đã làm tròn
+        như bộ ghi, nên không báo "đã ghi" mãi."""
+        bo = self._hdnt(dong=[{"item_code": VT, "qty": 5, "rate": 95000.123456789}])
+        gia_hdnt.dong_bo(bo.name)
+        ket_qua = gia_hdnt.dong_bo(bo.name)
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (0, 0))
 
     def test_gia_hdnt_doi_thi_item_price_doi_theo(self):
         """HĐNT là nguồn sự thật về giá đã ký: rate mới (qua sửa đổi hợp đồng)
@@ -165,15 +197,101 @@ class TestDongBoGia(_GiaFixture):
         self.assertEqual(gia_hdnt.dong_bo(bo.name)["tao"], 0)
         self.assertIsNone(self._gia(VT))
 
-    def test_khach_chua_co_bang_gia_thi_bo_qua_khong_vo_submit(self):
-        """Không được chặn việc ký hợp đồng chỉ vì chưa cấu hình bảng giá —
-        nhưng cũng không được im lặng: trả lý do để người submit nhìn thấy."""
-        frappe.db.set_value("Customer", KHACH, "default_price_list", None)
-        bo = self._hdnt()   # submit phải thành công
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_khach_chua_co_bang_gia_thi_duoc_tao_bang_rieng_va_ghi_gia(self):
+        """§5.3 — khách chưa có `default_price_list` KHÔNG còn bị bỏ qua kèm
+        `ly_do`: ký hợp đồng là khách có bảng giá của riêng mình, và đơn giá
+        hợp đồng nằm trong đó."""
+        khach, _bang_gia = self._khach_rieng()
+        frappe.db.set_value("Customer", khach, "default_price_list", None)
+        bo = self._hdnt(customer=khach)   # submit phải thành công
         self.assertEqual(bo.docstatus, 1)
+        bang = frappe.db.get_value("Customer", khach, "default_price_list")
+        self.assertTrue(bang, "ký hợp đồng phải dựng bảng giá riêng cho khách")
+        self.assertEqual(
+            frappe.get_all("Customer", filters={"default_price_list": bang}, pluck="name"),
+            [khach],
+        )
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, HC), 1250000.0)
         ket_qua = gia_hdnt.dong_bo(bo.name)
-        self.assertEqual(ket_qua["tao"], 0)
-        self.assertTrue(ket_qua["ly_do"], "phải nêu rõ vì sao không đồng bộ được")
+        self.assertIsNone(ket_qua["ly_do"])
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (0, 0), "chạy lại không ghi gì")
+
+    # -- BỘ GHI PHẢI KHỚP BỘ ĐỌC (spec 2026-10-09 §3.1) -----------------------
+    # Ba ca dưới chỉ khẳng định KẾT CỤC: sau `dong_bo`, bộ đọc của cổng trả
+    # đúng giá hợp đồng. Dòng nào được sửa/chèn là việc của bộ ghi chung
+    # (`bang_gia_khach.ghi_gia_vao_bang`).
+
+    def _dong_gia(self, bang_gia, rate, **them):
+        return frappe.get_doc({
+            "doctype": "Item Price", "item_code": VT, "price_list": bang_gia,
+            "selling": 1, "price_list_rate": rate, **them,
+        }).insert(ignore_permissions=True)
+
+    def test_bang_dang_co_dong_het_han_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng cũ ĐÚNG giá hợp đồng nhưng đã hết hạn: phép upsert cũ thấy
+        "đã khớp" và bỏ qua, cổng thì không thấy giá nào."""
+        khach, bang_gia = self._khach_rieng()
+        self._dong_gia(bang_gia, 95000, valid_from=add_days(today(), -30),
+                       valid_upto=add_days(today(), -1))
+        self.assertIsNone(bang_gia_khach.gia_bang_gia(khach, VT))
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+
+    def test_bang_dang_co_dong_rieng_cua_khach_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng gắn riêng khách che dòng chung ở bộ đọc: sửa dòng chung thì
+        giá hợp đồng không bao giờ hiện ra."""
+        khach, bang_gia = self._khach_rieng()
+        self._dong_gia(bang_gia, 50000)
+        self._dong_gia(bang_gia, 40000, customer=khach)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 40000.0)
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+
+    def test_bang_dang_co_dong_khac_don_vi_thi_bo_doc_van_ra_gia_hop_dong(self):
+        """Dòng duy nhất của mã là giá theo một đơn vị KHÁC đơn vị gốc: bộ
+        đọc bỏ qua nó, nên ghi giá hợp đồng vào đó là ghi vào chỗ không ai đọc."""
+        khach, bang_gia = self._khach_rieng()
+        goc = frappe.db.get_value("Item", VT, "stock_uom")
+        khac = "Box" if goc != "Box" else "Nos"
+        self._dong_gia(bang_gia, 95000, uom=khac)
+        self.assertIsNone(bang_gia_khach.gia_bang_gia(khach, VT))
+        bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
+        gia_hdnt.dong_bo(bo.name)
+        self.assertEqual(bang_gia_khach.gia_bang_gia(khach, VT), 95000.0)
+        self.assertEqual(
+            float(frappe.db.get_value(
+                "Item Price", {"item_code": VT, "price_list": bang_gia, "uom": khac},
+                "price_list_rate",
+            )),
+            95000.0, "dòng theo đơn vị khác không bị đụng tới",
+        )
+
+    def test_cung_ma_hai_dong_gia_khong_tron_chi_ghi_mot_lan(self):
+        """Hợp đồng liệt kê cùng một mã hai dòng, cùng một giá KHÔNG TRÒN:
+        dòng sau phải thấy giá (đã làm tròn) dòng trước vừa ghi, không ghi lần
+        hai. Dựng chứng từ trong bộ nhớ: ERPNext không cho lưu hợp đồng trùng
+        mã, nhưng dữ liệu nhập ngoài luồng thì có."""
+        khach, _bang_gia = self._khach_rieng()
+        le = 95000.123456789
+        bo = frappe.get_doc({
+            "doctype": "Blanket Order", "blanket_order_type": "Selling",
+            "customer": khach, "company": COMPANY, "name": "_TEST BO TRUNG MA",
+            "from_date": today(), "to_date": add_days(today(), 365),
+            "items": [
+                {"item_code": VT, "qty": 500, "rate": le},
+                {"item_code": VT, "qty": 500, "rate": le},
+            ],
+        })
+        self.assertNotEqual(bang_gia_khach.lam_tron_gia(le, "VND"), le, "tiền đề: giá không tròn")
+        ket_qua = gia_hdnt.dong_bo(bo)
+        self.assertEqual((ket_qua["tao"], ket_qua["cap_nhat"]), (1, 0))
+        self.assertEqual(
+            bang_gia_khach.gia_bang_gia(khach, VT), bang_gia_khach.lam_tron_gia(le, "VND")
+        )
 
     def test_hdnt_het_han_khong_dat_gia_cho_hom_nay(self):
         """Lỗi thật đã bị `test_e6_mua_le` bắt: `dong_bo` suy bảng giá từ
@@ -191,8 +309,8 @@ class TestDongBoGia(_GiaFixture):
 
     def test_hdnt_chua_toi_ngay_hieu_luc_van_dung_gia_san(self):
         """Ngược lại với ca trên: ký trước ngày hiệu lực thì vẫn dựng giá —
-        `portal_contracts` đã tự chặn đặt hàng cho tới `from_date`, nên giá
-        "có sớm" vô hại, còn bắt sales quay lại nhập tay đúng ngày mới là hại."""
+        giá "có sớm" được coi là vô hại (xem chú thích ở `gia_hdnt.dong_bo`),
+        còn bắt sales quay lại nhập tay đúng ngày mới là hại."""
         bo = self._hdnt(submit=False)
         bo.from_date = add_days(today(), 10)
         bo.to_date = add_days(today(), 400)
@@ -210,8 +328,8 @@ class TestDongBoGia(_GiaFixture):
 
 class TestNhieuHopDongMotKhach(_GiaFixture):
     """`Customer.default_price_list` là MỘT field, nhưng một khách có thể có
-    NHIỀU hợp đồng còn hiệu lực cùng lúc (`portal_contracts` chỉ lọc theo
-    khoảng ngày, và `portal_order_place` nhận `contract` làm tham số). Trình
+    NHIỀU hợp đồng còn hiệu lực cùng lúc (không gì ép mỗi khách một hợp
+    đồng). Trình
     import lại đặt mỗi hợp đồng một bảng giá riêng rồi trỏ `default_price_list`
     sang bảng giá MỚI NHẤT — hợp đồng cũ hơn bị bỏ lại ở bảng giá không còn
     ai đọc, và lỗi "chưa có giá" quay lại đúng cho hợp đồng đó."""
@@ -256,27 +374,29 @@ class TestNhieuHopDongMotKhach(_GiaFixture):
         self.assertTrue(res.get("sales_order"))
 
 
-class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
-    """Task 12 (QĐ-G12) — điểm LỆCH mà lớp này từng GHIM đã bị xoá hẳn.
+class TestDonHangLayGiaBangGia(_GiaFixture):
+    """Đơn lấy giá từ Price List của khách, không từ hợp đồng (spec
+    2026-10-09 §4.2).
 
-    LỊCH SỬ, đọc trước khi sửa: lớp này tên cũ là `TestDanhMucVaDatHangCoThe
-    LECH` và khẳng định ĐÚNG cái sai — `portal_catalog` tra `Item Price` rồi
-    rơi về `Blanket Order Item.rate`, trong khi đường đặt hàng chỉ chấp nhận
-    `Item Price`, nên danh mục hiện giá đẹp còn gửi đơn thì bị chặn "chưa có
-    giá trong hợp đồng". Docstring cũ tự nói rõ: ai sửa hành vi đó phải cập
-    nhật lại chính test này, có ý thức. Task 12 là lần sửa đó — chủ đầu tư
-    gặp đúng điểm lệch ấy trên trình duyệt ngày 21/08.
+    LỊCH SỬ, đọc trước khi sửa: lớp này từng tên `TestDanhMucVaDatHangCoThe
+    LECH` (ghim điểm lệch "danh mục hiện giá, đơn bị chặn chưa có giá"), rồi
+    `TestDanhMucVaDatHangKHONGCONLECH` khi Task 12 (QĐ-G12) cho cả danh mục
+    cũ lẫn đơn hỏi chung `gia_hdnt.gia_dong_hop_dong` (hàm đã xoá) — hợp đồng THẮNG bảng
+    giá ở cả hai phía. Spec 2026-10-09 đảo vế ĐƠN: nguồn giá duy nhất của
+    đơn là Price List. Bài dưới cố ý cài một `Item Price` KHÁC giá hợp đồng
+    để phân biệt được hai nguồn."""
 
-    Giờ CẢ HAI phía hỏi cùng một hàm (`gia_hdnt.gia_dong_hop_dong`), nên
-    khẳng định đúng của lớp này là hai bên KHỚP NHAU. Bài dưới còn cố ý cài
-    một `Item Price` KHÁC giá hợp đồng: nếu ai đó lật ngược thứ tự tra (bảng
-    giá trước, hợp đồng sau) thì danh mục và đơn lại nói hai con số, và bài
-    này đỏ."""
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_don_hang_lay_gia_bang_gia_khi_lech_voi_hop_dong(self):
+        """Hợp đồng khai 95.000, Price List của khách bị sửa tay thành 55.000
+        → đơn mang giá PRICE LIST (§4.2).
 
-    def test_danh_muc_va_don_hang_noi_cung_mot_gia(self):
+        Trước spec 2026-10-09 bài này tên `test_danh_muc_va_don_hang_noi_
+        cung_mot_gia` và đòi đơn mang đúng 95.000 mà danh mục cũ
+        `portal_catalog` hiện. Endpoint danh mục cũ đó đã gỡ (§7), nên vế
+        danh mục nay hỏi `portal_catalog_gop`: danh mục và đơn nói CÙNG một
+        giá, giá Price List."""
         bo = self._hdnt(dong=[{"item_code": VT, "qty": 500, "rate": 95000}])
-        # Bảng giá khai một con số KHÁC — hợp đồng đã ký phải THẮNG, ở CẢ HAI
-        # phía. Không có dòng này, bài xanh cả khi bảng giá được ưu tiên.
         frappe.db.delete("Item Price", {"price_list": BANG_GIA})
         frappe.get_doc({
             "doctype": "Item Price", "item_code": VT, "price_list": BANG_GIA,
@@ -284,8 +404,11 @@ class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
         }).insert(ignore_permissions=True)
 
         frappe.set_user(KHACH_USER)
-        dong = {r["item_code"]: r for r in portal.portal_catalog(bo.name)}[VT]
-        self.assertEqual(dong["rate"], 95000, "danh mục phải hiện GIÁ HỢP ĐỒNG")
+        dong = {
+            r["item_code"]: r for r in portal.portal_catalog_gop(tu_khoa=VT)["rows"]
+        }[VT]
+        self.assertEqual(dong["tang"], "bang_gia")
+        self.assertEqual(dong["don_gia"], 55000, "danh mục hiện giá Price List")
 
         res = portal.portal_order_place(
             bo.name,
@@ -293,10 +416,8 @@ class TestDanhMucVaDatHangKHONGCONLECH(_GiaFixture):
             request_id=frappe.generate_hash(length=12),
         )
         so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual(
-            float(so.items[0].rate), dong["rate"],
-            "giá khách NHÌN THẤY và giá đơn MANG phải là một",
-        )
+        self.assertEqual(float(so.items[0].rate), 55000.0)
+        self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
 
 
 class TestDatHangDuocSauKhiDongBo(_GiaFixture):
@@ -314,29 +435,29 @@ class TestDatHangDuocSauKhiDongBo(_GiaFixture):
         so = frappe.get_doc("Sales Order", res["sales_order"])
         self.assertEqual(so.items[0].rate, 95000)
 
-    def test_chua_khai_gia_o_dau_ca_thi_van_bao_thieu_gia(self):
+    # Đảo theo spec 2026-10-09 (giá theo Price List).
+    def test_chua_khai_gia_o_dau_ca_thi_la_dong_cho_bao_gia(self):
         """Ca ĐỐI CHỨNG — không có ca này thì test trên có thể xanh vì một lý
         do khác (vd. site tình cờ đã có Item Price) mà ta không biết.
 
-        Task 12 (QĐ-G12) — ĐỔI ĐỐI CHỨNG, không nới lỏng nó. Bản cũ xoá
-        `Item Price` rồi đòi cổng phải CHẶN; từ QĐ-G12 cổng đọc thẳng `rate`
-        của hợp đồng nên nó KHÔNG chặn nữa, và đó chính là bản vá, không phải
-        hồi quy (vế dương ở `TestDanhMucVaDatHangKHONGCONLECH` và ở
-        `test_gia_tu_hop_dong.py`). "Thiếu giá" giờ có nghĩa CHƯA KHAI Ở ĐÂU
-        CẢ: `rate = 0` trên hợp đồng VÀ không có dòng bảng giá — và cổng vẫn
-        phải chặn, nguyên văn.
+        "Chưa có giá" = `rate = 0` trên hợp đồng VÀ không có dòng bảng giá.
+        Trước spec 2026-10-09 cổng CHẶN đơn bằng "chưa có giá trong hợp
+        đồng"; giờ đơn TẠO ĐƯỢC, dòng đó mang `rate = 0` và chờ Miyano báo
+        giá (§4.2).
 
         Đứng trên KHÁCH RIÊNG (`_khach_rieng()`): đây là một khẳng định về sự
         VẮNG MẶT, mà `FrappeTestCase` rollback MỘT LẦN mỗi CLASS nên hợp đồng
         của method chạy trước vẫn còn hiệu lực ở đây và sẽ khai giá hộ."""
         khach, _bang_gia = self._khach_rieng()
         bo = self._hdnt(customer=khach, dong=[{"item_code": VT, "qty": 500, "rate": 0}])
-        with self.assertRaises(frappe.ValidationError) as ctx:
-            dat_hang.tao_sales_order(
-                khach, contract=bo.name, items=[{"item_code": VT, "qty": 2}],
-                request_id=frappe.generate_hash(length=12),
-            )
-        self.assertIn("chưa có giá trong hợp đồng", str(ctx.exception))
+        kq = dat_hang.tao_sales_order(
+            khach, contract=bo.name, items=[{"item_code": VT, "qty": 2}],
+            request_id=frappe.generate_hash(length=12),
+        )
+        so = frappe.get_doc("Sales Order", kq["sales_order"])
+        self.assertEqual(float(so.items[0].rate), 0.0)
+        self.assertEqual(so.items[0].custom_nguon_gia, "Báo giá")
+        self.assertEqual(so.custom_loai_don, "Mua lẻ")
 
 
 class TestBackfill(_GiaFixture):

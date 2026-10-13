@@ -25,6 +25,7 @@ from miyano_portal import dat_hang, permissions, portal_context
 from miyano_portal.api import kho as kho_api
 from miyano_portal.api import portal as portal_api
 from miyano_portal.kho import khoa_phong as khoa_phong_mod
+from miyano_portal.tests.fixtures_de_xuat import khai_gia
 
 KHACH = "ZZTEST8 Benh Vien"
 MA_NGAN = "ZZT8BV"
@@ -414,6 +415,13 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 	tài khoản thật đang chạy đều là quản lý); `test_quan_ly_dat_don_thi_
 	khoa_phong_de_trong` giữ NGUYÊN không đổi."""
 
+	def setUp(self):
+		super().setUp()
+		# Spec 2026-10-12 §5 — giỏ còn mã chưa có giá nay sinh Quotation. Lớp
+		# này đo NHÁNH ĐƠN của đường đặt trực tiếp, nên vật tư có giá trong
+		# Price List của khách và đơn sinh ra là đơn "Theo bảng giá".
+		khai_gia(KHACH, ITEM)
+
 	def _dat_qua_cong(self, request_id=None, khoa_phong=None):
 		return portal_api.portal_order_place(
 			mode="ban_le",
@@ -449,6 +457,7 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 		khoa A không còn tự đặt trực tiếp được (xem test phía trên)."""
 		frappe.set_user(self.ql.user)
 		kq = self._dat_qua_cong(khoa_phong=self.kp_a.name)
+		self.assertTrue(kq["sales_order"], "tiền đề: đường đặt trực tiếp phải ra một đơn")
 		frappe.set_user(self.nv_b.user)
 		with self.assertRaises(frappe.PermissionError):
 			portal_api.portal_order_track(kq["sales_order"])
@@ -458,6 +467,7 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 		viện, y hệt trước Task 7."""
 		frappe.set_user(self.ql.user)
 		kq = self._dat_qua_cong()
+		self.assertTrue(kq["sales_order"], "tiền đề: đường đặt trực tiếp phải ra một đơn")
 		self.assertFalse(
 			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_khoa_phong")
 		)

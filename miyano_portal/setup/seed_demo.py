@@ -36,7 +36,8 @@ CUSTOMERS = [
 # Blanket Order (Selling) is seeded for the first customer only.
 BLANKET_ORDER_QTY = {"VT0005": 10000, "HC0009": 500}
 BLANKET_ORDER_FROM_DATE = "2026-01-01"
-# NOT a module-level constant: portal_contracts() (api/portal.py) filters
+# NOT a module-level constant: every "contract still in force" check
+# (gia_hdnt.dong_bo, nguon_gia_theo_ma_cho_khach) filters
 # Blanket Order by `to_date >= today`, so a fixed date rots the instant
 # "today" passes it, going red across setUp() in three test modules and
 # three assertions in test_portal_read.py. Computed at call time, relative
