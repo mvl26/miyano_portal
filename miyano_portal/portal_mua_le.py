@@ -973,7 +973,7 @@ def trang_thai_hang(item_code: str) -> str:
     return "Còn hàng" if float(tong or 0) > 0 else "Liên hệ"
 
 
-def resolve_ban_le_company(item_codes: list[str]):
+def resolve_ban_le_company(item_codes: list[str], currency: str | None = None):
     """`company` của MỌI đơn đặt từ cổng (spec 2026-10-09 §4.2: đơn không
     còn gắn Blanket Order nào để mượn `bo.company`; trước đó chỉ đơn mua lẻ
     đi đường này) — suy từ `Item Default` của chính các mặt hàng trong giỏ.
@@ -1005,7 +1005,21 @@ def resolve_ban_le_company(item_codes: list[str]):
     tự chữ cái (`sorted()[0]`) — tất định tuyệt đối, không phụ thuộc hash.
     Cùng giá trị `default_company` này cũng là kết quả fallback khi phép
     giao rỗng, nên toàn hàm chỉ có MỘT nguồn "mặc định", không hai.
+
+    `currency` (tiền của bảng giá trên đơn): chỉ company có
+    `default_currency` trùng tiền đó mới được chọn. Không lọc thì một mặt
+    hàng chỉ khai Item Default ở company tiền khác (vd. `_Test Company`
+    tiền INR) kéo đơn bảng giá VND sang company đó, và ERPNext dừng ở
+    "Exchange Rate is mandatory" vì không có tỷ giá VND→INR. Không company
+    nào khớp cả kho lẫn tiền thì rơi về company mặc định nếu cùng tiền,
+    rồi tới company cùng tiền nhỏ nhất theo chữ cái — kho giao để nhân
+    viên sửa trên đơn nháp, như nhánh fallback ở trên.
     """
+    cung_tien = None
+    if currency:
+        cung_tien = set(frappe.get_all(
+            "Company", filters={"default_currency": currency}, pluck="name"
+        ))
     candidates = None
     for item_code in item_codes:
         companies = set(frappe.get_all(
@@ -1016,12 +1030,16 @@ def resolve_ban_le_company(item_codes: list[str]):
             },
             pluck="company",
         ))
+        if cung_tien is not None:
+            companies &= cung_tien
         candidates = companies if candidates is None else (candidates & companies)
         if not candidates:
             candidates = None
             break
     mac_dinh = frappe.defaults.get_global_default("company")
     if not candidates:
+        if cung_tien and mac_dinh not in cung_tien:
+            return sorted(cung_tien)[0]
         return mac_dinh
     if mac_dinh in candidates:
         return mac_dinh

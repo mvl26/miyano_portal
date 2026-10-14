@@ -415,7 +415,10 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
     # khi site KHÔNG CÓ Company nào — lúc đó ERPNext không lưu nổi một
     # Sales Order thật (`company` là `reqd=1`), và đây đúng là lỗi cấu hình
     # hệ thống, không phải lỗi của giỏ hàng khách.
-    company = resolve_ban_le_company(list(aggregated.keys()))
+    company = resolve_ban_le_company(
+        list(aggregated.keys()),
+        currency=frappe.db.get_value("Price List", price_list, "currency"),
+    )
     if not company:
         frappe.throw(
             "Hệ thống chưa có công ty (Company) nào được cấu hình. "
