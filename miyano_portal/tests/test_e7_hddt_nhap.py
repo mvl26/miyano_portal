@@ -52,6 +52,17 @@ from miyano_portal.tests.test_e7_hddt import (
 
 
 class _NhapFixture(_E7Fixture):
+    def setUp(self):
+        super().setUp()
+        # Dòng 2 của bản nháp trỏ tới "VT0006" — seed_demo không tạo mã này,
+        # và dòng HĐĐT là Link Item nên thiếu thì insert vỡ ngay.
+        if not frappe.db.exists("Item", "VT0006"):
+            frappe.get_doc({
+                "doctype": "Item", "item_code": "VT0006", "item_name": "Vật tư test 2",
+                "item_group": frappe.db.get_value("Item", ITEM, "item_group"),
+                "stock_uom": "Hộp", "is_stock_item": 1,
+            }).insert(ignore_permissions=True)
+
     def _tao_fei_nhap(self, customer, dn, status="01 - Nháp", dong=None, **overrides):
         """Bản ghi HĐĐT còn ở vòng nháp, CÓ dòng hàng (khối nháp trên cổng là
         dòng hàng + tổng tiền, nên fixture rỗng dòng sẽ xanh giả)."""
@@ -222,7 +233,11 @@ class TestAdapterNhap(_NhapFixture):
     def test_nhieu_ban_nhap_lay_ban_moi_nhat(self):
         dn = self._tao_dn(CUSTOMER_BM)
         self._tao_fei_nhap(CUSTOMER_BM, dn, status="01 - Nháp")
-        moi = self._tao_fei_nhap(CUSTOMER_BM, dn, status="01 - Nháp")
+        # Dữ liệu CŨ: ERPNext (22/09/2026) giờ chặn bản gốc thứ hai còn sống
+        # trên cùng phiếu giao, nhưng bản ghi lập trước chốt đó vẫn nằm trong
+        # DB. Lập trên phiếu giao khác rồi trỏ về `dn` để tái hiện.
+        moi = self._tao_fei_nhap(CUSTOMER_BM, self._tao_dn(CUSTOMER_BM), status="01 - Nháp")
+        frappe.db.set_value(FEI, moi.name, "delivery_note", dn.name, update_modified=False)
         khoi = einvoice.nhap_cho_delivery_note(dn.name, CUSTOMER_BM)
         self.assertEqual(khoi["fei"], moi.name)
 
