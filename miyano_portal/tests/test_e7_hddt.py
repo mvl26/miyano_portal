@@ -59,7 +59,7 @@ def _ensure_ke_toan_hddt_user():
 
 
 def _noi_dung_pdf_tra_ve():
-    from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+    from erpnext.einvoice.tests.test_fixtures import minimal_pdf_bytes
 
     noi_dung = frappe.local.response.filecontent
     # `File.get_content()` giải mã sang `str` khi nội dung là ASCII thuần
@@ -154,9 +154,9 @@ class _E7Fixture(FrappeTestCase):
         # PDF THẬT parse được — Frappe quét nội dung PDF đính kèm tìm
         # JavaScript nhúng, byte giả bị `pdf_contains_js` từ chối ngay ở
         # `File.before_insert`. Dùng lại đúng helper module HĐĐT đã tự viết
-        # cho chính bài toán này (`erpnext/einvoice/test_fixtures.py`) thay
+        # cho chính bài toán này (`erpnext/einvoice/tests/test_fixtures.py`) thay
         # vì viết một bản PDF tối thiểu thứ hai.
-        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+        from erpnext.einvoice.tests.test_fixtures import minimal_pdf_bytes
         from frappe.utils.file_manager import save_file
 
         noi_dung = noi_dung or minimal_pdf_bytes()
@@ -685,7 +685,7 @@ class TestNhomNhap(_E7Fixture):
     (NL-12.1 — công nợ vẫn hiện bình thường)."""
 
     def _dinh_pdf_nhap(self, fei_doc):
-        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+        from erpnext.einvoice.tests.test_fixtures import minimal_pdf_bytes
         from frappe.utils.file_manager import save_file
 
         f = save_file(f"Nhap_{fei_doc.name}.pdf", minimal_pdf_bytes(), FEI, fei_doc.name, is_private=1)

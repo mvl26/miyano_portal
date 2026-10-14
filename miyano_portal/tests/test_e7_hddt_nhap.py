@@ -74,7 +74,7 @@ class _NhapFixture(_E7Fixture):
         """Mô phỏng `actions.preview_draft`: đính PDF nháp + ghi `draft_pdf`.
         Dùng PDF THẬT parse được (`File.before_insert` quét JavaScript nhúng,
         byte giả bị từ chối) — cùng lý do với `_dinh_pdf` của lớp cha."""
-        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+        from erpnext.einvoice.tests.test_fixtures import minimal_pdf_bytes
         from frappe.utils.file_manager import save_file
 
         f = save_file(
@@ -303,7 +303,7 @@ class TestEndpointNhap(_NhapFixture):
 # ======================================================== Tải PDF bản nháp
 class TestTaiPdfNhap(_NhapFixture):
     def test_tai_thanh_cong_dung_noi_dung_va_ghi_log(self):
-        from erpnext.einvoice.test_fixtures import minimal_pdf_bytes
+        from erpnext.einvoice.tests.test_fixtures import minimal_pdf_bytes
 
         dn = self._tao_dn(CUSTOMER_BM)
         fei = self._tao_fei_nhap(CUSTOMER_BM, dn, status="02 - Đã xem nháp")
