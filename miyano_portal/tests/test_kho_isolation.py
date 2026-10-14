@@ -221,9 +221,21 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = (
 # Website User tự gọi get_list/REST trực tiếp trên chính doctype này. (b)
 # chỉ xảy ra nếu một ngày nào đó có đường đọc KHÁC, đi vòng qua whitelist
 # đó — không phải chính endpoint whitelist kể trên.
+#
+# Danh mục hàng (28/09–02/10/2026):
+#   * "Dong May" — danh mục dòng máy DÙNG CHUNG mọi khách, không có
+#     `customer` (khác `Customer Equipment`, là một chiếc máy của một bệnh
+#     viện). Không có DocPerm cho role Customer.
+#   * "Item May Su Dung" — istable=1, bảng con của `Item` (link Dong May).
+#   * "Item Ten Thuong Goi" — istable=1, bảng con của `Item`, CÓ `customer`
+#     (tên thường gọi theo từng bệnh viện). Cổng chỉ đọc qua whitelist phía
+#     server (`api/portal.py` lọc vật tư, `ten_hang.ten_thuong_goi_theo_ma`),
+#     cả hai đều lọc `customer` = khách đang đăng nhập; cha `Item` không có
+#     đường đọc trực tiếp cho Website User.
 KHONG_PHAI_DOCTYPE_KHO: tuple[str, ...] = (
     "Miyano Portal Settings", "Sales Order Dat Ngoai Item", "Portal Member",
     "Portal Nhat Ky Yeu Cau",
+    "Dong May", "Item May Su Dung", "Item Ten Thuong Goi",
 )
 
 # --------------------------------------------------------------------- AN-1
