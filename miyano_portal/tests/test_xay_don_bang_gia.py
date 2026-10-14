@@ -99,7 +99,13 @@ class TestXayDonBangGia(FrappeTestCase):
 	def test_khach_chua_co_bang_gia_van_dat_duoc_va_duoc_gan_bang_rieng(self):
 		frappe.db.set_value("Customer", self.kh_a, "default_price_list", None)
 		so = self._dat([{"item_code": self.item_ngoai, "qty": 1}])
-		self.assertEqual(so.selling_price_list, f"Bảng giá {self.kh_a}")
+		# Tên có thể mang hậu tố "(mã ngắn)" khi "Bảng giá <khách>" đã tồn tại
+		# (vd. patch v1_41 tạo trước) — chốt là bảng MỚI được gán cho khách.
+		self.assertTrue(so.selling_price_list.startswith(f"Bảng giá {self.kh_a}"))
+		self.assertEqual(
+			so.selling_price_list,
+			frappe.db.get_value("Customer", self.kh_a, "default_price_list"),
+		)
 		self.assertEqual(so.items[0].custom_nguon_gia, bg.NGUON_BAO_GIA)
 
 	def test_dong_thuoc_hop_dong_khong_con_gan_lien_ket_hop_dong(self):
