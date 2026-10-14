@@ -144,10 +144,21 @@ class _E7Fixture(FrappeTestCase):
         doc.human_name = "Kế toán test"
         if sales_invoice is not None:
             doc.sales_invoice = sales_invoice
+        # ERPNext (aae6c658, 22/09/2026) chặn INSERT bản ghi mang sẵn số hoá
+        # đơn / Key tra cứu / trạng thái đã phát hành (`_refuse_duplicate_
+        # record`). Tạo nháp trước rồi ghi các trường đó bằng `db.set_value`,
+        # đúng khuôn bộ test einvoice của ERPNext.
+        sau_insert = {
+            k: overrides.pop(k) for k in ("status", "fast_invoice_no", "fast_key_search")
+            if k in overrides
+        }
         for k, v in overrides.items():
             doc.set(k, v)
         doc.flags.ignore_permissions = True
         doc.insert()
+        if sau_insert:
+            frappe.db.set_value(FEI, doc.name, sau_insert, update_modified=False)
+            doc.reload()
         return doc
 
     def _dinh_pdf(self, fei_doc, noi_dung=None):
@@ -207,7 +218,12 @@ class TestResolveBridge(_E7Fixture):
         dn = self._tao_dn(CUSTOMER_BM)
         si = self._tao_si(CUSTOMER_BM, dn=dn)
         fei_qua_dn = self._tao_fei(CUSTOMER_BM, dn, status="06 - Đã phát hành")
-        fei_truc_tiep = self._tao_fei(CUSTOMER_BM, dn, sales_invoice=si.name, status="01 - Nháp")
+        # ERPNext chỉ cho MỘT "Hóa đơn gốc" còn sống trên một phiếu giao; bản
+        # ghi thứ hai cùng phiếu giao chỉ có thể là điều chỉnh/thay thế.
+        fei_truc_tiep = self._tao_fei(
+            CUSTOMER_BM, dn, sales_invoice=si.name, status="01 - Nháp",
+            invoice_type="Hóa đơn điều chỉnh", adjustment_reason="Test", original_document=fei_qua_dn.name,
+        )
         found = {f.name for f in einvoice.resolve_all(si.name)}
         self.assertEqual(found, {fei_qua_dn.name, fei_truc_tiep.name})
 
@@ -215,7 +231,10 @@ class TestResolveBridge(_E7Fixture):
         dn = self._tao_dn(CUSTOMER_BM)
         si = self._tao_si(CUSTOMER_BM, dn=dn)
         fei1 = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
-        fei2 = self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp")
+        fei2 = self._tao_fei(
+            CUSTOMER_BM, dn, status="01 - Nháp",
+            invoice_type="Hóa đơn điều chỉnh", adjustment_reason="Test", original_document=fei1.name,
+        )
         found = einvoice.resolve_all(si.name)
         self.assertEqual([f.name for f in found], [fei1.name, fei2.name])
 
@@ -441,7 +460,10 @@ class TestMultiFEI(_E7Fixture):
         si = self._tao_si(CUSTOMER_BM, dn=dn)
         goc = self._tao_fei(CUSTOMER_BM, dn, status="08 - CQT chấp nhận")
         self._dinh_pdf(goc)
-        con = self._tao_fei(CUSTOMER_BM, dn, status="01 - Nháp", original_document=goc.name)
+        con = self._tao_fei(
+            CUSTOMER_BM, dn, status="01 - Nháp", original_document=goc.name,
+            invoice_type="Hóa đơn điều chỉnh", adjustment_reason="Test",
+        )
 
         block = einvoice.block_for(si.name, CUSTOMER_BM)
         self.assertEqual(block["chinh"]["fei"], goc.name)

@@ -133,6 +133,14 @@ class TestNotificationLogEndToEnd(FrappeTestCase):
     def setUp(self):
         seed_demo()
         frappe.db.delete("Notification Log", {"for_user": "bvbm@demo.miyano"})
+        # Tự DỰNG tiền đề thay vì chỉ đòi nó: bộ test của Frappe/ERPNext để
+        # lại `_Test Email Account 1` (enable_outgoing=1) trên site test. Tắt
+        # trong transaction của test, FrappeTestCase rollback sau đó.
+        frappe.db.set_value(
+            "Email Account", {"enable_outgoing": 1},
+            {"enable_outgoing": 0, "default_outgoing": 0},
+        )
+        frappe.cache.delete_value("outgoing_email_account")
         self.assertFalse(
             frappe.get_all("Email Account", filters={"enable_outgoing": 1}),
             "Test này cần KHÔNG có Email Account gửi ra để tái hiện đúng lỗi thật "
