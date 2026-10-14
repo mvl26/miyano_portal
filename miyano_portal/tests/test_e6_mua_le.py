@@ -17,7 +17,6 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal import bang_gia_khach
 from miyano_portal.api import portal
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.setup.seed_demo import COMPANY, PRICE_LIST, seed_demo
@@ -106,18 +105,6 @@ def _seed_mua_le():
 
     frappe.db.set_value("Customer", BVBM, "custom_cho_phep_mua_le", 1)
     frappe.db.set_value("Customer", PXN, "custom_cho_phep_mua_le", 0)
-
-    # Spec 2026-10-09 — giá lấy từ Price List RIÊNG của khách. seed_demo chỉ
-    # ghi giá VT0005 vào bảng hợp đồng; khi khách đã có bảng riêng thì bảng
-    # đó có thể thiếu dòng này, và mọi bài đặt VT0005 rơi sang Quotation.
-    pl_bvbm = bang_gia_khach.dam_bao_bang_gia_rieng(BVBM)
-    if not frappe.db.exists(
-        "Item Price", {"item_code": VT_HDNT, "price_list": pl_bvbm, "selling": 1}
-    ):
-        frappe.get_doc({
-            "doctype": "Item Price", "item_code": VT_HDNT, "price_list": pl_bvbm,
-            "price_list_rate": 1200, "selling": 1,
-        }).insert(ignore_permissions=True)
 
     _dam_bao_item_ban_le(RETAIL_CO_GIA, "Khẩu trang y tế lẻ", 25000)
     _dam_bao_item_ban_le(RETAIL_THIEU_GIA, "Kit test nhanh lẻ", None)

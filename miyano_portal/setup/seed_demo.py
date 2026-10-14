@@ -146,6 +146,31 @@ def _ensure_items():
     return item_codes
 
 
+def _ensure_gia_khach(cust):
+    """Giá demo trong Price List RIÊNG của khách (spec 2026-10-09: cổng chỉ
+    đọc giá từ bảng của chính khách). Patch v1_41 tách mỗi khách một bảng
+    riêng lúc bảng hợp đồng chưa có giá, nên bảng riêng có thể trống; ghi
+    thẳng vào đó để đơn demo/test có giá và đi đường Sales Order."""
+    from miyano_portal import bang_gia_khach
+
+    bang = bang_gia_khach.dam_bao_bang_gia_rieng(cust)
+    for it in ITEMS:
+        if not frappe.db.exists(
+            "Item Price", {"item_code": it["item_code"], "price_list": bang, "selling": 1}
+        ):
+            frappe.get_doc(
+                {
+                    "doctype": "Item Price",
+                    "item_code": it["item_code"],
+                    "price_list": bang,
+                    "uom": it["uom"],
+                    "selling": 1,
+                    "price_list_rate": it["rate"],
+                    "currency": "VND",
+                }
+            ).insert(ignore_permissions=True)
+
+
 def _ensure_customer(cust, ma_ngan=None):
     if not frappe.db.exists("Customer", cust):
         frappe.get_doc(
@@ -319,6 +344,7 @@ def seed_demo() -> dict:
     users = []
     for c in CUSTOMERS:
         cust = _ensure_customer(c["name"], c.get("ma_ngan"))
+        _ensure_gia_khach(cust)
         customers.append(cust)
         _ensure_address(cust)
         users.append(_ensure_portal_user(cust, c["email"]))
