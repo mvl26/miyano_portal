@@ -9,7 +9,9 @@ là hàng hợp đồng.
 Task này KHÔNG xoá field (Ruling P8 — nó còn ~15 chỗ đọc ngoài tầm app,
 gồm Notification tự động). Task này đổi thứ các CHỐT hỏi: mọi chốt của
 vòng báo giá gọi CHUNG `portal_mua_le.di_vong_bao_gia(so)` thay vì tự so
-chuỗi `custom_loai_don == "Mua lẻ"` ở sáu nơi.
+chuỗi `custom_loai_don == "Mua lẻ"` ở sáu nơi. Từ patch v1_44 vòng báo giá
+trên đơn đã bỏ (đơn mới đi Quotation); vị ngữ còn lại cho đơn "Mua lẻ" cũ
+(chốt 3 của `chot_bao_gia`).
 
 **Vị ngữ đọc DẤU ĐÓNG, không suy lại từ DÒNG** — xem docstring của
 `di_vong_bao_gia`. Bài `test_don_tron_da_dien_gia_van_o_trong_vong_bao_gia`
@@ -29,7 +31,7 @@ from miyano_portal.api import portal
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
-from miyano_portal.portal_mua_le import TRANG_THAI_CHO_KHACH, di_vong_bao_gia
+from miyano_portal.portal_mua_le import di_vong_bao_gia
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
 COMPANY = "Miyano Việt Nam"
@@ -67,8 +69,7 @@ def _don_phieu_cu():
 
 def _dam_bao_quan_ly(email, customer):
 	"""Tài khoản cổng vai trò "Quản lý" — `pham_vi_don()` rỗng nên
-	`dam_bao_xem_duoc` không lọc theo khoa, và `dam_bao_duoc_sua_don_da_
-	duyet` cho qua. Cùng khuôn `test_de_xuat_sua_sau_duyet.py`."""
+	`dam_bao_xem_duoc` không lọc theo khoa."""
 	if not frappe.db.exists("User", email):
 		u = frappe.get_doc({
 			"doctype": "User", "email": email,
@@ -207,15 +208,6 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		self.assertEqual(float(so.items[0].rate), 100.0)
 		return so
 
-	def _ep_cho_khach_dong_y(self, ten, ngay_gui=None):
-		"""Ép `workflow_state` thẳng bằng `db.set_value` — cùng khuôn
-		`test_e6_mua_le.py`/`test_de_xuat_sua_sau_duyet.py` dùng để dựng
-		fixture ở trạng thái này, không đi qua workflow thật của sales."""
-		frappe.db.set_value("Sales Order", ten, {
-			"workflow_state": TRANG_THAI_CHO_KHACH,
-			"custom_ngay_gui_khach_duyet": ngay_gui or frappe.utils.today(),
-		}, update_modified=False)
-
 	# ---- vị ngữ dùng chung ------------------------------------------
 
 	def test_don_tron_duoc_coi_la_di_vong_bao_gia(self):
@@ -230,107 +222,13 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		so = self._don_thuan_hop_dong()
 		self.assertFalse(di_vong_bao_gia(so))
 
-	# ---- chốt 1: banner hiệu lực báo giá (`portal_order_track`) ------
-
-	def test_banner_hieu_luc_hien_cho_don_tron(self):
-		"""VẾ DƯƠNG — khách mở đơn TRỘN đang chờ mình đồng ý phải thấy
-		"Báo giá hiệu lực đến ..." (F-07). Trước mô hình gộp, chốt này hỏi
-		`custom_loai_don == "Mua lẻ"`; giờ hỏi `di_vong_bao_gia`."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		kq = portal.portal_order_track(so.name)
-		self.assertIsNotNone(kq["chap_nhan"])
-		self.assertTrue(kq["chap_nhan"]["can_dong_y"])
-		self.assertIsNotNone(kq["chap_nhan"]["han_hieu_luc"])
-
-	def test_banner_hieu_luc_khong_ap_cho_don_thuan_hop_dong(self):
-		"""TƯƠNG THÍCH NGƯỢC — đơn HĐNT ở "Chờ khách đồng ý" là luồng E2
-		gốc, KHÔNG có khái niệm hiệu lực N ngày (review I-2(c))."""
-		so = self._don_thuan_hop_dong()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		kq = portal.portal_order_track(so.name)
-		self.assertIsNotNone(kq["chap_nhan"])
-		self.assertTrue(kq["chap_nhan"]["can_dong_y"])
-		self.assertIsNone(kq["chap_nhan"]["han_hieu_luc"])
-
-	# ---- chốt 2: hết hiệu lực khi khách bấm đồng ý -------------------
-
-	def test_don_tron_qua_han_bi_chan_dong_y(self):
-		"""BR-R5 áp cho đơn TRỘN: báo giá gửi 30 ngày trước đã hết hiệu
-		lực, khách không bấm đồng ý trên đơn cũ được nữa."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(
-			so.name, ngay_gui=frappe.utils.add_days(frappe.utils.today(), -30)
-		)
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_accept(so.name, "dong_y")
-		self.assertIn("hết hiệu lực", str(ctx.exception))
-
-	# ---- chốt 3: sửa số lượng trong vòng báo giá ---------------------
-
-	def test_don_tron_sua_duoc_so_luong(self):
-		"""VẾ DƯƠNG — đơn trộn ĐANG trong vòng báo giá thì khách sửa được
-		số lượng rồi gửi lại (đơn về "Chờ xác nhận" để Miyano báo lại)."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		portal.portal_order_sua_so_luong(
-			so.name, {"items": [{"item_code": self.item_ngoai, "qty": 9}]}
-		)
-		frappe.set_user("Administrator")
-		lai = frappe.get_doc("Sales Order", so.name)
-		theo_ma = {d.item_code: d for d in lai.items}
-		self.assertEqual(float(theo_ma[self.item_ngoai].qty), 9.0)
-		self.assertEqual(lai.workflow_state, "Chờ xác nhận")
-
-	def test_don_thuan_hop_dong_khong_sua_duoc_so_luong(self):
-		"""CHỐT TƯƠNG THÍCH NGƯỢC — số lượng đơn HĐNT đã chốt theo hợp
-		đồng, cổng không sửa được."""
-		so = self._don_thuan_hop_dong()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_sua_so_luong(
-				so.name, {"items": [{"item_code": self.item_hd, "qty": 9}]}
-			)
-		self.assertIn("chờ báo giá", str(ctx.exception))
-
-	# ---- chốt 4: PDF báo giá ----------------------------------------
-
-	def test_pdf_bao_gia_khong_chan_don_tron_o_chot_loai_don(self):
-		"""Đơn trộn phải ĐI QUA được chốt loại đơn của `portal_bao_gia_
-		pdf`. Chứng minh bằng chốt KẾ TIẾP: để đơn ở "Chờ xác nhận" thì
-		lỗi nhận được phải là lỗi "chưa gửi báo giá", tức chốt loại đơn
-		đứng TRƯỚC nó đã cho qua. (Cố ý không dựng PDF thật ở đây — bài
-		này canh CHỐT, không canh wkhtmltopdf.)"""
-		so = self._don_tron()
-		self.assertEqual(so.workflow_state, "Chờ xác nhận")
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_bao_gia_pdf(order=so.name)
-		self.assertIn("chưa được gửi", str(ctx.exception))
-
-	def test_pdf_bao_gia_chan_don_thuan_hop_dong(self):
-		"""TƯƠNG THÍCH NGƯỢC — đơn thuần hợp đồng ở "Chờ khách đồng ý"
-		vẫn KHÔNG tải được chứng từ đề "Hiệu lực đến..." (review I-2)."""
-		so = self._don_thuan_hop_dong()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_bao_gia_pdf(order=so.name)
-		self.assertIn("chờ báo giá", str(ctx.exception))
-
 	# ---- BÀI KHOÁ QUYẾT ĐỊNH: vị ngữ đọc DẤU, không suy lại từ dòng --
 
 	def test_don_tron_da_dien_gia_van_o_trong_vong_bao_gia(self):
 		"""Miyano ĐIỀN GIÁ ngay giữa vòng báo giá — đó là việc của vòng
 		này. Nếu vị ngữ suy lại từ DÒNG thì đúng lúc đó nó lật sang
-		`False` và đơn RƠI KHỎI vòng báo giá giữa chừng: banner hiệu lực
-		tắt, PDF báo giá không tải được, khách không sửa được số lượng
-		nữa. Vị ngữ vì vậy đọc DẤU ĐÓNG `custom_loai_don` — dấu ghi lại
+		`False` và đơn RƠI KHỎI vòng báo giá giữa chừng (chốt 3 thôi canh
+		giá khách đã đồng ý). Vị ngữ vì vậy đọc DẤU ĐÓNG `custom_loai_don` — dấu ghi lại
 		ĐƯỜNG đơn đã đi, không phải tình trạng giá lúc này.
 
 		Bài này ĐỎ ngay khi ai đó đổi `di_vong_bao_gia` sang suy lại từ
@@ -343,104 +241,6 @@ class TestDonTronVongBaoGia(FrappeTestCase):
 		self.assertTrue(all(float(d.rate) > 0 for d in so.items))
 
 		self.assertTrue(di_vong_bao_gia(so))
-
-		# ... và các chốt vẫn nhận đơn này (đường công khai, không soi
-		# vị ngữ một mình).
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		kq = portal.portal_order_track(so.name)
-		self.assertIsNotNone(kq["chap_nhan"]["han_hieu_luc"])
-
-	# ---- Task 7 — NĂM CHỐT của `portal_order_sua_so_luong` ------------
-	#
-	# Bốn chốt còn lại (chốt 1 "đi vòng báo giá" đã có đủ hai vế ở
-	# `test_don_tron_sua_duoc_so_luong` / `test_don_thuan_hop_dong_khong_
-	# sua_duoc_so_luong` phía trên) được canh Ở ĐÂY chứ không ở
-	# `test_e6_mua_le.py::TestSuaSoLuong`, vì fixture bên đó (`_tao_so_bao_
-	# gia`) GÁN TAY `custom_loai_don = "Mua lẻ"` — nó vá quanh đúng cái dấu
-	# mà chốt 1 đọc, nên một bài xanh ở đó không chứng minh được chốt nào.
-	# Ở đây đơn do CHÍNH `dat_hang.tao_sales_order` đóng dấu, trên một
-	# `Blanket Order` đã SUBMIT.
-	#
-	# Vế dương chung cho cả năm chốt: `test_don_tron_sua_duoc_so_luong` —
-	# một lần gọi đi qua TRỌN năm chốt rồi mới đổi được số lượng. Không có
-	# nó, năm vế âm dưới đây vẫn xanh với một hàm ném lỗi vô điều kiện.
-
-	def test_chot2_don_chua_toi_buoc_cho_khach_dong_y_bi_chan(self):
-		"""CHỐT 2 — `workflow_state`. Đơn trộn NGAY SAU khi tạo nằm ở "Chờ
-		xác nhận" (Miyano chưa báo giá): chưa có gì để khách sửa."""
-		so = self._don_tron()
-		self.assertEqual(so.workflow_state, "Chờ xác nhận")
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_sua_so_luong(
-				so.name, {"items": [{"item_code": self.item_ngoai, "qty": 9}]}
-			)
-		self.assertIn("chờ quý khách đồng ý", str(ctx.exception))
-
-	def test_chot3_bao_gia_het_hieu_luc_bi_chan(self):
-		"""CHỐT 3 — BR-R5. Báo giá gửi 30 ngày trước đã hết hiệu lực; sửa
-		số lượng trên nó là sửa một mức giá không còn ai cam kết."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(
-			so.name, ngay_gui=frappe.utils.add_days(frappe.utils.today(), -30)
-		)
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_sua_so_luong(
-				so.name, {"items": [{"item_code": self.item_ngoai, "qty": 9}]}
-			)
-		self.assertIn("hết hiệu lực", str(ctx.exception))
-		self.assertEqual(
-			frappe.local.response.get("ly_do"), "qua_han_hieu_luc",
-			"client cần mã lý do để hiện đúng lời nhắc, không chỉ câu chữ",
-		)
-		frappe.set_user("Administrator")
-		self.assertEqual(
-			frappe.db.get_value("Sales Order", so.name, "workflow_state"),
-			TRANG_THAI_CHO_KHACH,
-			"chặn TRƯỚC khi đụng vào đơn",
-		)
-
-	def test_chot4_ma_hang_khong_co_tren_don_bi_chan(self):
-		"""CHỐT 4 — payload chỉ KHỚP dòng đã có, không thêm dòng mới. Mã
-		`self.item_ngoai` có trong danh mục và có cả giá, nên bài này đo
-		đúng "không có TRÊN ĐƠN NÀY", không phải "không tồn tại"."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(so.name)
-		ma_la = self._tao_item("_TEST DX TRON NGOAI DON")
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_sua_so_luong(
-				so.name, {"items": [{"item_code": ma_la, "qty": 4}]}
-			)
-		self.assertIn("Không tìm thấy mặt hàng", str(ctx.exception))
-		self.assertIn(ma_la, str(ctx.exception))
-		frappe.set_user("Administrator")
-		self.assertEqual(
-			frappe.db.get_value("Sales Order", so.name, "workflow_state"),
-			TRANG_THAI_CHO_KHACH,
-		)
-
-	def test_chot5_ha_het_moi_dong_ve_0_bi_chan_huong_sang_nut_huy(self):
-		"""CHỐT 5 — ERPNext không lưu được `items` rỗng. Hạ CẢ HAI dòng về
-		0 là huỷ đơn bằng cửa sau; lỗi phải chỉ sang nút Huỷ."""
-		so = self._don_tron()
-		self._ep_cho_khach_dong_y(so.name)
-		frappe.set_user(self.user_quan_ly)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			portal.portal_order_sua_so_luong(so.name, {"items": [
-				{"item_code": self.item_hd, "qty": 0},
-				{"item_code": self.item_ngoai, "qty": 0},
-			]})
-		# Ghim bằng MỆNH ĐỀ chỉ chốt này phát ra, không bằng từ "Huỷ": "Huỷ"
-		# là từ thông dụng, hôm nay tình cờ còn duy nhất trong hàm — chỉ cách
-		# một lần đổi lời là một throw khác thoả mãn được nó.
-		self.assertIn("không còn dòng hàng nào", str(ctx.exception))
-		self.assertIn("Huỷ", str(ctx.exception), "phải chỉ sang nút Huỷ")
-		frappe.set_user("Administrator")
-		lai = frappe.get_doc("Sales Order", so.name)
-		self.assertEqual(len(lai.items), 2, "chặn rồi thì đơn không được rụng dòng")
 
 	# ---- Ruling P49 — nhãn "Có hàng chờ báo giá" phải TẮT khi đơn đã chốt
 

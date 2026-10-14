@@ -17,7 +17,7 @@ const orders = ref([])
 // lấy từ `portal_dashboard_kpi`, một truy vấn đếm/cộng RIÊNG trên TOÀN BỘ
 // dữ liệu của khách, không phụ thuộc cỡ trang. Không còn cần gọi
 // `portal_invoices` ở màn này — danh sách hoá đơn không hiện ở Dashboard.
-const kpi = ref({ bao_gia_cho_dong_y: 0, don_cu_cho_dong_y: 0, don_cho_xac_nhan: 0, don_dang_giao: 0, hoa_don_chua_thanh_toan: 0 })
+const kpi = ref({ bao_gia_cho_dong_y: 0, don_cho_xac_nhan: 0, don_dang_giao: 0, hoa_don_chua_thanh_toan: 0 })
 
 const now = new Date()
 const updatedAt = `${fmtDate(now.toISOString())} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -64,16 +64,11 @@ function openOrder(name) {
     </div>
 
     <div class="kpis">
-      <!-- Thẻ này trỏ sang tab báo giá nên chỉ mang con số của tab đó. Đơn
-           "Mua lẻ" của luồng cũ còn chờ đồng ý nằm ở tab Đơn hàng: đường dẫn
-           riêng, đứng NGOÀI thẻ (thẻ đã là một liên kết). -->
-      <div class="kpi-bao-gia">
-        <router-link :to="{ name: 'bao-gia', query: { nhom: 'cho_dong_y' } }" class="card kpi" style="text-decoration: none; color: inherit">
-          <div class="n" style="color: var(--orange)">{{ kpi.bao_gia_cho_dong_y }}</div>
-          <div class="t">Báo giá chờ đồng ý</div>
-        </router-link>
-        <router-link v-if="kpi.don_cu_cho_dong_y > 0" :to="{ name: 'yeu-cau', query: { chip: 'cho_khach_dong_y' } }" class="tag don-cu">{{ kpi.don_cu_cho_dong_y }} đơn cũ chờ đồng ý →</router-link>
-      </div>
+      <!-- Thẻ này trỏ sang tab báo giá nên chỉ mang con số của tab đó. -->
+      <router-link :to="{ name: 'bao-gia', query: { nhom: 'cho_dong_y' } }" class="card kpi" style="text-decoration: none; color: inherit">
+        <div class="n" style="color: var(--orange)">{{ kpi.bao_gia_cho_dong_y }}</div>
+        <div class="t">Báo giá chờ đồng ý</div>
+      </router-link>
       <div class="card kpi"><div class="n">{{ kpi.don_cho_xac_nhan }}</div><div class="t">Đơn chờ xác nhận</div></div>
       <div class="card kpi"><div class="n">{{ kpi.don_dang_giao }}</div><div class="t">Đơn đang giao</div></div>
       <div class="card kpi"><div class="n">{{ kpi.hoa_don_chua_thanh_toan }}</div><div class="t">Hoá đơn chưa thanh toán</div></div>
@@ -109,7 +104,4 @@ function openOrder(name) {
 <style scoped>
 /* Ô lưới của thẻ báo giá: thẻ giãn hết chiều cao như các thẻ bên cạnh, đường
    dẫn "đơn cũ" (chỉ hiện khi còn đơn) nằm ngay dưới. */
-.kpi-bao-gia { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
-.kpi-bao-gia > .kpi { flex: 1; }
-.don-cu { padding: 0 0.25rem; color: var(--orange); }
 </style>

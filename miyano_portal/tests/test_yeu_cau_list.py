@@ -6,7 +6,7 @@ trước yêu cầu của mình đang ở giai đoạn NỘI BỘ nào mới tì
 tức phải học sơ đồ kiến trúc của hệ thống.
 
 Endpoint gộp trả về đúng MỘT dòng cho mỗi yêu cầu, ở bất kỳ giai đoạn nào:
-`nhap → cho_duyet → da_duyet → cho_khach_dong_y → da_giao` (cộng hai ngõ
+`nhap → cho_duyet → da_duyet → da_giao` (cộng hai ngõ
 cụt `tu_choi`/`da_huy` — trạng thái THẬT mà người dùng tự đưa yêu cầu của
 mình vào, xem bài học "Việc (d)" của `DeXuatList.vue`).
 
@@ -295,19 +295,17 @@ class TestYeuCauList(FrappeTestCase):
 		mà màn hình đọc ra "Đã duyệt".
 
 		`apply_workflow` chỉ tra vai trò qua `frappe.get_roles()` ->
-		`frappe.session.user` (giải thích dài ở `portal_order_accept`); test
-		chạy dưới Administrator nên đi qua được chốt `Sales User`."""
+		`frappe.session.user`; test chạy dưới Administrator nên đi qua được
+		chốt `Sales User`."""
 		from frappe.model.workflow import apply_workflow
 
 		so = frappe.get_doc("Sales Order", ten_don)
-		# Đơn đi "Gửi khách duyệt" -> "Khách đồng ý" mới tới "Chờ Miyano xác
-		# nhận". Từ spec 2026-10-12 §5 đơn của `_duyet_that` là đơn "Theo bảng
-		# giá" (đã có giá); phép ghi giá dưới đây chỉ còn đổi con số.
+		# Từ spec 2026-10-12 §5 đơn của `_duyet_that` là đơn "Theo bảng giá"
+		# (đã có giá); phép ghi giá dưới đây chỉ còn đổi con số.
 		for d in so.items:
 			frappe.db.set_value("Sales Order Item", d.name, "rate", 7000)
 		so.reload()
-		so = apply_workflow(so, "Gửi khách duyệt")
-		so = apply_workflow(so, "Khách đồng ý")
+		so = apply_workflow(so, "Gửi duyệt")
 		# BR-O14/NL-2.1 (`portal_duyet_don.kiem_ly_do_tu_choi`) — không có
 		# lý do thì KHÔNG chuyển sang "Từ chối" được. Phải GHI XUỐNG CSDL,
 		# không gán trên object: `apply_workflow` mở đầu bằng
@@ -486,7 +484,7 @@ class TestYeuCauList(FrappeTestCase):
 		Y tá đọc xong thì CHỜ VÔ HẠN một lô hàng Miyano đã huỷ từ 21/08.
 
 		Thiếu sót này MÂU THUẪN với chính khối CASE: nó đã đặc biệt hoá
-		`Khách huỷ` và `Báo giá hết hạn` từ ĐÚNG bộ từ vựng workflow đó."""
+		các trạng thái khác từ ĐÚNG bộ từ vựng workflow đó."""
 		self._miyano_tu_choi(self.don_cua_phieu)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
@@ -494,8 +492,8 @@ class TestYeuCauList(FrappeTestCase):
 
 	def test_nhan_chi_tiet_cua_don_bi_tu_choi_khong_doc_ra_Cho_xac_nhan(self):
 		"""Nhãn phụ cũng không cứu được trước bản vá: `_so_status_vi_full`
-		chỉ ghi đè `Báo giá hết hạn` và `Khách huỷ`, nên một đơn bị từ chối
-		đọc ra "Chờ xác nhận" — y hệt một đơn đang sống."""
+		không biết `Từ chối`, nên một đơn bị từ chối đọc ra "Chờ xác nhận" —
+		y hệt một đơn đang sống."""
 		self._miyano_tu_choi(self.don_cua_phieu)
 		kq = self._goi(self.user_huyethoc, limit=100)
 		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
@@ -522,19 +520,6 @@ class TestYeuCauList(FrappeTestCase):
 			frappe.set_user("Administrator")
 		don = next(r for r in rows if r["name"] == self.don_cua_phieu)
 		self.assertEqual(don["status_vi"], "Miyano đã từ chối")
-
-	def test_hai_nhan_ghi_de_da_co_KHONG_bi_dung_den(self):
-		"""VẾ ĐỐI CHỨNG — bản vá không được kéo theo `Khách huỷ`/`Báo giá
-		hết hạn` sang nhãn mới, và một đơn đang sống vẫn phải đọc ra "Chờ
-		xác nhận"."""
-		frappe.db.set_value(
-			"Sales Order", self.don_cua_phieu, "workflow_state",
-			"Khách huỷ", update_modified=False,
-		)
-		kq = self._goi(self.user_huyethoc, limit=100)
-		dong = self._tim_theo_phieu(kq, self.phieu_da_duyet)
-		self.assertEqual(dong["giai_doan"], "da_huy")
-		self.assertEqual(dong["trang_thai_don"], "Đã huỷ")
 
 	# -- Ruling P42 — giao MỘT PHẦN chưa phải "Đã giao" ------------------------
 
@@ -569,35 +554,14 @@ class TestYeuCauList(FrappeTestCase):
 			self._tim_theo_phieu(kq, self.phieu_da_duyet)["giai_doan"], "da_giao"
 		)
 
-	def test_giai_doan_cho_khach_dong_y_khi_don_dang_o_vong_bao_gia(self):
-		"""Chốt canh cho chính giai đoạn `cho_khach_dong_y` của QĐ-G11 — nó
-		phải TỚI ĐƯỢC, không phải một chip luôn rỗng (bài học "Việc (d)" của
-		`DeXuatList.vue`). Trạng thái này do `hooks`/`portal_bao_gia` ghi
-		bằng `db.set_value` y như dòng dưới.
-
-		Ruling P54 (26/08/2026) — bài này TRƯỚC ĐÂY ghim chuỗi hiển thị
-		`"Chờ báo giá"`. Giữ nguyên bài, đổi thứ nó ghim: endpoint nay trả
-		KHOÁ NỘI BỘ, còn nhãn tiếng Việt ("Chờ quý vị đồng ý") là việc của
-		tầng hiển thị và được ghim riêng ở `test_giai_doan_khoa_va_nhan.py`.
-		Ghim khoá bằng CHUỖI VIẾT THẲNG, không qua hằng số `GIAI_DOAN_*`:
-		so với hằng số thì bài test đi theo mọi lần đổi giá trị và không
-		còn ghim gì cả."""
-		phieu, don = self._duyet_mua_le_cu()
-		frappe.db.set_value(
-			"Sales Order", don, "workflow_state",
-			"Chờ khách đồng ý", update_modified=False,
-		)
-		kq = self._goi(self.user_huyethoc, limit=100)
-		dong = self._tim_theo_phieu(kq, phieu)
-		self.assertEqual(dong["giai_doan"], "cho_khach_dong_y")
-		# Nhãn CHI TIẾT của đơn vẫn đi kèm — giai đoạn gộp không được nuốt
-		# mất tín hiệu "đang chờ CHÍNH BẠN đồng ý".
-		self.assertEqual(dong["trang_thai_don"], "Chờ xác nhận")
-
 	def test_bi_danh_chuoi_CU_van_ra_dung_tap_ket_qua(self):
 		"""Ruling P54, mục 3 — link `?chip=Chờ báo giá` ĐÃ GỬI CHO BỆNH VIỆN
 		phải vẫn dẫn đúng chỗ: không rơi lặng lẽ về "Tất cả", cũng không ném
 		lỗi cho một liên kết hợp lệ ngày hôm qua.
+
+		Patch v1_44 bỏ giai đoạn `cho_khach_dong_y` của đơn: đơn cũ ở vòng
+		báo giá đã về chờ Miyano xác nhận, nên cả khoá cũ lẫn nhãn cũ rơi về
+		`da_duyet`, đúng chỗ đơn đó nằm bây giờ.
 
 		So HAI TẬP KẾT QUẢ chứ không chỉ "gọi được mà không ném": một bí
 		danh trỏ nhầm khoá vẫn "gọi được" nhưng trả về tập của giai đoạn
@@ -608,11 +572,7 @@ class TestYeuCauList(FrappeTestCase):
 		nó nổ: mục đích là bài này đỏ ở CẤP KHẲNG ĐỊNH (so hai tập, đọc ra
 		ngay vế nào ném) chứ không đỏ ở cấp exception, nơi thông báo lỗi
 		không nói được vế kia trả về gì."""
-		phieu, don = self._duyet_mua_le_cu()
-		frappe.db.set_value(
-			"Sales Order", don, "workflow_state",
-			"Chờ khách đồng ý", update_modified=False,
-		)
+		phieu, _don = self._duyet_mua_le_cu()
 
 		def _tap(gd):
 			try:
@@ -621,8 +581,9 @@ class TestYeuCauList(FrappeTestCase):
 				return f"NÉM: {e}"
 			return {r["de_xuat"] for r in self._dong(kq)}
 
-		theo_khoa = _tap("cho_khach_dong_y")
+		theo_khoa = _tap("da_duyet")
 		self.assertIn(phieu, theo_khoa)
+		self.assertEqual(_tap("cho_khach_dong_y"), theo_khoa)
 		self.assertEqual(_tap("Chờ báo giá"), theo_khoa)
 
 	def test_giai_doan_cua_phieu_bi_tu_choi(self):

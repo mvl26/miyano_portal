@@ -128,10 +128,10 @@ CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = (
 # xuất hiện mà chưa được phân loại.
 #
 # `Sales Order Dat Ngoai Item` (thiết kế lại mua lẻ §4.3) — istable=1, bảng
-# con của `Sales Order` (field `custom_dat_ngoai`), KHÔNG phải doctype kho:
+# con của `Quotation` (field `custom_dat_ngoai`; Sales Order không còn bảng
+# này từ patch v1_44) và của `Portal De Xuat Mua`, KHÔNG phải doctype kho:
 # không mang field `kho`/`customer` riêng, và KHÔNG cần đăng ký hook cách ly
-# nào ở đây — Sales Order (module ERPNext, ngoài lưới quét module "Miyano
-# Portal" này) đã có `permissions.sales_query`/`sales_has_permission` riêng,
+# nào ở đây — chứng từ cha đã có hook phân quyền riêng,
 # và `frappe.permissions.has_child_permission()` route thẳng về PARENT trước
 # khi has_permission của CHÍNH bảng con có cơ hội chạy (cùng nguyên tắc đã
 # nêu ở "Fast EInvoice Line" phía dưới) — đăng ký riêng cho bảng con này sẽ

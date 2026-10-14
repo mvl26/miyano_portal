@@ -52,7 +52,6 @@ DA_AP_PHAM_VI: set[str] = {
 	"portal_bao_gia_dong_y", "portal_bao_gia_tu_choi", "portal_bao_gia_sua_so_luong",
 	"portal_order_history", "portal_order_track", "portal_dashboard_kpi",
 	"portal_deliveries", "portal_invoices", "portal_reorder",
-	"portal_order_accept", "portal_order_sua_so_luong", "portal_order_huy",
 	"portal_request_cancel", "portal_bao_gia_pdf", "portal_document_download",
 	"portal_kiem_hang_get", "portal_kiem_hang_luu", "portal_kiem_hang_gui",
 	"portal_einvoice_download", "portal_einvoice_nhap",
@@ -72,12 +71,10 @@ DA_AP_PHAM_VI: set[str] = {
 	# cho_quan_ly=True)` (trục khách hàng + khoa) CỘNG một chốt `la_quan_ly()`
 	# riêng (chỉ quản lý được gọi) — đúng khuôn đã lọc, không miễn.
 	"de_xuat_duyet_phieu", "de_xuat_tu_choi", "de_xuat_huy",
-	# Task 9 (19/08/2026, §12 Q4) — vòng sửa số lượng SAU khi đã duyệt.
-	# `de_xuat_xin_sua` mở đầu bằng `_phieu_cua_toi(..., cho_quan_ly=True)`
-	# (trục khách hàng + khoa). `de_xuat_duyet_sua`/`de_xuat_tu_choi_sua`
-	# cùng khuôn Task 6: `la_quan_ly()` riêng CỘNG `_phieu_cua_toi(...,
-	# cho_quan_ly=True)` — không cái nào miễn phạm vi.
-	"de_xuat_xin_sua", "de_xuat_duyet_sua", "de_xuat_tu_choi_sua",
+	# Task 9 (19/08/2026, §12 Q4) — `de_xuat_tu_choi_sua` (chỉ còn cho phiếu
+	# cũ ở "Chờ duyệt sửa") cùng khuôn Task 6: `la_quan_ly()` riêng CỘNG
+	# `_phieu_cua_toi(..., cho_quan_ly=True)` — không miễn phạm vi.
+	"de_xuat_tu_choi_sua",
 	# 03/09/2026 — thu hồi phiếu Chờ duyệt về Nháp để sửa. Mở đầu bằng
 	# `_phieu_cua_toi(ten)` (trục khách hàng + khoa, VÀ vòng kiểm chủ sở
 	# hữu mặc định) CỘNG một chốt owner-only riêng — chặt hơn cả ba nhóm

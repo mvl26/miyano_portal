@@ -11,12 +11,12 @@
 // vẫn đọc), và một ô `HTML` tên `anh_xem` đứng ngay trên nó nhận ảnh thật.
 //
 // ĐẶT Ở FILE RIÊNG, đăng ký theo BẢNG CON chứ không theo doctype cha: cùng
-// một bảng con `Sales Order Dat Ngoai Item` sống trên CẢ `Sales Order` LẪN
+// một bảng con `Sales Order Dat Ngoai Item` sống trên CẢ `Quotation` LẪN
 // `Portal De Xuat Mua`. Một handler, hai nơi dùng — thay vì hai bản sao sớm
 // muộn trôi lệch.
 //
 // `parentfield` đọc TỪ CHÍNH DÒNG, không gõ cứng: nó là `custom_dat_ngoai`
-// trên đơn hàng và `dat_ngoai` trên phiếu. Gõ cứng một tên là ô ảnh chỉ chạy
+// trên báo giá và `dat_ngoai` trên phiếu. Gõ cứng một tên là ô ảnh chỉ chạy
 // ở một trong hai màn, và không ai biết màn kia hỏng.
 
 frappe.ui.form.on("Sales Order Dat Ngoai Item", {

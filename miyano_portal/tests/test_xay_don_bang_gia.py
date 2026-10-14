@@ -123,12 +123,17 @@ class TestXayDonBangGia(FrappeTestCase):
 		self.assertEqual(float(so.items[0].rate), 0.0)
 
 	def test_hang_go_tay_lam_don_thanh_mua_le(self):
-		so = self._dat(
-			[{"item_code": self.item_ngoai, "qty": 1}],
-			dat_ngoai=[{"ten_hang": "Kim luồn X", "dvt": "Cái", "so_luong": 5,
-			            "khong_co_anh": 1}],
+		"""Dòng gõ tay không lên Sales Order (patch v1_44): `_xay_don` giữ nó ở
+		`flags` cho Quotation, nhưng vẫn đóng dấu đơn là còn dòng chờ báo giá."""
+		so = dat_hang._xay_don(
+			self.kh_a, {self.item_ngoai: 1},
+			[{"ten_hang": "Kim luồn X", "dvt": "Cái", "so_luong": 5, "khong_co_anh": 1}],
+			frappe.utils.add_days(frappe.utils.today(), 3), None, None, None,
+			frappe.generate_hash(length=12),
 		)
 		self.assertEqual(so.custom_loai_don, LOAI_DON_BAO_GIA)
+		self.assertEqual([d["ten_hang"] for d in so.flags.dong_dat_ngoai], ["Kim luồn X"])
+		self.assertFalse(so.meta.has_field("custom_dat_ngoai"))
 
 	def test_dong_gia_het_han_trong_bang_cua_khach_van_la_bao_gia_gia_0(self):
 		"""Bảng của khách CÓ một dòng giá cho mã này, nhưng đã hết hiệu lực —

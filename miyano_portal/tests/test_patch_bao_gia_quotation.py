@@ -70,3 +70,14 @@ class TestPatchBaoGiaQuotation(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.count("Custom Field", {"dt": "Quotation", "fieldname": "custom_request_id"}), 1
 		)
+
+	def test_chay_lai_khong_dua_bang_go_tay_tro_lai_don(self):
+		"""Patch v1_44 bỏ hai trường của vòng báo giá trên Sales Order; chạy
+		lại v1_42 (cài mới chạy cả chuỗi) chỉ tạo chúng trên Quotation."""
+		bao_gia_quotation.them_truong()
+		for ten in ("custom_dat_ngoai", "custom_ngay_gui_khach_duyet"):
+			self.assertTrue(frappe.get_meta("Quotation").has_field(ten), ten)
+			self.assertFalse(frappe.get_meta("Sales Order").has_field(ten), ten)
+			self.assertFalse(
+				frappe.db.exists("Custom Field", {"dt": "Sales Order", "fieldname": ten}), ten
+			)

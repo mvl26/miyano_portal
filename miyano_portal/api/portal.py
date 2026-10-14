@@ -2,23 +2,19 @@ import frappe
 
 from miyano_portal.kho import can_cu_duyet
 from miyano_portal.nang_quyen import quyen_he_thong
-from miyano_portal import bang_gia_khach, bao_gia, chot_bao_gia, dat_hang, einvoice, ten_hang
+from miyano_portal import bang_gia_khach, bao_gia, dat_hang, einvoice, ten_hang
 from miyano_portal.dat_hang import (
     _customer_addresses,
     _insert_so_idempotent,
-    _resolve_item_warehouse,
 )
 from miyano_portal.api.de_xuat import _phieu_cua_toi
-from miyano_portal.portal_bao_gia import gui_email_khach_huy
 from miyano_portal.portal_context import (
     LOI_KHONG_THAY,
     _cot_de_xuat_ton_tai,
     _cot_khoa_phong_ton_tai,
     cot_lan_dat_ton_tai,
     cot_ten_don_hang_ton_tai,
-    dam_bao_duoc_sua_don_da_duyet,
     dam_bao_xem_duoc,
-    duoc_sua_don_da_duyet,
     get_portal_customer,
     get_portal_member,
     khoa_phong_cho_don,
@@ -27,17 +23,7 @@ from miyano_portal.portal_context import (
     pham_vi_don,
 )
 from miyano_portal.ma_de_xuat import sinh_ma
-from miyano_portal.portal_mua_le import (
-    ITEM_GIU_CHO,
-    TRANG_THAI_CHO_KHACH,
-    cap_nhat_yeu_cau_goc,
-    di_vong_bao_gia,
-    han_hieu_luc_bao_gia,
-    la_dong_giu_cho,
-    qua_han_hieu_luc,
-    trang_thai_hang,
-    xoa_chenh_lech_gia,
-)
+from miyano_portal.portal_mua_le import ITEM_GIU_CHO, trang_thai_hang
 from miyano_portal.portal_hen_giao import hen_giao_cua_don
 from miyano_portal.portal_thoi_gian_giao import COT_CAN as COT_THOI_GIAN_GIAO
 from miyano_portal.portal_thoi_gian_giao import thoi_gian_giao_cua_dn
@@ -56,17 +42,11 @@ from miyano_portal.portal_kiem_hang import (
     bien_ban_cua_dn,
     dong_tu_delivery_note,
 )
-from miyano_portal.portal_thong_bao import (
-    bao_khach_sua_so_luong,
-    bao_loi_ghi_gia,
-    bao_yeu_cau_ho_tro_hddt,
-)
+from miyano_portal.portal_thong_bao import bao_yeu_cau_ho_tro_hddt
 
-# `_customer_addresses`, `_insert_so_idempotent`, `_resolve_item_warehouse`
-# đã chuyển sang `dat_hang.py` (lõi đặt hàng, xem module đó). Import lại ở
+# `_customer_addresses`, `_insert_so_idempotent` đã chuyển sang `dat_hang.py` (lõi đặt hàng, xem module đó). Import lại ở
 # đây vì chỗ khác trong file này vẫn dùng trực tiếp: `portal_me()` gọi
-# `_customer_addresses`, `portal_order_sua_so_luong()` gọi
-# `_resolve_item_warehouse`, và `tests/test_e1_idempotency.py` patch
+# `_customer_addresses`, và `tests/test_e1_idempotency.py` patch
 # `frappe.db.get_value` rồi gọi thẳng `portal._insert_so_idempotent(...)` —
 # đổi tên thuộc tính này trên module `portal` là phá test đó.
 
@@ -723,53 +703,27 @@ def _so_status_vi(so_status, per_delivered=None):
     return "Đang xử lý"
 
 
-# Ba `workflow_state` của Sales Order mà CỔNG phải đọc riêng, vì chúng
-# ĐÈ LÊN `so.status` gốc của ERPNext:
-#   * `Khách huỷ` / `Báo giá hết hạn` — cổng tự ghi (`portal_order_huy`,
-#     `portal_bao_gia.quet_bao_gia_het_han`), `docstatus` VẪN 0;
-#   * `Từ chối` — state THẬT của máy trạng thái `Sales Order - Client
-#     Portal` (`setup/install_workflow.py`), Sales User bấm từ "Chờ Miyano
-#     xác nhận", cũng `doc_status = 0`.
-# Đặt tên MỘT LẦN ở đây, ngay trên hàm đọc chúng: trước bản này ba chuỗi
-# nằm rải ở `_so_status_vi_full`, `_TRANG_THAI_GHI_DE_WORKFLOW` và khối SQL
-# của `_sql_giai_doan` — và đúng chỗ rải đó là nơi `Từ chối` bị bỏ sót.
-WF_KHACH_HUY = "Khách huỷ"
-WF_BAO_GIA_HET_HAN = "Báo giá hết hạn"
+# `workflow_state` của Sales Order mà CỔNG phải đọc riêng, vì nó ĐÈ LÊN
+# `so.status` gốc của ERPNext: `Từ chối` — state THẬT của máy trạng thái
+# `Sales Order - Client Portal` (`setup/install_workflow.py`), Sales User bấm
+# từ "Chờ Miyano xác nhận", `doc_status = 0`. Đặt tên MỘT LẦN ở đây, ngay
+# trên hàm đọc nó, dùng chung cho `_so_status_vi_full`,
+# `_TRANG_THAI_GHI_DE_WORKFLOW` và khối SQL của `_sql_giai_doan`.
 WF_TU_CHOI = "Từ chối"
 
 
 def _so_status_vi_full(so_status, per_delivered, workflow_state) -> str:
     """`_so_status_vi` chỉ đọc từ điển trạng thái GỐC của ERPNext
-    (`so.status`), không biết gì về `workflow_state` của Client Portal.
-    Job daily `portal_bao_gia.quet_bao_gia_het_han` chuyển `workflow_state`
-    sang "Báo giá hết hạn" nhưng `docstatus` VẪN 0 (nháp không submit) —
-    không bọc ở đây thì một đơn ĐÃ CHẾT đọc ra y hệt "Chờ xác nhận" đang
-    sống, ở CẢ danh sách đơn (`portal_order_history`) lẫn chi tiết đơn
-    (`portal_order_track`). Một hàm DÙNG CHUNG ở cả hai, không phải hai lần
-    viết tay điều kiện này — lệch nhau là đúng kiểu lỗi đã bắt ở
-    `portal_mua_le.han_hieu_luc_bao_gia`.
+    (`so.status`), không biết gì về `workflow_state` của Client Portal. Một
+    hàm DÙNG CHUNG cho danh sách đơn (`portal_order_history`) lẫn chi tiết
+    đơn (`portal_order_track`), không phải hai lần viết tay điều kiện này.
     """
-    if workflow_state == WF_BAO_GIA_HET_HAN:
-        return "Báo giá đã hết hiệu lực"
-    # Việc 2/brief 2026-08-15 — cùng lý do trên: `portal_order_huy` huỷ THẬT
-    # (workflow_state = "Khách huỷ") nhưng KHÔNG submit/cancel ERPNext
-    # (`docstatus` vẫn 0 — chỉ Sales Manager mới "Mở lại" được, không phải
-    # cancel hồi phục kiểu ERPNext chuẩn). Không bọc ở đây thì đơn khách vừa
-    # tự huỷ đọc ra y hệt "Chờ xác nhận" đang sống — ĐÚNG lỗi brief mở đầu
-    # đã nêu ("khách bấm huỷ xong đơn vẫn hiện 'chờ bạn đồng ý' -> tưởng
-    # chưa ăn"), chỉ khác chỗ đứng (trước ở `portal_request_cancel`, giờ ở
-    # đây). Dùng lại đúng nhãn "Đã huỷ" mà `_so_status_vi` đã dùng cho
-    # `so_status == "Cancelled"` — cùng badge đỏ `b-red` ở frontend
-    # (`format.js::statusBadge`), không cần sửa gì bên đó.
-    if workflow_state == WF_KHACH_HUY:
-        return "Đã huỷ"
-    # Review vòng 1 Task 11 (Important) — CÙNG lỗ hổng với hai nhánh trên,
-    # chỉ khác chỗ nó xuất phát: `Từ chối` không do cổng ghi mà là state
-    # THẬT của máy trạng thái (Sales User bấm từ "Chờ Miyano xác nhận",
-    # `doc_status = 0`). Thiếu nhánh này, một đơn Miyano ĐÃ TỪ CHỐI đọc ra
-    # "Chờ xác nhận" — y hệt một đơn đang sống — và khoa chờ vô hạn một lô
-    # hàng không bao giờ tới. Đo được trên site: `MD-HUYETHOC-260821-01`,
-    # khoa `KP-00002`, đúng khoa của tài khoản nghiệm thu.
+    # Review vòng 1 Task 11 (Important) — `Từ chối` là state THẬT của máy
+    # trạng thái (Sales User bấm từ "Chờ Miyano xác nhận", `doc_status = 0`).
+    # Thiếu nhánh này, một đơn Miyano ĐÃ TỪ CHỐI đọc ra "Chờ xác nhận" — y
+    # hệt một đơn đang sống — và khoa chờ vô hạn một lô hàng không bao giờ
+    # tới. Đo được trên site: `MD-HUYETHOC-260821-01`, khoa `KP-00002`, đúng
+    # khoa của tài khoản nghiệm thu.
     #
     # Nhãn nêu rõ AI từ chối: "Từ chối" trần trùi trùng nghĩa với trạng thái
     # phiếu đề xuất (quản lý BỆNH VIỆN từ chối) — hai sự kiện khác hẳn nhau
@@ -825,8 +779,8 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
 # CHUNG cho cả `portal_order_history` (lọc + đếm `tong`) và
 # `portal_dashboard_kpi` (đếm KPI) — viết tay điều kiện này hai lần là đúng
 # kiểu lệch nhau đã từng bắt ở `_so_status_vi`/`_so_status_vi_full`.
-# Đúng ba state mà `_so_status_vi_full` ghi đè `so.status` — dựng TỪ chính
-# ba hằng đó, không chép lại chuỗi. Một state được thêm nhãn ở hàm kia mà
+# Đúng các state mà `_so_status_vi_full` ghi đè `so.status` — dựng TỪ chính
+# các hằng đó, không chép lại chuỗi. Một state được thêm nhãn ở hàm kia mà
 # quên thêm vào đây thì hai tầng nói hai điều khác nhau về CÙNG một đơn:
 # danh sách hiện "Miyano đã từ chối" trong khi chip/KPI vẫn đếm nó là "Chờ
 # xác nhận". Đó chính là cách `Từ chối` lọt lưới ở bản đầu Task 11.
@@ -835,7 +789,7 @@ def _phieu_nhap_trang_thai_vi(docstatus: int, co_chenh_lech) -> str:
 # chối — cố ý: `portal_order_history` nay chỉ nuôi khối tóm tắt ở Dashboard
 # và phép đếm KPI, không còn màn danh sách có chip nào. Chỗ tìm lại một yêu
 # cầu đã chết là chip "Từ chối" của `portal_yeu_cau_cua_toi`.)
-_TRANG_THAI_GHI_DE_WORKFLOW = [WF_BAO_GIA_HET_HAN, WF_KHACH_HUY, WF_TU_CHOI]
+_TRANG_THAI_GHI_DE_WORKFLOW = [WF_TU_CHOI]
 
 
 def _dieu_kien_loc_trang_thai_don(trang_thai: str) -> tuple:
@@ -844,12 +798,7 @@ def _dieu_kien_loc_trang_thai_don(trang_thai: str) -> tuple:
     kể "Tất cả"). Ném lỗi nếu nhãn lạ — không âm thầm trả về "không lọc gì"
     khi frontend gửi một chip mà backend chưa biết."""
     if trang_thai == "Đã huỷ":
-        # `workflow_state == "Khách huỷ"` ĐÈ lên MỌI `status` (kể cả khi
-        # `status` chưa phải "Cancelled" — huỷ qua cổng không submit/cancel
-        # ERPNext, xem `_so_status_vi_full`) — OR thuần, không cần AND gì
-        # thêm, nên đi qua `or_filters` (nếu nhét vào `filters` sẽ bị AND
-        # nhầm với chính nó).
-        return [], [["status", "=", "Cancelled"], ["workflow_state", "=", "Khách huỷ"]]
+        return [["status", "=", "Cancelled"]], None
 
     khong_ghi_de = [["workflow_state", "not in", _TRANG_THAI_GHI_DE_WORKFLOW]]
     if trang_thai == "Chờ xác nhận":
@@ -937,9 +886,7 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
     rows = frappe.get_list(
         "Sales Order",
         filters=filters, or_filters=or_filters,
-        # review (Phần C báo thiếu) — workflow_state/custom_yeu_cau_goc:
-        # danh sách đơn cần biết đơn nào đang "Chờ khách đồng ý" để hiện
-        # banner ngay trên danh sách thay vì bắt khách mở từng đơn.
+        # `workflow_state` — nuôi `_so_status_vi_full` bên dưới.
         #
         # Task 7 — `custom_loai_don` ĐÃ BỎ khỏi danh sách này. Nó từng được
         # trả ra dưới tên `loai_don` cho một badge "Mua lẻ / Theo HĐNT" trên
@@ -1006,25 +953,20 @@ def portal_order_history(limit=20, start=0, trang_thai=None) -> dict:
 # bảng ánh xạ của nó; thêm một bản thứ hai ở máy chủ là dựng lại đúng cái
 # ngã ba mà `_so_status_vi`/`_so_status_vi_full` đã phải gộp lại một lần
 # rồi, và mà docstring `_sql_giai_doan()` ngay dưới tự dặn phải tránh.
-#
-# `cho_khach_dong_y` đọc theo ĐÚNG `workflow_state` mà nó ánh xạ tới ("Chờ
-# khách đồng ý"), không theo tên cũ "chờ báo giá" — tên cũ nói ngược chiều
-# việc đang chờ ai.
 GIAI_DOAN_NHAP = "nhap"
 GIAI_DOAN_CHO_DUYET = "cho_duyet"
 GIAI_DOAN_DA_DUYET = "da_duyet"
-GIAI_DOAN_CHO_KHACH_DONG_Y = "cho_khach_dong_y"
 GIAI_DOAN_DA_GIAO = "da_giao"
 GIAI_DOAN_TU_CHOI = "tu_choi"
 GIAI_DOAN_DA_HUY = "da_huy"
 
-# Năm giai đoạn của QĐ-G11 + HAI ngõ cụt. Hai ngõ cụt KHÔNG phải phần thừa:
+# Bốn giai đoạn của QĐ-G11 + HAI ngõ cụt. Giai đoạn "chờ khách đồng ý" của
+# đơn đã bỏ (patch v1_44): vòng báo giá nay nằm trên Quotation, ở tab báo giá. Hai ngõ cụt KHÔNG phải phần thừa:
 # chúng là trạng thái THẬT mà chính người dùng đưa yêu cầu của mình vào
 # (bấm Huỷ, hoặc bị quản lý từ chối), và người vừa làm việc đó là người đi
 # tìm lại nó ngay sau đó — đúng bài học "Việc (d)" của `DeXuatList.vue`.
 GIAI_DOAN_HOP_LE = (
-    GIAI_DOAN_NHAP, GIAI_DOAN_CHO_DUYET, GIAI_DOAN_DA_DUYET,
-    GIAI_DOAN_CHO_KHACH_DONG_Y, GIAI_DOAN_DA_GIAO,
+    GIAI_DOAN_NHAP, GIAI_DOAN_CHO_DUYET, GIAI_DOAN_DA_DUYET, GIAI_DOAN_DA_GIAO,
     GIAI_DOAN_TU_CHOI, GIAI_DOAN_DA_HUY,
 )
 
@@ -1040,7 +982,10 @@ BI_DANH_GIAI_DOAN_CU = {
     "Nháp": GIAI_DOAN_NHAP,
     "Chờ duyệt": GIAI_DOAN_CHO_DUYET,
     "Đã duyệt": GIAI_DOAN_DA_DUYET,
-    "Chờ báo giá": GIAI_DOAN_CHO_KHACH_DONG_Y,
+    # Giai đoạn đã bỏ: link cũ rơi về "Đã duyệt" — đơn cũ của vòng báo giá
+    # đã chuyển về chờ Miyano xác nhận (patch v1_44).
+    "Chờ báo giá": GIAI_DOAN_DA_DUYET,
+    "cho_khach_dong_y": GIAI_DOAN_DA_DUYET,
     "Đã giao": GIAI_DOAN_DA_GIAO,
     "Từ chối": GIAI_DOAN_TU_CHOI,
     "Đã huỷ": GIAI_DOAN_DA_HUY,
@@ -1096,10 +1041,6 @@ def _sql_giai_doan(tt: str, so: str) -> str:
     đã nói đủ phần còn lại; đổi lại, đơn giao gần đủ nằm ở "Đã duyệt" lâu
     hơn, chấp nhận được.
 
-    `cho_khach_dong_y` = đơn đang mắc ở vòng BÁO GIÁ (`Chờ khách đồng ý` —
-    báo giá đã ra, chờ khách chốt; `Báo giá hết hạn` — chốt muộn, phải xin
-    lại giá). Đây là hai trạng thái quan sát được DUY NHẤT giữa lúc duyệt và
-    lúc giao hàng, nên chip này TỚI ĐƯỢC chứ không phải một chip luôn rỗng.
     Ruling P54 — khối CASE này sinh KHOÁ chứ không sinh nhãn tiếng Việt, nên
     nó cũng thôi phải nhét chữ có dấu vào chuỗi SQL.
     `null` trên `{tt}` (nhánh đơn) làm mọi phép so sánh trạng thái phiếu ra
@@ -1113,14 +1054,10 @@ def _sql_giai_doan(tt: str, so: str) -> str:
         when {tt} = '{TRANG_THAI_TU_CHOI}' then '{GIAI_DOAN_TU_CHOI}'
         when {tt} = '{TRANG_THAI_DA_HUY}' then '{GIAI_DOAN_DA_HUY}'
         when {so}.name is null then '{GIAI_DOAN_DA_DUYET}'
-        when {so}.docstatus = 2 or {so}.status = 'Cancelled'
-             or {so}.workflow_state = '{WF_KHACH_HUY}'
-            then '{GIAI_DOAN_DA_HUY}'
+        when {so}.docstatus = 2 or {so}.status = 'Cancelled' then '{GIAI_DOAN_DA_HUY}'
         when {so}.workflow_state = '{WF_TU_CHOI}' then '{GIAI_DOAN_TU_CHOI}'
         when {so}.status in ('Completed', 'Closed') or {so}.per_delivered >= 100
             then '{GIAI_DOAN_DA_GIAO}'
-        when {so}.workflow_state in ('{TRANG_THAI_CHO_KHACH}', '{WF_BAO_GIA_HET_HAN}')
-            then '{GIAI_DOAN_CHO_KHACH_DONG_Y}'
         else '{GIAI_DOAN_DA_DUYET}'
     end"""
 
@@ -1589,7 +1526,7 @@ def portal_bao_gia_chi_tiet(ten) -> dict:
 @frappe.whitelist()
 def portal_bao_gia_dong_y(ten) -> dict:
     """Khách đồng ý báo giá → sinh đơn hàng (spec §4.4). Mọi tài khoản trong
-    phạm vi bấm được, như `portal_order_accept`."""
+    phạm vi bấm được."""
     bg = _bao_gia_cua_toi(ten)
     return bao_gia.dong_y(bg.name)
 
@@ -1678,19 +1615,9 @@ def portal_dashboard_kpi() -> dict:
             + _loc_qua_don_cha("Sales Invoice Item", "sales_order"),
             fields=["count(distinct `tabSales Invoice`.name) as n"],
         )[0].n,
-        # Spec 2026-10-12 §6.4 — HAI con số, vì chúng nằm ở hai màn: thẻ "Báo
-        # giá chờ đồng ý" trỏ sang tab báo giá nên chỉ đếm Quotation; đơn "Mua
-        # lẻ" còn dở của luồng cũ nằm ở tab Đơn hàng (chip `cho_khach_dong_y`)
-        # và có con số + đường dẫn riêng.
+        # Spec 2026-10-12 §6.4 — thẻ "Báo giá chờ đồng ý" trỏ sang tab báo
+        # giá nên chỉ đếm Quotation.
         "bao_gia_cho_dong_y": portal_bao_gia_dem()["cho_dong_y"],
-        "don_cu_cho_dong_y": frappe.get_list(
-            "Sales Order",
-            filters=[
-                ["workflow_state", "=", TRANG_THAI_CHO_KHACH], ["docstatus", "=", 0],
-                ["custom_loai_don", "=", "Mua lẻ"],
-            ] + _pham_vi_filters(),
-            fields=["count(name) as n"],
-        )[0].n,
     }
 
 
@@ -1717,10 +1644,8 @@ def _co_dong_cho_bao_gia(so) -> bool:
     KHÁC `portal_mua_le.di_vong_bao_gia()` — và khác CỐ Ý, đừng gộp hai hàm:
 
       * `di_vong_bao_gia()` đọc DẤU `custom_loai_don`, tức ghi lại ĐƯỜNG đơn
-        đã đi. Nó phải ổn định suốt vòng đời đơn, vì các CHỐT dựa vào nó
-        (sửa số lượng, PDF báo giá, hạn hiệu lực). Docstring của nó nói rõ:
-        suy lại từ dòng sẽ lật giữa vòng và làm đơn rơi khỏi vòng báo giá
-        đúng lúc Miyano đang điền giá.
+        đã đi. Nó phải ổn định suốt vòng đời đơn, vì chốt giá khách đã đồng
+        ý (`chot_bao_gia.kiem_gia_khop_gia_da_dong_y`) dựa vào nó.
       * Hàm NÀY đọc TÌNH TRẠNG GIÁ LÚC NÀY, và nó ĐƯỢC PHÉP lật — vì nó chỉ
         nuôi một cái nhãn, không nuôi chốt nào.
 
@@ -1731,25 +1656,15 @@ def _co_dong_cho_bao_gia(so) -> bool:
     lẻ'"*: nó đổi chữ trên nhãn nhưng giữ nguyên vị ngữ, nên chỉ đổi lời nói
     dối chứ chưa hết dối.
 
-    HAI vế, cả hai đều cần:
-      * dòng hàng thật còn `rate == 0` — Miyano chưa điền giá.
-      * dòng `custom_dat_ngoai` chưa `da_xu_ly` — khách gõ tay, Miyano chưa
-        tìm ra mã. Bỏ vế này thì một đơn TOÀN hàng gõ tay không bao giờ sáng
-        huy hiệu, đúng lúc nó cần sáng nhất.
+    "Chưa có giá" = dòng hàng thật còn `rate == 0` — Miyano chưa điền giá.
+    Đơn không còn bảng dòng gõ tay (patch v1_44), nên chỉ còn vế này.
 
-    `ITEM_GIU_CHO` bị loại: đó là dòng giữ chỗ kỹ thuật, luôn giá 0 và không
-    bao giờ là hàng thật — tính nó vào là huy hiệu sáng vĩnh viễn trên mọi
-    đơn có dòng đặt ngoài.
+    `ITEM_GIU_CHO` bị loại: đó là dòng giữ chỗ kỹ thuật của đơn cũ, luôn giá
+    0 và không bao giờ là hàng thật — tính nó vào là huy hiệu sáng vĩnh viễn.
     """
-    from miyano_portal.portal_mua_le import ITEM_GIU_CHO
-
-    for i in so.get("items") or []:
-        if i.get("item_code") == ITEM_GIU_CHO:
-            continue
-        if not float(i.get("rate") or 0):
-            return True
     return any(
-        not d.get("da_xu_ly") for d in (so.get("custom_dat_ngoai") or [])
+        i.get("item_code") != ITEM_GIU_CHO and not float(i.get("rate") or 0)
+        for i in so.get("items") or []
     )
 
 
@@ -1840,8 +1755,8 @@ def _hoa_don_cua_don(order: str, customer: str) -> list:
 
 def _dat_ngoai_cho_khach(d) -> dict:
     """MỘT dòng "hàng chưa có mã" như cổng được thấy. Danh sách khoá tường
-    minh: dòng có thể đến từ đơn hoặc từ báo giá nguồn của đơn, và không
-    trường nào khác của hai chứng từ đó đi theo."""
+    minh: dòng đến từ báo giá nguồn của đơn, và không trường nào khác của
+    chứng từ đó đi theo."""
     return {
         "name": d.name, "ten_hang": d.ten_hang, "dvt": d.dvt,
         "so_luong": float(d.so_luong or 0),
@@ -2035,39 +1950,13 @@ def portal_order_track(order) -> dict:
             dot["phieu_nhap"] = phieu_nhap
         dot_giao.append(dot)
 
-    # US-E6.5 / `30_API_Spec` §1.2 — banner "Chờ bạn đồng ý" (F-07) cần biết
-    # hạn hiệu lực để hiện "Báo giá hiệu lực đến dd/mm/yyyy"; chỉ có ý nghĩa
-    # khi đơn ĐANG ở trạng thái này, các trạng thái khác trả `None`.
-    #
-    # review I-2(b) — `can_dong_y` KHÔNG được là `True` vô điều kiện: đơn có
-    # thể vẫn còn `workflow_state == "Chờ khách đồng ý"` (job daily CHƯA kịp
-    # quét) nhưng đã quá `han_hieu_luc` — client phải biết để tắt nút Đồng ý
-    # ngay, không đợi đến khi khách bấm rồi mới nhận 417.
-    # review I-2(c) — `han_hieu_luc`/hết hạn chỉ có ý nghĩa với đơn ĐI VÒNG
-    # BÁO GIÁ (BR-R5 nằm trong QT10); đơn thuần hợp đồng ở "Chờ khách đồng ý"
-    # (luồng E2 gốc) không có khái niệm hiệu lực N ngày.
-    #
-    # Task 6 (QĐ-G2b) — hỏi `di_vong_bao_gia()`, KHÔNG so chuỗi
-    # `custom_loai_don == "Mua lẻ"` tại chỗ: từ Task 4, "Mua lẻ" nghĩa là
-    # "còn dòng chưa có giá", nên so chuỗi ở đây đọc như một câu hỏi khác
-    # với câu nó thật sự hỏi.
-    di_bao_gia = di_vong_bao_gia(so)
-    chap_nhan = None
-    if so.get("workflow_state") == "Chờ khách đồng ý":
-        het_han = di_bao_gia and qua_han_hieu_luc(so)
-        chap_nhan = {
-            "can_dong_y": not het_han,
-            "han_hieu_luc": str(han_hieu_luc_bao_gia(so)) if di_bao_gia else None,
-        }
-
-    # `_so_status_vi_full` bọc đúng tình huống job daily chuyển
-    # `workflow_state` sang "Báo giá hết hạn" mà `docstatus` vẫn 0 — dùng
-    # CHUNG với `portal_order_history`, không viết tay điều kiện này hai lần.
+    # `_so_status_vi_full` — dùng CHUNG với `portal_order_history`, không
+    # viết tay điều kiện này hai lần.
     status_vi = _so_status_vi_full(so.status, so.per_delivered, so.get("workflow_state"))
 
     # Review Task 7a — `giai_doan` phải là ĐÚNG `_sql_giai_doan()`, KHÔNG
     # một bản suy lại ở client (`ChiTietYeuCau.vue` từng có một bản như vậy,
-    # thiếu ba nhánh: 'Miyano đã từ chối', 'Closed', 'Báo giá hết hạn' — ba
+    # thiếu các nhánh 'Miyano đã từ chối', 'Closed' — các
     # nhãn SAI trạng thái trên cùng một tài liệu đứng cạnh danh sách đọc
     # đúng). MỘT định nghĩa, dùng lại chính biểu thức lọc/đếm/hiển thị của
     # danh sách — `tt` truyền `null` vì hàm này KHÔNG có phiếu đứng trước để
@@ -2090,11 +1979,6 @@ def portal_order_track(order) -> dict:
         # tắt theo (nó là DẤU ghi lại đường đơn đã đi, xem `di_vong_bao_gia`)
         # — cái tắt là NHÃN, không phải dấu.
         "docstatus": so.docstatus,
-        # Task 7 — CÂU TRẢ LỜI của guard vai trò (`portal_context.
-        # duoc_sua_don_da_duyet`), để `OrderDetail.vue` ẨN khối sửa số lượng
-        # thay vì hiện một nút server luôn từ chối. Xem docstring hàm đó về
-        # lý do không để client tự suy từ `ma_tra_cuu`.
-        "duoc_sua_da_duyet": duoc_sua_don_da_duyet(so),
         "order_date": so.transaction_date,
         "po_khach": so.get("custom_so_po_khach") or "",
         "hdnt": so.get("custom_hdnt") or "",
@@ -2129,18 +2013,12 @@ def portal_order_track(order) -> dict:
         "loai_don": so.get("custom_loai_don") or "Theo HĐNT",
         "workflow_state": so.get("workflow_state") or "",
         "yeu_cau_goc": so.get("custom_yeu_cau_goc") or "",
-        "chap_nhan": chap_nhan,
         "milestones": milestones,
         # §3.4 — LỌC dòng giữ chỗ khỏi phía khách. Khách không gõ ra nó,
         # không đặt nó, và nó không phải hàng: để nó lọt ra cổng là phơi một
         # chi tiết kỹ thuật nội bộ ra đúng chỗ nguyên tắc nền cấm.
         "items": [
-            # `name` — Việc 1 (brief 2026-08-15) — `portal_order_sua_so_luong`
-            # khớp dòng payload khách gửi lên với dòng THẬT trên đơn qua
-            # `item_code` (duy nhất trong MỘT đơn, xem `dat_hang._xay_don`
-            # aggregate theo item_code khi tạo đơn); `name` đi kèm ở đây để
-            # client có thể tham chiếu nếu cần, cùng khuôn với `dat_ngoai`
-            # bên dưới (dat_ngoai không có khoá tự nhiên nào khác).
+            # `name` — để client tham chiếu dòng nếu cần.
             {"name": i.name, "item_code": i.item_code,
              "item_name": i.item_name or frappe.db.get_value("Item", i.item_code, "item_name"),
              "qty": i.qty, "delivered_qty": i.delivered_qty,
@@ -2157,36 +2035,19 @@ def portal_order_track(order) -> dict:
             for i in so.items
             if i.item_code != ITEM_GIU_CHO
         ],
-        # §3.4 — nhóm "hàng chưa có mã". `item_khop`/`da_xu_ly` để client
-        # tách được dòng Miyano đã tìm ra nguồn khỏi dòng còn đang chờ.
+        # Hàng khách mô tả bằng tên (chưa có mã). Đơn không mang dòng gõ tay
+        # (patch v1_44; `custom_dat_ngoai` của Quotation là `no_copy`): mặt
+        # hàng vốn là dòng khách gõ tay chỉ còn dấu vết trên báo giá nguồn.
+        # Trả các dòng ĐÃ KHỚP của báo giá đó — không thì bảng mặt hàng không
+        # nói được mã nào ứng với thứ khách đã mô tả. Đọc SAU hai chốt quyền
+        # ở đầu hàm; `bao_gia_cua_don` đòi báo giá cùng khách với đơn.
+        #
+        # CHÍN TRƯỜNG CR-03 đi theo (`_dat_ngoai_cho_khach`). `anh` giữ
+        # nguyên dạng chuỗi JSON như đã lưu — client tự tách. KHÔNG trả đường
+        # dẫn tệp nào khác: ảnh riêng tư chỉ đi qua `portal_dat_ngoai_xem_anh`,
+        # kiểm sở hữu từng lần xem.
         "dat_ngoai": [
-            # `name` — Việc 1 (brief 2026-08-15): dòng đặt ngoài KHÔNG có
-            # khoá nghiệp vụ tự nhiên nào khác (ten_hang/dvt có thể trùng
-            # giữa hai dòng) — `portal_order_sua_so_luong` khớp payload sửa
-            # số lượng theo `name` của chính child row này.
-            # CHÍN TRƯỜNG CR-03 (05/09/2026) — trả về ở đây vì `KhoiBaoGia
-            # .moGuiLai()` đọc chính endpoint này để dựng lại giỏ khi khách
-            # sửa và gửi lại. Thiếu chúng thì màn hình có người TIÊU THỤ mà
-            # không có người SINH: khách sửa phiếu xong là model/hãng/ảnh họ
-            # đã khai biến mất lặng lẽ, và không lỗi nào nổ ra.
-            #
-            # Đây đúng lớp lỗi `BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt
-            # NĂM lần, chỉ đảo chiều: bốn lần trước là "API trả về mà không
-            # màn nào đọc", lần này là "màn hình đọc mà API không trả".
-            #
-            # `anh` giữ nguyên dạng chuỗi JSON như đã lưu — client tự tách.
-            # KHÔNG trả đường dẫn tệp nào khác: ảnh riêng tư chỉ đi qua
-            # `portal_dat_ngoai_xem_anh`, kiểm sở hữu từng lần xem.
-            _dat_ngoai_cho_khach(d)
-            # Đơn "Theo báo giá" không mang dòng gõ tay (`custom_dat_ngoai`
-            # của Quotation là `no_copy`): mặt hàng vốn là dòng khách gõ tay
-            # chỉ còn dấu vết trên báo giá nguồn. Trả các dòng ĐÃ KHỚP của báo
-            # giá đó, cùng đúng bộ khoá — không thì bảng mặt hàng không nói
-            # được mã nào ứng với thứ khách đã mô tả. Đọc SAU hai chốt quyền
-            # ở đầu hàm; `bao_gia_cua_don` đòi báo giá cùng khách với đơn.
-            for d in (
-                so.get("custom_dat_ngoai") or bao_gia.dong_go_tay_da_khop_cua_don(so)
-            )
+            _dat_ngoai_cho_khach(d) for d in bao_gia.dong_go_tay_da_khop_cua_don(so)
         ],
         "deliveries": deliveries,
         # `30_API_Spec` §1.2 — cùng dữ liệu với `deliveries`, đúng tên field
@@ -3144,73 +3005,22 @@ def _tra_ban_scan_da_ky(doc) -> tuple[bool, str | None]:
 
 @frappe.whitelist()
 def portal_bao_gia_pdf(order=None, quotation=None) -> None:
-    """§3.6 — tải PDF báo giá của MỘT đơn mua lẻ.
+    """§3.6 — tải PDF của MỘT báo giá (Quotation) của cổng.
 
     Cùng khuôn `kho_phieu_pdf`/`portal_einvoice_download` (Quyết định nền số
     8): trả file qua response, KHÔNG sinh URL công khai — người dùng cổng
     không dùng được `/printview`.
 
-    `frappe.get_doc` KHÔNG tự kiểm quyền trong bản này, nên phải tự đối chiếu
-    `customer` của đơn với khách suy từ PHIÊN (Quyết định nền số 7) — không
-    nhận `customer` từ client dưới bất kỳ hình thức nào.
+    `order` ở lại trong chữ ký cho liên kết cũ: đơn hàng không còn báo giá
+    dạng PDF (patch v1_44 bỏ vòng báo giá trên đơn và mẫu in "Miyano - Báo
+    giá"), nên gọi theo đơn nhận một lời từ chối rõ ràng.
     """
-    if not order and not quotation:
-        frappe.throw("Thiếu mã chứng từ.", frappe.ValidationError)
     if quotation:
         return _bao_gia_pdf_quotation(quotation)
-    dam_bao_xem_duoc("Sales Order", order)
-    customer = get_portal_customer()
-    so = frappe.db.get_value(
-        "Sales Order", order,
-        ["name", "customer", "workflow_state", "custom_loai_don"],
-        as_dict=True,
+    frappe.throw(
+        "Đơn hàng không có báo giá dạng PDF. Báo giá nằm ở mục Báo giá.",
+        frappe.ValidationError,
     )
-    if not so:
-        frappe.throw("Không tìm thấy đơn hàng.", frappe.DoesNotExistError)
-    if so.customer != customer:
-        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
-
-    # review I-2 — mẫu in "Miyano - Báo giá" chỉ có nghĩa cho đơn ĐI VÒNG
-    # BÁO GIÁ (§3.6 "hạn hiệu lực báo giá" là khái niệm CHỈ của nhánh này,
-    # cùng lý do `condition` của Notification "Portal - Báo giá sẵn sàng" đã
-    # lọc theo `custom_loai_don`). Không để đơn thuần hợp đồng tải được một
-    # chứng từ đề "Hiệu lực đến..." mà không job nào thi hành.
-    #
-    # Task 6 (QĐ-G2b) — `di_vong_bao_gia()` đọc đúng cột `custom_loai_don`
-    # đã lấy sẵn ở truy vấn phía trên, nhưng hỏi bằng TÊN của điều đang hỏi.
-    if not di_vong_bao_gia(so):
-        frappe.throw(
-            "Đơn này không có dòng nào chờ báo giá — không có báo giá dạng "
-            "PDF để tải.",
-            frappe.ValidationError,
-        )
-
-    # Chỉ từ lúc báo giá ĐÃ GỬI cho khách trở đi. Trước đó `rate` là con số
-    # sales đang sửa — cho tải là biến một bản nháp thành cam kết.
-    if so.workflow_state not in (TRANG_THAI_CHO_KHACH, "Chờ Miyano xác nhận", "Đã xác nhận"):
-        frappe.throw(
-            "Báo giá cho đơn này chưa được gửi. Vui lòng đợi Miyano báo giá.",
-            frappe.ValidationError,
-        )
-
-    # review Minor — nếu mẫu in "Miyano - Báo giá" chưa tồn tại (patch cài
-    # đặt chưa chạy, hoặc bị xoá thủ công), `frappe.get_print` ÂM THẦM rơi
-    # về mẫu Standard — mẫu đó in MỌI dòng, kể cả dòng giữ chỗ `ITEM_GIU_CHO`
-    # (chỉ mẫu "Miyano - Báo giá" mới biết lọc, xem `install_print_formats.
-    # py`). Kiểm tồn tại và báo lỗi rõ, không để rơi ngầm sang một chứng từ
-    # sai định dạng và có thể lộ chi tiết kỹ thuật nội bộ.
-    if not frappe.db.exists("Print Format", "Miyano - Báo giá"):
-        frappe.throw(
-            "Mẫu in báo giá chưa sẵn sàng. Vui lòng liên hệ quản trị viên hệ thống.",
-            frappe.ValidationError,
-        )
-
-    pdf = frappe.get_print(
-        "Sales Order", so.name, print_format="Miyano - Báo giá", as_pdf=True
-    )
-    frappe.local.response.filename = f"BaoGia-{so.name}.pdf"
-    frappe.local.response.filecontent = pdf
-    frappe.local.response.type = "pdf"
 
 
 @frappe.whitelist()
@@ -3272,506 +3082,11 @@ def portal_reorder(order: str) -> dict:
     return {"gio_hang": gio_hang, "bi_loai": bi_loai}
 
 
-LY_DO_TOI_THIEU_KHACH = 10
-
-
-@frappe.whitelist()
-def portal_order_accept(order, action, ly_do=None) -> dict:
-    """US-E2.5 / API Spec §2.4 — khách đồng ý hoặc không đồng ý báo giá.
-
-    Chuyển trạng thái chạy DƯỚI QUYỀN HỆ THỐNG: transition được mở cho
-    `System Manager`, không phải cho role `Customer` — khách không bao giờ có
-    quyền workflow trên Desk. Nhưng người bấm vẫn được ghi vào Comment, nếu
-    không thì mọi thao tác đồng ý đều mang danh "Administrator" và không truy
-    được ai đã đồng ý.
-    """
-    dam_bao_xem_duoc("Sales Order", order)
-    customer = get_portal_customer()
-    so = frappe.get_doc("Sales Order", order)
-    # `frappe.get_doc` KHÔNG chạy hook has_permission ở build này — phải tự kiểm.
-    if so.customer != customer:
-        raise frappe.PermissionError("Đơn hàng không thuộc đơn vị của bạn.")
-    if so.get("workflow_state") != "Chờ khách đồng ý":
-        frappe.throw(
-            "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
-        )
-    # US-E6.5/BR-R5 — báo giá có hiệu lực N ngày kể từ ngày lập
-    # (Settings.hieu_luc_bao_gia_ngay, mặc định 7). Chặn CẢ đồng ý lẫn không
-    # đồng ý: một báo giá đã hết hiệu lực không còn gì để khách phản hồi,
-    # job daily (`portal_bao_gia.quet_bao_gia_het_han`) sẽ tự đóng nó —
-    # khách phải gửi yêu cầu báo giá mới, không phải bấm nút trên đơn cũ.
-    #
-    # review I-2(c) — CHỈ áp cho đơn ĐI VÒNG BÁO GIÁ. State "Chờ khách đồng
-    # ý" KHÔNG phải riêng của E6: E2 (US-E2.5, trước cả E6) đã dùng nó cho
-    # MỌI loại đơn cần khách duyệt giá, không có khái niệm hiệu lực N ngày
-    # nào. Thiếu điều kiện này thì một đơn thuần hợp đồng đang chờ khách
-    # duyệt (luồng E2 gốc, có thể mở nhiều tuần) cũng bị chặn 417 và bị
-    # `quet_bao_gia_het_han` tự đóng — một hành vi BR-R5 (nằm trong §4.10,
-    # phạm vi QT10) chưa từng yêu cầu.
-    #
-    # Task 6 (QĐ-G2b) — hỏi qua `di_vong_bao_gia()`, xem docstring hàm đó.
-    if di_vong_bao_gia(so) and qua_han_hieu_luc(so):
-        han = han_hieu_luc_bao_gia(so)
-        frappe.local.response["ly_do"] = "qua_han_hieu_luc"
-        frappe.throw(
-            f"Báo giá cho đơn {so.name} đã hết hiệu lực ngày "
-            f"{frappe.utils.formatdate(han, 'dd/mm/yyyy')}. Gửi yêu cầu báo "
-            f"giá mới nếu vẫn cần hàng.",
-            frappe.ValidationError,
-        )
-
-    if action == "dong_y":
-        hanh_dong, ghi_chu = "Khách đồng ý", ""
-    elif action == "khong_dong_y":
-        ly_do = (ly_do or "").strip()
-        if len(ly_do) < LY_DO_TOI_THIEU_KHACH:
-            frappe.throw(
-                f"Vui lòng nêu lý do (tối thiểu {LY_DO_TOI_THIEU_KHACH} ký tự).",
-                frappe.ValidationError,
-            )
-        hanh_dong, ghi_chu = "Khách không đồng ý", ly_do
-    else:
-        frappe.throw("Hành động không hợp lệ.", frappe.ValidationError)
-
-    nguoi_bam = frappe.session.user
-    from frappe.model.workflow import apply_workflow
-
-    with quyen_he_thong():
-        so = apply_workflow(so, hanh_dong)
-        noi_dung = f"{hanh_dong} bởi {nguoi_bam}"
-        if ghi_chu:
-            noi_dung += f" — lý do: {ghi_chu}"
-        so.add_comment("Comment", noi_dung)
-
-    if action == "dong_y":
-        # US-E6.5 — cạnh "Đã chuyển thành đơn" mà Phần A đã dựng sẵn trong
-        # máy trạng thái Portal Item Request nhưng chưa ai ghi. Chạy SAU khi
-        # phiên khách đã được trả lại (không cần ignore_permissions cảnh báo
-        # giả — `cap_nhat_yeu_cau_goc` tự `ignore_permissions=True`), và
-        # KHÔNG được để một trục trặc ở đây làm hỏng việc đồng ý đã ghi
-        # nhận thành công phía trên (xem docstring của hàm).
-        cap_nhat_yeu_cau_goc(so, "Đã chuyển thành đơn")
-
-        # Spec 2026-10-09 §5.2 — giá khách vừa đồng ý thành giá thường trực
-        # trong Price List của họ. Bọc lỗi CỐ Ý: việc đồng ý đã thành công,
-        # một trục trặc ở bảng giá không được biến nó thành lỗi cho khách.
-        # Dấu giá đã đồng ý đóng TRƯỚC savepoint: ghi giá hỏng không được cuốn
-        # dấu theo (chốt 3 chỉ bắt khi dấu > 0). Savepoint để lỗi giữa chừng
-        # không để lại nửa số giá đã ghi; nhân viên phụ trách được báo.
-        if chot_bao_gia.co_gia_khach_dong_y(so):
-            so.reload()
-            bang_gia_khach.dong_dau_gia_khach_dong_y(so)
-            try:
-                frappe.db.savepoint("ghi_gia_da_dong_y")
-                bang_gia_khach.ghi_gia_da_dong_y(so, nguoi_dong_y=nguoi_bam)
-            except Exception:
-                loi = frappe.get_traceback(with_context=True)
-                try:
-                    frappe.db.rollback(save_point="ghi_gia_da_dong_y")
-                except Exception:
-                    # Savepoint không còn (giao dịch đã bị bỏ): giữ lỗi gốc.
-                    loi += "\n[rollback savepoint cũng lỗi]\n" + frappe.get_traceback()
-                frappe.log_error(
-                    title=f"Không ghi được giá đã đồng ý của đơn {so.name} vào Price List",
-                    message=loi,
-                    reference_doctype="Sales Order", reference_name=so.name,
-                )
-                bao_loi_ghi_gia(so.customer, so.name)
-    elif action == "khong_dong_y":
-        # review I-5/NL-10.4 — BA §4.10 ghi rõ "lý do lưu vào đơn VÀ yêu
-        # cầu gốc". Bản trước chỉ ghi Comment lên `so` (dòng phía trên) —
-        # `Portal Item Request` liên kết đứng yên ở "Đã báo giá" không dấu
-        # vết, F-23 (màn chi tiết yêu cầu, đọc `binh_luan`) không có gì để
-        # sales thấy khách chê gì. KHÔNG đổi `trang_thai`: máy trạng thái
-        # (portal_item_request.py) không có cạnh nào rời "Đã báo giá" để
-        # "sales sửa giá" — sales sửa thẳng trên SO đã liên kết, yêu cầu gốc
-        # giữ nguyên "Đã báo giá", chỉ thêm dấu vết bằng Comment.
-        ten_yc = so.get("custom_yeu_cau_goc")
-        if ten_yc and frappe.db.exists("Portal Item Request", ten_yc):
-            frappe.get_doc("Portal Item Request", ten_yc).add_comment(
-                "Comment",
-                f"[Portal] Khách không đồng ý báo giá {so.name} — lý do: {ghi_chu}",
-            )
-
-    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() (và mọi cập nhật
-    # phụ trợ phía trên) đã chạy XONG: ghi trước một việc mà transaction có
-    # thể còn ném lỗi ở dưới sẽ để lại một dòng kể một việc chưa từng xảy
-    # ra. `vai` cố định VAI_QUAN_LY — sổ này không phân biệt người bấm là
-    # quản lý hay nhân viên khoa, chỉ ghi nhận đây là quyết định phía
-    # khách hàng trên đơn (đối lập với quyết định phía Miyano).
-    #
-    # review vòng 2 — `elif action == "khong_dong_y"`, KHÔNG `else` trần.
-    # `action` chỉ có hai giá trị hợp lệ tới được đây (giá trị thứ ba đã bị
-    # `frappe.throw` chặn từ đầu hàm), nên hôm nay hai nhánh tương đương —
-    # nhưng một `else` trần sẽ ÂM THẦM ghi "khách không đồng ý" cho bất kỳ
-    # action hợp lệ THỨ BA nào thêm sau này mà quên sửa khối này. Sổ không
-    # sửa được: thà hỏng ồn ào (không khớp nhánh nào, không ghi gì) còn hơn
-    # ghi sai vĩnh viễn một việc khách chưa từng làm.
-    from miyano_portal import nhat_ky
-    if action == "dong_y":
-        nhat_ky.ghi(
-            nhat_ky.SK_KHACH_DONG_Y,
-            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
-            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
-        )
-    elif action == "khong_dong_y":
-        nhat_ky.ghi(
-            nhat_ky.SK_KHACH_KHONG_DONG_Y,
-            customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
-            sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ghi_chu,
-        )
-
-    return {"trang_thai_moi": so.get("workflow_state")}
-
-
-@frappe.whitelist()
-def portal_order_sua_so_luong(order, dong) -> dict:
-    """Việc 1 / brief 2026-08-15 (bao-gia-hai-chieu) — khách SỬA SỐ LƯỢNG
-    trên một đơn ĐANG TRONG VÒNG BÁO GIÁ ở bước "Chờ khách đồng ý".
-
-    Task 7 — câu mở trước đây viết "trên một đơn Mua lẻ", mô tả một phép so
-    chuỗi mà mã bên dưới KHÔNG còn thực hiện. Từ Task 4 đơn TRỘN (chín dòng
-    có giá sẵn + một dòng chờ báo giá) cũng đi một vòng báo giá (QĐ-G3; từ
-    spec 2026-10-09 §4.1 cổng tách giỏ trộn thành hai đơn lúc đặt, nên đơn
-    trộn chủ yếu còn ở dữ liệu cũ), nên
-    nó cũng sửa được số lượng — đó chính là gốc của lỗi Critical C1 ngày
-    19/08 và là thứ mô hình gộp gỡ ra. Chốt hỏi `portal_mua_le.
-    di_vong_bao_gia(so)`, không hỏi "có phải đơn mua lẻ không".
-
-    NĂM CHỐT, đúng thứ tự hỏi (bản SOI GƯƠNG là `Portal De Xuat Mua.
-    _kiem_don_dung_duoc_xin_sua()` + `_kiem_thay_doi_ap_duoc_len_don()`;
-    hai bên phải kể ra CÙNG danh sách này):
-
-      1. `workflow_state == "Chờ khách đồng ý"`
-      2. `di_vong_bao_gia(so)` — đơn có đi vòng báo giá không
-      3. báo giá còn hiệu lực (BR-R5)
-      4. mọi mã trong payload phải CÒN trên đơn
-      5. đơn còn ít nhất một dòng sau khi sửa
-      (+) phải có thay đổi THẬT (chỉ ở lõi; bản soi gương có chốt tương
-          đương riêng `_loc_thay_doi_that`)
-
-    Ngoài năm chốt trên còn HAI cổng đứng TRƯỚC, KHÔNG thuộc bộ năm và
-    KHÔNG được soi gương ở phiếu đề xuất: quyền xem/sở hữu đơn, và guard
-    VAI TRÒ `dam_bao_duoc_sua_don_da_duyet` (Task 9). Guard vai trò không
-    có bản soi gương vì bản soi gương CHÍNH LÀ đường thay thế của nhân
-    viên khoa (`de_xuat.de_xuat_xin_sua`) — soi nó ở đó sẽ chặn đúng
-    người mà nó tồn tại để phục vụ.
-
-    Quyết định chủ dự án (brief §"Quyết định của chủ dự án", mục A): đơn giá
-    báo cho N hộp không còn đúng ở M hộp — giữ nguyên `rate` cũ là ràng buộc
-    Miyano vào một mức giá ở sản lượng khác hẳn mà không ai đồng ý. Nên:
-    đơn VỀ "Chờ xác nhận" cho sales báo giá lại, và `rate` của mọi dòng
-    "Báo giá" (cùng dòng đơn cũ chưa có dấu) đã đổi số lượng bị đặt về 0
-    (báo giá cũ hết hiệu lực cho dòng đó). Dòng "Bảng giá" thì khác (spec
-    2026-10-09 §4.4): giá của nó là giá Price List, không phải giá đàm phán
-    theo sản lượng, nên đọc lại giá bảng hôm nay; mã đã mất giá trong bảng
-    thì dòng thành "Báo giá" ở 0.
-
-    Chuyển trạng thái DÙNG LẠI transition "Khách không đồng ý" ("Chờ khách
-    đồng ý" -> "Chờ xác nhận", allowed "System Manager") — brief: "KHÔNG
-    thêm trạng thái mới cho nhánh này". Không lộ ra khách: `apply_workflow`
-    chỉ ghi Comment kiểu "Workflow" với TÊN TRẠNG THÁI ĐÍCH (`frappe/model/
-    workflow.py:148`), không ghi tên action — nên việc dùng chung action với
-    nhánh "Không đồng ý" không tạo ra dấu vết sai lệch nào trên timeline;
-    Comment nghiệp vụ riêng (cũ -> mới) do CHÍNH hàm này ghi ngay bên dưới
-    mới là thứ khách/sales đọc được.
-
-    `dong` — JSON (hoặc dict) dạng:
-        {"items": [{"item_code": str, "qty": float}, ...],
-         "dat_ngoai": [{"name": str, "qty": float}, ...]}
-    CHỈ đọc `item_code`/`name` (để KHỚP một dòng ĐÃ CÓ SẴN trên đơn) và
-    `qty` — mọi field khác trong mỗi phần tử (`rate`, hoặc `item_code` không
-    khớp dòng nào) bị bỏ qua/từ chối hoàn toàn, không có đường nào để
-    payload tự thêm dòng mới hay tự đổi giá. Số lượng 0 = bỏ dòng đó.
-    """
-    dam_bao_xem_duoc("Sales Order", order)
-    customer = get_portal_customer()
-    so = frappe.get_doc("Sales Order", order)
-    # `frappe.get_doc` KHÔNG tự kiểm quyền ở build này — phải tự đối chiếu
-    # `customer` của đơn với khách suy từ PHIÊN, không nhận `customer` từ
-    # client dưới bất kỳ hình thức nào (Quyết định nền số 7/8).
-    if so.customer != customer:
-        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
-    # Task 9 (§12 Q4) — chặn theo VAI TRÒ, không chỉ theo workflow_state.
-    # Đơn đã đi qua đường đề xuất và được quản lý duyệt thì nhân viên khoa
-    # không sửa THẲNG số lượng ở đây nữa — họ phải xin sửa
-    # (`de_xuat.de_xuat_xin_sua`) rồi để quản lý gọi lại đúng hàm này.
-    dam_bao_duoc_sua_don_da_duyet(so)
-    if so.get("workflow_state") != TRANG_THAI_CHO_KHACH:
-        frappe.throw(
-            "Đơn này không ở trạng thái chờ quý khách đồng ý.", frappe.ValidationError
-        )
-    # review (song song portal_order_accept) — "hiệu lực báo giá" (BR-R5)
-    # CHỈ có nghĩa cho đơn đi vòng báo giá; state "Chờ khách đồng ý" cũng
-    # được luồng E2 gốc dùng cho đơn thuần hợp đồng, nơi không có khái niệm
-    # hiệu lực N ngày và số lượng đã chốt theo hợp đồng.
-    #
-    # Task 6 (QĐ-G2b) — `_kiem_don_dung_duoc_xin_sua()` của `Portal De Xuat
-    # Mua` SOI GƯƠNG chốt này. Hai bên PHẢI hỏi cùng một hàm, nếu không
-    # phiếu rời "Đã duyệt" rồi chết ở đây (đúng lỗi C1 ngày 19/08).
-    if not di_vong_bao_gia(so):
-        frappe.throw(
-            "Chỉ áp dụng cho đơn có dòng chờ báo giá.", frappe.ValidationError
-        )
-    if qua_han_hieu_luc(so):
-        han = han_hieu_luc_bao_gia(so)
-        frappe.local.response["ly_do"] = "qua_han_hieu_luc"
-        frappe.throw(
-            f"Báo giá cho đơn {so.name} đã hết hiệu lực ngày "
-            f"{frappe.utils.formatdate(han, 'dd/mm/yyyy')}. Gửi yêu cầu báo "
-            f"giá mới nếu vẫn cần hàng.",
-            frappe.ValidationError,
-        )
-
-    if isinstance(dong, str):
-        dong = frappe.parse_json(dong)
-    dong = dong or {}
-    doi_items = dong.get("items") or []
-    doi_dat_ngoai = dong.get("dat_ngoai") or []
-
-    # review (I-4 tương tự `dat_hang._xay_don`) — dòng giữ chỗ kỹ thuật nội bộ
-    # KHÔNG BAO GIỜ là một dòng khách "sửa được": không lộ ra `portal_order_
-    # track` (đã lọc `ITEM_GIU_CHO`) nên khách bình thường không có cách nào
-    # gõ đúng mã này, nhưng payload có thể bị sửa tay — chặn tường minh,
-    # cùng lý lẽ `la_dong_giu_cho` đã dùng ở `dat_hang._xay_don`.
-    for d in doi_items:
-        if la_dong_giu_cho((d.get("item_code") or "").strip()):
-            frappe.throw(
-                f"{ITEM_GIU_CHO} là mã kỹ thuật nội bộ, không phải dòng hàng "
-                "sửa được.",
-                frappe.ValidationError,
-            )
-
-    # KHÔNG cho "thêm dòng" — mọi item_code/name trong payload phải khớp
-    # một dòng ĐÃ CÓ trên đơn. Kiểm TRƯỚC khi đụng vào bất kỳ dòng nào (một
-    # payload lẫn cả sửa hợp lệ VÀ một dòng lạ phải bị từ chối TOÀN BỘ,
-    # không âm thầm áp phần hợp lệ rồi bỏ qua phần lạ).
-    ma_dang_co = {i.item_code for i in so.items}
-    doi_items_theo_ma: dict[str, dict] = {}
-    for d in doi_items:
-        ma = (d.get("item_code") or "").strip()
-        if not ma:
-            continue
-        if ma not in ma_dang_co:
-            frappe.throw(
-                f"Không tìm thấy mặt hàng {ma} trong đơn — không thể thêm "
-                "dòng mới qua sửa số lượng.",
-                frappe.ValidationError,
-            )
-        doi_items_theo_ma[ma] = d
-
-    ten_dat_ngoai_dang_co = {d.name for d in (so.get("custom_dat_ngoai") or [])}
-    doi_dat_ngoai_theo_ten: dict[str, dict] = {}
-    for d in doi_dat_ngoai:
-        ten = d.get("name")
-        if not ten:
-            continue
-        if ten not in ten_dat_ngoai_dang_co:
-            frappe.throw(
-                "Không tìm thấy dòng đặt ngoài trong đơn — không thể thêm "
-                "dòng mới qua sửa số lượng.",
-                frappe.ValidationError,
-            )
-        doi_dat_ngoai_theo_ten[ten] = d
-
-    # review — GIỮ NGUYÊN các Document con đã có (không dựng dict tay từ
-    # đầu): rebuild bằng dict tay sẽ ÂM THẦM làm rớt mọi field khác của
-    # dòng (uom, conversion_factor, description...) và sinh `name`/`idx`
-    # MỚI cho những dòng KHÔNG đổi gì — hỏng luôn việc khớp theo `name` ở
-    # lần sửa dat_ngoai TIẾP THEO. `so.set(field, [... cùng object cũ ...])`
-    # giữ nguyên name/idx (frappe `_init_child` chỉ gán idx/tên MỚI khi đối
-    # tượng CHƯA có, xem `base_document.py::_init_child`).
-    thay_doi: list[str] = []
-    # Task 9, Step 4b (Ruling preflight C4) — số MỚI của từng dòng THẬT SỰ
-    # đổi, dùng để đồng bộ ngược `so_luong_duyet` lên phiếu đề xuất đứng
-    # sau (nếu có) SAU KHI đơn lưu thành công. `0.0` = dòng bị bỏ.
-    doi_items_ap_dung: dict[str, float] = {}
-
-    giu_items = []
-    for i in list(so.items):
-        match = doi_items_theo_ma.get(i.item_code)
-        if match is None:
-            giu_items.append(i)
-            continue
-        try:
-            qty_moi = float(match.get("qty"))
-        except (TypeError, ValueError):
-            frappe.throw(f"{i.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
-        if qty_moi < 0:
-            frappe.throw(f"{i.item_code}: số lượng không hợp lệ.", frappe.ValidationError)
-        if qty_moi == 0:
-            thay_doi.append(f"{i.item_code}: {i.qty} → bỏ dòng")
-            doi_items_ap_dung[i.item_code] = 0.0
-            continue
-        if float(i.qty or 0) != qty_moi:
-            # Spec 2026-10-09 §4.4 — giá của dòng đổi số lượng tuỳ DẤU của
-            # dòng. `rate` VÀ `price_list_rate` luôn đặt CÙNG nhau: chỉ đặt
-            # `rate` mà để nguyên `price_list_rate` có nguy cơ một luồng tính
-            # giá khác của ERPNext coi `price_list_rate` là nguồn sự thật và
-            # ghi đè lại `rate` khi lưu.
-            if i.get("custom_nguon_gia") == bang_gia_khach.NGUON_BANG_GIA:
-                # Dòng "Bảng giá" không mang giá đàm phán theo sản lượng —
-                # giá của nó là giá bảng, đúng ở mọi số lượng. Đọc lại giá
-                # HÔM NAY của bảng thay vì về 0 rồi bắt nhân viên gõ lại.
-                gia = bang_gia_khach.gia_bang_gia(so.customer, i.item_code) or 0
-                if gia:
-                    thay_doi.append(
-                        f"{i.item_code}: {i.qty} → {qty_moi} (giá theo bảng "
-                        f"giá: {gia})"
-                    )
-                else:
-                    # Mã đã mất giá trong bảng từ lúc lập đơn → thành dòng
-                    # chờ báo giá như mọi mã chưa có giá.
-                    thay_doi.append(
-                        f"{i.item_code}: {i.qty} → {qty_moi} (mặt hàng không "
-                        "còn giá trong bảng giá, chờ báo giá)"
-                    )
-                    i.custom_nguon_gia = bang_gia_khach.NGUON_BAO_GIA
-                i.rate = gia
-                i.price_list_rate = gia
-                # Bẫy margin của ERPNext — xem `xoa_chenh_lech_gia`.
-                xoa_chenh_lech_gia(i)
-            else:
-                # Dòng "Báo giá" (và dòng đơn cũ chưa có dấu): đơn giá báo
-                # cho N hộp không còn đúng ở M hộp → về 0, báo giá lại.
-                thay_doi.append(
-                    f"{i.item_code}: {i.qty} → {qty_moi} (giá cũ {i.rate} không "
-                    "còn hiệu lực, chờ báo giá lại)"
-                )
-                i.rate = 0
-                i.price_list_rate = 0
-            i.qty = qty_moi
-            doi_items_ap_dung[i.item_code] = qty_moi
-        giu_items.append(i)
-
-    giu_dat_ngoai = []
-    for d in list(so.get("custom_dat_ngoai") or []):
-        match = doi_dat_ngoai_theo_ten.get(d.name)
-        if match is None:
-            giu_dat_ngoai.append(d)
-            continue
-        try:
-            qty_moi = float(match.get("qty"))
-        except (TypeError, ValueError):
-            frappe.throw(f"{d.ten_hang}: số lượng không hợp lệ.", frappe.ValidationError)
-        if qty_moi < 0:
-            frappe.throw(f"{d.ten_hang}: số lượng không hợp lệ.", frappe.ValidationError)
-        if qty_moi == 0:
-            thay_doi.append(f"{d.ten_hang} (đặt ngoài): {d.so_luong} → bỏ dòng")
-            continue
-        if float(d.so_luong or 0) != qty_moi:
-            thay_doi.append(f"{d.ten_hang} (đặt ngoài): {d.so_luong} → {qty_moi}")
-            d.so_luong = qty_moi
-        giu_dat_ngoai.append(d)
-
-    if not thay_doi:
-        frappe.throw("Không có thay đổi số lượng nào để gửi.", frappe.ValidationError)
-
-    # §3.4 — ERPNext không lưu được `items` rỗng (xem docstring
-    # `dat_hang._xay_don`). Bỏ hết MỌI dòng (cả hàng thật lẫn đặt ngoài) không
-    # còn gì để Miyano báo giá lại — hướng khách sang nút Huỷ (huỷ THẬT,
-    # đóng đơn ngay) thay vì để endpoint này chặn mập mờ.
-    giu_items_that = [i for i in giu_items if i.item_code != ITEM_GIU_CHO]
-    if not giu_items_that and not giu_dat_ngoai:
-        frappe.throw(
-            "Đơn sẽ không còn dòng hàng nào sau khi sửa. Nếu muốn huỷ toàn "
-            "bộ đơn, vui lòng dùng nút Huỷ đơn.",
-            frappe.ValidationError,
-        )
-    if not giu_items_that and giu_dat_ngoai:
-        # Giỏ hàng THẬT rỗng nhưng còn dòng đặt ngoài — cùng tình huống
-        # `can_chen_giu_cho` xử lý lúc TẠO đơn: chèn dòng giữ chỗ để
-        # ERPNext lưu được `items` khác rỗng.
-        if not frappe.db.exists("Item", ITEM_GIU_CHO):
-            frappe.throw(
-                "Hệ thống chưa sẵn sàng nhận đơn toàn hàng chưa có mã. "
-                "Vui lòng liên hệ Miyano.",
-                frappe.ValidationError,
-            )
-        item_warehouse = _resolve_item_warehouse(ITEM_GIU_CHO, so.company)
-        if not item_warehouse:
-            frappe.throw(
-                f"Không tìm thấy kho giao hàng cho mặt hàng {ITEM_GIU_CHO} "
-                f"tại công ty {so.company}. Vui lòng liên hệ quản trị viên "
-                "hệ thống.",
-                frappe.ValidationError,
-            )
-        giu_items.append({
-            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0,
-            "warehouse": item_warehouse, "delivery_date": so.delivery_date,
-        })
-
-    nguoi_bam = frappe.session.user
-    from frappe.model.workflow import apply_workflow
-
-    # Cùng lý do/khuôn với `portal_order_accept`: transition "Khách không
-    # đồng ý" chỉ mở cho "System Manager", không phải role Customer. Xem
-    # docstring `miyano_portal.nang_quyen` vì sao không dùng `frappe.set_user()`.
-    with quyen_he_thong():
-        # Lưu thay đổi số lượng TRƯỚC — `apply_workflow()` tự gọi
-        # `doc.load_from_db()` NGAY ĐẦU HÀM (frappe/model/workflow.py:102),
-        # nên gọi nó trên `so` đang mang thay đổi CHƯA LƯU sẽ XOÁ SẠCH thay
-        # đổi đó trước khi kịp áp dụng gì cả.
-        so.set("items", [])
-        for row in giu_items:
-            so.append("items", row)
-        so.set("custom_dat_ngoai", [])
-        for row in giu_dat_ngoai:
-            so.append("custom_dat_ngoai", row)
-        so.save()
-
-        so = apply_workflow(so, "Khách không đồng ý")
-        noi_dung = (
-            f"[Portal] Khách sửa số lượng bởi {nguoi_bam} — về \"Chờ xác "
-            "nhận\" để báo giá lại:<br>" + "<br>".join(thay_doi)
-        )
-        so.add_comment("Comment", noi_dung)
-
-    bao_khach_sua_so_luong(customer, so.name, thay_doi)
-
-    # Task 9, Step 4b (Ruling preflight C4) — QUẢN LÝ sửa THẲNG (bỏ qua
-    # `de_xuat_xin_sua`/`de_xuat_duyet_sua`, hoặc chính `de_xuat_duyet_sua`
-    # gọi lại đúng hàm này) thì phiếu đề xuất đứng sau phải CÙNG cập nhật —
-    # không có bước này, hai chứng từ nói hai số khác nhau và khối truy vết
-    # §5.2 thành vô nghĩa. `so.get("custom_de_xuat")` an toàn khi cột chưa
-    # tồn tại (patch chưa chạy): Document.get() trả `None`, đơn giản BỎ QUA
-    # đồng bộ — đây không phải chốt phân quyền (đã qua ở
-    # `dam_bao_duoc_sua_don_da_duyet`), chỉ là tiện ích giữ hai chứng từ
-    # khớp nhau, nên không cần fail-closed ở đây.
-    de_xuat_ten = so.get("custom_de_xuat")
-    if de_xuat_ten and doi_items_ap_dung:
-        _dong_bo_so_luong_duyet_ve_phieu(de_xuat_ten, doi_items_ap_dung)
-
-    # Task 3 (nhật ký thao tác) — SAU khi đơn đã lưu + chuyển trạng thái +
-    # đồng bộ phiếu đứng sau (nếu có) đều thành công, TRƯỚC return, cùng
-    # lý do/khuôn với `portal_order_accept`. `ghi_chu` đếm SỐ DÒNG
-    # (`len(thay_doi)`), không chép lại nội dung `thay_doi` — sổ chỉ cần
-    # nói "khách gửi lại báo giá cho mấy dòng", chi tiết từng dòng đã có
-    # sẵn trong Comment `so.add_comment()` phía trên.
-    #
-    # review vòng 2 — chữ "dòng THAY ĐỔI", không phải "dòng ĐỔI SỐ LƯỢNG":
-    # `thay_doi` (dựng ở vòng lặp phía trên) gộp CẢ dòng bị BỎ HẲN
-    # (`qty → 0`, xoá khỏi đơn) LẪN dòng `dat_ngoai`, không chỉ dòng thuần
-    # tuý đổi số lượng một hàng thật còn giữ lại. Chữ "đổi số lượng" nói
-    # hẹp hơn thứ con số này thật sự đếm — trên một chứng từ không sửa
-    # được, tên gọi phải khớp đúng phạm vi đang đếm.
-    from miyano_portal import nhat_ky
-    nhat_ky.ghi(
-        nhat_ky.SK_KHACH_GUI_LAI_BAO_GIA,
-        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
-        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY,
-        ghi_chu=f"{len(thay_doi)} dòng thay đổi",
-    )
-
-    return {"trang_thai_moi": so.get("workflow_state"), "thay_doi": thay_doi}
-
-
 def _dong_bo_so_luong_duyet_ve_phieu(ten_phieu: str, doi_items_ap_dung: dict[str, float]) -> None:
     """Task 9, Step 4b — ghi ngược `so_luong_duyet` lên phiếu đề xuất sau khi
-    `portal_order_sua_so_luong` đã sửa Sales Order thành công.
+    khách sửa số lượng báo giá (`portal_bao_gia_sua_so_luong`) thành công.
 
-    Chỉ chạm dòng THẬT SỰ đổi (`doi_items_ap_dung`, đã tính trong vòng lặp
-    dựng `giu_items` ở trên) — không đụng field nào khác, kể cả khi `save()`
+    Chỉ chạm dòng THẬT SỰ đổi (`doi_items_ap_dung`) — không đụng field nào khác, kể cả khi `save()`
     dưới đây đi qua `_chan_sua_so_luong_de_xuat()`: guard đó chỉ khoá
     `so_luong_de_xuat`/`item_code`/xoá dòng, không khoá `so_luong_duyet`."""
     phieu = frappe.get_doc("Portal De Xuat Mua", ten_phieu)
@@ -3782,77 +3097,6 @@ def _dong_bo_so_luong_duyet_ve_phieu(ten_phieu: str, doi_items_ap_dung: dict[str
             doi = True
     if doi:
         phieu.save(ignore_permissions=True)
-
-
-@frappe.whitelist()
-def portal_order_huy(order, ly_do) -> dict:
-    """Việc 2 / brief 2026-08-15 (bao-gia-hai-chieu) — nút Huỷ = HUỶ THẬT.
-
-    Quyết định chủ dự án (brief, mục B): đơn ĐÓNG NGAY, email hai phía —
-    khác hẳn `portal_request_cancel` cũ (chỉ ghi comment + ToDo, KHÔNG đóng
-    đơn — khách bấm xong đơn vẫn hiện "chờ bạn đồng ý", tưởng chưa ăn).
-    `portal_request_cancel` VẪN giữ nguyên cho đơn ĐÃ XÁC NHẬN (`docstatus`
-    khác 0 không huỷ thẳng được qua đường này) — endpoint MỚI này chỉ phục
-    vụ đúng đơn nháp đang "Chờ khách đồng ý".
-
-    Chuyển sang state MỚI "Khách huỷ" (`patches/v1_18/mo_rong_workflow_
-    khach_huy.py`) — KHÔNG tái dùng "Từ chối": state đó gắn Notification
-    "Miyano đã từ chối đơn của bạn", dùng lại sẽ gửi sai thông điệp cho
-    chính khách vừa tự huỷ (bài học đã trả giá, xem docstring patch).
-    """
-    dam_bao_xem_duoc("Sales Order", order)
-    customer = get_portal_customer()
-    so = frappe.get_doc("Sales Order", order)
-    # `frappe.get_doc` KHÔNG tự kiểm quyền — phải tự đối chiếu `customer`
-    # của đơn với khách suy từ PHIÊN, không nhận `customer` từ client.
-    if so.customer != customer:
-        raise frappe.PermissionError("Đơn hàng này không thuộc đơn vị của bạn.")
-    if so.get("workflow_state") != TRANG_THAI_CHO_KHACH:
-        frappe.throw(
-            "Chỉ huỷ được qua đây khi đơn đang chờ quý khách đồng ý. Đơn đã "
-            "xác nhận, vui lòng dùng chức năng yêu cầu huỷ trên đơn.",
-            frappe.ValidationError,
-        )
-
-    ly_do = (ly_do or "").strip()
-    if len(ly_do) < LY_DO_TOI_THIEU_KHACH:
-        frappe.throw(
-            f"Vui lòng nêu lý do (tối thiểu {LY_DO_TOI_THIEU_KHACH} ký tự).",
-            frappe.ValidationError,
-        )
-
-    nguoi_bam = frappe.session.user
-    from frappe.model.workflow import apply_workflow
-
-    # Transition "Khách huỷ" chỉ mở cho "System Manager", không phải role
-    # Customer. Xem docstring `miyano_portal.nang_quyen` vì sao không dùng
-    # `frappe.set_user()`.
-    with quyen_he_thong():
-        so = apply_workflow(so, "Khách huỷ")
-        so.add_comment(
-            "Comment", f"[Portal] Khách huỷ đơn bởi {nguoi_bam} — lý do: {ly_do}"
-        )
-
-    # US-E6.5 cùng khuôn — ghi vào cạnh "Khách huỷ" mà máy trạng thái
-    # `Portal Item Request` đã dựng sẵn (CHUYEN_TRANG_THAI_HOP_LE, mọi
-    # trạng thái đều cho phép chuyển sang "Khách huỷ"). Phòng thủ, không
-    # ném lỗi (xem docstring `cap_nhat_yeu_cau_goc`).
-    cap_nhat_yeu_cau_goc(so, "Khách huỷ")
-
-    gui_email_khach_huy(so, ly_do)
-
-    # Task 3 (nhật ký thao tác) — SAU khi apply_workflow() + cập nhật yêu
-    # cầu gốc + gửi email đều đã chạy XONG, TRƯỚC return; cùng lý do/khuôn
-    # với hai endpoint phía trên. `ghi_chu` mang đúng lý do huỷ khách nhập
-    # — chứng từ huỷ mất lý do thì không còn gì để tra sau này.
-    from miyano_portal import nhat_ky
-    nhat_ky.ghi(
-        nhat_ky.SK_KHACH_HUY_DON,
-        customer=so.customer, khoa_phong=so.get("custom_khoa_phong"),
-        sales_order=so.name, vai=nhat_ky.VAI_QUAN_LY, ghi_chu=ly_do,
-    )
-
-    return {"trang_thai_moi": so.get("workflow_state")}
 
 
 # ---------------------------------------------------------------- trang Thông báo

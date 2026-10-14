@@ -2,7 +2,7 @@
 
 KHÔNG gọi mạng: `actions.preview_draft` nhận tham số `client`, nên test tiêm
 một `FastClient` dùng `FakeTransport` của chính module HĐĐT
-(`erpnext/einvoice/test_fast_client.py`) thay vì monkeypatch tầng HTTP.
+(`erpnext/einvoice/tests/test_fast_client.py`) thay vì monkeypatch tầng HTTP.
 
 Ranh giới quan trọng nhất mà bộ test này canh giữ: job DỪNG ở `02 - Đã xem
 nháp`. Không bao giờ tự gửi email cho khách — kế toán phải được liếc bản nháp
@@ -17,8 +17,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from erpnext.einvoice.fast_client import FastClient
-from erpnext.einvoice.test_fast_client import FakeTransport, checkkey_ok, configure, envelope
-from erpnext.einvoice.test_fixtures import make_delivery_note, minimal_pdf_bytes
+from erpnext.einvoice.tests.test_fast_client import FakeTransport, checkkey_ok, configure, envelope
+from erpnext.einvoice.tests.test_fixtures import make_delivery_note, minimal_pdf_bytes
 
 from miyano_portal import hddt_tu_dong
 

@@ -10,11 +10,17 @@ Hệ quả THẬT nặng hơn "thiếu ô giá": trước task này `item_khop` 
 — nên đơn QUA ĐƯỢC chốt xác nhận trong khi mặt hàng khách gõ tay KHÔNG có
 dòng nào trong đơn, không giá, không vào tổng tiền, không lên hoá đơn.
 
-Mọi bài ở đây đi ĐƯỜNG CÔNG KHAI: dựng đơn bằng `dat_hang.tao_sales_order`
-rồi `so.save()` sau khi điền `item_khop` — đúng thao tác nhân viên Miyano
-làm trên Desk. KHÔNG gọi thẳng hàm chuyển: nếu bài chỉ xanh khi gọi hàm
-riêng thì đường công khai vẫn có thể hỏng mà không ai biết — đúng lớp lỗi
-task này sinh ra để sửa.
+Mọi bài ở đây đi ĐƯỜNG CÔNG KHAI: dựng yêu cầu báo giá bằng
+`bao_gia.tao_bao_gia` rồi `bg.save()` sau khi điền `item_khop` — đúng thao
+tác nhân viên Miyano làm trên Desk. KHÔNG gọi thẳng hàm chuyển: nếu bài chỉ
+xanh khi gọi hàm riêng thì đường công khai vẫn có thể hỏng mà không ai biết —
+đúng lớp lỗi task này sinh ra để sửa.
+
+Từ patch v1_44 Sales Order không còn dòng gõ tay: các hook khớp mã chỉ còn
+chạy trên Quotation (`hooks.py::doc_events["Quotation"]`), nên mọi bài dựng
+trên Quotation. Các chốt `before_submit` của Sales Order về dòng gõ tay đã
+bỏ cùng hành vi; trên Quotation, chốt tương ứng là `bao_gia.chot_gui_khach`
+lúc gửi khách.
 
 GIÁ — spec 2026-10-09 (giá theo Price List, §4.4) đảo QĐ-G14: dòng sinh ra
 khi khớp mã lấy giá từ Price List của khách, không từ hợp đồng khung, và
@@ -25,10 +31,11 @@ không còn rơi lên đơn.
 """
 
 import frappe
+from frappe.model.workflow import apply_workflow
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from miyano_portal import bang_gia_khach, dat_hang
+from miyano_portal import bang_gia_khach, bao_gia
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	nguon_gia_theo_ma_cho_khach,
 )
@@ -54,13 +61,18 @@ def _rid() -> str:
 
 
 def _don_du_lieu_cu():
-	"""HUỶ rồi XOÁ Sales Order/Blanket Order của `_TEST DX%`.
+	"""Xoá Quotation nháp, HUỶ rồi XOÁ Sales Order/Blanket Order của `_TEST DX%`.
 
 	KHÔNG lọc `docstatus: 0`: bản ghi ĐÃ NỘP do method khác để lại vẫn "còn
 	hiệu lực" ở method sau (`FrappeTestCase` rollback MỘT LẦN mỗi CLASS) và
 	ăn mất `ordered_qty` của hợp đồng, khiến các bài hạn mức/giá PHỤ THUỘC
 	THỨ TỰ CHẠY — đúng bẫy `test_dat_hang_gop.py::_don_phieu_cu` đã ghi.
 	"""
+	for ten in frappe.get_all(
+		"Quotation", filters={"party_name": ["like", "_TEST DX%"], "docstatus": 0},
+		pluck="name",
+	):
+		frappe.delete_doc("Quotation", ten, force=True, ignore_permissions=True)
 	for r in frappe.get_all(
 		"Sales Order", filters={"customer": ["like", "_TEST DX%"]},
 		fields=["name", "docstatus"],
@@ -161,29 +173,29 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		return doc.name
 
 	def _dat(self, items=None, dat_ngoai=None, customer=None):
-		kq = dat_hang.tao_sales_order(
+		kq = bao_gia.tao_bao_gia(
 			customer or self.kh_a, items=items or [],
 			dat_ngoai=dat_ngoai or [], request_id=_rid(),
 		)
-		return frappe.get_doc("Sales Order", kq["sales_order"])
+		return frappe.get_doc("Quotation", kq["bao_gia"])
 
 	def _go_tay(self, ten=TEN_GO_TAY, so_luong=5):
 		return {"ten_hang": ten, "dvt": "Hộp", "so_luong": so_luong}
 
-	def _khop(self, so, item_code, idx=0):
-		so.custom_dat_ngoai[idx].item_khop = item_code
-		so.save(ignore_permissions=True)
-		so.reload()
-		return so
+	def _khop(self, bg, item_code, idx=0):
+		bg.custom_dat_ngoai[idx].item_khop = item_code
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		return bg
 
-	def _dong(self, so, item_code):
-		for d in so.items:
+	def _dong(self, bg, item_code):
+		for d in bg.items:
 			if d.item_code == item_code:
 				return d
 		self.fail(
-			f"Đơn {so.name} KHÔNG có dòng hàng nào mang mã {item_code} — "
+			f"Đơn {bg.name} KHÔNG có dòng hàng nào mang mã {item_code} — "
 			f"khớp mã mới chỉ dán nhãn, chưa CHUYỂN thành hàng thật (QĐ-G13). "
-			f"Đang có: {[d.item_code for d in so.items]}"
+			f"Đang có: {[d.item_code for d in bg.items]}"
 		)
 
 	# -- CA CHÍNH ----------------------------------------------------------
@@ -203,15 +215,15 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 			bang_gia_khach.gia_bang_gia(self.kh_a, self.item_hd), float(GIA_BANG_GIA)
 		)
 
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
 		self.assertEqual(
-			[d.item_code for d in so.items], [ITEM_GIU_CHO],
+			[d.item_code for d in bg.items], [ITEM_GIU_CHO],
 			"đơn toàn hàng gõ tay khởi đầu chỉ có dòng giữ chỗ",
 		)
 
-		so = self._khop(so, self.item_hd)
+		bg = self._khop(bg, self.item_hd)
 
-		dong = self._dong(so, self.item_hd)
+		dong = self._dong(bg, self.item_hd)
 		self.assertEqual(flt(dong.qty), 5.0)
 		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 		self.assertEqual(flt(dong.price_list_rate), float(GIA_BANG_GIA))
@@ -220,7 +232,7 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		# Dòng phải THẬT SỰ vào tiền của đơn — "không vào tổng tiền" là đúng
 		# nửa sau của triệu chứng chủ đầu tư gặp.
 		self.assertEqual(flt(dong.amount), 5.0 * GIA_BANG_GIA)
-		self.assertGreaterEqual(flt(so.total), 5.0 * GIA_BANG_GIA)
+		self.assertGreaterEqual(flt(bg.total), 5.0 * GIA_BANG_GIA)
 
 	def test_ma_khop_co_gia_bang_gia_thi_dong_nhan_gia_do(self):
 		# Đảo theo spec 2026-10-09 (giá theo Price List).
@@ -229,12 +241,12 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		# khi mã đó KHÔNG thuộc hợp đồng khung nào (bài cũ khẳng định ngược
 		# lại: mã ngoài hợp đồng không được nhặt giá bảng giá).
 		self._tao_gia(self.item_ngoai, self.price_list, 123456)
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_hd, "qty": 1}],
 			dat_ngoai=[self._go_tay(so_luong=3)],
 		)
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.qty), 3.0)
 		self.assertEqual(flt(dong.rate), 123456.0)
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
@@ -248,13 +260,13 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		`price_list_rate` (0 là falsy) nếu ERPNext tự điền được cột đó."""
 		# Đơn TRỘN: có một dòng "Bảng giá" đứng cạnh, đơn mang bảng giá của
 		# khách — đúng hình dạng làm bẫy `price_list_rate` sống dậy.
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_hd, "qty": 1}],
 			dat_ngoai=[self._go_tay(so_luong=3)],
 		)
-		self.assertEqual(so.selling_price_list, self.price_list)
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		self.assertEqual(bg.selling_price_list, self.price_list)
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.qty), 3.0)
 		self.assertEqual(flt(dong.rate), 0.0)
 		self.assertEqual(flt(dong.price_list_rate), 0.0)
@@ -262,102 +274,109 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 		self.assertFalse(dong.blanket_order)
 
-	def test_khop_xong_moi_dong_deu_bang_gia_don_van_o_vong_bao_gia(self):
-		"""QĐ-G2b — phép chuyển KHÔNG suy lại `custom_loai_don`. Đơn toàn hàng
-		gõ tay đã vào vòng báo giá ("Mua lẻ"); khớp về một mã có giá làm mọi
-		dòng thành "Bảng giá", nhưng đơn vẫn đi hết vòng đó."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		self.assertEqual(so.custom_loai_don, "Mua lẻ")
-		so = self._khop(so, self.item_hd)
-		self.assertEqual(
-			{d.custom_nguon_gia for d in so.items}, {"Bảng giá"},
-			"tiền đề: sau khi khớp không còn dòng nào chờ báo giá",
-		)
-		self.assertEqual(so.custom_loai_don, "Mua lẻ")
-
 	# -- BẪY 1: bất biến ----------------------------------------------------
 
 	def test_luu_ba_lan_van_dung_mot_dong(self):
 		"""`validate` chạy mỗi lần lưu — khớp mã rồi lưu ba lần KHÔNG được
 		đẻ ba dòng hàng (bẫy 1)."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so_dong_lan_dau = len(so.items)
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		bg = self._khop(bg, self.item_hd)
+		so_dong_lan_dau = len(bg.items)
 		for _ in range(2):
-			so.save(ignore_permissions=True)
-			so.reload()
-		self.assertEqual(len(so.items), so_dong_lan_dau)
+			bg.save(ignore_permissions=True)
+			bg.reload()
+		self.assertEqual(len(bg.items), so_dong_lan_dau)
 		self.assertEqual(
-			len([d for d in so.items if d.item_code == self.item_hd]), 1
+			len([d for d in bg.items if d.item_code == self.item_hd]), 1
 		)
-		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
+		self.assertEqual(flt(self._dong(bg, self.item_hd).qty), 5.0)
 
 	# -- BẪY 2: gộp vào dòng sẵn có ----------------------------------------
 
 	def test_ma_khop_trung_hang_da_co_thi_cong_don(self):
-		"""Hai dòng cùng `item_code` trên một Sales Order là mồi cho lệch hạn
+		"""Hai dòng cùng `item_code` trên một chứng từ là mồi cho lệch hạn
 		mức và lệch hoá đơn — phải CỘNG DỒN vào dòng sẵn có."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		so_dong_truoc = len(so.items)
-		so = self._khop(so, self.item_da_co)
+		so_dong_truoc = len(bg.items)
+		bg = self._khop(bg, self.item_da_co)
 		self.assertEqual(
-			len(so.items), so_dong_truoc,
+			len(bg.items), so_dong_truoc,
 			"gộp số lượng, KHÔNG thêm dòng thứ hai cùng mã",
 		)
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 6.0)
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 6.0)
 
 	def test_hai_dong_go_tay_cung_mot_ma_cung_gop_lam_mot(self):
 		"""Hai dòng gõ tay khác tên nhưng Miyano khớp về CÙNG một mã: vẫn
 		đúng MỘT dòng hàng, số lượng cộng dồn."""
-		so = self._dat(dat_ngoai=[
+		bg = self._dat(dat_ngoai=[
 			self._go_tay("Găng tay hộp lớn", so_luong=2),
 			self._go_tay("Găng tay hộp nhỏ", so_luong=3),
 		])
-		for dong in so.custom_dat_ngoai:
+		for dong in bg.custom_dat_ngoai:
 			dong.item_khop = self.item_hd
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertEqual(
-			len([d for d in so.items if d.item_code == self.item_hd]), 1
+			len([d for d in bg.items if d.item_code == self.item_hd]), 1
 		)
-		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
+		self.assertEqual(flt(self._dong(bg, self.item_hd).qty), 5.0)
 
 	# -- QĐ-G15: dòng gõ tay là BẰNG CHỨNG ----------------------------------
 
 	def test_dong_go_tay_con_nguyen_sau_khi_chuyen(self):
 		"""Không xoá, không sửa `ten_hang` khách đã gõ — đó là truy vết chủ
 		đầu tư yêu cầu từ đầu ("ghi tên ngày giờ lý do yêu cầu")."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
-		dong_go_tay = so.custom_dat_ngoai[0]
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		bg = self._khop(bg, self.item_hd)
+		self.assertEqual(len(bg.custom_dat_ngoai), 1)
+		dong_go_tay = bg.custom_dat_ngoai[0]
 		self.assertEqual(dong_go_tay.ten_hang, TEN_GO_TAY)
 		self.assertEqual(flt(dong_go_tay.so_luong), 5.0)
 		self.assertTrue(dong_go_tay.da_chuyen)
 		# Đường nối hai chiều: biết dòng bằng chứng nào ứng với dòng tiền nào.
-		self.assertEqual(dong_go_tay.dong_hang, self._dong(so, self.item_hd).name)
+		self.assertEqual(dong_go_tay.dong_hang, self._dong(bg, self.item_hd).name)
 
 	# -- BẪY 3: gỡ dòng giữ chỗ --------------------------------------------
 
-	def test_khop_het_thi_dong_giu_cho_bien_mat_va_submit_duoc(self):
-		"""Đơn TOÀN hàng gõ tay: sau khi khớp hết, dòng giữ chỗ kỹ thuật phải
-		BIẾN MẤT (mẫu in "Xác nhận đơn hàng" không lọc nó) và đơn submit
-		được — trước task này đơn cũng submit được, nhưng KHÔNG có dòng hàng
-		nào cho thứ khách yêu cầu."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		self.assertIn(ITEM_GIU_CHO, [d.item_code for d in so.items])
-		so = self._khop(so, self.item_hd)
+	def test_khop_het_thi_dong_giu_cho_bien_mat(self):
+		"""Yêu cầu TOÀN hàng gõ tay: sau khi khớp hết, dòng giữ chỗ kỹ thuật
+		phải BIẾN MẤT — `bao_gia.chot_gui_khach` không cho gửi khách một báo
+		giá còn dòng đó."""
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		self.assertIn(ITEM_GIU_CHO, [d.item_code for d in bg.items])
+		bg = self._khop(bg, self.item_hd)
 		self.assertNotIn(
-			ITEM_GIU_CHO, [d.item_code for d in so.items],
+			ITEM_GIU_CHO, [d.item_code for d in bg.items],
 			"dòng giữ chỗ phải được gỡ khi đã có hàng thật (bẫy 3)",
 		)
-		so.submit()
-		so.reload()
-		self.assertEqual(so.docstatus, 1)
-		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
+		self.assertEqual(flt(self._dong(bg, self.item_hd).qty), 5.0)
+
+	def test_xoa_dong_hang_da_chuyen_thi_khong_gui_khach_duoc(self):
+		"""Critical-3 trên Quotation: nhân viên xoá dòng hàng mà phép khớp mã
+		sinh ra thì dòng gõ tay vẫn `da_xu_ly = 1`, nhưng mặt hàng khách yêu
+		cầu không còn trên báo giá — `bao_gia.chot_gui_khach` phải giữ lại.
+		Thêm lại đúng dòng đó thì gửi được."""
+		bg = self._dat(
+			items=[{"item_code": self.item_da_co, "qty": 2}],
+			dat_ngoai=[self._go_tay()],
+		)
+		bg = self._khop(bg, self.item_hd)
+		self.assertTrue(bg.custom_dat_ngoai[0].da_xu_ly)
+
+		bg.set("items", [d for d in bg.items if d.item_code != self.item_hd])
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		self.assertTrue(bg.custom_dat_ngoai[0].da_xu_ly, "tiền đề: cờ vẫn nói đã xử lý")
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		self.assertIn("đã bị xoá hoặc đổi mã", str(ctx.exception))
+		self.assertIn(self.item_hd, str(ctx.exception))
+		self.assertEqual(
+			frappe.db.get_value("Quotation", bg.name, "workflow_state"), bao_gia.TT_CHO_MIYANO
+		)
 
 	# -- QĐ-G16: `da_xu_ly` phải nói thật -----------------------------------
 
@@ -365,10 +384,10 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		"""`da_xu_ly` hiện nghĩa "đã gắn mã" nhưng chốt `before_submit` đọc
 		nó là "đã lo xong" — nó đang NÓI DỐI. Sau task này nó bật khi và chỉ
 		khi dòng đã thành hàng thật."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		self.assertFalse(so.custom_dat_ngoai[0].da_xu_ly)
-		so = self._khop(so, self.item_hd)
-		dong = so.custom_dat_ngoai[0]
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		self.assertFalse(bg.custom_dat_ngoai[0].da_xu_ly)
+		bg = self._khop(bg, self.item_hd)
+		dong = bg.custom_dat_ngoai[0]
 		self.assertTrue(dong.da_chuyen, "phải CHUYỂN thật")
 		self.assertTrue(dong.da_xu_ly)
 		self.assertTrue(
@@ -378,53 +397,6 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 			"giá trị phải xuống DB, không chỉ nằm trong bộ nhớ",
 		)
 
-	def test_don_da_submit_khong_chay_lai_phep_chuyen(self):
-		"""Bẫy 5 — chỉ chạy khi đơn còn NHÁP. Đơn đã submit lưu lại (đổi
-		field `allow_on_submit`) không được sinh thêm dòng hàng nào.
-
-		BÀI NÀY MỘT MÌNH KHÔNG CÓ RĂNG (review 22/08, Minor-1 — đúng): lưu
-		một đơn đã submit đi vào `_action = "update_after_submit"`, mà
-		`run_before_save_methods` (`document.py:1138`) chỉ gọi
-		`before_validate` khi `_action in ("save", "submit")` — hook không
-		hề chạy ở đường này. Giữ bài lại vì nó vẫn canh đúng thứ tên nó nói
-		(lưu lại đơn đã xác nhận không đẻ thêm dòng), nhưng RĂNG của chốt
-		`docstatus` nằm ở bài ngay dưới."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so.submit()
-		so.reload()
-		so_dong = len(so.items)
-		# Sửa một field CÓ `allow_on_submit` (đường sửa hợp lệ duy nhất trên
-		# đơn đã xác nhận).
-		so.custom_ly_do_hen_giao = "khách xin lùi ngày giao"
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertEqual(len(so.items), so_dong)
-
-	def test_chot_docstatus_co_rang_o_duong_SUBMIT(self):
-		"""RĂNG của chốt `docstatus != 0`, đi ĐƯỜNG CÔNG KHAI `so.submit()`.
-
-		Lúc submit, `_action = "submit"` nên `before_validate` CÓ chạy, và
-		`docstatus` đã bằng 1 khi nó chạy (`Document._submit` gán docstatus
-		TRƯỚC `save()`). Đó là đường DUY NHẤT hook này gặp `docstatus != 0`.
-
-		Kịch bản: thêm một dòng gõ tay ĐÃ khớp mã rồi bấm Xác nhận THẲNG,
-		không lưu trước. Có chốt → không chuyển, dòng đó vẫn "chưa xử lý",
-		`kiem_dat_ngoai_da_xu_ly` giữ đơn lại. Không có chốt → hệ lặng lẽ
-		dựng thêm dòng hàng NGAY TRONG lần submit và đơn đi tiếp."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so.append("custom_dat_ngoai", {
-			"ten_hang": "Chèn thẳng lúc xác nhận", "dvt": "Cái",
-			"so_luong": 3, "item_khop": self.item_ngoai,
-		})
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
-		self.assertIn("chưa xử lý", str(ctx.exception))
-		so.reload()
-		self.assertEqual(so.docstatus, 0)
-		self.assertNotIn(self.item_ngoai, [d.item_code for d in so.items])
-
 	# -- CRITICAL-1 (review 22/08): phần đã gộp phải HOÀN TÁC được ----------
 
 	def test_xoa_dong_go_tay_da_chuyen_thi_tru_lai_DUNG_phan_da_gop(self):
@@ -432,21 +404,21 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		+ 4 đơn vị tới từ dòng gõ tay. Xoá dòng gõ tay khỏi đơn nháp thì phải
 		trừ lại ĐÚNG 4, còn nguyên 2 — không trừ thiếu (để lại số lượng ma),
 		cũng không gỡ cả dòng (ăn mất phần khách đặt trực tiếp)."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		so = self._khop(so, self.item_da_co)
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 6.0)
+		bg = self._khop(bg, self.item_da_co)
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 6.0)
 
-		so.custom_dat_ngoai = []
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.custom_dat_ngoai = []
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertEqual(
-			flt(self._dong(so, self.item_da_co).qty), 2.0,
+			flt(self._dong(bg, self.item_da_co).qty), 2.0,
 			"phải trừ lại ĐÚNG phần dòng gõ tay đã bơm vào, không hơn không kém",
 		)
-		self.assertEqual(flt(so.total), 2.0 * GIA_BANG_GIA)
+		self.assertEqual(flt(bg.total), 2.0 * GIA_BANG_GIA)
 
 	def test_xoa_dong_go_tay_roi_NHAP_LAI_khong_nhan_doi(self):
 		"""Đúng NỬA lời khuyên câu báo lỗi bẫy 6 của tôi đưa ra — "khớp nhầm
@@ -460,38 +432,38 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		Lưu một lần. (Đường hai lần lưu — xoá, Lưu, rồi gõ lại — được canh
 		riêng ở `test_xoa_dong_go_tay_da_chuyen_thi_tru_lai_DUNG_phan_da_gop`,
 		trên một đơn còn dòng hàng khác nên trạng thái giữa chừng lưu được.)"""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		tien_truoc = flt(so.total)
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
+		tien_truoc = flt(bg.total)
 		self.assertEqual(tien_truoc, 5.0 * GIA_BANG_GIA)
 
-		so.custom_dat_ngoai = []
-		so.append("custom_dat_ngoai", {
+		bg.custom_dat_ngoai = []
+		bg.append("custom_dat_ngoai", {
 			"ten_hang": TEN_GO_TAY, "dvt": "Hộp", "so_luong": 5,
 			"item_khop": self.item_hd,
 		})
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.save(ignore_permissions=True)
+		bg.reload()
 
 		self.assertEqual(
-			len([d for d in so.items if d.item_code == self.item_hd]), 1
+			len([d for d in bg.items if d.item_code == self.item_hd]), 1
 		)
-		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
-		self.assertEqual(flt(so.total), tien_truoc)
+		self.assertEqual(flt(self._dong(bg, self.item_hd).qty), 5.0)
+		self.assertEqual(flt(bg.total), tien_truoc)
 
 	def _dong_chung_hai_chu(self):
 		"""Một dòng hàng có BA chủ: 2 đơn vị khách đặt trực tiếp, 3 của dòng
 		gõ tay A, 4 của dòng gõ tay B → 9."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay("Dòng A", 3), self._go_tay("Dòng B", 4)],
 		)
-		for d in so.custom_dat_ngoai:
+		for d in bg.custom_dat_ngoai:
 			d.item_khop = self.item_da_co
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 9.0)
-		return so
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 9.0)
+		return bg
 
 	def test_dong_hang_dung_CHUNG_xoa_mot_chu_thi_chu_kia_con_nguyen(self):
 		"""Ca chính mà cột `so_luong_da_gop` sinh ra để phục vụ: một dòng
@@ -501,18 +473,18 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		Cũng là bài canh TÍNH TẤT ĐỊNH: phép hoàn tác gom theo DÒNG HÀNG chứ
 		không xử lý từng dòng gõ tay một, nên thứ tự lặp không quyết định
 		được kết quả."""
-		so = self._dong_chung_hai_chu()
-		so.custom_dat_ngoai = [
-			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		bg = self._dong_chung_hai_chu()
+		bg.custom_dat_ngoai = [
+			d for d in bg.custom_dat_ngoai if d.ten_hang != "Dòng B"
 		]
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertEqual(
-			flt(self._dong(so, self.item_da_co).qty), 5.0,
+			flt(self._dong(bg, self.item_da_co).qty), 5.0,
 			"2 khách đặt trực tiếp + 3 của dòng A còn lại",
 		)
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
-		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong_da_gop), 3.0)
+		self.assertEqual(len(bg.custom_dat_ngoai), 1)
+		self.assertEqual(flt(bg.custom_dat_ngoai[0].so_luong_da_gop), 3.0)
 
 	def test_giam_tay_so_luong_roi_xoa_mot_chu_KHONG_lam_boc_hoi_phan_chu_kia(self):
 		"""Sửa số lượng ngay trên dòng hàng là thao tác BÌNH THƯỜNG (chính
@@ -536,46 +508,42 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		Nên xoá B giờ trừ đúng 0 — phần của B đã được hấp thụ từ lúc hạ tay
 		— và dòng hàng đứng yên ở 4. Cả hai chủ còn lại đều nguyên vẹn, đó
 		mới là điều bài này canh."""
-		so = self._dong_chung_hai_chu()
-		so.items[0].qty = 4
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 4.0)
-		theo_ten = {d.ten_hang: d for d in so.custom_dat_ngoai}
+		bg = self._dong_chung_hai_chu()
+		bg.items[0].qty = 4
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 4.0)
+		theo_ten = {d.ten_hang: d for d in bg.custom_dat_ngoai}
 		self.assertEqual(flt(theo_ten["Dòng B"].so_luong_da_gop), 0.0)
 		self.assertEqual(flt(theo_ten["Dòng A"].so_luong_da_gop), 2.0)
 		# Bằng chứng khoa đã xin bao nhiêu thì KHÔNG đổi theo (QĐ-G15).
 		self.assertEqual(flt(theo_ten["Dòng A"].so_luong), 3.0)
 		self.assertEqual(flt(theo_ten["Dòng B"].so_luong), 4.0)
 
-		so.custom_dat_ngoai = [
-			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		bg.custom_dat_ngoai = [
+			d for d in bg.custom_dat_ngoai if d.ten_hang != "Dòng B"
 		]
-		so.save(ignore_permissions=True)
-		so.reload()
-		dong = self._dong(so, self.item_da_co)
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(
 			flt(dong.qty), 4.0,
 			"2 đặt thẳng + 2 của A — không chủ nào bị bốc hơi, và phần B "
 			"đã được hấp thụ từ lúc hạ tay nên không trừ thêm lần nữa",
 		)
-		# Và đường nối bằng chứng ↔ tiền của A phải còn nguyên, nếu không
-		# chốt `before_submit` sẽ chặn một đơn thật ra không có gì sai.
-		self.assertEqual(so.custom_dat_ngoai[0].dong_hang, dong.name)
-		so.submit()
-		so.reload()
-		self.assertEqual(so.docstatus, 1)
+		# Và đường nối bằng chứng ↔ tiền của A phải còn nguyên.
+		self.assertEqual(bg.custom_dat_ngoai[0].dong_hang, dong.name)
 
 	def test_xoa_sach_dong_go_tay_tren_don_toan_hang_go_tay_bao_cau_ro(self):
 		"""Ca biên còn lại của phép hoàn tác: đơn TOÀN hàng gõ tay, xoá SẠCH
 		dòng gõ tay thì `items` rỗng mà cũng không còn nhu cầu nào để dựng
 		dòng giữ chỗ. ERPNext sẽ ném `MandatoryError: items` — một câu không
 		nói cho nhân viên biết chuyện gì vừa xảy ra. Phải nói thẳng ra."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		so.custom_dat_ngoai = []
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
+		bg.custom_dat_ngoai = []
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.save(ignore_permissions=True)
+			bg.save(ignore_permissions=True)
 		self.assertIn("không còn dòng hàng nào", str(ctx.exception))
 		self.assertIn("huỷ hẳn đơn nháp này", str(ctx.exception))
 
@@ -583,23 +551,23 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		"""Ca biên của phép hoàn tác: đơn TOÀN hàng gõ tay, khớp mã xong thì
 		dòng giữ chỗ đã bị gỡ (bẫy 3) nên `items` chỉ còn đúng dòng vừa sinh.
 		Xoá dòng gõ tay đi là `items` RỖNG — mà ERPNext không lưu nổi một
-		Sales Order `items` rỗng (`grand_total` là `None`). Đơn phải quay về
+		chứng từ bán `items` rỗng (`grand_total` là `None`). Đơn phải quay về
 		đúng hình dạng §3.4 của nó, không phải nổ một câu của framework."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5), self._go_tay("Dòng hai", 2)])
-		so = self._khop(so, self.item_hd)
-		self.assertNotIn(ITEM_GIU_CHO, [d.item_code for d in so.items])
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5), self._go_tay("Dòng hai", 2)])
+		bg = self._khop(bg, self.item_hd)
+		self.assertNotIn(ITEM_GIU_CHO, [d.item_code for d in bg.items])
 
-		so.custom_dat_ngoai[0].item_khop = None
+		bg.custom_dat_ngoai[0].item_khop = None
 		# Xoá dòng ĐÃ chuyển, giữ lại dòng chưa khớp → đơn lại "toàn hàng
 		# chưa có mã", đúng tiền đề dòng giữ chỗ sinh ra để phục vụ.
-		so.custom_dat_ngoai = [d for d in so.custom_dat_ngoai if not d.da_chuyen]
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.custom_dat_ngoai = [d for d in bg.custom_dat_ngoai if not d.da_chuyen]
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertEqual(
-			[d.item_code for d in so.items], [ITEM_GIU_CHO],
+			[d.item_code for d in bg.items], [ITEM_GIU_CHO],
 			"đơn không còn hàng thật thì phải có lại đúng MỘT dòng giữ chỗ",
 		)
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
+		self.assertEqual(len(bg.custom_dat_ngoai), 1)
 
 	def test_nhan_ban_don_khong_nhan_doi_so_luong(self):
 		"""Nút Duplicate trên Desk (`frappe.copy_doc`) chép CẢ `items` LẪN
@@ -607,10 +575,10 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		`doc_before_save` để đối chiếu — nên phép chuyển coi dòng gõ tay là
 		chưa chuyển và cộng số lượng vào chính dòng hàng vừa được chép sang:
 		5 thành 10, dòng bằng chứng vẫn ghi 5."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
 
-		ban_sao = frappe.copy_doc(so)
+		ban_sao = frappe.copy_doc(bg)
 		ban_sao.custom_request_id = _rid()
 		ban_sao.insert(ignore_permissions=True)
 
@@ -618,7 +586,7 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 			len([d for d in ban_sao.items if d.item_code == self.item_hd]), 1
 		)
 		self.assertEqual(flt(self._dong(ban_sao, self.item_hd).qty), 5.0)
-		self.assertEqual(flt(ban_sao.total), flt(so.total))
+		self.assertEqual(flt(ban_sao.total), flt(bg.total))
 		# Đường nối bằng chứng ↔ tiền phải trỏ vào dòng CỦA BẢN SAO, không
 		# phải tên dòng của bản gốc chép sang (tên đó không tồn tại ở đây).
 		self.assertEqual(
@@ -637,10 +605,10 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		`da_xu_ly` lại nói dối một lần nữa, chỉ nhỏ hơn lần QĐ-G16 dẹp.
 		Không neo được thì KHÔNG chặn mà chuyển bình thường: điều bất biến
 		cần giữ là mặt hàng khoa yêu cầu có mặt trên đơn ĐỦ số lượng."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
 
-		ban_sao = frappe.copy_doc(so)
+		ban_sao = frappe.copy_doc(bg)
 		ban_sao.custom_request_id = _rid()
 		ban_sao.items[0].qty = 1
 		ban_sao.insert(ignore_permissions=True)
@@ -656,73 +624,46 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 	# -- IMPORTANT-1 (re-review 25/08): đường LƯU-VÀ-SUBMIT MỘT NHỊP --------
 	#
 	# `frappe/desk/form/save.py::savedocs` đặt `doc.docstatus = SUBMITTED`
-	# RỒI mới gọi `submit()`, và `document.py:1138` vẫn chạy `before_validate`
-	# cho `_action in ("save", "submit")`. Nên bấm Submit trên một đơn nháp
-	# ĐANG DỞ là MỘT lần lưu duy nhất, đi qua hook với `docstatus == 1`.
-	# `so.submit()` trong test đi đúng đường đó (`Document._submit` cũng gán
-	# docstatus TRƯỚC `save()`).
-	#
-	# Mọi BẤT BIẾN của task phải đứng vững ở đường này. Chỉ có phép CHUYỂN
-	# (hành động MỚI) mới được từ chối chạy — bẫy 5.
+	# RỒI mới gọi `submit()`, và `before_validate` vẫn chạy cho `_action in
+	# ("save", "submit")`. Báo giá của cổng chỉ Submit qua `bao_gia.dong_y`
+	# (đọc lại từ DB), nhưng báo giá NỘI BỘ Submit thẳng được trên Desk — nên
+	# bấm Submit trên một báo giá nháp ĐANG DỞ là MỘT lần lưu duy nhất, đi qua
+	# hook với `docstatus == 1`. Bất biến phải đứng vững ở đường này.
+
+	def _noi_bo(self, bg):
+		frappe.db.set_value(
+			"Quotation", bg.name, "custom_nguon_don", "Nội bộ", update_modified=False
+		)
+		bg.reload()
+		return bg
 
 	def test_submit_mot_nhip_van_HOAN_TAC_dong_go_tay_vua_xoa(self):
-		"""Xoá một dòng gõ tay rồi bấm thẳng Submit, không lưu trước.
-
-		Trước bản vá, hook thoát ngay ở dòng đầu vì `docstatus == 1`, nên
-		`_hoan_tac_dong_bi_xoa` không chạy: `kiem_dat_ngoai_da_xu_ly` cho qua
-		(dòng còn lại đã xử lý), `kiem_dong_chuyen_con_tren_don` cũng cho qua
-		(dòng còn lại vẫn trỏ đúng — chốt đó KHÔNG kiểm số lượng), và đơn
-		XÁC NHẬN với số lượng của dòng đã xoá vẫn nằm nguyên trong tiền."""
-		so = self._dong_chung_hai_chu()
-		so.custom_dat_ngoai = [
-			d for d in so.custom_dat_ngoai if d.ten_hang != "Dòng B"
+		"""Xoá một dòng gõ tay rồi bấm thẳng Submit, không lưu trước: số lượng
+		của dòng đã xoá không được đi theo báo giá vào tiền."""
+		bg = self._noi_bo(self._dong_chung_hai_chu())
+		bg.custom_dat_ngoai = [
+			d for d in bg.custom_dat_ngoai if d.ten_hang != "Dòng B"
 		]
-		so.submit()
-		so.reload()
-		self.assertEqual(so.docstatus, 1)
+		bg.submit()
+		bg.reload()
+		self.assertEqual(bg.docstatus, 1)
 		self.assertEqual(
-			flt(self._dong(so, self.item_da_co).qty), 5.0,
+			flt(self._dong(bg, self.item_da_co).qty), 5.0,
 			"2 khách đặt trực tiếp + 3 của dòng A — phần của dòng B đã xoá "
-			"không được đi theo đơn vào tiền",
+			"không được đi theo vào tiền",
 		)
 
 	def test_submit_mot_nhip_van_CHAN_sua_dong_da_chuyen(self):
 		"""Bẫy 6 phải đứng vững ở đường một nhịp: sửa `so_luong` trên dòng đã
-		chuyển rồi bấm thẳng Submit. Trước bản vá, phép kiểm bất biến không
-		chạy và dòng bằng chứng bị ghi đè ngay lúc xác nhận đơn."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		so.custom_dat_ngoai[0].so_luong = 9
+		chuyển rồi bấm thẳng Submit."""
+		bg = self._noi_bo(self._khop(self._dat(dat_ngoai=[self._go_tay(so_luong=5)]), self.item_hd))
+		bg.custom_dat_ngoai[0].so_luong = 9
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
+			bg.submit()
 		self.assertIn("đã chuyển thành dòng hàng", str(ctx.exception))
-		so.reload()
-		self.assertEqual(so.docstatus, 0)
-		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong), 5.0)
-
-	def test_submit_mot_nhip_van_VE_SINH_co_da_chuyen_client_gui_len(self):
-		"""Vệ sinh payload là nơi DUY NHẤT hạ `da_chuyen`/`dong_hang` do
-		client gửi lên. Bỏ qua nó ở đường một nhịp thì một dòng mang
-		`da_chuyen = 1` mà KHÔNG có `dong_hang` sẽ được
-		`kiem_dong_chuyen_con_tren_don` BỎ QUA (chốt đó chỉ xét dòng có
-		`dong_hang`) và đơn xác nhận với mặt hàng khoa yêu cầu vắng mặt —
-		đúng con bug QĐ-G16 ban đầu, qua đúng cái cửa mà docstring của chính
-		hàm này nêu là mối đe doạ."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so.append("custom_dat_ngoai", {
-			"ten_hang": "Dòng khai khống", "dvt": "Cái", "so_luong": 4,
-			"item_khop": self.item_ngoai,
-			# Payload tự khai "đã chuyển" mà không có dòng hàng nào đứng sau.
-			"da_chuyen": 1,
-		})
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
-		self.assertIn("chưa xử lý", str(ctx.exception))
-		self.assertIn("Dòng khai khống", str(ctx.exception))
-		so.reload()
-		self.assertEqual(so.docstatus, 0)
-		self.assertNotIn(self.item_ngoai, [d.item_code for d in so.items])
+		bg.reload()
+		self.assertEqual(bg.docstatus, 0)
+		self.assertEqual(flt(bg.custom_dat_ngoai[0].so_luong), 5.0)
 
 	# -- IMPORTANT-2 / Ruling P39: sổ sách không được trôi khỏi `qty` -------
 
@@ -736,23 +677,23 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 
 		`so_luong` của dòng gõ tay KHÔNG đổi — đó là bằng chứng khoa đã xin
 		bao nhiêu, nó không chạy theo quyết định giao hàng."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=5)],
 		)
-		so = self._khop(so, self.item_da_co)
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 7.0)
-		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong_da_gop), 5.0)
+		bg = self._khop(bg, self.item_da_co)
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 7.0)
+		self.assertEqual(flt(bg.custom_dat_ngoai[0].so_luong_da_gop), 5.0)
 
-		so.items[0].qty = 4
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.items[0].qty = 4
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertEqual(
-			flt(so.custom_dat_ngoai[0].so_luong_da_gop), 2.0,
+			flt(bg.custom_dat_ngoai[0].so_luong_da_gop), 2.0,
 			"giảm 3 thì phần đã gộp 5 phải xuống 2 — 2 hộp khách đặt thẳng giữ nguyên",
 		)
 		self.assertEqual(
-			flt(so.custom_dat_ngoai[0].so_luong), 5.0,
+			flt(bg.custom_dat_ngoai[0].so_luong), 5.0,
 			"bằng chứng khoa xin 5 KHÔNG được sửa theo (QĐ-G15)",
 		)
 
@@ -760,24 +701,24 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		"""Vế tiền của bài trên, và là hố Important-2 đo được trên Desk
 		thường: đơn còn một dòng hàng KHÁC nên `_dam_bao_con_dong_hang`
 		không ném gì cả — 2 hộp khách đặt thẳng biến mất IM LẶNG."""
-		so = self._dat(
+		bg = self._dat(
 			items=[
 				{"item_code": self.item_da_co, "qty": 2},
 				{"item_code": self.item_hd, "qty": 1},
 			],
 			dat_ngoai=[self._go_tay(so_luong=5)],
 		)
-		so = self._khop(so, self.item_da_co)
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty), 7.0)
+		bg = self._khop(bg, self.item_da_co)
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty), 7.0)
 
-		so.items[0].qty = 4
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.items[0].qty = 4
+		bg.save(ignore_permissions=True)
+		bg.reload()
 
-		so.custom_dat_ngoai = []
-		so.save(ignore_permissions=True)
-		so.reload()
-		dong = self._dong(so, self.item_da_co)
+		bg.custom_dat_ngoai = []
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(
 			flt(dong.qty), 2.0,
 			"2 hộp khách ĐẶT THẲNG phải còn nguyên — chỉ phần đã gộp bị trừ",
@@ -802,17 +743,17 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		là 4 (2 đặt thẳng + A còn nợ 2), nhưng B bị neo với sổ sách 4 nên
 		phép trừ ăn mất 2 đơn vị khách ĐẶT THẲNG — và vì dòng không bị xoá
 		nên KHÔNG thông báo nào nổ."""
-		so = self._dong_chung_hai_chu()
-		so.items[0].qty = 4
-		so.save(ignore_permissions=True)
-		so.reload()
-		theo_ten = {d.ten_hang: d for d in so.custom_dat_ngoai}
+		bg = self._dong_chung_hai_chu()
+		bg.items[0].qty = 4
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		theo_ten = {d.ten_hang: d for d in bg.custom_dat_ngoai}
 		self.assertEqual(
 			flt(theo_ten["Dòng B"].so_luong_da_gop), 0.0,
 			"tiền đề: P39 đã hạ sổ sách của B về 0 một cách HỢP LỆ",
 		)
 
-		ban_sao = frappe.copy_doc(so)
+		ban_sao = frappe.copy_doc(bg)
 		ban_sao.custom_request_id = _rid()
 		ban_sao.insert(ignore_permissions=True)
 
@@ -841,8 +782,8 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 
 		Payload khai khống sổ sách 99 trên một dòng hàng chỉ có 9: bất biến
 		P39 vẫn phải đứng sau khi lưu."""
-		so = self._dong_chung_hai_chu()
-		ban_sao = frappe.copy_doc(so)
+		bg = self._dong_chung_hai_chu()
+		ban_sao = frappe.copy_doc(bg)
 		ban_sao.custom_request_id = _rid()
 		for d in ban_sao.custom_dat_ngoai:
 			d.so_luong_da_gop = 99
@@ -869,90 +810,23 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		rơi vào `validate_qty_is_not_zero` của ERPNext. Quyết định nhánh
 		xảy ra TRONG BỘ NHỚ nên phép làm tròn của cột `decimal(21,3)` không
 		che được nó, đúng như re-review chỉ ra."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_hd, "qty": 1}],
 			dat_ngoai=[self._go_tay("Lẻ A", 0.7), self._go_tay("Lẻ B", 0.1)],
 		)
-		for d in so.custom_dat_ngoai:
+		for d in bg.custom_dat_ngoai:
 			d.item_khop = self.item_da_co
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertEqual(flt(self._dong(so, self.item_da_co).qty, 3), 0.8)
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).qty, 3), 0.8)
 
-		so.custom_dat_ngoai = []
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.custom_dat_ngoai = []
+		bg.save(ignore_permissions=True)
+		bg.reload()
 		self.assertNotIn(
-			self.item_da_co, [d.item_code for d in so.items],
+			self.item_da_co, [d.item_code for d in bg.items],
 			"trừ hết thì phải GỠ dòng, không để lại một dòng số lượng ~0",
 		)
-
-	def test_submit_khi_da_xoa_sach_dong_hang_bao_DUNG_nguyen_nhan(self):
-		"""FIXTURE PHÒNG THỦ cho một nhánh KHÔNG TỚI ĐƯỢC — Ruling P41.
-		Đọc kỹ đoạn này trước khi tin bài test.
-
-		**Nó KHÔNG gác một lỗi từng xảy ra.** Trạng thái nó dựng —
-		`da_chuyen = 1` với `dong_hang` RỖNG trên MỌI dòng gõ tay — chưa bao
-		giờ tồn tại, và không sinh ra được bằng bất kỳ đường ứng dụng nào:
-
-		  * `set_new_name(hang)` (thứ bảo đảm mọi dòng đã chuyển đều có tên
-		    dòng để ghi vào `dong_hang`) có mặt từ `53e6573`, tức commit Task
-		    13 ĐẦU TIÊN — `git log -S "set_new_name(hang)"` xác nhận. Chưa
-		    bản nào từng ghi `da_chuyen` mà không có `dong_hang`;
-		  * nhánh `feat/de-xuat-mua` chưa merge, chưa triển khai
-		    (`git branch --contains 555e1f4`), nên cũng không có dữ liệu cũ
-		    mang trạng thái đó.
-
-		Vì thế trạng thái phải dựng THẲNG Ở DB bằng `frappe.db.set_value`.
-		Dự án này đã sáu lần dính kiểu "fixture khẳng định một thế giới ứng
-		dụng không tạo ra được"; bài này là lần thứ bảy và được GIỮ LẠI có
-		chủ đích, với docstring nói đúng nó là gì.
-
-		**Giữ lại để làm gì:** khoá hành vi của nhánh `not con_nhap` trong
-		`_dam_bao_con_dong_hang` — dòng giữ chỗ là hình dạng của đơn NHÁP
-		(§3.4) và không bao giờ được chèn trong lúc XÁC NHẬN đơn, vì làm vậy
-		khiến `kiem_khong_con_dong_giu_cho` từ chối bằng một câu nói về DÒNG
-		GIỮ CHỖ — thứ người dùng chưa hề thêm; họ vừa xoá dòng hàng. Nếu ai
-		đó sau này mở lại một đường ghi tạo ra được trạng thái này, nhánh đã
-		có sẵn và đã được khoá.
-
-		**Ca Desk tới được** (xoá cả dòng gõ tay lẫn dòng hàng rồi Submit)
-		CỐ Ý không dùng: nó chạm được nhánh nhưng KHÔNG phân biệt được lời
-		hay lời dở — mã cũ cũng ném ra một câu đúng trên đường đó, nên nó sẽ
-		xanh cả trước lẫn sau bản vá. Một bài chạm nhánh mà không phân biệt
-		được gì thì tệ hơn một fixture phòng thủ nói thật về chính mình.
-
-		Bài NGAY DƯỚI (`..._uu_tien_cau_cua_chot_cu_the`) mới là bài đi
-		đường Desk thật và ghim rủi ro thật."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		frappe.db.set_value(
-			"Sales Order Dat Ngoai Item", so.custom_dat_ngoai[0].name,
-			"dong_hang", "", update_modified=False,
-		)
-		so.reload()
-		so.items = []
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
-		loi = str(ctx.exception)
-		self.assertIn("không còn dòng hàng nào để xác nhận", loi)
-		self.assertNotIn(
-			ITEM_GIU_CHO, loi,
-			"không được kể chuyện dòng giữ chỗ cho một người vừa xoá dòng hàng",
-		)
-		so.reload()
-		self.assertEqual(so.docstatus, 0)
-
-	def test_submit_khi_xoa_dong_hang_van_uu_tien_cau_cua_chot_cu_the(self):
-		"""Vế răng của bài trên: khi một chốt `before_submit` CÓ chuyện đúng
-		hơn để kể thì phải nhường lời cho nó, không cướp lời bằng câu chung
-		chung."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so.items = []
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
-		self.assertIn("đã bị xoá hoặc đổi mã", str(ctx.exception))
 
 	# -- CRITICAL-2 (review 22/08) + spec 2026-10-09 §4.4: LUẬT GỘP ----------
 	#
@@ -974,20 +848,20 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		lẫn mới) đi tiếp với tiền bằng 0 — đúng nửa còn lại của con bug
 		QĐ-G13 sinh ra để dẹp, đi vào bằng cửa gộp."""
 		# Đảo theo spec 2026-10-09 (giá theo Price List).
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_ngoai, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		dong = self._dong(so, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.rate), 0.0, "tiền đề: dòng đang chờ báo giá")
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 
 		# Giá xuất hiện SAU khi đơn đã lập.
 		self._tao_gia(self.item_ngoai, self.price_list, GIA_BANG_GIA)
 
-		so.reload()
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		bg.reload()
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(
 			flt(dong.rate), float(GIA_BANG_GIA),
@@ -996,7 +870,7 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(flt(dong.price_list_rate), float(GIA_BANG_GIA))
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
 		self.assertFalse(dong.blanket_order)
-		self.assertEqual(flt(so.total), 6.0 * GIA_BANG_GIA)
+		self.assertEqual(flt(bg.total), 6.0 * GIA_BANG_GIA)
 
 	def test_gop_KHONG_de_len_gia_nhan_vien_dang_bao(self):
 		"""Vế răng của bài trên. Dòng "Báo giá" đã mang giá nhân viên vừa gõ
@@ -1004,25 +878,25 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		(đơn khác được đồng ý). Phép gộp không được đè giá bảng giá lên, cũng
 		không được đổi dấu — nếu đổi thành "Bảng giá", lúc khách đồng ý giá
 		50.000 này sẽ không được ghi vào Price List và chốt 3 thôi canh nó."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_ngoai, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		self._dong(so, self.item_ngoai).rate = 50000
-		so.save(ignore_permissions=True)
-		so.reload()
-		dong = self._dong(so, self.item_ngoai)
+		self._dong(bg, self.item_ngoai).rate = 50000
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.rate), 50000.0, "tiền đề: nhân viên đã gõ giá")
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 
 		self._tao_gia(self.item_ngoai, self.price_list, GIA_BANG_GIA)
 
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(flt(dong.rate), 50000.0, "giá đang báo phải giữ nguyên")
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá", "dấu cũng giữ nguyên")
-		self.assertEqual(flt(so.total), 6.0 * 50000)
+		self.assertEqual(flt(bg.total), 6.0 * 50000)
 
 	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_gop_vao_dong_bang_gia_da_bi_sua_gia_thi_thanh_bao_gia(self):
@@ -1031,21 +905,21 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		nhưng đóng lại dấu "Báo giá" — một giá nhân viên gõ là một báo giá: nó
 		phải được ghi vào Price List khi khách đồng ý và được chốt
 		`before_submit` canh. Bài cũ khẳng định dấu vẫn là "Bảng giá"."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		so.items[0].rate = 50000
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertEqual(flt(so.items[0].rate), 50000.0, "tiền đề: giá đã sửa tay")
-		self.assertEqual(so.items[0].custom_nguon_gia, "Bảng giá")
+		bg.items[0].rate = 50000
+		bg.save(ignore_permissions=True)
+		bg.reload()
+		self.assertEqual(flt(bg.items[0].rate), 50000.0, "tiền đề: giá đã sửa tay")
+		self.assertEqual(bg.items[0].custom_nguon_gia, "Bảng giá")
 		# R16 dựa vào đúng điều này: sửa `rate` trên dòng đã lưu KHÔNG kéo
 		# `price_list_rate` theo — cột đó vẫn nhớ giá bảng lúc lập đơn.
-		self.assertEqual(flt(so.items[0].price_list_rate), float(GIA_BANG_GIA))
+		self.assertEqual(flt(bg.items[0].price_list_rate), float(GIA_BANG_GIA))
 
-		so = self._khop(so, self.item_da_co)
-		dong = self._dong(so, self.item_da_co)
+		bg = self._khop(bg, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(flt(dong.rate), 50000.0, "giá nhân viên gõ phải giữ nguyên")
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
@@ -1056,11 +930,11 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		"""Đơn có dòng "Bảng giá" ở 54.000 (`rate == price_list_rate`, không ai
 		sửa) + một dòng gõ tay; rồi giá bảng đổi thành `gia_moi` (`None` = mã
 		bị rút khỏi bảng giá)."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		dong = self._dong(so, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
 		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 		self.assertEqual(flt(dong.price_list_rate), float(GIA_BANG_GIA))
@@ -1073,44 +947,35 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		self.assertEqual(
 			bang_gia_khach.gia_bang_gia(self.kh_a, self.item_da_co), gia_moi
 		)
-		return so
+		return bg
 
 	def test_gop_vao_dong_bang_gia_khi_gia_bang_da_doi_thi_lay_gia_moi(self):
 		"""R16 — giá bảng trôi từ 54.000 lên 60.000 sau khi lập đơn. Gộp phải
 		làm mới dòng theo giá hôm nay và GIỮ dấu "Bảng giá"; đóng "Báo giá" ở
-		54.000 thì lúc khách đồng ý, giá cũ bị ghi đè lên giá bảng hiện hành."""
-		from frappe.model.workflow import apply_workflow
+		54.000 thì lúc khách đồng ý, giá cũ bị ghi đè lên giá bảng hiện hành.
 
-		from miyano_portal.api import portal
-		from miyano_portal.tests import test_catalog_gop as goc
-
-		so = self._don_bang_gia_roi_bang_doi(60000.0)
-		so = self._khop(so, self.item_da_co)
-		dong = self._dong(so, self.item_da_co)
+		Đơn sinh từ báo giá ghi mọi dòng vào Price List lúc khách đồng ý, nên
+		bài canh GIÁ TRỊ trong bảng sau khi đồng ý, không canh việc có ghi."""
+		bg = self._don_bang_gia_roi_bang_doi(60000.0)
+		bg = self._khop(bg, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(flt(dong.rate), 60000.0)
 		self.assertEqual(flt(dong.price_list_rate), 60000.0)
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
-		self.assertEqual(flt(so.total), 6.0 * 60000)
+		self.assertEqual(flt(bg.total), 6.0 * 60000)
 
 		def gia_trong_bang():
 			return frappe.get_all(
 				"Item Price", filters={"item_code": self.item_da_co, "selling": 1},
-				fields=["name", "price_list", "price_list_rate", "modified"],
+				fields=["name", "price_list", "price_list_rate"],
 				order_by="name asc",
 			)
 
 		truoc = gia_trong_bang()
-		so = apply_workflow(so, "Gửi khách duyệt")
-		quan_ly = goc.TestPortalCatalogGop._dam_bao_thanh_vien(
-			self, "g13.ql@demo.miyano", self.kh_a, "Quản lý", None
-		)
-		frappe.set_user(quan_ly)
-		try:
-			portal.portal_order_accept(so.name, "dong_y")
-		finally:
-			frappe.set_user("Administrator")
-		self.assertEqual(gia_trong_bang(), truoc, "khách đồng ý không được ghi Price List")
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		bao_gia.dong_y(bg.name)
+		self.assertEqual(gia_trong_bang(), truoc, "khách đồng ý không được đổi giá trong bảng")
 		self.assertEqual(
 			bang_gia_khach.gia_bang_gia(self.kh_a, self.item_da_co), 60000.0
 		)
@@ -1120,80 +985,78 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		dòng giá bảng. Dấu "Báo giá", `rate = 0` (một giá đã rút không được
 		ghi ngược vào bảng lúc khách đồng ý), và chốt 2 giữ đơn lại cho tới
 		khi nhân viên gõ giá."""
-		from frappe.model.workflow import apply_workflow
-
-		so = self._don_bang_gia_roi_bang_doi(None)
-		so = self._khop(so, self.item_da_co)
-		dong = self._dong(so, self.item_da_co)
+		bg = self._don_bang_gia_roi_bang_doi(None)
+		bg = self._khop(bg, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(flt(dong.qty), 6.0)
 		self.assertEqual(flt(dong.rate), 0.0)
 		self.assertEqual(flt(dong.price_list_rate), 0.0)
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			apply_workflow(so, "Gửi khách duyệt")
+			apply_workflow(bg, bao_gia.HD_GUI_KHACH)
 		self.assertIn("chưa có đơn giá", str(ctx.exception))
-		so.reload()
-		self._dong(so, self.item_da_co).rate = 58000
-		so.save(ignore_permissions=True)
-		so = apply_workflow(so, "Gửi khách duyệt")
-		self.assertEqual(so.workflow_state, "Chờ khách đồng ý")
+		bg.reload()
+		self._dong(bg, self.item_da_co).rate = 58000
+		bg.save(ignore_permissions=True)
+		bg = apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		self.assertEqual(bg.workflow_state, bao_gia.TT_CHO_KHACH)
 
-	def _bo_dau(self, so, item_code, **them):
+	def _bo_dau(self, bg, item_code, **them):
 		"""Hạ dòng về hình dạng dòng CHƯA có dấu — dòng nhân viên thêm tay trên
 		Desk, hoặc đơn lập trước spec 2026-10-09."""
 		frappe.db.set_value(
-			"Sales Order Item", self._dong(so, item_code).name,
+			"Quotation Item", self._dong(bg, item_code).name,
 			{"custom_nguon_gia": "", **them}, update_modified=False,
 		)
-		so.reload()
-		return so
+		bg.reload()
+		return bg
 
 	def test_gop_vao_dong_chua_dau_gia_khac_gia_bang_thi_la_bao_gia(self):
 		"""Ruling R14 — dòng chưa có dấu mang 50.000, giá bảng 54.000: gộp giữ
 		50.000 và đóng dấu "Báo giá", KHÔNG "Bảng giá" (nếu không, lần khách
 		sửa số lượng kế tiếp sẽ lặng lẽ thay giá nhân viên bằng giá bảng)."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		so.items[0].rate = 50000
-		so.save(ignore_permissions=True)
-		so = self._bo_dau(so, self.item_da_co)
-		self.assertFalse(self._dong(so, self.item_da_co).custom_nguon_gia)
+		bg.items[0].rate = 50000
+		bg.save(ignore_permissions=True)
+		bg = self._bo_dau(bg, self.item_da_co)
+		self.assertFalse(self._dong(bg, self.item_da_co).custom_nguon_gia)
 
-		so = self._khop(so, self.item_da_co)
-		dong = self._dong(so, self.item_da_co)
+		bg = self._khop(bg, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(flt(dong.rate), 50000.0)
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 
 	def test_gop_vao_dong_chua_dau_gia_bang_gia_bang_thi_la_bang_gia(self):
 		"""Vế còn lại của R14: dòng chưa có dấu mà `rate` ĐÚNG BẰNG giá bảng
 		thì đó là giá bảng — dấu "Bảng giá"."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_da_co, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		so = self._bo_dau(so, self.item_da_co)
-		self.assertEqual(flt(self._dong(so, self.item_da_co).rate), float(GIA_BANG_GIA))
+		bg = self._bo_dau(bg, self.item_da_co)
+		self.assertEqual(flt(self._dong(bg, self.item_da_co).rate), float(GIA_BANG_GIA))
 
-		so = self._khop(so, self.item_da_co)
-		dong = self._dong(so, self.item_da_co)
+		bg = self._khop(bg, self.item_da_co)
+		dong = self._dong(bg, self.item_da_co)
 		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 		self.assertEqual(dong.custom_nguon_gia, "Bảng giá")
 
 	def test_gop_vao_dong_chua_dau_co_gia_ma_ma_chua_co_gia_bang_la_bao_gia(self):
 		"""R14 — dòng chưa có dấu mang giá nhân viên gõ, mã KHÔNG có giá bảng."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_ngoai, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
-		self._dong(so, self.item_ngoai).rate = 50000
-		so.save(ignore_permissions=True)
-		so = self._bo_dau(so, self.item_ngoai)
+		self._dong(bg, self.item_ngoai).rate = 50000
+		bg.save(ignore_permissions=True)
+		bg = self._bo_dau(bg, self.item_ngoai)
 
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.rate), 50000.0)
 		self.assertEqual(dong.custom_nguon_gia, "Báo giá")
 
@@ -1201,22 +1064,22 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		"""Bẫy ERPNext: dòng `rate = 0` còn mang `margin_rate_or_amount` cũ thì
 		`taxes_and_totals.calculate_margin` cộng phần chênh đó lên giá bảng
 		vừa điền. Phép gộp phải xoá phần chênh để dòng mang ĐÚNG giá bảng."""
-		so = self._dat(
+		bg = self._dat(
 			items=[{"item_code": self.item_ngoai, "qty": 2}],
 			dat_ngoai=[self._go_tay(so_luong=4)],
 		)
 		frappe.db.set_value(
-			"Sales Order Item", self._dong(so, self.item_ngoai).name,
+			"Quotation Item", self._dong(bg, self.item_ngoai).name,
 			{"margin_type": "Amount", "margin_rate_or_amount": 111},
 			update_modified=False,
 		)
 		self._tao_gia(self.item_ngoai, self.price_list, GIA_BANG_GIA)
-		so.reload()
-		so = self._khop(so, self.item_ngoai)
-		dong = self._dong(so, self.item_ngoai)
+		bg.reload()
+		bg = self._khop(bg, self.item_ngoai)
+		dong = self._dong(bg, self.item_ngoai)
 		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
 		self.assertEqual(flt(dong.margin_rate_or_amount), 0.0)
-		self.assertEqual(flt(so.total), 6.0 * GIA_BANG_GIA)
+		self.assertEqual(flt(bg.total), 6.0 * GIA_BANG_GIA)
 
 	def test_dong_khop_ma_luon_theo_don_vi_goc(self):
 		"""Ruling R15 — ERPNext mặc định `uom` của dòng mới theo `Item.
@@ -1227,42 +1090,13 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		item.sales_uom = "Box"
 		item.save(ignore_permissions=True)
 
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		dong = self._dong(so, self.item_hd)
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
+		dong = self._dong(bg, self.item_hd)
 		self.assertEqual(dong.uom, "Cái")
 		self.assertEqual(flt(dong.conversion_factor), 1.0)
 		self.assertEqual(flt(dong.stock_qty), 5.0)
 		self.assertEqual(flt(dong.rate), float(GIA_BANG_GIA))
-
-	# -- CRITICAL-3 (review 22/08): `da_xu_ly` phải còn đúng LÚC SUBMIT -----
-
-	def test_xoa_dong_hang_da_tao_thi_khong_submit_duoc(self):
-		"""`da_xu_ly` chỉ nói thật TẠI LÚC chuyển; không có gì canh khoảng
-		giữa lúc đó và lúc xác nhận đơn. Nhân viên Desk xoá dòng `items` do
-		phép chuyển sinh ra — một thao tác lưới bình thường, không cảnh báo
-		gì — thì cờ vẫn bật, `dong_hang` trỏ vào hư không, và đơn XÁC NHẬN
-		ĐƯỢC với mặt hàng khoa yêu cầu không có dòng nào, không giá, không
-		lên hoá đơn. Đúng con bug QĐ-G16 dẹp, tới bằng cửa XOÁ."""
-		so = self._dat(
-			items=[{"item_code": self.item_da_co, "qty": 2}],
-			dat_ngoai=[self._go_tay()],
-		)
-		so = self._khop(so, self.item_hd)
-		so.items = [d for d in so.items if d.item_code != self.item_hd]
-		for idx, d in enumerate(so.items, start=1):
-			d.idx = idx
-		so.save(ignore_permissions=True)
-		so.reload()
-		self.assertTrue(
-			so.custom_dat_ngoai[0].da_xu_ly, "cờ vẫn đang nói 'đã xử lý'"
-		)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.submit()
-		self.assertIn("đã bị xoá hoặc đổi mã", str(ctx.exception))
-		self.assertIn(TEN_GO_TAY, str(ctx.exception))
-		so.reload()
-		self.assertEqual(so.docstatus, 0)
 
 	# -- BẪY 6: đổi dòng gõ tay SAU khi đã chuyển ---------------------------
 
@@ -1271,26 +1105,26 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		`portal_mua_le._kiem_dong_da_chuyen_khong_doi`: sau khi số lượng đã
 		được GỘP vào một dòng sẵn có (bẫy 2), không còn cách trung thực nào
 		để biết phần nào của dòng đó tới từ dòng gõ tay."""
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		so.custom_dat_ngoai[0].so_luong = 9
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
+		bg.custom_dat_ngoai[0].so_luong = 9
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.save(ignore_permissions=True)
+			bg.save(ignore_permissions=True)
 		self.assertIn("đã chuyển thành dòng hàng", str(ctx.exception))
 		self.assertIn(self.item_hd, str(ctx.exception))
-		so.reload()
-		self.assertEqual(flt(so.custom_dat_ngoai[0].so_luong), 5.0)
-		self.assertEqual(flt(self._dong(so, self.item_hd).qty), 5.0)
+		bg.reload()
+		self.assertEqual(flt(bg.custom_dat_ngoai[0].so_luong), 5.0)
+		self.assertEqual(flt(self._dong(bg, self.item_hd).qty), 5.0)
 
 	def test_doi_ma_khop_sau_khi_chuyen_bi_chan(self):
 		"""Cùng lý do bẫy 6: `da_chuyen = 1` mà `item_khop` trỏ mã khác là
 		một lời nói dối y hệt cái QĐ-G16 vừa dẹp. Câu báo lỗi phải chỉ ra
 		đường gỡ, vì trên đơn NHÁP dòng gõ tay vẫn xoá được."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so = self._khop(so, self.item_hd)
-		so.custom_dat_ngoai[0].item_khop = self.item_ngoai
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		bg = self._khop(bg, self.item_hd)
+		bg.custom_dat_ngoai[0].item_khop = self.item_ngoai
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.save(ignore_permissions=True)
+			bg.save(ignore_permissions=True)
 		self.assertIn("đã chuyển thành dòng hàng", str(ctx.exception))
 		# Câu báo lỗi phải nêu đường gỡ, và (review 22/08) phải nêu đường gỡ
 		# AN TOÀN. Bản trước bảo "xoá dòng gõ tay VÀ dòng hàng đã tạo" — làm
@@ -1310,21 +1144,21 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 
 		`dat_hang._xay_don` đã chặn đúng mã này ở đường ghi thứ nhất
 		(`mat_hang_giu_cho_khong_the_dat`); đây là đường ghi thứ hai."""
-		so = self._dat(dat_ngoai=[self._go_tay()])
-		so.custom_dat_ngoai[0].item_khop = ITEM_GIU_CHO
+		bg = self._dat(dat_ngoai=[self._go_tay()])
+		bg.custom_dat_ngoai[0].item_khop = ITEM_GIU_CHO
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			so.save(ignore_permissions=True)
+			bg.save(ignore_permissions=True)
 		self.assertIn("mã kỹ thuật nội bộ", str(ctx.exception))
 		self.assertIn(ITEM_GIU_CHO, str(ctx.exception))
-		so.reload()
+		bg.reload()
 		# Không được để lại một trạng thái NỬA VỜI: dòng gõ tay vẫn "chưa xử
-		# lý", nên chốt `before_submit` vẫn giữ được đơn lại.
-		self.assertFalse(so.custom_dat_ngoai[0].da_chuyen)
-		self.assertFalse(so.custom_dat_ngoai[0].da_xu_ly)
-		self.assertEqual([d.item_code for d in so.items], [ITEM_GIU_CHO])
+		# lý", nên `bao_gia.chot_gui_khach` vẫn giữ báo giá lại.
+		self.assertFalse(bg.custom_dat_ngoai[0].da_chuyen)
+		self.assertFalse(bg.custom_dat_ngoai[0].da_xu_ly)
+		self.assertEqual([d.item_code for d in bg.items], [ITEM_GIU_CHO])
 		with self.assertRaises(frappe.ValidationError) as ctx2:
-			so.submit()
-		self.assertIn("chưa xử lý", str(ctx2.exception))
+			apply_workflow(bg, bao_gia.HD_GUI_KHACH)
+		self.assertIn("chưa khớp mã", str(ctx2.exception))
 
 	# -- PATCH: nhánh backfill phải THẬT SỰ chạy được ----------------------
 
@@ -1339,9 +1173,9 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 		bỏ sót backfill là giữ nguyên lỗ Critical-1 cho mọi đơn đang mở."""
 		from miyano_portal.patches.v1_27.them_cot_so_luong_da_gop import execute
 
-		so = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
-		so = self._khop(so, self.item_hd)
-		ten_dong = so.custom_dat_ngoai[0].name
+		bg = self._dat(dat_ngoai=[self._go_tay(so_luong=5)])
+		bg = self._khop(bg, self.item_hd)
+		ten_dong = bg.custom_dat_ngoai[0].name
 		# Hạ về đúng hình dạng bản ghi có trước khi cột này ra đời.
 		frappe.db.set_value(
 			"Sales Order Dat Ngoai Item", ten_dong, "so_luong_da_gop", 0,
@@ -1381,20 +1215,20 @@ class TestKhopMaDatNgoai(FrappeTestCase):
 			float(GIA_BANG_GIA_B),
 			"tiền đề: khách B THẬT SỰ có giá cho mã này",
 		)
-		so = self._dat(dat_ngoai=[
+		bg = self._dat(dat_ngoai=[
 			self._go_tay("Hàng của chính khách A", so_luong=1),
 			self._go_tay("Hàng chỉ có giá ở khách B", so_luong=1),
 		])
-		so.custom_dat_ngoai[0].item_khop = self.item_hd
-		so.custom_dat_ngoai[1].item_khop = self.item_chi_b
-		so.save(ignore_permissions=True)
-		so.reload()
+		bg.custom_dat_ngoai[0].item_khop = self.item_hd
+		bg.custom_dat_ngoai[1].item_khop = self.item_chi_b
+		bg.save(ignore_permissions=True)
+		bg.reload()
 
-		cua_a = self._dong(so, self.item_hd)
+		cua_a = self._dong(bg, self.item_hd)
 		self.assertEqual(flt(cua_a.rate), float(GIA_BANG_GIA))
 		self.assertEqual(cua_a.custom_nguon_gia, "Bảng giá")
 
-		cua_b = self._dong(so, self.item_chi_b)
+		cua_b = self._dong(bg, self.item_chi_b)
 		self.assertEqual(flt(cua_b.rate), 0.0)
 		self.assertEqual(cua_b.custom_nguon_gia, "Báo giá")
 		self.assertFalse(cua_b.blanket_order)

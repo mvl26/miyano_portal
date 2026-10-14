@@ -317,10 +317,11 @@ class TestEndpointAnh(_CR03Fixture):
 class TestOrderTrackTraDuChinTruong(_CR03Fixture):
 	"""`portal_order_track` phải trả đủ chín trường CR-03 trong `dat_ngoai`.
 
-	VÌ SAO CÓ LỚP NÀY: `KhoiBaoGia.vue::moGuiLai()` đọc chính endpoint này để
-	dựng lại giỏ khi khách sửa và gửi lại phiếu. Thiếu trường ở đây thì màn
-	hình có người TIÊU THỤ mà không có người SINH — khách sửa phiếu xong là
-	model/hãng/ảnh họ đã khai biến mất lặng lẽ, và không lỗi nào nổ ra.
+	VÌ SAO CÓ LỚP NÀY: bảng mặt hàng của màn chi tiết (`dong-bang-mat-hang.js`,
+	khối xổ "Xem chi tiết" vẽ bằng `TheHangMoi.vue`) đọc `don.dat_ngoai` của
+	chính endpoint này. Thiếu trường ở đây thì màn hình có người TIÊU THỤ mà
+	không có người SINH — model/hãng/ảnh khách đã khai biến mất lặng lẽ, và
+	không lỗi nào nổ ra.
 
 	Đúng lớp lỗi `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt NĂM lần,
 	chỉ đảo chiều: bốn lần trước là "API trả về mà không màn nào đọc", lần
@@ -351,9 +352,8 @@ class TestOrderTrackTraDuChinTruong(_CR03Fixture):
 		# việc "có bị bỏ sót trường nào không".
 		import inspect
 
-		# Dict của một dòng nay dựng ở `_dat_ngoai_cho_khach` (13/10/2026: dòng
-		# đến từ đơn HOẶC từ báo giá nguồn của đơn "Theo báo giá", cùng một
-		# hàm). Soi đúng chỗ dựng, VÀ ghim rằng endpoint đi qua hàm đó — soi
+		# Dict của một dòng nay dựng ở `_dat_ngoai_cho_khach` (dòng chỉ còn đến
+		# từ báo giá nguồn của đơn "Theo báo giá", patch v1_44). Soi đúng chỗ dựng, VÀ ghim rằng endpoint đi qua hàm đó — soi
 		# riêng helper thì gỡ lời gọi khỏi endpoint bài vẫn xanh. Giá trị thật
 		# qua endpoint: `test_bao_gia_soat_trinh_duyet.TestChinTruongQuaTrack`.
 		self.assertRegex(

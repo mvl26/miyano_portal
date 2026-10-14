@@ -667,11 +667,10 @@ class TestKiemHangDuLieuThat(_KiemHangBase):
 			# trực tiếp.
 			dat = don_mua_le_cu.dat_truc_tiep(
 				self.customer,
-				items=[{"item_code": ITEM, "qty": 4}],
+				items=[{"item_code": ITEM, "qty": 4}, {"item_code": ITEM_2, "qty": 2}],
 				mode="ban_le",
 				request_id=frappe.generate_hash(length=12),
 				delivery_date=frappe.utils.add_days(frappe.utils.today(), 5),
-				dat_ngoai=[{"ten_hang": "Kẹp mạch máu cỡ S", "dvt": "Cái", "so_luong": 2}],
 			)
 		finally:
 			frappe.set_user("Administrator")
@@ -679,30 +678,15 @@ class TestKiemHangDuLieuThat(_KiemHangBase):
 		self.assertEqual(so.get("custom_loai_don"), "Mua lẻ")
 
 		# Nhân viên chốt giá rồi xác nhận đơn — đường đi thật của một đơn lẻ.
+		# Sales Order không còn dòng gõ tay (patch v1_44): dòng chưa có giá
+		# chỉ cần Miyano điền giá.
 		for r in so.items:
-			if r.item_code != ITEM_GIU_CHO:
+			if r.item_code == ITEM:
 				r.rate = 95000
-		# Task 13 (QĐ-G13) — KHÔNG còn dựng TAY dòng hàng cho dòng đặt ngoài,
-		# và KHÔNG còn tự tay tick `da_xu_ly`: khớp mã là hệ thống tự CHUYỂN
-		# dòng gõ tay thành dòng hàng thật, tự gỡ dòng giữ chỗ (bẫy 3) và tự
-		# bật `da_xu_ly` (QĐ-G16). Giữ nguyên đoạn dựng tay của bản cũ sẽ
-		# ĐẾM ĐÔI số lượng (2 dòng tay + 2 dòng chuyển = 4), và biên bản kiểm
-		# hàng bên dưới báo "giao 4, nhận tốt 2" — đúng cái đỏ đã bắt được.
-		for d in (so.get("custom_dat_ngoai") or []):
-			d.item_khop = ITEM_2
-		so.flags.ignore_permissions = True
-		so.save()
-		so.reload()
-		self.assertNotIn(
-			ITEM_GIU_CHO, [r.item_code for r in so.items],
-			"khớp mã xong thì dòng giữ chỗ phải tự biến mất (Task 13, bẫy 3)",
-		)
-		for r in so.items:
-			if r.item_code == ITEM_2:
-				# Miyano chốt giá cho dòng vừa chuyển (mã này ngoài hợp đồng
-				# của khách thử nghiệm nên tới đây `rate = 0`, đúng tầng 2).
+			elif r.item_code == ITEM_2:
 				r.rate = 12000
 				r.cost_center = COST_CENTER
+		self.assertNotIn(ITEM_GIU_CHO, [r.item_code for r in so.items])
 		so.save(ignore_permissions=True)
 		so.submit()
 

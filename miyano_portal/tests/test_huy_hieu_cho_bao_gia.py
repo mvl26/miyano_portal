@@ -30,11 +30,8 @@ from miyano_portal.api import portal
 class TestCoDongChoBaoGia(FrappeTestCase):
 	"""`_co_dong_cho_bao_gia(so)` — vị ngữ thuần, không chạm CSDL."""
 
-	def _so(self, items=None, dat_ngoai=None):
-		return frappe._dict(
-			items=[frappe._dict(d) for d in (items or [])],
-			custom_dat_ngoai=[frappe._dict(d) for d in (dat_ngoai or [])],
-		)
+	def _so(self, items=None):
+		return frappe._dict(items=[frappe._dict(d) for d in (items or [])])
 
 	def test_con_dong_gia_0_thi_TRUE(self):
 		so = self._so(items=[{"item_code": "A", "rate": 0}, {"item_code": "B", "rate": 1200}])
@@ -52,24 +49,11 @@ class TestCoDongChoBaoGia(FrappeTestCase):
 	def test_dong_giu_cho_khong_tinh(self):
 		"""`HANG-DAT-NGOAI` là dòng GIỮ CHỖ kỹ thuật, luôn giá 0 và không bao
 		giờ là hàng thật — tính nó vào là huy hiệu sáng vĩnh viễn trên mọi
-		đơn có dòng đặt ngoài, kể cả khi Miyano đã báo giá xong tất cả."""
+		đơn cũ có dòng đặt ngoài, kể cả khi Miyano đã báo giá xong tất cả."""
 		from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 
 		so = self._so(items=[{"item_code": ITEM_GIU_CHO, "rate": 0},
 		                     {"item_code": "B", "rate": 1200}])
-		self.assertFalse(portal._co_dong_cho_bao_gia(so))
-
-	def test_dat_ngoai_chua_khop_ma_thi_TRUE(self):
-		"""Dòng khách gõ tay mà Miyano chưa tìm ra mã CHÍNH LÀ hàng đang chờ
-		báo giá — bỏ vế này thì đơn toàn hàng gõ tay không bao giờ sáng huy
-		hiệu, đúng lúc nó cần sáng nhất."""
-		so = self._so(items=[{"item_code": "B", "rate": 1200}],
-		              dat_ngoai=[{"ten_hang": "Găng tay", "da_xu_ly": 0}])
-		self.assertTrue(portal._co_dong_cho_bao_gia(so))
-
-	def test_dat_ngoai_da_khop_het_thi_FALSE(self):
-		so = self._so(items=[{"item_code": "B", "rate": 1200}],
-		              dat_ngoai=[{"ten_hang": "Găng tay", "da_xu_ly": 1}])
 		self.assertFalse(portal._co_dong_cho_bao_gia(so))
 
 	def test_don_rong_thi_FALSE(self):

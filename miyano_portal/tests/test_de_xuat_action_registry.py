@@ -246,12 +246,11 @@ class TestActionRegistry(FrappeTestCase):
 	def test_registry_don_khong_rong(self):
 		"""Vế dương — thiếu nó thì một registry rỗng cũng qua bài.
 
-		Đếm SỐ MỤC (`_METHOD_RE.findall` có lặp), không phải số tên method
-		DUY NHẤT: `portal_order_accept` xuất hiện ở 2 mục (đồng ý / không
-		đồng ý), nên đếm theo tập hợp cho ra 4 trên 5 mục thật — bài "không
-		rỗng" mà đo nhầm sang "có đủ tên khác nhau" là đo một thứ khác tên
-		nó, và đứng sát ngưỡng không còn biên an toàn."""
-		self.assertGreaterEqual(len(_METHOD_RE.findall(self._noi_dung_registry_don())), 5)
+		Từ patch v1_44 đơn chỉ còn MỘT hành động (yêu cầu huỷ / sửa đơn);
+		đồng ý, không đồng ý, sửa số lượng đi trên Quotation."""
+		self.assertEqual(
+			_METHOD_RE.findall(self._noi_dung_registry_don()), ["portal_request_cancel"]
+		)
 
 	def test_moi_method_cua_registry_don_la_endpoint_that_cua_portal(self):
 		"""Đối chiếu với `api/portal.py`, KHÔNG phải `api/de_xuat.py`. Đó

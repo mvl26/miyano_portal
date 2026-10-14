@@ -36,16 +36,6 @@ def _bo_chu_thich(nguon: str) -> str:
 
 
 class NenSoatTrinhDuyet(NenBaoGia):
-	@classmethod
-	def setUpClass(cls):
-		cls.addClassCleanup(
-			frappe.clear_document_cache, "Workflow", "Sales Order - Client Portal"
-		)
-		super().setUpClass()
-		from miyano_portal.patches.v1_41 import gia_theo_price_list
-
-		gia_theo_price_list.mo_rong_workflow()
-
 	def setUp(self):
 		super().setUp()
 		self.ql = self._quan_ly("stdbg.ql@demo.miyano", self.kh_a)
@@ -96,8 +86,9 @@ class TestChiTietDonDuMatHang(NenSoatTrinhDuyet):
 		self.assertEqual(
 			{d.item_code for d in so.items}, {self.item_boi_so, self.item_ngoai}
 		)
-		# Thiết kế: đơn sinh ra KHÔNG mang dòng gõ tay (`no_copy`).
-		self.assertFalse(so.get("custom_dat_ngoai"))
+		# Sales Order không có bảng dòng gõ tay (patch v1_44): `dat_ngoai` của
+		# chi tiết đơn chỉ đến từ báo giá nguồn.
+		self.assertFalse(frappe.get_meta("Sales Order").has_field("custom_dat_ngoai"))
 
 		kq = self._voi_khach(portal.portal_order_track, so.name)
 		self.assertEqual(len(kq["dat_ngoai"]), 1)
@@ -172,8 +163,9 @@ CHIN_TRUONG = {
 
 class TestChinTruongQuaTrack(NenSoatTrinhDuyet):
 	"""Chín trường CR-03 của dòng gõ tay đi qua `portal_order_track` với GIÁ
-	TRỊ THẬT, ở cả hai nguồn dòng của `_dat_ngoai_cho_khach`. Vế hành vi của
-	`test_cr03_dat_ngoai.TestOrderTrackTraDuChinTruong` (vế đó soi mã nguồn)."""
+	TRỊ THẬT, từ báo giá nguồn của đơn — nguồn duy nhất của `dat_ngoai` từ
+	patch v1_44. Vế hành vi của `test_cr03_dat_ngoai.TestOrderTrackTraDuChinTruong`
+	(vế đó soi mã nguồn)."""
 
 	def _dong(self):
 		return {
@@ -186,21 +178,6 @@ class TestChinTruongQuaTrack(NenSoatTrinhDuyet):
 		for khoa, gt in CHIN_TRUONG.items():
 			with self.subTest(truong=khoa):
 				self.assertEqual(dong[khoa], gt)
-
-	def test_don_mua_le_cu_dong_tu_chinh_don(self):
-		from miyano_portal import dat_hang
-
-		kq = dat_hang.tao_sales_order(
-			self.kh_a, items=[], dat_ngoai=[self._dong()],
-			request_id=frappe.generate_hash(length=12),
-		)
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		self.assertEqual(so.custom_loai_don, "Mua lẻ")
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
-		tra = self._voi_khach(portal.portal_order_track, so.name)
-		self.assertEqual(len(tra["dat_ngoai"]), 1)
-		self._khang_dinh(tra["dat_ngoai"][0])
-		self.assertFalse(tra["dat_ngoai"][0]["da_xu_ly"])
 
 	def test_don_theo_bao_gia_dong_tu_bao_gia_nguon(self):
 		kq = bao_gia.tao_bao_gia(
@@ -215,7 +192,6 @@ class TestChinTruongQuaTrack(NenSoatTrinhDuyet):
 			"Sales Order", self._voi_khach(bao_gia.dong_y, bg.name)["sales_order"]
 		)
 		self.assertEqual(so.custom_loai_don, bao_gia.LOAI_DON_THEO_BAO_GIA)
-		self.assertFalse(so.get("custom_dat_ngoai"))
 		tra = self._voi_khach(portal.portal_order_track, so.name)
 		self.assertEqual(len(tra["dat_ngoai"]), 1)
 		self._khang_dinh(tra["dat_ngoai"][0])
@@ -367,12 +343,6 @@ class TestChotBaoGiaDaCoDon(NenSoatTrinhDuyet):
 		bg.cancel()
 		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 2)
 
-	def test_don_khach_huy_thi_huy_duoc_bao_gia(self):
-		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
-		frappe.db.set_value("Sales Order", so.name, "workflow_state", portal.WF_KHACH_HUY)
-		bg.cancel()
-		self.assertEqual(frappe.db.get_value("Quotation", bg.name, "docstatus"), 2)
-
 	def test_chot_huy_bo_qua_don_da_huy_va_bao_gia_noi_bo(self):
 		so, bg, _phieu = self._don_tu_bao_gia_co_dong_go_tay()
 		frappe.db.set_value("Sales Order", so.name, "docstatus", 2, update_modified=False)
@@ -434,20 +404,19 @@ class TestKhoiKhachKhaiDuoiBang(NenBaoGia):
 
 	def test_file_dung_chung_khong_khai_bien_toan_cuc(self):
 		"""Frappe chạy JS của form như một thẻ <script> toàn cục, và file này
-		nạp cho cả Sales Order lẫn Quotation: một `const`/`let` ở cấp ngoài
+		có thể nạp cho nhiều form: một `const`/`let` ở cấp ngoài
 		cùng làm lần nạp thứ hai ném "already been declared" — chết cả form."""
 		self.assertNotRegex(self.ma, r"(?m)^(const|let|class)\s")
 
 	def test_bang_dat_ngoai_khong_nam_trong_muc_thu_gon(self):
-		for dt in ("Sales Order", "Quotation"):
-			muc, thay = None, False
-			for f in frappe.get_meta(dt).fields:
-				if f.fieldtype == "Section Break":
-					muc = f
-				if f.fieldname == "custom_dat_ngoai":
-					thay = True
-					self.assertFalse(muc and muc.collapsible, dt)
-			self.assertTrue(thay, f"{dt} không có bảng custom_dat_ngoai")
+		muc, thay = None, False
+		for f in frappe.get_meta("Quotation").fields:
+			if f.fieldtype == "Section Break":
+				muc = f
+			if f.fieldname == "custom_dat_ngoai":
+				thay = True
+				self.assertFalse(muc and muc.collapsible)
+		self.assertTrue(thay, "Quotation không có bảng custom_dat_ngoai")
 
 
 class TestLyDoTuChoiDeThay(NenBaoGia):

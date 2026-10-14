@@ -83,3 +83,4 @@ miyano_portal.patches.v1_40.them_thoi_gian_giao_hang
 miyano_portal.patches.v1_41.gia_theo_price_list
 miyano_portal.patches.v1_42.bao_gia_quotation
 miyano_portal.patches.v1_43.thong_nhat_ten_hang
+miyano_portal.patches.v1_44.bo_vong_bao_gia_tren_don

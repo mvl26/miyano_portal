@@ -111,11 +111,12 @@ class TestBaoGiaCaiDat(NenBaoGia):
 		chung = (JS / "hang_moi_khach_khai.js").read_text()
 		self.assertIn("miyano_portal.hien_thong_tin_hang_moi = function", chung)
 		self.assertIn("Hàng chưa có mã — thông tin khách khai", chung)
-		for ten in ("sales_order.js", "quotation.js"):
-			nguon = (JS / ten).read_text()
-			self.assertIn("miyano_portal.hien_thong_tin_hang_moi(frm)", nguon, ten)
-			self.assertNotIn("function hien_thong_tin_hang_moi", nguon, ten)
+		nguon = (JS / "quotation.js").read_text()
+		self.assertIn("miyano_portal.hien_thong_tin_hang_moi(frm)", nguon)
+		self.assertNotIn("function hien_thong_tin_hang_moi", nguon)
+		# Sales Order không còn bảng dòng gõ tay (patch v1_44).
+		self.assertNotIn("hien_thong_tin_hang_moi", (JS / "sales_order.js").read_text())
 		js = frappe.get_hooks("doctype_js")
-		for dt in ("Sales Order", "Quotation"):
-			self.assertIn("public/js/hang_moi_khach_khai.js", js[dt], dt)
-			self.assertIn("public/js/dat_ngoai_anh.js", js[dt], dt)
+		self.assertIn("public/js/hang_moi_khach_khai.js", js["Quotation"])
+		self.assertIn("public/js/dat_ngoai_anh.js", js["Quotation"])
+		self.assertNotIn("public/js/hang_moi_khach_khai.js", js["Sales Order"])

@@ -1,10 +1,13 @@
-"""Spec 2026-08-15 §3.4 — đơn mua lẻ TOÀN hàng chưa có mã.
+"""Spec 2026-08-15 §3.4 — yêu cầu TOÀN hàng chưa có mã.
 
-ERPNext không lưu nổi Sales Order với `items` rỗng (đã kiểm thực nghiệm, ghi
+ERPNext không lưu nổi chứng từ bán với `items` rỗng (đã kiểm thực nghiệm, ghi
 ở api/portal.py:655). Item giữ chỗ `HANG-DAT-NGOAI` là lối ra — nhưng CHỈ khi
 giỏ không còn mặt hàng thật nào: `resolve_ban_le_company()` GIAO tập company
 của mọi mặt hàng trong giỏ, nên chèn vô điều kiện có thể làm RỖNG phép giao
-và hỏng một đơn giỏ hỗn hợp vốn đang hợp lệ.
+và hỏng một giỏ hỗn hợp vốn đang hợp lệ.
+
+Từ patch v1_44 dòng giữ chỗ chỉ còn sinh trên Quotation; Sales Order cũ còn
+mang nó thì vẫn không xác nhận được, không lộ ra cổng, không lên mẫu in.
 """
 
 import json
@@ -93,102 +96,50 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
                 mode="ban_le",
             )
 
-    def test_khong_submit_duoc_khi_con_dong_chua_khop_ma(self):
-        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
-        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
+    def _don_con_dong_giu_cho(self):
+        """Đơn cũ toàn hàng chưa có mã còn dòng giữ chỗ trong `items` — hình
+        dạng patch v1_44 để lại (dòng gõ tay đã chuyển thành Comment). Đường
+        đặt hàng không còn sinh ra đơn như vậy, nên dựng bằng một đơn thường
+        rồi thêm tay dòng giữ chỗ trên Desk."""
         res = don_mua_le_cu.dat_truc_tiep(
             BVBM,
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
+            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
             request_id=_rid(),
             mode="ban_le",
         )
         frappe.set_user("Administrator")
         so = frappe.get_doc("Sales Order", res["sales_order"])
-        with self.assertRaises(frappe.ValidationError):
-            so.submit()
-
-    def test_khong_submit_duoc_khi_con_dong_giu_cho_du_da_khop_het(self):
-        """Việc thêm (controller, ngoài Task 9) — `kiem_dat_ngoai_da_xu_ly`
-        (chốt cũ) chỉ nhìn `custom_dat_ngoai`, không hề nhìn `items`. Một đơn
-        có TẤT CẢ dòng đặt ngoài đã khớp mã (chốt cũ hài lòng) nhưng sales
-        quên GỠ dòng giữ chỗ `ITEM_GIU_CHO` khỏi `items` vẫn lọt qua chốt cũ
-        — khách sẽ nhận PDF "Xác nhận đơn hàng" với một dòng kỹ thuật nội bộ.
-        Chốt mới phải chặn đúng tình huống này.
-
-        VIẾT LẠI ở Task 13 (QĐ-G13) — KHÔNG xoá, vì chốt
-        `kiem_khong_con_dong_giu_cho` vẫn tồn tại và vẫn cần được canh.
-        Nhưng TIỀN ĐỀ cũ của bài đã hết đường tới: từ Task 13, khớp mã cho
-        mọi dòng đặt ngoài sẽ TỰ GỠ dòng giữ chỗ (bẫy 3), nên trạng thái
-        "đã khớp hết mà giữ chỗ còn nguyên" không sinh ra được bằng cách
-        khớp mã nữa. Bài dựng lại trạng thái đó bằng đúng tình huống chốt
-        sinh ra để chặn — SALES TỰ TAY để sót dòng giữ chỗ trong `items`
-        (thêm lại nó ở một lần lưu KHÔNG chuyển dòng nào, nên phép gỡ tự
-        động không chạm tới).
-        """
-        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
-        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
-        res = don_mua_le_cu.dat_truc_tiep(
-            BVBM,
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        frappe.set_user("Administrator")
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        self.assertEqual([i.item_code for i in so.items], [ITEM_GIU_CHO])
-        # Khớp mã cho MỌI dòng đặt ngoài — chốt CŨ hài lòng, không còn dòng
-        # nào "chưa xử lý".
-        for dong in so.custom_dat_ngoai:
-            dong.item_khop = RETAIL_CO_GIA
-        so.save(ignore_permissions=True)
-        so.reload()
-        self.assertTrue(
-            all(d.da_xu_ly for d in so.custom_dat_ngoai),
-            "chốt cũ phải hài lòng — mọi dòng đặt ngoài đã khớp mã",
-        )
-        self.assertNotIn(
-            ITEM_GIU_CHO, [i.item_code for i in so.items],
-            "Task 13 (bẫy 3) — khớp hết thì phép chuyển đã tự gỡ dòng giữ chỗ",
-        )
-        # Sales TỰ TAY thêm lại dòng giữ chỗ và quên gỡ. Lần lưu này không
-        # chuyển dòng nào (mọi dòng gõ tay đã `da_chuyen`), nên phép gỡ tự
-        # động không chạy — đúng trạng thái chốt `kiem_khong_con_dong_giu_cho`
-        # sinh ra để chặn.
         so.append("items", {
-            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0,
+            "item_code": ITEM_GIU_CHO, "qty": 1, "rate": 0, "price_list_rate": 0,
             "warehouse": so.items[0].warehouse,
             "delivery_date": so.delivery_date,
         })
         so.save(ignore_permissions=True)
         so.reload()
         self.assertIn(ITEM_GIU_CHO, [i.item_code for i in so.items])
+        return so
+
+    def test_khong_submit_duoc_khi_con_dong_giu_cho(self):
+        """`kiem_khong_con_dong_giu_cho` (`before_submit` của Sales Order) —
+        khách sẽ nhận PDF "Xác nhận đơn hàng" với một dòng kỹ thuật nội bộ
+        nếu đơn còn dòng giữ chỗ mà vẫn xác nhận được."""
+        so = self._don_con_dong_giu_cho()
         with self.assertRaises(frappe.ValidationError) as ctx:
             so.submit()
         self.assertIn("còn dòng giữ chỗ kỹ thuật", str(ctx.exception))
         so.reload()
-        self.assertEqual(so.docstatus, 0, "chốt mới phải chặn TRƯỚC khi ghi nhận submit")
+        self.assertEqual(so.docstatus, 0, "chốt phải chặn TRƯỚC khi ghi nhận submit")
 
     def test_cong_khong_bao_gio_thay_dong_giu_cho(self):
-        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
-        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
-        res = don_mua_le_cu.dat_truc_tiep(
-            BVBM,
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        track = portal.portal_order_track(order=res["sales_order"])
+        so = self._don_con_dong_giu_cho()
+        frappe.set_user(USER_BVBM)
+        track = portal.portal_order_track(order=so.name)
         ma = [i["item_code"] for i in track["items"]]
         self.assertNotIn(
             ITEM_GIU_CHO, ma,
             "dòng giữ chỗ là chi tiết kỹ thuật nội bộ, không được lọt ra cổng",
         )
-        self.assertEqual(len(track["dat_ngoai"]), 2)
-        self.assertEqual(track["dat_ngoai"][0]["ten_hang"], DAT_NGOAI_MAU[0]["ten_hang"])
-        self.assertFalse(track["dat_ngoai"][0]["da_xu_ly"])
+        self.assertEqual(ma, [RETAIL_CO_GIA])
 
     def test_danh_muc_ban_le_khong_chua_item_giu_cho(self):
         """review C-1(a) — `ITEM_GIU_CHO` có `disabled=0`, `is_sales_item=1`
@@ -232,18 +183,9 @@ class TestDatNgoaiGiuCho(FrappeTestCase):
         thẳng đơn ở docstatus=0 (chưa submit, không cần đi qua chốt) để kiểm
         RIÊNG mẫu in — độc lập với chốt ở (a), không phụ thuộc chốt đó luôn
         đúng ở mọi đường ghi trong tương lai."""
-        # Spec 2026-10-12 §5 — `portal_order_place` nay sinh Quotation cho giỏ
-        # này; đơn "Mua lẻ" đang dở dựng bằng `dat_hang.tao_sales_order` trực tiếp.
-        res = don_mua_le_cu.dat_truc_tiep(
-            BVBM,
-            items=json.dumps([]),
-            dat_ngoai=json.dumps(DAT_NGOAI_MAU),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        frappe.set_user("Administrator")
+        so = self._don_con_dong_giu_cho()
         html = frappe.get_print(
-            "Sales Order", res["sales_order"],
+            "Sales Order", so.name,
             print_format="Miyano - Xác nhận đơn hàng", no_letterhead=1,
         )
         self.assertNotIn(ITEM_GIU_CHO, html)

@@ -498,65 +498,9 @@ def de_xuat_tu_choi(ten, ly_do) -> dict:
 
 
 @frappe.whitelist()
-def de_xuat_xin_sua(ten, dong) -> dict:
-	"""Task 9 (§12 Q4) — nhân viên khoa xin sửa số lượng một đơn ĐÃ được
-	quản lý duyệt. `_phieu_cua_toi(..., cho_quan_ly=True)`: KHÔNG chỉ chủ
-	phiếu — bất kỳ đồng nghiệp nào CÙNG KHOA (trong phạm vi khách hàng +
-	khoa của `pham_vi_don()`) đều xin sửa được, không riêng owner. Đơn Sales
-	Order KHÔNG bị chạm ở đây — `PortalDeXuatMua.xin_sua()` chỉ ghi lên
-	phiếu, đúng thiết kế §12 Q4 (nhân viên vẫn sửa được, nhưng phải quay lại
-	quản lý duyệt lần nữa TRƯỚC KHI đơn thật sự đổi).
-
-	`dong` — JSON (hoặc dict) `{"items": [{"item_code": str, "qty": float}]}`,
-	cùng hình dạng `dong` của `portal.portal_order_sua_so_luong`."""
-	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
-	if isinstance(dong, str):
-		dong = frappe.parse_json(dong)
-	items = (dong or {}).get("items") or []
-	doc.xin_sua(items)
-	# M4 (review tổng 19/08) — thông báo RIÊNG cho việc xin sửa. Bản trước
-	# gọi lại `bao_de_xuat_gui_duyet`, nên quản lý nhận "Khoa vừa gửi đề
-	# xuất mua X chờ bạn duyệt" cho một phiếu ĐÃ DUYỆT TỪ TRƯỚC — sai việc.
-	# Người nhận vẫn là "chỉ Quản lý", giống bước gửi duyệt; chỉ tiền tố và
-	# nội dung là riêng (xem docstring `bao_de_xuat_xin_sua`).
-	from miyano_portal.portal_thong_bao_khach import bao_de_xuat_xin_sua
-	bao_de_xuat_xin_sua(doc)
-	return {"name": doc.name}
-
-
-@frappe.whitelist()
-def de_xuat_duyet_sua(ten) -> dict:
-	"""Chỉ quản lý — ĐỒNG Ý yêu cầu xin sửa: gọi lõi `portal.portal_order_
-	sua_so_luong` DƯỚI QUYỀN QUẢN LÝ đang gọi (guard `dam_bao_duoc_sua_don_
-	da_duyet` cho qua vì `la_quan_ly()` đúng) để sửa THẬT Sales Order, rồi
-	mới gọi `doc.duyet_sua()` dọn phần còn lại trên phiếu. Thứ tự này CỐ Ý:
-	nếu sửa đơn thất bại (hết hiệu lực báo giá, đơn không còn ở đúng
-	trạng thái...), phiếu KHÔNG được chuyển "Đã duyệt" sớm hơn thật.
-
-	I2 (review Task 9) — lọc `d.so_luong_xin_sua >= 0`, KHÔNG lọc truthy:
-	`0` là một yêu cầu THẬT ("xin bỏ dòng này", đúng quy ước của
-	`portal_order_sua_so_luong`), không phải "chưa có gì để duyệt". Lọc
-	truthy (bản đầu của Task 9) làm rớt LẶNG LẼ đúng yêu cầu nguy hiểm nhất."""
-	if not la_quan_ly():
-		raise frappe.PermissionError("Chỉ quản lý mới duyệt yêu cầu xin sửa được.")
-	doc = _phieu_cua_toi(ten, cho_quan_ly=True)
-	dong = {
-		"items": [
-			{"item_code": d.item_code, "qty": float(d.so_luong_xin_sua)}
-			for d in doc.items if d.so_luong_xin_sua >= 0
-		]
-	}
-	from miyano_portal.api import portal
-	portal.portal_order_sua_so_luong(doc.sales_order, dong)
-	doc.reload()
-	doc.duyet_sua()
-	return {"name": doc.name}
-
-
-@frappe.whitelist()
 def de_xuat_tu_choi_sua(ten, ly_do) -> dict:
-	"""Chỉ quản lý — TỪ CHỐI yêu cầu xin sửa: đơn giữ NGUYÊN, không gọi lõi
-	`portal_order_sua_so_luong` chút nào — chỉ dọn phiếu."""
+	"""Chỉ quản lý — TỪ CHỐI yêu cầu xin sửa: đơn giữ NGUYÊN, chỉ dọn phiếu.
+	Khoa không còn xin sửa được (patch v1_44); endpoint ở lại cho phiếu cũ."""
 	if not la_quan_ly():
 		raise frappe.PermissionError("Chỉ quản lý mới từ chối yêu cầu xin sửa được.")
 	doc = _phieu_cua_toi(ten, cho_quan_ly=True)

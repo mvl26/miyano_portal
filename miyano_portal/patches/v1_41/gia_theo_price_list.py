@@ -87,9 +87,11 @@ def chuyen_du_lieu():
 	có dấu thì không đụng."""
 	from miyano_portal import bang_gia_khach, gia_hdnt
 	from miyano_portal.chot_bao_gia import TT_CHO_XAC_NHAN
-	from miyano_portal.portal_mua_le import (
-		ITEM_GIU_CHO, LOAI_DON_BAO_GIA, TRANG_THAI_CHO_KHACH,
-	)
+	from miyano_portal.portal_mua_le import ITEM_GIU_CHO, LOAI_DON_BAO_GIA
+
+	# Trạng thái của vòng báo giá cũ trên Sales Order — hằng số đã gỡ khỏi
+	# `portal_mua_le` (patch v1_44 bỏ vòng này), patch giữ bản của riêng nó.
+	TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
 
 	khach = frappe.get_all(
 		"Customer", filters={"disabled": 0}, pluck="name", order_by="name asc"

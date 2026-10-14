@@ -133,7 +133,7 @@ class TestGiaoDienBangGia(FrappeTestCase):
 	def test_sua_so_luong_khong_con_noi_moi_dong_ve_gia_0(self):
 		"""Dòng có giá trong bảng giá GIỮ giá khi khách sửa số lượng; chỉ dòng
 		đã báo giá mới chờ báo giá lại (spec §4.4)."""
-		for f in ("views/ChiTietYeuCau.vue", "components/chi-tiet/KhoiBaoGia.vue", "don-actions.js"):
+		for f in ("views/ChiTietYeuCau.vue", "don-actions.js"):
 			s = _doc(f)
 			for cu in ("về giá 0", "rate = 0 cho dòng đã đổi", "`rate` các dòng"):
 				self.assertNotIn(cu, s, f"{f}: {cu}")

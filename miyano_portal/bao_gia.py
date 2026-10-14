@@ -199,7 +199,7 @@ def tao_bao_gia(
 			"uom": d.uom, "stock_uom": d.stock_uom, "conversion_factor": 1,
 			"warehouse": d.warehouse, "custom_nguon_gia": d.get("custom_nguon_gia"),
 		})
-	for d in so.get("custom_dat_ngoai") or []:
+	for d in so.flags.dong_dat_ngoai or []:
 		bg.append("custom_dat_ngoai", {t: d.get(t) for t in TRUONG_DAT_NGOAI})
 
 	if khoa_phong:
@@ -234,8 +234,9 @@ def chot_gui_khach(doc, method=None) -> None:
 	"""Hook `validate` — spec §4.2. Chỉ báo giá của cổng; báo giá nhân viên tự
 	lập do họ tự chịu trách nhiệm về giá và hạn hiệu lực.
 
-	Vào "Chờ khách đồng ý": chặn khi còn dòng gõ tay chưa khớp mã, còn dòng giữ
-	chỗ, hoặc còn dòng chưa có đơn giá; qua chốt thì đóng mốc gửi và hạn hiệu
+	Vào "Chờ khách đồng ý": chặn khi còn dòng gõ tay chưa khớp mã, dòng hàng
+	sinh từ phép khớp đã bị xoá/đổi mã, còn dòng giữ chỗ, hoặc còn dòng chưa có
+	đơn giá; qua chốt thì đóng mốc gửi và hạn hiệu
 	lực. Quay về "Chờ Miyano báo giá" (thu hồi, khách sửa số lượng, hoặc mở
 	lại một báo giá hết hạn): xoá mốc và hạn, vì báo giá cũ không còn là thứ
 	khách đang xem — lần gửi lại đóng hạn mới. Đơn giá giữ nguyên làm gợi ý.
@@ -243,6 +244,7 @@ def chot_gui_khach(doc, method=None) -> None:
 	from miyano_portal.portal_mua_le import (
 		ITEM_GIU_CHO,
 		hieu_luc_bao_gia_ngay,
+		kiem_dong_chuyen_con_tren_don,
 		la_dong_giu_cho,
 	)
 
@@ -265,6 +267,12 @@ def chot_gui_khach(doc, method=None) -> None:
 	]
 	if chua_khop:
 		loi.append("còn hàng khách gõ tay chưa khớp mã: " + ", ".join(chua_khop))
+	mat_dong = kiem_dong_chuyen_con_tren_don(doc)
+	if mat_dong:
+		loi.append(
+			"dòng hàng sinh từ hàng khách gõ tay đã bị xoá hoặc đổi mã ("
+			+ ", ".join(mat_dong) + ") — thêm lại dòng hàng, hoặc bỏ mã khớp rồi khớp lại"
+		)
 	if any(la_dong_giu_cho(d.item_code) for d in doc.items):
 		loi.append(f"còn dòng giữ chỗ kỹ thuật {ITEM_GIU_CHO}")
 	thieu_gia = [
@@ -341,17 +349,17 @@ def dong_go_tay_da_khop_cua_don(so) -> list:
 
 
 def _don_con_song(ten: str) -> bool:
-	"""Đơn còn đi tiếp được: chưa huỷ (docstatus 2) và không nằm ở một trạng
-	thái KẾT THÚC của workflow đơn hàng mà vẫn ở docstatus 0 — «Từ chối»
-	(Miyano từ chối) và «Khách huỷ». Hai trạng thái đó không bao giờ tới
-	docstatus 2, nên chỉ nhìn docstatus là coi một đơn đã chết là còn sống."""
+	"""Đơn còn đi tiếp được: chưa huỷ (docstatus 2) và không nằm ở trạng thái
+	KẾT THÚC «Từ chối» của workflow đơn hàng — trạng thái đó vẫn ở docstatus
+	0, nên chỉ nhìn docstatus là coi một đơn đã chết là còn sống. (Đơn «Khách
+	huỷ» cũ đã được patch v1_44 chuyển sang «Từ chối».)"""
 	# Nhập muộn: `api.portal` nhập module này ở đầu file.
-	from miyano_portal.api.portal import WF_KHACH_HUY, WF_TU_CHOI
+	from miyano_portal.api.portal import WF_TU_CHOI
 
 	don = frappe.db.get_value("Sales Order", ten, ["docstatus", "workflow_state"], as_dict=True)
 	if not don or don.docstatus == 2:
 		return False
-	return don.workflow_state not in (WF_TU_CHOI, WF_KHACH_HUY)
+	return don.workflow_state != WF_TU_CHOI
 
 
 def chan_huy_khi_con_don(doc, method=None) -> None:
@@ -802,8 +810,8 @@ def _gui_email_het_han(bg, han) -> None:
 
 def quet_het_han(moc=None) -> int:
 	"""Spec §4.6 — đóng mọi báo giá CỦA CỔNG ở "Chờ khách đồng ý" có `valid_till` trước
-	`moc` (mặc định hôm nay). Gọi từ job hằng ngày `portal_bao_gia.
-	quet_bao_gia_het_han`, chạy dưới Administrator nên không cần nâng quyền.
+	`moc` (mặc định hôm nay). Job hằng ngày (`hooks.scheduler_events`), chạy
+	dưới Administrator nên không cần nâng quyền.
 	Job gốc `set_expired_status` của ERPNext chỉ đụng Quotation đã Submit.
 
 	Mỗi báo giá một savepoint: một báo giá lưu hỏng được lùi riêng, ghi Error

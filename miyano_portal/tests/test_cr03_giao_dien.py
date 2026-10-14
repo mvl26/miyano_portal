@@ -34,7 +34,6 @@ from frappe.tests.utils import FrappeTestCase
 
 FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / "src"
 LAP_PHIEU = FRONTEND_SRC / "views" / "LapPhieu.vue"
-KHOI_BAO_GIA = FRONTEND_SRC / "components" / "chi-tiet" / "KhoiBaoGia.vue"
 API_JS = FRONTEND_SRC / "api.js"
 
 # Chín field mới, ĐÚNG THỨ TỰ đặc tả §3 liệt kê — dùng lại một danh sách DUY
@@ -396,99 +395,3 @@ class TestAnhDatTruocCacOMoTaTrongVongLap(FrappeTestCase):
 			"Khối Ảnh (nút + Chọn ảnh) phải đứng TRƯỚC cả hai khối <details> mô tả — "
 			"thiết kế §7 coi ảnh là dữ kiện giá trị nhất, phải hiện trước tiên",
 		)
-
-
-class TestKhoiBaoGiaChuyenTiepDuChinTruong(FrappeTestCase):
-	"""`KhoiBaoGia.vue::moGuiLai()` — đường "sửa và gửi lại" của
-	`ChiTietYeuCau.vue` (`dongGuiLai`) đi qua ĐÂY để dựng payload
-	`dat_ngoai`. LƯU Ý (đã ghi trong `cr03-report.md`): tại thời điểm này
-	`portal_order_track` CHƯA trả chín field CR-03 trong `dat_ngoai`, nên
-	việc chuyển tiếp ở đây hiện KHÔNG có tác dụng thật (server nguồn dữ liệu
-	`d` không có các field này, và `portal_order_sua_so_luong` cũng chỉ đọc
-	`name`/`qty`) — bài dưới đây canh ĐÚNG YÊU CẦU CỦA BRIEF (mang đủ chín
-	field qua `.map()`), không khẳng định tính năng này đã có tác dụng đầu
-	cuối."""
-
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		raw = KHOI_BAO_GIA.read_text(encoding="utf-8")
-		cls.than = _than_ham(_bo_comment(raw), "moGuiLai")
-
-	def test_doi_dat_ngoai_mang_du_chin_field(self):
-		thieu = [f for f in CHIN_FIELD if not re.search(r"\b" + f + r"\s*:\s*d\." + f + r"\b", self.than)]
-		self.assertEqual(
-			thieu, [],
-			f"moGuiLai() không chuyển tiếp field {thieu} từ dòng đặt ngoài gốc",
-		)
-
-
-class TestMauInBoSungModelHangQuyCach(FrappeTestCase):
-	"""Thiết kế §8 — mẫu in "Miyano - Báo giá" (khối "Hàng đang tìm nguồn",
-	dựng từ `custom_dat_ngoai` chưa khớp mã) phải in thêm Model/Hãng SX/Quy
-	cách: tờ giấy đó chính là thứ purchasing cầm đi hỏi nhà cung cấp.
-
-	PHÁ THỬ: xoá ba `<td>` mới khỏi bảng — bài dưới đỏ vì không còn khớp
-	`d.model_ma`/`d.hang_san_xuat`/`d.quy_cach` trong đúng đoạn bảng này
-	(đoạn cắt riêng khối "Hàng đang tìm nguồn", không phải toàn bộ HTML_BG —
-	tránh khớp nhầm sang bảng "Hàng đặt ngoài đã khớp mã" ở dưới, vốn KHÔNG
-	yêu cầu ba cột này theo đặc tả)."""
-
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
-		from miyano_portal.setup.install_print_formats import HTML_BG
-		i = HTML_BG.find("Hàng đang tìm nguồn")
-		assert i != -1, 'Không tìm thấy tiêu đề "Hàng đang tìm nguồn" trong HTML_BG'
-		j = HTML_BG.find("</table>", i)
-		assert j != -1, "Không tìm thấy </table> đóng bảng Hàng đang tìm nguồn"
-		cls.khoi_bang = HTML_BG[i:j]
-
-	def test_bang_cho_nguon_co_ba_cot_moi(self):
-		for f in ("model_ma", "hang_san_xuat", "quy_cach"):
-			with self.subTest(field=f):
-				self.assertIn(
-					f"d.{f}", self.khoi_bang,
-					f"Bảng 'Hàng đang tìm nguồn' thiếu cột `{f}` — purchasing vẫn phải "
-					"quay lại Desk hỏi lại thông tin khách đã khai trên cổng",
-				)
-
-	def test_patch_dong_bo_ban_ghi_da_cai_ton_tai(self):
-		"""Vế chống-bẫy: sửa `HTML_BG` trong mã nguồn KHÔNG tự cập nhật bản
-		ghi `Print Format` đã cài trên site cũ (`install_portal_print_
-		formats()` bỏ qua bản ghi đã tồn tại — xem `v1_15.dong_bo_dinh_dang_
-		tien_bao_gia`, tiền lệ đã có trong repo). Thiếu patch đồng bộ thì
-		field mới CÓ trong mã nguồn nhưng KHÔNG BAO GIỜ lên được tờ giấy thật
-		của một site đã chạy `install_portal_print_formats()` từ trước — bài
-		này canh patch đồng bộ TỒN TẠI và ĐĂNG KÝ trong `patches.txt`."""
-		import miyano_portal.patches.v1_32.dong_bo_mau_bao_gia_cr03 as patch_mod
-
-		self.assertTrue(hasattr(patch_mod, "execute"))
-		patches_txt = (
-			Path(frappe.get_app_path("miyano_portal")) / "patches.txt"
-		).read_text(encoding="utf-8")
-		self.assertIn(
-			"miyano_portal.patches.v1_32.dong_bo_mau_bao_gia_cr03", patches_txt,
-			"Patch đồng bộ mẫu in chưa được đăng ký trong patches.txt — sẽ "
-			"KHÔNG BAO GIỜ tự chạy trên site nào, kể cả khi bench migrate",
-		)
-
-	def test_patch_dong_bo_dung_bien_html_bg_hien_hanh(self):
-		"""Patch phải đọc `HTML_BG` TỪ `install_print_formats` (không phải
-		một bản chép tay riêng) — nếu không, patch sẽ đồng bộ một chuỗi HTML
-		KHÁC với chuỗi thật đang dùng để cài mới, và hai đường (cài mới /
-		đồng bộ lại) trôi lệch nhau ngay từ patch tiếp theo sửa `HTML_BG`."""
-		import inspect
-
-		import miyano_portal.patches.v1_32.dong_bo_mau_bao_gia_cr03 as patch_mod
-		from miyano_portal.setup.install_print_formats import HTML_BG, NAME_BG
-
-		nguon = inspect.getsource(patch_mod)
-		self.assertIn("HTML_BG", nguon)
-		self.assertIn("NAME_BG", nguon)
-		self.assertIn("install_print_formats", nguon)
-		# Xác nhận NAME_BG/HTML_BG THẬT SỰ import được từ đúng module nguồn
-		# (nếu ai đó xoá import và định nghĩa lại một bản HTML_BG cục bộ
-		# trong patch, dòng import ở TRÊN sẽ tự ném ImportError trước khi
-		# chạy tới đây).
-		self.assertTrue(NAME_BG and HTML_BG)

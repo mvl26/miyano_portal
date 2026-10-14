@@ -221,6 +221,9 @@ HTML_SI = """
 <p class="text-right"><b>Còn nợ / Outstanding:</b> {{ "{:,.0f}".format(doc.outstanding_amount) }} ₫</p>
 """
 
+# Mẫu báo giá trên Sales Order — KHÔNG còn cài (patch v1_44 xoá bản đã cài):
+# báo giá gửi khách là Quotation (`NAME_YCBG`). Hằng số ở lại vì patch cũ
+# (v1_15, v1_32) đọc chúng.
 NAME_BG = "Miyano - Báo giá"
 HTML_BG = """
 <div class="print-heading"><h2>BÁO GIÁ / QUOTATION</h2></div>
@@ -307,9 +310,7 @@ HTML_BG = """
 # án). Hai mẫu CŨ còn lại (`HTML_DN`, `HTML_SI`) vẫn dùng `"{:,.0f}"` (dấu
 # phẩy, sai quy ước) — đó là NỢ CŨ, cố ý chưa sửa để không lan phạm vi.
 
-# Spec 2026-10-12 §7 — báo giá gửi khách là một Quotation. Tên KHÁC mẫu
-# "Miyano - Báo giá" của Sales Order (giữ cho đơn "Mua lẻ" cũ): tên Print
-# Format là duy nhất trên cả site.
+# Spec 2026-10-12 §7 — báo giá gửi khách là một Quotation.
 NAME_YCBG = "Miyano - Yêu cầu báo giá"
 HTML_YCBG = """
 <div class="print-heading"><h2>BÁO GIÁ / QUOTATION</h2></div>
@@ -363,7 +364,6 @@ FORMATS = [
     (NAME, "Sales Order", HTML),
     (NAME_DN, "Delivery Note", HTML_DN),
     (NAME_SI, "Sales Invoice", HTML_SI),
-    (NAME_BG, "Sales Order", HTML_BG),
     (NAME_YCBG, "Quotation", HTML_YCBG),
 ]
 

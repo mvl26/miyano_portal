@@ -345,11 +345,12 @@ class TestBaoGiaEndpoint(NenBaoGia):
 		self.assertEqual(portal._kep_trang_bao_gia(10**9, -5), (200, 0))
 		self.assertEqual(portal._kep_trang_bao_gia(None, None), (20, 0))
 
-	def test_pdf_thieu_ca_hai_ma(self):
+	def test_pdf_thieu_ma_bao_gia(self):
+		"""Không có mã báo giá (kể cả chỉ có mã đơn — đơn không còn PDF báo
+		giá từ patch v1_44): lỗi dữ liệu vào, không phải lời từ chối quyền."""
 		for tham_so in ((), (None, None), ("", "")):
 			with self.assertRaises(frappe.ValidationError) as cm:
 				self._goi(self.ql_a, portal.portal_bao_gia_pdf, *tham_so)
-			self.assertEqual(str(cm.exception), "Thiếu mã chứng từ.")
 			self.assertNotIsInstance(cm.exception, frappe.PermissionError)
 
 	def test_bao_gia_noi_bo_cung_khach_khong_hien(self):
@@ -430,37 +431,31 @@ class TestBaoGiaEndpoint(NenBaoGia):
 
 	def _kpi(self):
 		kq = self._goi(self.ql_a, portal.portal_dashboard_kpi)
-		return kq["bao_gia_cho_dong_y"], kq["don_cu_cho_dong_y"]
+		self.assertNotIn("don_cu_cho_dong_y", kq)
+		return kq["bao_gia_cho_dong_y"]
 
 	def test_kpi_dem_bao_gia_cho_dong_y(self):
-		bg_truoc, don_truoc = self._kpi()
+		truoc = self._kpi()
 		self._phieu_co_bao_gia()
-		self.assertEqual(self._kpi(), (bg_truoc + 1, don_truoc))
+		self.assertEqual(self._kpi(), truoc + 1)
 		# Thẻ trỏ sang tab báo giá: con số của nó là con số của tab đó.
 		self.assertEqual(
-			self._kpi()[0],
+			self._kpi(),
 			self._goi(self.ql_a, portal.portal_bao_gia_danh_sach, nhom="cho_dong_y")["tong"],
 		)
 
-	def test_kpi_don_mua_le_cu_dem_rieng(self):
-		"""M3 — đơn "Mua lẻ" cũ đang chờ khách không nằm ở tab báo giá, nên
-		không được cộng vào con số của thẻ trỏ sang tab đó."""
-		bg_truoc, don_truoc = self._kpi()
+	def test_kpi_khong_dem_don_mua_le_cu(self):
+		"""M3 — đơn "Mua lẻ" cũ không nằm ở tab báo giá, nên không được cộng
+		vào con số của thẻ trỏ sang tab đó."""
+		truoc = self._kpi()
 		kq = dat_hang.tao_sales_order(
 			self.kh_a, items=[{"item_code": self.item_boi_so, "qty": 20}],
 			request_id=frappe.generate_hash(length=12),
 		)
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		self.assertEqual(so.custom_loai_don, "Mua lẻ")
-		so.items[0].rate = 7000
-		so.save()
-		apply_workflow(so, "Gửi khách duyệt")
-		self.assertEqual(self._kpi(), (bg_truoc, don_truoc + 1))
-		# Đường dẫn "đơn cũ chờ đồng ý" trỏ tới chip này: đơn phải nằm ở đó.
-		rows = self._goi(
-			self.ql_a, portal.portal_yeu_cau_cua_toi, giai_doan="cho_khach_dong_y"
-		)["rows"]
-		self.assertIn(so.name, {r["sales_order"] for r in rows})
+		self.assertEqual(
+			frappe.db.get_value("Sales Order", kq["sales_order"], "custom_loai_don"), "Mua lẻ"
+		)
+		self.assertEqual(self._kpi(), truoc)
 
 	def test_duong_dan_thong_bao(self):
 		_, bg = self._phieu_co_bao_gia()
