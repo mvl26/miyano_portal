@@ -38,12 +38,6 @@ TIEN_TO_HEN_GIAO = "Portal - Hẹn lịch giao"
 TIEN_TO_DE_XUAT_GUI_DUYET = "Portal - Đề xuất gửi duyệt"
 TIEN_TO_DE_XUAT_DA_DUYET = "Portal - Đề xuất đã duyệt"
 TIEN_TO_DE_XUAT_TU_CHOI = "Portal - Đề xuất bị từ chối"
-# M4 (review tổng 19/08) — tiền tố RIÊNG cho vòng "xin sửa sau duyệt" (§12
-# Q4). Dùng lại `TIEN_TO_DE_XUAT_GUI_DUYET` cho việc này (bản trước) làm
-# quản lý nhận "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" cho một phiếu ĐÃ
-# DUYỆT TỪ TRƯỚC — sai việc, và trộn lẫn hai bước trong cùng một tiền tố nên
-# không lọc/không đếm tách được nữa.
-TIEN_TO_DE_XUAT_XIN_SUA = "Portal - Đề xuất xin sửa số lượng"
 
 
 def _portal_users_cua_khach(customer: str) -> list[str]:
@@ -192,50 +186,6 @@ def bao_de_xuat_gui_duyet(doc, cung_lan_dat=None) -> int:
         try:
             frappe.log_error(
                 title="Đề xuất mua: lỗi khi báo quản lý phiếu chờ duyệt",
-                message=frappe.get_traceback(with_context=True),
-                reference_doctype="Portal De Xuat Mua",
-                reference_name=doc.name,
-            )
-        except Exception:
-            pass
-        return 0
-
-
-def bao_de_xuat_xin_sua(doc) -> int:
-    """M4 (review tổng 19/08) — §12 Q4: khoa XIN SỬA số lượng một phiếu ĐÃ
-    DUYỆT → CHỈ Quản lý cần biết (cùng bảng người nhận với `bao_de_xuat_gui_
-    duyet`: đây cũng là một việc chờ quản lý xử lý, và không báo lại cho
-    chính khoa vừa gửi).
-
-    Vì sao KHÔNG dùng lại `bao_de_xuat_gui_duyet` (bản trước làm vậy): nội
-    dung của hàm đó là "Khoa vừa gửi đề xuất mua X chờ bạn duyệt" — sai
-    việc cho một phiếu đã duyệt từ trước, và quản lý không có cách nào biết
-    họ đang được gọi vì một đề xuất MỚI hay một yêu cầu SỬA trên đơn đã
-    chốt (hai việc cần hai phản ứng khác hẳn nhau). Tiền tố riêng còn cho
-    phép lọc/đếm tách hai bước, thứ mà dùng chung tiền tố làm mất vĩnh viễn.
-
-    KHÔNG chống trùng — cùng lý do `bao_de_xuat_gui_duyet`: `xin_sua()` là
-    một chuyển trạng thái được `_kiem_chuyen()` bảo vệ (không có cạnh "Chờ
-    duyệt sửa" → "Chờ duyệt sửa"), nên không có đường gọi hai lần cho cùng
-    một lần xin sửa thật. Một vòng xin sửa MỚI sau khi quản lý đã xử lý
-    vòng trước là một sự kiện THẬT khác, quản lý CẦN được báo lại.
-
-    Không bao giờ ném lỗi — gọi ngay sau khi phiếu đã lưu thành công."""
-    try:
-        nguoi_nhan = _portal_users_theo_khoa(doc.customer, None)
-        if not nguoi_nhan:
-            return 0
-        chu_de = f"{TIEN_TO_DE_XUAT_XIN_SUA}: {doc.ma_de_xuat or doc.name}"
-        noi_dung = (
-            f"Khoa xin sửa số lượng trên đề xuất <b>{doc.ma_de_xuat or doc.name}</b> "
-            f"(đơn hàng <b>{doc.sales_order or '—'}</b>) đã duyệt trước đó. "
-            "Đơn hàng CHƯA đổi — chờ bạn đồng ý hoặc từ chối yêu cầu này."
-        )
-        return _ghi_thong_bao_de_xuat(doc, nguoi_nhan, chu_de, noi_dung)
-    except Exception:
-        try:
-            frappe.log_error(
-                title="Đề xuất mua: lỗi khi báo quản lý yêu cầu xin sửa",
                 message=frappe.get_traceback(with_context=True),
                 reference_doctype="Portal De Xuat Mua",
                 reference_name=doc.name,

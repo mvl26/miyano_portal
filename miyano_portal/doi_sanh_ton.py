@@ -36,7 +36,6 @@ ROLE_NOI_BO = (
 # Số lượng tồn kho của ERPNext mặc định 3 chữ số thập phân.
 DO_CHINH_XAC = 3
 
-LY_DO_DAT_NGOAI = "Hàng chưa có mã — chưa khớp được mặt hàng"
 LY_DO_KHONG_TON = "Mặt hàng không quản lý tồn kho"
 LY_DO_KHONG_KHO = "Dòng đơn chưa có kho"
 LY_DO_GIAO_THANG = "Nhà cung cấp giao thẳng — không qua kho Miyano"
@@ -446,17 +445,6 @@ def bang_cho_don(so, khoa_mr: bool = False) -> dict:
 			mr_da_phu=dx["mr_da_phu"], can_mua=dx["can_mua"],
 			mr=list(phu.get("mr") or []),
 		)
-
-	# Dòng đặt ngoài CHƯA khớp mã: không có `item_code` nên không có gì để
-	# tra. Dòng đã khớp thì đã thành một dòng `items` ở trên.
-	for dn in so.get("custom_dat_ngoai") or []:
-		if dn.get("item_khop"):
-			continue
-		bang.append(_dong_trong(
-			idx=dn.idx, item_name=dn.get("ten_hang") or "", dvt=dn.get("dvt"),
-			sl_yeu_cau=flt(dn.get("so_luong"), DO_CHINH_XAC),
-			ly_do=LY_DO_DAT_NGOAI,
-		))
 
 	con_mua = any(flt(d["can_mua"]) > 0 for d in tra_duoc)
 	return {

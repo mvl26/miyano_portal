@@ -11,7 +11,7 @@ liên kết đã gửi cho bệnh viện. Đó đúng lớp lỗi "một thứ g
 Sau P54:
 
   * **Máy chủ nói KHOÁ.** `api/portal.py` giữ `GIAI_DOAN_*` là chuỗi ASCII
-    không dấu (`cho_khach_dong_y`, …), `_sql_giai_doan()` sinh khoá, và
+    không dấu (`da_duyet`, …), `_sql_giai_doan()` sinh khoá, và
     `portal_yeu_cau_cua_toi` lọc theo khoá. Máy chủ KHÔNG nói tiếng Việt về
     giai đoạn nữa.
   * **Giao diện giữ NHÃN.** `frontend/src/format.js` là nơi DUY NHẤT ánh xạ
@@ -44,10 +44,9 @@ FRONTEND_SRC = Path(frappe.get_app_path("miyano_portal")).parent / "frontend" / 
 FORMAT_JS = FRONTEND_SRC / "format.js"
 YEU_CAU_LIST = FRONTEND_SRC / "views" / "YeuCauList.vue"
 
-KHOA_GIAI_DOAN = (
-	"nhap", "cho_duyet", "da_duyet", "cho_khach_dong_y",
-	"da_giao", "tu_choi", "da_huy",
-)
+# Patch v1_44 bỏ giai đoạn `cho_khach_dong_y` của đơn: vòng báo giá nay nằm
+# trên Quotation, ở màn Báo giá.
+KHOA_GIAI_DOAN = ("nhap", "cho_duyet", "da_duyet", "da_giao", "tu_choi", "da_huy")
 
 # Nhãn CŨ từng vừa là chữ hiển thị vừa là khoá — chính là bộ chuỗi đã đi ra
 # ngoài trong `?chip=`. Đóng băng: không thêm nhãn MỚI vào đây, nếu không ta
@@ -91,15 +90,27 @@ class TestNhanGiaiDoanOTangHienThi(FrappeTestCase):
 		chữ dành cho máy, rơi thẳng lên màn hình."""
 		self.assertEqual(set(self._bang_nhan()), set(KHOA_GIAI_DOAN))
 
-	def test_nhan_moi_dung_chu_chu_dau_tu_chot(self):
-		"""Quyết định của chủ đầu tư (26/08/2026): giai đoạn mà BÁO GIÁ ĐÃ
-		VỀ và bệnh viện đang giữ việc nay đọc là "Chờ quý vị đồng ý". Tên cũ
-		("Chờ báo giá") nói NGƯỢC — nó đọc như đang chờ Miyano, trong khi
-		đơn chờ Miyano ra giá lại nằm ở "Đã duyệt"."""
-		self.assertEqual(self._bang_nhan()["cho_khach_dong_y"], "Chờ quý vị đồng ý")
+	def test_bo_khoa_giao_dien_trung_bo_khoa_may_chu(self):
+		from miyano_portal.api import portal
+
+		self.assertEqual(set(portal.GIAI_DOAN_HOP_LE), set(KHOA_GIAI_DOAN))
+
+	def test_khoa_cu_cho_khach_dong_y_roi_ve_da_duyet_o_ca_hai_phia(self):
+		"""Link cũ `?chip=cho_khach_dong_y` / `?chip=Chờ báo giá` dẫn về "Đã
+		duyệt" — nơi đơn cũ của vòng báo giá nằm sau patch v1_44 — ở CẢ bí
+		danh giao diện lẫn bí danh máy chủ."""
+		from miyano_portal.api import portal
+
+		i = self.format_js.find("const BI_DANH_GIAI_DOAN_CU")
+		self.assertNotEqual(i, -1, "format.js không còn bảng BI_DANH_GIAI_DOAN_CU")
+		than = self.format_js[i:self.format_js.find("}", i)]
+		self.assertRegex(than, r"(?m)^\s*cho_khach_dong_y\s*:\s*'da_duyet'")
+		self.assertRegex(than, r"(?m)^\s*'Chờ báo giá'\s*:\s*'da_duyet'")
+		for cu in ("cho_khach_dong_y", "Chờ báo giá"):
+			self.assertEqual(portal._khoa_giai_doan(cu), "da_duyet")
 
 	def test_khong_con_nhan_giai_doan_nao_ghi_Cho_bao_gia(self):
-		"""Vế răng của bài trên. `Chờ báo giá` VẪN ĐÚNG và VẪN Ở LẠI ở nghĩa
+		"""`Chờ báo giá` VẪN ĐÚNG và VẪN Ở LẠI ở nghĩa
 		THỨ HAI — nhãn TẦNG GIÁ của một dòng hàng chưa có giá hợp đồng, trên
 		`LapPhieu.vue`. Bài này vì thế chỉ soi bảng nhãn GIAI ĐOẠN, không
 		soi cả kho: soi cả kho sẽ đỏ vì đúng những chỗ phải giữ nguyên."""
@@ -121,14 +132,14 @@ class TestNhanGiaiDoanOTangHienThi(FrappeTestCase):
 		buộc URL vào chữ tiếng Việt.
 
 		Đo ở HAI vế vì `FILTERS` nay trải từ `GIAI_DOAN` của `format.js`
-		(một nguồn, không chép tay lần hai): bộ khoá phải ĐỦ BẢY ở nơi khai,
+		(một nguồn, không chép tay lần hai): bộ khoá phải ĐỦ ở nơi khai,
 		và `FILTERS` không được gài lại nhãn cũ ở nơi dùng."""
 		i = self.format_js.find("export const GIAI_DOAN")
 		self.assertNotEqual(i, -1, "format.js chưa khai bộ khoá GIAI_DOAN")
 		khai = self.format_js[i:self.format_js.find("]", i)]
 		self.assertEqual(
 			set(re.findall(r"'(\w+)'", khai)), set(KHOA_GIAI_DOAN),
-			"GIAI_DOAN không đúng bảy khoá của GIAI_DOAN_HOP_LE",
+			"GIAI_DOAN không đúng bộ khoá của GIAI_DOAN_HOP_LE",
 		)
 		j = self.yeu_cau_list.find("const FILTERS")
 		self.assertNotEqual(j, -1, "YeuCauList.vue không còn danh sách FILTERS")

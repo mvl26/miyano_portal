@@ -197,7 +197,9 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
       |                            | dấu `custom_nguon_gia = "Bảng giá"`      |
       | Chưa có giá                | `rate = price_list_rate = 0`, dấu        |
       |                            | `"Báo giá"`, Miyano báo giá sau          |
-      | Chưa có mã (khách gõ tay)  | vào `custom_dat_ngoai`, KHÔNG vào `items` |
+      | Chưa có mã (khách gõ tay)  | `so.flags.dong_dat_ngoai`, KHÔNG vào     |
+      |                            | `items` — chỉ Quotation mang được dòng   |
+      |                            | này (`bao_gia.tao_bao_gia`)              |
 
     "Có giá" hỏi `bang_gia_khach.gia_bang_gia_nhieu()` — đúng nguồn mà danh
     mục `portal_catalog_gop` đang dùng, nên khách không thể thấy một tầng
@@ -507,8 +509,10 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
             "price_list_rate": d["rate"],
         }
         so.append("items", dong)
-    for dong in dong_dat_ngoai:
-        so.append("custom_dat_ngoai", dong)
+    # Sales Order không còn bảng dòng gõ tay (patch v1_43): dòng đã kiểm đi
+    # theo đơn CHƯA lưu qua `flags`, để `bao_gia.tao_bao_gia` chép sang
+    # `Quotation.custom_dat_ngoai`.
+    so.flags.dong_dat_ngoai = dong_dat_ngoai
     return so
 
 
@@ -665,6 +669,14 @@ def tao_sales_order(
         customer, aggregated, dat_ngoai, delivery_date,
         address, po, note, request_id,
     )
+    if so.flags.dong_dat_ngoai:
+        # Người gọi chia giỏ trước (`bao_gia.can_bao_gia`): giỏ có dòng gõ tay
+        # đi Quotation. Tới đây là người gọi bỏ qua bước chia đó.
+        frappe.throw(
+            "Hàng chưa có trong danh mục phải gửi qua yêu cầu báo giá, "
+            "không đặt thẳng thành đơn hàng.",
+            frappe.ValidationError,
+        )
 
     # Khoa phòng đứng tên đơn — nguồn của MỌI phép lọc theo khoa về sau
     # (phiếu giao, hoá đơn, biên bản kiểm đều lọc qua đơn cha, không có

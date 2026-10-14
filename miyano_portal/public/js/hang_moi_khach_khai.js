@@ -1,7 +1,6 @@
-// Khối "Hàng chưa có mã — thông tin khách khai" trên form Sales Order VÀ
-// Quotation (spec 2026-10-12 §7). Cả hai doctype mang bảng `custom_dat_ngoai`
-// cùng bảng con, nên một hàm phục vụ cả hai; file này nạp TRƯỚC file form
-// trong `hooks.py::doctype_js`.
+// Khối "Hàng chưa có mã — thông tin khách khai" trên form Quotation (spec
+// 2026-10-12 §7), dưới bảng `custom_dat_ngoai`. Sales Order không còn bảng
+// này (patch v1_44). File này nạp TRƯỚC file form trong `hooks.py::doctype_js`.
 frappe.provide("miyano_portal");
 
 // CR-03 trên Desk — hiện THỨ KHÁCH ĐÃ KHAI cho hàng chưa có mã.
@@ -28,9 +27,8 @@ frappe.provide("miyano_portal");
 // với bảng "Đối sánh tồn kho" trong `sales_order.js`).
 //
 // KHÔNG khai `const`/`let` ở cấp ngoài cùng của file này: Frappe chạy JS của
-// form như một thẻ <script> toàn cục, và file này nạp cho HAI doctype — lần
-// nạp thứ hai sẽ ném "Identifier has already been declared" và làm chết toàn
-// bộ JS của form đó.
+// form như một thẻ <script> toàn cục — nạp file hai lần sẽ ném "Identifier
+// has already been declared" và làm chết toàn bộ JS của form đó.
 miyano_portal.hien_thong_tin_hang_moi = function (frm) {
 	const LOP_KHOI_KHACH_KHAI = "mvl-hang-moi-khach-khai";
 	// Khối không do dashboard quản nên Frappe không tự dọn, và một form dùng

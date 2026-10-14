@@ -163,74 +163,6 @@ def khoa_phong_cho_don(khoa_phong_client: str | None = None, user: str | None = 
     return khoa_phong_client
 
 
-def dam_bao_duoc_sua_don_da_duyet(so, user=None) -> None:
-    """Task 9 (§12 Q4) — nhân viên khoa KHÔNG sửa thẳng số lượng trên đơn đã
-    được quản lý duyệt. Quản lý duyệt 10 hộp mà hàng về 100 hộp là lỗ hổng
-    của chính cổng duyệt: trước task này, `portal_order_sua_so_luong` chỉ
-    chặn theo `workflow_state`, không chặn theo VAI TRÒ — nhân viên khoa gọi
-    thẳng được y hệt quản lý.
-
-    CHỈ áp cho đơn ĐI QUA đường đề xuất (`custom_de_xuat` có giá trị). Đơn cũ
-    không có phiếu đứng sau thì không có gì để quay về duyệt lại — chặn
-    chúng chỉ lấy mất một thao tác mà không đổi lại được gì (chốt tương
-    thích ngược cho sáu tài khoản đang chạy thật).
-
-    FAIL-CLOSED KHI THIẾU CỘT (bài học sự cố `custom_khoa_phong`): nếu patch
-    v1_24 chưa chạy thì `custom_de_xuat` KHÔNG tồn tại, `so.get()` trả
-    falsy, và cổng này sẽ MỞ TOANG TRONG IM LẶNG nếu không kiểm cột trước —
-    tệ hơn sự cố cũ, vốn ít ra còn nổ thành lỗi 1054 nhìn thấy được. Nên
-    kiểm cột tồn tại TRƯỚC, và thiếu cột thì CHẶN nhân viên khoa chứ không
-    thả.
-
-    Task 7 — thân hàm chuyển sang `_ly_do_khong_sua_don_da_duyet()`, để
-    `duoc_sua_don_da_duyet()` (ngay dưới) trả LỜI cùng câu hỏi mà không
-    ném. Xem docstring hàm đó.
-    """
-    ly_do = _ly_do_khong_sua_don_da_duyet(so, user)
-    if ly_do:
-        raise frappe.PermissionError(ly_do)
-
-
-def _ly_do_khong_sua_don_da_duyet(so, user=None) -> str | None:
-    """`None` = được sửa. Ngược lại: câu tiếng Việt nói vì sao không."""
-    if la_quan_ly(user):
-        return None
-    if not _cot_de_xuat_ton_tai():
-        return "Hệ thống chưa hoàn tất cập nhật. Liên hệ Miyano."
-    if not so.get("custom_de_xuat"):
-        return None
-    return (
-        "Đơn này đã được quản lý duyệt. Dùng chức năng xin sửa số lượng để "
-        "gửi lại cho quản lý xem."
-    )
-
-
-def duoc_sua_don_da_duyet(so, user=None) -> bool:
-    """Task 7 — CÙNG CÂU HỎI với `dam_bao_duoc_sua_don_da_duyet`, dạng
-    trả lời thay vì dạng ném. `portal_order_track` trả nó ra
-    (`duoc_sua_da_duyet`) để `OrderDetail.vue` ẨN khối "Số lượng chưa
-    đúng?" thay vì hiện một nút mà server LUÔN LUÔN từ chối.
-
-    Khiếm khuyết đang sửa (có trước Task 6, không phải hồi quy của nó):
-    màn chi tiết chỉ soi chốt loại đơn, trong khi lõi `portal_order_sua_so_
-    luong` hỏi guard này TRƯỚC. Nhân viên khoa mở một đơn TRỘN đi qua
-    đường đề xuất → thấy nút → bấm → "Đơn này đã được quản lý duyệt…",
-    mọi lần, không có đường nào thành công. Quy ước dự án: ẨN, không phải
-    hiện-rồi-báo-lỗi.
-
-    Vì sao trả CÂU TRẢ LỜI chứ không để client tự suy từ dữ kiện: không có
-    dữ kiện nào phía client đủ. `custom_ma_tra_cuu` không phải bản sao của
-    `custom_de_xuat` — `api/portal.py` (quản lý đặt thẳng cho khách chưa
-    khai `Customer.custom_ma_ngan`) ghi `custom_de_xuat` NHƯNG để
-    `custom_ma_tra_cuu` rỗng vì `sinh_ma()` ném; và nhánh THIẾU CỘT làm mọi
-    dữ kiện phía client nói "được sửa" trong khi server chặn. Đây là hình
-    dạng `portal_mua_le.di_vong_bao_gia` đã dựng ở Task 6: MỘT vị ngữ, mọi
-    bên cùng hỏi — bản soi gương tự dựng lại điều kiện là chỗ trôi lệch
-    tiếp theo đang chờ xảy ra.
-    """
-    return _ly_do_khong_sua_don_da_duyet(so, user) is None
-
-
 # VÒNG SỬA 2 (C3 — CRITICAL), CHUYỂN VÀO ĐÂY Ở VÒNG SỬA 3 (V2, Important).
 # Cache CẤP TIẾN TRÌNH — không phải `None` nghĩa là "chưa biết", `True`/
 # `False` là kết quả đã kiểm. Nhớ Ở ĐÂY (không hỏi lại `information_schema`/
@@ -362,9 +294,8 @@ def cot_lan_dat_ton_tai() -> bool:
     return _cot_lan_dat_cache
 
 
-# Task 9 (§12 Q4) — CÙNG KHUÔN `_cot_khoa_ton_tai`/`_cot_khoa_phong_ton_tai`
-# ở trên: cache CẤP TIẾN TRÌNH cho cột `Sales Order.custom_de_xuat` (patch
-# v1_24), dùng bởi `dam_bao_duoc_sua_don_da_duyet()`. Tách biến RIÊNG với
+# CÙNG KHUÔN `_cot_khoa_ton_tai`/`_cot_khoa_phong_ton_tai` ở trên: cache CẤP
+# TIẾN TRÌNH cho cột `Sales Order.custom_de_xuat` (patch v1_24). Tách biến RIÊNG với
 # `_cot_khoa_ton_tai` — hai cột do hai patch độc lập tạo, một cột có thể tồn
 # tại mà cột kia chưa (hoặc ngược lại) trên một site đang di chuyển dở dang.
 _cot_de_xuat_ton_tai_cache: bool | None = None
@@ -373,10 +304,9 @@ _cot_de_xuat_ton_tai_cache: bool | None = None
 def _cot_de_xuat_ton_tai() -> bool:
     """Có cột `Sales Order.custom_de_xuat` THẬT trong CSDL không.
 
-    Nguồn kiểm tra DUY NHẤT cho `dam_bao_duoc_sua_don_da_duyet()` — không tự
-    hỏi `frappe.db.has_column` rời ở nơi khác, cùng lý do `_cot_khoa_phong_
-    ton_tai()` đứng một mình làm nguồn chung cho cả tầng hook lẫn tầng
-    endpoint."""
+    Nguồn kiểm tra DUY NHẤT — không tự hỏi `frappe.db.has_column` rời ở nơi
+    khác, cùng lý do `_cot_khoa_phong_ton_tai()` đứng một mình làm nguồn
+    chung cho cả tầng hook lẫn tầng endpoint."""
     global _cot_de_xuat_ton_tai_cache
     if _cot_de_xuat_ton_tai_cache is None:
         _cot_de_xuat_ton_tai_cache = bool(
@@ -386,14 +316,10 @@ def _cot_de_xuat_ton_tai() -> bool:
             frappe.log_error(
                 title="Thiếu cột Sales Order.custom_de_xuat",
                 message=(
-                    "Chốt chặn sửa số lượng sau khi đã duyệt (miyano_portal."
-                    "portal_context.dam_bao_duoc_sua_don_da_duyet) đang chạy "
-                    "trên một site CHƯA có cột Sales Order.custom_de_xuat. "
-                    "Mọi Nhân viên khoa đang bị chặn fail-closed khỏi "
-                    "portal_order_sua_so_luong (an toàn, nhưng chặn cả những "
-                    "đơn lẽ ra sửa được bình thường). Chạy `bench --site "
-                    "<site> migrate` để thêm cột (patch miyano_portal."
-                    "patches.v1_24.them_de_xuat_vao_don_hang)."
+                    "Site CHƯA có cột Sales Order.custom_de_xuat: đơn không "
+                    "nối được về phiếu đề xuất. Chạy `bench --site <site> "
+                    "migrate` để thêm cột (patch miyano_portal.patches.v1_24."
+                    "them_de_xuat_vao_don_hang)."
                 ),
             )
     return _cot_de_xuat_ton_tai_cache

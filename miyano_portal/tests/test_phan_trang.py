@@ -347,12 +347,12 @@ class TestPortalOrderHistoryLocTrangThaiPhiaServer(FrappeTestCase):
     def test_loc_trang_thai_tim_thay_don_o_ngoai_trang_dau_khong_loc(self):
         frappe.set_user(BM_USER)
         try:
-            muc_tieu = [_tao_don_test(BVBM, "Chờ khách đồng ý") for _ in range(3)]
+            muc_tieu = [_tao_don_test(BVBM, "Chờ Miyano xác nhận") for _ in range(3)]
             for _ in range(12):
-                _tao_don_test(BVBM, "Khách huỷ")
+                _tao_don_test(BVBM, "Từ chối")
 
-            # Không lọc, trang đầu (limit=10) — đúng hành vi cũ: 12 đơn "Đã
-            # huỷ" mới hơn lấp đầy, cả 3 đơn mục tiêu bị đẩy ra "trang 2".
+            # Không lọc, trang đầu (limit=10) — đúng hành vi cũ: 12 đơn "Miyano
+            # đã từ chối" mới hơn lấp đầy, cả 3 đơn mục tiêu bị đẩy ra "trang 2".
             khong_loc = portal.portal_order_history(limit=10, start=0)
             ten_khong_loc = {r["name"] for r in khong_loc["rows"]}
             for so in muc_tieu:
@@ -376,7 +376,7 @@ class TestPortalOrderHistoryLocTrangThaiPhiaServer(FrappeTestCase):
         frappe.set_user(BM_USER)
         try:
             for _ in range(3):
-                _tao_don_test(BVBM, "Chờ khách đồng ý")
+                _tao_don_test(BVBM, "Chờ Miyano xác nhận")
 
             # Ground truth độc lập: lấy TOÀN BỘ đơn (limit lớn, không lọc),
             # tự đếm `status_vi == "Chờ xác nhận"` bằng đúng field production
@@ -470,7 +470,7 @@ class TestPortalDashboardKpiKhongPhuThuocPhanTrang(FrappeTestCase):
         try:
             SO_LUONG = 15  # > mọi limit Dashboard.vue từng dùng (10/20)
             for _ in range(SO_LUONG):
-                _tao_don_test(BVBM, "Chờ khách đồng ý")
+                _tao_don_test(BVBM, "Chờ Miyano xác nhận")
 
             # Ground truth độc lập — cùng cách lỗi 1 đã canh: đếm tay trên
             # TOÀN BỘ danh sách (limit lớn), không dựa số cố định vì site có

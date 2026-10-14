@@ -514,12 +514,16 @@ class TestDatHangQuaCongTuSuySeverKhoa(_NenCachLy):
 
 
 class TestCacEndpointDonKhacApDungPhamVi(_NenCachLy):
-	"""Sáu endpoint còn lại đọc/sửa MỘT `Sales Order` cụ thể — tất cả gọi
+	"""Các endpoint còn lại đọc/sửa MỘT `Sales Order` cụ thể — tất cả gọi
 	`dam_bao_xem_duoc("Sales Order", order)` NGAY DÒNG ĐẦU (cùng cơ chế đã
 	unit-test kỹ ở `TestCachLyGiuaCacKhoa`), nên một test GỘP xác nhận từng
-	endpoint THẬT SỰ có gọi nó là đủ — không cần lặp lại bộ 6 test cách ly
+	endpoint THẬT SỰ có gọi nó là đủ — không cần lặp lại bộ test cách ly
 	đầy đủ cho mỗi cái, vì phần lõi cách ly (nhánh Sales Order của
-	`dam_bao_xem_duoc`) đã bị cô lập và test riêng ở trên."""
+	`dam_bao_xem_duoc`) đã bị cô lập và test riêng ở trên.
+
+	`portal_bao_gia_pdf(order=...)` không còn ở đây: đơn hàng không có PDF
+	báo giá (patch v1_44), lời gọi theo đơn ném ValidationError cho MỌI đơn
+	mà không đọc gì của đơn đó."""
 
 	def setUp(self):
 		super().setUp()
@@ -529,15 +533,7 @@ class TestCacEndpointDonKhacApDungPhamVi(_NenCachLy):
 		frappe.set_user(self.nv_b.user)
 		goi = {
 			"portal_reorder": lambda: portal_api.portal_reorder(self.don_a),
-			"portal_order_accept": lambda: portal_api.portal_order_accept(self.don_a, "dong_y"),
-			"portal_order_sua_so_luong": lambda: portal_api.portal_order_sua_so_luong(
-				self.don_a, {"items": []}
-			),
-			"portal_order_huy": lambda: portal_api.portal_order_huy(
-				self.don_a, "Đặt nhầm, không cần nữa"
-			),
 			"portal_request_cancel": lambda: portal_api.portal_request_cancel(self.don_a, "x"),
-			"portal_bao_gia_pdf": lambda: portal_api.portal_bao_gia_pdf(self.don_a),
 		}
 		for ten, fn in goi.items():
 			with self.assertRaises(frappe.PermissionError, msg=ten):

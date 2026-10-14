@@ -52,14 +52,10 @@ app_include_css = "/assets/miyano_portal/css/desk_ten_hang.css"
 # đường nào sang biên bản kiểm hàng của khách.
 doctype_js = {
 	# `dat_ngoai_anh.js` đăng ký theo BẢNG CON `Sales Order Dat Ngoai Item`,
-	# mà bảng đó sống trên CẢ `Sales Order` LẪN `Portal De Xuat Mua` — nên
+	# mà bảng đó sống trên CẢ `Quotation` LẪN `Portal De Xuat Mua` — nên
 	# phải nạp ở CẢ HAI form, nếu không ô ảnh chỉ vẽ ở một màn và không ai
 	# biết màn kia vẫn hiện chuỗi JSON thô.
-	"Sales Order": [
-		"public/js/hang_moi_khach_khai.js",
-		"public/js/sales_order.js",
-		"public/js/dat_ngoai_anh.js",
-	],
+	"Sales Order": "public/js/sales_order.js",
 	"Portal De Xuat Mua": "public/js/dat_ngoai_anh.js",
 	"Delivery Note": "public/js/delivery_note.js",
 	"Quotation": [
@@ -110,16 +106,6 @@ website_route_rules = [
 
 # add methods and filters to jinja environment
 #
-# Thiết kế lại mua lẻ §4.6 — Notification "Portal - Báo giá sẵn sàng"
-# (setup/install_notifications.py) phải nêu đúng "hạn hiệu lực báo giá".
-# Đăng ký `han_hieu_luc_bao_gia` làm global cho MỌI template render qua
-# `frappe.render_template` (kể cả message của doctype `Notification`, xem
-# `frappe/email/doctype/notification/notification.py::get_context` — context
-# đó lấy globals từ `get_jinja_hooks()`, đúng dict này) — TÁI DÙNG hàm DUY
-# NHẤT đã tính hạn này cho `portal_order_accept`/`portal_order_track`/job
-# daily `quet_bao_gia_het_han` thay vì hardcode "+N ngày" trong template:
-# N đọc từ `Miyano Portal Settings.hieu_luc_bao_gia_ngay` (có thể đổi), hai
-# nơi tính ra hai con số khác nhau là đúng lỗi đã trả giá ở review I-2(a).
 # Spec 2026-08-15 §3.4 — `la_dong_giu_cho` (portal_mua_le.py) khai rõ trong
 # docstring của chính nó là "dùng CHUNG bởi Python và Jinja, đăng ký ở đây".
 # Đăng ký tại đây để câu đó ĐÚNG SỰ THẬT: một mẫu in tương lai lọc dòng giữ
@@ -128,7 +114,6 @@ website_route_rules = [
 # cả hai nơi đổi theo, không có nơi nào lặng lẽ hết lọc.
 jinja = {
 	"methods": [
-		"miyano_portal.portal_mua_le.han_hieu_luc_bao_gia",
 		"miyano_portal.portal_mua_le.la_dong_giu_cho",
 		# Đọc tiền thành chữ TIẾNG VIỆT cho chứng từ kế toán.
 		# `frappe.utils.money_in_words` đọc theo ngôn ngữ hệ thống (site này
@@ -484,7 +469,7 @@ doc_events = {
 	# hook phải tự nói rõ nó áp cho báo giá của cổng hay cho mọi báo giá.
 	"Quotation": {
 		"before_validate": [
-			# Cùng hook với Sales Order: khớp mã cho dòng khách gõ tay.
+			# Khớp mã cho dòng khách gõ tay: chuyển thành dòng hàng thật.
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
 		],
 		"validate": [
@@ -511,48 +496,11 @@ doc_events = {
 	# không ở condition của workflow transition — xem docstring
 	# `kiem_nguong_duyet` trong portal_duyet_don.py.
 	"Sales Order": {
-		# Task 13 (QĐ-G13, chủ đầu tư chốt 21/08/2026) — khớp mã cho một
-		# dòng "đặt ngoài" thì CHUYỂN nó thành dòng hàng thật trong `items`,
-		# lấy giá từ Price List của khách (`bang_gia_khach.gia_bang_gia`, spec
-		# 2026-10-09 §4.4 — thay QĐ-G14 "giá hợp đồng").
-		#
-		# Ở `before_validate` chứ KHÔNG `validate`, và đây là lý do: hook
-		# của app chạy SAU method cùng tên của chính doctype
-		# (`Document.hook` → `compose(fn, *hooks)`), nên một hook `validate`
-		# chạy SAU `SalesOrder.validate()` — sau `set_missing_values`, sau
-		# `calculate_taxes_and_totals`. Dòng hàng thêm vào lúc đó sẽ thiếu
-		# `item_name`/`uom`, có `amount = 0` và KHÔNG được cộng vào
-		# `grand_total`, tức tái hiện đúng nửa sau của triệu chứng
-		# ("không vào tổng tiền") mà task này sinh ra để dẹp.
-		#
-		# Phần CẤM của kế hoạch (bẫy 4) vẫn giữ tuyệt đối: chốt KHÔNG nằm
-		# trong `validate()` của doctype con — Frappe không bao giờ gọi hàm
-		# đó khi document CHA lưu.
-		"before_validate": [
-			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
-			# Đơn báo giá vào "Chờ khách đồng ý" → dấu nguồn giá của từng dòng
-			# theo luật R14/R16 (dòng "Bảng giá" bị sửa giá tay, dòng thêm tay
-			# trên Desk là dòng "Báo giá"). SAU hook trên (dòng vừa gộp đã có
-			# dấu) và ở `before_validate` vì nó có thể đổi `rate` — xem
-			# docstring hàm.
-			"miyano_portal.chot_bao_gia.chuan_hoa_dau_truoc_khi_gui_khach",
-		],
+		# Đơn từ cổng không còn dòng khách gõ tay và không còn vòng báo giá
+		# (patch v1_44): khớp mã và báo giá đi trên Quotation.
 		"validate": [
 			"miyano_portal.portal_duyet_don.kiem_ly_do_tu_choi",
-			# E6 phần B, review I-2(a) round 2 — ghi `custom_ngay_gui_khach_
-			# duyet` mỗi khi đơn CHUYỂN VÀO "Chờ khách đồng ý". Ở `validate`
-			# (không phải một endpoint cổng) vì đường đi CHÍNH của US-E6.5
-			# là sales bấm nút workflow "Gửi khách duyệt" TỪ DESK.
-			"miyano_portal.portal_mua_le.ghi_ngay_gui_khach_duyet",
-			# Thiết kế lại mua lẻ §4.3 — đồng bộ `da_xu_ly` của bảng con
-			# "đặt ngoài" theo `item_khop`. Ở `validate` cùng lý do dòng
-			# trên: `Document.validate()` của bảng con KHÔNG được Frappe
-			# gọi khi cha lưu, đây là nơi DUY NHẤT chốt này chạy được cho
-			# mọi đường ghi (cổng lẫn Desk).
-			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
-			# Giá theo Price List, spec 2026-10-09 §5.1 — chốt 1 và 2 trên bước
-			# chuyển trạng thái: đơn báo giá không "Gửi duyệt" thẳng, không
-			# gửi khách khi còn dòng chưa có giá. Chạy sau `ghi_ngay_gui_khach_duyet`.
+			# Đơn cổng không vào "Chờ Miyano xác nhận" khi còn dòng chưa có giá.
 			"miyano_portal.chot_bao_gia.kiem_chuyen_trang_thai",
 			# Dòng trỏ về một báo giá của cổng chỉ được nằm trên đơn mà
 			# `bao_gia.dong_y` sinh ra (và bản «Amend» của nó): chặn «Tạo → Đơn
@@ -563,30 +511,19 @@ doc_events = {
 		],
 		"before_submit": [
 			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
-			# Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi
-			# còn dòng "đặt ngoài" chưa xử lý (chưa khớp `item_khop`).
-			"miyano_portal.portal_mua_le.kiem_dat_ngoai_da_xu_ly",
-			# Critical-3 (review Task 13, 22/08) — chốt ngay trên tin
-			# `da_xu_ly`, mà `da_xu_ly` chỉ nói thật TẠI LÚC chuyển. Nhân
-			# viên Desk xoá dòng `items` do phép chuyển sinh ra thì cờ vẫn
-			# bật và đơn xác nhận được với mặt hàng khoa yêu cầu không có
-			# dòng nào. Chốt này đối chiếu `dong_hang` với `items` THẬT.
-			"miyano_portal.portal_mua_le.kiem_dong_chuyen_con_tren_don",
-			# Việc thêm (controller, ngoài Task 9) — CHỐT MỚI, cạnh chốt trên:
-			# chốt trên chỉ nhìn `custom_dat_ngoai`, không nhìn `items` — nên
-			# không bắt được dòng giữ chỗ `ITEM_GIU_CHO` còn sót lại trong
-			# `items` dù mọi dòng đặt ngoài đã khớp mã. Xem docstring hàm.
+			# Đơn cũ toàn hàng chưa có mã còn dòng giữ chỗ `ITEM_GIU_CHO`: phải
+			# thay bằng dòng hàng thật trước khi xác nhận.
 			"miyano_portal.portal_mua_le.kiem_khong_con_dong_giu_cho",
 			# Spec 2026-10-09 §5.4 — chốt 3: giá phải khớp giá khách đã đồng ý.
 			"miyano_portal.chot_bao_gia.kiem_gia_khop_gia_da_dong_y",
 		],
 		# Cùng lý do/chốt với "Delivery Note"/"Sales Invoice" ở trên —
-		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối"/"Báo giá sẵn
-		# sàng" (brief 2026-08-15, trang thông báo, Phần 2).
+		# Notification "Portal - Đơn xác nhận"/"Đơn bị từ chối" (brief
+		# 2026-08-15, trang thông báo, Phần 2).
 		#
 		# Task 4 (sổ nhật ký) — thêm TÊN HÀM vào danh sách CÓ SẴN này, không
-		# dựng điểm móc `on_update` thứ hai cho cùng doctype: ghi ba sự kiện
-		# workflow_state phía Miyano (xác nhận/gửi khách duyệt/từ chối), tự
+		# dựng điểm móc `on_update` thứ hai cho cùng doctype: ghi hai sự kiện
+		# workflow_state phía Miyano (xác nhận/từ chối), tự
 		# lọc theo phép so cũ-mới bên trong (xem `nhat_ky_hook.py`).
 		"on_update": [
 			"miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
@@ -608,9 +545,9 @@ scheduler_events = {
 		"miyano_portal.portal_sla.quet_yeu_cau_qua_han",
 	],
 	"daily": [
-		# E6 phần B/NL-10.5 — báo giá "Chờ khách đồng ý" quá hạn hiệu lực:
-		# tự đóng + email hai phía + yêu cầu gốc chuyển "Hết hạn".
-		"miyano_portal.portal_bao_gia.quet_bao_gia_het_han",
+		# Spec 2026-10-12 §4.6 — báo giá (Quotation) của cổng quá `valid_till`
+		# còn "Chờ khách đồng ý": tự chuyển "Báo giá hết hạn" + email hai phía.
+		"miyano_portal.bao_gia.quet_het_han",
 		# US-E5.4 — vật tư dưới min/ROP: email tổng hợp theo tần suất cấu
 		# hình trên từng kho (mặc định TẮT, bật riêng theo kho).
 		"miyano_portal.portal_du_tru_job.quet_canh_bao_ton_daily",

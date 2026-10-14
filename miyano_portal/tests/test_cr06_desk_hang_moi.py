@@ -103,8 +103,8 @@ class TestNganSachCotLuoi(FrappeTestCase):
 
 		`item_khop` là chỗ nhân viên gõ mã hàng khớp — mất nó là mất luôn
 		chức năng khớp hàng. `da_xu_ly` là dấu cho biết dòng nào đã xong —
-		mất nó thì không quét mắt biết còn dòng nào chưa khớp, mà một đơn còn
-		dòng chưa khớp thì KHÔNG xác nhận được (`kiem_dat_ngoai_da_xu_ly`).
+		mất nó thì không quét mắt biết còn dòng nào chưa khớp, mà một báo giá
+		còn dòng chưa khớp thì KHÔNG gửi khách được (`bao_gia.chot_gui_khach`).
 		"""
 		ten = [f["fieldname"] for f in self._trong_luoi()]
 		for f in ("item_khop", "da_xu_ly"):
@@ -125,16 +125,16 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		# Task 10 (2026-10-12): hàm dựng khối chuyển sang file dùng chung với
-		# Quotation; `sales_order.js` chỉ còn LỜI GỌI trong `refresh`.
+		# Hàm dựng khối nằm ở file dùng chung; dòng gõ tay chỉ còn sống trên
+		# Quotation (patch v1_44), nên LỜI GỌI nằm trong `quotation.js`.
 		cls.js = (_goc() / "public" / "js" / "hang_moi_khach_khai.js").read_text(
 			encoding="utf-8"
 		)
-		cls.js_so = (_goc() / "public" / "js" / "sales_order.js").read_text(
+		cls.js_bg = (_goc() / "public" / "js" / "quotation.js").read_text(
 			encoding="utf-8"
 		)
-		cls.ma_so = "\n".join(
-			d for d in cls.js_so.splitlines() if not d.strip().startswith("//")
+		cls.ma_bg = "\n".join(
+			d for d in cls.js_bg.splitlines() if not d.strip().startswith("//")
 		)
 		# Lột chú thích JS trước khi soi: chính chú thích giải thích tính năng
 		# này có chứa mọi chuỗi bài dưới tìm. Lỗi "khớp chỗ nói thay cho chỗ
@@ -157,7 +157,7 @@ class TestDeskHienThongTinKhachKhai(FrappeTestCase):
 		BẢY lần trong dự án này.
 		"""
 		self.assertIn(
-			"miyano_portal.hien_thong_tin_hang_moi(frm)", self.ma_so,
+			"miyano_portal.hien_thong_tin_hang_moi(frm)", self.ma_bg,
 			"`hien_thong_tin_hang_moi` được định nghĩa nhưng KHÔNG được gọi "
 			"trong `refresh` — khối sẽ không bao giờ hiện",
 		)
@@ -248,7 +248,7 @@ class TestCotDonGiaChoDongDaKhopMa(FrappeTestCase):
 
 	def test_NHIEU_yeu_cau_ve_MOT_ma_thi_cong_don_khong_lay_dong_dau(self):
 		"""`_gop_hoac_them_dong_hang` cộng số lượng của NHIỀU dòng gõ tay vào
-		MỘT `Sales Order Item`. Lấy `so_luong` của dòng đầu là in thiếu hàng
+		MỘT `Quotation Item`. Lấy `so_luong` của dòng đầu là in thiếu hàng
 		khoa đã xin, mà không lỗi nào nổ ra."""
 		self.assertRegex(
 			self.ma,
@@ -401,7 +401,7 @@ class TestOAnhVeHinhTrongDongLuoi(FrappeTestCase):
 	`["/private/files/CR03_DXM-2026-00038_0_99fb6d_Chụp màn hình….png"]`
 
 	`anh` là `Small Text` chứa JSON — Frappe in ra y nguyên thứ nó lưu. Khối
-	tóm tắt ở đầu form (`sales_order.js`) CÓ vẽ ảnh, nhưng người khớp hàng làm
+	tóm tắt ở đầu form (`hang_moi_khach_khai.js`) CÓ vẽ ảnh, nhưng người khớp hàng làm
 	việc TRONG dòng lưới, và ở đó họ vẫn thấy chuỗi thô. Sửa một chỗ mà bỏ
 	quên chỗ người ta thật sự đứng là chưa sửa.
 	"""
@@ -440,7 +440,7 @@ class TestOAnhVeHinhTrongDongLuoi(FrappeTestCase):
 		self.assertIn("<img", self.ma, "Không vẽ ảnh thành thẻ <img>")
 
 	def test_doc_parentfield_TU_DONG_khong_go_cung(self):
-		"""Bảng con này sống trên CẢ `Sales Order` (`custom_dat_ngoai`) LẪN
+		"""Bảng con này sống trên CẢ `Quotation` (`custom_dat_ngoai`) LẪN
 		`Portal De Xuat Mua` (`dat_ngoai`).
 
 		Gõ cứng một tên là ô ảnh chỉ chạy ở MỘT màn, và màn kia vẫn hiện chuỗi
@@ -449,7 +449,7 @@ class TestOAnhVeHinhTrongDongLuoi(FrappeTestCase):
 		self.assertIn("row.parentfield", self.ma,
 		              "Không đọc `parentfield` từ chính dòng")
 		self.assertNotIn('"custom_dat_ngoai"', self.ma,
-		                 "Gõ cứng tên bảng con của Sales Order")
+		                 "Gõ cứng tên bảng con của Quotation")
 
 	def test_nap_o_CA_HAI_form(self):
 		"""Handler đăng ký theo BẢNG CON, nên phải nạp ở cả hai doctype cha —
@@ -464,6 +464,10 @@ class TestOAnhVeHinhTrongDongLuoi(FrappeTestCase):
 		self.assertIn("dat_ngoai_anh.js", khoi)
 		self.assertIn('"Portal De Xuat Mua"', khoi,
 		              "Chưa nạp cho form phiếu — màn đó vẫn hiện JSON thô")
+		i_bg = khoi.find('"Quotation": [')
+		self.assertNotEqual(i_bg, -1, "Không tìm thấy khai báo JS cho form Quotation")
+		self.assertIn("dat_ngoai_anh.js", khoi[i_bg:khoi.index("]", i_bg)],
+		              "Chưa nạp cho form báo giá — màn đó vẫn hiện JSON thô")
 
 	def test_escape_duong_dan_tep(self):
 		"""Tên tệp do khách đặt (ảnh họ tải lên) và được nhồi vào HTML."""

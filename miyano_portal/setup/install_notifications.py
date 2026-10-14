@@ -1,7 +1,5 @@
 import frappe
 
-from miyano_portal.portal_mua_le import LOAI_DON_BAO_GIA
-
 TEN_TB_BAO_GIA = "Portal - Yêu cầu báo giá sẵn sàng"
 TEN_TB_BAO_GIA_TU_CHOI = "Portal - Yêu cầu báo giá bị từ chối"
 
@@ -150,77 +148,10 @@ DEFS = [
         ),
         "recipient_field": "nguoi_yeu_cau",
     },
-    # Thiết kế lại mua lẻ §4.6 — khách nhận thông báo NGAY TRÊN đơn khi báo
-    # giá sẵn sàng ("Chờ khách đồng ý"), kèm email cùng khuôn Notification
-    # đã có (không dựng cơ chế gửi thư riêng). `custom_nguon_don ==
-    # 'Client Portal'` — cùng điều kiện scoping "Portal - Đơn mới"/"Portal -
-    # Đơn xác nhận" ở trên; transition "Gửi khách duyệt" -> "Chờ khách đồng
-    # ý" áp cho MỌI đơn portal (không riêng Mua lẻ, xem
-    # patches/v1_4/mo_rong_workflow_e2.py), nên KHÔNG lọc thêm theo
-    # `custom_loai_don`.
-    #
-    # `han_hieu_luc_bao_gia(doc)` — hàm DUY NHẤT tính hạn hiệu lực, đăng ký
-    # làm jinja global ở `hooks.py` (`jinja.methods`). KHÔNG tính lại "+N
-    # ngày" ngay trong template: N đọc từ `Miyano Portal Settings.
-    # hieu_luc_bao_gia_ngay` (mặc định 7 nếu chưa cấu hình) — hardcode số
-    # ngày ở đây sẽ lệch với `portal_order_accept`/`portal_order_track`/job
-    # daily `quet_bao_gia_het_han` ngay khi ai đó đổi Settings.
+    # "Portal - Báo giá sẵn sàng" của Sales Order đã bỏ (patch v1_44): đơn
+    # không còn vòng báo giá, khách đồng ý giá trên Quotation.
     {
-        "name": "Portal - Báo giá sẵn sàng",
-        "subject": "Báo giá cho đơn hàng {{ doc.name }} đã sẵn sàng",
-        "document_type": "Sales Order",
-        "event": "Value Change",
-        "value_changed": "workflow_state",
-        # review I-2 — thêm `custom_loai_don == 'Mua lẻ'`: "hiệu lực báo giá"
-        # là khái niệm CHỈ của Mua lẻ (portal_order_track trả `han_hieu_luc:
-        # None` cho đơn khác; `portal_bao_gia.quet_bao_gia_het_han` lọc đúng
-        # `custom_loai_don: "Mua lẻ"`). Thiếu điều kiện này thì MỌI đơn hợp
-        # đồng khung vào "Chờ khách đồng ý" (luồng E2 gốc) cũng gửi kèm một
-        # chứng từ đề "BÁO GIÁ / QUOTATION" với "Hiệu lực đến..." mà không
-        # job nào thi hành — sai sự thật nghiệp vụ khách đọc được.
-        #
-        # Task 6 (QĐ-G2b) — chốt này KHÔNG gọi được `portal_mua_le.
-        # di_vong_bao_gia()`: `Notification.condition` là một CHUỖI chạy qua
-        # `frappe.safe_eval` trên `doc`, không phải mã Python gọi hàm app
-        # được. Cùng `portal_bao_gia.quet_bao_gia_het_han` (filter CSDL),
-        # đây là lý do vị ngữ kia đọc DẤU ĐÓNG `custom_loai_don` chứ không
-        # suy lại từ dòng — xem docstring `di_vong_bao_gia`.
-        #
-        # Task 7 — chuỗi này KHÔNG gọi được hàm, nhưng nó CHIA ĐƯỢC MỘT TÊN
-        # với vị ngữ: `LOAI_DON_BAO_GIA` nội suy vào đây. Không có nó, ngày
-        # ai đó đổi giá trị dấu ở `portal_mua_le` thì thông báo "Báo giá sẵn
-        # sàng" LẶNG LẼ thôi bắn cho đúng những đơn cần nó.
-        "condition": (
-            "doc.custom_nguon_don == 'Client Portal' and "
-            f"doc.custom_loai_don == '{LOAI_DON_BAO_GIA}' and "
-            "doc.workflow_state == 'Chờ khách đồng ý'"
-        ),
-        "message": (
-            "Kính gửi Quý khách,\n\nMiyano đã gửi báo giá cho đơn hàng "
-            "{{ doc.name }}, tổng giá trị {{ frappe.utils.fmt_money(doc.grand_total, "
-            "currency='VND') }}.\n\nBáo giá có hiệu lực đến hết ngày "
-            "{{ han_hieu_luc_bao_gia(doc).strftime('%d/%m/%Y') }}. Sau thời hạn này, "
-            "nếu Quý khách chưa phản hồi, đơn sẽ tự động đóng.\n\nVui lòng đăng nhập "
-            "cổng khách hàng để xem chi tiết và xác nhận."
-        ),
-        "send_system_notification": 1,
-        # review I-1 — `attach_print`/`print_format` KHÔNG đặt ở đây nữa.
-        # `Notification.print_format` là Link tới `Print Format`, và
-        # `Document.insert` chạy `_validate_links()` VÔ ĐIỀU KIỆN — nếu
-        # `execute()` của `v1_14.install_bao_gia_san_sang_notification` chạy
-        # trên một site đi qua patch này TRƯỚC khi mẫu in "Miyano - Báo giá"
-        # tồn tại (mẫu đó chỉ được tạo sau, ở `v1_15.install_print_format_
-        # bao_gia`), `doc.insert()` ở dưới ném `LinkValidationError` và
-        # `bench migrate` chết giữa chừng. `v1_15.install_print_format_
-        # bao_gia` là nơi DUY NHẤT ghi hai field này — nó dùng
-        # `frappe.db.set_value` (bỏ qua `_validate_links`), và luôn chạy SAU
-        # khi mẫu in đã tồn tại vì tự nó gọi `install_portal_print_formats()`
-        # trước khi set. Xem thêm `v1_15.gioi_han_bao_gia_pdf_mua_le` (patch
-        # cập nhật `condition` cho bản ghi đã cài trên site, review I-2).
-    },
-    {
-        # Spec 2026-10-12 §7 — bản cho Quotation của "Portal - Báo giá sẵn
-        # sàng". Bản trên Sales Order giữ lại cho đơn "Mua lẻ" cũ.
+        # Spec 2026-10-12 §7 — thông báo báo giá sẵn sàng, trên Quotation.
         # `attach_print`/`print_format` do patch v1_42 đặt SAU khi mẫu in đã
         # có: `print_format` là Link, được kiểm ngay lúc insert.
         "name": TEN_TB_BAO_GIA,

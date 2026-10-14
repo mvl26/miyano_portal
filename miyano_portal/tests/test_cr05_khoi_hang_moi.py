@@ -166,10 +166,9 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 		có gì — đơn chỉ tồn tại SAU khi duyệt, nên đúng lúc quản lý cần nhìn
 		nhất thì không thấy gì.
 
-		Từ 08/09/2026 luật là HAI NHÁNH, không phải một: chưa có đơn thì đọc
-		phiếu (nguồn duy nhất có); CÓ đơn thì đọc đơn, vì cờ `da_xu_ly` chỉ
-		sống trên đơn — xem bài kế. Bài này canh nửa PHIẾU không bị đánh rơi
-		khi thêm nửa kia.
+		Luật là HAI NHÁNH: chưa có đơn thì đọc phiếu (nguồn duy nhất có); CÓ
+		đơn thì khối rỗng — xem bài kế. Bài này canh nửa PHIẾU không bị đánh
+		rơi khi thêm nửa kia.
 		"""
 		m = re.search(r"const dongHangMoiChuaKhop = computed\(([\s\S]{0,400}?)\n\}\)", self.man)
 		self.assertIsNotNone(
@@ -181,21 +180,20 @@ class TestGiaoDienKhoiHangMoi(FrappeTestCase):
 			"quản lý sẽ không thấy dòng hàng gõ tay nào, đúng lỗi gốc",
 		)
 
-	def test_khoi_doc_tu_DON_khi_DA_co_don_vi_co_da_xu_ly_o_do(self):
-		"""Cờ `da_xu_ly`/`item_khop` CHỈ SỐNG TRÊN ĐƠN.
-
-		Khớp mã chạy trên `Sales Order.custom_dat_ngoai` và KHÔNG đụng tới
-		`dat_ngoai` của phiếu. Đọc từ phiếu khi đã có đơn thì mọi dòng trông
+	def test_khoi_RONG_khi_DA_co_don(self):
+		"""Khớp mã chạy trên `Quotation.custom_dat_ngoai` và KHÔNG đụng tới
+		`dat_ngoai` của phiếu; đơn chỉ sinh ra khi khách đồng ý một báo giá đã
+		khớp hết (patch v1_44). Đọc từ phiếu khi đã có đơn thì mọi dòng trông
 		như chưa khớp VĨNH VIỄN, khối riêng không bao giờ biến mất, và yêu
 		cầu "khớp xong chỉ còn một bảng" (chủ đầu tư 08/09/2026) hỏng lặng lẽ.
 		"""
 		m = re.search(r"const dongHangMoiChuaKhop = computed\(([\s\S]{0,400}?)\n\}\)", self.man)
 		self.assertIsNotNone(m, "Không tìm thấy computed `dongHangMoiChuaKhop`")
 		than = m.group(1)
-		self.assertIn(
-			"don.value", than,
-			"Không có nhánh đọc từ ĐƠN — dòng đã khớp mã sẽ nằm lại khối "
-			"riêng mãi mãi và màn có hai bảng nói về cùng một dòng hàng",
+		self.assertRegex(
+			than, r"if \(don\.value\) return \[\]",
+			"Đã có đơn mà khối riêng vẫn đọc phiếu — dòng đã khớp mã sẽ nằm lại "
+			"khối riêng mãi mãi và màn có hai bảng nói về cùng một dòng hàng",
 		)
 		self.assertRegex(
 			than, r"filter\(\s*\(d\)\s*=>\s*!d\.da_xu_ly\s*\)",

@@ -19,7 +19,6 @@ frappe.ui.form.on("Sales Order", {
 			});
 		}, __("Miyano"));
 
-		miyano_portal.hien_thong_tin_hang_moi(frm);
 		hien_doi_sanh_ton(frm);
 	},
 });

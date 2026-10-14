@@ -1,13 +1,8 @@
-import json
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from miyano_portal.api import portal
-from miyano_portal.portal_mua_le import TRANG_THAI_CHO_KHACH
 from miyano_portal.setup.install_notifications import install_portal_notifications
 from miyano_portal.setup.seed_demo import seed_demo
-from miyano_portal.tests.test_e6_mua_le import RETAIL_CO_GIA, USER_BVBM, _rid, _seed_mua_le
 
 
 class TestNotifications(FrappeTestCase):
@@ -35,7 +30,7 @@ class TestNotifications(FrappeTestCase):
 
 
 class TestSendSystemNotificationFlags(FrappeTestCase):
-    """Brief 2026-08-15 (trang thông báo) Phần 1 — chỉ NĂM Notification hướng
+    """Brief 2026-08-15 (trang thông báo) Phần 1 — chỉ các Notification hướng
     về khách được bật `send_system_notification`; "Đơn mới" và ba "Portal -
     Yêu cầu hàng hoá *" phải giữ nguyên 0."""
 
@@ -44,7 +39,6 @@ class TestSendSystemNotificationFlags(FrappeTestCase):
         "Portal - Đơn bị từ chối",
         "Portal - Xuất giao",
         "Portal - Hoá đơn phát hành",
-        "Portal - Báo giá sẵn sàng",
     ]
     KHONG_BAT = [
         "Portal - Đơn mới",
@@ -136,11 +130,6 @@ class TestNotificationLogEndToEnd(FrappeTestCase):
     định `overrides/notification.py` (bọc riêng từng nhánh kênh, đăng ký qua
     `override_doctype_class`) đã chặn đứng lỗi đó."""
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        _seed_mua_le()
-
     def setUp(self):
         seed_demo()
         frappe.db.delete("Notification Log", {"for_user": "bvbm@demo.miyano"})
@@ -178,38 +167,3 @@ class TestNotificationLogEndToEnd(FrappeTestCase):
         self.assertEqual(len(logs), 1, "Phải có đúng một Notification Log cho khách")
         self.assertEqual(logs[0].read, 0)
         self.assertIn(so.name, logs[0].subject)
-
-    def test_bao_gia_san_sang_sinh_notification_log_du_dinh_kem_pdf(self):
-        """"Portal - Báo giá sẵn sàng" là bản ghi RỦI RO NHẤT: ngoài kênh
-        Email hỏng, nó còn `attach_print = 1` — `create_system_notification`
-        tự gọi `get_attachment(doc)` (`frappe.get_print`) TRƯỚC KHI tạo log,
-        nên một lỗi sinh PDF độc lập với email cũng có thể xoá mất log này
-        dù kênh Email đã được vá đúng. Đơn còn ở dạng nháp (`docstatus=0`)
-        khi vào "Chờ khách đồng ý" — `Print Settings.allow_print_for_draft`
-        phải bật (đã kiểm site test có bật) để `get_print` không tự chặn."""
-        frappe.set_user(USER_BVBM)
-        res = portal.portal_order_place(
-            items=json.dumps([{"item_code": RETAIL_CO_GIA, "qty": 2}]),
-            request_id=_rid(),
-            mode="ban_le",
-        )
-        frappe.set_user("Administrator")
-        so = frappe.get_doc("Sales Order", res["sales_order"])
-        so.items[0].rate = 25000
-        so.workflow_state = TRANG_THAI_CHO_KHACH
-        so.save(ignore_permissions=True)
-
-        logs = frappe.get_all(
-            "Notification Log",
-            filters={
-                "for_user": "bvbm@demo.miyano",
-                "document_type": "Sales Order",
-                "document_name": so.name,
-                "subject": ["like", "Báo giá cho đơn hàng%"],
-            },
-            fields=["subject"],
-        )
-        self.assertEqual(
-            len(logs), 1,
-            "Phải có Notification Log 'Báo giá sẵn sàng' dù email hỏng và có đính PDF",
-        )

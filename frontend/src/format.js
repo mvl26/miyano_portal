@@ -85,7 +85,7 @@ export function deXuatBadge(trangThai) {
 }
 
 // Task 11 (QĐ-G11) — MỘT dòng đời cho màn "Yêu cầu của tôi":
-// `nhap → cho_duyet → da_duyet → cho_khach_dong_y → da_giao`, cộng hai ngõ
+// `nhap → cho_duyet → da_duyet → da_giao`, cộng hai ngõ
 // cụt. Giá trị do backend suy (`portal_yeu_cau_cua_toi.giai_doan`), không
 // phải client tự ghép từ hai từ điển trạng thái cũ.
 //
@@ -95,21 +95,18 @@ export function deXuatBadge(trangThai) {
 // chết mọi link đã gửi cho bệnh viện. Nay backend chỉ nói KHOÁ; ba bảng
 // dưới đây là NƠI DUY NHẤT trong cả hệ thống ánh xạ khoá → chữ người đọc.
 export const GIAI_DOAN = [
-  'nhap', 'cho_duyet', 'da_duyet', 'cho_khach_dong_y',
-  'da_giao', 'tu_choi', 'da_huy',
+  'nhap', 'cho_duyet', 'da_duyet', 'da_giao', 'tu_choi', 'da_huy',
 ]
 
 // Đổi chữ ở BẢNG NÀY là đủ, và từ P54 trở đi việc đó KHÔNG còn động tới
 // khoá, tới URL, tới bộ lọc hay tới bất kỳ liên kết nào đã phát ra ngoài.
 //
-// `cho_khach_dong_y` — tên cũ "Chờ báo giá" đọc NGƯỢC: nó nghe như đang chờ
-// Miyano, trong khi đơn thật sự chờ Miyano ra giá lại nằm ở "Đã duyệt".
-// Giai đoạn này là lúc BÁO GIÁ ĐÃ VỀ và bệnh viện đang giữ việc.
+// Giai đoạn "chờ quý vị đồng ý" của ĐƠN đã bỏ (patch v1_44): báo giá nay là
+// Quotation, nằm ở màn Báo giá.
 export const NHAN_GIAI_DOAN = {
   nhap: 'Nháp',
   cho_duyet: 'Chờ duyệt',
   da_duyet: 'Đã duyệt',
-  cho_khach_dong_y: 'Chờ quý vị đồng ý',
   da_giao: 'Đã giao',
   tu_choi: 'Từ chối',
   da_huy: 'Đã huỷ',
@@ -128,7 +125,9 @@ const BI_DANH_GIAI_DOAN_CU = {
   'Nháp': 'nhap',
   'Chờ duyệt': 'cho_duyet',
   'Đã duyệt': 'da_duyet',
-  'Chờ báo giá': 'cho_khach_dong_y',
+  // Giai đoạn đã bỏ — link cũ rơi về "Đã duyệt", cùng bí danh ở máy chủ.
+  'Chờ báo giá': 'da_duyet',
+  cho_khach_dong_y: 'da_duyet',
   'Đã giao': 'da_giao',
   'Từ chối': 'tu_choi',
   'Đã huỷ': 'da_huy',
@@ -151,7 +150,6 @@ export function giaiDoanBadge(khoa) {
     nhap: 'b-gray',
     cho_duyet: 'b-blue',
     da_duyet: 'b-blue',
-    cho_khach_dong_y: 'b-orange',
     da_giao: 'b-green',
     tu_choi: 'b-red',
     da_huy: 'b-red',

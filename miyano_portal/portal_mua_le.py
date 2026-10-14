@@ -1,18 +1,13 @@
-"""E6 phần B — quy tắc nghiệp vụ thuần cho mua lẻ (QT10) và báo giá hết hạn
-(US-E6.5). Xem
-docs/Miyano-Portal(Client)_V2/DevHandoff/15_PRD_E6_MuaLe_YeuCauHang.md và
-BA §4.10 (BR-R1…R7, NL-10.x).
+"""E6 phần B — quy tắc nghiệp vụ thuần cho hàng chưa có giá / chưa có mã
+(QT10). Xem docs/Miyano-Portal(Client)_V2/DevHandoff/15_PRD_E6_MuaLe_YeuCauHang.md
+và BA §4.10 (BR-R1…R7, NL-10.x).
 
-Tách khỏi `api/portal.py` cùng lý do với `portal_dat_hang.py`/`portal_sla.py`:
-nhóm hàm dưới đây là nghiệp vụ thuần, không cần phiên đăng nhập, và
-`api/portal.py::portal_order_place` cùng job daily (`portal_bao_gia.py`) đều
-cần đọc CHUNG một phép tính — tách riêng để hai nơi không lệch nhau.
+Vòng báo giá trên Sales Order đã bỏ (patch v1_44): báo giá đi trên Quotation
+(`bao_gia.py`). Các hook khớp mã dòng gõ tay ở đây chạy trên Quotation.
 """
 
 import frappe
-from frappe.utils import add_days, flt, getdate
-
-TRANG_THAI_CHO_KHACH = "Chờ khách đồng ý"
+from frappe.utils import flt
 
 # Spec 2026-08-15 §3.4 — mã kỹ thuật giữ chỗ cho đơn TOÀN hàng chưa có mã.
 # Dựng bởi `patches/v1_15/create_item_giu_cho_dat_ngoai.py`.
@@ -45,7 +40,7 @@ LOAI_DON_BAO_GIA = "Mua lẻ"
 
 
 def hieu_luc_bao_gia_ngay() -> int:
-    """BR-R5 — mặc định 7 ngày.
+    """BR-R5 — hiệu lực báo giá (Quotation `valid_till`), mặc định 7 ngày.
 
     `frappe.db.get_single_value` đọc thẳng `tabSingles`, KHÔNG rơi về
     `default` khai trong DocType JSON khi Settings chưa từng được lưu (xem
@@ -56,44 +51,6 @@ def hieu_luc_bao_gia_ngay() -> int:
     return int(
         frappe.db.get_single_value("Miyano Portal Settings", "hieu_luc_bao_gia_ngay") or 7
     )
-
-
-def han_hieu_luc_bao_gia(so):
-    """Hạn hiệu lực báo giá = mốc GỬI KHÁCH DUYỆT + `hieu_luc_bao_gia_ngay`.
-    DÙNG CHUNG bởi `portal_order_accept` (chặn 417 `qua_han_hieu_luc`),
-    `portal_order_track` (banner `chap_nhan.han_hieu_luc`) và job daily
-    `portal_bao_gia.quet_bao_gia_het_han` — ba nơi tính ra một con số khác
-    nhau là đúng thứ làm khách thấy hạn một đằng, hệ thống chặn một nẻo.
-
-    `so` là Document HOẶC `_dict` bất kỳ hỗ trợ `.get()` (đủ cho cả doc đầy
-    đủ ở `portal_order_accept`/`portal_order_track` lẫn hàng kết quả
-    `frappe.get_all` ở `quet_bao_gia_het_han`).
-
-    review I-2(a), round 2 — MỐC đổi từ `transaction_date` (ngày lập nháp)
-    sang `custom_ngay_gui_khach_duyet` (ngày báo giá thực sự ĐẾN TAY khách,
-    ghi tự động bởi `ghi_ngay_gui_khach_duyet` mỗi khi workflow chuyển VÀO
-    "Chờ khách đồng ý"). Quyết định của người phụ trách nghiệp vụ (không
-    phải tự suy diễn): "ngày lập báo giá" trong PRD/BA đọc đúng là ngày báo
-    giá được PHÁT HÀNH cho khách — sales chốt giá mất 10 ngày rồi mới gửi
-    thì hiệu lực phải đếm từ NGÀY GỬI. Đọc theo `transaction_date` khiến
-    khách mở báo giá ra đã thấy "hết hiệu lực" và job daily đóng đơn ngay
-    đêm đó — một báo giá không cho khách ngày nào để đồng ý thì không còn
-    là báo giá, đúng hệ quả review round 1 (I-2) đã dựng.
-
-    Rơi về `transaction_date` khi `custom_ngay_gui_khach_duyet` rỗng — CHỈ
-    xảy ra với đơn đã ở "Chờ khách đồng ý" TỪ TRƯỚC khi field này tồn tại
-    (patch mới không backfill được cho quá khứ, và các fixture test dựng
-    trực tiếp bằng `frappe.db.set_value` bỏ qua hook cũng rơi vào nhánh
-    này). Không rơi về `nowdate()`/`None`: đơn cũ sẽ thành "hạn vô tận" hay
-    "hết hạn ngay lập tức", cả hai đều sai hơn dùng `transaction_date`.
-    """
-    diem_moc = so.get("custom_ngay_gui_khach_duyet") or so.get("transaction_date")
-    return getdate(add_days(getdate(diem_moc), hieu_luc_bao_gia_ngay()))
-
-
-def qua_han_hieu_luc(so, hom_nay=None) -> bool:
-    hom_nay = getdate(hom_nay) if hom_nay else getdate(frappe.utils.nowdate())
-    return hom_nay > han_hieu_luc_bao_gia(so)
 
 
 def di_vong_bao_gia(so) -> bool:
@@ -138,36 +95,6 @@ def di_vong_bao_gia(so) -> bool:
     (vài endpoint chỉ `db.get_value` vài cột).
     """
     return so.get("custom_loai_don") == LOAI_DON_BAO_GIA
-
-
-def ghi_ngay_gui_khach_duyet(doc, method=None) -> None:
-    """US-E6.5/BR-R5 (review I-2(a), round 2) — ghi `custom_ngay_gui_khach_
-    duyet` tại HOOK `validate` của Sales Order (đăng ký ở
-    `hooks.py::doc_events["Sales Order"]["validate"]`), KHÔNG ở một endpoint
-    cổng: đường đi CHÍNH của US-E6.5 là sales bấm nút workflow "Gửi khách
-    duyệt" TỪ DESK ("sales lập SO nháp từ yêu cầu... đặt trạng thái Chờ
-    khách đồng ý") — không có endpoint cổng nào cho hành động đó để gắn
-    logic vào; chỉ `validate` mới chắc chắn chạy dù đơn được chuyển trạng
-    thái từ đâu (`apply_workflow` cuối cùng cũng gọi `doc.save()`).
-
-    Ghi lại MỖI LẦN đơn CHUYỂN VÀO "Chờ khách đồng ý", không chỉ lần đầu:
-    khách "Không đồng ý" đưa đơn về "Chờ xác nhận", sales sửa giá rồi gửi
-    lại — hiệu lực phải đếm từ lần GỬI LẠI, không phải lần gửi đầu tiên đã
-    bị khách từ chối.
-    """
-    if doc.get("workflow_state") != TRANG_THAI_CHO_KHACH:
-        return
-    if doc.is_new():
-        # Hiếm gặp (tạo mới đã thẳng ở state này) nhưng vẫn xử lý nhất quán.
-        if not doc.get("custom_ngay_gui_khach_duyet"):
-            doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
-        return
-    truoc = doc.get_doc_before_save()
-    if not truoc or truoc.get("workflow_state") != TRANG_THAI_CHO_KHACH:
-        # Vừa CHUYỂN VÀO state này (từ state khác, hoặc chưa từng ở đó) —
-        # ghi lại NGÀY MỚI, ghi đè giá trị cũ nếu có (xem docstring: gửi
-        # lại sau khi bị từ chối phải reset đồng hồ).
-        doc.custom_ngay_gui_khach_duyet = frappe.utils.today()
 
 
 def ben_mua(doc) -> str | None:
@@ -328,7 +255,7 @@ def chuyen_dong_dat_ngoai_thanh_hang(doc, method=None) -> None:
         if not con_nhap:
             # Bẫy 5 — CHUYỂN là hành động MỚI, không được xảy ra lặng lẽ
             # ngay trong lần bấm Xác nhận. Dòng này ở lại "chưa xử lý" và
-            # `kiem_dat_ngoai_da_xu_ly` giữ đơn lại với câu của nó.
+            # `bao_gia.chot_gui_khach` giữ đơn lại với câu của nó.
             continue
         if flt(dong.get("so_luong")) <= 0:
             # `dong_bo_da_xu_ly_dat_ngoai` ném lỗi cho đúng dòng này ngay ở
@@ -634,7 +561,7 @@ def _dam_bao_con_dong_hang(doc, con_nhap: bool = True) -> None:
         # chứ không hề thêm dòng giữ chỗ nào.
         #
         # Để `items` rỗng và NHƯỜNG LỜI cho hai chốt `before_submit` vốn nói
-        # đúng nguyên nhân hơn hẳn: `kiem_dat_ngoai_da_xu_ly` ("còn dòng
+        # đúng nguyên nhân hơn hẳn: `bao_gia.chot_gui_khach` ("còn dòng
         # chưa xử lý") và `kiem_dong_chuyen_con_tren_don` ("dòng hàng tương
         # ứng đã bị xoá hoặc đổi mã"). Chỉ tự lên tiếng khi cả hai chốt đó
         # đều không có gì để nói — nếu không thì đơn rỗng sẽ chạm tới
@@ -735,7 +662,7 @@ def chuan_hoa_dau_nguon_gia(doc, hang, gia) -> None:
 
     `gia` — giá bảng HÔM NAY của mã này cho khách của đơn (theo đơn vị gốc;
     `None` = mã không có giá bảng). Người gọi tra, vì nơi gọi theo lô
-    (`chot_bao_gia.chuan_hoa_dau_truoc_khi_gui_khach`) tra một lần cho cả đơn.
+    (bước gửi khách) tra một lần cho cả đơn.
 
     NƠI DUY NHẤT của luật — hai người gọi: vòng gộp khi khớp mã
     (`_gop_hoac_them_dong_hang`) và lúc đơn VÀO "Chờ khách đồng ý". Chỉ ở
@@ -929,8 +856,8 @@ def dong_bo_da_xu_ly_dat_ngoai(doc, method=None) -> None:
     `custom_dat_ngoai` (Sales Order Dat Ngoai Item) theo `item_khop`, và
     kiểm `so_luong > 0`.
 
-    Ở HOOK `validate` của Sales Order (đăng ký ở
-    `hooks.py::doc_events["Sales Order"]["validate"]`), KHÔNG ở
+    Ở HOOK `validate` của Quotation (đăng ký ở
+    `hooks.py::doc_events["Quotation"]["validate"]`), KHÔNG ở
     `validate()` của chính doctype con: Frappe KHÔNG gọi `validate()` của
     controller bảng con khi document CHA lưu — chỉ các kiểm tra tầng khung
     (mandatory/link/options) tự chạy cho bảng con. Một `validate()` đặt ở
@@ -944,7 +871,7 @@ def dong_bo_da_xu_ly_dat_ngoai(doc, method=None) -> None:
 
     **QĐ-G16 (Task 13, 21/08/2026) — ĐỔI NGUỒN SUY, đổi luôn NGHĨA.** Trước
     task này `da_xu_ly` suy từ `item_khop`, tức nghĩa "đã gắn một cái mã".
-    Nhưng chốt `kiem_dat_ngoai_da_xu_ly` (`before_submit`) đọc nó như "đã
+    Nhưng chốt `bao_gia.chot_gui_khach` (`before_submit`) đọc nó như "đã
     lo xong" — nên nó ĐANG NÓI DỐI: đơn qua được chốt xác nhận trong khi
     mặt hàng khách gõ tay không có dòng nào trong `items`, không giá, không
     vào tổng tiền, không lên hoá đơn. Từ đây nó suy từ `da_chuyen` — cờ chỉ
@@ -961,57 +888,16 @@ def dong_bo_da_xu_ly_dat_ngoai(doc, method=None) -> None:
             )
 
 
-def kiem_dat_ngoai_da_xu_ly(doc, method=None) -> None:
-    """Thiết kế lại mua lẻ §4.4 — CHỐT MỚI: không xác nhận đơn khi còn dòng
-    "đặt ngoài" chưa xử lý (chưa có `item_khop`).
+def kiem_dong_chuyen_con_tren_don(doc) -> list[str]:
+    """Critical-3 (review Task 13, 22/08) — `da_xu_ly = 1` phải có một dòng
+    hàng THẬT đứng sau nó. `dong_bo_da_xu_ly_dat_ngoai` suy `da_xu_ly` từ
+    `da_chuyen`, mà `da_chuyen` bật đúng lúc dòng hàng ra đời: nhân viên xoá
+    (hoặc đổi mã) dòng `items` do phép chuyển sinh ra thì cờ vẫn bật, và mặt
+    hàng khách yêu cầu không có dòng nào, không giá.
 
-    Ở `before_submit`, ÁP CHO MỌI Sales Order (không riêng đơn Mua lẻ) —
-    bảng con `custom_dat_ngoai` rỗng với đơn không dùng nhóm này nên vòng
-    lặp dưới đây là no-op, chi phí không đáng kể.
-
-    VÌ SAO CẦN: thiếu chốt này, một đơn có thể được duyệt và giao trong khi
-    hai dòng khách yêu cầu chưa ai đụng tới — khách trả tiền cho thứ họ
-    không nhận được, và không có tín hiệu nào báo (thiết kế §4.4).
-
-    Field `custom_dat_ngoai` KHÔNG `allow_on_submit` (xem patch
-    `create_dat_ngoai_custom_field`), nên không có đường nào thêm được một
-    dòng chưa xử lý SAU khi đơn đã qua chốt này — chốt chỉ cần đứng đúng
-    MỘT lần, ở đây.
-    """
-    chua_xu_ly = [d for d in doc.get("custom_dat_ngoai") or [] if not d.get("da_xu_ly")]
-    if not chua_xu_ly:
-        return
-    ten = ", ".join(d.get("ten_hang") or "?" for d in chua_xu_ly)
-    frappe.throw(
-        f"Còn {len(chua_xu_ly)} dòng đặt ngoài chưa xử lý ({ten}). "
-        "Khớp mã hàng (hoặc tạo mã mới) cho từng dòng trước khi xác nhận đơn.",
-        frappe.ValidationError,
-    )
-
-
-def kiem_dong_chuyen_con_tren_don(doc, method=None) -> None:
-    """Critical-3 (review Task 13, 22/08) — CHỐT MỚI: `da_xu_ly = 1` phải có
-    một dòng hàng THẬT đứng sau nó NGAY TẠI LÚC xác nhận đơn.
-
-    `dong_bo_da_xu_ly_dat_ngoai` suy `da_xu_ly` từ `da_chuyen`, và `da_chuyen`
-    được bật đúng lúc dòng hàng ra đời — nhưng KHÔNG có gì canh khoảng thời
-    gian giữa lúc đó và lúc submit. Nhân viên Desk xoá dòng `items` do phép
-    chuyển sinh ra (một thao tác lưới bình thường, không cảnh báo gì) thì
-    `da_chuyen`/`da_xu_ly` vẫn bằng 1, `dong_hang` trỏ tới một dòng không còn
-    tồn tại, và đơn XÁC NHẬN ĐƯỢC với mặt hàng khoa yêu cầu KHÔNG có dòng
-    nào, không giá, không lên hoá đơn — đo được trên bench. Cùng LỚP lỗi
-    QĐ-G16 dẹp, tới bằng cửa XOÁ thay vì cửa khớp mã.
-
-    Đối chiếu bằng TÊN dòng (`dong_hang`) VÀ `item_code`: đổi mã ngay trên
-    dòng hàng đã tạo cũng làm bằng chứng nói dối y hệt, chỉ khó thấy hơn.
-
-    Bỏ qua dòng chưa có `dong_hang` (đơn nháp mở từ trước bản vá này) —
-    `kiem_dat_ngoai_da_xu_ly` vẫn canh phần "đã xử lý hay chưa" cho chúng.
-
-    Đứng ở `before_submit` chứ không ở `validate`: giữa hai lần lưu, một đơn
-    nháp được phép ở trạng thái dở dang (sales xoá dòng hàng rồi dựng lại).
-    Thứ không được phép là đơn ĐI TIẾP trong trạng thái đó.
-    """
+    Đối chiếu bằng TÊN dòng (`dong_hang`) VÀ `item_code`. Bỏ qua dòng chưa có
+    `dong_hang` (chứng từ mở từ trước bản vá). Trả mô tả từng dòng hỏng; gọi
+    từ `bao_gia.chot_gui_khach` (bước gửi khách của Quotation)."""
     ten_dong = {h.name: h for h in (doc.get("items") or []) if h.name}
     hong = []
     for dong in doc.get("custom_dat_ngoai") or []:
@@ -1019,27 +905,15 @@ def kiem_dong_chuyen_con_tren_don(doc, method=None) -> None:
             continue
         hang = ten_dong.get(dong.get("dong_hang"))
         if not hang or hang.item_code != dong.get("item_khop"):
-            hong.append(dong)
-    if not hong:
-        return
-    ten = ", ".join(f"{d.get('ten_hang') or '?'} → {d.get('item_khop')}" for d in hong)
-    frappe.throw(
-        f"Còn {len(hong)} dòng đặt ngoài ghi \"đã xử lý\" nhưng dòng hàng tương "
-        f"ứng đã bị xoá hoặc đổi mã ({ten}). Xác nhận đơn lúc này nghĩa là mặt "
-        f"hàng khoa yêu cầu KHÔNG có dòng nào trên đơn, không giá, không lên "
-        f"hoá đơn. Thêm lại dòng hàng, hoặc xoá dòng gõ tay tương ứng khỏi đơn "
-        f"nháp rồi khớp mã lại.",
-        frappe.ValidationError,
-    )
+            hong.append(f"{dong.get('ten_hang') or '?'} → {dong.get('item_khop')}")
+    return hong
 
 
 def kiem_khong_con_dong_giu_cho(doc, method=None) -> None:
-    """Việc thêm (controller, ngoài Task 9) — CHỐT MỚI, cạnh
-    `kiem_dat_ngoai_da_xu_ly`: chốt đó chỉ nhìn `custom_dat_ngoai` (còn dòng
-    nào chưa khớp `item_khop` hay không), KHÔNG hề nhìn `items` — nên một
-    đơn có TẤT CẢ dòng đặt ngoài đã khớp mã (chốt kia hài lòng) vẫn có thể
-    submit trong khi dòng giữ chỗ `ITEM_GIU_CHO` còn nằm nguyên trong
-    `items`, vì không có gì bắt sales GỠ nó ra sau khi khớp mã xong.
+    """Hook `before_submit` của Sales Order: không xác nhận đơn còn dòng giữ
+    chỗ `ITEM_GIU_CHO` trong `items`. Đơn mới không còn mang dòng này (hàng
+    chưa có mã đi Quotation, patch v1_44); chốt ở lại cho đơn cũ toàn hàng
+    chưa có mã — dòng gõ tay của chúng đã chuyển thành Comment trên đơn.
 
     VÌ SAO CẦN: `ITEM_GIU_CHO` là chi tiết kỹ thuật nội bộ (đã lọc khỏi
     `portal_order_track` — xem `la_dong_giu_cho` — và khỏi mẫu in "Miyano -
@@ -1048,10 +922,8 @@ def kiem_khong_con_dong_giu_cho(doc, method=None) -> None:
     một đơn toàn hàng chưa có mã có thể được xác nhận và giao trong khi
     khách nhận PDF xác nhận có một dòng "HANG-DAT-NGOAI" vô nghĩa với họ.
 
-    Ở `before_submit`, CẠNH `kiem_dat_ngoai_da_xu_ly` (đăng ký cùng chỗ
-    trong `hooks.py::doc_events["Sales Order"]["before_submit"]`) — cùng lý
-    do: field `items`/`custom_dat_ngoai` không `allow_on_submit`, nên chốt
-    chỉ cần đứng đúng MỘT lần, ở đây.
+    Ở `before_submit`: field `items` không `allow_on_submit`, nên chốt chỉ
+    cần đứng đúng MỘT lần, ở đây.
     """
     if any(la_dong_giu_cho(i.item_code) for i in doc.get("items") or []):
         frappe.throw(
@@ -1154,51 +1026,3 @@ def resolve_ban_le_company(item_codes: list[str]):
     if mac_dinh in candidates:
         return mac_dinh
     return sorted(candidates)[0]
-
-
-def cap_nhat_yeu_cau_goc(so, trang_thai_moi: str) -> None:
-    """US-E6.5 — ghi vào hai cạnh máy trạng thái `Portal Item Request` mà
-    Phần A đã dựng sẵn nhưng chưa ai ghi ("Đã chuyển thành đơn"/"Hết hạn").
-
-    Phòng thủ, KHÔNG ném lỗi ra ngoài luồng chính (`portal_order_accept`
-    hoặc job daily): đây là bút toán SỔ SÁCH đi kèm hành động chính (khách
-    đồng ý / báo giá hết hạn), không được phép làm hành động chính thất bại
-    chỉ vì bản ghi yêu cầu gốc đang ở một trạng thái không khớp cạnh chuyển
-    hợp lệ (ví dụ ai đó trên Desk đã tự tay đổi trạng thái yêu cầu trước đó).
-    """
-    ten_yc = so.get("custom_yeu_cau_goc")
-    if not ten_yc:
-        return
-    if not frappe.db.exists("Portal Item Request", ten_yc):
-        # review M-4 — dữ liệu KHÔNG NHẤT QUÁN (Link trỏ tới bản ghi không
-        # còn tồn tại), không phải luồng bình thường. Vẫn không ném lỗi
-        # (không được chặn hành động chính), nhưng phải để lại dấu vết.
-        frappe.log_error(
-            title="cap_nhat_yeu_cau_goc: yêu cầu gốc không tồn tại",
-            message=f"SO {so.name}: custom_yeu_cau_goc={ten_yc} không tìm thấy Portal Item Request.",
-        )
-        return
-    yc = frappe.get_doc("Portal Item Request", ten_yc)
-    if yc.trang_thai == trang_thai_moi:
-        return
-    from miyano_portal.miyano_portal.doctype.portal_item_request.portal_item_request import (
-        CHUYEN_TRANG_THAI_HOP_LE,
-    )
-    if trang_thai_moi not in CHUYEN_TRANG_THAI_HOP_LE.get(yc.trang_thai, set()):
-        # review M-4 — bản trước nuốt im lặng. Đây thường là dấu hiệu ai đó
-        # trên Desk đã tự tay đổi trạng thái yêu cầu trước khi SO tới bước
-        # này — vẫn KHÔNG ném lỗi (không được chặn luồng chính: khách đồng
-        # ý / job đóng báo giá đã thành công ở SO), chỉ log để điều tra sau.
-        frappe.log_error(
-            title="cap_nhat_yeu_cau_goc: cạnh chuyển không hợp lệ",
-            message=(
-                f"SO {so.name}: không chuyển được yêu cầu gốc {ten_yc} từ "
-                f"'{yc.trang_thai}' sang '{trang_thai_moi}' — cạnh không có "
-                f"trong CHUYEN_TRANG_THAI_HOP_LE."
-            ),
-        )
-        return
-    yc.trang_thai = trang_thai_moi
-    if trang_thai_moi == "Đã chuyển thành đơn" and not yc.don_lien_ket:
-        yc.don_lien_ket = so.name
-    yc.save(ignore_permissions=True)

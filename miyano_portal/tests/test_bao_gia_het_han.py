@@ -7,7 +7,7 @@ from frappe.model import workflow as wf_goc
 from frappe.model.workflow import apply_workflow
 from frappe.utils import add_days, add_to_date, getdate, now_datetime, nowdate
 
-from miyano_portal import bao_gia, nhat_ky, portal_bao_gia, portal_sla
+from miyano_portal import bao_gia, nhat_ky, portal_sla
 from miyano_portal.tests.nen_bao_gia import NenBaoGia
 
 
@@ -52,9 +52,16 @@ class TestBaoGiaHetHan(NenBaoGia):
 		self.assertEqual(bao_gia.quet_het_han(), 0)
 
 	def test_job_hang_ngay_quet_ca_quotation(self):
+		"""Job hằng ngày nay gọi thẳng `bao_gia.quet_het_han` (patch v1_44 bỏ
+		job hết hạn báo giá của đơn)."""
+		hang_ngay = frappe.get_hooks("scheduler_events")["daily"]
+		self.assertIn("miyano_portal.bao_gia.quet_het_han", hang_ngay)
+		self.assertNotIn("miyano_portal.portal_bao_gia.quet_bao_gia_het_han", hang_ngay)
 		bg = self._cho_khach()
 		self._lui_han(bg, 2)
-		self.assertGreaterEqual(portal_bao_gia.quet_bao_gia_het_han(), 1)
+		self.assertGreaterEqual(frappe.get_attr(
+			"miyano_portal.bao_gia.quet_het_han"
+		)(), 1)
 		self.assertEqual(
 			frappe.db.get_value("Quotation", bg.name, "workflow_state"), bao_gia.TT_HET_HAN
 		)

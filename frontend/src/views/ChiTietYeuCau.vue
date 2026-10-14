@@ -32,7 +32,6 @@ import KhoiHangMoi from '../components/chi-tiet/KhoiHangMoi.vue'
 import KhoiTienTrinh from '../components/chi-tiet/KhoiTienTrinh.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
 import { thongBaoSauDuyet } from '../bao-gia'
-import KhoiBaoGia from '../components/chi-tiet/KhoiBaoGia.vue'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
 import BangMatHang from '../components/chi-tiet/BangMatHang.vue'
@@ -52,19 +51,13 @@ const don = ref(null)
 const nhatKy = ref([])
 const dangTaiNhatKy = ref(false)
 
-// Dòng "hàng chưa có trong hệ thống" CÒN CHỜ Miyano khớp mã.
-//
-// NGUỒN ĐỔI THEO CHỨNG TỪ ĐANG CÓ, và đây là điểm dễ sai nhất của việc gộp
-// bảng (chủ đầu tư 08/09/2026): cờ `da_xu_ly`/`item_khop` CHỈ SỐNG TRÊN ĐƠN
-// — thao tác khớp mã của Miyano chạy trên `Sales Order.custom_dat_ngoai` và
-// KHÔNG đụng tới dòng `dat_ngoai` của phiếu. Đọc từ phiếu khi đã có đơn thì
-// mọi dòng trông như chưa khớp vĩnh viễn, và khối này không bao giờ biến
-// mất — hỏng đúng yêu cầu "khớp xong chỉ còn một bảng".
-// Chưa có đơn (Nháp/Chờ duyệt) thì mọi dòng đều chưa khớp theo định nghĩa,
-// đọc từ phiếu là nguồn DUY NHẤT có.
+// Dòng "hàng chưa có trong hệ thống" CÒN CHỜ Miyano khớp mã — đọc từ PHIẾU.
+// Đơn không mang dòng gõ tay (patch v1_44): khớp mã chạy trên báo giá, và
+// `don.dat_ngoai` chỉ còn các dòng ĐÃ KHỚP của báo giá nguồn — nên khi đã
+// có đơn thì không còn dòng nào chờ khớp ở đây.
 const dongHangMoiChuaKhop = computed(() => {
-  const nguon = don.value ? don.value.dat_ngoai || [] : phieu.value?.dat_ngoai || []
-  return nguon.filter((d) => !d.da_xu_ly)
+  if (don.value) return []
+  return (phieu.value?.dat_ngoai || []).filter((d) => !d.da_xu_ly)
 })
 
 // Tên PHIẾU — `portal_dat_ngoai_xem_anh` kiểm sở hữu ảnh theo đề xuất, nên
@@ -162,14 +155,12 @@ async function napPhieu(ten) {
 
 // Review Task 7a (Critical 1) — giai đoạn ĐỌC THẲNG từ server, KHÔNG suy
 // lại ở client. Bản suy trước đây (đối chiếu tay với `_sql_giai_doan()`,
-// api/portal.py) là một TẬP CON THU HẸP của luật thật — thiếu ba nhánh:
+// api/portal.py) là một TẬP CON THU HẸP của luật thật — thiếu các nhánh:
 //   * `d.status_vi === 'Từ chối'` không bao giờ khớp: `_so_status_vi_full()`
 //     trả "Miyano đã từ chối", một chuỗi khác hẳn hằng trạng thái PHIẾU
 //     'Từ chối' — đơn Miyano đã từ chối rơi hết nhánh, ra badge "Đã duyệt";
-//   * thiếu `so.status == 'Closed'` (đơn đóng sớm giữa chừng);
-//   * thiếu `workflow_state == 'Báo giá hết hạn'` (`chap_nhan` chỉ được set
-//     khi đang "Chờ khách đồng ý", rỗng khi đã hết hạn).
-// Ba lỗi đó đúng loại "bản sao thứ hai trôi khỏi bản gốc" mà kế hoạch gộp
+//   * thiếu `so.status == 'Closed'` (đơn đóng sớm giữa chừng).
+// Các lỗi đó đúng loại "bản sao thứ hai trôi khỏi bản gốc" mà kế hoạch gộp
 // đã cảnh báo trước — sửa bằng cách xoá bản sao, không vá từng nhánh.
 // `de_xuat_chi_tiet`/`portal_order_track` nay trả sẵn `giai_doan`, tính
 // bằng CHÍNH `_sql_giai_doan()` mà danh sách dùng.
@@ -205,18 +196,10 @@ const tenKhoa = computed(() => {
 const lyDoTuChoi = computed(() => phieu.value?.ly_do_tu_choi || don.value?.ly_do_tu_choi || '')
 
 // Toolbar hành động — DỮ LIỆU, không rải v-if khắp template. Nối CẢ HAI
-// registry: đây là điểm được nhiều nhất của việc gộp (nhân viên khoa và
-// quản lý có hai đường sửa số lượng khác nhau, trước đây nằm ở hai màn).
-//
-// `dacBiet: 'sua_so_luong'` (đơn) BỊ LỌC khỏi thanh này — mục đó không phải
-// một nút bấm-là-gọi-API: `KhoiBaoGia.vue` tự dựng khối sửa số lượng của
-// riêng nó (đọc `suaDuocSoLuong` NGAY TRONG component, không qua registry)
-// và phát sự kiện `sua-so-luong` mang sẵn phần chênh lệch đã tính. Render nó
-// thêm một lần nữa ở đây qua `onClickAction` mặc định sẽ gọi thẳng API mà
-// không có payload `dong` — một nút thứ hai, cùng nhãn, luôn lỗi.
+// registry: phiếu và đơn, trước đây nằm ở hai màn.
 const hanhDong = computed(() => [
   ...hanhDongChoPhep(phieu.value, store.me),
-  ...hanhDongDonChoPhep(don.value, store.me).filter((a) => !a.dacBiet),
+  ...hanhDongDonChoPhep(don.value, store.me),
 ])
 
 const quanLyDangDuyet = computed(
@@ -361,23 +344,17 @@ const TOAST_THANH_CONG = {
   // trả (`thongBaoSauDuyet` ở `bao-gia.js`).
   de_xuat_tu_choi: 'Đã từ chối phiếu.',
   de_xuat_huy: 'Đã huỷ phiếu.',
-  de_xuat_duyet_sua: 'Đã đồng ý sửa số lượng — đơn hàng đã cập nhật.',
   de_xuat_tu_choi_sua: 'Đã từ chối yêu cầu xin sửa.',
   de_xuat_thu_hoi: 'Đã thu hồi đơn về Nháp — sửa xong nhớ Gửi duyệt lại.',
-  // Đơn — hai mục CHUNG method 'portal_order_accept' (Đồng ý / Không đồng
-  // ý), nên khoá theo `method + '|' + label` — cùng khoá dùng cho `:key`
-  // của v-for thanh hành động (mandatory #3).
-  'portal_order_accept|✔ Đồng ý đặt hàng': 'Đã đồng ý — đơn chuyển sang chờ Miyano xác nhận.',
-  'portal_order_accept|✕ Không đồng ý…': 'Đã gửi phản hồi không đồng ý — Miyano sẽ liên hệ lại.',
-  'portal_order_huy|🗑 Huỷ đơn…': 'Đã huỷ đơn hàng theo yêu cầu của bạn.',
+  // Đơn — khoá theo `method + '|' + label`, cùng khoá dùng cho `:key` của
+  // v-for thanh hành động (mandatory #3).
   'portal_request_cancel|Huỷ / Sửa đơn': 'Đã gửi yêu cầu huỷ/sửa đơn đến Miyano.',
 }
 
 async function chayHanhDong(action, extraArgs) {
   if (dangChay.value) return
   // Khoá theo `method + '|' + label` — cùng lý do mandatory #3 đã buộc
-  // `:key` của v-for phải làm vậy: hai mục "Đồng ý"/"Không đồng ý" dùng
-  // CHUNG method 'portal_order_accept', method suông không phân biệt được.
+  // `:key` của v-for phải làm vậy: hai mục có thể dùng CHUNG một method.
   dangChay.value = action.method + '|' + action.label
   try {
     // Chọn module theo `action.nhom` — đơn đi `api.call` kèm `order`, phiếu
@@ -426,23 +403,19 @@ async function chayHanhDong(action, extraArgs) {
 // Hành động có `args` → mở modal chung trước khi gọi, kiểm required qua
 // chính ReasonModal.
 //
-// Mandatory #2 — KHÔNG đọc cứng `args[0]`. Registry phiếu chỉ có một
-// textarea đơn (Từ chối/Không đồng ý sửa — khớp khuôn cũ). Registry đơn có
-// hình dạng khác: "Đồng ý đặt hàng" mang MỘT hằng số (`{key:'action',
-// const:'dong_y'}` — không phải ô nhập, không mở hộp thoại nào), "Không
-// đồng ý" mang HAI phần tử (một hằng số + một textarea bắt buộc). Gom mọi
-// phần tử có `const` vào đối số gửi thẳng; hết ô cần nhập thì gọi luôn; còn
-// đúng MỘT ô thì mở modal cho ô đó (dùng `minLen` của nó nếu có).
+// Mandatory #2 — KHÔNG đọc cứng `args[0]`. Một mục `args` có thể mang hằng
+// số (`{key, const}` — không phải ô nhập, không mở hộp thoại nào) cạnh ô
+// nhập. Gom mọi phần tử có `const` vào đối số gửi thẳng; hết ô cần nhập thì
+// gọi luôn; còn đúng MỘT ô thì mở modal cho ô đó (dùng `minLen` của nó nếu
+// có).
 const argModalAction = ref(null)
 const argModalArg = ref(null)
 const argModalConsts = ref({})
 // Việc 5 (review toàn nhánh 03/09/2026) — mục args được phép mang `desc`/
 // `placeholder` VIẾT TAY, và hai computed này là chỗ chúng tới được modal.
-// Câu sinh máy móc bên dưới GIỮ LẠI làm đường lui: nó vẫn đúng cho ba mục
-// args còn lại (đều đảo ngược được, hoặc chỉ ghi một yêu cầu chờ Miyano xử
-// lý), nên bắt cả bốn mục tự viết một câu là bốn chỗ để trôi lệch. Chỉ hành
-// động KHÔNG QUAY LẠI ĐƯỢC mới đáng một câu riêng — xem "🗑 Huỷ đơn…" trong
-// `don-actions.js`.
+// Câu sinh máy móc bên dưới GIỮ LẠI làm đường lui: nó đúng cho các mục args
+// đảo ngược được, hoặc chỉ ghi một yêu cầu chờ Miyano xử lý. Chỉ hành động
+// KHÔNG QUAY LẠI ĐƯỢC mới đáng một câu riêng.
 const argModalDesc = computed(() => {
   if (!argModalArg.value) return ''
   return argModalArg.value.desc || `${argModalArg.value.label} — bắt buộc.`
@@ -456,7 +429,6 @@ function onClickAction(action) {
   if (action.method === 'de_xuat_gui_duyet') return nhanGuiDuyet(action)
   // C1 — "Duyệt" đi qua nhanDuyet() để gom `dieu_chinh` từ các ô đang nhập.
   if (action.method === 'de_xuat_duyet_phieu') return nhanDuyet(action)
-  if (action.method === 'de_xuat_xin_sua') return moXinSua()
   // Thu hồi ĐỔI TRẠNG THÁI phiếu và rút nó khỏi hàng chờ của quản lý — nói
   // trước hệ quả, vì "Sửa" trên các màn khác của cổng không làm điều đó.
   if (action.method === 'de_xuat_thu_hoi') {
@@ -521,60 +493,6 @@ async function xacNhanLyDoRoiGui(lyDo) {
   }
 }
 
-// Ruling coordinator (2) — "Xin sửa số lượng" không khớp khuôn args (đầu
-// vào là NHIỀU dòng số lượng), nên xử lý RIÊNG. Chỉ đề nghị sửa những dòng
-// ĐANG NẰM trên đơn — dòng quản lý đã hạ về 0 không còn trên Sales Order.
-const xinSuaOpen = ref(false)
-const xinSuaSoLuong = ref({})
-const xinSuaDangGui = ref(false)
-// Ruling P51 — "đang nằm trên đơn" phải đọc `so_luong_tren_don`, không
-// `so_luong_duyet`.
-const dongXinSua = computed(() =>
-  (phieu.value?.items || []).filter((it) => Number(soDangCo(it)) > 0)
-)
-function soDangCo(it) {
-  return it.so_luong_tren_don ?? it.so_luong_duyet
-}
-function lechVoiDon(it) {
-  return it.so_luong_tren_don != null && Number(it.so_luong_tren_don) !== Number(it.so_luong_duyet)
-}
-function moXinSua() {
-  xinSuaSoLuong.value = Object.fromEntries(dongXinSua.value.map((it) => [it.item_code, String(soDangCo(it))]))
-  xinSuaOpen.value = true
-}
-function laXinBoMatHang(it) {
-  const raw = xinSuaSoLuong.value[it.item_code]
-  return raw !== '' && raw !== undefined && raw !== null && Number(raw) === 0
-}
-async function guiXinSua() {
-  if (xinSuaDangGui.value) return
-  const doiItems = []
-  for (const it of dongXinSua.value) {
-    const raw = xinSuaSoLuong.value[it.item_code]
-    if (raw === '' || raw === undefined || raw === null) continue
-    const so = Number(raw)
-    if (!Number.isFinite(so) || so < 0) continue
-    if (so !== Number(soDangCo(it))) {
-      doiItems.push({ item_code: it.item_code, qty: so })
-    }
-  }
-  if (!doiItems.length) {
-    showToast('Chưa sửa số lượng dòng nào.', 'error')
-    return
-  }
-  xinSuaDangGui.value = true
-  try {
-    await api.callDeXuat('de_xuat_xin_sua', { ten: phieu.value.name, dong: JSON.stringify({ items: doiItems }) })
-    xinSuaOpen.value = false
-    showToast('Đã gửi yêu cầu xin sửa số lượng — chờ quản lý duyệt.')
-    await load()
-  } catch (e) {
-    showToast(e.message || 'Không gửi được yêu cầu xin sửa số lượng.', 'error')
-  } finally {
-    xinSuaDangGui.value = false
-  }
-}
-
 // --- Nửa ĐƠN (chép từ OrderDetail.vue, đổi `data.` → `don.`) -----------
 
 // Mã lý do `portal_reorder` trả cho dòng KHÔNG đặt lại được → thông điệp cho
@@ -629,47 +547,6 @@ async function datLai() {
     showToast(e.message || 'Không đặt lại được đơn này.', 'error')
   } finally {
     dangDatLai.value = false
-  }
-}
-
-// Việc 1/brief 2026-08-15 + controller ruling 2026-08-16 — sửa số lượng
-// trước khi gửi lại báo giá. `KhoiBaoGia.vue` tự validate + tính chênh lệch
-// rồi phát `sua-so-luong` mang sẵn payload; CHA vẫn phải giữ modal xác nhận
-// (`guiLaiOpen`): hành động này đẩy đơn về "Chờ xác nhận" và báo giá đang có
-// của các dòng ĐÃ BÁO GIÁ bị đổi số lượng hết hiệu lực — khách mất nó nếu bấm
-// nhầm. Dòng có giá trong bảng giá thì giữ giá (đọc lại từ bảng giá, spec
-// 2026-10-09 §4.4). `KhoiBaoGia` bày sẵn các dòng để SỬA số, không phải để
-// XÁC NHẬN gửi đi — hai việc khác nhau. Modal chỉ đóng ở nhánh THÀNH CÔNG
-// (đúng hợp đồng `KhoiBaoGia.vue` đã ghi: "modal xác nhận... KHÔNG đóng khi
-// API lỗi, để khách bấm lại").
-const dangSuaSoLuong = ref(false)
-const guiLaiOpen = ref(false)
-const dongGuiLai = ref({ items: [], dat_ngoai: [] })
-function nhanSuaSoLuong(dong) {
-  dongGuiLai.value = dong
-  guiLaiOpen.value = true
-}
-async function guiLaiBaoGia() {
-  if (dangSuaSoLuong.value) return
-  const { items: doiItems, dat_ngoai: doiDatNgoai } = dongGuiLai.value
-  if (!doiItems.length && !doiDatNgoai.length) {
-    guiLaiOpen.value = false
-    showToast('Chưa sửa số lượng dòng nào.', 'error')
-    return
-  }
-  dangSuaSoLuong.value = true
-  try {
-    await api.call('portal_order_sua_so_luong', {
-      order: don.value.order,
-      dong: JSON.stringify({ items: doiItems, dat_ngoai: doiDatNgoai }),
-    })
-    guiLaiOpen.value = false
-    showToast('Đã gửi số lượng mới — đơn chuyển sang chờ Miyano báo giá lại.')
-    await load()
-  } catch (e) {
-    showToast(e.message || 'Không gửi được thay đổi số lượng. Vui lòng thử lại.', 'error')
-  } finally {
-    dangSuaSoLuong.value = false
   }
 }
 
@@ -760,15 +637,6 @@ onMounted(async () => {
           Lý do từ chối: {{ lyDoTuChoi }}
         </p>
       </div>
-
-      <!-- Review Task 7a (Important 3) — banner báo giá GATE RIÊNG theo
-           `don?.chap_nhan?.can_dong_y`, KHÔNG lồng trong khối "Việc đang
-           chờ bạn". Khối đó (và cả `hanhDong`) rỗng khi `store.me` chưa
-           nạp được (`hanhDongChoPhep`/`hanhDongDonChoPhep` tự chặn `!me`) —
-           lồng chung nghĩa là một lỗi `portal_me` cuốn theo cả hạn báo giá,
-           link PDF và khối sửa số lượng, không chỉ mất thanh nút như
-           `onMounted` tự nhận. -->
-      <KhoiBaoGia v-if="don?.chap_nhan?.can_dong_y" :don="don" :dang-gui="dangSuaSoLuong" @sua-so-luong="nhanSuaSoLuong" />
 
       <!-- 2. Việc đang chờ bạn — banner + TOÀN BỘ nút, một chỗ duy nhất. -->
       <div v-if="hanhDong.length || coTheSuaNhap" class="card mb10" style="margin-bottom: 14px">
@@ -913,59 +781,6 @@ onMounted(async () => {
       @close="argModalAction = null"
       @submit="onSubmitArgModal"
     />
-
-    <!-- controller ruling 2026-08-16 — "Gửi lại để báo giá" đẩy đơn về "Chờ
-         xác nhận" và làm báo giá của các dòng đã báo giá bị đổi số lượng hết
-         hiệu lực; cần một bước xác nhận vì khách MẤT báo giá đó nếu bấm
-         nhầm. `min-len="0"` — không bắt nhập lý do, chỉ cần xác nhận trong
-         đúng khuôn modal của app. -->
-    <ReasonModal
-      :open="guiLaiOpen"
-      title="Gửi lại để báo giá"
-      desc="Đơn sẽ chuyển về 'Chờ xác nhận'. Mặt hàng có giá trong bảng giá vẫn giữ giá bảng giá; mặt hàng Miyano đã báo giá mà bạn đổi số lượng sẽ được báo giá lại — báo giá hiện tại của các mặt hàng đó KHÔNG còn hiệu lực. Bấm Xác nhận để tiếp tục."
-      :min-len="0"
-      :submitting="dangSuaSoLuong"
-      submit-label="Xác nhận gửi lại"
-      @close="guiLaiOpen = false"
-      @submit="guiLaiBaoGia"
-    />
-
-    <!-- Ruling coordinator (2) — "Xin sửa số lượng": khoa nhập số mong muốn
-         cho từng dòng đang có trên đơn, chỉ những dòng ĐỔI thật mới gửi. -->
-    <div v-if="xinSuaOpen" :class="isMobile ? 'sheet' : 'modal'" @click.self="xinSuaOpen = false">
-      <div class="card" style="width: 520px; max-width: 92vw">
-        <h3>Xin sửa số lượng</h3>
-        <p class="tag" style="margin: 8px 0 12px">
-          Nhập số lượng mong muốn cho từng dòng — chỉ dòng có đổi số mới được gửi. Quản lý sẽ duyệt lại yêu cầu này.
-        </p>
-        <div v-for="it in dongXinSua" :key="it.item_code" class="rowline">
-          <span>
-            <b>{{ it.item_code }}</b>
-            <template v-if="it.item_name"> — {{ it.item_name }}</template>
-            <br /><span class="tag">Quản lý duyệt: {{ it.so_luong_duyet }} {{ it.dvt }}</span>
-            <span v-if="lechVoiDon(it)" class="tag">
-              · Đang có trên đơn: <b>{{ it.so_luong_tren_don }}</b> {{ it.dvt }}
-            </span>
-            <br v-if="laXinBoMatHang(it)" />
-            <span v-if="laXinBoMatHang(it)" class="tag" style="color: var(--red)">
-              Sẽ đề nghị bỏ mặt hàng này khỏi đơn
-            </span>
-          </span>
-          <input
-            type="number" min="0" step="any"
-            v-model="xinSuaSoLuong[it.item_code]"
-            style="width: 90px; text-align: right"
-          />
-        </div>
-        <p v-if="!dongXinSua.length" class="tag">Không có dòng nào đang trên đơn để xin sửa.</p>
-        <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
-          <button class="btn-o" :disabled="xinSuaDangGui" @click="xinSuaOpen = false">Quay lại</button>
-          <button class="btn" :disabled="xinSuaDangGui" @click="guiXinSua">
-            {{ xinSuaDangGui ? 'Đang gửi…' : 'Gửi yêu cầu' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 

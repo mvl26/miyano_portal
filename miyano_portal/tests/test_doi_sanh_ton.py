@@ -195,7 +195,7 @@ class TestDeXuat(FrappeTestCase):
 
 
 class TestLyDoKhongTra(FrappeTestCase):
-	"""Bốn ca của spec §5.5 (ca đặt ngoài nằm ở `bang_cho_don`)."""
+	"""Bốn ca của spec §5.5."""
 
 	TON = frappe._dict(is_stock_item=1, has_batch_no=0)
 
@@ -376,23 +376,6 @@ class TestBangChoDon(_CoSo):
 		self.assertEqual(d["ly_do"], dst.LY_DO_KHONG_TON)
 		for cot in ("ton_hien_tai", "ton_kha_dung", "sl_thieu", "can_mua", "de_xuat"):
 			self.assertIsNone(d[cot], cot)
-
-	def test_dong_dat_ngoai_chua_khop_ma_hien_gach_ngang(self):
-		item = self._item()
-		self._nap(item, 10)
-		so = self._don([(item, 1)], submit=False)
-		so.append("custom_dat_ngoai", {
-			"ten_hang": "Kim sinh thiết ngoài danh mục", "so_luong": 3, "dvt": "Cái",
-		})
-		bang = dst.bang_cho_don(so)
-		dn = bang["dong"][-1]
-		self.assertEqual(dn["ly_do"], dst.LY_DO_DAT_NGOAI)
-		self.assertEqual(dn["item_name"], "Kim sinh thiết ngoài danh mục")
-		self.assertEqual(dn["sl_yeu_cau"], 3)
-		self.assertIsNone(dn["ton_hien_tai"])
-		self.assertIsNone(dn["so_detail"])
-		# Dòng không tra được không vào số tổng kết.
-		self.assertEqual(bang["tong"], {"so_dong": 1, "so_thieu": 0})
 
 	def test_tong_ket_dem_dung_dong_thieu(self):
 		a, b = self._item(), self._item()

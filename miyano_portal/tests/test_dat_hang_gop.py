@@ -10,7 +10,7 @@ HÀNH (spec 2026-10-09, giá theo Price List, §3.2 / §4.2):
 |-----------------------------------|-----------------------------------------|
 | Có mã, có giá trong Price List    | `rate` = giá đó, dấu `custom_nguon_gia = "Bảng giá"` |
 | Có mã, chưa có giá                | `rate = 0`, dấu "Báo giá", chờ Miyano báo giá |
-| Chưa có mã                        | vào `custom_dat_ngoai`, KHÔNG BAO GIỜ vào `items` |
+| Chưa có mã                        | `so.flags.dong_dat_ngoai`, KHÔNG BAO GIỜ vào `items`; `tao_sales_order` từ chối, giỏ đó đi Quotation |
 
 Hợp đồng khung không còn được hỏi lúc dựng đơn — không giá hợp đồng, không
 `blanket_order`, không hạn mức, không `custom_hdnt`. Nguồn giá của đơn, của
@@ -49,6 +49,7 @@ from miyano_portal import dat_hang, de_xuat_duyet
 from miyano_portal.miyano_portal.doctype.portal_de_xuat_mua.portal_de_xuat_mua import (
 	TRANG_THAI_NHAP,
 )
+from miyano_portal.portal_dat_hang import ngay_giao_mac_dinh
 from miyano_portal.portal_mua_le import ITEM_GIU_CHO
 from miyano_portal.tests.fixtures_de_xuat import dung_fixture
 
@@ -210,21 +211,16 @@ class TestDatHangGop(FrappeTestCase):
 	# Đảo theo spec 2026-10-09 (giá theo Price List).
 	def test_gio_tron_ba_loai_dong_ra_dung_mot_don(self):
 		"""Một giỏ có cả ba loại dòng (có giá, chưa có giá, chưa có mã) đưa
-		THẲNG vào `tao_sales_order` phải ra ĐÚNG MỘT Sales Order, mỗi dòng
-		xử lý theo loại của RIÊNG NÓ. (Việc tách giỏ trộn thành hai phiếu
-		nằm ở tầng trên, §4.1; hàm dựng đơn vẫn phải dựng đúng một đơn trộn
-		— ca giá xuất hiện giữa lúc gửi và lúc duyệt, §4.3.)"""
-		kq = dat_hang.tao_sales_order(
-			self.kh_a,
-			items=[
-				{"item_code": self.item_hd, "qty": 2},
-				{"item_code": self.item_ngoai, "qty": 3},
-			],
-			dat_ngoai=[{"ten_hang": "Găng tay cỡ 7.5", "dvt": "Đôi", "so_luong": 20}],
-			request_id=_rid(),
+		vào hàm dựng `_xay_don` phải ra ĐÚNG MỘT đơn chưa lưu, mỗi dòng xử lý
+		theo loại của RIÊNG NÓ. Dòng chưa có mã không vào `items` mà nằm ở
+		`so.flags.dong_dat_ngoai` — `bao_gia.tao_bao_gia` chép nó sang
+		Quotation."""
+		so = dat_hang._xay_don(
+			self.kh_a, {self.item_hd: 2, self.item_ngoai: 3},
+			[{"ten_hang": "Găng tay cỡ 7.5", "dvt": "Đôi", "so_luong": 20}],
+			ngay_giao_mac_dinh(), None, None, None, _rid(),
 		)
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		self.assertFalse(kq["da_ton_tai"])
+		self.assertTrue(so.is_new())
 
 		theo_ma = {d.item_code: d for d in so.items}
 		self.assertEqual(
@@ -247,33 +243,30 @@ class TestDatHangGop(FrappeTestCase):
 		self.assertFalse(ngoai.blanket_order)
 		self.assertFalse(ngoai.against_blanket_order)
 
-		# Chưa có mã — nằm trên CHÍNH đơn này, không sinh chứng từ thứ hai.
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
-		self.assertEqual(so.custom_dat_ngoai[0].ten_hang, "Găng tay cỡ 7.5")
+		# Chưa có mã — chỉ đi theo đơn chưa lưu, không thành bảng con của đơn.
+		self.assertEqual(
+			[d.get("ten_hang") for d in so.flags.dong_dat_ngoai], ["Găng tay cỡ 7.5"]
+		)
 
 		self.assertEqual(so.company, COMPANY)
 		self.assertFalse(so.custom_hdnt)
-		# Còn dòng chưa có giá → phải đi qua vòng báo giá của Miyano.
 		self.assertEqual(so.custom_loai_don, "Mua lẻ")
 
-	def test_dat_ngoai_di_kem_dong_hop_dong_khong_con_bi_tu_choi(self):
-		"""Chốt `dat_hang.py:651` cũ ("Dòng đặt ngoài chỉ áp dụng cho chế
-		độ Mua lẻ") là MỘT trong hai vách ngăn task này xoá. VẾ DƯƠNG: giỏ
-		chỉ gồm dòng hợp đồng + dòng đặt ngoài (không có dòng tầng 2 nào)
-		vẫn phải đặt được."""
-		kq = dat_hang.tao_sales_order(
-			self.kh_a,
-			items=[{"item_code": self.item_hd, "qty": 1}],
-			dat_ngoai=[{"ten_hang": "Dây truyền dịch", "dvt": "Cái", "so_luong": 5}],
-			request_id=_rid(),
-		)
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
-		self.assertEqual([d.item_code for d in so.items], [self.item_hd])
-		self.assertEqual(float(so.items[0].rate), 100.0)
-		# Đảo theo spec 2026-10-09 (giá theo Price List). Dòng không còn gắn
-		# hợp đồng khung (§4.2).
-		self.assertFalse(so.items[0].blanket_order)
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
+	def test_dong_go_tay_khong_dat_thang_thanh_don(self):
+		"""Sales Order không còn bảng dòng gõ tay (patch v1_44): hàng chưa có
+		mã phải đi yêu cầu báo giá. Người gọi bỏ qua bước chia giỏ
+		(`bao_gia.can_bao_gia`) mà truyền dòng gõ tay vào `tao_sales_order`
+		thì bị từ chối TRƯỚC khi ghi — không có đơn nào mang mã yêu cầu đó."""
+		rid = _rid()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			dat_hang.tao_sales_order(
+				self.kh_a,
+				items=[{"item_code": self.item_hd, "qty": 1}],
+				dat_ngoai=[{"ten_hang": "Dây truyền dịch", "dvt": "Cái", "so_luong": 5}],
+				request_id=rid,
+			)
+		self.assertIn("yêu cầu báo giá", str(ctx.exception))
+		self.assertFalse(frappe.db.exists("Sales Order", {"custom_request_id": rid}))
 
 	# ---- tương thích ngược ------------------------------------------
 
@@ -317,16 +310,16 @@ class TestDatHangGop(FrappeTestCase):
 		self.assertEqual(so.custom_loai_don, "Mua lẻ")
 
 	def test_gio_toan_dat_ngoai_van_chen_dong_giu_cho(self):
-		"""ERPNext không lưu được Sales Order với `items` RỖNG — dòng giữ
-		chỗ là lối ra, GIỮ NGUYÊN (không được đụng, theo brief)."""
-		kq = dat_hang.tao_sales_order(
-			self.kh_a, items=[],
-			dat_ngoai=[{"ten_hang": "Kim luồn 22G", "dvt": "Cái", "so_luong": 10}],
-			request_id=_rid(),
+		"""ERPNext không lưu được chứng từ bán với `items` RỖNG — hàm dựng chèn
+		dòng giữ chỗ cho giỏ toàn hàng chưa có mã; `bao_gia.tao_bao_gia` chép
+		nguyên `items` đó sang Quotation."""
+		so = dat_hang._xay_don(
+			self.kh_a, {},
+			[{"ten_hang": "Kim luồn 22G", "dvt": "Cái", "so_luong": 10}],
+			ngay_giao_mac_dinh(), None, None, None, _rid(),
 		)
-		so = frappe.get_doc("Sales Order", kq["sales_order"])
 		self.assertEqual([d.item_code for d in so.items], [ITEM_GIU_CHO])
-		self.assertEqual(len(so.custom_dat_ngoai), 1)
+		self.assertEqual(len(so.flags.dong_dat_ngoai), 1)
 
 	def test_hop_dong_cua_khach_khac_van_bi_tu_choi(self):
 		"""GIỮ NGUYÊN — khi người gọi CÓ truyền `contract`, hợp đồng đó vẫn

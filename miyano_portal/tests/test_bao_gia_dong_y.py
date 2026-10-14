@@ -108,9 +108,7 @@ class TestBaoGiaDongY(NenBaoGia):
 		bg, _ = self._cho_khach()
 		so = frappe.get_doc("Sales Order", self._dong_y(bg)["sales_order"])
 		self.assertNotEqual(so.custom_request_id, bg.custom_request_id)
-		self.assertFalse(so.get("custom_ngay_gui_khach_duyet"))
 		self.assertFalse(so.get("custom_ly_do_tu_choi"))
-		self.assertEqual(len(so.get("custom_dat_ngoai") or []), 0)
 
 	def test_phieu_co_sales_order(self):
 		bg, phieu = self._cho_khach()

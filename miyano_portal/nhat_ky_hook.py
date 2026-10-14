@@ -14,23 +14,20 @@ một cuốn sổ đầy dòng vô nghĩa là một cuốn sổ không ai đọc
 import frappe
 
 from miyano_portal import nhat_ky, portal_context
-from miyano_portal.portal_mua_le import han_hieu_luc_bao_gia
 
 # `workflow_state` MỚI → khoá sự kiện. Trạng thái không nằm trong bảng này
 # (vd "Chờ xác nhận"/"Chờ Miyano xác nhận" — trạng thái trung gian không
-# đáng một dòng riêng, hoặc "Báo giá hết hạn"/"Khách huỷ" — do HỆ THỐNG/
-# KHÁCH đứng tên, không phải Miyano) KHÔNG ghi gì cả.
+# đáng một dòng riêng) KHÔNG ghi gì cả. Báo giá gửi khách nằm trên Quotation
+# (`bao_gia.ghi_nhat_ky_chuyen_trang_thai`), không còn trên đơn.
 _ANH_XA_TRANG_THAI = {
 	"Đã xác nhận": nhat_ky.SK_MIYANO_XAC_NHAN,
-	"Chờ khách đồng ý": nhat_ky.SK_MIYANO_BAO_GIA,
 	"Từ chối": nhat_ky.SK_MIYANO_TU_CHOI,
 }
 
 
 def tu_sales_order_on_update(doc, method=None):
 	"""`Sales Order.on_update` — ghi một dòng khi workflow_state CHUYỂN tới
-	một trong ba trạng thái Miyano đứng tên (xác nhận / gửi khách duyệt báo
-	giá / từ chối).
+	một trong hai trạng thái Miyano đứng tên (xác nhận / từ chối).
 
 	`get_doc_before_save()` trả `None` cho LẦN LƯU ĐẦU TIÊN của một bản ghi
 	(insert) — `_doc_before_save` chỉ được nạp khi có một bản ghi CŨ trong
@@ -56,14 +53,7 @@ def tu_sales_order_on_update(doc, method=None):
 		return
 
 	ghi_chu = None
-	if su_kien == nhat_ky.SK_MIYANO_BAO_GIA:
-		# `han_hieu_luc_bao_gia` đọc `custom_ngay_gui_khach_duyet`, mà hook
-		# `portal_mua_le.ghi_ngay_gui_khach_duyet` (validate(), chạy TRƯỚC
-		# on_update trong cùng lượt save) đã ghi field đó lên CHÍNH `doc`
-		# đang cầm ở đây — không cần đọc lại từ CSDL.
-		han = han_hieu_luc_bao_gia(doc)
-		ghi_chu = f"Hạn hiệu lực báo giá: {frappe.utils.formatdate(han)}"
-	elif su_kien == nhat_ky.SK_MIYANO_TU_CHOI:
+	if su_kien == nhat_ky.SK_MIYANO_TU_CHOI:
 		ghi_chu = doc.get("custom_ly_do_tu_choi")
 
 	khoa_phong = None
