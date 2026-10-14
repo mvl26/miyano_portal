@@ -2,8 +2,17 @@
 
 Nơi DUY NHẤT của app này gọi vào module HĐĐT của team khác
 (`apps/erpnext/erpnext/einvoice/`). Đổi chữ ký
-`builder.create_from_delivery_note` hay `actions.preview_draft` là vỡ đúng
-file này, không rải ra chỗ khác — xem `docs/HDDT-ban-giao-team-module.md`.
+`builder.create_from_sales_invoice` / `create_from_delivery_note` hay
+`actions.preview_draft` là vỡ đúng file này, không rải ra chỗ khác — xem
+`docs/HDDT-ban-giao-team-module.md`.
+
+**Hai bản module HĐĐT** (erpnext 0f08cd32, 14/10/2026): bản 3.0 lập hoá đơn
+điện tử từ CHÍNH Sales Invoice (`create_from_sales_invoice`, một hoá đơn bán
+một chứng từ) và đóng hẳn đường phát hành theo phiếu giao
+(`create_from_delivery_note` chỉ còn `frappe.throw`). Bản 2.0 thì ngược lại.
+Site chạy bản nào thì đi đường đó — nhận biết bằng việc builder CÓ
+`create_from_sales_invoice` hay không, để app này chạy được trên cả hai trong
+lúc các site lần lượt lên bản 3.0.
 
 **Tự động tới đâu, và vì sao dừng ở đó** (quyết định Q1 của spec): job chạy
 hai nút đầu của quy trình — tạo chứng từ, rồi lấy bản in thử PDF từ Fast — và
@@ -33,7 +42,7 @@ def tu_sales_invoice(doc, method=None):
     (`fast_client.REQUEST_TIMEOUT_SECONDS`), đặt trong `on_submit` là bắt kế
     toán ngồi chờ và biến một sự cố mạng thành lỗi không submit được hoá đơn.
 
-    Bỏ qua hoá đơn trả hàng: `builder._load_delivery_note` từ chối thẳng
+    Bỏ qua hoá đơn trả hàng: builder (cả hai bản) từ chối thẳng
     phiếu trả hàng ("phiếu trả hàng không lập hóa đơn trực tiếp — dùng hóa
     đơn điều chỉnh giảm từ hóa đơn gốc"), nên không lọc sớm thì mỗi lần lập
     giấy báo có là một Comment lỗi vô nghĩa trên chứng từ.
@@ -52,16 +61,19 @@ def tu_sales_invoice(doc, method=None):
 
 
 def lap_hddt_cho_hoa_don(sales_invoice, client=None) -> dict:
-    """Lập chứng từ HĐĐT + lấy bản in thử PDF cho TỪNG phiếu giao của hoá đơn.
+    """Lập chứng từ HĐĐT + lấy bản in thử PDF cho hoá đơn bán.
 
-    Trả `{"tao": [tên chứng từ], "bo_qua": [{delivery_note, ly_do}],
-    "ly_do": str | None}`. `ly_do` chỉ có giá trị khi dừng cho CẢ hoá đơn
-    (không có phiếu giao nào, hoặc tích hợp Fast đang tắt).
+    Bản 3.0: MỘT chứng từ cho cả hoá đơn bán. Bản 2.0: một chứng từ cho TỪNG
+    phiếu giao của hoá đơn (xem docstring module).
+
+    Trả `{"tao": [tên chứng từ], "bo_qua": [{nguon, ly_do}],
+    "ly_do": str | None}`. `nguon` là tên hoá đơn bán (bản 3.0) hoặc phiếu
+    giao (bản 2.0). `ly_do` chỉ có giá trị khi dừng cho CẢ hoá đơn (không có
+    phiếu giao nào ở bản 2.0, hoặc tích hợp Fast đang tắt).
 
     `client` để test tiêm `FastClient` giả — đường sản xuất luôn để `None`.
     """
-    from erpnext.einvoice.actions import preview_draft
-    from erpnext.einvoice.builder import create_from_delivery_note
+    from erpnext.einvoice import builder
     from erpnext.einvoice.fast_settings import check_enabled
 
     ket_qua = {"tao": [], "bo_qua": [], "ly_do": None}
@@ -75,18 +87,22 @@ def lap_hddt_cho_hoa_don(sales_invoice, client=None) -> dict:
     if not frappe.db.exists(SI, sales_invoice):
         return ket_qua
 
-    dn_names = frappe.get_all(
-        "Sales Invoice Item",
-        filters={"parent": sales_invoice, "delivery_note": ["!=", ""]},
-        pluck="delivery_note",
-    )
-    dn_names = list(dict.fromkeys(dn_names))
-    if not dn_names:
-        ket_qua["ly_do"] = _("Hoá đơn không qua phiếu giao nào — không lập HĐĐT tự động.")
-        _ghi_comment(sales_invoice, ket_qua)
-        return ket_qua
+    ban_3 = la_ban_3()
+    if ban_3:
+        nguon = [sales_invoice]
+    else:
+        nguon = frappe.get_all(
+            "Sales Invoice Item",
+            filters={"parent": sales_invoice, "delivery_note": ["!=", ""]},
+            pluck="delivery_note",
+        )
+        nguon = list(dict.fromkeys(nguon))
+        if not nguon:
+            ket_qua["ly_do"] = _("Hoá đơn không qua phiếu giao nào — không lập HĐĐT tự động.")
+            _ghi_comment(sales_invoice, ket_qua)
+            return ket_qua
 
-    # Kiểm công tắc MỘT lần cho cả hoá đơn: tắt là tắt cho mọi phiếu giao. Và
+    # Kiểm công tắc MỘT lần cho cả hoá đơn: tắt là tắt cho mọi chứng từ. Và
     # đây là CẤU HÌNH chứ không phải sự cố, nên không `log_error` — ghi log
     # lỗi cho một site cố tình chưa bật Fast là tạo nhiễu, không tạo tín hiệu.
     try:
@@ -96,17 +112,20 @@ def lap_hddt_cho_hoa_don(sales_invoice, client=None) -> dict:
         _ghi_comment(sales_invoice, ket_qua)
         return ket_qua
 
-    for dn in dn_names:
-        # Bọc lỗi TỪNG PHIẾU: một phiếu vướng luật kiểm (thiếu MST, quá 300
-        # dòng, tổng tiền lệch...) không được kéo theo các phiếu còn lại của
-        # cùng hoá đơn.
+    tao = builder.create_from_sales_invoice if ban_3 else builder.create_from_delivery_note
+    for ten in nguon:
+        # Bọc lỗi TỪNG CHỨNG TỪ NGUỒN: một phiếu vướng luật kiểm (thiếu MST,
+        # quá 300 dòng, tổng tiền lệch...) không được kéo theo các phiếu còn
+        # lại của cùng hoá đơn.
         try:
-            fei = create_from_delivery_note(dn)
+            fei = tao(ten)
         except Exception as e:
-            ket_qua["bo_qua"].append({"delivery_note": dn, "ly_do": str(e)})
+            ket_qua["bo_qua"].append({"nguon": ten, "ly_do": str(e)})
             continue
 
         try:
+            from erpnext.einvoice.actions import preview_draft
+
             preview_draft(fei, client=client)
             ket_qua["tao"].append(fei)
         except Exception as e:
@@ -115,13 +134,20 @@ def lap_hddt_cho_hoa_don(sales_invoice, client=None) -> dict:
             # Vẫn tính vào `tao` vì bản ghi có thật; lý do hỏng ghi ở `bo_qua`.
             ket_qua["tao"].append(fei)
             ket_qua["bo_qua"].append({
-                "delivery_note": dn,
+                "nguon": ten,
                 "ly_do": _("đã tạo {0} nhưng chưa dựng được PDF nháp: {1}").format(fei, e),
             })
             frappe.log_error(title=f"HĐĐT {fei}: không dựng được bản nháp PDF")
 
     _ghi_comment(sales_invoice, ket_qua)
     return ket_qua
+
+
+def la_ban_3() -> bool:
+    """Module HĐĐT của site là bản 3.0 (lập từ Sales Invoice)."""
+    from erpnext.einvoice import builder
+
+    return hasattr(builder, "create_from_sales_invoice")
 
 
 def _ghi_comment(sales_invoice, ket_qua):
@@ -136,7 +162,7 @@ def _ghi_comment(sales_invoice, ket_qua):
     if ket_qua["tao"]:
         dong.append(_("Đã lập chứng từ HĐĐT: {0}").format(", ".join(ket_qua["tao"])))
     for b in ket_qua["bo_qua"]:
-        dong.append(_("Phiếu giao {0}: {1}").format(b["delivery_note"], b["ly_do"]))
+        dong.append(_("{0}: {1}").format(b["nguon"], b["ly_do"]))
     if not dong:
         return
     frappe.get_doc(SI, sales_invoice).add_comment("Comment", "<br>".join(dong))

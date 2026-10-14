@@ -17,6 +17,11 @@ team HĐĐT ở `docs/HDDT-ban-giao-team-module.md`:
    `fei.delivery_note`, không bao giờ gán `fei.sales_invoice`. `resolve_all()`
    dưới đây bắc cầu qua `Sales Invoice Item.delivery_note` -> `FEI.
    delivery_note`, đúng docstring `erpnext/einvoice/lookup.py`.
+   Từ HĐĐT bản 3.0 (erpnext 0f08cd32) thì NGƯỢC LẠI: bản ghi mới lập từ
+   Sales Invoice (`create_from_sales_invoice`), mang `sales_invoice` và để
+   trống `delivery_note`. `resolve_all()` gộp cả hai tầng nên đọc được cả
+   bản ghi 2.0 lẫn 3.0; khối hoá đơn nháp theo phiếu giao xem
+   `_fei_nhap_theo_phieu_giao`.
 2. **MỘT Sales Invoice có thể khớp NHIỀU `Fast EInvoice Document`, không chỉ
    một** (review round 1, C-1). `lineage.py::_COPIED_FIELDS` copy CẢ
    `delivery_note` LẪN `sales_invoice` từ bản gốc sang bản điều chỉnh/thay
@@ -416,6 +421,14 @@ def chon_ban_ghi_chinh(ho_so):
 # được lập, chưa có Sales Invoice nào để `block_for` bám vào — khách sẽ
 # không thấy gì trên màn chi tiết đơn hàng.
 #
+# HĐĐT bản 3.0 (erpnext 0f08cd32, 14/10/2026) đảo nguồn: bản ghi MỚI lập từ
+# Sales Invoice, mang `sales_invoice` và để TRỐNG `delivery_note`. Màn chi
+# tiết đơn vẫn neo theo phiếu giao, nên `_fei_nhap_theo_phieu_giao` tìm CẢ
+# HAI: bản 2.0 qua `delivery_note`, bản 3.0 qua hoá đơn bán đã gom phiếu giao
+# đó (`Sales Invoice Item.delivery_note`). Một hoá đơn bán gộp nhiều phiếu
+# giao thì bản nháp của nó hiện ở MỌI phiếu giao đó — đúng thực tế: đó là
+# một hoá đơn cho cả mấy đợt giao.
+#
 # Hai đường phải luôn nói CÙNG một điều về cùng một chứng từ; chốt bằng
 # `TestHaiDuongDocKhopNhau`.
 # =========================================================================
@@ -428,13 +441,53 @@ _NHAP_STATUSES = tuple(ma for ma, (nhom, _l, _b) in _STATUS_META.items() if nhom
 _FIELDS_NHAP = (
     "name", "creation", "modified", "status", "invoice_type", "invoice_date",
     "amount", "tax_amount", "total_amount", "discount_amount", "amount_in_words",
-    "draft_pdf", "customer", "delivery_note",
+    "draft_pdf", "customer", "delivery_note", "sales_invoice",
 )
 
 _FIELDS_DONG = (
     "idx", "item_code", "item_name", "uom", "qty", "price", "amount",
     "discount_amount", "tax_rate", "tax_amount", "note",
 )
+
+
+def _fei_nhap_theo_phieu_giao(delivery_notes, fields) -> dict:
+    """{phiếu giao: [bản ghi HĐĐT nháp]} cho cả danh sách — hai truy vấn FEI
+    (bản 2.0 theo `delivery_note`, bản 3.0 theo `sales_invoice`) và một truy
+    vấn `Sales Invoice Item`, không phải N truy vấn mỗi phiếu giao.
+
+    Chỉ lấy hoá đơn bán ĐÃ submit: bản 3.0 chỉ lập từ hoá đơn đã submit, và
+    hoá đơn đã huỷ không còn là nguồn của bản nháp nào đang sống."""
+    delivery_notes = list(dict.fromkeys(delivery_notes or []))
+    if not delivery_notes:
+        return {}
+    fields = list(dict.fromkeys([*fields, "name", "creation", "customer",
+                                 "delivery_note", "sales_invoice"]))
+    loc_nhap = ["status", "in", list(_NHAP_STATUSES)]
+    theo_dn: dict[str, dict] = {dn: {} for dn in delivery_notes}
+
+    for r in frappe.get_all(
+        FEI, filters=[["delivery_note", "in", delivery_notes], loc_nhap], fields=fields,
+    ):
+        theo_dn[r.delivery_note][r.name] = r
+
+    hd_sang_dn: dict[str, set] = {}
+    for d in frappe.get_all(
+        "Sales Invoice Item",
+        filters={"delivery_note": ["in", delivery_notes], "docstatus": 1},
+        fields=["parent", "delivery_note"],
+    ):
+        hd_sang_dn.setdefault(d.parent, set()).add(d.delivery_note)
+    if hd_sang_dn:
+        for r in frappe.get_all(
+            FEI, filters=[["sales_invoice", "in", list(hd_sang_dn)], loc_nhap], fields=fields,
+        ):
+            for dn in hd_sang_dn[r.sales_invoice]:
+                theo_dn[dn][r.name] = r
+
+    return {
+        dn: sorted(rows.values(), key=lambda r: r.creation)
+        for dn, rows in theo_dn.items() if rows
+    }
 
 
 def ban_nhap_tho(delivery_note, dn_customer, fields=_FIELDS_NHAP):
@@ -452,33 +505,23 @@ def ban_nhap_tho(delivery_note, dn_customer, fields=_FIELDS_NHAP):
     dù phiếu giao đọc được đã đúng chủ. KHÔNG gọi `check_enabled()`: tích hợp
     Fast có thể bị tắt, tắt không được làm chết cả trang chi tiết đơn.
     """
-    rows = frappe.get_all(
-        FEI,
-        filters={"delivery_note": delivery_note, "status": ["in", list(_NHAP_STATUSES)]},
-        fields=list(fields),
-        order_by="creation asc",
-    )
+    rows = _fei_nhap_theo_phieu_giao([delivery_note], fields).get(delivery_note, [])
     rows = [r for r in rows if r.customer == dn_customer]
     return rows[-1] if rows else None
 
 
 def dn_co_hoa_don_nhap(delivery_notes, dn_customer) -> set:
-    """Tập con của `delivery_notes` đã có hoá đơn nháp — MỘT truy vấn cho cả
-    danh sách, không phải một truy vấn mỗi phiếu giao.
+    """Tập con của `delivery_notes` đã có hoá đơn nháp — số truy vấn cố định
+    cho cả danh sách, không phải một truy vấn mỗi phiếu giao.
 
     Chi tiết đơn hàng liệt kê mọi đợt giao của một đơn (`dot_giao[]` sinh ra
     chính vì giao nhiều đợt là chuyện thường ở đây), nên hỏi từng phiếu một
     là N round-trip cho một màn hình. Chỉ lấy CỜ, không kéo dòng hàng/tổng
     tiền — nội dung đi qua `nhap_cho_delivery_note` khi khách bấm xem."""
-    delivery_notes = list(delivery_notes or [])
-    if not delivery_notes:
-        return set()
-    rows = frappe.get_all(
-        FEI,
-        filters={"delivery_note": ["in", delivery_notes], "status": ["in", list(_NHAP_STATUSES)]},
-        fields=["delivery_note", "customer"],
-    )
-    return {r.delivery_note for r in rows if r.customer == dn_customer}
+    return {
+        dn for dn, rows in _fei_nhap_theo_phieu_giao(delivery_notes, ["customer"]).items()
+        if any(r.customer == dn_customer for r in rows)
+    }
 
 
 def la_ban_nhap(fei_row):

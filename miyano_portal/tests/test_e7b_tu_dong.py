@@ -1,4 +1,8 @@
-"""E7b — submit Sales Invoice thì tự lập HĐĐT từ từng phiếu giao.
+"""E7b — submit Sales Invoice thì tự lập HĐĐT.
+
+Module HĐĐT bản 3.0 lập MỘT chứng từ từ chính hoá đơn bán; bản 2.0 lập một
+chứng từ cho từng phiếu giao. Ca nào chỉ đúng với một bản thì `skipIf` theo
+`hddt_tu_dong.la_ban_3()` — site chạy bản nào thì ca của bản đó canh giữ.
 
 KHÔNG gọi mạng: `actions.preview_draft` nhận tham số `client`, nên test tiêm
 một `FastClient` dùng `FakeTransport` của chính module HĐĐT
@@ -11,6 +15,7 @@ trước khi nó vào hộp thư khách hàng (quyết định Q1 của spec). K
 """
 
 import base64
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -23,6 +28,9 @@ from erpnext.einvoice.tests.test_fixtures import make_delivery_note, minimal_pdf
 from miyano_portal import hddt_tu_dong
 
 FEI = "Fast EInvoice Document"
+BAN_3 = hddt_tu_dong.la_ban_3()
+CHI_BAN_2 = unittest.skipIf(BAN_3, "chỉ đúng với HĐĐT bản 2.0 (lập theo phiếu giao)")
+CHI_BAN_3 = unittest.skipUnless(BAN_3, "chỉ đúng với HĐĐT bản 3.0 (lập từ Sales Invoice)")
 
 
 def pdf_response():
@@ -59,9 +67,20 @@ class _TuDongFixture(FrappeTestCase):
         return si
 
     def _fei_cua(self, dn_name):
-        return frappe.get_all(
-            FEI, filters={"delivery_note": dn_name}, fields=["name", "status", "draft_pdf"]
+        """Chứng từ HĐĐT của một phiếu giao: bản 2.0 nối thẳng `delivery_note`,
+        bản 3.0 nối qua hoá đơn bán đã gom phiếu giao đó."""
+        fields = ["name", "status", "draft_pdf"]
+        rows = {r.name: r for r in frappe.get_all(
+            FEI, filters={"delivery_note": dn_name}, fields=fields
+        )}
+        hd = frappe.get_all(
+            "Sales Invoice Item",
+            filters={"delivery_note": dn_name, "docstatus": 1}, pluck="parent",
         )
+        if hd:
+            for r in frappe.get_all(FEI, filters={"sales_invoice": ["in", hd]}, fields=fields):
+                rows[r.name] = r
+        return list(rows.values())
 
 
 class TestLapTuDong(_TuDongFixture):
@@ -76,6 +95,7 @@ class TestLapTuDong(_TuDongFixture):
         self.assertEqual(rows[0].status, "02 - Đã xem nháp")
         self.assertTrue(rows[0].draft_pdf, "phải có PDF do Fast dựng")
 
+    @CHI_BAN_2
     def test_si_gop_nhieu_dot_giao_ra_nhieu_chung_tu(self):
         dn1, dn2 = make_delivery_note(), make_delivery_note()
         si = self._si_tu_dn([dn1, dn2])
@@ -84,6 +104,20 @@ class TestLapTuDong(_TuDongFixture):
         self.assertEqual(len(ket_qua["tao"]), 2)
         self.assertEqual(len(self._fei_cua(dn1.name)), 1)
         self.assertEqual(len(self._fei_cua(dn2.name)), 1)
+
+    @CHI_BAN_3
+    def test_ban_3_si_gop_nhieu_dot_giao_ra_mot_chung_tu(self):
+        """Bản 3.0: hoá đơn điện tử khớp 1-1 với hoá đơn bán, kể cả khi hoá
+        đơn bán gom nhiều đợt giao."""
+        dn1, dn2 = make_delivery_note(), make_delivery_note()
+        si = self._si_tu_dn([dn1, dn2])
+        ket_qua = hddt_tu_dong.lap_hddt_cho_hoa_don(si.name, client=self._client())
+
+        self.assertEqual(len(ket_qua["tao"]), 1)
+        self.assertEqual(
+            frappe.db.get_value(FEI, ket_qua["tao"][0], "sales_invoice"), si.name
+        )
+        self.assertEqual(self._fei_cua(dn1.name), self._fei_cua(dn2.name))
 
     def test_khong_bao_gio_tu_gui_email(self):
         """Ranh giới Q1. Trạng thái dừng ở 02 và `draft_sent_time` phải rỗng —
@@ -107,6 +141,7 @@ class TestLapTuDong(_TuDongFixture):
         self.assertEqual(lan_hai["tao"], [])
         self.assertEqual(len(lan_hai["bo_qua"]), 1)
 
+    @CHI_BAN_2
     def test_si_khong_qua_phieu_giao_thi_khong_tao_gi(self):
         dn = make_delivery_note()
         si = frappe.new_doc("Sales Invoice")
@@ -119,6 +154,22 @@ class TestLapTuDong(_TuDongFixture):
         ket_qua = hddt_tu_dong.lap_hddt_cho_hoa_don(si.name, client=self._client())
         self.assertEqual(ket_qua["tao"], [])
         self.assertIn("phiếu giao", ket_qua["ly_do"])
+
+    @CHI_BAN_3
+    def test_ban_3_si_khong_qua_phieu_giao_van_lap_duoc(self):
+        """Bản 3.0 lập từ hoá đơn bán nên doanh thu không qua phiếu giao cũng
+        có hoá đơn điện tử — ngược với ca bản 2.0 ngay trên."""
+        dn = make_delivery_note()
+        si = frappe.new_doc("Sales Invoice")
+        si.company, si.customer = dn.company, dn.customer
+        si.posting_date = frappe.utils.today()
+        si.append("items", {"item_code": dn.items[0].item_code, "qty": 1, "rate": 1000})
+        si.insert(ignore_permissions=True)
+        si.submit()
+
+        ket_qua = hddt_tu_dong.lap_hddt_cho_hoa_don(si.name, client=self._client())
+        self.assertEqual(len(ket_qua["tao"]), 1, ket_qua)
+        self.assertIsNone(ket_qua["ly_do"])
 
     def test_ghi_comment_len_sales_invoice(self):
         """Comment là nơi DUY NHẤT kế toán biết job đã chạy hay chưa — chủ dự
@@ -150,7 +201,7 @@ class TestKhongLamVoSubmit(_TuDongFixture):
         self.assertEqual(si.docstatus, 1)
 
     def test_si_tra_hang_khong_day_job(self):
-        """Phiếu trả hàng bị `builder._load_delivery_note` từ chối thẳng
+        """Phiếu trả hàng bị builder (cả hai bản) từ chối thẳng
         ("dùng hóa đơn điều chỉnh giảm từ hóa đơn gốc"). Không lọc sớm thì
         mỗi giấy báo có là một Comment lỗi vô nghĩa.
 
@@ -182,6 +233,7 @@ class TestKhongLamVoSubmit(_TuDongFixture):
 
 
 class TestLoiTungPhieuKhongKeoTheoNhau(_TuDongFixture):
+    @CHI_BAN_2
     def test_mot_phieu_hong_phieu_con_lai_van_chay(self):
         """Phiếu 1 đã có chứng từ HĐĐT sống → bỏ qua. Phiếu 2 vẫn phải ra
         chứng từ. Bọc lỗi phải nằm TRONG vòng lặp, không bọc cả vòng."""
@@ -194,7 +246,7 @@ class TestLoiTungPhieuKhongKeoTheoNhau(_TuDongFixture):
         ket_qua = hddt_tu_dong.lap_hddt_cho_hoa_don(si.name, client=self._client())
         self.assertEqual(len(ket_qua["tao"]), 1)
         self.assertEqual(len(ket_qua["bo_qua"]), 1)
-        self.assertEqual(ket_qua["bo_qua"][0]["delivery_note"], dn1.name)
+        self.assertEqual(ket_qua["bo_qua"][0]["nguon"], dn1.name)
         self.assertEqual(len(self._fei_cua(dn2.name)), 1)
 
 
