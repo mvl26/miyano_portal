@@ -39,7 +39,9 @@ class TestBaoCaoThietBi(FrappeTestCase):
 		self.kho = frappe.get_doc({
 			"doctype": "Customer Warehouse", "customer": KHACH,
 			"ten_kho": "ZZTB9 Kho", "ma_kho": "ZZTB9",
-			"ngay_bat_dau": frappe.utils.add_days(frappe.utils.today(), -60),
+			# Cố định, TRƯỚC kỳ báo cáo 08/2026 bên dưới. `today() - 60` trượt
+			# qua 01/08 từ tháng 10/2026 và `validate_ngay` chặn phiếu nhập.
+			"ngay_bat_dau": "2026-07-01",
 		}).insert(ignore_permissions=True).name
 
 		self.tu = "2026-08-01"
