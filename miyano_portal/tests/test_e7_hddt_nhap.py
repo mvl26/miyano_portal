@@ -436,6 +436,58 @@ class TestCoTrenChiTietDon(_NhapFixture):
 
 
 # ============================== Hai đường đọc phải nói CÙNG một điều
+class TestNguonSalesInvoiceBan3(_NhapFixture):
+    """HĐĐT bản 3.0 (erpnext 0f08cd32): bản ghi lập từ Sales Invoice mang
+    `sales_invoice`, để TRỐNG `delivery_note`. Màn chi tiết đơn neo theo phiếu
+    giao vẫn phải thấy bản nháp đó qua hoá đơn bán đã gom phiếu giao.
+
+    Dựng hình dạng bản 3.0 bằng `set_value` để ca này chạy được trên cả site
+    còn ở bản 2.0 — điều được canh là ĐƯỜNG ĐỌC của cổng, không phải builder."""
+
+    def _fei_ban_3(self, customer, dn, si):
+        fei = self._tao_fei_nhap(customer, dn)
+        frappe.db.set_value(
+            FEI, fei.name, {"delivery_note": None, "sales_invoice": si.name},
+            update_modified=False,
+        )
+        return fei
+
+    def test_ban_nhap_theo_hoa_don_ban_hien_tren_phieu_giao(self):
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        fei = self._fei_ban_3(CUSTOMER_BM, dn, si)
+
+        khoi = einvoice.nhap_cho_delivery_note(dn.name, CUSTOMER_BM)
+        self.assertEqual(khoi["fei"], fei.name)
+        self.assertEqual(einvoice.dn_co_hoa_don_nhap([dn.name], CUSTOMER_BM), {dn.name})
+
+    def test_hoa_don_ban_gop_hai_dot_giao_thi_ca_hai_phieu_deu_thay(self):
+        dn1, dn2 = self._tao_dn(CUSTOMER_BM), self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn_list=[dn1, dn2])
+        fei = self._fei_ban_3(CUSTOMER_BM, dn1, si)
+
+        self.assertEqual(
+            einvoice.dn_co_hoa_don_nhap([dn1.name, dn2.name], CUSTOMER_BM), {dn1.name, dn2.name}
+        )
+        self.assertEqual(einvoice.ban_nhap_tho(dn2.name, CUSTOMER_BM).name, fei.name)
+
+    def test_ban_3_gan_nham_khach_khong_lo(self):
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        self._fei_ban_3(CUSTOMER_PXN, dn, si)
+
+        self.assertIsNone(einvoice.nhap_cho_delivery_note(dn.name, CUSTOMER_BM))
+        self.assertEqual(einvoice.dn_co_hoa_don_nhap([dn.name], CUSTOMER_BM), set())
+
+    def test_hoa_don_ban_da_huy_khong_con_la_nguon(self):
+        dn = self._tao_dn(CUSTOMER_BM)
+        si = self._tao_si(CUSTOMER_BM, dn=dn)
+        self._fei_ban_3(CUSTOMER_BM, dn, si)
+        frappe.db.set_value("Sales Invoice Item", {"parent": si.name}, "docstatus", 2)
+
+        self.assertIsNone(einvoice.ban_nhap_tho(dn.name, CUSTOMER_BM))
+
+
 class TestHaiDuongDocKhopNhau(_NhapFixture):
     """Cổng có HAI đường đọc cùng một chứng từ HĐĐT: khối cũ neo theo Sales
     Invoice (`block_for`, trang Hoá đơn & công nợ) và khối này neo theo

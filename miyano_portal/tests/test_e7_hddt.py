@@ -144,6 +144,14 @@ class _E7Fixture(FrappeTestCase):
         doc.human_name = "Kế toán test"
         if sales_invoice is not None:
             doc.sales_invoice = sales_invoice
+        # HĐĐT bản 3.0 (erpnext 0f08cd32): bản ghi mới mặc định nguồn "Sales
+        # Invoice" và bắt buộc gắn hoá đơn bán. Fixture này dựng bản ghi lập
+        # theo phiếu giao — đúng hình dạng mà patch `einvoice_source_sales_
+        # invoice` đóng dấu cho dữ liệu cũ, và cổng vẫn phải đọc được.
+        if doc.meta.has_field("source_doctype"):
+            from erpnext.einvoice.constants import SOURCE_DELIVERY_NOTE_V2
+
+            doc.source_doctype = SOURCE_DELIVERY_NOTE_V2
         # ERPNext (aae6c658, 22/09/2026) chặn INSERT bản ghi mang sẵn số hoá
         # đơn / Key tra cứu / trạng thái đã phát hành (`_refuse_duplicate_
         # record`). Tạo nháp trước rồi ghi các trường đó bằng `db.set_value`,
