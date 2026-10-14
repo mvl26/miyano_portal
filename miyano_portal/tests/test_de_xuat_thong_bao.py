@@ -588,6 +588,14 @@ class TestBaoDaNhapHangTheoKhoa(FrappeTestCase):
 		self.duoc = _dam_bao_thanh_vien(
 			"dxtb6.duoc@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_duoc
 		)
+		# Bài này đếm ĐÚNG số người nhận, nên khách chỉ được có ba tài khoản
+		# trên. File test khác dùng chung `_TEST DX A` (vd. `tgg.*` của
+		# test_thoi_gian_giao) có thể để sót thành viên đang hoạt động.
+		frappe.db.set_value(
+			"Portal Member",
+			{"customer": self.kh_a, "user": ["not in", [self.ql, self.huyethoc, self.duoc]]},
+			"active", 0,
+		)
 		self.addCleanup(
 			frappe.db.delete, "Error Log",
 			{"method": ["like", "Portal - Không tra được tài khoản cổng:%"]},
