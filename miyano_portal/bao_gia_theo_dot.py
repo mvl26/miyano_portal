@@ -218,3 +218,49 @@ def tach_dot(phieu_goc, dong) -> dict:
 		frappe.db.rollback(save_point="tach_dot")
 		raise
 	return {"dot": d.name, "so_dot": so_dot, "trang_thai_goc": goc.get("workflow_state")}
+
+
+# Đợt rơi vào một trong các trạng thái này thì các dòng của nó quay về phiếu
+# gốc (D3). "Khách đã đồng ý" không có ở đây: đơn đã sinh.
+TT_TRA_VE = (bao_gia.TT_KHACH_TU_CHOI, bao_gia.TT_MIYANO_TU_CHOI, bao_gia.TT_HET_HAN)
+
+
+def tra_dong_ve_khi_dot_dong(doc, method=None) -> None:
+	"""Hook `on_update` của Quotation (spec §4.3). Chạy cho MỌI lối vào trạng
+	thái kết thúc — nút trên Desk, `bao_gia.tu_choi` của khách, job
+	`quet_het_han` — trong CÙNG giao dịch với bước chuyển. Cờ
+	`custom_da_tra_ve` chặn trả hai lần; `kiem_chuyen_theo_dot` chặn mở lại.
+
+	Phiếu gốc không còn nhận dòng (đã «Huỷ phần còn lại») thì đợt kết thúc,
+	không trả gì. Dòng trả về giữ giá vừa báo và KHÔNG gộp với dòng trùng mã."""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal.nang_quyen import quyen_he_thong
+
+	if not doc.get("custom_phieu_goc") or doc.get("custom_da_tra_ve"):
+		return
+	truoc, nay = bao_gia._trang_thai_truoc(doc), doc.get("workflow_state")
+	if truoc == nay or nay not in TT_TRA_VE:
+		return
+	goc = frappe.get_doc("Quotation", doc.custom_phieu_goc, for_update=True)
+	if goc.get("workflow_state") not in (bao_gia.TT_CHO_MIYANO, bao_gia.TT_DA_BAO_HET):
+		goc.add_comment(
+			"Comment",
+			f"Đợt {doc.custom_so_dot} ({doc.name}) chuyển «{nay}» — phiếu đã "
+			f"«{goc.workflow_state}», không trả mặt hàng về.",
+		)
+		return
+	# Nâng quyền: khách (qua `bao_gia.tu_choi`) và job không có quyền ghi
+	# phiếu gốc; bước «Hệ thống: có hàng trả về» khai vai Administrator.
+	with quyen_he_thong():
+		for hang in doc.items:
+			goc.append("items", _dong_moi(hang))
+		goc.save()
+		if goc.get("workflow_state") == bao_gia.TT_DA_BAO_HET:
+			goc = apply_workflow(goc, bao_gia.HD_CON_HANG)
+		goc.add_comment(
+			"Comment",
+			f"Đợt {doc.custom_so_dot} ({doc.name}) «{nay}» — đã trả về {len(doc.items)} dòng.",
+		)
+	frappe.db.set_value("Quotation", doc.name, "custom_da_tra_ve", 1, update_modified=False)
+	doc.custom_da_tra_ve = 1

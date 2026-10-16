@@ -494,6 +494,8 @@ doc_events = {
 		],
 		"on_update": [
 			"miyano_portal.bao_gia.ghi_nhat_ky_chuyen_trang_thai",
+			# Đợt bị từ chối/hết hạn: trả dòng về phiếu gốc (spec 2026-10-15 §4.3).
+			"miyano_portal.bao_gia_theo_dot.tra_dong_ve_khi_dot_dong",
 		],
 	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang
