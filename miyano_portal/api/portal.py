@@ -1553,23 +1553,32 @@ def _mo_ta_bao_gia(bg) -> dict:
 
 
 def _cac_dot(goc) -> list:
-    """Các đợt của phiếu gốc, theo số đợt. Đợt chép khách/khoa của phiếu gốc
-    nên đã nằm trong phạm vi người gọi khi phiếu gốc nằm trong đó."""
+    """Các đợt của phiếu gốc, theo số đợt. Đợt chép khách/khoa/nguồn của phiếu
+    gốc nên đã nằm trong phạm vi người gọi khi phiếu gốc nằm trong đó; vẫn lọc
+    lại đúng ba trường đó (phòng thủ nhiều lớp: một đợt bị sửa tay sang khoa
+    khác không được lộ qua trang của phiếu gốc)."""
     from miyano_portal import bao_gia_theo_dot
 
     if not bao_gia_theo_dot.san_sang():
         return []
+    truong = ("party_name", "custom_khoa_phong", "custom_nguon_don")
+    # So trong Python, chuẩn hoá rỗng: phiếu không khoa có `custom_khoa_phong`
+    # là NULL, bộ lọc `= None` của `get_all` không khớp NULL.
+    mau = tuple(goc.get(t) or "" for t in truong)
     return [
-        frappe.get_doc("Quotation", ten)
-        for ten in frappe.get_all(
+        frappe.get_doc("Quotation", d.name)
+        for d in frappe.get_all(
             "Quotation", filters={"custom_phieu_goc": goc.name},
-            order_by="custom_so_dot asc", pluck="name",
+            fields=["name", *truong], order_by="custom_so_dot asc",
         )
+        if tuple(d.get(t) or "" for t in truong) == mau
     ]
 
 
 def _nhom_phieu_goc(goc, dot) -> str:
     """Bản Python của `_sql_nhom_bao_gia` cho phiếu đã tách đợt."""
+    # Chỉ phản chiếu các trạng thái phiếu gốc CÓ ĐỢT đi tới được:
+    # `kiem_chuyen_theo_dot` chặn CHO_KHACH / MIYANO_TU_CHOI trên phiếu như vậy.
     if any(d.docstatus == 0 and d.workflow_state == bao_gia.TT_CHO_KHACH for d in dot):
         return "cho_dong_y"
     if goc.get("workflow_state") == bao_gia.TT_CHO_MIYANO or any(
@@ -1598,6 +1607,15 @@ def portal_bao_gia_chi_tiet(ten) -> dict:
         for d in bg.items if d.item_code != ITEM_GIU_CHO
     ] if dot and bg.get("workflow_state") == bao_gia.TT_CHO_MIYANO else []
     kq["duoc_huy_con_lai"] = bool(dot) and bg.get("workflow_state") == bao_gia.TT_CHO_MIYANO
+    # Phiếu gốc đã thôi báo (đã báo hết / huỷ phần còn lại): dòng gõ tay chưa
+    # khớp mã không còn ai tìm nữa — không hiện "Miyano đang tìm mã".
+    if dot and bg.get("workflow_state") != bao_gia.TT_CHO_MIYANO:
+        kq["dat_ngoai"] = []
+    kq["da_huy_con_lai"] = bg.get("workflow_state") == bao_gia.TT_HUY_CON_LAI
+    # Chỉ khi đã huỷ thật: lý do nhân viên gõ mà chưa chuyển trạng thái là nội bộ.
+    kq["ly_do_huy_con_lai"] = (
+        (bg.get("custom_ly_do_huy_con_lai") or "") if kq["da_huy_con_lai"] else ""
+    )
     if dot:
         kq["nhom"] = _nhom_phieu_goc(bg, dot)
     return kq

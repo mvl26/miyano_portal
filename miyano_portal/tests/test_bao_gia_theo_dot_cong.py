@@ -166,3 +166,59 @@ class TestCongTheoDot(NenBaoGiaTheoDot):
 			kq = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
 		self.assertTrue(rows)
 		self.assertEqual(kq["dot"], [])
+
+	def _khoa_khac_cua_a(self):
+		ten = frappe.db.get_value(
+			"Customer Department", {"customer": self.kh_a, "ma_khoa": "DOTCONG"}, "name"
+		)
+		return ten or frappe.get_doc({
+			"doctype": "Customer Department", "customer": self.kh_a,
+			"ten_khoa_phong": "Khoa thử báo giá theo đợt", "ma_khoa": "DOTCONG", "active": 1,
+		}).insert(ignore_permissions=True).name
+
+	def test_huy_con_lai_khong_con_hien_dong_go_tay(self):
+		"""Sau «Huỷ phần còn lại» không còn gì "Miyano đang tìm mã"."""
+		frappe.delete_doc("Quotation", self.goc.name, force=True)
+		self.goc = self._goc_ba_dong(
+			custom_de_xuat=self.phieu.name, khoa=self.khoa_huyethoc,
+			custom_dat_ngoai=[{"ten_hang": "Kim lạ chưa có mã", "dvt": "Cái", "so_luong": 2}],
+		)
+		frappe.db.set_value("Portal De Xuat Mua", self.phieu.name, "bao_gia", self.goc.name)
+		self._tach(self.item_ngoai)
+		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
+		self.assertEqual([d["ten_hang"] for d in ct["dat_ngoai"]], ["Kim lạ chưa có mã"])
+		self.assertFalse(ct["da_huy_con_lai"])
+		self.assertEqual(ct["ly_do_huy_con_lai"], "")
+		with patch("frappe.sendmail"):
+			self._goi(self.ql_a, portal.portal_bao_gia_huy_con_lai, self.goc.name, "Đủ hàng rồi")
+		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
+		self.assertEqual(ct["dat_ngoai"], [])
+		self.assertTrue(ct["da_huy_con_lai"])
+		self.assertEqual(ct["ly_do_huy_con_lai"], "Đủ hàng rồi")
+
+	def test_ly_do_huy_chua_ap_dung_khong_ra_cong(self):
+		"""Lý do nhân viên gõ dở (chưa chuyển trạng thái) không đi ra cổng."""
+		self._tach(self.item_ngoai)
+		frappe.db.set_value("Quotation", self.goc.name, "custom_ly_do_huy_con_lai", "Nội bộ gõ dở")
+		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
+		self.assertEqual(ct["ly_do_huy_con_lai"], "")
+
+	def test_khoa_khac_khong_thay_dot(self):
+		d1 = self._tach(self.item_ngoai)
+		nv_khac = self._dam_bao_thanh_vien(
+			"dotcong.khac@demo.miyano", self.kh_a, "Nhân viên khoa", self._khoa_khac_cua_a()
+		)
+		nv_cung = self._dam_bao_thanh_vien(
+			"dotcong.cung@demo.miyano", self.kh_a, "Nhân viên khoa", self.khoa_huyethoc
+		)
+		# Đối chứng: cùng khoa thì thấy — lỗi dưới đây là do trục khoa.
+		self.assertEqual(self._goi(nv_cung, portal.portal_bao_gia_chi_tiet, d1)["bao_gia"], self.goc.name)
+		with self.assertRaisesRegex(frappe.PermissionError, LOI_KHONG_THAY):
+			self._goi(nv_khac, portal.portal_bao_gia_chi_tiet, d1)
+
+	def test_dot_lech_khoa_khong_tra_ve(self):
+		d1 = self._tach(self.item_ngoai)
+		d2 = self._tach(self.item_boi_so)
+		frappe.db.set_value("Quotation", d2, "custom_khoa_phong", self._khoa_khac_cua_a())
+		kq = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
+		self.assertEqual([d["bao_gia"] for d in kq["dot"]], [d1])

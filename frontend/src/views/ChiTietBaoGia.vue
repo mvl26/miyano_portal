@@ -114,7 +114,7 @@ onMounted(load)
       <template v-if="coDot">
         <KhoiBaoGia v-for="d in bg.dot" :key="d.bao_gia" :bg="d" :tieu-de="nhanDot(d)" @xong="load" />
 
-        <div v-if="bg.con_lai.length || dongChuaKhop.length || bg.duoc_huy_con_lai" class="card mb10"
+        <div v-if="bg.con_lai.length || bg.duoc_huy_con_lai" class="card mb10"
              style="padding: 0; overflow-x: auto">
           <div class="sb" style="padding: 12px 14px 0">
             <div class="h3" style="margin: 0">Chờ Miyano báo giá</div>
@@ -133,6 +133,13 @@ onMounted(load)
             <button class="btn-o" :disabled="dangHuy" @click="moHuy = true">✕ Huỷ phần còn lại…</button>
             <span class="tag"> Các đợt đã gửi vẫn giữ nguyên.</span>
           </div>
+        </div>
+        <!-- Đã huỷ phần còn lại: một dòng thay cho khối "Chờ Miyano báo giá". -->
+        <div v-if="bg.da_huy_con_lai" class="card mb10">
+          <div class="h3" style="margin: 0">Đã huỷ các mặt hàng chưa báo giá</div>
+          <p v-if="bg.ly_do_huy_con_lai" class="tag" style="margin-top: 4px; overflow-wrap: anywhere">
+            Lý do: {{ bg.ly_do_huy_con_lai }}
+          </p>
         </div>
       </template>
       <KhoiBaoGia v-else :bg="bg" @xong="load" />

@@ -92,6 +92,12 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 		self.assertIn('<KhoiBaoGia v-for="d in bg.dot"', nguon)
 		self.assertIn("portal_bao_gia_huy_con_lai", nguon)
 		self.assertIn('v-if="bg.duoc_huy_con_lai"', nguon)
+		# Khối "Chờ Miyano báo giá" chỉ theo cờ của server, không theo dòng gõ tay
+		# (server đã trả `dat_ngoai` rỗng khi phiếu gốc thôi báo).
+		self.assertIn('v-if="bg.con_lai.length || bg.duoc_huy_con_lai"', nguon)
+		self.assertIn('v-if="bg.da_huy_con_lai"', nguon)
+		self.assertIn("Đã huỷ các mặt hàng chưa báo giá", nguon)
+		self.assertIn("Lý do: {{ bg.ly_do_huy_con_lai }}", nguon)
 		# Dòng chưa báo không bao giờ mang giá.
 		khoi = nguon.split('v-for="it in bg.con_lai"', 1)[1].split("</tr>", 1)[0]
 		self.assertNotIn("fmtVND", khoi)
