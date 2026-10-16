@@ -587,8 +587,12 @@ def dong_y(ten: str) -> dict:
 			bg.add_comment("Comment", f"{HD_KHACH_DONG_Y} bởi {nguoi_bam}")
 			so = _sinh_don(bg)
 		if bg.get("custom_de_xuat"):
-			frappe.db.set_value(
-				"Portal De Xuat Mua", bg.custom_de_xuat, "sales_order", so.name
+			# Báo giá theo đợt: một phiếu ra nhiều đơn. Ghi một dòng
+			# `don_hang`; `sales_order` của phiếu chỉ đặt khi còn trống.
+			from miyano_portal.bao_gia_theo_dot import them_don_hang
+
+			them_don_hang(
+				bg.custom_de_xuat, so.name, bg.name, int(bg.get("custom_so_dot") or 0)
 			)
 	except Exception:
 		frappe.db.rollback(save_point="bao_gia_dong_y")
