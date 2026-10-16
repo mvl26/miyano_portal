@@ -36,6 +36,18 @@ HD_GHI_NHAN = "Ghi nhận khách đồng ý"
 # "Miyano từ chối" không có lối ra: đó là trạng thái kết thúc.
 HD_MO_LAI = "Mở lại"
 
+# Báo giá theo đợt (spec 2026-10-15). Phiếu gốc đã tách hết dòng → "Đã báo
+# hết"; dòng của một đợt bị từ chối/hết hạn quay về thì phiếu mở lại. Hai bước
+# đó do CODE áp (`bao_gia_theo_dot`), khai vai `Administrator` nên nhân viên
+# không thấy thành nút; code áp chúng dưới `nang_quyen.quyen_he_thong()`.
+TT_DA_BAO_HET = "Đã báo hết"
+TT_HUY_CON_LAI = "Đã huỷ phần còn lại"
+HD_HUY_CON_LAI = "Huỷ phần còn lại"
+HD_BAO_HET = "Hệ thống: đã báo hết"
+HD_CON_HANG = "Hệ thống: có hàng trả về"
+# Giá trị `custom_nguoi_huy_con_lai` khi khách huỷ trên cổng.
+NGUOI_KHACH = "Khách"
+
 LY_DO_TOI_THIEU = 10
 
 

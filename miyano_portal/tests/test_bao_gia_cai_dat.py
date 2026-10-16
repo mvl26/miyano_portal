@@ -104,7 +104,7 @@ class TestBaoGiaCaiDat(NenBaoGia):
 			), 1,
 		)
 		self.assertEqual(
-			len(frappe.get_doc("Workflow", bao_gia.WORKFLOW).transitions), 9
+			len(frappe.get_doc("Workflow", bao_gia.WORKFLOW).transitions), 12
 		)
 
 	def test_khoi_hang_moi_dung_chung_hai_form(self):

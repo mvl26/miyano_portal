@@ -155,7 +155,10 @@ DEFS = [
         # `attach_print`/`print_format` do patch v1_42 đặt SAU khi mẫu in đã
         # có: `print_format` là Link, được kiểm ngay lúc insert.
         "name": TEN_TB_BAO_GIA,
-        "subject": "Báo giá {{ doc.name }} đã sẵn sàng",
+        "subject": (
+            "Báo giá {{ doc.name }}{% if doc.custom_so_dot %} (đợt "
+            "{{ doc.custom_so_dot }}){% endif %} đã sẵn sàng"
+        ),
         "document_type": "Quotation",
         "event": "Value Change",
         "value_changed": "workflow_state",

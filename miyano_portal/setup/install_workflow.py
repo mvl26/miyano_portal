@@ -58,6 +58,10 @@ def _bao_gia_states():
         (bg.TT_KHACH_TU_CHOI, "0", "Sales Manager", "Danger"),
         (bg.TT_MIYANO_TU_CHOI, "0", "Sales Manager", "Danger"),
         (bg.TT_HET_HAN, "0", "System Manager", "Danger"),
+        # Báo giá theo đợt (spec 2026-10-15 §3.2). Cả hai giữ docstatus 0: phiếu
+        # gốc luôn là nháp để dòng của đợt bị từ chối/hết hạn quay về được.
+        (bg.TT_DA_BAO_HET, "0", "System Manager", "Info"),
+        (bg.TT_HUY_CON_LAI, "0", "Sales Manager", "Danger"),
     ]
 
 
@@ -78,6 +82,7 @@ def _bao_gia_transitions():
         (bg.TT_CHO_KHACH, bg.HD_GHI_NHAN, bg.TT_DA_DONG_Y, "Sales User",
          f'doc.custom_nguon_don != "{bg.NGUON_CONG}"'),
         _canh_mo_lai(),
+        *_canh_theo_dot(),
     ]
 
 
@@ -89,6 +94,24 @@ def _canh_mo_lai():
     from miyano_portal import bao_gia as bg
 
     return (bg.TT_HET_HAN, bg.HD_MO_LAI, bg.TT_CHO_MIYANO, "Sales Manager", None)
+
+
+def _canh_theo_dot():
+    """Ba bước của báo giá theo đợt (spec 2026-10-15 §3.2), đứng SAU «Mở lại»
+    vì `mo_rong_workflow_theo_dot()` nối chúng vào cuối workflow đã cài.
+
+    Điều kiện "đã có ít nhất một đợt" giấu «Huỷ phần còn lại» trên phiếu chưa
+    tách đợt (phiếu đó dùng «Từ chối» như cũ) — `apply_workflow` cũng lọc theo
+    điều kiện nên không gọi lách được. Hai bước «Hệ thống: …» khai vai
+    `Administrator`: chỉ code (`bao_gia_theo_dot`) áp chúng."""
+    from miyano_portal import bao_gia as bg
+
+    co_dot = 'frappe.db.get_value("Quotation", {"custom_phieu_goc": doc.name}, "name")'
+    return [
+        (bg.TT_CHO_MIYANO, bg.HD_HUY_CON_LAI, bg.TT_HUY_CON_LAI, "Sales User", co_dot),
+        (bg.TT_CHO_MIYANO, bg.HD_BAO_HET, bg.TT_DA_BAO_HET, "Administrator", co_dot),
+        (bg.TT_DA_BAO_HET, bg.HD_CON_HANG, bg.TT_CHO_MIYANO, "Administrator", None),
+    ]
 
 
 def install_quotation_workflow():
@@ -155,6 +178,36 @@ def mo_rong_workflow_bao_gia() -> bool:
     wf.flags.ignore_permissions = True
     wf.save()
     return True
+
+
+def mo_rong_workflow_theo_dot() -> bool:
+    """Thêm hai trạng thái và ba bước của báo giá theo đợt vào workflow ĐÃ CÀI.
+    Cùng khuôn `mo_rong_workflow_bao_gia`: idempotent theo nội dung. Workflow
+    State / Workflow Action Master do `install_quotation_workflow()` đảm bảo —
+    gọi hàm đó trước."""
+    from miyano_portal import bao_gia as bg
+
+    if not frappe.db.exists("Workflow", bg.WORKFLOW):
+        return False
+    wf = frappe.get_doc("Workflow", bg.WORKFLOW)
+    doi = False
+    co_trang_thai = {s.state for s in wf.states}
+    for ten, ds, vai, _kieu in _bao_gia_states():
+        if ten not in co_trang_thai:
+            wf.append("states", {"state": ten, "doc_status": ds, "allow_edit": vai})
+            doi = True
+    co_canh = {(t.state, t.action, t.next_state, t.allowed) for t in wf.transitions}
+    for tu, hd, toi, vai, dk in _canh_theo_dot():
+        if (tu, hd, toi, vai) not in co_canh:
+            wf.append("transitions", {
+                "state": tu, "action": hd, "next_state": toi, "allowed": vai,
+                "condition": dk, "allow_self_approval": 1,
+            })
+            doi = True
+    if doi:
+        wf.flags.ignore_permissions = True
+        wf.save()
+    return doi
 
 
 def gan_trang_thai_bao_gia_cu() -> int:
