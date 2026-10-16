@@ -162,3 +162,11 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 		self.assertIn("dichSauDatHang(res)", nguon)
 		self.assertIn("1 đơn đặt ngay và 1 yêu cầu báo giá", nguon)
 		self.assertNotIn("1 đơn chờ báo giá", nguon)
+
+	def test_desk_quotation_co_nut_bao_gia_dot(self):
+		js = (Path(frappe.get_app_path("miyano_portal")) / "public" / "js" / "quotation.js").read_text()
+		self.assertIn('method: "miyano_portal.bao_gia_theo_dot.tach_dot"', js)
+		self.assertIn('__("Báo giá đợt này")', js)
+		from miyano_portal import bao_gia_theo_dot
+
+		self.assertIn(bao_gia_theo_dot.tach_dot, frappe.whitelisted)
