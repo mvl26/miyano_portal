@@ -471,12 +471,18 @@ doc_events = {
 		"before_validate": [
 			# Khớp mã cho dòng khách gõ tay: chuyển thành dòng hàng thật.
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+			# Phiếu gốc đã tách hết dòng sang các đợt được phép rỗng `items`.
+			# SAU phép chuyển ở trên: phép đó có thể vừa thêm dòng.
+			"miyano_portal.bao_gia_theo_dot.cho_phep_phieu_goc_rong",
 		],
 		"validate": [
 			# Thứ tự có nghĩa: `dong_bo…` tính `da_xu_ly` mà `chot_gui_khach` đọc.
 			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
 			"miyano_portal.bao_gia.kiem_ly_do_tu_choi",
 			"miyano_portal.bao_gia.chot_gui_khach",
+			# Báo giá theo đợt: chặn gửi khách/từ chối trên phiếu gốc đã có
+			# đợt, chặn mở lại đợt đã trả dòng về, kiểm «Huỷ phần còn lại».
+			"miyano_portal.bao_gia_theo_dot.kiem_chuyen_theo_dot",
 		],
 		"before_submit": [
 			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",

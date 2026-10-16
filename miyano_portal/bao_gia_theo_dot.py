@@ -8,6 +8,7 @@ gửi khách nữa (D7). Mọi luật về đợt nằm ở module này; `bao_gi
 """
 
 import frappe
+from frappe.utils import flt
 
 from miyano_portal import bao_gia
 
@@ -45,3 +46,189 @@ def them_don_hang(phieu: str, sales_order: str, bao_gia: str | None, so_dot: int
 			}).db_insert()
 	if not frappe.db.get_value("Portal De Xuat Mua", phieu, "sales_order"):
 		frappe.db.set_value("Portal De Xuat Mua", phieu, "sales_order", sales_order)
+
+
+# Trường đầu phiếu chép từ phiếu gốc sang đợt (spec §3.1). Các `custom_*` là
+# `no_copy` nên KHÔNG dùng `frappe.copy_doc`: dựng đợt tường minh.
+TRUONG_DAU_PHIEU = (
+	"quotation_to", "party_name", "company", "currency", "selling_price_list",
+	"order_type", "customer_address", "shipping_address_name", "contact_person",
+	"contact_email", "custom_nguon_don", "custom_de_xuat", "custom_khoa_phong",
+	"custom_ten_don_hang",
+)
+# Trường của một dòng hàng khi đi từ phiếu gốc sang đợt và ngược lại.
+TRUONG_DONG = (
+	"item_code", "item_name", "description", "qty", "rate", "uom", "stock_uom",
+	"conversion_factor", "warehouse", "custom_nguon_gia",
+)
+
+
+def _dong_moi(d) -> dict:
+	kq = {t: d.get(t) for t in TRUONG_DONG}
+	# BẪY ERPNext (xem `bao_gia.tao_bao_gia`): `price_list_rate` phải tường minh,
+	# không thì `set_missing_item_details` tra bảng giá và thay đơn giá vừa báo.
+	kq["price_list_rate"] = flt(d.get("rate"))
+	return kq
+
+
+def la_phieu_goc_cong(doc) -> bool:
+	return doc.get("custom_nguon_don") == bao_gia.NGUON_CONG and not doc.get("custom_phieu_goc")
+
+
+def co_dot(ten: str) -> bool:
+	"""Phiếu `ten` đã tách ít nhất một đợt."""
+	if not ten or not san_sang():
+		return False
+	return bool(frappe.db.exists("Quotation", {"custom_phieu_goc": ten}))
+
+
+def _con_dong_chua_bao(goc) -> bool:
+	"""Còn dòng hàng, hoặc còn dòng khách gõ tay chưa khớp mã (§4.1 bước 3, 5).
+
+	Bỏ qua dòng giữ chỗ: phiếu gốc hết dòng hàng mà còn dòng gõ tay thì
+	`portal_mua_le._dam_bao_con_dong_hang` (hook `before_validate`) tự chèn
+	một dòng `ITEM_GIU_CHO` — dòng đó không phải mặt hàng chờ báo."""
+	from miyano_portal.portal_mua_le import la_dong_giu_cho
+
+	return any(not la_dong_giu_cho(d.item_code) for d in goc.get("items") or []) or any(
+		not d.get("da_xu_ly") for d in goc.get("custom_dat_ngoai") or []
+	)
+
+
+def _khoa_va_nap_lai_dong(goc) -> None:
+	"""`get_doc(for_update=True)` chỉ khoá dòng CHA; bảng con vẫn đọc từ ảnh
+	chụp REPEATABLE READ lấy từ đầu giao dịch. Request thứ hai chờ khoá xong
+	sẽ thấy `items` CŨ — còn dòng request đầu đã chuyển sang đợt, thiếu dòng
+	vừa trả về — và `save()` sau đó xoá mất dòng mới. Đọc lại `items` bằng
+	đọc CÓ KHOÁ (luôn thấy bản đã commit mới nhất) rồi thay vào chứng từ."""
+	dong = frappe.db.sql(
+		"select * from `tabQuotation Item` where parent = %s and parenttype = 'Quotation' "
+		"and parentfield = 'items' order by idx for update",
+		goc.name, as_dict=True,
+	)
+	goc.set("items", dong)
+
+
+def cho_phep_phieu_goc_rong(doc, method=None) -> None:
+	"""Hook `before_validate` của Quotation. `items` là bắt buộc; phiếu gốc đã
+	tách hết dòng sang các đợt thì rỗng là ĐÚNG — lưu nó (chuyển "Đã báo hết",
+	nhận dòng trả về, huỷ phần còn lại) không được vấp chốt bắt buộc. Chạy ở
+	`before_validate` vì Frappe kiểm bắt buộc ngay sau bước đó."""
+	if doc.get("items") or doc.is_new() or not la_phieu_goc_cong(doc):
+		return
+	if co_dot(doc.name):
+		doc.flags.ignore_mandatory = True
+
+
+def kiem_chuyen_theo_dot(doc, method=None) -> None:
+	"""Hook `validate` của Quotation — các chốt chuyển trạng thái của báo giá
+	theo đợt (spec §3.2, §4.1, §4.3). Frappe v15 không có `before_transition`:
+	so trạng thái trước/sau như `bao_gia.kiem_ly_do_tu_choi`."""
+	if doc.is_new() or doc.get("custom_nguon_don") != bao_gia.NGUON_CONG or not san_sang():
+		return
+	truoc, nay = bao_gia._trang_thai_truoc(doc), doc.get("workflow_state")
+	if truoc == nay:
+		return
+	if doc.get("custom_da_tra_ve"):
+		frappe.throw(
+			f"Đợt {doc.name} đã trả các mặt hàng về phiếu gốc {doc.custom_phieu_goc} — "
+			"không mở lại được. Muốn báo lại thì tách đợt mới từ phiếu gốc.",
+			frappe.ValidationError,
+		)
+	if doc.get("custom_phieu_goc") or not co_dot(doc.name):
+		return
+	if nay in (bao_gia.TT_CHO_KHACH, bao_gia.TT_MIYANO_TU_CHOI):
+		frappe.throw(
+			"Phiếu đã báo theo đợt — dùng nút «Báo giá đợt này» để gửi khách các mặt "
+			"hàng còn lại, hoặc «Huỷ phần còn lại» nếu không báo nữa.",
+			frappe.ValidationError,
+		)
+
+
+def _dung_dot(goc, dong: list, so_dot: int):
+	d = frappe.new_doc("Quotation")
+	for t in TRUONG_DAU_PHIEU:
+		if goc.get(t) is not None:
+			d.set(t, goc.get(t))
+	d.transaction_date = frappe.utils.today()
+	d.ignore_pricing_rule = 1
+	d.custom_phieu_goc = goc.name
+	d.custom_so_dot = so_dot
+	d.custom_request_id = f"{goc.custom_request_id}:dot{so_dot}"
+	for hang in dong:
+		d.append("items", _dong_moi(hang))
+	d.insert()
+	return d
+
+
+@frappe.whitelist()
+def tach_dot(phieu_goc, dong) -> dict:
+	"""Desk — «Báo giá đợt này» (spec §4.1). Tạo đợt từ các dòng `dong` (tên
+	dòng `Quotation Item` của phiếu gốc), xoá chúng khỏi phiếu gốc và gửi khách
+	đợt đó: MỘT đơn vị, hỏng bước nào lùi cả ba."""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal.nang_quyen import quyen_he_thong
+
+	if isinstance(dong, str):
+		try:
+			dong = frappe.parse_json(dong)
+		except ValueError:
+			dong = None
+	if (
+		not isinstance(phieu_goc, str) or not isinstance(dong, list) or not dong
+		or not all(isinstance(x, str) for x in dong)
+	):
+		frappe.throw("Chọn ít nhất một mặt hàng để báo giá đợt này.", frappe.ValidationError)
+
+	goc = frappe.get_doc("Quotation", phieu_goc, for_update=True)
+	goc.check_permission("write")
+	if not la_phieu_goc_cong(goc) or not goc.get("custom_request_id"):
+		frappe.throw(
+			"Chỉ tách đợt được trên yêu cầu báo giá của cổng khách hàng (không tách từ một đợt).",
+			frappe.ValidationError,
+		)
+	if goc.docstatus != 0 or goc.get("workflow_state") != bao_gia.TT_CHO_MIYANO:
+		frappe.throw(
+			f"Phiếu phải ở «{bao_gia.TT_CHO_MIYANO}» mới tách đợt được.", frappe.ValidationError
+		)
+
+	chon = list(dict.fromkeys(dong))
+	_khoa_va_nap_lai_dong(goc)
+	theo_ten = {d.name: d for d in goc.items}
+	if any(t not in theo_ten for t in chon):
+		frappe.throw(
+			"Có mặt hàng đã được báo ở đợt khác hoặc không còn trên phiếu — tải lại "
+			"phiếu rồi chọn lại.",
+			frappe.ValidationError,
+		)
+	thieu_gia = [theo_ten[t].item_code for t in chon if flt(theo_ten[t].rate) <= 0]
+	if thieu_gia:
+		frappe.throw("Chưa có đơn giá: " + ", ".join(thieu_gia) + ".", frappe.ValidationError)
+
+	so_dot = int(frappe.db.sql(
+		"select coalesce(max(custom_so_dot), 0) from `tabQuotation` "
+		"where custom_phieu_goc = %s for update",
+		goc.name,
+	)[0][0]) + 1
+	nguoi_bam = frappe.session.user
+	frappe.db.savepoint("tach_dot")
+	try:
+		d = _dung_dot(goc, [theo_ten[t] for t in chon], so_dot)
+		bo = set(chon)
+		goc.set("items", [h for h in goc.items if h.name not in bo])
+		for i, h in enumerate(goc.items, 1):
+			h.idx = i
+		goc.save()
+		d = apply_workflow(d, bao_gia.HD_GUI_KHACH)
+		if not _con_dong_chua_bao(goc):
+			with quyen_he_thong():
+				goc = apply_workflow(goc, bao_gia.HD_BAO_HET)
+		goc.add_comment(
+			"Comment",
+			f"Tách đợt {so_dot} ({len(chon)} mặt hàng) → {d.name}, gửi khách bởi {nguoi_bam}",
+		)
+	except Exception:
+		frappe.db.rollback(save_point="tach_dot")
+		raise
+	return {"dot": d.name, "so_dot": so_dot, "trang_thai_goc": goc.get("workflow_state")}
