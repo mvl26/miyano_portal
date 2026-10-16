@@ -167,6 +167,8 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 		js = (Path(frappe.get_app_path("miyano_portal")) / "public" / "js" / "quotation.js").read_text()
 		self.assertIn('method: "miyano_portal.bao_gia_theo_dot.tach_dot"', js)
 		self.assertIn('__("Báo giá đợt này")', js)
+		# Nhãn ô chọn được gán bằng innerHTML: tên hàng phải được thoát.
+		self.assertIn("frappe.utils.escape_html(d.item_name", js)
 		from miyano_portal import bao_gia_theo_dot
 
 		self.assertIn(bao_gia_theo_dot.tach_dot, frappe.whitelisted)

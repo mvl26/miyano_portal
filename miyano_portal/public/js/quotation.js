@@ -91,7 +91,7 @@ function hop_thoai_tach_dot(frm) {
 			...co_gia.map((d) => ({
 				fieldtype: "Check",
 				fieldname: "d_" + d.idx,
-				label: `${d.item_code} — ${d.item_name || ""} · ${d.qty} ${d.uom || ""} × ${format_currency(d.rate, frm.doc.currency)}`,
+				label: `${frappe.utils.escape_html(d.item_code)} — ${frappe.utils.escape_html(d.item_name || "")} · ${d.qty} ${frappe.utils.escape_html(d.uom || "")} × ${format_currency(d.rate, frm.doc.currency)}`,
 			})),
 		],
 		primary_action_label: __("Tạo đợt và gửi khách"),
