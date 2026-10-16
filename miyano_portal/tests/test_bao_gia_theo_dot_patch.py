@@ -34,6 +34,8 @@ class TestPatchBaoGiaTheoDot(NenBaoGiaTheoDot):
 		          "custom_ly_do_huy_con_lai", "custom_nguoi_huy_con_lai"):
 			self.assertTrue(meta.has_field(f), f)
 			self.assertTrue(meta.get_field(f).no_copy, f)
+		# Trên phiếu gốc `custom_so_dot` là bộ đếm nội bộ, không phải «Đợt».
+		self.assertEqual(meta.get_field("custom_so_dot").depends_on, "eval:doc.custom_phieu_goc")
 
 	def test_bang_don_hang_tren_phieu(self):
 		self.assertEqual(

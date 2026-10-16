@@ -21,8 +21,10 @@ def them_truong():
 				"search_index": 1,
 			},
 			{
+				# Trên phiếu gốc đây là bộ đếm nội bộ (số đợt đã phát hành): ẩn.
 				"fieldname": "custom_so_dot", "label": "Đợt", "fieldtype": "Int",
 				"insert_after": "custom_phieu_goc", "read_only": 1, "no_copy": 1,
+				"depends_on": "eval:doc.custom_phieu_goc",
 			},
 			{
 				"fieldname": "custom_da_tra_ve", "label": "Đã trả mặt hàng về phiếu gốc",
