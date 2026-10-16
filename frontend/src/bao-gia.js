@@ -40,6 +40,15 @@ export function badgeDongBaoGia(dong) {
   return nhomBaoGiaBadge(dong.nhom)
 }
 
+// Tiêu đề khối của một đợt trong trang chi tiết (spec 2026-10-15 §5.2). Đợt
+// bị từ chối/hết hạn đã trả mặt hàng về phiếu: nói thẳng điều đó thay vì
+// "Đã đóng", để khách biết mặt hàng chưa mất.
+export function nhanDot(dot) {
+  const so = `Đợt ${dot?.so_dot || '?'}`
+  if (dot?.da_tra_ve) return `${so} · đã trả về phiếu`
+  return `${so} · ${nhanNhomBaoGia(dot?.nhom)}`
+}
+
 export function khoaNhomBaoGia(gt) {
   const s = String(gt || '')
   return NHOM_BAO_GIA.includes(s) ? s : ''

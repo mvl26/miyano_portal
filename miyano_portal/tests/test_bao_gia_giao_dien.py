@@ -52,14 +52,14 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 
 	def test_endpoint_frontend_goi_deu_ton_tai(self):
 		for ten in ("views/BaoGiaList.vue", "views/ChiTietBaoGia.vue",
-		            "components/TabDonBaoGia.vue"):
+		            "components/KhoiBaoGia.vue", "components/TabDonBaoGia.vue"):
 			ds = re.findall(r"api\.call\(\s*['\"](\w+)['\"]", _doc(ten))
 			self.assertTrue(ds, f"{ten}: không quét được lời gọi api.call nào")
 			for ham in ds:
 				self.assertIn(ham, _endpoint_that_portal(), f"{ten}: {ham}")
 
 	def test_chi_tiet_khong_ve_gia_khi_server_giau(self):
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		self.assertIn("quotation=", nguon)
 		mau = nguon.split("<template>", 1)[1]
 		# Mỗi con số tiền phải nằm trên phần tử mang `v-if="bg.hien_gia"` của
@@ -77,15 +77,24 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 	def test_thong_bao_gia_chua_co_theo_co_cua_server(self):
 		self.assertIn(
 			"v-if=\"!bg.hien_gia && bg.nhom === 'dang_bao_gia'\"",
-			_doc("views/ChiTietBaoGia.vue"),
+			_doc("components/KhoiBaoGia.vue"),
 		)
 
 	def test_sua_so_luong_chan_so_khong_hop_le(self):
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		ham = nguon.split("function guiSuaSoLuong", 1)[1].split("\n}\n", 1)[0]
 		self.assertIn("loiSoLuong(bg.value.items, soLuongMoi.value)", ham)
 		# Kiểm lỗi TRƯỚC khi dựng danh sách dòng gửi đi.
 		self.assertLess(ham.index("loiSoLuong("), ham.index("dongDaSua("))
+
+	def test_chi_tiet_ve_moi_dot_mot_khoi(self):
+		nguon = _doc("views/ChiTietBaoGia.vue")
+		self.assertIn('<KhoiBaoGia v-for="d in bg.dot"', nguon)
+		self.assertIn("portal_bao_gia_huy_con_lai", nguon)
+		self.assertIn('v-if="bg.duoc_huy_con_lai"', nguon)
+		# Dòng chưa báo không bao giờ mang giá.
+		khoi = nguon.split('v-for="it in bg.con_lai"', 1)[1].split("</tr>", 1)[0]
+		self.assertNotIn("fmtVND", khoi)
 
 	def test_duyet_phieu_bao_dung_chung_tu_sinh_ra(self):
 		nguon = _doc("views/ChiTietYeuCau.vue")
@@ -103,7 +112,7 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 	def test_chi_tiet_dung_ba_cot_ten_hang_chung(self):
 		# Quy tắc Mã / Tên mặt hàng / Tên thường gọi của mọi bảng mặt hàng
 		# trên cổng (`ten-hang.js`): bảng của màn báo giá không tự vẽ ô riêng.
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		self.assertIn("<CotTenHang head />", nguon)
 		self.assertIn('<CotTenHang :ma="it.item_code"', nguon)
 

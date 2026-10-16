@@ -1,17 +1,16 @@
 <script setup>
-// Chi tiết một yêu cầu báo giá (spec 2026-10-12 §6.3). Server quyết định khách
-// được thấy gì và làm gì (`hien_gia`, `duoc_dong_y`, `duoc_sua_so_luong`); màn
-// này không tự suy từ trạng thái.
+// Chi tiết một yêu cầu báo giá (spec 2026-10-12 §6.3, 2026-10-15 §5.2). Mỗi báo
+// giá gửi khách (cả phiếu, hoặc từng đợt) là một `KhoiBaoGia`; server quyết
+// định khách thấy gì và làm gì, màn này không tự suy từ trạng thái.
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
-import { fmtVND, fmtDate } from '../format'
+import { fmtDate } from '../format'
 import { showToast } from '../toast'
-import {
-  nhanNhomBaoGia, nhomBaoGiaBadge, hanhDongBaoGia, dongDaSua, loiSoLuong,
-} from '../bao-gia'
+import { nhanNhomBaoGia, nhomBaoGiaBadge, nhanDot } from '../bao-gia'
 import ReasonModal from '../components/ReasonModal.vue'
 import CotTenHang from '../components/CotTenHang.vue'
+import KhoiBaoGia from '../components/KhoiBaoGia.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
 
 const route = useRoute()
@@ -21,23 +20,17 @@ const error = ref('')
 const bg = ref(null)
 const nhatKy = ref([])
 const dangTaiNhatKy = ref(false)
-const dangChay = ref('')
-const moTuChoi = ref(false)
-const dangSua = ref(false)
-const soLuongMoi = ref({})
 
-const hanhDong = computed(() => hanhDongBaoGia(bg.value))
 const dongChuaKhop = computed(() => (bg.value?.dat_ngoai || []).filter((d) => !d.da_xu_ly))
-const pdfUrl = computed(() =>
-  `/api/method/miyano_portal.api.portal.portal_bao_gia_pdf?quotation=${encodeURIComponent(bg.value?.bao_gia || '')}`)
+const coDot = computed(() => (bg.value?.dot || []).length > 0)
+const moHuy = ref(false)
+const dangHuy = ref(false)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
     bg.value = await api.call('portal_bao_gia_chi_tiet', { ten: route.params.ten })
-    datLaiSoLuong()
-    dangSua.value = false
     napNhatKy()
   } catch (e) {
     bg.value = null
@@ -45,17 +38,6 @@ async function load() {
   } finally {
     loading.value = false
   }
-}
-
-function datLaiSoLuong() {
-  soLuongMoi.value = Object.fromEntries((bg.value?.items || []).map((it) => [it.name, it.qty]))
-}
-
-// Tắt chế độ sửa là HUỶ: các ô trở về số lượng đang có, để lần mở sau không
-// mang theo con số gõ dở của lần trước.
-function batTatSua() {
-  if (dangSua.value) datLaiSoLuong()
-  dangSua.value = !dangSua.value
 }
 
 // Đọc sổ là việc phụ: không `await` ở `load()`, lỗi không làm hỏng màn chính.
@@ -72,51 +54,21 @@ async function napNhatKy() {
   }
 }
 
-async function chay(ten, viec, thanhCong) {
-  if (dangChay.value) return
-  dangChay.value = ten
+// Huỷ các mặt hàng CHƯA báo (spec 2026-10-15 §4.4). Đợt đang chờ đồng ý vẫn
+// còn hiệu lực. Hộp lý do chỉ đóng khi server đã nhận.
+async function huyConLai(lyDo) {
+  if (dangHuy.value) return
+  dangHuy.value = true
   try {
-    await viec()
-    showToast(thanhCong)
+    await api.call('portal_bao_gia_huy_con_lai', { ten: bg.value.bao_gia, ly_do: lyDo || undefined })
+    moHuy.value = false
+    showToast('Đã huỷ các mặt hàng chưa báo giá.')
     await load()
   } catch (e) {
-    showToast(e.message || 'Không thực hiện được thao tác này.', 'error')
+    showToast(e.message || 'Không huỷ được phần còn lại.', 'error')
   } finally {
-    dangChay.value = ''
+    dangHuy.value = false
   }
-}
-
-const dongY = () => chay(
-  'dong_y',
-  () => api.call('portal_bao_gia_dong_y', { ten: bg.value.bao_gia }),
-  'Đã đồng ý — đơn hàng đã được tạo và chuyển cho Miyano xác nhận.',
-)
-
-// Hộp lý do chỉ đóng khi server đã nhận: lỗi thì hộp còn mở, lý do vừa gõ còn
-// nguyên để gửi lại.
-function tuChoi(lyDo) {
-  return chay(
-    'tu_choi',
-    async () => {
-      await api.call('portal_bao_gia_tu_choi', { ten: bg.value.bao_gia, ly_do: lyDo || undefined })
-      moTuChoi.value = false
-    },
-    'Đã từ chối báo giá.',
-  )
-}
-
-function guiSuaSoLuong() {
-  // Số 0, số âm, ô trống: chặn và nói rõ dòng nào, không lặng lẽ bỏ dòng đó
-  // khỏi lời gửi rồi báo thành công.
-  const loi = loiSoLuong(bg.value.items, soLuongMoi.value)
-  if (loi) return showToast(loi, 'error')
-  const dong = dongDaSua(bg.value.items, soLuongMoi.value)
-  if (!dong.length) return showToast('Chưa sửa số lượng dòng nào.', 'error')
-  return chay(
-    'sua_so_luong',
-    () => api.call('portal_bao_gia_sua_so_luong', { ten: bg.value.bao_gia, dong: JSON.stringify(dong) }),
-    'Đã gửi lại — Miyano sẽ xem lại giá theo số lượng mới.',
-  )
 }
 
 watch(() => route.params.ten, (moi) => { if (moi && route.name === 'bao-gia-detail') load() })
@@ -141,7 +93,7 @@ onMounted(load)
         <p v-if="bg.ten_don_hang" style="margin-top: 4px; overflow-wrap: anywhere">{{ bg.ten_don_hang }}</p>
         <p class="tag" style="margin-top: 4px">
           Yêu cầu báo giá {{ bg.bao_gia }} · gửi ngày {{ fmtDate(bg.ngay_tao) }}
-          <template v-if="bg.han_hieu_luc"> · hiệu lực đến <b>{{ fmtDate(bg.han_hieu_luc) }}</b></template>
+          <template v-if="!coDot && bg.han_hieu_luc"> · hiệu lực đến <b>{{ fmtDate(bg.han_hieu_luc) }}</b></template>
         </p>
         <p v-if="bg.het_han" class="tag" style="margin-top: 6px; color: var(--red)">
           Báo giá đã quá hạn hiệu lực. Gửi yêu cầu báo giá mới nếu vẫn cần hàng.
@@ -159,70 +111,31 @@ onMounted(load)
         </p>
       </div>
 
-      <div v-if="hanhDong.length" class="card mb10">
-        <div class="h3">Việc đang chờ bạn</div>
-        <p class="tag" style="margin-bottom: 10px">
-          Bấm <b>Đồng ý</b> = chấp nhận đặt hàng theo giá dưới đây. Hệ thống ghi lại người bấm và thời điểm.
-        </p>
-        <div class="flex" style="flex-wrap: wrap">
-          <button class="btn-g" :disabled="!!dangChay" @click="dongY">
-            {{ dangChay === 'dong_y' ? 'Đang gửi…' : '✔ Đồng ý báo giá' }}
-          </button>
-          <button class="btn-o" :disabled="!!dangChay" @click="moTuChoi = true">✕ Từ chối…</button>
-          <button v-if="hanhDong.includes('sua_so_luong')" class="btn-o" :disabled="!!dangChay"
-                  @click="batTatSua">{{ dangSua ? '✕ Huỷ sửa số lượng' : '✎ Sửa số lượng' }}</button>
-          <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
-        </div>
-      </div>
-      <!-- Hết việc phải làm nhưng vẫn được xem giá: báo giá còn tải về được. -->
-      <div v-else-if="bg.hien_gia" class="mb10">
-        <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
-      </div>
+      <template v-if="coDot">
+        <KhoiBaoGia v-for="d in bg.dot" :key="d.bao_gia" :bg="d" :tieu-de="nhanDot(d)" @xong="load" />
 
-      <div v-if="!bg.hien_gia && bg.nhom === 'dang_bao_gia'" class="card mb10">
-        <span class="badge b-blue">Miyano đang báo giá</span>
-        <span class="tag"> Đơn giá sẽ hiện khi Miyano gửi báo giá cho quý vị.</span>
-      </div>
-
-      <!-- Ba cột Mã / Tên mặt hàng / Tên thường gọi theo quy tắc chung của mọi
-           bảng mặt hàng trên cổng (`CotTenHang`, `ten-hang.js`); bảng rộng hơn
-           khung thì cuộn ngang trong thẻ. Cột giá CHỈ vẽ khi server cho xem
-           (`bg.hien_gia`) — lúc đó `rate`/`amount` mới khác `null`. -->
-      <div class="card mb10" style="padding: 0; overflow-x: auto">
-        <div class="h3" style="padding: 12px 14px 0">Mặt hàng</div>
-        <table>
-          <thead>
-            <tr>
-              <CotTenHang head />
-              <th>ĐVT</th><th class="right">Số lượng</th>
-              <th v-if="bg.hien_gia" class="right">Đơn giá</th>
-              <th v-if="bg.hien_gia" class="right">Thành tiền</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="it in bg.items" :key="it.name">
-              <CotTenHang :ma="it.item_code" :ten="it.item_name || ''" />
-              <td>{{ it.uom }}</td>
-              <td class="right">
-                <input v-if="dangSua" v-model.number="soLuongMoi[it.name]" type="number" min="0.001"
-                       step="any" style="width: 90px; text-align: right" />
-                <template v-else>{{ it.qty }}</template>
-              </td>
-              <td v-if="bg.hien_gia" class="right">{{ fmtVND(it.rate) }}</td>
-              <td v-if="bg.hien_gia" class="right">{{ fmtVND(it.amount) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="bg.hien_gia" class="right" style="padding: 10px 14px">
-          <b>Tổng cộng: {{ fmtVND(bg.tong_tien) }}</b>
-        </p>
-        <div v-if="dangSua" class="flex" style="padding: 0 14px 12px; flex-wrap: wrap">
-          <button class="btn" :disabled="!!dangChay" @click="guiSuaSoLuong">
-            {{ dangChay === 'sua_so_luong' ? 'Đang gửi…' : 'Gửi lại để báo giá' }}
-          </button>
-          <span class="tag">Miyano xem lại giá theo số lượng mới rồi gửi báo giá lại. Muốn bỏ hẳn thì từ chối báo giá.</span>
+        <div v-if="bg.con_lai.length || dongChuaKhop.length || bg.duoc_huy_con_lai" class="card mb10"
+             style="padding: 0; overflow-x: auto">
+          <div class="sb" style="padding: 12px 14px 0">
+            <div class="h3" style="margin: 0">Chờ Miyano báo giá</div>
+            <span class="badge b-blue">{{ bg.con_lai.length }} mặt hàng</span>
+          </div>
+          <table v-if="bg.con_lai.length">
+            <thead><tr><CotTenHang head /><th>ĐVT</th><th class="right">Số lượng</th></tr></thead>
+            <tbody>
+              <tr v-for="it in bg.con_lai" :key="it.name">
+                <CotTenHang :ma="it.item_code" :ten="it.item_name || ''" />
+                <td>{{ it.uom }}</td><td class="right">{{ it.qty }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="bg.duoc_huy_con_lai" style="padding: 10px 14px">
+            <button class="btn-o" :disabled="dangHuy" @click="moHuy = true">✕ Huỷ phần còn lại…</button>
+            <span class="tag"> Các đợt đã gửi vẫn giữ nguyên.</span>
+          </div>
         </div>
-      </div>
+      </template>
+      <KhoiBaoGia v-else :bg="bg" @xong="load" />
 
       <div v-if="dongChuaKhop.length" class="card mb10">
         <div class="h3">Hàng quý vị mô tả — Miyano đang tìm mã</div>
@@ -234,25 +147,16 @@ onMounted(load)
       <KhoiDongThoiGian :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
 
       <ReasonModal
-        :open="moTuChoi"
-        title="Từ chối báo giá"
-        desc="Lý do không bắt buộc, nhưng giúp Miyano báo giá sát hơn ở lần sau."
-        placeholder="VD: Giá cao hơn nhà cung cấp hiện tại…"
+        :open="moHuy"
+        title="Huỷ phần còn lại"
+        desc="Các mặt hàng chưa được báo giá sẽ không được báo nữa. Lý do không bắt buộc."
+        placeholder="VD: Đã mua được ở nơi khác…"
         :min-len="0"
-        :submitting="dangChay === 'tu_choi'"
-        submit-label="Từ chối báo giá"
-        @submit="tuChoi"
-        @close="moTuChoi = false"
+        :submitting="dangHuy"
+        submit-label="Huỷ phần còn lại"
+        @submit="huyConLai"
+        @close="moHuy = false"
       />
     </template>
   </div>
 </template>
-
-<style scoped>
-/* Liên kết tải PDF mang dáng nút `.btn-o` (vốn viết cho <button>). */
-.nut-pdf {
-  display: inline-block;
-  text-decoration: none;
-  font-size: 14px;
-}
-</style>
