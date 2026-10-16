@@ -28,6 +28,8 @@
 - Spec nói "kiểm trong `before_transition`". Frappe v15 không có hook đó; các chốt đặt ở hook `validate` (so trạng thái trước/sau), đúng khuôn `bao_gia.kiem_ly_do_tu_choi` đang dùng.
 - `custom_ly_do_huy_con_lai` **không** read-only: nhân viên gõ lý do vào ô rồi bấm hành động "Huỷ phần còn lại", y như ô "Lý do từ chối" hiện nay. Chỉ hiện trên phiếu gốc của cổng (`depends_on`).
 - Thêm một chốt spec chưa nói: phiếu gốc đã có đợt thì cũng chặn "Từ chối" (Miyano) — dùng "Huỷ phần còn lại". Không chặn thì dòng trả về rơi vào một phiếu đã từ chối.
+- Thêm một luật nhóm spec chưa nói (§5.1): có đợt đang ở "Chờ Miyano báo giá" (khách sửa số lượng, hoặc Miyano thu hồi để sửa) thì phiếu ở nhóm `dang_bao_gia`, kể cả khi phiếu gốc đã "Đã báo hết". Không có luật này khách thấy "Đã đóng" trong lúc Miyano còn đang báo lại.
+- Phiếu gốc hết dòng hàng mà còn dòng gõ tay thì hook khớp mã có sẵn (`portal_mua_le._dam_bao_con_dong_hang`) tự chèn một dòng giữ chỗ `ITEM_GIU_CHO`. Kế hoạch không chặn hành vi đó; mọi phép đếm "còn dòng chưa báo" và khối "Chờ Miyano báo giá" trên cổng bỏ qua dòng giữ chỗ.
 
 ## Review Focus
 
@@ -547,8 +549,33 @@ Expected: PASS 7/7. (Không có `migrate` thì bảng `tabPortal De Xuat Mua Don
 
 - [ ] **Step 11: Cập nhật số đếm trong test workflow cũ rồi chạy**
 
-`miyano_portal/tests/test_bao_gia_workflow.py`: dòng 33 `6` → `8`; dòng 34 `9` → `12`; dòng 170 `8` → `11`; dòng 176 `9` → `12`.
+`miyano_portal/tests/test_bao_gia_workflow.py`: dòng 33 `6` → `8`; dòng 34 `9` → `12`.
 `miyano_portal/tests/test_bao_gia_cai_dat.py:107`: `9` → `12`.
+
+`test_site_nang_cap_duoc_them_buoc_mo_lai` so DANH SÁCH CÓ THỨ TỰ với `_bao_gia_transitions()`. Chỉ gỡ «Mở lại» thì `mo_rong_workflow_bao_gia` nối nó vào SAU ba bước theo đợt, sai thứ tự. Giả lập đúng site cũ (trước v1_42 bản «Mở lại», trước v1_45): gỡ cả «Mở lại» lẫn ba bước theo đợt, rồi chạy hai patch theo đúng thứ tự. Thay thân test bằng:
+
+```python
+	def test_site_nang_cap_duoc_them_buoc_mo_lai(self):
+		"""Workflow đã cài từ trước (8 bước): patch v1_42 thêm «Mở lại», patch
+		v1_45 thêm ba bước theo đợt; chạy lại thì không thêm gì."""
+		from miyano_portal.patches.v1_45 import bao_gia_theo_dot as v1_45
+
+		self.addCleanup(frappe.clear_document_cache, "Workflow", bao_gia.WORKFLOW)
+		theo_dot = {hd for _tu, hd, _toi, _vai, _dk in install_workflow._canh_theo_dot()}
+		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
+		wf.set("transitions", [
+			t for t in wf.transitions if t.action != bao_gia.HD_MO_LAI and t.action not in theo_dot
+		])
+		wf.flags.ignore_permissions = True
+		wf.save()
+		self.assertEqual(len(_hinh_dang()), 8)
+
+		for _ in range(2):
+			bao_gia_quotation.cai_workflow()
+			v1_45.cai_workflow()
+			self.assertEqual(_hinh_dang(), _hinh_dang_goc())
+		self.assertEqual(len(_hinh_dang()), 12)
+```
 
 Run: `bench --site localhost run-tests --app miyano_portal --module miyano_portal.tests.test_bao_gia_workflow && bench --site localhost run-tests --app miyano_portal --module miyano_portal.tests.test_bao_gia_cai_dat && bench --site localhost run-tests --app miyano_portal --module miyano_portal.tests.test_patch_bao_gia_quotation`
 Expected: PASS. Nếu một test khác so tiêu đề "Báo giá … đã sẵn sàng" bằng chuỗi cố định, sửa kỳ vọng sang tiêu đề mới của Step 6.
@@ -593,6 +620,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.model.workflow import apply_workflow, get_transitions
+from frappe.utils import flt
 
 from miyano_portal import bao_gia, bao_gia_theo_dot as dot
 from miyano_portal.tests.nen_bao_gia import NenBaoGiaTheoDot
@@ -650,6 +678,28 @@ class TestTachDot(NenBaoGiaTheoDot):
 		dot.tach_dot(goc.name, [d.name for d in goc.items])
 		goc.reload()
 		self.assertEqual(goc.workflow_state, bao_gia.TT_CHO_MIYANO)
+
+	def test_dong_go_tay_da_khop_chuyen_sang_dot_khong_sinh_lai(self):
+		"""Dòng gõ tay đã khớp mã sinh ra một dòng hàng (`dong_hang`). Dòng hàng
+		đó sang đợt thì lần lưu sau của phiếu gốc KHÔNG được sinh nó lần nữa
+		(`da_chuyen` giữ nguyên), và dòng giữ chỗ hook tự chèn không chặn
+		"Đã báo hết"."""
+		goc = self._bao_gia_tho(
+			items=[{"item_code": self.item_boi_so, "qty": 10, "rate": 7000, "price_list_rate": 7000}],
+			custom_dat_ngoai=[{"ten_hang": "Kim gõ tay", "dvt": "Cái", "so_luong": 2}],
+		)
+		goc.custom_dat_ngoai[0].item_khop = self.item_ngoai
+		goc.save()
+		self.assertIn(self.item_ngoai, [d.item_code for d in goc.items])
+		self.assertEqual(goc.custom_dat_ngoai[0].da_xu_ly, 1)
+		dot.tach_dot(goc.name, [d.name for d in goc.items if flt(d.rate) > 0])
+		goc.reload()
+		goc.save()
+		goc.reload()
+		from miyano_portal.portal_mua_le import la_dong_giu_cho
+
+		self.assertEqual([d.item_code for d in goc.items if not la_dong_giu_cho(d.item_code)], [])
+		self.assertEqual(goc.workflow_state, bao_gia.TT_DA_BAO_HET)
 
 	def test_dong_thieu_gia_bi_chan(self):
 		goc = self._goc_ba_dong()
@@ -794,10 +844,30 @@ def co_dot(ten: str) -> bool:
 
 
 def _con_dong_chua_bao(goc) -> bool:
-	"""Còn dòng hàng, hoặc còn dòng khách gõ tay chưa khớp mã (§4.1 bước 3, 5)."""
-	return bool(goc.get("items")) or any(
+	"""Còn dòng hàng, hoặc còn dòng khách gõ tay chưa khớp mã (§4.1 bước 3, 5).
+
+	Bỏ qua dòng giữ chỗ: phiếu gốc hết dòng hàng mà còn dòng gõ tay thì
+	`portal_mua_le._dam_bao_con_dong_hang` (hook `before_validate`) tự chèn
+	một dòng `ITEM_GIU_CHO` — dòng đó không phải mặt hàng chờ báo."""
+	from miyano_portal.portal_mua_le import la_dong_giu_cho
+
+	return any(not la_dong_giu_cho(d.item_code) for d in goc.get("items") or []) or any(
 		not d.get("da_xu_ly") for d in goc.get("custom_dat_ngoai") or []
 	)
+
+
+def _khoa_va_nap_lai_dong(goc) -> None:
+	"""`get_doc(for_update=True)` chỉ khoá dòng CHA; bảng con vẫn đọc từ ảnh
+	chụp REPEATABLE READ lấy từ đầu giao dịch. Request thứ hai chờ khoá xong
+	sẽ thấy `items` CŨ — còn dòng request đầu đã chuyển sang đợt, thiếu dòng
+	vừa trả về — và `save()` sau đó xoá mất dòng mới. Đọc lại `items` bằng
+	đọc CÓ KHOÁ (luôn thấy bản đã commit mới nhất) rồi thay vào chứng từ."""
+	dong = frappe.db.sql(
+		"select * from `tabQuotation Item` where parent = %s and parenttype = 'Quotation' "
+		"and parentfield = 'items' order by idx for update",
+		goc.name, as_dict=True,
+	)
+	goc.set("items", dong)
 
 
 def cho_phep_phieu_goc_rong(doc, method=None) -> None:
@@ -885,15 +955,8 @@ def tach_dot(phieu_goc, dong) -> dict:
 		)
 
 	chon = list(dict.fromkeys(dong))
-	# Đọc lại dòng bằng `for update`: dưới REPEATABLE READ, `goc.items` của
-	# request thứ hai (chờ khoá phiếu gốc xong) là ẢNH CHỤP CŨ — vẫn thấy các
-	# dòng request đầu đã chuyển sang đợt.
-	con_that = set(frappe.db.sql_list(
-		"select name from `tabQuotation Item` where parent = %s and parenttype = 'Quotation' "
-		"and name in %s for update",
-		(goc.name, tuple(chon)),
-	))
-	theo_ten = {d.name: d for d in goc.items if d.name in con_that}
+	_khoa_va_nap_lai_dong(goc)
+	theo_ten = {d.name: d for d in goc.items}
 	if any(t not in theo_ten for t in chon):
 		frappe.throw(
 			"Có mặt hàng đã được báo ở đợt khác hoặc không còn trên phiếu — tải lại "
@@ -958,7 +1021,7 @@ def tach_dot(phieu_goc, dong) -> dict:
 - [ ] **Step 5: Chạy test**
 
 Run: `bench --site localhost run-tests --app miyano_portal --module miyano_portal.tests.test_bao_gia_theo_dot_tach`
-Expected: PASS 15/15.
+Expected: PASS 16/16.
 
 Nếu `test_tach_het_dong_thanh_da_bao_het` hỏng trong `calculate_taxes_and_totals`/`make_packing_list` của ERPNext với `items` rỗng: đọc traceback, đặt cờ bỏ qua đúng phép tính đó trong `cho_phep_phieu_goc_rong` (không bỏ cả `validate`), ghi lý do vào docstring.
 
@@ -1264,6 +1327,7 @@ def tra_dong_ve_khi_dot_dong(doc, method=None) -> None:
 	if truoc == nay or nay not in TT_TRA_VE:
 		return
 	goc = frappe.get_doc("Quotation", doc.custom_phieu_goc, for_update=True)
+	_khoa_va_nap_lai_dong(goc)
 	if goc.get("workflow_state") not in (bao_gia.TT_CHO_MIYANO, bao_gia.TT_DA_BAO_HET):
 		goc.add_comment(
 			"Comment",
@@ -1732,6 +1796,17 @@ class TestCongTheoDot(NenBaoGiaTheoDot):
 		self._goi(self.ql_a, bao_gia.dong_y, d1)
 		self.assertEqual(self._dong_cua_phieu()[0]["nhom"], "da_dong")
 
+	def test_dot_dang_bao_lai_thi_dang_bao_gia_du_phieu_da_bao_het(self):
+		d1 = self._tach(self.item_ngoai, self.item_boi_so, self.item_co_dau)
+		self.assertEqual(
+			frappe.db.get_value("Quotation", self.goc.name, "workflow_state"), bao_gia.TT_DA_BAO_HET
+		)
+		ten_dong = frappe.get_doc("Quotation", d1).items[0].name
+		self._goi(self.ql_a, portal.portal_bao_gia_sua_so_luong, d1, [{"name": ten_dong, "qty": 20}])
+		self.assertEqual(self._dong_cua_phieu()[0]["nhom"], "dang_bao_gia")
+		kq = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
+		self.assertEqual(kq["nhom"], "dang_bao_gia")
+
 	def test_chi_tiet_co_dot_va_con_lai(self):
 		d1 = self._tach(self.item_ngoai)
 		kq = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
@@ -1831,8 +1906,8 @@ Expected: FAIL — `KeyError: 'dot'`, `AttributeError: ... portal_bao_gia_huy_co
 `miyano_portal/api/portal.py` — thay `_sql_nhom_bao_gia`:
 
 ```python
-def _sql_dot_cho_khach(q: str) -> str:
-    """Có đợt của báo giá `q` đang chờ khách đồng ý (spec 2026-10-15 §5.1).
+def _sql_dem_dot(q: str, trang_thai: str) -> str:
+    """Số đợt NHÁP của báo giá `q` đang ở `trang_thai` (spec 2026-10-15 §5.1).
     `'0'` khi site chưa có cột `custom_phieu_goc` (patch v1_45): 1054 lúc
     PARSE, không có short-circuit theo giá trị."""
     from miyano_portal import bao_gia_theo_dot
@@ -1841,16 +1916,23 @@ def _sql_dot_cho_khach(q: str) -> str:
         return "0"
     return f"""(select count(*) from `tabQuotation` dq
                 where dq.custom_phieu_goc = {q}.name and dq.docstatus = 0
-                  and dq.workflow_state = '{bao_gia.TT_CHO_KHACH}')"""
+                  and dq.workflow_state = '{trang_thai}')"""
+
+
+def _sql_dot_cho_khach(q: str) -> str:
+    return _sql_dem_dot(q, bao_gia.TT_CHO_KHACH)
 
 
 def _sql_nhom_bao_gia(q: str) -> str:
     # Phiếu gốc đã tách đợt: có đợt chờ khách thì nhóm "chờ đồng ý" thắng mọi
-    # thứ; "Đã báo hết" / "Đã huỷ phần còn lại" rơi vào `else` → 'da_dong'.
-    # Bản Python cùng luật: `_nhom_phieu_goc`.
+    # thứ; còn đợt Miyano đang báo lại (khách sửa số lượng / thu hồi để sửa)
+    # thì "đang báo giá" dù phiếu gốc đã "Đã báo hết"; "Đã báo hết" / "Đã huỷ
+    # phần còn lại" còn lại rơi vào `else` → 'da_dong'. Bản Python cùng luật:
+    # `_nhom_phieu_goc`.
     return f"""case
         when {q}.name is null then 'nhap'
         when {_sql_dot_cho_khach(q)} > 0 then 'cho_dong_y'
+        when {_sql_dem_dot(q, bao_gia.TT_CHO_MIYANO)} > 0 then 'dang_bao_gia'
         when {q}.workflow_state = '{bao_gia.TT_CHO_MIYANO}' then 'dang_bao_gia'
         when {q}.workflow_state = '{bao_gia.TT_CHO_KHACH}' then 'cho_dong_y'
         when {q}.workflow_state = '{bao_gia.TT_DA_DONG_Y}' then 'da_dong_y'
@@ -1903,8 +1985,38 @@ def _mo_ta_bao_gia(bg) -> dict:
     if bg.get("custom_de_xuat"):
         ma = frappe.db.get_value("Portal De Xuat Mua", bg.custom_de_xuat, "ma_de_xuat") or ""
     return {
-        # ... GIỮ NGUYÊN mọi khoá của dict cũ, từ "bao_gia": bg.name tới hết
-        # "dat_ngoai": [...] — chép nguyên khối return cũ vào đây ...
+        "bao_gia": bg.name,
+        "trang_thai": trang_thai,
+        "nhom": _NHOM_THEO_TRANG_THAI.get(trang_thai, "da_dong"),
+        "de_xuat": bg.get("custom_de_xuat") or "",
+        "sales_order": bao_gia.don_cua_bao_gia(bg) or "",
+        "ma": ma,
+        "ten_don_hang": bg.get("custom_ten_don_hang") or "",
+        "khoa_phong": bg.get("custom_khoa_phong") or "",
+        "ngay_tao": str(bg.transaction_date),
+        "han_hieu_luc": str(bg.valid_till) if bg.get("valid_till") else "",
+        "het_han": het_han,
+        "hien_gia": hien_gia,
+        "tong_tien": float(bg.grand_total or 0) if hien_gia else None,
+        "ly_do_tu_choi": bg.get("custom_ly_do_tu_choi") or "",
+        "duoc_dong_y": cho_khach and not het_han,
+        "duoc_sua_so_luong": cho_khach and not het_han and la_quan_ly(),
+        "items": [
+            {
+                "name": d.name, "item_code": d.item_code, "item_name": d.item_name,
+                "uom": d.uom, "qty": float(d.qty or 0),
+                "rate": float(d.rate or 0) if hien_gia else None,
+                "amount": float(d.amount or 0) if hien_gia else None,
+            }
+            for d in bg.items if d.item_code != ITEM_GIU_CHO
+        ],
+        "dat_ngoai": [
+            {
+                "ten_hang": d.ten_hang, "dvt": d.dvt, "so_luong": float(d.so_luong or 0),
+                "da_xu_ly": int(d.da_xu_ly or 0), "item_khop": d.get("item_khop") or "",
+            }
+            for d in bg.get("custom_dat_ngoai") or []
+        ],
     }
 
 
@@ -1928,7 +2040,9 @@ def _nhom_phieu_goc(goc, dot) -> str:
     """Bản Python của `_sql_nhom_bao_gia` cho phiếu đã tách đợt."""
     if any(d.docstatus == 0 and d.workflow_state == bao_gia.TT_CHO_KHACH for d in dot):
         return "cho_dong_y"
-    if goc.get("workflow_state") == bao_gia.TT_CHO_MIYANO:
+    if goc.get("workflow_state") == bao_gia.TT_CHO_MIYANO or any(
+        d.docstatus == 0 and d.workflow_state == bao_gia.TT_CHO_MIYANO for d in dot
+    ):
         return "dang_bao_gia"
     return "da_dong"
 
@@ -1957,7 +2071,7 @@ def portal_bao_gia_chi_tiet(ten) -> dict:
     return kq
 ```
 
-Thân `_mo_ta_bao_gia` = nguyên khối `return {...}` của `portal_bao_gia_chi_tiet` cũ (dòng 1485-1521), không đổi khoá nào.
+Dict của `_mo_ta_bao_gia` đúng bằng dict mà `portal_bao_gia_chi_tiet` cũ trả (dòng 1485-1521): không thêm, không bớt khoá nào.
 
 - [ ] **Step 5: Endpoint huỷ phần còn lại**
 
@@ -2290,10 +2404,44 @@ async function huyConLai(lyDo) {
 }
 ```
 
-Template (thay toàn bộ phần sau thẻ đầu trang cho tới trước `<KhoiDongThoiGian`):
+Toàn bộ `<template>` mới của trang:
 
 ```vue
-      <!-- Thẻ đầu trang giữ nguyên như cũ (mã, tên đơn, ngày, hạn, lý do, link đơn / phiếu gốc). -->
+<template>
+  <div>
+    <div class="topbar">
+      <router-link :to="{ name: 'bao-gia' }"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
+    </div>
+
+    <div v-if="loading" class="loading">Đang tải…</div>
+    <div v-else-if="error" class="empty">{{ error }}</div>
+
+    <template v-else-if="bg">
+      <div class="card mb10">
+        <div class="sb">
+          <h3 style="margin: 0">{{ bg.ma || bg.bao_gia }}</h3>
+          <span class="badge" :class="nhomBaoGiaBadge(bg.nhom)">{{ nhanNhomBaoGia(bg.nhom) }}</span>
+        </div>
+        <p v-if="bg.ten_don_hang" style="margin-top: 4px; overflow-wrap: anywhere">{{ bg.ten_don_hang }}</p>
+        <p class="tag" style="margin-top: 4px">
+          Yêu cầu báo giá {{ bg.bao_gia }} · gửi ngày {{ fmtDate(bg.ngay_tao) }}
+          <template v-if="!coDot && bg.han_hieu_luc"> · hiệu lực đến <b>{{ fmtDate(bg.han_hieu_luc) }}</b></template>
+        </p>
+        <p v-if="bg.het_han" class="tag" style="margin-top: 6px; color: var(--red)">
+          Báo giá đã quá hạn hiệu lực. Gửi yêu cầu báo giá mới nếu vẫn cần hàng.
+        </p>
+        <p v-if="bg.ly_do_tu_choi" class="tag" style="margin-top: 6px; color: var(--red)">
+          Lý do từ chối: {{ bg.ly_do_tu_choi }}
+        </p>
+        <p v-if="bg.sales_order" style="margin-top: 6px">
+          <router-link :to="{ name: 'order-detail', params: { name: bg.sales_order } }">
+            Xem đơn hàng {{ bg.sales_order }} →
+          </router-link>
+        </p>
+        <p v-else-if="bg.de_xuat" class="tag" style="margin-top: 6px">
+          <router-link :to="{ name: 'de-xuat-detail', params: { ten: bg.de_xuat } }">Xem phiếu đề xuất gốc</router-link>
+        </p>
+      </div>
 
       <template v-if="coDot">
         <KhoiBaoGia v-for="d in bg.dot" :key="d.bao_gia" :bg="d" :tieu-de="nhanDot(d)" @xong="load" />
@@ -2322,7 +2470,10 @@ Template (thay toàn bộ phần sau thẻ đầu trang cho tới trước `<Kho
       <KhoiBaoGia v-else :bg="bg" @xong="load" />
 
       <div v-if="dongChuaKhop.length" class="card mb10">
-        <!-- khối "Hàng quý vị mô tả — Miyano đang tìm mã" giữ nguyên -->
+        <div class="h3">Hàng quý vị mô tả — Miyano đang tìm mã</div>
+        <div v-for="(d, i) in dongChuaKhop" :key="i" class="rowline">
+          <span>{{ d.ten_hang }}</span><span class="tag">{{ d.so_luong }} {{ d.dvt }}</span>
+        </div>
       </div>
 
       <KhoiDongThoiGian :dong="nhatKy" :dang-tai="dangTaiNhatKy" />
@@ -2338,9 +2489,12 @@ Template (thay toàn bộ phần sau thẻ đầu trang cho tới trước `<Kho
         @submit="huyConLai"
         @close="moHuy = false"
       />
+    </template>
+  </div>
+</template>
 ```
 
-Xoá `<style scoped>` `.nut-pdf` khỏi trang (đã sang component). Hai comment HTML "giữ nguyên" ở trên là chỉ dẫn cho người làm — trong file thật để nguyên mã cũ của hai khối đó, không để comment này.
+Trang không còn `<style scoped>` (`.nut-pdf` đã sang component).
 
 - [ ] **Step 5: Cập nhật test nối dây giao diện**
 
