@@ -33,7 +33,14 @@ def them_don_hang(phieu: str, sales_order: str, bao_gia: str | None, so_dot: int
 
 	Chèn thẳng dòng con, không lưu lại phiếu: lưu phiếu đi qua các chốt sửa
 	phiếu (`_chan_sua_so_luong_de_xuat`…) không liên quan tới việc này. Chạy
-	lại được: đơn đã có dòng thì thôi."""
+	lại được: đơn đã có dòng thì thôi.
+
+	Khoá dòng phiếu TRƯỚC khi đọc max(idx): hai đợt cùng sinh đơn không chèn
+	trùng idx. Có ghi gì thì đẩy `modified` của phiếu: bản phiếu đang mở trên
+	Desk lưu lại sẽ vấp TimestampMismatch thay vì lặng lẽ xoá dòng vừa chèn
+	(lưu một chứng từ ghi đè cả bảng con theo bản trong tay)."""
+	frappe.db.sql("select name from `tabPortal De Xuat Mua` where name = %s for update", phieu)
+	da_ghi = False
 	if frappe.db.table_exists(BANG_DON_HANG):
 		if not frappe.db.exists(BANG_DON_HANG, {"parent": phieu, "sales_order": sales_order}):
 			idx = frappe.db.sql(
@@ -44,8 +51,14 @@ def them_don_hang(phieu: str, sales_order: str, bao_gia: str | None, so_dot: int
 				"parentfield": "don_hang", "idx": int(idx) + 1, "sales_order": sales_order,
 				"bao_gia": bao_gia, "so_dot": so_dot or 0,
 			}).db_insert()
+			da_ghi = True
 	if not frappe.db.get_value("Portal De Xuat Mua", phieu, "sales_order"):
 		frappe.db.set_value("Portal De Xuat Mua", phieu, "sales_order", sales_order)
+		da_ghi = True
+	if da_ghi:
+		frappe.db.set_value(
+			"Portal De Xuat Mua", phieu, "modified", frappe.utils.now(), update_modified=False
+		)
 
 
 # Trường đầu phiếu chép từ phiếu gốc sang đợt (spec §3.1). Các `custom_*` là
@@ -170,6 +183,11 @@ def tach_dot(phieu_goc, dong) -> dict:
 	):
 		frappe.throw("Chọn ít nhất một mặt hàng để báo giá đợt này.", frappe.ValidationError)
 
+	# Quyền cấp doctype TRƯỚC khi đụng tới dòng: người không có quyền ghi không
+	# được dùng hàm này để dò tên nào có thật (thiếu và bị cấm cùng một lỗi), và
+	# không giữ được khoá trên phiếu của người khác. Quyền trên CHÍNH phiếu kiểm
+	# sau khi nạp.
+	frappe.has_permission("Quotation", "write", throw=True)
 	# `for_update=True` khoá dòng cha VÀ đọc mọi bảng con bằng FOR UPDATE (đọc mới
 	# nhất dưới REPEATABLE READ): việc kiểm dòng được chọn bên dưới thấy bản đã commit.
 	goc = frappe.get_doc("Quotation", phieu_goc, for_update=True)
@@ -238,19 +256,22 @@ def tra_dong_ve_khi_dot_dong(doc, method=None) -> None:
 	không trả gì. Dòng trả về giữ giá vừa báo và KHÔNG gộp với dòng trùng mã."""
 	from frappe.model.workflow import apply_workflow
 
-	from miyano_portal.nang_quyen import quyen_he_thong
+	from miyano_portal.nang_quyen import nguoi_that, quyen_he_thong
 
 	if not doc.get("custom_phieu_goc") or doc.get("custom_da_tra_ve"):
 		return
 	truoc, nay = bao_gia._trang_thai_truoc(doc), doc.get("workflow_state")
 	if truoc == nay or nay not in TT_TRA_VE:
 		return
+	# Khách từ chối đi qua `bao_gia.tu_choi`, đã ở trong `quyen_he_thong()`:
+	# `session.user` lúc này là Administrator, không phải người bấm.
+	nguoi_bam = nguoi_that()
 	goc = frappe.get_doc("Quotation", doc.custom_phieu_goc, for_update=True)
 	if goc.get("workflow_state") not in (bao_gia.TT_CHO_MIYANO, bao_gia.TT_DA_BAO_HET):
 		goc.add_comment(
 			"Comment",
-			f"Đợt {doc.custom_so_dot} ({doc.name}) chuyển «{nay}» — phiếu đã "
-			f"«{goc.workflow_state}», không trả mặt hàng về.",
+			f"Đợt {doc.custom_so_dot} ({doc.name}) chuyển «{nay}» bởi {nguoi_bam} — phiếu "
+			f"đã «{goc.workflow_state}», không trả mặt hàng về.",
 		)
 		return
 	# Nâng quyền: khách (qua `bao_gia.tu_choi`) và job không có quyền ghi
@@ -263,10 +284,31 @@ def tra_dong_ve_khi_dot_dong(doc, method=None) -> None:
 			goc = apply_workflow(goc, bao_gia.HD_CON_HANG)
 		goc.add_comment(
 			"Comment",
-			f"Đợt {doc.custom_so_dot} ({doc.name}) «{nay}» — đã trả về {len(doc.items)} dòng.",
+			f"Đợt {doc.custom_so_dot} ({doc.name}) «{nay}» bởi {nguoi_bam} — đã trả về "
+			f"{len(doc.items)} dòng.",
 		)
 	frappe.db.set_value("Quotation", doc.name, "custom_da_tra_ve", 1, update_modified=False)
 	doc.custom_da_tra_ve = 1
+
+
+def chan_xoa_dot(doc, method=None) -> None:
+	"""Hook `on_trash` của Quotation. Xoá một đợt còn nháp làm mất mặt hàng của
+	nó: chúng đã rời phiếu gốc lúc tách và chỉ quay về khi đợt kết thúc (D3).
+	Đợt đã trả dòng về, hoặc phiếu gốc đã «Huỷ phần còn lại» (không nhận dòng về
+	nữa), thì xoá được."""
+	if not san_sang() or not doc.get("custom_phieu_goc"):
+		return
+	if doc.docstatus != 0 or doc.get("custom_da_tra_ve"):
+		return
+	tt_goc = frappe.db.get_value("Quotation", doc.custom_phieu_goc, "workflow_state")
+	if tt_goc == bao_gia.TT_HUY_CON_LAI:
+		return
+	frappe.throw(
+		f"Không xoá được đợt {doc.name}: các mặt hàng của nó sẽ mất khỏi yêu cầu "
+		f"{doc.custom_phieu_goc}. Dùng «{bao_gia.HD_THU_HOI}» rồi «{bao_gia.HD_TU_CHOI}» — "
+		"các mặt hàng tự quay về phiếu gốc.",
+		frappe.ValidationError,
+	)
 
 
 def _kiem_huy_con_lai(doc) -> None:
@@ -304,14 +346,21 @@ def huy_con_lai_boi_khach(ten: str, ly_do: str | None = None) -> dict:
 		)
 	ly_do = (ly_do or "").strip()
 	nguoi_bam = frappe.session.user
-	if ly_do:
-		# Ghi thẳng: `apply_workflow` nạp lại chứng từ từ CSDL trước khi lưu.
-		frappe.db.set_value(
-			"Quotation", goc.name, "custom_ly_do_huy_con_lai", ly_do, update_modified=False
-		)
+	# Ghi thẳng: `apply_workflow` nạp lại chứng từ từ CSDL trước khi lưu. Không
+	# lý do thì XOÁ lý do cũ: nhân viên có thể đã gõ (và lưu) mà chưa bấm huỷ —
+	# lý do đó không phải của khách, không được đi theo thư báo việc khách huỷ.
+	frappe.db.set_value(
+		"Quotation", goc.name, "custom_ly_do_huy_con_lai", ly_do, update_modified=False
+	)
 	with quyen_he_thong():
 		frappe.flags.huy_con_lai_boi_khach = goc.name
 		try:
+			# `apply_workflow` nạp lại phiếu (`load_from_db`) rồi lưu. Nó trả lại
+			# CHÍNH đối tượng `goc` (`frappe.get_doc(Document)` không dựng bản mới)
+			# nên `flags.for_update` của lần nạp trên còn nguyên: lần nạp lại đọc
+			# cả bảng con bằng FOR UPDATE — dòng một đợt vừa trả về (hook
+			# `tra_dong_ve_khi_dot_dong` cũng khoá phiếu gốc trước) không bị lần
+			# lưu này đánh rơi. Test: `test_khach_huy_doc_lai_phieu_goc_co_khoa`.
 			goc = apply_workflow(goc, bao_gia.HD_HUY_CON_LAI)
 		finally:
 			frappe.flags.huy_con_lai_boi_khach = None

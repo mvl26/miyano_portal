@@ -90,7 +90,8 @@ class NenBaoGiaTheoDot(NenBaoGia):
 			pluck="name",
 		):
 			frappe.db.set_value("Quotation", ten, "docstatus", 0, update_modified=False)
-			frappe.delete_doc("Quotation", ten, force=True)
+			# `ignore_on_trash`: hook `chan_xoa_dot` chặn xoá đợt nháp còn mặt hàng.
+			frappe.delete_doc("Quotation", ten, force=True, ignore_on_trash=True)
 		super().setUp()
 
 	def _goc_ba_dong(self, **them):

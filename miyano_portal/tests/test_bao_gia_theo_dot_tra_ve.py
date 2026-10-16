@@ -43,8 +43,10 @@ class TestTraDongVe(NenBaoGiaTheoDot):
 		)
 		self.assertEqual(frappe.db.get_value("Quotation", d1.name, "custom_da_tra_ve"), 1)
 		self.assertEqual(frappe.db.get_value("Quotation", d1.name, "workflow_state"), bao_gia.TT_KHACH_TU_CHOI)
+		# Bình luận nêu NGƯỜI THẬT bấm (khách), không phải Administrator của
+		# khối nâng quyền mà `tu_choi` chạy bên trong.
 		self.assertTrue(frappe.db.exists("Comment", {
-			"reference_name": goc.name, "content": ["like", "%đã trả về 1 dòng%"],
+			"reference_name": goc.name, "content": ["like", f"%bởi {self.ql}%đã trả về 1 dòng%"],
 		}))
 
 	def test_miyano_tu_choi_dot_tra_dong_ve(self):
@@ -124,3 +126,26 @@ class TestTraDongVe(NenBaoGiaTheoDot):
 		self.assertIn("(đợt 1)", thu[0]["subject"])
 		self.assertIn(f"đã trả về phiếu {goc.name}", thu[0]["message"])
 		self.assertNotIn("gửi yêu cầu báo giá mới", thu[0]["message"])
+
+	# `force=True`: chỉ bỏ kiểm liên kết (DB dev còn Sales Order cũ trỏ tới tên
+	# Quotation mà bộ đếm đã lùi rồi phát lại); `on_trash` vẫn chạy.
+	def test_khong_xoa_duoc_dot_dang_cho(self):
+		goc = self._goc_ba_dong()
+		d1 = self._tach(goc, self.item_ngoai)
+		with self.assertRaisesRegex(frappe.ValidationError, "Thu hồi để sửa"):
+			frappe.delete_doc("Quotation", d1.name, force=True)
+		# Mặt hàng không mất: vẫn nằm trên đợt, chưa về phiếu gốc.
+		self.assertEqual(
+			[d.item_code for d in frappe.get_doc("Quotation", d1.name).items], [self.item_ngoai]
+		)
+		goc.reload()
+		self.assertNotIn(self.item_ngoai, [d.item_code for d in goc.items])
+
+	def test_xoa_duoc_dot_da_tra_dong_ve(self):
+		goc = self._goc_ba_dong()
+		d1 = self._tach(goc, self.item_ngoai)
+		self._khach_tu_choi(d1.name)
+		frappe.delete_doc("Quotation", d1.name, force=True)
+		self.assertFalse(frappe.db.exists("Quotation", d1.name))
+		goc.reload()
+		self.assertIn(self.item_ngoai, [d.item_code for d in goc.items])

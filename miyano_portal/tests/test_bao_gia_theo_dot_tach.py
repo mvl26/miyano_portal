@@ -171,6 +171,18 @@ class TestTachDot(NenBaoGiaTheoDot):
 			frappe.set_user("Administrator")
 		self.assertEqual(kq["trang_thai_goc"], bao_gia.TT_DA_BAO_HET)
 
+	def test_khong_quyen_ghi_khong_phan_biet_thieu_hay_cam(self):
+		"""Kiểm quyền TRƯỚC khi khoá/nạp: tên không có và tên có thật nhưng bị cấm
+		ném CÙNG một lỗi quyền."""
+		goc = self._goc_ba_dong()
+		frappe.set_user(self._quan_ly("dottach.ql@demo.miyano", self.kh_a))
+		try:
+			for ten in (goc.name, "SAL-QTN-KHONG-CO-99999"):
+				with self.assertRaises(frappe.PermissionError):
+					dot.tach_dot(ten, ["x"])
+		finally:
+			frappe.set_user("Administrator")
+
 	def test_khong_xoa_duoc_phieu_goc_con_dot(self):
 		goc = self._goc_ba_dong()
 		dot.tach_dot(goc.name, [goc.items[0].name])

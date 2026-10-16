@@ -86,3 +86,45 @@ class TestHuyConLai(NenBaoGiaTheoDot):
 		dot.tach_dot(self.goc.name, [d.name for d in self.goc.items])
 		with self.assertRaises(frappe.ValidationError):
 			self._khach_huy()
+
+	def test_khach_huy_khong_ly_do_xoa_ly_do_nhan_vien_go_do(self):
+		"""Nhân viên gõ lý do, lưu, CHƯA chuyển trạng thái; khách huỷ không lý do
+		thì lý do cũ không được đi theo việc huỷ của khách."""
+		frappe.db.set_value("Customer", self.kh_a, "account_manager", "Administrator")
+		self.goc.custom_ly_do_huy_con_lai = "Nhân viên gõ dở, chưa bấm huỷ"
+		self.goc.save()
+		with patch("frappe.sendmail") as gui, patch("miyano_portal.bao_gia.bao_nhan_vien") as bao:
+			self._khach_huy()
+		self.assertEqual(
+			frappe.db.get_value("Quotation", self.goc.name, "custom_ly_do_huy_con_lai") or "", ""
+		)
+		self.assertNotIn("Lý do", gui.call_args.kwargs["message"])
+		self.assertNotIn("Lý do", bao.call_args.args[2])
+
+	def test_khach_huy_doc_lai_phieu_goc_co_khoa(self):
+		"""`apply_workflow` nạp lại phiếu gốc trước khi lưu. Nó nhận lại CHÍNH đối
+		tượng đã nạp `for_update=True` nên lần nạp lại đó cũng khoá (cả bảng con):
+		dòng một đợt vừa trả về đồng thời không bị lần lưu này đánh rơi."""
+		from frappe.model import workflow
+		from frappe.model.document import Document
+
+		goc_ap, goc_nap = workflow.apply_workflow, Document.load_from_db
+		lan_nap_lai = []
+
+		def ap(doc, action):
+			dau = []
+
+			def nap(d):
+				if not dau:  # lần nạp ĐẦU TIÊN trong apply_workflow = nạp lại chứng từ
+					dau.append((d is doc, bool(d.flags.for_update)))
+				return goc_nap(d)
+
+			with patch.object(Document, "load_from_db", nap):
+				kq = goc_ap(doc, action)
+			if doc.name == self.goc.name:
+				lan_nap_lai.extend(dau)
+			return kq
+
+		with patch("frappe.sendmail"), patch.object(workflow, "apply_workflow", ap):
+			self._khach_huy()
+		self.assertEqual(lan_nap_lai, [(True, True)])

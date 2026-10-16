@@ -494,6 +494,8 @@ doc_events = {
 			# Báo giá của cổng còn đơn sinh ra chưa huỷ thì không huỷ được.
 			"miyano_portal.bao_gia.chan_huy_khi_con_don",
 		],
+		# Đợt còn nháp mang những mặt hàng đã rời phiếu gốc: xoá là mất chúng.
+		"on_trash": "miyano_portal.bao_gia_theo_dot.chan_xoa_dot",
 		"on_update": [
 			"miyano_portal.bao_gia.ghi_nhat_ky_chuyen_trang_thai",
 			# Đợt bị từ chối/hết hạn: trả dòng về phiếu gốc (spec 2026-10-15 §4.3).

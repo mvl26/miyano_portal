@@ -68,3 +68,19 @@ class TestDongYDot(NenBaoGiaTheoDot):
 			               pluck="so_dot"),
 			[0],
 		)
+
+	def test_dot_hai_doi_modified_phieu_chan_luu_ban_cu(self):
+		"""Bản phiếu mở trên Desk TRƯỚC khi đợt 2 sinh đơn mà lưu lại thì phải vấp
+		TimestampMismatch, không lặng lẽ xoá dòng `don_hang` vừa chèn."""
+		self._dong_y(self._tach(self.item_ngoai))
+		cu = frappe.get_doc("Portal De Xuat Mua", self.phieu.name)
+		self._dong_y(self._tach(self.item_boi_so))
+		self.assertNotEqual(
+			str(frappe.db.get_value("Portal De Xuat Mua", self.phieu.name, "modified")),
+			str(cu.modified),
+		)
+		with self.assertRaises(frappe.TimestampMismatchError):
+			cu.save()
+		self.assertEqual(
+			len(frappe.get_all("Portal De Xuat Mua Don Hang", filters={"parent": self.phieu.name})), 2
+		)
