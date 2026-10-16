@@ -49,7 +49,8 @@ DA_AP_PHAM_VI: set[str] = {
 	# bằng `_bao_gia_cua_toi()` — cùng hai trục, cộng chốt nguồn "Client
 	# Portal". `portal_bao_gia_pdf(quotation=...)` cũng qua chốt đó.
 	"portal_bao_gia_danh_sach", "portal_bao_gia_dem", "portal_bao_gia_chi_tiet",
-	"portal_bao_gia_dong_y", "portal_bao_gia_tu_choi", "portal_bao_gia_sua_so_luong",
+	"portal_bao_gia_dong_y", "portal_bao_gia_tu_choi", "portal_bao_gia_huy_con_lai",
+	"portal_bao_gia_sua_so_luong",
 	"portal_order_history", "portal_order_track", "portal_dashboard_kpi",
 	"portal_deliveries", "portal_invoices", "portal_reorder",
 	"portal_request_cancel", "portal_bao_gia_pdf", "portal_document_download",

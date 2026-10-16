@@ -1118,9 +1118,33 @@ def _sql_an_khoi_tab_don(p: str) -> str:
     )
 
 
+def _sql_dem_dot(q: str, trang_thai: str) -> str:
+    """Số đợt NHÁP của báo giá `q` đang ở `trang_thai` (spec 2026-10-15 §5.1).
+    `'0'` khi site chưa có cột `custom_phieu_goc` (patch v1_45): 1054 lúc
+    PARSE, không có short-circuit theo giá trị."""
+    from miyano_portal import bao_gia_theo_dot
+
+    if not bao_gia_theo_dot.san_sang():
+        return "0"
+    return f"""(select count(*) from `tabQuotation` dq
+                where dq.custom_phieu_goc = {q}.name and dq.docstatus = 0
+                  and dq.workflow_state = '{trang_thai}')"""
+
+
+def _sql_dot_cho_khach(q: str) -> str:
+    return _sql_dem_dot(q, bao_gia.TT_CHO_KHACH)
+
+
 def _sql_nhom_bao_gia(q: str) -> str:
+    # Phiếu gốc đã tách đợt: có đợt chờ khách thì nhóm "chờ đồng ý" thắng mọi
+    # thứ; còn đợt Miyano đang báo lại (khách sửa số lượng / thu hồi để sửa)
+    # thì "đang báo giá" dù phiếu gốc đã "Đã báo hết"; "Đã báo hết" / "Đã huỷ
+    # phần còn lại" còn lại rơi vào `else` → 'da_dong'. Bản Python cùng luật:
+    # `_nhom_phieu_goc`.
     return f"""case
         when {q}.name is null then 'nhap'
+        when {_sql_dot_cho_khach(q)} > 0 then 'cho_dong_y'
+        when {_sql_dem_dot(q, bao_gia.TT_CHO_MIYANO)} > 0 then 'dang_bao_gia'
         when {q}.workflow_state = '{bao_gia.TT_CHO_MIYANO}' then 'dang_bao_gia'
         when {q}.workflow_state = '{bao_gia.TT_CHO_KHACH}' then 'cho_dong_y'
         when {q}.workflow_state = '{bao_gia.TT_DA_DONG_Y}' then 'da_dong_y'
@@ -1338,7 +1362,11 @@ def _truy_van_tab_bao_gia() -> tuple[str, dict]:
                p.trang_thai as trang_thai_phieu, p.owner as owner,
                coalesce(q.workflow_state, '') as trang_thai_bao_gia,
                q.grand_total as grand_total, q.valid_till as han_hieu_luc,
-               {_sql_nhom_bao_gia("q")} as nhom
+               {_sql_nhom_bao_gia("q")} as nhom,
+               -- Số báo giá đang chờ khách trên dòng này: chính phiếu (chưa
+               -- tách đợt) hoặc các đợt của nó — huy hiệu đếm ĐỢT (§5.1).
+               case when q.workflow_state = '{bao_gia.TT_CHO_KHACH}' then 1
+                    else coalesce({_sql_dot_cho_khach("q")}, 0) end as so_cho_dong_y
         from `tabPortal De Xuat Mua` p
         -- Ba vế sau `q.name = p.bao_gia` là bản SQL của
         -- `_la_bao_gia_cong_cua()`: sửa một bên thì sửa bên kia.
@@ -1391,17 +1419,19 @@ def portal_bao_gia_danh_sach(nhom=None, khoa_phong=None, limit=20, start=0) -> d
         r["grand_total"] = float(r["grand_total"] or 0) if duoc_xem_gia else None
         r["han_hieu_luc"] = str(r["han_hieu_luc"]) if r.get("han_hieu_luc") else ""
         r["owner"] = r.get("owner") or ""
+        r["so_cho_dong_y"] = int(r.get("so_cho_dong_y") or 0)
     return {"rows": rows, "tong": int(tong)}
 
 
 @frappe.whitelist()
 def portal_bao_gia_dem() -> dict:
-    """Số báo giá đang chờ khách đồng ý — huy hiệu trên tab."""
+    """Số báo giá đang chờ khách đồng ý — huy hiệu trên tab. Phiếu báo theo
+    đợt đếm từng đợt đang chờ (spec 2026-10-15 §5.1)."""
     if not _cot_bao_gia_ton_tai():
         return {"cho_dong_y": 0}
     trong, tham_so = _truy_van_tab_bao_gia()
     n = frappe.db.sql(
-        f"select count(*) from ({trong}) t where t.nhom = 'cho_dong_y'", tham_so
+        f"select coalesce(sum(t.so_cho_dong_y), 0) from ({trong}) t", tham_so
     )[0][0]
     return {"cho_dong_y": int(n)}
 
@@ -1477,9 +1507,8 @@ _NHOM_THEO_TRANG_THAI = {
 }
 
 
-@frappe.whitelist()
-def portal_bao_gia_chi_tiet(ten) -> dict:
-    bg = _bao_gia_cua_toi(ten)
+def _mo_ta_bao_gia(bg) -> dict:
+    """Thứ khách được thấy của MỘT Quotation (cả phiếu hoặc một đợt)."""
     trang_thai = bg.get("workflow_state") or ""
     hien_gia = trang_thai in _BAO_GIA_HIEN_GIA
     het_han = bao_gia.qua_han(bg)
@@ -1523,6 +1552,57 @@ def portal_bao_gia_chi_tiet(ten) -> dict:
     }
 
 
+def _cac_dot(goc) -> list:
+    """Các đợt của phiếu gốc, theo số đợt. Đợt chép khách/khoa của phiếu gốc
+    nên đã nằm trong phạm vi người gọi khi phiếu gốc nằm trong đó."""
+    from miyano_portal import bao_gia_theo_dot
+
+    if not bao_gia_theo_dot.san_sang():
+        return []
+    return [
+        frappe.get_doc("Quotation", ten)
+        for ten in frappe.get_all(
+            "Quotation", filters={"custom_phieu_goc": goc.name},
+            order_by="custom_so_dot asc", pluck="name",
+        )
+    ]
+
+
+def _nhom_phieu_goc(goc, dot) -> str:
+    """Bản Python của `_sql_nhom_bao_gia` cho phiếu đã tách đợt."""
+    if any(d.docstatus == 0 and d.workflow_state == bao_gia.TT_CHO_KHACH for d in dot):
+        return "cho_dong_y"
+    if goc.get("workflow_state") == bao_gia.TT_CHO_MIYANO or any(
+        d.docstatus == 0 and d.workflow_state == bao_gia.TT_CHO_MIYANO for d in dot
+    ):
+        return "dang_bao_gia"
+    return "da_dong"
+
+
+@frappe.whitelist()
+def portal_bao_gia_chi_tiet(ten) -> dict:
+    bg = _bao_gia_cua_toi(ten)
+    # Email/thông báo trỏ tới tên ĐỢT: trang chi tiết luôn là của phiếu gốc.
+    if bg.get("custom_phieu_goc"):
+        bg = _bao_gia_cua_toi(bg.custom_phieu_goc)
+    kq = _mo_ta_bao_gia(bg)
+    dot = _cac_dot(bg)
+    kq["dot"] = [
+        {**_mo_ta_bao_gia(d), "so_dot": int(d.get("custom_so_dot") or 0),
+         "da_tra_ve": bool(d.get("custom_da_tra_ve"))}
+        for d in dot
+    ]
+    kq["con_lai"] = [
+        {"name": d.name, "item_code": d.item_code, "item_name": d.item_name,
+         "uom": d.uom, "qty": float(d.qty or 0)}
+        for d in bg.items if d.item_code != ITEM_GIU_CHO
+    ] if dot else []
+    kq["duoc_huy_con_lai"] = bool(dot) and bg.get("workflow_state") == bao_gia.TT_CHO_MIYANO
+    if dot:
+        kq["nhom"] = _nhom_phieu_goc(bg, dot)
+    return kq
+
+
 @frappe.whitelist()
 def portal_bao_gia_dong_y(ten) -> dict:
     """Khách đồng ý báo giá → sinh đơn hàng (spec §4.4). Mọi tài khoản trong
@@ -1535,6 +1615,16 @@ def portal_bao_gia_dong_y(ten) -> dict:
 def portal_bao_gia_tu_choi(ten, ly_do=None) -> dict:
     bg = _bao_gia_cua_toi(ten)
     return bao_gia.tu_choi(bg.name, ly_do)
+
+
+@frappe.whitelist()
+def portal_bao_gia_huy_con_lai(ten, ly_do=None) -> dict:
+    """Spec 2026-10-15 §4.4 — huỷ các mặt hàng chưa báo của phiếu gốc. Mọi tài
+    khoản trong phạm vi bấm được, như đồng ý; lý do tuỳ chọn."""
+    from miyano_portal import bao_gia_theo_dot
+
+    bg = _bao_gia_cua_toi(ten)
+    return bao_gia_theo_dot.huy_con_lai_boi_khach(bg.name, ly_do)
 
 
 @frappe.whitelist()
