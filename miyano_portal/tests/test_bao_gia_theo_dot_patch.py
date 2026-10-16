@@ -8,7 +8,26 @@ from miyano_portal.setup import install_workflow
 from miyano_portal.tests.nen_bao_gia import NenBaoGiaTheoDot
 
 
+def _dem_workflow():
+	frappe.clear_document_cache("Workflow", bao_gia.WORKFLOW)
+	wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
+	return (len(wf.states), len(wf.transitions))
+
+
 class TestPatchBaoGiaTheoDot(NenBaoGiaTheoDot):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		# Chạy lại patch NGAY ĐÂY, trước mọi `setUp`, KHÔNG trong thân test:
+		# `reload_doc(force=True)`/`create_custom_fields` đi qua
+		# `frappe.db.updatedb()` — hàm này COMMIT. Gọi sau `setUp` là commit
+		# luôn dữ liệu `_TEST DX` của nó vào DB dev (Item Price, Price List,
+		# Blanket Order…), và các module chạy sau (test_bang_gia_khach,
+		# test_catalog_gop) đỏ vì dữ liệu sót đó.
+		cls._wf_truoc = _dem_workflow()
+		patch.execute()
+		cls._wf_sau = _dem_workflow()
+
 	def test_truong_moi_tren_quotation(self):
 		meta = frappe.get_meta("Quotation")
 		for f in ("custom_phieu_goc", "custom_so_dot", "custom_da_tra_ve",
@@ -30,12 +49,9 @@ class TestPatchBaoGiaTheoDot(NenBaoGiaTheoDot):
 			self.assertIn((tu, hd, toi, vai), canh)
 
 	def test_chay_lai_khong_nhan_doi(self):
-		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
-		truoc = (len(wf.states), len(wf.transitions))
-		patch.execute()
-		frappe.clear_document_cache("Workflow", bao_gia.WORKFLOW)
-		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
-		self.assertEqual((len(wf.states), len(wf.transitions)), truoc)
+		# Lần chạy lại nằm ở `setUpClass` — xem lý do ở đó.
+		self.assertEqual(self._wf_sau, self._wf_truoc)
+		self.assertEqual(self._wf_sau, (8, 12))
 
 	def test_site_cu_duoc_bo_sung(self):
 		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
