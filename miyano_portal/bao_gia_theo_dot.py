@@ -121,6 +121,9 @@ def kiem_chuyen_theo_dot(doc, method=None) -> None:
 			"không mở lại được. Muốn báo lại thì tách đợt mới từ phiếu gốc.",
 			frappe.ValidationError,
 		)
+	if nay == bao_gia.TT_HUY_CON_LAI:
+		_kiem_huy_con_lai(doc)
+		return
 	if doc.get("custom_phieu_goc") or not co_dot(doc.name):
 		return
 	if nay in (bao_gia.TT_CHO_KHACH, bao_gia.TT_MIYANO_TU_CHOI):
@@ -264,3 +267,98 @@ def tra_dong_ve_khi_dot_dong(doc, method=None) -> None:
 		)
 	frappe.db.set_value("Quotation", doc.name, "custom_da_tra_ve", 1, update_modified=False)
 	doc.custom_da_tra_ve = 1
+
+
+def _kiem_huy_con_lai(doc) -> None:
+	"""Miyano phải ghi lý do (≥ `LY_DO_TOI_THIEU`); khách thì tuỳ (D4). Ghi
+	người huỷ ở đây — nơi duy nhất biết bước chuyển đến từ đâu."""
+	if frappe.flags.get("huy_con_lai_boi_khach") == doc.name:
+		doc.custom_nguoi_huy_con_lai = bao_gia.NGUOI_KHACH
+		return
+	if len((doc.get("custom_ly_do_huy_con_lai") or "").strip()) < bao_gia.LY_DO_TOI_THIEU:
+		frappe.throw(
+			f"Phải nhập lý do huỷ phần còn lại (tối thiểu {bao_gia.LY_DO_TOI_THIEU} ký tự) "
+			"trước khi chuyển trạng thái. Nhập ở mục «Cổng khách hàng» → ô «Lý do huỷ "
+			"phần còn lại» rồi lưu, sau đó bấm lại «Huỷ phần còn lại».",
+			frappe.ValidationError,
+		)
+	doc.custom_nguoi_huy_con_lai = frappe.session.user
+
+
+def huy_con_lai_boi_khach(ten: str, ly_do: str | None = None) -> dict:
+	"""Khách huỷ các mặt hàng chưa báo của phiếu gốc (spec §4.4). NGƯỜI GỌI đã
+	kiểm quyền của khách. Đợt đang chờ khách vẫn còn hiệu lực."""
+	from frappe.model.workflow import apply_workflow
+
+	from miyano_portal.nang_quyen import quyen_he_thong
+
+	goc = frappe.get_doc("Quotation", ten, for_update=True)
+	bao_gia._dam_bao_cua_cong(goc)
+	if (
+		goc.get("custom_phieu_goc") or not co_dot(goc.name)
+		or goc.get("workflow_state") != bao_gia.TT_CHO_MIYANO
+	):
+		frappe.throw(
+			"Yêu cầu báo giá này không còn mặt hàng chờ báo giá nào để huỷ.",
+			frappe.ValidationError,
+		)
+	ly_do = (ly_do or "").strip()
+	nguoi_bam = frappe.session.user
+	if ly_do:
+		# Ghi thẳng: `apply_workflow` nạp lại chứng từ từ CSDL trước khi lưu.
+		frappe.db.set_value(
+			"Quotation", goc.name, "custom_ly_do_huy_con_lai", ly_do, update_modified=False
+		)
+	with quyen_he_thong():
+		frappe.flags.huy_con_lai_boi_khach = goc.name
+		try:
+			goc = apply_workflow(goc, bao_gia.HD_HUY_CON_LAI)
+		finally:
+			frappe.flags.huy_con_lai_boi_khach = None
+		goc.add_comment(
+			"Comment",
+			f"{bao_gia.HD_HUY_CON_LAI} bởi {nguoi_bam}" + (f" — lý do: {ly_do}" if ly_do else ""),
+		)
+	return {"trang_thai_moi": goc.get("workflow_state")}
+
+
+def bao_khi_huy_con_lai(doc, method=None) -> None:
+	"""Hook `on_update` — báo bên kia khi phiếu gốc vào «Đã huỷ phần còn lại»
+	(spec §6): khách huỷ → nhân viên phụ trách (Notification Log + email); Miyano
+	huỷ → email khách. Lỗi gửi không được làm hỏng việc huỷ."""
+	from miyano_portal.portal_bao_gia import _email_sales_phu_trach
+
+	if doc.get("custom_nguon_don") != bao_gia.NGUON_CONG:
+		return
+	truoc, nay = bao_gia._trang_thai_truoc(doc), doc.get("workflow_state")
+	if truoc == nay or nay != bao_gia.TT_HUY_CON_LAI:
+		return
+	ly_do = (doc.get("custom_ly_do_huy_con_lai") or "").strip()
+	dong_ly_do = f"<p>Lý do: {frappe.utils.escape_html(ly_do)}</p>" if ly_do else ""
+	if doc.get("custom_nguoi_huy_con_lai") == bao_gia.NGUOI_KHACH:
+		noi_dung = (
+			f"<p>Khách hàng <b>{doc.party_name}</b> đã huỷ các mặt hàng chưa báo giá "
+			f"của yêu cầu <b>{doc.name}</b>.</p>{dong_ly_do}"
+		)
+		bao_gia.bao_nhan_vien(doc, "Portal - Khách huỷ phần còn lại của yêu cầu báo giá", noi_dung)
+		nguoi_nhan = _email_sales_phu_trach(doc.party_name)
+		tieu_de = f"Khách huỷ phần còn lại của yêu cầu báo giá {doc.name}"
+	else:
+		noi_dung = (
+			f"<p>Miyano không tiếp tục báo giá các mặt hàng còn lại của yêu cầu "
+			f"<b>{doc.name}</b>. Các đợt đã gửi trước đó vẫn giữ nguyên.</p>{dong_ly_do}"
+		)
+		nguoi_nhan = doc.get("contact_email")
+		tieu_de = f"Yêu cầu báo giá {doc.name}: Miyano dừng báo giá phần còn lại"
+	if not nguoi_nhan:
+		return
+	try:
+		frappe.sendmail(
+			recipients=[nguoi_nhan], subject=tieu_de, message=noi_dung,
+			reference_doctype="Quotation", reference_name=doc.name, now=False,
+		)
+	except Exception:
+		frappe.log_error(
+			title="bao_gia_theo_dot: gửi email huỷ phần còn lại thất bại",
+			message=frappe.get_traceback(),
+		)
