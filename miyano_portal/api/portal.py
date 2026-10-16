@@ -1596,7 +1596,7 @@ def portal_bao_gia_chi_tiet(ten) -> dict:
         {"name": d.name, "item_code": d.item_code, "item_name": d.item_name,
          "uom": d.uom, "qty": float(d.qty or 0)}
         for d in bg.items if d.item_code != ITEM_GIU_CHO
-    ] if dot else []
+    ] if dot and bg.get("workflow_state") == bao_gia.TT_CHO_MIYANO else []
     kq["duoc_huy_con_lai"] = bool(dot) and bg.get("workflow_state") == bao_gia.TT_CHO_MIYANO
     if dot:
         kq["nhom"] = _nhom_phieu_goc(bg, dot)
@@ -1623,6 +1623,8 @@ def portal_bao_gia_huy_con_lai(ten, ly_do=None) -> dict:
     khoản trong phạm vi bấm được, như đồng ý; lý do tuỳ chọn."""
     from miyano_portal import bao_gia_theo_dot
 
+    if ly_do is not None and not isinstance(ly_do, str):
+        frappe.throw("Lý do không hợp lệ.", frappe.ValidationError)
     bg = _bao_gia_cua_toi(ten)
     return bao_gia_theo_dot.huy_con_lai_boi_khach(bg.name, ly_do)
 

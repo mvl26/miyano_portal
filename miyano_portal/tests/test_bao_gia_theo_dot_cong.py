@@ -142,6 +142,12 @@ class TestCongTheoDot(NenBaoGiaTheoDot):
 		self.assertEqual(kq["trang_thai_moi"], bao_gia.TT_HUY_CON_LAI)
 		ct = self._goi(self.ql_a, portal.portal_bao_gia_chi_tiet, self.goc.name)
 		self.assertFalse(ct["duoc_huy_con_lai"])
+		self.assertEqual(ct["con_lai"], [])
+
+	def test_huy_con_lai_ly_do_khong_phai_chuoi(self):
+		self._tach(self.item_ngoai)
+		with self.assertRaises(frappe.ValidationError):
+			self._goi(self.ql_a, portal.portal_bao_gia_huy_con_lai, self.goc.name, {"x": 1})
 
 	def test_don_dot_hai_hien_o_tab_don_hang(self):
 		d1 = self._tach(self.item_ngoai)
