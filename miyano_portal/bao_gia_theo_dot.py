@@ -8,7 +8,7 @@ gửi khách nữa (D7). Mọi luật về đợt nằm ở module này; `bao_gi
 """
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from miyano_portal import bao_gia
 
@@ -95,20 +95,6 @@ def _con_dong_chua_bao(goc) -> bool:
 	)
 
 
-def _khoa_va_nap_lai_dong(goc) -> None:
-	"""`get_doc(for_update=True)` chỉ khoá dòng CHA; bảng con vẫn đọc từ ảnh
-	chụp REPEATABLE READ lấy từ đầu giao dịch. Request thứ hai chờ khoá xong
-	sẽ thấy `items` CŨ — còn dòng request đầu đã chuyển sang đợt, thiếu dòng
-	vừa trả về — và `save()` sau đó xoá mất dòng mới. Đọc lại `items` bằng
-	đọc CÓ KHOÁ (luôn thấy bản đã commit mới nhất) rồi thay vào chứng từ."""
-	dong = frappe.db.sql(
-		"select * from `tabQuotation Item` where parent = %s and parenttype = 'Quotation' "
-		"and parentfield = 'items' order by idx for update",
-		goc.name, as_dict=True,
-	)
-	goc.set("items", dong)
-
-
 def cho_phep_phieu_goc_rong(doc, method=None) -> None:
 	"""Hook `before_validate` của Quotation. `items` là bắt buộc; phiếu gốc đã
 	tách hết dòng sang các đợt thì rỗng là ĐÚNG — lưu nó (chuyển "Đã báo hết",
@@ -181,6 +167,8 @@ def tach_dot(phieu_goc, dong) -> dict:
 	):
 		frappe.throw("Chọn ít nhất một mặt hàng để báo giá đợt này.", frappe.ValidationError)
 
+	# `for_update=True` khoá dòng cha VÀ đọc mọi bảng con bằng FOR UPDATE (đọc mới
+	# nhất dưới REPEATABLE READ): việc kiểm dòng được chọn bên dưới thấy bản đã commit.
 	goc = frappe.get_doc("Quotation", phieu_goc, for_update=True)
 	goc.check_permission("write")
 	if not la_phieu_goc_cong(goc) or not goc.get("custom_request_id"):
@@ -194,7 +182,6 @@ def tach_dot(phieu_goc, dong) -> dict:
 		)
 
 	chon = list(dict.fromkeys(dong))
-	_khoa_va_nap_lai_dong(goc)
 	theo_ten = {d.name: d for d in goc.items}
 	if any(t not in theo_ten for t in chon):
 		frappe.throw(
@@ -206,11 +193,9 @@ def tach_dot(phieu_goc, dong) -> dict:
 	if thieu_gia:
 		frappe.throw("Chưa có đơn giá: " + ", ".join(thieu_gia) + ".", frappe.ValidationError)
 
-	so_dot = int(frappe.db.sql(
-		"select coalesce(max(custom_so_dot), 0) from `tabQuotation` "
-		"where custom_phieu_goc = %s for update",
-		goc.name,
-	)[0][0]) + 1
+	# Trên phiếu gốc `custom_so_dot` = số đợt ĐÃ phát hành (bộ đếm trên dòng đã
+	# khoá, tránh khoá khoảng của truy vấn max()); trên đợt = số thứ tự của nó.
+	so_dot = cint(goc.get("custom_so_dot")) + 1
 	nguoi_bam = frappe.session.user
 	frappe.db.savepoint("tach_dot")
 	try:
@@ -219,6 +204,7 @@ def tach_dot(phieu_goc, dong) -> dict:
 		goc.set("items", [h for h in goc.items if h.name not in bo])
 		for i, h in enumerate(goc.items, 1):
 			h.idx = i
+		goc.custom_so_dot = so_dot
 		goc.save()
 		d = apply_workflow(d, bao_gia.HD_GUI_KHACH)
 		if not _con_dong_chua_bao(goc):

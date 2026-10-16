@@ -41,6 +41,7 @@ class TestTachDot(NenBaoGiaTheoDot):
 		goc.reload()
 		kq = dot.tach_dot(goc.name, self._ten_dong(goc, self.item_boi_so))
 		self.assertEqual(kq["so_dot"], 2)
+		self.assertEqual(frappe.db.get_value("Quotation", goc.name, "custom_so_dot"), 2)
 		self.assertTrue(kq["dot"])
 		self.assertEqual(
 			frappe.db.get_value("Quotation", kq["dot"], "custom_request_id"),
@@ -124,6 +125,7 @@ class TestTachDot(NenBaoGiaTheoDot):
 				dot.tach_dot(goc.name, chon)
 		goc.reload()
 		self.assertEqual(len(goc.items), 3)
+		self.assertFalse(goc.custom_so_dot)
 		self.assertFalse(frappe.db.exists("Quotation", {"custom_phieu_goc": goc.name}))
 
 	def test_chi_tach_tren_phieu_goc_cua_cong_dang_cho_miyano(self):
@@ -177,7 +179,8 @@ class TestTachDot(NenBaoGiaTheoDot):
 
 	def test_hook_bo_qua_khi_chua_co_cot(self):
 		goc = self._goc_ba_dong()
+		dot.tach_dot(goc.name, [goc.items[0].name])
+		goc.reload()
 		with patch.object(dot, "san_sang", return_value=False):
-			goc.custom_ten_don_hang = "Lưu khi chưa migrate"
-			goc.save()
-			self.assertFalse(dot.co_dot(goc.name))
+			goc = apply_workflow(goc, bao_gia.HD_GUI_KHACH)
+		self.assertEqual(goc.workflow_state, bao_gia.TT_CHO_KHACH)

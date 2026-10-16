@@ -479,10 +479,11 @@ doc_events = {
 			# Thứ tự có nghĩa: `dong_bo…` tính `da_xu_ly` mà `chot_gui_khach` đọc.
 			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
 			"miyano_portal.bao_gia.kiem_ly_do_tu_choi",
-			"miyano_portal.bao_gia.chot_gui_khach",
 			# Báo giá theo đợt: chặn gửi khách/từ chối trên phiếu gốc đã có
-			# đợt, chặn mở lại đợt đã trả dòng về, kiểm «Huỷ phần còn lại».
+			# đợt, chặn mở lại đợt đã trả dòng về. TRƯỚC `chot_gui_khach` để
+			# phiếu gốc nhận lời nhắn «Báo giá đợt này», không phải lỗi thiếu giá.
 			"miyano_portal.bao_gia_theo_dot.kiem_chuyen_theo_dot",
+			"miyano_portal.bao_gia.chot_gui_khach",
 		],
 		"before_submit": [
 			"miyano_portal.bao_gia.chan_dong_y_ngoai_cong",
