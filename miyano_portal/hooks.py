@@ -197,6 +197,8 @@ permission_query_conditions = {
 	# khoa phòng vào CHÍNH các hàm này, không đăng ký thêm entry mới.
 	"Portal De Xuat Mua": "miyano_portal.permissions.de_xuat_query_condition",
 	"Portal De Xuat Mua Item": "miyano_portal.permissions.de_xuat_item_query",
+	# Báo giá theo đợt — bảng đơn hàng của phiếu, cùng khuôn dòng hàng ngay trên.
+	"Portal De Xuat Mua Don Hang": "miyano_portal.permissions.de_xuat_don_hang_query",
 	# E7 — Fast EInvoice Document là doctype của module HĐĐT (team Dev, app
 	# erpnext), CỐ Ý không có DocPerm nào cho `Customer` (xem JSON gốc). Entry
 	# này là lớp phòng thủ thứ hai "chết có điều kiện", cùng khuôn tám
@@ -261,7 +263,7 @@ has_permission = {
 	# Kiểm hàng — cùng khuôn (customer trực tiếp).
 	"Portal Delivery Inspection": "miyano_portal.permissions.generic_has_permission",
 	# Đề xuất mua — cùng khuôn (customer trực tiếp). "Portal De Xuat Mua
-	# Item" CỐ Ý không có entry ở đây: istable=1, has_child_permission()
+	# Item" (và "Portal De Xuat Mua Don Hang") CỐ Ý không có entry ở đây: istable=1, has_child_permission()
 	# route thẳng về PARENT trước khi has_permission của bảng con có cơ hội
 	# chạy (cùng lý do đã ghi cho Portal Delivery Inspection Item/Customer
 	# Stock *Item ở khối comment "CÁI GÌ ĐANG THẬT SỰ BẢO VỆ..." bên dưới) —

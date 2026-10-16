@@ -269,7 +269,20 @@ def de_xuat_co_quyen(doc, ptype=None, user=None):
 
 
 def de_xuat_item_query(user=None) -> str:
-    """Bảng con `Portal De Xuat Mua Item` — không mang `customer` riêng, lọc
+    """Bảng con `Portal De Xuat Mua Item` — xem `_de_xuat_con_query`."""
+    return _de_xuat_con_query("Portal De Xuat Mua Item", user)
+
+
+def de_xuat_don_hang_query(user=None) -> str:
+    """Bảng con `Portal De Xuat Mua Don Hang` (báo giá theo đợt, spec
+    2026-10-15 §3.3) — CÙNG điều kiện qua phiếu cha như dòng hàng, chỉ đổi
+    tên bảng. Lưới `test_kho_isolation._nap_doctype_kho()` bắt mọi bảng con
+    của phiếu đề xuất phải có dây cách ly này."""
+    return _de_xuat_con_query("Portal De Xuat Mua Don Hang", user)
+
+
+def _de_xuat_con_query(bang_con: str, user=None) -> str:
+    """Bảng con của `Portal De Xuat Mua` — không mang `customer` riêng, lọc
     qua parent. Cùng khuôn `kiem_hang_item_query` ngay trên cho trục KHÁCH
     HÀNG.
 
@@ -300,7 +313,7 @@ def de_xuat_item_query(user=None) -> str:
     if khoa:
         dieu_kien_cha += f" and `khoa_phong` = {frappe.db.escape(khoa)}"
     return (
-        "`tabPortal De Xuat Mua Item`.`parent` in "
+        f"`tab{bang_con}`.`parent` in "
         f"(select name from `tabPortal De Xuat Mua` where {dieu_kien_cha})"
     )
 
