@@ -800,21 +800,33 @@ def ghi_nhat_ky_chuyen_trang_thai(doc, method=None) -> None:
 
 
 def _gui_email_het_han(bg, han) -> None:
-	"""Email hai phía. Lỗi gửi mail không được chặn việc đóng báo giá."""
+	"""Email hai phía. Lỗi gửi mail không được chặn việc đóng báo giá.
+
+	Báo giá theo đợt (spec 2026-10-15 §6): tiêu đề nêu số đợt; đợt đã trả mặt
+	hàng về phiếu gốc thì nói vậy thay vì bảo khách gửi yêu cầu mới."""
 	from miyano_portal.portal_bao_gia import _email_sales_phu_trach
 
 	han_str = formatdate(han, "dd/mm/yyyy")
+	ten_dot = f" (đợt {bg.custom_so_dot})" if bg.get("custom_so_dot") else ""
+	if bg.get("custom_phieu_goc") and frappe.db.get_value(
+		"Quotation", bg.name, "custom_da_tra_ve"
+	):
+		tiep = (
+			f"<p>Các mặt hàng của đợt này đã trả về phiếu {bg.custom_phieu_goc}; "
+			"Miyano sẽ báo giá lại.</p>"
+		)
+	else:
+		tiep = "<p>Nếu vẫn cần hàng, vui lòng gửi yêu cầu báo giá mới.</p>"
 	noi_dung = (
-		f"<p>Báo giá <b>{bg.name}</b> (khách hàng {bg.party_name}) đã hết hiệu lực "
-		f"ngày <b>{han_str}</b> mà chưa được đồng ý trên cổng khách hàng.</p>"
-		"<p>Nếu vẫn cần hàng, vui lòng gửi yêu cầu báo giá mới.</p>"
+		f"<p>Báo giá <b>{bg.name}</b>{ten_dot} (khách hàng {bg.party_name}) đã hết hiệu "
+		f"lực ngày <b>{han_str}</b> mà chưa được đồng ý trên cổng khách hàng.</p>" + tiep
 	)
 	for nguoi_nhan in {bg.get("contact_email"), _email_sales_phu_trach(bg.party_name)}:
 		if not nguoi_nhan:
 			continue
 		try:
 			frappe.sendmail(
-				recipients=[nguoi_nhan], subject=f"Báo giá {bg.name} đã hết hiệu lực",
+				recipients=[nguoi_nhan], subject=f"Báo giá {bg.name}{ten_dot} đã hết hiệu lực",
 				message=noi_dung, reference_doctype="Quotation", reference_name=bg.name,
 				now=False,
 			)

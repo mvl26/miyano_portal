@@ -110,3 +110,17 @@ class TestTraDongVe(NenBaoGiaTheoDot):
 			frappe.set_user("Administrator")
 		goc.reload()
 		self.assertNotIn(self.item_ngoai, [d.item_code for d in goc.items])
+
+	def test_email_het_han_noi_ro_dot_va_tra_ve(self):
+		from unittest.mock import patch
+
+		goc = self._goc_ba_dong(contact_email="khach.hh@demo.miyano")
+		d1 = self._tach(goc, self.item_ngoai)
+		self._lui_han(d1)
+		with patch("frappe.sendmail") as gui:
+			bao_gia.quet_het_han()
+		thu = [c.kwargs for c in gui.call_args_list if c.kwargs["reference_name"] == d1.name]
+		self.assertTrue(thu)
+		self.assertIn("(đợt 1)", thu[0]["subject"])
+		self.assertIn(f"đã trả về phiếu {goc.name}", thu[0]["message"])
+		self.assertNotIn("gửi yêu cầu báo giá mới", thu[0]["message"])
