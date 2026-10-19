@@ -1220,3 +1220,6 @@ td.right, th.right { white-space: nowrap; }
 .btn.btn-o.btn-danger:hover { background: var(--err-bg); border-color: var(--err); }
 .btn.btn-o:not(.btn-danger) { background: var(--surface); color: var(--navy); border-color: var(--line-strong); box-shadow: none; }
 .btn.btn-o:not(.btn-danger):hover { background: var(--accent-soft); border-color: var(--accent); }
+/* Chú giải màu của khối "Dòng thời gian" (KhoiDongThoiGian.vue — file đó
+   không giữ CSS cục bộ, §9.2): chấm nhỏ 10px, dùng lại đúng bốn lớp màu. */
+.chu-giai-mau .vdot { width: 10px; height: 10px; min-width: 10px; }

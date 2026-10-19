@@ -124,11 +124,11 @@ const soMoc = computed(() => props.dong.length)
            ở trên, chỉ ghi đè KÍCH THƯỚC bằng style — không phát minh một
            bộ màu inline thứ hai (đó là một nguồn màu THỨ HAI để trôi lệch
            khỏi bảng ở `format.js`/`style.css`). -->
-      <p class="tag row wrap gap12" style="margin-top: 10px">
-        <span class="inline-flex"><span class="vdot benh-vien" style="width: 10px; height: 10px; min-width: 10px"></span>Bệnh viện</span>
-        <span class="inline-flex"><span class="vdot miyano" style="width: 10px; height: 10px; min-width: 10px"></span>Miyano</span>
-        <span class="inline-flex"><span class="vdot lui" style="width: 10px; height: 10px; min-width: 10px"></span>Việc đi lùi</span>
-        <span class="inline-flex"><span class="vdot he-thong" style="width: 10px; height: 10px; min-width: 10px"></span>Hệ thống</span>
+      <p class="tag row wrap gap12 chu-giai-mau" style="margin-top: 10px">
+        <span class="inline-flex"><span class="vdot benh-vien"></span>Bệnh viện</span>
+        <span class="inline-flex"><span class="vdot miyano"></span>Miyano</span>
+        <span class="inline-flex"><span class="vdot lui"></span>Việc đi lùi</span>
+        <span class="inline-flex"><span class="vdot he-thong"></span>Hệ thống</span>
       </p>
       <!-- Review vòng 2 — câu giải thích CHUNG, chỉ hiện khi CÓ ít nhất
            một dòng suy_ra (`coDongSuyRa`). CỐ Ý không nêu một ngày cụ
