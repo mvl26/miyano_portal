@@ -158,6 +158,14 @@ function isActive(key) {
   return name === key
 }
 
+// Sidebar desktop có mục RIÊNG cho Hoá đơn và Thông báo, nên mục "Hồ sơ đơn
+// vị" chỉ sáng ở chính trang Hồ sơ. `isActive('profile')` gom cả ba vì nó
+// phục vụ mục "Thêm" của thanh dưới (mobile) — không đổi hàm đó.
+function sangSidebar(key) {
+  if (key === 'profile') return route.name === 'profile'
+  return isActive(key)
+}
+
 async function doLogout() {
   await logout()
   window.location.href = '/portal/login'
@@ -218,8 +226,8 @@ onMounted(async () => {
             v-for="n in g.items"
             :key="n.key"
             :to="dichNav(n)"
-            :class="{ on: isActive(n.key) }"
-            :aria-current="isActive(n.key) ? 'page' : undefined"
+            :class="{ on: sangSidebar(n.key) }"
+            :aria-current="sangSidebar(n.key) ? 'page' : undefined"
           >
             <Icon :name="n.icon" :size="19" />
             <span class="nav-txt">{{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>

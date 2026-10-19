@@ -1199,3 +1199,24 @@ td .badge { white-space: nowrap; }
   .card.card-flush { padding: 0; }
   .card-flush > h3, .card-flush > .card-hd { padding: 14px 16px 10px; }
 }
+.jc-start { justify-content: flex-start; }
+@media (max-width: 900px) {
+  .step button { width: 42px; height: 42px; }
+  .step input { min-height: 42px; }
+}
+.jc-center { justify-content: center; }
+/* Bảng lồng trong một vùng .tbl-scroll: header bảng con không dính. */
+.tbl-scroll table table th { position: static; box-shadow: none; }
+/* Nút thao tác lặp lại theo dòng (vd "Giỏ") — nền xanh nhạt, để nút chính
+   của màn vẫn là nút navy duy nhất nổi bật. */
+.btn.btn-soft { background: var(--accent-soft); color: var(--navy); border-color: #c4e0f3; box-shadow: none; }
+.btn.btn-soft:hover { background: #d6eaf7; border-color: var(--accent); }
+.cell-code { white-space: nowrap; }
+/* Số tiền / số lượng trong bảng không bao giờ gãy dòng giữa số và "₫". */
+td.right, th.right { white-space: nowrap; }
+/* `btn btn-o btn-danger` (nút hành động sinh động từ kho-actions): là nút
+   VIỀN đỏ, không phải nền đỏ — tránh chữ đỏ trên nền đỏ. */
+.btn.btn-o.btn-danger { background: var(--surface); color: var(--err); border-color: #e7b9b9; box-shadow: none; }
+.btn.btn-o.btn-danger:hover { background: var(--err-bg); border-color: var(--err); }
+.btn.btn-o:not(.btn-danger) { background: var(--surface); color: var(--navy); border-color: var(--line-strong); box-shadow: none; }
+.btn.btn-o:not(.btn-danger):hover { background: var(--accent-soft); border-color: var(--accent); }
