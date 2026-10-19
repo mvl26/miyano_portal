@@ -14,6 +14,7 @@
 // `anhUrl` (đường ảnh riêng tư) — hai chỗ dễ trôi lệch nhất, và lệch thì
 // một trong hai màn lặng lẽ mất ảnh.
 import { fmtVND } from '../../format'
+import Icon from '../Icon.vue'
 
 const props = defineProps({
   d: { type: Object, required: true },
@@ -85,8 +86,8 @@ function danhSachAnh() {
         <img :src="anhUrl(u)" alt="Ảnh mặt hàng" />
       </a>
     </div>
-    <p v-else-if="d.khong_co_anh" class="tag hm-khong-anh">
-      ⚠ Nhân viên không chụp được ảnh — mô tả bằng lời:
+    <p v-else-if="d.khong_co_anh" class="tag hm-khong-anh inline-flex">
+      <Icon name="alert-triangle" :size="14" class="text-orange" />Nhân viên không chụp được ảnh — mô tả bằng lời:
     </p>
     <p v-if="d.khong_co_anh && d.mo_ta_nhan_dang" class="hm-mo-ta">
       {{ d.mo_ta_nhan_dang }}
@@ -148,7 +149,8 @@ function danhSachAnh() {
    thứ `px` bỏ qua hoàn toàn. */
 .hm-the {
   border: 1px solid var(--line);
-  border-radius: 0.5rem;
+  border-radius: var(--r-md);
+  background: var(--surface);
   padding: clamp(0.6rem, 2vw, 1rem);
   margin-bottom: 0.75rem;
 }
@@ -161,7 +163,7 @@ function danhSachAnh() {
   justify-content: space-between;
   gap: 0.25rem 0.75rem;
 }
-.hm-dau b { font-size: clamp(0.95rem, 2.4vw, 1.05rem); }
+.hm-dau b { color: var(--navy); font-size: clamp(0.95rem, 2.4vw, 1.05rem); }
 .hm-sl { white-space: nowrap; }
 .hm-phai {
   display: flex;
@@ -195,10 +197,8 @@ function danhSachAnh() {
   margin: 0.75rem 0 0;
 }
 .hm-luoi dt {
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted, #6b7280);
+  font-size: 0.75rem;
+  color: var(--text-3);
   margin: 0;
 }
 .hm-luoi dd {

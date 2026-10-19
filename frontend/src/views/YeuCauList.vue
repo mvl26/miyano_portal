@@ -29,6 +29,7 @@ import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
 import TabDonBaoGia from '../components/TabDonBaoGia.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -239,7 +240,7 @@ onMounted(async () => {
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>Danh sách đơn hàng</h2>
         <div class="sub">
           {{ store.me?.la_quan_ly
@@ -247,10 +248,10 @@ onMounted(async () => {
             : 'Mọi đơn hàng của khoa bạn — từ lúc còn là đề xuất tới lúc nhận hàng' }}
         </div>
       </div>
-      <router-link :to="{ name: 'dat-hang' }"><button class="btn">+ Đặt hàng</button></router-link>
+      <router-link :to="{ name: 'dat-hang' }" class="btn"><Icon name="plus" :size="18" />Đặt hàng</router-link>
     </div>
     <div v-else class="mb10">
-      <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
+      <router-link :to="{ name: 'dat-hang' }" class="btn btn-sm"><Icon name="plus" :size="16" />Đặt hàng</router-link>
     </div>
 
     <TabDonBaoGia dang="don" />
@@ -259,7 +260,7 @@ onMounted(async () => {
          trước ("khoa nào đang mua gì"), rồi mới lọc giai đoạn trong khoa
          đó. Mang từ `DuyetList.vue` sang cùng lúc màn đó nghỉ. -->
     <div v-if="store.me?.la_quan_ly && khoaOptions.length" class="card mb10">
-      <div class="field" style="margin-bottom: 0; max-width: 320px">
+      <div class="field mb0 loc-khoa">
         <label>Khoa phòng</label>
         <select v-model="khoaFilter">
           <option value="">— Tất cả các khoa —</option>
@@ -291,12 +292,13 @@ onMounted(async () => {
     </div>
 
     <!-- DESKTOP: bảng -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
             <th>Mã đơn hàng</th><th>Khoa phòng</th><th>Ngày đặt</th>
-            <th class="right">Giá trị</th><th style="min-width: 130px">Đã giao</th>
+            <th class="right">Giá trị</th><th class="cot-giao">Đã giao</th>
             <th>Giai đoạn</th><th></th>
           </tr>
         </thead>
@@ -310,8 +312,8 @@ onMounted(async () => {
                  hữu ích nhất, vì chưa có mã nào để mà nhận ra phiếu.
                  KHÔNG cắt bớt: chủ đầu tư nói "tên đơn hàng có thể dài", ô
                  cho xuống dòng thoải mái. -->
-            <td style="min-width: 14rem">
-              <b v-if="r.ma">{{ r.ma }}</b>
+            <td class="cot-ma-don">
+              <b v-if="r.ma" class="cell-code">{{ r.ma }}</b>
               <span v-else class="tag">(chưa gửi duyệt)</span>
               <!-- Spec 2026-10-09 §7 — hai phiếu tách từ một giỏ trộn mang
                    CÙNG mã lần đặt; nhãn này là thứ duy nhất trên danh sách
@@ -327,8 +329,8 @@ onMounted(async () => {
             <td class="right">{{ r.sales_order ? fmtVND(r.grand_total) : '—' }}</td>
             <td>
               <template v-if="r.sales_order">
-                {{ pct(r) }}%
-                <div class="bar"><i :style="{ width: pct(r) + '%', background: 'var(--orange)' }"></i></div>
+                <span class="tnum">{{ pct(r) }}%</span>
+                <div class="bar bar-giao"><i :style="{ width: pct(r) + '%' }"></i></div>
               </template>
               <span v-else class="tag">—</span>
             </td>
@@ -337,14 +339,15 @@ onMounted(async () => {
               <!-- Giai đoạn gộp KHÔNG được nuốt mất tín hiệu chi tiết của
                    đơn ("Chờ xác nhận"/"Đang giao"/…) — nó là thứ nói ai
                    đang giữ việc. -->
-              <div v-if="r.trang_thai_don" class="tag" style="margin-top: 2px">{{ r.trang_thai_don }}</div>
+              <div v-if="r.trang_thai_don" class="tag trang-thai-don">{{ r.trang_thai_don }}</div>
             </td>
-            <td style="white-space: nowrap">
-              <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)">Sửa</button>
+            <td class="nowrap">
+              <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)"><Icon name="pencil" :size="16" />Sửa</button>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE: thẻ -->
@@ -356,7 +359,7 @@ onMounted(async () => {
         @click="moYeuCau(r)"
       >
         <div class="sb">
-          <b v-if="r.ma">{{ r.ma }}</b>
+          <b v-if="r.ma" class="cell-code">{{ r.ma }}</b>
           <span v-else class="tag">(chưa gửi duyệt)</span>
           <span class="badge" :class="giaiDoanBadge(r.giai_doan)">{{ nhanGiaiDoan(r.giai_doan) }}</span>
         </div>
@@ -365,17 +368,17 @@ onMounted(async () => {
              dữ liệu phụ. Sửa một trong hai nhánh mà quên nhánh kia là đúng
              một nửa người dùng (điện thoại) không thấy tên. -->
         <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4">
           {{ tenKhoa(r.khoa_phong) }} · {{ fmtDate(r.thoi_diem) }}
           <template v-if="r.sales_order"> · {{ fmtVND(r.grand_total) }}</template>
           <template v-if="r.trang_thai_don"> · {{ r.trang_thai_don }}</template>
         </p>
         <template v-if="r.sales_order && pct(r) > 0">
-          <p style="font-size: 12px; margin-top: 6px">Đã giao <b>{{ pct(r) }}%</b></p>
-          <div class="bar"><i :style="{ width: pct(r) + '%', background: 'var(--orange)' }"></i></div>
+          <p class="fs12 mt6">Đã giao <b class="tnum">{{ pct(r) }}%</b></p>
+          <div class="bar bar-giao"><i :style="{ width: pct(r) + '%' }"></i></div>
         </template>
-        <div style="margin-top: 8px">
-          <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)">Sửa</button>
+        <div class="mt8">
+          <button v-if="coTheSuaNhap(r)" class="btn-o btn-sm" @click.stop="moYeuCau(r)"><Icon name="pencil" :size="16" />Sửa</button>
         </div>
       </div>
     </template>
@@ -391,6 +394,11 @@ onMounted(async () => {
    chủ đầu tư 08/09/2026: "tên đơn hàng có thể dài".
    Kích thước bằng `rem`: co giãn theo cỡ chữ người dùng đặt trong trình
    duyệt, thứ `px` bỏ qua hoàn toàn. */
+.loc-khoa { max-width: 320px; }
+.cot-ma-don { min-width: 14rem; }
+.cot-giao { min-width: 130px; }
+.bar-giao i { background: var(--orange); }
+.trang-thai-don { margin-top: 2px; }
 .lan-dat {
   margin-left: 0.375rem;
   white-space: nowrap;

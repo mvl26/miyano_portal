@@ -24,6 +24,7 @@ import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import { showToast } from '../toast'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   // URL endpoint tải PDF nháp (đã kèm tham số), hoặc '' khi chưa có file.
@@ -89,7 +90,7 @@ async function taiVe() {
     <!-- Cảnh báo pháp lý do SERVER trả (einvoice.CANH_BAO_NHAP) — không gõ
          lại ở đây: một lần sửa giao diện làm rơi mất nó là một lần khách
          tưởng mình đang cầm chứng từ thuế. -->
-    <div v-if="duLieu && duLieu.canh_bao" class="note">⚠ {{ duLieu.canh_bao }}</div>
+    <div v-if="duLieu && duLieu.canh_bao" class="note note-ic"><Icon name="alert-triangle" /><div>{{ duLieu.canh_bao }}</div></div>
 
     <template v-if="urlPdf">
       <p v-if="dangTai" class="tag">Đang mở hoá đơn…</p>
@@ -97,11 +98,11 @@ async function taiVe() {
         v-else-if="blobUrl && !isMobile"
         :src="blobUrl"
         title="Hoá đơn"
-        style="width: 100%; height: 70vh; border: 1px solid var(--line); border-radius: 8px"
+        class="khung-pdf"
       ></iframe>
-      <button v-else class="btn-o btn-sm" @click="moTabMoi">📄 Xem hoá đơn</button>
-      <p style="margin-top: 8px">
-        <button class="btn-o btn-sm" @click="taiVe">⬇ Tải hoá đơn</button>
+      <button v-else class="btn-o btn-sm" @click="moTabMoi"><Icon name="file-text" :size="16" />Xem hoá đơn</button>
+      <p class="mt8">
+        <button class="btn-o btn-sm" @click="taiVe"><Icon name="download" :size="16" />Tải hoá đơn</button>
       </p>
     </template>
 
@@ -114,7 +115,7 @@ async function taiVe() {
         {{ duLieu.loai || 'Hoá đơn gốc' }}
         <template v-if="duLieu.ngay"> · Ngày hoá đơn dự kiến: {{ fmtDate(duLieu.ngay) }}</template>
       </p>
-      <div v-if="duLieu.dong && duLieu.dong.length" style="overflow-x: auto; margin-top: 8px">
+      <div v-if="duLieu.dong && duLieu.dong.length" class="tbl-scroll mt8">
         <table>
           <thead>
             <tr>
@@ -127,7 +128,7 @@ async function taiVe() {
               <td>{{ dong.stt }}</td>
               <td>
                 <b class="mono">{{ dong.ma }}</b>
-                <template v-if="dong.ten"><br /><span style="font-size: 13px">{{ dong.ten }}</span></template>
+                <template v-if="dong.ten"><br /><span class="fs13">{{ dong.ten }}</span></template>
               </td>
               <td class="right">{{ dong.so_luong }} {{ dong.dvt }}</td>
               <td class="right">{{ fmtVND(dong.don_gia) }}</td>
@@ -140,7 +141,7 @@ async function taiVe() {
           </tbody>
         </table>
       </div>
-      <p v-if="duLieu.tong_tien != null" style="margin-top: 8px; text-align: right">
+      <p v-if="duLieu.tong_tien != null" class="mt8 right tnum">
         <span class="tag">
           Tiền hàng {{ fmtVND(duLieu.tien_hang) }} · Thuế GTGT {{ fmtVND(duLieu.tien_thue) }}
         </span><br />
@@ -149,3 +150,12 @@ async function taiVe() {
     </template>
   </div>
 </template>
+
+<style scoped>
+.khung-pdf {
+  width: 100%;
+  height: 70vh;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+</style>

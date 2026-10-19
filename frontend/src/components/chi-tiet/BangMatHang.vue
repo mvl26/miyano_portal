@@ -21,6 +21,7 @@ import { NHAN_CHO_BAO_GIA, choBaoGiaTrenDon } from '../../gia-dong-don'
 import { boSungDongChiCoTrenDon } from '../../dong-bang-mat-hang'
 import TheHangMoi from './TheHangMoi.vue'
 import CotTenHang from '../CotTenHang.vue'
+import Icon from '../Icon.vue'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -327,14 +328,15 @@ function toggleChiTietKhop(row) {
 </script>
 
 <template>
-  <div class="card" style="padding: 0; overflow-x: auto">
+  <div class="card card-flush bang-mat-hang">
     <!-- CR-04 §4 — dòng giải thích BA lý do, chỉ hiện khi có ít nhất một
          dòng không tra được. Đừng để quản lý tự đoán vì sao cột trống. -->
-    <p v-if="coDongKhongTraDuoc" class="tag" style="margin: 10px 12px 0">
+    <p v-if="coDongKhongTraDuoc" class="tag ghi-chu-tra row-top gap6"><Icon name="info" :size="14" class="shrink0 mt4" /><span>
       Một số dòng hiện "—" (không tra được) vì: bệnh viện chưa mở kho trên cổng,
       vật tư kho chưa nối mã hàng, hoặc hàng này không có trong danh mục kho.
       "—" khác hẳn "0" — "0" nghĩa là hết hàng.
-    </p>
+    </span></p>
+    <div class="tbl-scroll khung-bang">
     <table>
       <thead>
         <tr>
@@ -375,7 +377,7 @@ function toggleChiTietKhop(row) {
                chữ người dùng đặt trong trình duyệt, và là cột NÊN rộng khi
                còn chỗ. Bảng đã nằm trong khung `overflow-x: auto` nên đòi
                chỗ ở đây không đẩy cả trang cuộn ngang. -->
-          <th v-if="coPhieu" style="min-width: 16rem">Ghi chú quản lý</th>
+          <th v-if="coPhieu" class="cot-ghi-chu">Ghi chú quản lý</th>
         </tr>
       </thead>
       <tbody>
@@ -389,26 +391,26 @@ function toggleChiTietKhop(row) {
              màn duyệt: quản lý đang cân nhắc cả đơn, rời màn là mất mạch. -->
         <template v-for="row in dong" :key="row.item_code">
         <tr
-          :style="khongDuyet(row) ? 'text-decoration: line-through; color: var(--gray)' : ''"
+          :class="{ 'dong-khong-duyet': khongDuyet(row) }"
         >
           <CotTenHang :ma="row.item_code" :ten="row.item_name || ''">
             <div>
-            <span v-if="khongDuyet(row)" class="badge b-red" style="margin-top: 4px">Không duyệt</span>
-            <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple" style="margin-top: 4px">Quản lý thêm</span>
+            <span v-if="khongDuyet(row)" class="badge b-red mt4">Không duyệt</span>
+            <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple mt4">Quản lý thêm</span>
             <!-- Nhãn + lối vào chi tiết cho dòng Miyano khớp từ hàng gõ tay
                  (chủ đầu tư 08/09/2026). Nhãn một mình chưa đủ: khoa gõ tên
                  hàng theo cách của họ, Miyano trả về một MÃ — không nói rõ
                  mã này khớp với yêu cầu nào thì khoa không nối lại được, mà
                  nối lại chính là việc bảng này sinh ra để làm. -->
             <template v-if="row.yeu_cau_khop">
-              <span class="badge b-green" style="margin-top: 4px">Đã khớp với yêu cầu</span>
+              <span class="badge b-green mt4">Đã khớp với yêu cầu</span>
               <button
                 type="button"
                 class="nut-chi-tiet"
                 :aria-expanded="chiTietMoRong[row.item_code] ? 'true' : 'false'"
                 :aria-label="`Xem chi tiết yêu cầu đã khớp với ${row.item_code}`"
                 @click="toggleChiTietKhop(row)"
-              >{{ chiTietMoRong[row.item_code] ? '▾' : '▸' }} Xem chi tiết</button>
+              ><Icon :name="chiTietMoRong[row.item_code] ? 'chevron-down' : 'chevron-right'" :size="14" />Xem chi tiết</button>
             </template>
             </div>
           </CotTenHang>
@@ -428,10 +430,10 @@ function toggleChiTietKhop(row) {
             <button
               v-if="coTheXoSo(row)"
               type="button"
-              style="cursor: pointer; background: none; border: none; padding: 0; text-decoration: underline; font: inherit; color: inherit"
+              class="nut-so-kho"
               :aria-label="`Xem sổ kho cho ${row.item_code}`"
               @click="toggleSoKho(row)"
-            >{{ dongMoRong[row.item_code] ? '▾' : '▸' }} {{ fmtSl(canCu(row)?.ton) }}</button>
+            ><Icon :name="dongMoRong[row.item_code] ? 'chevron-down' : 'chevron-right'" :size="14" />{{ fmtSl(canCu(row)?.ton) }}</button>
             <template v-else>{{ fmtSl(canCu(row)?.ton) }}</template>
           </td>
           <td v-if="coCanCuKho" class="right">{{ fmtSl(canCu(row)?.dang_ve) }}</td>
@@ -453,8 +455,8 @@ function toggleChiTietKhop(row) {
             <span
               v-if="coCanCuKho && coCanhBaoDatKhiChuaCan(row)"
               title="Còn dùng được lâu mà vẫn đặt — xem kỹ"
-              style="color: var(--orange)"
-            > ⚠</span>
+              class="text-orange ml4"
+            ><Icon name="alert-triangle" :size="14" label="Còn dùng được lâu mà vẫn đặt — xem kỹ" /></span>
           </td>
           <!-- C1 (chép từ DeXuatDetail.vue) — nửa NHẬP LIỆU của thao tác mà
                nửa HIỂN THỊ (gạch ngang, badge "Không duyệt") đã render sẵn
@@ -472,10 +474,10 @@ function toggleChiTietKhop(row) {
                 v-model="slDuyetSua[row.item_code]"
                 :placeholder="String(row.so_luong_duyet)"
                 :aria-label="`SL duyệt cho ${row.item_code}`"
-                style="width: 90px; text-align: right"
+                class="o-sl-duyet"
               />
               <br v-if="soDuyetMoi(row) !== null" />
-              <span v-if="laBoMatHang(row)" class="tag" style="color: var(--red)">
+              <span v-if="laBoMatHang(row)" class="tag text-red">
                 Sẽ bỏ mặt hàng này khỏi đơn
               </span>
               <span v-else-if="soDuyetMoi(row) !== null" class="tag">
@@ -559,7 +561,7 @@ function toggleChiTietKhop(row) {
                 v-model="ghiChuSua[row.item_code]"
                 placeholder="Ghi chú của quản lý (tuỳ chọn)"
                 :aria-label="`Ghi chú quản lý cho ${row.item_code}`"
-                style="width: 100%; margin-top: 6px; resize: vertical"
+                class="o-ghi-chu"
               ></textarea>
             </template>
             <template v-else-if="row.ghi_chu_quan_ly">
@@ -574,8 +576,8 @@ function toggleChiTietKhop(row) {
              có trong hệ thống" đang dùng, nên chín trường và ảnh hiện y hệt
              ở cả trước lẫn sau khi khớp mã. -->
         <tr v-if="row.yeu_cau_khop && chiTietMoRong[row.item_code]">
-          <td :colspan="soCotTong" style="background: #f8fafc">
-            <p class="tag" style="margin: 0 0 0.5rem">
+          <td :colspan="soCotTong" class="o-xo">
+            <p class="tag mb8">
               Dòng hàng này Miyano khớp từ {{ row.yeu_cau_khop.length }} yêu cầu
               hàng chưa có mã của khoa:
             </p>
@@ -596,13 +598,13 @@ function toggleChiTietKhop(row) {
              chính nó, một bảng con rộng hơn không được kéo cả trang cuộn
              theo trên điện thoại. -->
         <tr v-if="coCanCuKho && dongMoRong[row.item_code]">
-          <td :colspan="soCotTong" style="background: #f8fafc">
+          <td :colspan="soCotTong" class="o-xo">
             <div v-if="soKhoTheo[row.item_code]?.loading" class="loading">Đang tải sổ kho…</div>
             <div v-else-if="soKhoTheo[row.item_code]?.error" class="empty">{{ soKhoTheo[row.item_code].error }}</div>
             <div v-else-if="!soKhoTheo[row.item_code]?.rows?.length" class="empty">
               Không có phát sinh trong 90 ngày gần đây.
             </div>
-            <div v-else style="overflow-x: auto">
+            <div v-else class="tbl-scroll khung-so-kho">
               <table>
                 <thead>
                   <tr>
@@ -619,7 +621,7 @@ function toggleChiTietKhop(row) {
                       :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }"
                     >
                       <template v-if="c.field === 'ngay'">{{ fmtDate(r.ngay) }}</template>
-                      <template v-else-if="c.field === 'chung_tu'"><b>{{ r.chung_tu }}</b></template>
+                      <template v-else-if="c.field === 'chung_tu'"><b class="mono">{{ r.chung_tu }}</b></template>
                       <template v-else-if="['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field)">{{ fmtSl(r[c.field]) }}</template>
                       <template v-else>{{ r[c.field] || '—' }}</template>
                     </td>
@@ -635,6 +637,7 @@ function toggleChiTietKhop(row) {
         </tr>
       </tbody>
     </table>
+    </div>
 
   </div>
 </template>
@@ -643,8 +646,32 @@ function toggleChiTietKhop(row) {
 /* Nút chữ, không phải nút khối: nó nằm trong ô "Mặt hàng" cạnh tên hàng và
    nhãn — một nút có nền/viền ở đó sẽ nặng hơn chính tên hàng. Kích thước
    theo `rem` để co giãn theo cỡ chữ trình duyệt (chủ đầu tư 05/09/2026). */
+.khung-bang { overflow-x: auto; }
+.khung-so-kho { overflow-x: auto; }
+.ghi-chu-tra { margin: 0; padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.cot-ghi-chu { min-width: 16rem; }
+.dong-khong-duyet td { text-decoration: line-through; color: var(--gray); }
+.o-sl-duyet { width: 90px; text-align: right; }
+.o-ghi-chu { width: 100%; margin-top: 6px; resize: vertical; }
+.o-xo, tr:hover td.o-xo { background: var(--surface-2); }
+.nut-so-kho {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font: inherit;
+  color: inherit;
+}
 .nut-chi-tiet {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
   margin-top: 0.25rem;
   margin-left: 0.375rem;
   padding: 0;
@@ -652,8 +679,10 @@ function toggleChiTietKhop(row) {
   border: none;
   font: inherit;
   font-size: 0.8rem;
-  color: var(--blue, #2563eb);
+  color: var(--accent);
+  font-weight: 500;
   text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 </style>

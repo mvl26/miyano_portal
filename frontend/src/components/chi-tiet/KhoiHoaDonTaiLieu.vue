@@ -12,6 +12,7 @@
 // kiện `dat-lai`, không tự gọi `datLai()` — hàm đó còn `router.push` sang
 // màn Đặt hàng, vẫn thuộc về OrderDetail.vue.
 import { fmtVND, fmtDate } from '../../format'
+import Icon from '../Icon.vue'
 
 defineProps({
   don: { type: Object, required: true },
@@ -67,11 +68,11 @@ function hddtUrl(invoiceName) {
              chính, mọi bản điều chỉnh/thay thế và nút yêu cầu hỗ trợ —
              dựng màn thứ hai làm cùng một việc đúng là lỗi mà
              `docs/BAN-DO-CHUC-NANG.md` mục 4 ghi nhận đã lọt bốn lần. -->
-        <router-link :to="{ name: 'invoices', query: { 'hoa-don': h.name } }">
-          <b>{{ h.name }}</b>
+        <router-link :to="{ name: 'invoices', query: { 'hoa-don': h.name } }" class="link">
+          <b class="mono">{{ h.name }}</b>
         </router-link>
         · {{ fmtDate(h.ngay) }}<br />
-        <span class="tag">
+        <span class="tag tnum">
           {{ fmtVND(h.tong_tien) }}
           <template v-if="h.con_no > 0"> · còn nợ {{ fmtVND(h.con_no) }}</template>
           <template v-if="h.han_thanh_toan"> · hạn {{ fmtDate(h.han_thanh_toan) }}</template>
@@ -86,23 +87,21 @@ function hddtUrl(invoiceName) {
         :href="hddtUrl(h.name)"
         target="_blank"
         rel="noopener"
-      >
-        <button class="btn-o btn-sm">⬇ PDF</button>
-      </a>
+        class="btn-o btn-sm shrink0"
+      ><Icon name="download" :size="16" />PDF</a>
       <span v-else class="tag">{{ h.hddt_nhan || 'Miyano đang xử lý hoá đơn điện tử' }}</span>
     </div>
   </template>
 
   <hr class="sep" />
-  <a :href="pdfUrl('Sales Order', don.order)" target="_blank" rel="noopener">
-    <button class="btn-o btn-sm">⬇ PDF đơn hàng</button>
+  <a :href="pdfUrl('Sales Order', don.order)" target="_blank" rel="noopener" class="btn-o btn-sm">
+    <Icon name="download" :size="16" />PDF đơn hàng
   </a>
   <button
-    class="btn-o btn-sm"
-    style="margin-left: 8px"
+    class="btn-o btn-sm ml8"
     :disabled="dangDatLai"
     @click="$emit('dat-lai')"
   >
-    🔁 Đặt lại đơn này
+    <Icon name="rotate-ccw" :size="16" />Đặt lại đơn này
   </button>
 </template>

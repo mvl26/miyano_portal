@@ -9,6 +9,7 @@ import { useIsMobile } from '../useMobile'
 import { store } from '../store'
 import PhanTrang from '../components/PhanTrang.vue'
 import TabDonBaoGia from '../components/TabDonBaoGia.vue'
+import Icon from '../components/Icon.vue'
 import {
   NHOM_BAO_GIA, nhanNhomBaoGia, khoaNhomBaoGia, dichDongBaoGia,
   nhanDongBaoGia, badgeDongBaoGia,
@@ -108,20 +109,20 @@ onMounted(async () => {
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>Danh sách đơn hàng</h2>
         <div class="sub">Hàng chưa có giá hoặc chưa có mã — Miyano báo giá, quý vị đồng ý rồi mới thành đơn hàng</div>
       </div>
-      <router-link :to="{ name: 'dat-hang' }"><button class="btn">+ Đặt hàng</button></router-link>
+      <router-link :to="{ name: 'dat-hang' }" class="btn"><Icon name="plus" :size="18" />Đặt hàng</router-link>
     </div>
     <div v-else class="mb10">
-      <router-link :to="{ name: 'dat-hang' }"><button class="btn btn-sm">+ Đặt hàng</button></router-link>
+      <router-link :to="{ name: 'dat-hang' }" class="btn btn-sm"><Icon name="plus" :size="16" />Đặt hàng</router-link>
     </div>
 
     <TabDonBaoGia dang="bao-gia" />
 
     <div v-if="store.me?.la_quan_ly && khoaOptions.length" class="card mb10">
-      <div class="field" style="margin-bottom: 0; max-width: 320px">
+      <div class="field mb0 loc-khoa">
         <label>Khoa phòng</label>
         <select v-model="khoaFilter">
           <option value="">— Tất cả các khoa —</option>
@@ -140,7 +141,8 @@ onMounted(async () => {
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!rows.length" class="empty">Chưa có yêu cầu báo giá nào ở nhóm này.</div>
 
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -150,8 +152,8 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.de_xuat || r.bao_gia" class="clickable" @click="mo(r)">
-            <td style="min-width: 14rem">
-              <b v-if="r.ma">{{ r.ma }}</b>
+            <td class="cot-ma-yc">
+              <b v-if="r.ma" class="cell-code">{{ r.ma }}</b>
               <span v-else class="tag">(chưa gửi duyệt)</span>
               <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
             </td>
@@ -165,22 +167,23 @@ onMounted(async () => {
               <!-- Dòng chưa có báo giá (nhóm `nhap`): huy hiệu là trạng thái
                    phiếu, dòng phụ là tên nhóm. Dòng đã có báo giá: ngược lại. -->
               <span class="badge" :class="badgeDongBaoGia(r)">{{ nhanDongBaoGia(r) }}</span>
-              <div class="tag" style="margin-top: 2px">{{ r.trang_thai_bao_gia || nhanNhomBaoGia(r.nhom) }}</div>
+              <div class="tag trang-thai-phu">{{ r.trang_thai_bao_gia || nhanNhomBaoGia(r.nhom) }}</div>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <template v-else>
       <div v-for="r in rows" :key="r.de_xuat || r.bao_gia" class="card mb10 clickable" @click="mo(r)">
         <div class="sb">
-          <b v-if="r.ma">{{ r.ma }}</b>
+          <b v-if="r.ma" class="cell-code">{{ r.ma }}</b>
           <span v-else class="tag">(chưa gửi duyệt)</span>
           <span class="badge" :class="badgeDongBaoGia(r)">{{ nhanDongBaoGia(r) }}</span>
         </div>
         <div v-if="r.ten_don_hang" class="ten-don">{{ r.ten_don_hang }}</div>
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4">
           {{ tenKhoa(r.khoa_phong) }} · {{ fmtDate(r.thoi_diem) }}
           <template v-if="r.grand_total != null"> · {{ fmtVND(r.grand_total) }}</template>
           <template v-if="r.han_hieu_luc"> · hiệu lực đến {{ fmtDate(r.han_hieu_luc) }}</template>
@@ -193,6 +196,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.loc-khoa { max-width: 320px; }
+.cot-ma-yc { min-width: 14rem; }
+.trang-thai-phu { margin-top: 2px; }
 /* Cùng dáng với tên đơn hàng ở YeuCauList.vue: nhãn của dòng, không cắt bớt. */
 .ten-don {
   margin-top: 0.125rem;

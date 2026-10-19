@@ -12,6 +12,7 @@ import ReasonModal from '../components/ReasonModal.vue'
 import CotTenHang from '../components/CotTenHang.vue'
 import KhoiBaoGia from '../components/KhoiBaoGia.vue'
 import KhoiDongThoiGian from '../components/chi-tiet/KhoiDongThoiGian.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 
@@ -77,8 +78,8 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="topbar">
-      <router-link :to="{ name: 'bao-gia' }"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
+    <div class="topbar topbar-lui">
+      <router-link :to="{ name: 'bao-gia' }" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
     </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
@@ -86,40 +87,40 @@ onMounted(load)
 
     <template v-else-if="bg">
       <div class="card mb10">
-        <div class="sb">
-          <h3 style="margin: 0">{{ bg.ma || bg.bao_gia }}</h3>
+        <div class="sb wrap">
+          <h3 class="mb0 ma-bg">{{ bg.ma || bg.bao_gia }}</h3>
           <span class="badge" :class="nhomBaoGiaBadge(bg.nhom)">{{ nhanNhomBaoGia(bg.nhom) }}</span>
         </div>
-        <p v-if="bg.ten_don_hang" style="margin-top: 4px; overflow-wrap: anywhere">{{ bg.ten_don_hang }}</p>
-        <p class="tag" style="margin-top: 4px">
+        <p v-if="bg.ten_don_hang" class="mt4 break">{{ bg.ten_don_hang }}</p>
+        <p class="tag mt4">
           Yêu cầu báo giá {{ bg.bao_gia }} · gửi ngày {{ fmtDate(bg.ngay_tao) }}
           <template v-if="!coDot && bg.han_hieu_luc"> · hiệu lực đến <b>{{ fmtDate(bg.han_hieu_luc) }}</b></template>
         </p>
-        <p v-if="bg.het_han" class="tag" style="margin-top: 6px; color: var(--red)">
-          Báo giá đã quá hạn hiệu lực. Gửi yêu cầu báo giá mới nếu vẫn cần hàng.
+        <p v-if="bg.het_han" class="tag mt6 text-red inline-flex ai-start">
+          <Icon name="clock" :size="16" /><span>Báo giá đã quá hạn hiệu lực. Gửi yêu cầu báo giá mới nếu vẫn cần hàng.</span>
         </p>
-        <p v-if="bg.ly_do_tu_choi" class="tag" style="margin-top: 6px; color: var(--red)">
-          Lý do từ chối: {{ bg.ly_do_tu_choi }}
+        <p v-if="bg.ly_do_tu_choi" class="tag mt6 text-red inline-flex ai-start">
+          <Icon name="alert-circle" :size="16" /><span>Lý do từ chối: {{ bg.ly_do_tu_choi }}</span>
         </p>
-        <p v-if="bg.sales_order" style="margin-top: 6px">
-          <router-link :to="{ name: 'order-detail', params: { name: bg.sales_order } }">
-            Xem đơn hàng {{ bg.sales_order }} →
+        <p v-if="bg.sales_order" class="mt6">
+          <router-link :to="{ name: 'order-detail', params: { name: bg.sales_order } }" class="link inline-flex gap4">
+            Xem đơn hàng {{ bg.sales_order }}<Icon name="arrow-right" :size="16" />
           </router-link>
         </p>
-        <p v-else-if="bg.de_xuat" class="tag" style="margin-top: 6px">
-          <router-link :to="{ name: 'de-xuat-detail', params: { ten: bg.de_xuat } }">Xem phiếu đề xuất gốc</router-link>
+        <p v-else-if="bg.de_xuat" class="tag mt6">
+          <router-link :to="{ name: 'de-xuat-detail', params: { ten: bg.de_xuat } }" class="link">Xem phiếu đề xuất gốc</router-link>
         </p>
       </div>
 
       <template v-if="coDot">
         <KhoiBaoGia v-for="d in bg.dot" :key="d.bao_gia" :bg="d" :tieu-de="nhanDot(d)" @xong="load" />
 
-        <div v-if="bg.con_lai.length || bg.duoc_huy_con_lai" class="card mb10"
-             style="padding: 0; overflow-x: auto">
-          <div class="sb" style="padding: 12px 14px 0">
-            <div class="h3" style="margin: 0">Chờ Miyano báo giá</div>
+        <div v-if="bg.con_lai.length || bg.duoc_huy_con_lai" class="card card-flush mb10">
+          <div class="card-hd">
+            <div class="h3 mb0">Chờ Miyano báo giá</div>
             <span class="badge b-blue">{{ bg.con_lai.length }} mặt hàng</span>
           </div>
+          <div class="tbl-scroll">
           <table v-if="bg.con_lai.length">
             <thead><tr><CotTenHang head /><th>ĐVT</th><th class="right">Số lượng</th></tr></thead>
             <tbody>
@@ -129,15 +130,16 @@ onMounted(load)
               </tr>
             </tbody>
           </table>
-          <div v-if="bg.duoc_huy_con_lai" style="padding: 10px 14px">
-            <button class="btn-o" :disabled="dangHuy" @click="moHuy = true">✕ Huỷ phần còn lại…</button>
+          </div>
+          <div v-if="bg.duoc_huy_con_lai" class="row wrap gap8 huy-con-lai">
+            <button class="btn-o btn-danger" :disabled="dangHuy" @click="moHuy = true"><Icon name="x" :size="16" />Huỷ phần còn lại…</button>
             <span class="tag"> Các đợt đã gửi vẫn giữ nguyên.</span>
           </div>
         </div>
         <!-- Đã huỷ phần còn lại: một dòng thay cho khối "Chờ Miyano báo giá". -->
         <div v-if="bg.da_huy_con_lai" class="card mb10">
-          <div class="h3" style="margin: 0">Đã huỷ các mặt hàng chưa báo giá</div>
-          <p v-if="bg.ly_do_huy_con_lai" class="tag" style="margin-top: 4px; overflow-wrap: anywhere">
+          <div class="h3 mb0 inline-flex"><Icon name="ban" :size="18" class="text-red" />Đã huỷ các mặt hàng chưa báo giá</div>
+          <p v-if="bg.ly_do_huy_con_lai" class="tag mt4 break">
             Lý do: {{ bg.ly_do_huy_con_lai }}
           </p>
         </div>
@@ -167,3 +169,9 @@ onMounted(load)
     </template>
   </div>
 </template>
+
+<style scoped>
+.topbar-lui { margin-bottom: 14px; }
+.ma-bg { font-family: var(--mono); color: var(--navy); }
+.huy-con-lai { padding: 12px 16px; border-top: 1px solid var(--line); }
+</style>

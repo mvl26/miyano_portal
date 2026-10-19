@@ -4,6 +4,7 @@
 // hành động "Không đồng ý"/"Huỷ" cần lý do (F-07 báo giá, F-23 huỷ yêu cầu).
 import { ref, watch, computed } from 'vue'
 import { useIsMobile } from '../useMobile'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -46,17 +47,18 @@ function submit() {
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
-    <div class="card">
-      <h3 style="color: var(--red)">{{ title }}</h3>
-      <p style="font-size: 13px; margin: 10px 0">{{ desc }}</p>
+    <div class="card" :class="{ in: isMobile }">
+      <div v-if="isMobile" class="grab"></div>
+      <h3 class="text-red">{{ title }}</h3>
+      <p class="fs13 text-2 mo-ta">{{ desc }}</p>
       <textarea
         v-model="value"
         rows="3"
         :placeholder="placeholder"
         @blur="touched = true"
       ></textarea>
-      <div v-if="err" class="err" style="color: var(--red); font-size: 12px; margin-top: 4px">{{ err }}</div>
-      <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+      <div v-if="err" class="err text-red fs12 mt4 inline-flex gap4"><Icon name="alert-circle" :size="14" />{{ err }}</div>
+      <div class="flex jc-end mt14 gap8 wrap">
         <button class="btn-o" :disabled="submitting" @click="emit('close')">Quay lại</button>
         <button class="btn btn-danger" :disabled="submitting" @click="submit">
           {{ submitting ? 'Đang gửi…' : submitLabel }}
@@ -65,3 +67,7 @@ function submit() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.mo-ta { margin: 10px 0; }
+</style>

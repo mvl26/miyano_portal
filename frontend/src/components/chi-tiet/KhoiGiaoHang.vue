@@ -14,6 +14,7 @@ import api from '../../api'
 import { fmtDate, fmtDateTime } from '../../format'
 import { showToast } from '../../toast'
 import HoaDonNhap from '../HoaDonNhap.vue'
+import Icon from '../Icon.vue'
 
 defineProps({ don: { type: Object, required: true } })
 
@@ -100,61 +101,63 @@ function pdfUrl(doctype, docname) {
        không phải danh sách đợt đã giao. -->
   <div
     v-if="don.hen_giao"
-    style="border: 1px solid var(--orange); border-radius: 8px; padding: 10px; margin-bottom: 12px"
+    class="note note-ic hen-giao"
   >
-    <p style="margin: 0 0 4px">
-      <span class="badge b-orange">{{ don.hen_giao.loai }}</span>
-      <b style="margin-left: 8px">Dự kiến giao {{ fmtDate(don.hen_giao.ngay) }}</b>
-    </p>
-    <p v-if="don.hen_giao.ly_do" class="tag" style="margin: 0">
-      {{ don.hen_giao.ly_do }}
-    </p>
+    <Icon name="calendar" />
+    <div class="grow">
+      <p class="mb4 row wrap gap8">
+        <span class="badge b-orange">{{ don.hen_giao.loai }}</span>
+        <b>Dự kiến giao {{ fmtDate(don.hen_giao.ngay) }}</b>
+      </p>
+      <p v-if="don.hen_giao.ly_do" class="tag mb0">
+        {{ don.hen_giao.ly_do }}
+      </p>
+    </div>
   </div>
   <!-- Thời gian giao hàng (09/10/2026) — mỗi đợt hiện thời điểm giao THẬT
        do Miyano nhập trên phiếu giao (`thoi_gian_giao`, có giờ), không phải
        ngày ghi sổ. `posting_date` chỉ còn là đường lùi cho một response cũ. -->
   <template v-if="don.deliveries.length">
-    <div v-for="(d, i) in don.deliveries" :key="d.name" style="margin-bottom: 12px">
-      <p style="font-size: 13px"><b>Đợt {{ dotLabel(d, i) }} – {{ fmtDateTime(d.thoi_gian_giao || d.posting_date) }} ({{ d.percent }}%)</b></p>
+    <div v-for="(d, i) in don.deliveries" :key="d.name" class="dot-giao">
+      <p class="fs13 row gap6"><Icon name="truck" :size="16" class="text-navy" /><b class="tnum">Đợt {{ dotLabel(d, i) }} – {{ fmtDateTime(d.thoi_gian_giao || d.posting_date) }} ({{ d.percent }}%)</b></p>
       <p class="tag">
-        Phiếu giao: {{ d.name }}
+        Phiếu giao: <span class="mono">{{ d.name }}</span>
         <template v-if="d.carrier"> · {{ d.carrier }}</template>
         <template v-if="d.awb"> · Vận đơn: {{ d.awb }}</template>
       </p>
       <!-- US-E3.4 (F-07 khối đợt giao) — chỉ hiện khi khách có kho
            (server chỉ trả d.phieu_nhap trong trường hợp đó). -->
-      <p v-if="d.phieu_nhap" class="tag" style="margin-top: 2px">
+      <p v-if="d.phieu_nhap" class="tag phieu-nhap">
         Phiếu nhập:
         <router-link
           v-if="d.phieu_nhap.trang_thai === 'Nháp'"
           :to="`/kho/nhap/${d.phieu_nhap.name}`"
-          style="text-decoration: underline"
+          class="link"
         >
           {{ d.phieu_nhap.name }} — Nháp, chờ kiểm nhận
         </router-link>
-        <span v-else-if="d.phieu_nhap.co_chenh_lech" style="color: var(--red); font-weight: 600">
-          {{ d.phieu_nhap.name }} — Có chênh lệch ⚠
+        <span v-else-if="d.phieu_nhap.co_chenh_lech" class="text-red fw600 inline-flex gap4">
+          {{ d.phieu_nhap.name }} — Có chênh lệch<Icon name="alert-triangle" :size="14" />
         </span>
         <span v-else>{{ d.phieu_nhap.name }} — Đã ghi sổ</span>
       </p>
       <!-- E9 (2026-08-16) — kiểm hàng khi nhận. KHÔNG gắn với việc
            khách có kho hay không: `d.kiem_hang` luôn có mặt trên mọi
            đợt giao, `null` nghĩa là khách chưa lập biên bản. -->
-      <p class="tag" style="margin-top: 4px">
+      <p class="tag mt4">
         <template v-if="d.kiem_hang">
           Kiểm hàng:
-          <router-link :to="`/kiem-hang/${d.name}`" style="text-decoration: underline">
+          <router-link :to="`/kiem-hang/${d.name}`" class="link">
             {{ d.kiem_hang.name }}
           </router-link>
           <span
-            class="badge"
+            class="badge ml6"
             :class="kiemHangBadge(d.kiem_hang.trang_thai)"
-            style="margin-left: 6px"
           >{{ d.kiem_hang.trang_thai }}</span>
         </template>
         <template v-else>
-          <router-link :to="`/kiem-hang/${d.name}`">
-            <button class="btn-o btn-sm">Kiểm hàng đợt này</button>
+          <router-link :to="`/kiem-hang/${d.name}`" class="btn-o btn-sm">
+            <Icon name="clipboard-check" :size="16" />Kiểm hàng đợt này
           </router-link>
         </template>
       </p>
@@ -163,19 +166,19 @@ function pdfUrl(doctype, docname) {
            chứ không ở trang Hoá đơn: chứng từ HĐĐT sinh từ phiếu giao
            có thể chưa có Sales Invoice nào để bám vào. -->
       <template v-if="d.co_hoa_don_nhap">
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4 row wrap gap8">
           <!-- Nhãn bỏ chữ "nháp" (chủ đầu tư chốt 05/09/2026), nhưng HUY
                HIỆU vẫn nói rõ hoá đơn CHƯA PHÁT HÀNH — đó là chỗ giữ lại sự
                phân biệt sau khi nút bấm thôi mang chữ đó. Bỏ luôn cả huy
                hiệu là để khách tưởng mình đang cầm chứng từ thuế. -->
           <span class="badge b-gray">Chưa phát hành</span>
-          <button class="btn-o btn-sm" style="margin-left: 8px" @click="toggleNhap(d.name)">
-            {{ nhapMo === d.name ? '▾ Ẩn hoá đơn' : '▸ Xem hoá đơn' }}
+          <button class="btn-o btn-sm" :aria-expanded="nhapMo === d.name" @click="toggleNhap(d.name)">
+            <Icon :name="nhapMo === d.name ? 'chevron-down' : 'chevron-right'" :size="16" />{{ nhapMo === d.name ? 'Ẩn hoá đơn' : 'Xem hoá đơn' }}
           </button>
         </p>
         <div
           v-if="nhapMo === d.name"
-          style="border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 6px"
+          class="khung-hoa-don"
         >
           <p v-if="nhapDangTai === d.name" class="tag">Đang tải hoá đơn…</p>
           <HoaDonNhap
@@ -186,10 +189,23 @@ function pdfUrl(doctype, docname) {
           <p v-else class="tag">Phiếu giao này chưa có hoá đơn.</p>
         </div>
       </template>
-      <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener">
-        <button class="btn-o btn-sm" style="margin-top: 6px">⬇ Phiếu giao đợt {{ dotLabel(d, i) }}</button>
+      <a :href="pdfUrl('Delivery Note', d.name)" target="_blank" rel="noopener" class="btn-o btn-sm mt6">
+        <Icon name="download" :size="16" />Phiếu giao đợt {{ dotLabel(d, i) }}
       </a>
     </div>
   </template>
   <p v-else class="tag">Chưa có đợt giao hàng nào.</p>
 </template>
+
+<style scoped>
+.hen-giao { margin: 0 0 12px; }
+.dot-giao { margin-bottom: 12px; }
+.dot-giao + .dot-giao { padding-top: 12px; border-top: 1px solid var(--line); }
+.phieu-nhap { margin-top: 2px; }
+.khung-hoa-don {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px;
+  margin-top: 6px;
+}
+</style>

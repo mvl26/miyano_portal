@@ -4,6 +4,7 @@
 // là số báo giá đang chờ khách đồng ý.
 import { ref, onMounted } from 'vue'
 import api from '../api'
+import Icon from './Icon.vue'
 
 defineProps({ dang: { type: String, required: true } }) // 'don' | 'bao-gia'
 
@@ -23,12 +24,12 @@ onMounted(async () => {
 <template>
   <div class="tabs mb10">
     <router-link :to="{ name: 'yeu-cau' }" custom v-slot="{ navigate }">
-      <button :class="{ on: dang === 'don' }" @click="navigate">Đơn hàng</button>
+      <button :class="{ on: dang === 'don' }" @click="navigate"><Icon name="clipboard-list" :size="16" />Đơn hàng</button>
     </router-link>
     <router-link :to="{ name: 'bao-gia' }" custom v-slot="{ navigate }">
       <button :class="{ on: dang === 'bao-gia' }" @click="navigate">
-        Yêu cầu báo giá
-        <span v-if="choDongY" class="cartn">{{ choDongY }}</span>
+        <Icon name="file-text" :size="16" />Yêu cầu báo giá
+        <span v-if="choDongY" class="cartn cartn-b">{{ choDongY }}</span>
       </button>
     </router-link>
   </div>
