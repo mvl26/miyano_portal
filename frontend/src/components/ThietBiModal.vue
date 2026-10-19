@@ -4,6 +4,7 @@ import api from '../api'
 import { store } from '../store'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -118,17 +119,17 @@ async function onSave() {
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
-    <div class="card" :style="!isMobile ? 'width: 640px' : ''">
+    <div class="card" :class="isMobile ? 'in' : 'tb-modal-rong'">
+      <div class="grab hide-d"></div>
       <h3>{{ mode === 'sua' ? 'Sửa thiết bị' : 'Thêm thiết bị' }}</h3>
 
-      <div v-if="khoaHoanToan" class="note" style="margin-top: 10px">
-        Máy dùng chung — liên hệ quản lý đơn vị để sửa
+      <div v-if="khoaHoanToan" class="note note-ic mt10">
+        <Icon name="lock" :size="18" />
+        <div>Máy dùng chung — liên hệ quản lý đơn vị để sửa</div>
       </div>
 
-      <div
-        :style="isMobile ? 'margin-top: 10px' : 'display: flex; gap: 20px; align-items: flex-start; margin-top: 10px'"
-      >
-        <div :style="isMobile ? '' : 'flex: 1'">
+      <div class="mt10" :class="{ 'tb-hai-cot': !isMobile }">
+        <div class="tb-cot">
           <div class="field">
             <label>Mã máy *</label>
             <input v-model="form.ma_thiet_bi" :disabled="khoaHoanToan" placeholder="VD: MAY-XN-01" />
@@ -149,7 +150,7 @@ async function onSave() {
             <p v-if="ghiChuKhoaRong" class="tag">{{ ghiChuKhoaRong }}</p>
           </div>
           <div v-if="mode === 'sua'" class="field">
-            <label style="display: flex; align-items: center; gap: 6px">
+            <label class="o-tich">
               <input
                 type="checkbox"
                 :disabled="khoaHoanToan"
@@ -161,7 +162,7 @@ async function onSave() {
           </div>
         </div>
 
-        <div :style="isMobile ? '' : 'flex: 1'">
+        <div class="tb-cot">
           <div class="field"><label>Hãng sản xuất</label><input v-model="form.hang_san_xuat" :disabled="khoaHoanToan" /></div>
           <div class="field"><label>Xuất xứ</label><input v-model="form.xuat_xu" :disabled="khoaHoanToan" /></div>
           <div class="field"><label>Model</label><input v-model="form.model" :disabled="khoaHoanToan" /></div>
@@ -173,7 +174,7 @@ async function onSave() {
 
       <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" :disabled="khoaHoanToan" /></div>
 
-      <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+      <div class="row jc-end gap8 mt14 nut-cuoi">
         <button class="btn-o" @click="emit('close')">{{ khoaHoanToan ? 'Đóng' : 'Huỷ' }}</button>
         <button v-if="!khoaHoanToan" class="btn" :disabled="saving" @click="onSave">
           {{ saving ? 'Đang lưu…' : 'Lưu' }}
@@ -182,3 +183,13 @@ async function onSave() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.modal > .tb-modal-rong { width: 640px; }
+.tb-hai-cot { display: flex; gap: 20px; align-items: flex-start; }
+.tb-hai-cot > .tb-cot { flex: 1; min-width: 0; }
+.o-tich { display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; }
+@media (max-width: 900px) {
+  .nut-cuoi > * { flex: 1; }
+}
+</style>

@@ -11,6 +11,7 @@ import api from '../api'
 import { fmtDateTime } from '../format'
 import { store } from '../store'
 import { showToast } from '../toast'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 
@@ -73,25 +74,53 @@ onMounted(load)
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!items.length" class="empty">Chưa có thông báo nào.</div>
 
-    <template v-else>
+    <div v-else class="card card-flush tb-ds">
       <div
         v-for="i in items"
         :key="i.name"
-        class="card mb10"
-        :class="{ clickable: true }"
-        :style="{
-          opacity: dangMo === i.name ? 0.6 : 1,
-          borderLeft: i.da_doc ? '3px solid var(--line)' : '3px solid var(--orange)',
-        }"
+        class="tb-dong"
+        :class="{ clickable: true, 'tb-moi': !i.da_doc, 'tb-dang-mo': dangMo === i.name }"
+        role="button"
+        tabindex="0"
         @click="mo(i)"
+        @keydown.enter="mo(i)"
       >
-        <div class="sb">
-          <b :style="{ fontWeight: i.da_doc ? 400 : 700 }">{{ i.subject }}</b>
-          <span v-if="!i.da_doc" class="badge b-orange">Mới</span>
+        <span class="tb-cham" aria-hidden="true"></span>
+        <div class="grow">
+          <div class="sb ai-start">
+            <b class="tb-tieu-de">{{ i.subject }}</b>
+            <span v-if="!i.da_doc" class="badge b-blue shrink0">Mới</span>
+          </div>
+          <p v-if="i.noi_dung" class="tag tb-noi-dung" v-html="i.noi_dung"></p>
+          <p class="tag mt6 row gap4"><Icon name="clock" :size="13" />{{ fmtDateTime(i.ngay) }}</p>
         </div>
-        <p v-if="i.noi_dung" class="tag" style="margin-top: 4px; white-space: pre-line" v-html="i.noi_dung"></p>
-        <p class="tag" style="margin-top: 6px">{{ fmtDateTime(i.ngay) }}</p>
+        <Icon name="chevron-right" :size="18" class="tb-chev" />
       </div>
-    </template>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.tb-dong {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 20px 14px 16px; min-height: 56px; transition: background 0.15s ease;
+}
+.tb-dong + .tb-dong { border-top: 1px solid var(--line); }
+.tb-dong:hover { background: var(--surface-2); }
+.tb-dong:focus-visible { outline: none; box-shadow: inset var(--focus); }
+.tb-dang-mo { opacity: 0.6; }
+.tb-cham {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  margin-top: 7px; background: transparent;
+}
+.tb-moi .tb-cham { background: var(--accent); }
+.tb-tieu-de { font-weight: 400; color: var(--text-2); line-height: 1.45; }
+.tb-moi .tb-tieu-de { font-weight: 700; color: var(--text); }
+.tb-moi { background: #fbfdff; }
+.tb-noi-dung { margin-top: 4px; white-space: pre-line; line-height: 1.5; }
+.tb-chev { color: var(--text-4); margin-top: 2px; flex-shrink: 0; }
+.tb-dong:hover .tb-chev { color: var(--accent); }
+@media (max-width: 900px) {
+  .tb-dong { padding: 12px 14px 12px 12px; }
+}
+</style>

@@ -18,6 +18,7 @@
 // qua `watch([trang, soDong], load)`) — component này KHÔNG tự gọi API, chỉ
 // quản lý trạng thái trang + hiển thị.
 import { computed, onMounted } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   tong: { type: Number, default: 0 },
@@ -75,9 +76,9 @@ function trangSau() {
       <select :value="soDong" @change="chonSoDong($event.target.value)" aria-label="Số dòng mỗi trang">
         <option v-for="n in TUY_CHON" :key="n" :value="n">{{ n }} / trang</option>
       </select>
-      <button class="btn-o btn-sm" :disabled="trang <= 1" @click="trangTruoc">‹ Trước</button>
-      <span class="tag" style="white-space: nowrap">Trang {{ trang }}/{{ tongTrang }}</span>
-      <button class="btn-o btn-sm" :disabled="trang >= tongTrang" @click="trangSau">Sau ›</button>
+      <button class="btn-o btn-sm pt-nut" :disabled="trang <= 1" @click="trangTruoc"><Icon name="chevron-left" :size="16" />Trước</button>
+      <span class="tag pt-so nowrap">Trang {{ trang }}/{{ tongTrang }}</span>
+      <button class="btn-o btn-sm pt-nut" :disabled="trang >= tongTrang" @click="trangSau">Sau<Icon name="chevron-right" :size="16" /></button>
     </div>
   </div>
 </template>
@@ -97,7 +98,21 @@ function trangSau() {
   gap: 8px;
 }
 .phan-trang-dieu-khien select {
-  padding: 6px 8px;
+  width: auto;
+  min-height: 32px;
+  padding: 4px 34px 4px 10px;
   font-size: 13px;
+}
+.pt-nut { gap: 4px; padding: 0 10px; }
+.pt-so {
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  padding: 0 2px;
+}
+@media (max-width: 900px) {
+  .phan-trang { padding: 12px 0; }
+  .phan-trang-dieu-khien { width: 100%; justify-content: space-between; }
+  .phan-trang-dieu-khien select { min-height: 40px; }
 }
 </style>

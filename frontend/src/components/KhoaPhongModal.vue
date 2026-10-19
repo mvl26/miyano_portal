@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import api from '../api'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -84,17 +85,21 @@ async function vanLuu() {
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
-    <div class="card">
+    <div class="card" :class="{ in: isMobile }">
+      <div class="grab hide-d"></div>
       <template v-if="duplicateWarning">
         <h3>Có khoa phòng gần giống</h3>
-        <div class="note" style="margin-top: 10px">
-          <b>{{ duplicateWarning.ten_khoa_phong }}</b> chưa được lưu. Tên gần giống với khoa phòng có sẵn:
-          <ul style="margin: 6px 0 0 18px">
-            <li v-for="g in duplicateWarning.goi_y_trung" :key="g">{{ g }}</li>
-          </ul>
-          Nếu đây thực chất là cùng một khoa phòng, hãy huỷ rồi chọn khoa có sẵn trên phiếu thay vì tạo mới.
+        <div class="note note-ic mt10">
+          <Icon name="alert-triangle" :size="18" />
+          <div>
+            <b>{{ duplicateWarning.ten_khoa_phong }}</b> chưa được lưu. Tên gần giống với khoa phòng có sẵn:
+            <ul class="ds-gan-giong">
+              <li v-for="g in duplicateWarning.goi_y_trung" :key="g">{{ g }}</li>
+            </ul>
+            Nếu đây thực chất là cùng một khoa phòng, hãy huỷ rồi chọn khoa có sẵn trên phiếu thay vì tạo mới.
+          </div>
         </div>
-        <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+        <div class="row jc-end gap8 mt14 nut-cuoi">
           <button class="btn-o" :disabled="saving" @click="huyCanhBao">Huỷ</button>
           <button class="btn" :disabled="saving" @click="vanLuu">
             {{ saving ? 'Đang lưu…' : 'Vẫn lưu' }}
@@ -105,20 +110,20 @@ async function vanLuu() {
       <template v-else>
         <h3>{{ mode === 'sua' ? 'Sửa khoa phòng' : 'Thêm khoa phòng' }}</h3>
 
-        <div class="field" style="margin-top: 10px">
+        <div class="field mt10">
           <label>Tên khoa phòng *</label>
           <input v-model="form.ten_khoa_phong" placeholder="VD: Khoa Hồi sức" />
         </div>
         <div class="field"><label>Mã khoa</label><input v-model="form.ma_khoa" placeholder="VD: HS" /></div>
         <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
         <div v-if="mode === 'sua'" class="field">
-          <label style="display: flex; align-items: center; gap: 6px">
+          <label class="o-tich">
             <input type="checkbox" :checked="form.active === 1" @change="form.active = $event.target.checked ? 1 : 0" />
             Hoạt động
           </label>
         </div>
 
-        <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+        <div class="row jc-end gap8 mt14 nut-cuoi">
           <button class="btn-o" @click="emit('close')">Huỷ</button>
           <button class="btn" :disabled="saving" @click="onSave">
             {{ saving ? 'Đang lưu…' : 'Lưu' }}
@@ -128,3 +133,11 @@ async function vanLuu() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ds-gan-giong { margin: 6px 0 6px 18px; }
+.o-tich { display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; }
+@media (max-width: 900px) {
+  .nut-cuoi > * { flex: 1; }
+}
+</style>

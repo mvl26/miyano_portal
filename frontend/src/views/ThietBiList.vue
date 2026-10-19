@@ -5,6 +5,7 @@ import { store } from '../store'
 import { useIsMobile } from '../useMobile'
 import ThietBiModal from '../components/ThietBiModal.vue'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 // Task 12 — màn danh mục Thiết bị (khuôn giống DanhMucVatTu.vue: ô tìm
 // debounce 300ms + checkbox "hiện cả đã tắt" + PhanTrang, KHÁC KhoaPhongList/
@@ -126,19 +127,22 @@ onMounted(async () => {
         <h2>Danh mục thiết bị</h2>
         <div class="sub">Máy đặt tại khoa phòng — dùng để chọn khi lập phiếu xuất sử dụng</div>
       </div>
-      <div class="flex" style="gap: 8px">
-        <button class="btn btn-sm" @click="moTao">+ Thêm thiết bị</button>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+      <div class="row gap8">
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
+        <button class="btn btn-sm" @click="moTao"><Icon name="plus" :size="16" />Thêm thiết bị</button>
       </div>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
-      <h2>Danh mục thiết bị</h2>
-      <button class="btn btn-sm" @click="moTao">+ Thêm thiết bị</button>
+    <div class="sb mb12 gap8" v-else>
+      <h2 class="mb0">Danh mục thiết bị</h2>
+      <button class="btn btn-sm shrink0" @click="moTao"><Icon name="plus" :size="16" />Thêm thiết bị</button>
     </div>
 
-    <div class="card mb10 flex" style="gap: 12px; align-items: center; flex-wrap: wrap">
-      <input v-model="tim" placeholder="Tìm theo mã hoặc tên máy…" style="flex: 1; min-width: 200px" />
-      <label style="display: flex; align-items: center; gap: 6px">
+    <div class="card mb10 flex wrap gap12 loc-tb">
+      <div class="o-tim">
+        <Icon name="search" :size="16" class="o-tim-ic" />
+        <input v-model="tim" placeholder="Tìm theo mã hoặc tên máy…" />
+      </div>
+      <label class="o-tich">
         <input type="checkbox" v-model="hienCaTat" @change="locThayDoi" />
         Hiện cả máy đã tắt
       </label>
@@ -149,7 +153,8 @@ onMounted(async () => {
     <div v-else-if="!rows.length" class="empty">{{ trangThaiRong }}</div>
 
     <!-- DESKTOP -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -164,40 +169,41 @@ onMounted(async () => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.name" :style="!r.active ? 'opacity:.55' : ''">
-            <td>{{ r.ma_thiet_bi }}</td>
+          <tr v-for="r in rows" :key="r.name" :class="{ 'dong-tat': !r.active }">
+            <td class="cell-code">{{ r.ma_thiet_bi }}</td>
             <td><b>{{ r.ten_thiet_bi }}{{ r.active ? '' : ' (đã tắt)' }}</b></td>
             <td>{{ r.ten_khoa_phong || 'Dùng chung' }}</td>
             <td>{{ r.hang_san_xuat || '—' }}</td>
             <td>{{ r.xuat_xu || '—' }}</td>
-            <td>{{ r.so_serial || '—' }}</td>
+            <td class="mono">{{ r.so_serial || '—' }}</td>
             <td>
               <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
                 {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
               </span>
             </td>
-            <td><button class="btn-o btn-sm" @click="moSua(r)">Sửa</button></td>
+            <td class="right"><button class="btn-o btn-sm" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button></td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE -->
     <template v-else>
-      <div v-for="r in rows" :key="r.name" class="card mb10" :style="!r.active ? 'opacity:.55' : ''">
-        <div class="sb">
+      <div v-for="r in rows" :key="r.name" class="card mb10" :class="{ 'the-tat': !r.active }">
+        <div class="sb ai-start">
           <b>{{ r.ten_thiet_bi }}{{ r.active ? '' : ' (đã tắt)' }}</b>
           <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
             {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
           </span>
         </div>
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4">
           Mã {{ r.ma_thiet_bi }} · {{ r.ten_khoa_phong || 'Dùng chung' }}
         </p>
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4">
           {{ r.hang_san_xuat || '—' }} · {{ r.xuat_xu || '—' }} · Serial {{ r.so_serial || '—' }}
         </p>
-        <button class="btn-o btn-sm" style="margin-top: 8px" @click="moSua(r)">Sửa</button>
+        <button class="btn-o btn-sm mt8" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button>
       </div>
     </template>
 
@@ -206,3 +212,13 @@ onMounted(async () => {
     <ThietBiModal :open="modalOpen" :initial="modalInitial" :mode="modalMode" @saved="onSaved" @close="modalOpen = false" />
   </div>
 </template>
+
+<style scoped>
+.loc-tb { align-items: center; padding: 12px 16px; }
+.o-tim { position: relative; flex: 1; min-width: 200px; }
+.o-tim input { padding-left: 36px; }
+.o-tim-ic { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.o-tich { display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; font-size: 14px; }
+tr.dong-tat td { opacity: 0.55; }
+.the-tat { opacity: 0.55; }
+</style>
