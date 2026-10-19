@@ -30,8 +30,8 @@ class TestBaoGiaWorkflow(NenBaoGia):
 		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
 		self.assertEqual(wf.document_type, "Quotation")
 		self.assertEqual(wf.is_active, 1)
-		self.assertEqual(len(wf.states), 6)
-		self.assertEqual(len(wf.transitions), 9)
+		self.assertEqual(len(wf.states), 8)
+		self.assertEqual(len(wf.transitions), 12)
 
 	def test_workflow_don_hang_van_hoat_dong(self):
 		self.assertEqual(
@@ -44,6 +44,7 @@ class TestBaoGiaWorkflow(NenBaoGia):
 		self.assertEqual(theo_ten, {
 			bao_gia.TT_CHO_MIYANO: 0, bao_gia.TT_CHO_KHACH: 0, bao_gia.TT_DA_DONG_Y: 1,
 			bao_gia.TT_KHACH_TU_CHOI: 0, bao_gia.TT_MIYANO_TU_CHOI: 0, bao_gia.TT_HET_HAN: 0,
+			bao_gia.TT_DA_BAO_HET: 0, bao_gia.TT_HUY_CON_LAI: 0,
 		})
 		self.assertEqual(wf.states[0].state, bao_gia.TT_CHO_MIYANO)
 
@@ -160,20 +161,25 @@ class TestBaoGiaWorkflow(NenBaoGia):
 		self.assertEqual(bg.workflow_state, bao_gia.TT_CHO_MIYANO)
 
 	def test_site_nang_cap_duoc_them_buoc_mo_lai(self):
-		"""Workflow đã cài từ trước (8 bước): patch v1_42 thêm đúng bước thiếu,
-		chạy lại thì không thêm gì."""
+		"""Workflow đã cài từ trước (8 bước): patch v1_42 thêm «Mở lại», patch
+		v1_45 thêm ba bước theo đợt; chạy lại thì không thêm gì."""
+		from miyano_portal.patches.v1_45 import bao_gia_theo_dot as v1_45
+
 		self.addCleanup(frappe.clear_document_cache, "Workflow", bao_gia.WORKFLOW)
+		theo_dot = {hd for _tu, hd, _toi, _vai, _dk in install_workflow._canh_theo_dot()}
 		wf = frappe.get_doc("Workflow", bao_gia.WORKFLOW)
-		wf.set("transitions", [t for t in wf.transitions if t.action != bao_gia.HD_MO_LAI])
+		wf.set("transitions", [
+			t for t in wf.transitions if t.action != bao_gia.HD_MO_LAI and t.action not in theo_dot
+		])
 		wf.flags.ignore_permissions = True
 		wf.save()
 		self.assertEqual(len(_hinh_dang()), 8)
 
-		bao_gia_quotation.cai_workflow()
-		self.assertEqual(_hinh_dang(), _hinh_dang_goc())
-		bao_gia_quotation.cai_workflow()
-		self.assertEqual(_hinh_dang(), _hinh_dang_goc())
-		self.assertEqual(len(_hinh_dang()), 9)
+		for _ in range(2):
+			bao_gia_quotation.cai_workflow()
+			v1_45.cai_workflow()
+			self.assertEqual(_hinh_dang(), _hinh_dang_goc())
+		self.assertEqual(len(_hinh_dang()), 12)
 
 	def test_site_moi_va_site_nang_cap_co_cung_workflow(self):
 		self.addCleanup(frappe.clear_document_cache, "Workflow", bao_gia.WORKFLOW)

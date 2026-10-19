@@ -197,6 +197,8 @@ permission_query_conditions = {
 	# khoa phòng vào CHÍNH các hàm này, không đăng ký thêm entry mới.
 	"Portal De Xuat Mua": "miyano_portal.permissions.de_xuat_query_condition",
 	"Portal De Xuat Mua Item": "miyano_portal.permissions.de_xuat_item_query",
+	# Báo giá theo đợt — bảng đơn hàng của phiếu, cùng khuôn dòng hàng ngay trên.
+	"Portal De Xuat Mua Don Hang": "miyano_portal.permissions.de_xuat_don_hang_query",
 	# E7 — Fast EInvoice Document là doctype của module HĐĐT (team Dev, app
 	# erpnext), CỐ Ý không có DocPerm nào cho `Customer` (xem JSON gốc). Entry
 	# này là lớp phòng thủ thứ hai "chết có điều kiện", cùng khuôn tám
@@ -261,7 +263,7 @@ has_permission = {
 	# Kiểm hàng — cùng khuôn (customer trực tiếp).
 	"Portal Delivery Inspection": "miyano_portal.permissions.generic_has_permission",
 	# Đề xuất mua — cùng khuôn (customer trực tiếp). "Portal De Xuat Mua
-	# Item" CỐ Ý không có entry ở đây: istable=1, has_child_permission()
+	# Item" (và "Portal De Xuat Mua Don Hang") CỐ Ý không có entry ở đây: istable=1, has_child_permission()
 	# route thẳng về PARENT trước khi has_permission của bảng con có cơ hội
 	# chạy (cùng lý do đã ghi cho Portal Delivery Inspection Item/Customer
 	# Stock *Item ở khối comment "CÁI GÌ ĐANG THẬT SỰ BẢO VỆ..." bên dưới) —
@@ -471,11 +473,18 @@ doc_events = {
 		"before_validate": [
 			# Khớp mã cho dòng khách gõ tay: chuyển thành dòng hàng thật.
 			"miyano_portal.portal_mua_le.chuyen_dong_dat_ngoai_thanh_hang",
+			# Phiếu gốc đã tách hết dòng sang các đợt được phép rỗng `items`.
+			# SAU phép chuyển ở trên: phép đó có thể vừa thêm dòng.
+			"miyano_portal.bao_gia_theo_dot.cho_phep_phieu_goc_rong",
 		],
 		"validate": [
 			# Thứ tự có nghĩa: `dong_bo…` tính `da_xu_ly` mà `chot_gui_khach` đọc.
 			"miyano_portal.portal_mua_le.dong_bo_da_xu_ly_dat_ngoai",
 			"miyano_portal.bao_gia.kiem_ly_do_tu_choi",
+			# Báo giá theo đợt: chặn gửi khách/từ chối trên phiếu gốc đã có
+			# đợt, chặn mở lại đợt đã trả dòng về. TRƯỚC `chot_gui_khach` để
+			# phiếu gốc nhận lời nhắn «Báo giá đợt này», không phải lỗi thiếu giá.
+			"miyano_portal.bao_gia_theo_dot.kiem_chuyen_theo_dot",
 			"miyano_portal.bao_gia.chot_gui_khach",
 		],
 		"before_submit": [
@@ -485,8 +494,13 @@ doc_events = {
 			# Báo giá của cổng còn đơn sinh ra chưa huỷ thì không huỷ được.
 			"miyano_portal.bao_gia.chan_huy_khi_con_don",
 		],
+		# Đợt còn nháp mang những mặt hàng đã rời phiếu gốc: xoá là mất chúng.
+		"on_trash": "miyano_portal.bao_gia_theo_dot.chan_xoa_dot",
 		"on_update": [
 			"miyano_portal.bao_gia.ghi_nhat_ky_chuyen_trang_thai",
+			# Đợt bị từ chối/hết hạn: trả dòng về phiếu gốc (spec 2026-10-15 §4.3).
+			"miyano_portal.bao_gia_theo_dot.tra_dong_ve_khi_dot_dong",
+			"miyano_portal.bao_gia_theo_dot.bao_khi_huy_con_lai",
 		],
 	},
 	# Epic E2 — BR-O14 / NL-2.1: bắt buộc lý do khi chuyển Sales Order sang

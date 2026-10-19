@@ -23,6 +23,7 @@
   "request_id",
   "sales_order",
   "bao_gia",
+  "don_hang",
   "sec_hang",
   "items",
   "sec_dat_ngoai",
@@ -160,6 +161,13 @@
    "search_index": 1
   },
   {
+   "fieldname": "don_hang",
+   "fieldtype": "Table",
+   "label": "Đơn hàng theo đợt",
+   "options": "Portal De Xuat Mua Don Hang",
+   "read_only": 1
+  },
+  {
    "fieldname": "sec_hang",
    "fieldtype": "Section Break",
    "label": "Hàng hoá"
@@ -272,7 +280,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-08-19 00:00:00.000000",
+ "modified": "2026-10-16 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
  "name": "Portal De Xuat Mua",

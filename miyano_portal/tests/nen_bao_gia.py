@@ -70,3 +70,46 @@ class NenBaoGia(FrappeTestCase):
 		# / `frappe.has_website_permission` cho qua ngay khi thấy cờ đó — mọi
 		# test về quyền trên đối tượng vừa chèn sẽ xanh giả.
 		return frappe.get_doc("Quotation", bg.name)
+
+
+class NenBaoGiaTheoDot(NenBaoGia):
+	"""Nền cho test báo giá theo đợt (kế hoạch 2026-10-16)."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		from miyano_portal.patches.v1_45 import bao_gia_theo_dot
+
+		bao_gia_theo_dot.execute()
+
+	def setUp(self):
+		# Đợt trỏ về phiếu gốc bằng Link: xoá đợt TRƯỚC khi lớp cha xoá phiếu gốc.
+		for ten in frappe.get_all(
+			"Quotation",
+			filters={"party_name": ["like", "_TEST DX%"], "custom_phieu_goc": ["is", "set"]},
+			pluck="name",
+		):
+			frappe.db.set_value("Quotation", ten, "docstatus", 0, update_modified=False)
+			# `ignore_on_trash`: hook `chan_xoa_dot` chặn xoá đợt nháp còn mặt hàng.
+			frappe.delete_doc("Quotation", ten, force=True, ignore_on_trash=True)
+		super().setUp()
+
+	def _goc_ba_dong(self, **them):
+		"""Yêu cầu báo giá của cổng, ba mặt hàng đều đã có giá, ở «Chờ Miyano báo giá»."""
+		gia = {self.item_ngoai: 54000, self.item_boi_so: 7000, self.item_co_dau: 12000}
+		return self._bao_gia_tho(
+			items=[
+				{"item_code": ma, "qty": 10, "rate": g, "price_list_rate": g}
+				for ma, g in gia.items()
+			],
+			**them,
+		)
+
+	def _nhan_vien(self, email="dot.nv@demo.miyano"):
+		"""Nhân viên chỉ có vai Sales User."""
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User", "email": email, "first_name": "NV đợt",
+				"send_welcome_email": 0, "roles": [{"role": "Sales User"}],
+			}).insert(ignore_permissions=True)
+		return email

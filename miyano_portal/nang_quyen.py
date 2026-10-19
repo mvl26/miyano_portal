@@ -37,6 +37,11 @@ import frappe
 def quyen_he_thong():
 	session = frappe.local.session
 	nguoi_goi = session.user
+	# Người gọi của khối NGOÀI CÙNG: hook chạy sâu bên trong (vd. `on_update`
+	# khi khách từ chối một đợt) đọc qua `nguoi_that()` để ghi đúng người bấm.
+	dat_nguoi_that = not frappe.flags.get("nguoi_goi_that")
+	if dat_nguoi_that:
+		frappe.flags.nguoi_goi_that = nguoi_goi
 	frappe.local.user_perms = None  # tránh dùng nhầm cache quyền của người cũ
 	session.user = "Administrator"
 	try:
@@ -46,3 +51,11 @@ def quyen_he_thong():
 		# còn lại của request chạy dưới quyền Administrator.
 		session.user = nguoi_goi
 		frappe.local.user_perms = None
+		if dat_nguoi_that:
+			frappe.flags.nguoi_goi_that = None
+
+
+def nguoi_that() -> str:
+	"""Người thật đang thao tác: người gọi `quyen_he_thong()` ngoài cùng nếu
+	đang ở trong khối đó, không thì `session.user`."""
+	return frappe.flags.get("nguoi_goi_that") or frappe.session.user

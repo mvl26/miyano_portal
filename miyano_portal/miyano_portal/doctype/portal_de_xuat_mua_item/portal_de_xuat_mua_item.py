@@ -19,7 +19,11 @@ from miyano_portal.permissions import _is_restricted_user
 from miyano_portal.portal_context import get_allowed_customers, pham_vi_don
 
 
-class PortalDeXuatMuaItem(Document):
+class DongConDeXuatMua(Document):
+	"""Lớp cơ sở dùng CHUNG cho mọi bảng con của `Portal De Xuat Mua` (dòng
+	hàng, và bảng `don_hang` của báo giá theo đợt) — một bản logic phân
+	quyền, không chép tay sang từng bảng (cùng tinh thần FINDING N4)."""
+
 	def has_permission(self, permtype="read", *, debug=False, user=None):
 		# Kiểm cờ TRƯỚC và tách khỏi nhánh permtype — để `super()` xử lý cờ
 		# rồi mới lọc tiếp sẽ làm `insert(ignore_permissions=True)` của
@@ -56,3 +60,7 @@ class PortalDeXuatMuaItem(Document):
 			return False
 		khoa = pv.get("custom_khoa_phong")
 		return not khoa or cha.khoa_phong == khoa
+
+
+class PortalDeXuatMuaItem(DongConDeXuatMua):
+	pass

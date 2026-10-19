@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import {
   NHOM_BAO_GIA, nhanNhomBaoGia, nhomBaoGiaBadge, khoaNhomBaoGia,
   dichDongBaoGia, hanhDongBaoGia, dongDaSua, dichSauDatHang,
-  thongBaoSauDuyet, loiSoLuong, nhanDongBaoGia, badgeDongBaoGia,
+  thongBaoSauDuyet, loiSoLuong, nhanDongBaoGia, badgeDongBaoGia, nhanDot,
 } from './bao-gia.js'
 
 test('năm nhóm, đúng thứ tự vòng đời', () => {
@@ -139,4 +139,10 @@ test('dòng đã có báo giá giữ nhãn và huy hiệu của nhóm', () => {
   assert.equal(nhanDongBaoGia(dong), 'Chờ anh/chị đồng ý')
   assert.equal(badgeDongBaoGia(dong), 'b-orange')
   assert.equal(nhanDongBaoGia({ nhom: 'da_dong', trang_thai_phieu: 'Đã duyệt' }), 'Đã đóng')
+})
+
+test('nhãn đợt: số đợt + trạng thái, đợt đã trả về nói rõ', () => {
+  assert.equal(nhanDot({ so_dot: 2, nhom: 'cho_dong_y' }), 'Đợt 2 · Chờ anh/chị đồng ý')
+  assert.equal(nhanDot({ so_dot: 1, nhom: 'da_dong', da_tra_ve: true }), 'Đợt 1 · đã trả về phiếu')
+  assert.equal(nhanDot({ so_dot: 3, nhom: 'da_dong_y' }), 'Đợt 3 · Đã đồng ý')
 })

@@ -97,10 +97,16 @@ KHO_PREFIXES = ("Customer Warehouse", "Customer Stock")
 # Department": máy còn có field `khoa_phong` (nền phân quyền khoa phòng)
 # nên has_permission của nó (`kho.permissions.thiet_bi_has_permission`)
 # không dùng chung khuôn `kho_has_permission` — có thêm vế khoa.
+#
+# `Portal De Xuat Mua Don Hang` (báo giá theo đợt, spec 2026-10-15 §3.3) —
+# bảng con `don_hang` của `Portal De Xuat Mua`, cùng ngã ba với `Portal De
+# Xuat Mua Item`: lọc qua phiếu cha (`permissions.de_xuat_don_hang_query`) và
+# dùng CHUNG override has_permission với bảng dòng hàng (`DongConDeXuatMua`).
 KHO_DOCTYPES_KHAC: tuple[str, ...] = (
     "Customer Supplier", "Portal Item Request", "Customer Department",
     "Portal Delivery Inspection", "Portal Delivery Inspection Item",
-    "Portal De Xuat Mua", "Portal De Xuat Mua Item", "Customer Equipment",
+    "Portal De Xuat Mua", "Portal De Xuat Mua Item",
+    "Portal De Xuat Mua Don Hang", "Customer Equipment",
 )
 
 # Bảng con NẰM TRONG diện cách ly nhưng KHÔNG thuộc họ chứng từ kho — không có
@@ -112,6 +118,7 @@ KHO_DOCTYPES_KHAC: tuple[str, ...] = (
 # thứ hai phải tự đứng vững, đúng loại trùng lặp FINDING N4 sinh ra để chống.
 CHILD_DOCTYPES_NGOAI_HO_KHO: tuple[str, ...] = (
     "Portal Delivery Inspection Item", "Portal De Xuat Mua Item",
+    "Portal De Xuat Mua Don Hang",
 )
 
 # Doctype thuộc module `Miyano Portal` nhưng CỐ Ý không phải doctype kho. Danh
@@ -645,6 +652,10 @@ def _make_de_xuat(customer, tag):
             "item_name": tag,
             "so_luong_de_xuat": 5,
         }],
+        # Báo giá theo đợt: một dòng `don_hang` để bảng con này cũng có bản
+        # ghi thật trong child_map/child_rows. Link để trống (không bắt buộc)
+        # — fixture cách ly không cần đơn/báo giá thật.
+        "don_hang": [{"so_dot": 1}],
     })
     doc.insert(ignore_permissions=True)
     return doc
@@ -1321,6 +1332,14 @@ class TestKhoIsolationChildItems(FrappeTestCase):
                 "pxn_row": self.de_xuat_pxn.items[0].name,
                 "bm_row": self.de_xuat_bm.items[0].name,
             },
+            "Portal De Xuat Mua Don Hang": {
+                "parent_doctype": "Portal De Xuat Mua",
+                "child_fieldname": "don_hang",
+                "pxn_parent": self.de_xuat_pxn.name,
+                "bm_parent": self.de_xuat_bm.name,
+                "pxn_row": self.de_xuat_pxn.don_hang[0].name,
+                "bm_row": self.de_xuat_bm.don_hang[0].name,
+            },
             # Task 5 — KHÁC bốn doctype trên: bảng con của `Customer Warehouse
             # Item` tên là `may_su_dung`, không phải `items`. `child_fieldname`
             # tồn tại đúng để hai test generic dưới đây (form="attached") đọc
@@ -1810,6 +1829,10 @@ class _KhoVoucherFixture(FrappeTestCase):
             "Portal De Xuat Mua Item": {
                 "pxn": self.de_xuat_pxn.items[0].name,
                 "bm": self.de_xuat_bm.items[0].name,
+            },
+            "Portal De Xuat Mua Don Hang": {
+                "pxn": self.de_xuat_pxn.don_hang[0].name,
+                "bm": self.de_xuat_bm.don_hang[0].name,
             },
             "Customer Warehouse Item Equipment": {
                 "pxn": self.vtbi_pxn_row,

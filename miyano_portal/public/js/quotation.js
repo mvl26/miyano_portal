@@ -16,6 +16,8 @@ frappe.ui.form.on("Quotation", {
 	},
 	refresh(frm) {
 		miyano_portal.hien_thong_tin_hang_moi(frm);
+		gioi_thieu_dot(frm);
+		nut_theo_dot(frm);
 		dan_toi_don_da_sinh(frm);
 	},
 });
@@ -52,4 +54,80 @@ function dan_toi_don_da_sinh(frm) {
 			"blue"
 		);
 	});
+}
+
+// Báo giá theo đợt (spec 2026-10-15 §4.1). Chốt thật nằm ở server
+// (`bao_gia_theo_dot.tach_dot`, `kiem_chuyen_theo_dot`); ở đây chỉ dựng lối bấm.
+function la_phieu_goc_cong(frm) {
+	return frm.doc.custom_nguon_don === "Client Portal" && !frm.doc.custom_phieu_goc && !frm.is_new();
+}
+
+function nut_theo_dot(frm) {
+	if (!la_phieu_goc_cong(frm)) return;
+	frm.add_custom_button(__("Các đợt"), () =>
+		frappe.set_route("List", "Quotation", { custom_phieu_goc: frm.doc.name })
+	);
+	if (frm.doc.docstatus !== 0 || frm.doc.workflow_state !== "Chờ Miyano báo giá") return;
+	frm.add_custom_button(__("Báo giá đợt này"), () => hop_thoai_tach_dot(frm));
+}
+
+function hop_thoai_tach_dot(frm) {
+	if (frm.is_dirty()) {
+		frappe.msgprint(__("Lưu phiếu trước khi tách đợt."));
+		return;
+	}
+	const co_gia = (frm.doc.items || []).filter((d) => flt(d.rate) > 0);
+	if (!co_gia.length) {
+		frappe.msgprint(__("Chưa có mặt hàng nào có đơn giá để báo."));
+		return;
+	}
+	const dlg = new frappe.ui.Dialog({
+		title: __("Báo giá đợt này"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				options: `<p>${__("Chọn các mặt hàng gửi khách trong đợt này. Mặt hàng chưa có đơn giá không hiện ở đây.")}</p>`,
+			},
+			...co_gia.map((d) => ({
+				fieldtype: "Check",
+				fieldname: "d_" + d.idx,
+				label: `${frappe.utils.escape_html(d.item_code)} — ${frappe.utils.escape_html(d.item_name || "")} · ${d.qty} ${frappe.utils.escape_html(d.uom || "")} × ${format_currency(d.rate, frm.doc.currency)}`,
+			})),
+		],
+		primary_action_label: __("Tạo đợt và gửi khách"),
+		primary_action(v) {
+			const dong = co_gia.filter((d) => v["d_" + d.idx]).map((d) => d.name);
+			if (!dong.length) {
+				frappe.msgprint(__("Chọn ít nhất một mặt hàng."));
+				return;
+			}
+			frappe
+				.call({
+					method: "miyano_portal.bao_gia_theo_dot.tach_dot",
+					args: { phieu_goc: frm.doc.name, dong: JSON.stringify(dong) },
+					freeze: true,
+				})
+				.then((r) => {
+					dlg.hide();
+					frappe.show_alert({
+						message: __("Đã gửi khách đợt {0}: {1}", [r.message.so_dot, r.message.dot]),
+						indicator: "green",
+					});
+					frm.reload_doc();
+				});
+		},
+	});
+	dlg.show();
+}
+
+function gioi_thieu_dot(frm) {
+	if (!frm.doc.custom_phieu_goc) return;
+	const goc = frm.doc.custom_phieu_goc;
+	frm.set_intro(
+		__("Đợt {0} của yêu cầu báo giá {1}.", [
+			frm.doc.custom_so_dot,
+			`<a href="/app/quotation/${encodeURIComponent(goc)}">${frappe.utils.escape_html(goc)}</a>`,
+		]) + (frm.doc.custom_da_tra_ve ? " " + __("Các mặt hàng đã trả về phiếu gốc.") : ""),
+		"blue"
+	);
 }

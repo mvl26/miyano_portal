@@ -36,6 +36,18 @@ HD_GHI_NHAN = "Ghi nhận khách đồng ý"
 # "Miyano từ chối" không có lối ra: đó là trạng thái kết thúc.
 HD_MO_LAI = "Mở lại"
 
+# Báo giá theo đợt (spec 2026-10-15). Phiếu gốc đã tách hết dòng → "Đã báo
+# hết"; dòng của một đợt bị từ chối/hết hạn quay về thì phiếu mở lại. Hai bước
+# đó do CODE áp (`bao_gia_theo_dot`), khai vai `Administrator` nên nhân viên
+# không thấy thành nút; code áp chúng dưới `nang_quyen.quyen_he_thong()`.
+TT_DA_BAO_HET = "Đã báo hết"
+TT_HUY_CON_LAI = "Đã huỷ phần còn lại"
+HD_HUY_CON_LAI = "Huỷ phần còn lại"
+HD_BAO_HET = "Hệ thống: đã báo hết"
+HD_CON_HANG = "Hệ thống: có hàng trả về"
+# Giá trị `custom_nguoi_huy_con_lai` khi khách huỷ trên cổng.
+NGUOI_KHACH = "Khách"
+
 LY_DO_TOI_THIEU = 10
 
 
@@ -575,8 +587,12 @@ def dong_y(ten: str) -> dict:
 			bg.add_comment("Comment", f"{HD_KHACH_DONG_Y} bởi {nguoi_bam}")
 			so = _sinh_don(bg)
 		if bg.get("custom_de_xuat"):
-			frappe.db.set_value(
-				"Portal De Xuat Mua", bg.custom_de_xuat, "sales_order", so.name
+			# Báo giá theo đợt: một phiếu ra nhiều đơn. Ghi một dòng
+			# `don_hang`; `sales_order` của phiếu chỉ đặt khi còn trống.
+			from miyano_portal.bao_gia_theo_dot import them_don_hang
+
+			them_don_hang(
+				bg.custom_de_xuat, so.name, bg.name, int(bg.get("custom_so_dot") or 0)
 			)
 	except Exception:
 		frappe.db.rollback(save_point="bao_gia_dong_y")
@@ -784,21 +800,33 @@ def ghi_nhat_ky_chuyen_trang_thai(doc, method=None) -> None:
 
 
 def _gui_email_het_han(bg, han) -> None:
-	"""Email hai phía. Lỗi gửi mail không được chặn việc đóng báo giá."""
+	"""Email hai phía. Lỗi gửi mail không được chặn việc đóng báo giá.
+
+	Báo giá theo đợt (spec 2026-10-15 §6): tiêu đề nêu số đợt; đợt đã trả mặt
+	hàng về phiếu gốc thì nói vậy thay vì bảo khách gửi yêu cầu mới."""
 	from miyano_portal.portal_bao_gia import _email_sales_phu_trach
 
 	han_str = formatdate(han, "dd/mm/yyyy")
+	ten_dot = f" (đợt {bg.custom_so_dot})" if bg.get("custom_so_dot") else ""
+	if bg.get("custom_phieu_goc") and frappe.db.get_value(
+		"Quotation", bg.name, "custom_da_tra_ve"
+	):
+		tiep = (
+			f"<p>Các mặt hàng của đợt này đã trả về phiếu {bg.custom_phieu_goc}; "
+			"Miyano sẽ báo giá lại.</p>"
+		)
+	else:
+		tiep = "<p>Nếu vẫn cần hàng, vui lòng gửi yêu cầu báo giá mới.</p>"
 	noi_dung = (
-		f"<p>Báo giá <b>{bg.name}</b> (khách hàng {bg.party_name}) đã hết hiệu lực "
-		f"ngày <b>{han_str}</b> mà chưa được đồng ý trên cổng khách hàng.</p>"
-		"<p>Nếu vẫn cần hàng, vui lòng gửi yêu cầu báo giá mới.</p>"
+		f"<p>Báo giá <b>{bg.name}</b>{ten_dot} (khách hàng {bg.party_name}) đã hết hiệu "
+		f"lực ngày <b>{han_str}</b> mà chưa được đồng ý trên cổng khách hàng.</p>" + tiep
 	)
 	for nguoi_nhan in {bg.get("contact_email"), _email_sales_phu_trach(bg.party_name)}:
 		if not nguoi_nhan:
 			continue
 		try:
 			frappe.sendmail(
-				recipients=[nguoi_nhan], subject=f"Báo giá {bg.name} đã hết hiệu lực",
+				recipients=[nguoi_nhan], subject=f"Báo giá {bg.name}{ten_dot} đã hết hiệu lực",
 				message=noi_dung, reference_doctype="Quotation", reference_name=bg.name,
 				now=False,
 			)

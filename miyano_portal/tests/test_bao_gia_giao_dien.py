@@ -52,14 +52,14 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 
 	def test_endpoint_frontend_goi_deu_ton_tai(self):
 		for ten in ("views/BaoGiaList.vue", "views/ChiTietBaoGia.vue",
-		            "components/TabDonBaoGia.vue"):
+		            "components/KhoiBaoGia.vue", "components/TabDonBaoGia.vue"):
 			ds = re.findall(r"api\.call\(\s*['\"](\w+)['\"]", _doc(ten))
 			self.assertTrue(ds, f"{ten}: không quét được lời gọi api.call nào")
 			for ham in ds:
 				self.assertIn(ham, _endpoint_that_portal(), f"{ten}: {ham}")
 
 	def test_chi_tiet_khong_ve_gia_khi_server_giau(self):
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		self.assertIn("quotation=", nguon)
 		mau = nguon.split("<template>", 1)[1]
 		# Mỗi con số tiền phải nằm trên phần tử mang `v-if="bg.hien_gia"` của
@@ -77,15 +77,30 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 	def test_thong_bao_gia_chua_co_theo_co_cua_server(self):
 		self.assertIn(
 			"v-if=\"!bg.hien_gia && bg.nhom === 'dang_bao_gia'\"",
-			_doc("views/ChiTietBaoGia.vue"),
+			_doc("components/KhoiBaoGia.vue"),
 		)
 
 	def test_sua_so_luong_chan_so_khong_hop_le(self):
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		ham = nguon.split("function guiSuaSoLuong", 1)[1].split("\n}\n", 1)[0]
 		self.assertIn("loiSoLuong(bg.value.items, soLuongMoi.value)", ham)
 		# Kiểm lỗi TRƯỚC khi dựng danh sách dòng gửi đi.
 		self.assertLess(ham.index("loiSoLuong("), ham.index("dongDaSua("))
+
+	def test_chi_tiet_ve_moi_dot_mot_khoi(self):
+		nguon = _doc("views/ChiTietBaoGia.vue")
+		self.assertIn('<KhoiBaoGia v-for="d in bg.dot"', nguon)
+		self.assertIn("portal_bao_gia_huy_con_lai", nguon)
+		self.assertIn('v-if="bg.duoc_huy_con_lai"', nguon)
+		# Khối "Chờ Miyano báo giá" chỉ theo cờ của server, không theo dòng gõ tay
+		# (server đã trả `dat_ngoai` rỗng khi phiếu gốc thôi báo).
+		self.assertIn('v-if="bg.con_lai.length || bg.duoc_huy_con_lai"', nguon)
+		self.assertIn('v-if="bg.da_huy_con_lai"', nguon)
+		self.assertIn("Đã huỷ các mặt hàng chưa báo giá", nguon)
+		self.assertIn("Lý do: {{ bg.ly_do_huy_con_lai }}", nguon)
+		# Dòng chưa báo không bao giờ mang giá.
+		khoi = nguon.split('v-for="it in bg.con_lai"', 1)[1].split("</tr>", 1)[0]
+		self.assertNotIn("fmtVND", khoi)
 
 	def test_duyet_phieu_bao_dung_chung_tu_sinh_ra(self):
 		nguon = _doc("views/ChiTietYeuCau.vue")
@@ -103,7 +118,7 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 	def test_chi_tiet_dung_ba_cot_ten_hang_chung(self):
 		# Quy tắc Mã / Tên mặt hàng / Tên thường gọi của mọi bảng mặt hàng
 		# trên cổng (`ten-hang.js`): bảng của màn báo giá không tự vẽ ô riêng.
-		nguon = _doc("views/ChiTietBaoGia.vue")
+		nguon = _doc("components/KhoiBaoGia.vue")
 		self.assertIn("<CotTenHang head />", nguon)
 		self.assertIn('<CotTenHang :ma="it.item_code"', nguon)
 
@@ -153,3 +168,13 @@ class TestBaoGiaGiaoDien(FrappeTestCase):
 		self.assertIn("dichSauDatHang(res)", nguon)
 		self.assertIn("1 đơn đặt ngay và 1 yêu cầu báo giá", nguon)
 		self.assertNotIn("1 đơn chờ báo giá", nguon)
+
+	def test_desk_quotation_co_nut_bao_gia_dot(self):
+		js = (Path(frappe.get_app_path("miyano_portal")) / "public" / "js" / "quotation.js").read_text()
+		self.assertIn('method: "miyano_portal.bao_gia_theo_dot.tach_dot"', js)
+		self.assertIn('__("Báo giá đợt này")', js)
+		# Nhãn ô chọn được gán bằng innerHTML: tên hàng phải được thoát.
+		self.assertIn("frappe.utils.escape_html(d.item_name", js)
+		from miyano_portal import bao_gia_theo_dot
+
+		self.assertIn(bao_gia_theo_dot.tach_dot, frappe.whitelisted)

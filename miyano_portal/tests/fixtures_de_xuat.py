@@ -38,7 +38,11 @@ def dung_fixture(case):
 		"Quotation", filters={"party_name": ["like", "_TEST DX%"], "docstatus": 0},
 		pluck="name",
 	):
-		frappe.delete_doc("Quotation", ten, force=True, ignore_permissions=True)
+		# Đợt nháp (báo giá theo đợt) bị hook `chan_xoa_dot` chặn xoá: bỏ hook.
+		frappe.delete_doc(
+			"Quotation", ten, force=True, ignore_permissions=True,
+			ignore_on_trash=bool(frappe.db.get_value("Quotation", ten, "custom_phieu_goc")),
+		)
 	frappe.db.sql(
 		"""UPDATE `tabPortal De Xuat Mua`
 		   SET trang_thai = 'Nháp', ma_de_xuat = NULL

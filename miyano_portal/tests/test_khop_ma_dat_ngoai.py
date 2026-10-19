@@ -72,7 +72,11 @@ def _don_du_lieu_cu():
 		"Quotation", filters={"party_name": ["like", "_TEST DX%"], "docstatus": 0},
 		pluck="name",
 	):
-		frappe.delete_doc("Quotation", ten, force=True, ignore_permissions=True)
+		# Đợt nháp (báo giá theo đợt) bị hook `chan_xoa_dot` chặn xoá: bỏ hook.
+		frappe.delete_doc(
+			"Quotation", ten, force=True, ignore_permissions=True,
+			ignore_on_trash=bool(frappe.db.get_value("Quotation", ten, "custom_phieu_goc")),
+		)
 	for r in frappe.get_all(
 		"Sales Order", filters={"customer": ["like", "_TEST DX%"]},
 		fields=["name", "docstatus"],
