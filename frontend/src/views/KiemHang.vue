@@ -13,6 +13,7 @@ import { fmtDate } from '../format'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import CotTenHang from '../components/CotTenHang.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -175,34 +176,38 @@ onMounted(nap)
 
 <template>
   <div>
-    <p class="tag" style="margin-bottom: 8px">
-      <a href="#" @click.prevent="router.back()">← Quay lại</a>
+    <p class="tag mb8">
+      <a href="#" class="link inline-flex kh-quay-lai" @click.prevent="router.back()"><Icon name="arrow-left" :size="16" />Quay lại</a>
     </p>
 
-    <h2 style="margin: 0 0 4px">Kiểm hàng</h2>
-    <p class="tag" style="margin-bottom: 14px">
-      Phiếu giao <b>{{ dn }}</b>
-      <template v-if="ngayGiao"> · giao ngày {{ fmtDate(ngayGiao) }}</template>
-      <span class="badge" :class="badgeClass" style="margin-left: 8px">{{ trangThai }}</span>
-    </p>
+    <div class="topbar kh-dau">
+      <div class="grow">
+        <h2>Kiểm hàng</h2>
+        <p class="tag kh-sub">
+          Phiếu giao <b class="cell-code">{{ dn }}</b>
+          <template v-if="ngayGiao"> · giao ngày {{ fmtDate(ngayGiao) }}</template>
+          <span class="badge ml8" :class="badgeClass">{{ trangThai }}</span>
+        </p>
+      </div>
+    </div>
 
-    <p v-if="loading" class="tag">Đang tải…</p>
-    <p v-else-if="error" class="tag" style="color: var(--red)">{{ error }}</p>
+    <p v-if="loading" class="tag loading">Đang tải…</p>
+    <p v-else-if="error" class="tag note note-r note-ic"><Icon name="alert-circle" /><span>{{ error }}</span></p>
 
     <template v-else>
       <!-- Phản hồi của Miyano, đặt TRÊN bảng: khi đã có kết quả thì đó là
            thứ khách vào đây để đọc, không phải các con số họ đã gõ. -->
-      <div v-if="bienBan.ly_do_tu_choi" class="card" style="border-color: var(--red)">
-        <div class="h3" style="color: var(--red)">Miyano chưa chấp nhận</div>
+      <div v-if="bienBan.ly_do_tu_choi" class="card mb12 kh-tu-choi">
+        <div class="h3 row gap8 text-red"><Icon name="x-circle" />Miyano chưa chấp nhận</div>
         <p>{{ bienBan.ly_do_tu_choi }}</p>
-        <button v-if="coTheGuiLai" class="btn btn-sm" style="margin-top: 8px" @click="batDauGuiLai">
-          Kiểm lại và gửi biên bản mới
+        <button v-if="coTheGuiLai" class="btn btn-sm mt8" @click="batDauGuiLai">
+          <Icon name="rotate-ccw" :size="16" />Kiểm lại và gửi biên bản mới
         </button>
       </div>
-      <div v-else-if="bienBan.phieu_tra_hang" class="card">
-        <div class="h3">Miyano đã duyệt trả hàng</div>
+      <div v-else-if="bienBan.phieu_tra_hang" class="card mb12">
+        <div class="h3 row gap8"><Icon name="check-circle" class="text-green" />Miyano đã duyệt trả hàng</div>
         <p class="tag">
-          Phiếu trả hàng: <b>{{ bienBan.phieu_tra_hang }}</b>.
+          Phiếu trả hàng: <b class="cell-code">{{ bienBan.phieu_tra_hang }}</b>.
           <template v-if="trangThai === 'Đã thu hồi'"> Hàng đã được thu hồi.</template>
           <template v-else> Bộ phận giao nhận sẽ liên hệ để thu hồi phần hàng hỏng.</template>
         </p>
@@ -212,36 +217,38 @@ onMounted(nap)
            NGOÀI chuỗi v-if/v-else-if của khối hàng hỏng ngay trên: một biên
            bản có thể vừa có hàng hỏng vừa thiếu hàng, và hai việc đó được
            trả lời độc lập — nhét vào chuỗi else sẽ giấu mất một trong hai. -->
-      <div v-if="bienBan.xu_ly_thieu" class="card">
-        <div class="h3">Hàng thiếu — Miyano đã trả lời</div>
-        <p style="margin: 0 0 4px">
+      <div v-if="bienBan.xu_ly_thieu" class="card mb12">
+        <div class="h3 row gap8"><Icon name="truck" class="text-accent" />Hàng thiếu — Miyano đã trả lời</div>
+        <p class="mb4 row wrap gap8">
           <span class="badge b-orange">{{ bienBan.xu_ly_thieu }}</span>
-          <b v-if="bienBan.ngay_hen_giao" style="margin-left: 8px">
-            Dự kiến giao {{ fmtDate(bienBan.ngay_hen_giao) }}
+          <b v-if="bienBan.ngay_hen_giao" class="inline-flex">
+            <Icon name="calendar" :size="16" class="text-2" />Dự kiến giao {{ fmtDate(bienBan.ngay_hen_giao) }}
           </b>
         </p>
-        <p v-if="bienBan.ghi_chu_xu_ly" class="tag" style="margin: 0">
+        <p v-if="bienBan.ghi_chu_xu_ly" class="tag">
           {{ bienBan.ghi_chu_xu_ly }}
         </p>
       </div>
 
-      <div class="card">
-        <div class="h3">Đối chiếu từng mặt hàng</div>
-        <p v-if="!daGui" class="tag" style="margin-bottom: 10px">
+      <div class="card card-flush">
+        <div class="card-hd kh-hd">
+          <div class="h3 row gap8 mb0"><Icon name="clipboard-check" class="text-accent" />Đối chiếu từng mặt hàng</div>
+        </div>
+        <p v-if="!daGui" class="tag mb10 kh-pad">
           Mặc định là <b>nhận đủ</b>. Chỉ sửa những dòng có vấn đề: ghi số nhận
           tốt, số hỏng cần trả lại, và lý do. Phần chênh còn lại được tính là
           <b>thiếu</b>.
         </p>
 
-        <div style="overflow-x: auto">
-          <table style="min-width: 820px">
+        <div class="tbl-scroll kh-cuon">
+          <table class="kh-bang">
             <thead>
               <tr>
                 <CotTenHang head />
-                <th style="text-align: right">SL giao</th>
-                <th style="text-align: right">Nhận tốt</th>
-                <th style="text-align: right">Hỏng, trả lại</th>
-                <th style="text-align: right">Thiếu</th>
+                <th class="right">SL giao</th>
+                <th class="right">Nhận tốt</th>
+                <th class="right">Hỏng, trả lại</th>
+                <th class="right">Thiếu</th>
                 <th>Lý do</th>
               </tr>
             </thead>
@@ -249,27 +256,27 @@ onMounted(nap)
               <tr v-for="r in rows" :key="r.item_code">
                 <CotTenHang :ma="r.item_code" :ten="r.item_name || ''">
                   <div class="tag">{{ r.uom }}</div>
-                  <p v-if="!daGui && loiDong(r)" class="tag" style="color: var(--red); margin: 4px 0 0">
-                    {{ loiDong(r) }}
+                  <p v-if="!daGui && loiDong(r)" class="tag text-red mt4 kh-loi-dong">
+                    <Icon name="alert-circle" :size="14" />{{ loiDong(r) }}
                   </p>
                 </CotTenHang>
-                <td style="text-align: right">{{ r.sl_giao }}</td>
-                <td style="text-align: right">
+                <td class="right">{{ r.sl_giao }}</td>
+                <td class="right">
                   <input
                     v-if="!daGui" v-model="r.sl_nhan" type="number" min="0" step="any"
-                    style="width: 84px; text-align: right"
+                    class="kh-o-sl"
                   />
                   <span v-else>{{ r.sl_nhan }}</span>
                 </td>
-                <td style="text-align: right">
+                <td class="right">
                   <input
                     v-if="!daGui" v-model="r.sl_tra" type="number" min="0" step="any"
-                    style="width: 84px; text-align: right"
+                    class="kh-o-sl"
                   />
                   <span v-else>{{ r.sl_tra }}</span>
                 </td>
-                <td style="text-align: right">
-                  <span :style="thieu(r) > 0 ? 'color: var(--red); font-weight: 600' : ''">
+                <td class="right">
+                  <span :class="{ 'text-red fw600': thieu(r) > 0 }">
                     {{ thieu(r) || '' }}
                   </span>
                 </td>
@@ -277,7 +284,7 @@ onMounted(nap)
                   <input
                     v-if="!daGui" v-model="r.ly_do" type="text" maxlength="140"
                     placeholder="vd. vỡ khi vận chuyển"
-                    :style="isMobile ? 'width: 100%' : 'width: 200px'"
+                    :class="isMobile ? 'w100' : 'kh-o-ly-do'"
                   />
                   <span v-else>{{ r.ly_do }}</span>
                 </td>
@@ -286,29 +293,31 @@ onMounted(nap)
           </table>
         </div>
 
-        <div style="margin-top: 12px">
-          <label class="tag">Ghi chú</label><br />
-          <textarea
-            v-if="!daGui" v-model="ghiChu" rows="2" maxlength="500"
-            style="width: 100%" placeholder="Ghi chú thêm cho Miyano (không bắt buộc)"
-          ></textarea>
-          <p v-else-if="ghiChu" class="tag">{{ ghiChu }}</p>
-        </div>
+        <div class="kh-pad kh-chan">
+          <div class="mt12">
+            <label class="tag">Ghi chú</label><br />
+            <textarea
+              v-if="!daGui" v-model="ghiChu" rows="2" maxlength="500"
+              class="w100 mt4" placeholder="Ghi chú thêm cho Miyano (không bắt buộc)"
+            ></textarea>
+            <p v-else-if="ghiChu" class="tag">{{ ghiChu }}</p>
+          </div>
 
-        <div v-if="!daGui" style="margin-top: 14px">
-          <button class="btn-o btn-sm" :disabled="saving || sending" @click="luuNhap">
-            {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
-          </button>
-          <button
-            class="btn btn-sm" style="margin-left: 8px"
-            :disabled="saving || sending || coLoi" @click="moXacNhan"
-          >
-            Gửi biên bản
-          </button>
+          <div v-if="!daGui" class="row wrap gap8 mt14">
+            <button class="btn-o btn-sm" :disabled="saving || sending" @click="luuNhap">
+              <Icon name="check" :size="16" />{{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
+            </button>
+            <button
+              class="btn btn-sm"
+              :disabled="saving || sending || coLoi" @click="moXacNhan"
+            >
+              <Icon name="send" :size="16" />Gửi biên bản
+            </button>
+          </div>
+          <p v-else class="tag mt14 row gap6">
+            <Icon name="lock" :size="14" />Biên bản đã gửi ngày {{ fmtDate(bienBan.ngay_kiem) }} — không sửa được nữa.
+          </p>
         </div>
-        <p v-else class="tag" style="margin-top: 14px">
-          Biên bản đã gửi ngày {{ fmtDate(bienBan.ngay_kiem) }} — không sửa được nữa.
-        </p>
       </div>
     </template>
 
@@ -325,16 +334,42 @@ onMounted(nap)
           Bạn báo <b>thiếu hàng</b> so với phiếu giao. Miyano sẽ xem xét và phản hồi.
         </p>
         <p v-else>Bạn xác nhận đã <b>nhận đủ</b> hàng của đợt giao này.</p>
-        <p class="tag">Sau khi gửi, biên bản sẽ khoá lại và không tự sửa được.</p>
-        <div style="margin-top: 14px; text-align: right">
+        <p class="tag row gap6 mt8"><Icon name="lock" :size="14" />Sau khi gửi, biên bản sẽ khoá lại và không tự sửa được.</p>
+        <div class="row wrap jc-end gap8 mt14">
           <button class="btn-o btn-sm" :disabled="sending" @click="xacNhanMo = false">
             Để sau
           </button>
-          <button class="btn btn-sm" style="margin-left: 8px" :disabled="sending" @click="gui">
-            {{ sending ? 'Đang gửi…' : 'Gửi biên bản' }}
+          <button class="btn btn-sm" :disabled="sending" @click="gui">
+            <Icon name="send" :size="16" />{{ sending ? 'Đang gửi…' : 'Gửi biên bản' }}
           </button>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.kh-quay-lai { min-height: 40px; }
+.kh-dau { margin-bottom: 16px; }
+.kh-dau h2 { margin: 0 0 4px; }
+.kh-sub { font-size: 13.5px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+
+/* Thẻ phản hồi "Miyano chưa chấp nhận": viền đỏ — việc khách phải làm lại. */
+.kh-tu-choi { border-color: var(--err); background: var(--err-bg); }
+
+/* Thẻ bảng đối chiếu: bảng chạm mép, phần chữ hai bên có lề như thẻ thường. */
+.kh-hd { margin-bottom: 0; }
+.kh-pad { padding-left: 20px; padding-right: 20px; }
+.kh-chan { padding-bottom: 20px; }
+.kh-cuon { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.kh-bang { min-width: 820px; }
+.kh-bang td { vertical-align: top; }
+.kh-o-sl { width: 88px; text-align: right; }
+.kh-o-ly-do { width: 210px; }
+.kh-loi-dong { display: flex; align-items: center; gap: 4px; }
+
+@media (max-width: 900px) {
+  .kh-pad { padding-left: 16px; padding-right: 16px; }
+  .kh-chan { padding-bottom: 16px; }
+}
+</style>

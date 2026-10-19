@@ -11,10 +11,13 @@ import VatTuModal from '../components/VatTuModal.vue'
 import KhoaPhongModal from '../components/KhoaPhongModal.vue'
 import ThietBiPicker from '../components/ThietBiPicker.vue'
 import ThietBiQuickCreate from '../components/ThietBiQuickCreate.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
+// Chỉ trình bày: icon đứng trước nhãn nút hành động (nhãn vẫn lấy từ kho-actions.js).
+const ICON_HANH_DONG = { submit: 'badge-check', print: 'printer', cancel: 'ban' }
 
 const DOCTYPE = 'Customer Stock Issue'
 const LOAI_OPTIONS = ['Xuất sử dụng', 'Xuất huỷ - hết hạn', 'Xuất trả lại', 'Điều chỉnh kiểm kê']
@@ -665,13 +668,13 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>{{ isNew ? 'Tạo phiếu xuất kho' : doc.name }}</h2>
         <div class="sub" v-if="!isNew">
           <span class="badge" :class="badge.cls">{{ badge.label }}</span>
         </div>
       </div>
-      <div class="flex" style="gap: 8px">
+      <div class="flex gap8 wrap">
         <button
           v-for="a in actions"
           :key="a.key"
@@ -680,17 +683,17 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
           :disabled="submitting || cancelling"
           @click="onAction(a.key)"
         >
-          {{ a.label }}
+          <Icon v-if="ICON_HANH_DONG[a.key]" :name="ICON_HANH_DONG[a.key]" :size="16" />{{ a.label }}
         </button>
         <button v-if="editable" class="btn-o" :disabled="saving" @click="save()">
-          {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
+          <Icon name="check" :size="16" />{{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
-        <router-link to="/kho/xuat" class="btn-o">Quay lại</router-link>
+        <router-link to="/kho/xuat" class="btn-o"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
       </div>
     </div>
-    <div v-else style="margin-bottom: 12px">
-      <div class="sb">
-        <h2>{{ isNew ? 'Tạo phiếu xuất' : doc.name }}</h2>
+    <div v-else class="mb12">
+      <div class="sb wrap">
+        <h2 class="grow">{{ isNew ? 'Tạo phiếu xuất' : doc.name }}</h2>
         <span v-if="!isNew" class="badge" :class="badge.cls">{{ badge.label }}</span>
       </div>
     </div>
@@ -701,13 +704,14 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
     <template v-else>
       <!-- Task 13 — cảnh báo mềm BR-TB-2/4: phiếu ĐÃ LƯU THÀNH CÔNG, đây
            không phải lỗi chặn (màu vàng .note, không phải .warn đỏ). -->
-      <div v-if="canhBaoThietBi.length" class="note mb10">
-        <b>⚠ Cảnh báo máy (không chặn lưu/ghi sổ):</b>
+      <div v-if="canhBaoThietBi.length" class="note note-ic mb10">
+        <Icon name="alert-triangle" />
+        <div class="grow">
+        <b>Cảnh báo máy (không chặn lưu/ghi sổ):</b>
         <div
           v-for="(c, i) in canhBaoThietBi"
           :key="i"
-          class="flex"
-          style="justify-content: space-between; margin-top: 6px; flex-wrap: wrap; gap: 8px"
+          class="flex jc-between mt6 wrap gap8"
         >
           <span>{{ c.text }}</span>
           <button
@@ -718,6 +722,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
           >
             {{ dangGanMay === i ? 'Đang gắn…' : 'Gắn máy này vào vật tư' }}
           </button>
+        </div>
         </div>
       </div>
 
@@ -744,9 +749,9 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
               <option v-for="k in khoaPhongList" :key="k.name" :value="k.name">
                 {{ k.ten_khoa_phong }}
               </option>
-              <option :value="MUC_TAO_KHOA_MOI">➕ Tạo khoa phòng…</option>
+              <option :value="MUC_TAO_KHOA_MOI">+ Tạo khoa phòng…</option>
             </select>
-            <p v-if="batBuocKhoaPhong && doc.loai_xuat === 'Xuất sử dụng'" class="tag" style="margin-top: 4px">
+            <p v-if="batBuocKhoaPhong && doc.loai_xuat === 'Xuất sử dụng'" class="tag mt4">
               Kho đang bật bắt buộc chọn khoa phòng cho phiếu Xuất sử dụng (chỉ áp phiếu tạo sau khi bật — BR-CP2).
             </p>
           </div>
@@ -759,7 +764,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
               @update:model-value="onThietBiMacDinhChange"
               @create-new="({ search }) => openQuickCreate(search, onThietBiMacDinhChange)"
             />
-            <p class="tag" style="margin-top: 4px">Điền xuống các dòng CHƯA chọn máy — không ghi đè dòng đã chọn tay.</p>
+            <p class="tag mt4">Điền xuống các dòng CHƯA chọn máy — không ghi đè dòng đã chọn tay.</p>
           </div>
           <div class="field">
             <label>Nơi nhận</label>
@@ -780,28 +785,29 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
             </datalist>
           </div>
         </div>
-        <div class="field" style="margin-top: 10px">
+        <div class="field mt10">
           <label>Lý do xuất</label>
           <textarea v-model="doc.dien_giai" :disabled="!editable" rows="2"></textarea>
         </div>
       </div>
 
-      <div v-if="editable" class="flex mb10" style="gap: 8px; flex-wrap: wrap">
-        <a class="btn-o btn-sm" :href="mauUrl">Tải file mẫu</a>
+      <div v-if="editable" class="flex mb10 gap8 wrap">
+        <a class="btn-o btn-sm" :href="mauUrl"><Icon name="file-spreadsheet" :size="16" />Tải file mẫu</a>
         <button class="btn-o btn-sm" :disabled="importing" @click="importInput.click()">
-          {{ importing ? 'Đang đọc…' : '⬆ Nhập từ Excel' }}
+          <Icon name="upload" :size="16" />{{ importing ? 'Đang đọc…' : 'Nhập từ Excel' }}
         </button>
-        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl">⬇ Xuất Excel</a>
-        <input ref="importInput" type="file" accept=".xlsx" style="display: none" @change="onImportFile" />
+        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl"><Icon name="download" :size="16" />Xuất Excel</a>
+        <input ref="importInput" type="file" accept=".xlsx" class="hidden" @change="onImportFile" />
       </div>
 
-      <div class="card" style="padding: 0; overflow-x: auto">
-        <table>
+      <div class="card card-flush">
+        <div class="tbl-scroll">
+        <table class="px-bang">
           <thead>
             <tr>
-              <th style="min-width: 180px">Vật tư</th>
-              <th style="min-width: 200px">Máy</th>
-              <th style="min-width: 220px">Lô (FEFO)</th>
+              <th class="px-c-vt">Vật tư</th>
+              <th class="px-c-may">Máy</th>
+              <th class="px-c-lo">Lô (FEFO)</th>
               <th>Hạn dùng</th>
               <th class="right">Tồn lô</th>
               <th class="right">Số lượng xuất</th>
@@ -814,29 +820,29 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
             <tr
               v-for="(r, idx) in doc.items"
               :key="idx"
-              :style="r._trang_thai === 'loi' ? 'background:#fff1f0' : (r._trang_thai === 'ma_moi' ? 'background:#fffbe6' : '')"
+              :class="{ 'px-dong-loi': r._trang_thai === 'loi', 'px-dong-ma-moi': r._trang_thai === 'ma_moi' }"
             >
               <td>
                 <select
                   v-if="editable"
                   v-model="r.vat_tu"
-                  style="width: 100%"
+                  class="w100"
                   @change="onVatTuSelect(r, idx); onVatTuChange(r)"
                 >
                   <option value="" disabled>-- Chọn vật tư --</option>
                   <option v-for="v in vatTuList" :key="v.name" :value="v.name">
                     {{ v.ma_vat_tu }} — {{ v.ten_vat_tu }}
                   </option>
-                  <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
+                  <option :value="MUC_TAO_MOI">+ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu }}</span>
 
-                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn" style="margin-top: 4px">
-                  ⚠ Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.
+                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn mt4 px-canh-bao">
+                  <Icon name="alert-triangle" :size="14" /><span>Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.</span>
                   <button class="btn-o btn-sm" @click="moTaoTuDong(r, idx)">Tạo vật tư mới</button>
                 </div>
-                <div v-if="r._loi && r._loi.length" class="tag" style="color: #cf1322; margin-top: 4px">
-                  ✗ Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
+                <div v-if="r._loi && r._loi.length" class="tag text-red mt4">
+                  <Icon name="x-circle" :size="14" /> Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
                 </div>
               </td>
               <td>
@@ -852,7 +858,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
               <td>
                 <template v-if="editable">
                   <div v-if="r._lotsLoading" class="tag">Đang tải lô…</div>
-                  <select v-else-if="r._lots.length" v-model="r.so_lo" style="width: 100%" @change="onSoLoChange(r)">
+                  <select v-else-if="r._lots.length" v-model="r.so_lo" class="w100" @change="onSoLoChange(r)">
                     <option v-for="l in r._lots" :key="l.so_lo" :value="l.so_lo">
                       {{ l.so_lo }} · còn {{ Number(l.so_luong_ton).toLocaleString('vi-VN') }}
                       {{ l.han_su_dung ? '· HSD ' + fmtDate(l.han_su_dung) : '· không hạn' }}
@@ -872,20 +878,20 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
                     </template>
                   </span>
                   <span v-else class="tag">Chọn vật tư trước</span>
-                  <div v-if="loCanhBao(r)" class="warn" style="margin-top: 4px">⚠ {{ loCanhBao(r) }}</div>
+                  <div v-if="loCanhBao(r)" class="warn mt4"><Icon name="alert-triangle" :size="14" /> {{ loCanhBao(r) }}</div>
                   <!-- I-3: chỉ bắt tick cho "Xuất sử dụng" (BR-K20) — các loại
                        xuất khác, kể cả "Xuất huỷ - hết hạn", không hỏi, nên
                        không hiện ô tick gây hiểu nhầm có một chốt chặn ở đây. -->
-                  <div v-if="r._hetHan && doc.loai_xuat === LOAI_BAT_XAC_NHAN_HET_HAN" class="warn" style="margin-top: 4px; display: flex; align-items: center; gap: 4px">
-                    <label style="display: flex; align-items: center; gap: 4px; font-weight: 600">
+                  <div v-if="r._hetHan && doc.loai_xuat === LOAI_BAT_XAC_NHAN_HET_HAN" class="warn mt4 row gap4">
+                    <label class="row gap6 fw600 px-xac-nhan">
                       <input type="checkbox" v-model="r.xac_nhan_het_han" />
                       Xác nhận xuất lô đã hết hạn
                     </label>
                   </div>
                 </template>
                 <span v-else>
-                  {{ r.so_lo }}
-                  <span v-if="r.xac_nhan_het_han" class="badge b-red" style="margin-left: 4px">Đã xác nhận hết hạn</span>
+                  <span class="mono">{{ r.so_lo }}</span>
+                  <span v-if="r.xac_nhan_het_han" class="badge b-red ml4">Đã xác nhận hết hạn</span>
                 </span>
               </td>
               <td>{{ r.han_su_dung ? fmtDate(r.han_su_dung) : '—' }}</td>
@@ -901,32 +907,34 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
                   :value="r.so_luong"
                   @change="onSoLuongChange(r, $event.target.value)"
                   inputmode="numeric"
-                  style="width: 80px; text-align: right"
+                  class="px-o-sl"
                 />
                 <span v-else>{{ Number(r.so_luong).toLocaleString('vi-VN') }}</span>
               </td>
               <td class="right">{{ fmtVND(r.don_gia) }}</td>
               <td class="right">{{ fmtVND(rowThanhTien(r)) }}</td>
               <td v-if="editable">
-                <button class="btn-o btn-sm" @click="removeRow(idx)">✕</button>
+                <button class="btn-o btn-sm px-xoa" aria-label="Xoá dòng" @click="removeRow(idx)"><Icon name="x" :size="16" /></button>
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr>
-              <td colspan="7" style="text-align: right"><b>Tổng cộng</b></td>
+            <tr class="tong">
+              <td colspan="7" class="right"><b>Tổng cộng</b></td>
               <td class="right"><b>{{ fmtVND(editable ? tongTienPreview : doc.tong_tien) }}</b></td>
               <td v-if="editable"></td>
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
-      <p class="tag" style="margin-top: 6px" v-if="editable">
+      <p class="tag mt6 row gap6" v-if="editable">
+        <Icon name="info" :size="14" />
         Đơn giá và hạn dùng lấy tự động theo lô đã chọn, không thể sửa tay.
       </p>
-      <button v-if="editable" class="btn-o btn-sm" style="margin-top: 10px" @click="addRow">+ Thêm dòng</button>
+      <button v-if="editable" class="btn-o btn-sm mt10" @click="addRow"><Icon name="plus" :size="16" />Thêm dòng</button>
 
-      <div v-if="isMobile" class="flex" style="gap: 8px; margin-top: 16px; flex-wrap: wrap">
+      <div v-if="isMobile" class="flex gap8 mt16 wrap px-hanh-dong-m">
         <button
           v-for="a in actions"
           :key="a.key"
@@ -935,10 +943,10 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
           :disabled="submitting || cancelling"
           @click="onAction(a.key)"
         >
-          {{ a.label }}
+          <Icon v-if="ICON_HANH_DONG[a.key]" :name="ICON_HANH_DONG[a.key]" :size="16" />{{ a.label }}
         </button>
         <button v-if="editable" class="btn-o" :disabled="saving" @click="save()">
-          {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
+          <Icon name="check" :size="16" />{{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
       </div>
 
@@ -964,3 +972,27 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Bảng dòng phiếu xuất: cột chọn vật tư/máy/lô có bề rộng tối thiểu để
+   không bị bóp khi cuộn ngang trên màn hẹp. */
+.px-c-vt { min-width: 200px; }
+.px-c-may { min-width: 210px; }
+.px-c-lo { min-width: 230px; }
+.px-bang td { vertical-align: top; }
+.px-bang tfoot td { vertical-align: middle; }
+.px-o-sl { width: 88px; text-align: right; }
+
+/* Dòng đọc từ tệp: lỗi (đỏ nhạt) / mã chưa có trong kho (vàng nhạt). */
+tr.px-dong-loi td { background: var(--err-bg); }
+tr.px-dong-ma-moi td { background: var(--warn-bg); }
+
+.px-canh-bao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.px-xac-nhan { min-height: 32px; cursor: pointer; }
+.px-xoa { width: 40px; padding: 0; color: var(--text-2); }
+.px-xoa:hover { color: var(--err); border-color: var(--err); background: var(--err-bg); }
+
+@media (max-width: 900px) {
+  .px-hanh-dong-m > * { flex: 1 1 auto; }
+}
+</style>

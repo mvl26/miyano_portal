@@ -6,6 +6,7 @@ import { fmtVND, fmtDate } from '../format'
 import { trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -64,19 +65,19 @@ onMounted(load)
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>Phiếu nhập kho</h2>
         <div class="sub">Danh sách phiếu nhập đã lập cho kho của bạn</div>
       </div>
-      <button class="btn" @click="taoMoi">+ Tạo phiếu nhập</button>
+      <button class="btn" @click="taoMoi"><Icon name="plus" :size="18" />Tạo phiếu nhập</button>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
+    <div class="sb mb12" v-else>
       <h2>Phiếu nhập kho</h2>
-      <button class="btn btn-sm" @click="taoMoi">+ Tạo phiếu</button>
+      <button class="btn btn-sm" @click="taoMoi"><Icon name="plus" :size="16" />Tạo phiếu</button>
     </div>
 
-    <label class="card mb10" style="display: flex; align-items: center; gap: 8px; font-size: 13px; width: fit-content">
-      <input type="checkbox" v-model="chiThieuChungTu" @change="locThayDoi" style="width: auto" />
+    <label class="card mb10 pn-loc">
+      <input type="checkbox" v-model="chiThieuChungTu" @change="locThayDoi" />
       Chỉ phiếu thiếu chứng từ NCC
     </label>
 
@@ -87,7 +88,8 @@ onMounted(load)
     </div>
 
     <!-- DESKTOP -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -101,36 +103,51 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.name" class="clickable" @click="open(r)">
-            <td><b>{{ r.name }}</b></td>
+            <td class="cell-code nowrap">{{ r.name }}</td>
             <td>{{ fmtDate(r.ngay) }}</td>
             <td>{{ r.loai_nhap }}</td>
             <td>{{ r.nguoi_giao || '—' }}</td>
             <td class="right">{{ fmtVND(r.tong_tien) }}</td>
             <td>
               <span class="badge" :class="badge(r.docstatus).cls">{{ badge(r.docstatus).label }}</span>
-              <span v-if="r.thieu_chung_tu" class="badge b-orange" style="margin-left: 4px">Thiếu chứng từ</span>
+              <span v-if="r.thieu_chung_tu" class="badge b-orange ml4">Thiếu chứng từ</span>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE -->
     <template v-else>
       <div v-for="r in rows" :key="r.name" class="card mb10 clickable" @click="open(r)">
         <div class="sb">
-          <b>{{ r.name }}</b>
+          <b class="cell-code">{{ r.name }}</b>
           <span class="badge" :class="badge(r.docstatus).cls">{{ badge(r.docstatus).label }}</span>
         </div>
-        <p class="tag" style="margin-top: 4px">{{ r.loai_nhap }} · {{ fmtDate(r.ngay) }}</p>
-        <p class="sb" style="margin-top: 8px; font-size: 13px">
+        <p class="tag mt4">{{ r.loai_nhap }} · {{ fmtDate(r.ngay) }}</p>
+        <p class="sb mt8 fs13">
           <span>Người giao: {{ r.nguoi_giao || '—' }}</span>
-          <b>{{ fmtVND(r.tong_tien) }}</b>
+          <b class="tnum">{{ fmtVND(r.tong_tien) }}</b>
         </p>
-        <span v-if="r.thieu_chung_tu" class="badge b-orange" style="margin-top: 6px">Thiếu chứng từ</span>
+        <span v-if="r.thieu_chung_tu" class="badge b-orange mt6">Thiếu chứng từ</span>
       </div>
     </template>
 
     <PhanTrang v-if="!loading && !error" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
   </div>
 </template>
+
+<style scoped>
+/* Ô lọc "Chỉ phiếu thiếu chứng từ NCC": thẻ nhỏ vừa nội dung, bấm cả ô. */
+.pn-loc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+</style>
