@@ -222,7 +222,12 @@ class TestBangMatHangCanCuKho(FrappeTestCase):
 
 	def test_co_dau_canh_bao_trong_v_for(self):
 		than = self._than_v_for()
-		self.assertIn("⚠", than, "Không tìm thấy dấu ⚠ trong thân vòng lặp dòng hàng")
+		# Thiết kế v2 (feat/portal-redesign): ký tự ⚠ được thay bằng
+		# `<Icon name="alert-triangle">` — canh đúng icon cảnh báo đó.
+		self.assertRegex(
+			than, r'<Icon\b[^>]*name="alert-triangle"',
+			"Không tìm thấy icon cảnh báo (alert-triangle) trong thân vòng lặp dòng hàng",
+		)
 
 	# --- §6: sổ kho xổ tại dòng -------------------------------------------
 

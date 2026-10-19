@@ -11,6 +11,7 @@ import {
 } from '../bao-gia'
 import ReasonModal from './ReasonModal.vue'
 import CotTenHang from './CotTenHang.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   bg: { type: Object, required: true },
@@ -94,50 +95,50 @@ function guiSuaSoLuong() {
 <template>
   <div class="mb10">
     <div v-if="tieuDe" class="card mb10">
-      <div class="sb">
-        <div class="h3" style="margin: 0">{{ tieuDe }}</div>
+      <div class="sb wrap">
+        <div class="h3 mb0">{{ tieuDe }}</div>
         <span class="badge" :class="bg.da_tra_ve ? 'b-gray' : nhomBaoGiaBadge(bg.nhom)">
           {{ bg.da_tra_ve ? 'Đã trả về phiếu' : nhanNhomBaoGia(bg.nhom) }}
         </span>
       </div>
-      <p class="tag" style="margin-top: 4px">
-        Báo giá {{ bg.bao_gia }}
+      <p class="tag mt4">
+        Báo giá <span class="mono">{{ bg.bao_gia }}</span>
         <template v-if="bg.han_hieu_luc"> · hiệu lực đến <b>{{ fmtDate(bg.han_hieu_luc) }}</b></template>
       </p>
-      <p v-if="bg.da_tra_ve" class="tag" style="margin-top: 6px">
+      <p v-if="bg.da_tra_ve" class="tag mt6">
         Các mặt hàng của đợt này đã trả về phiếu để Miyano báo giá lại.
       </p>
-      <p v-if="bg.ly_do_tu_choi" class="tag" style="margin-top: 6px; color: var(--red)">
-        Lý do từ chối: {{ bg.ly_do_tu_choi }}
+      <p v-if="bg.ly_do_tu_choi" class="tag mt6 text-red inline-flex ai-start">
+        <Icon name="alert-circle" :size="16" /><span>Lý do từ chối: {{ bg.ly_do_tu_choi }}</span>
       </p>
-      <p v-if="bg.sales_order" style="margin-top: 6px">
-        <router-link :to="{ name: 'order-detail', params: { name: bg.sales_order } }">
-          Xem đơn hàng {{ bg.sales_order }} →
+      <p v-if="bg.sales_order" class="mt6">
+        <router-link :to="{ name: 'order-detail', params: { name: bg.sales_order } }" class="link inline-flex gap4">
+          Xem đơn hàng {{ bg.sales_order }}<Icon name="arrow-right" :size="16" />
         </router-link>
       </p>
     </div>
 
     <div v-if="hanhDong.length" class="card mb10">
       <div class="h3">Việc đang chờ bạn</div>
-      <p class="tag" style="margin-bottom: 10px">
+      <p class="tag mb10">
         Bấm <b>Đồng ý</b> = chấp nhận đặt hàng theo giá dưới đây. Hệ thống ghi lại người bấm và thời điểm.
       </p>
-      <div class="flex" style="flex-wrap: wrap">
+      <div class="flex wrap">
         <button class="btn-g" :disabled="!!dangChay" @click="dongY">
-          {{ dangChay === 'dong_y' ? 'Đang gửi…' : (tieuDe ? '✔ Đồng ý cả đợt' : '✔ Đồng ý báo giá') }}
+          <Icon v-if="dangChay !== 'dong_y'" name="check" :size="16" />{{ dangChay === 'dong_y' ? 'Đang gửi…' : (tieuDe ? 'Đồng ý cả đợt' : 'Đồng ý báo giá') }}
         </button>
-        <button class="btn-o" :disabled="!!dangChay" @click="moTuChoi = true">✕ Từ chối…</button>
+        <button class="btn-o btn-danger" :disabled="!!dangChay" @click="moTuChoi = true"><Icon name="x" :size="16" />Từ chối…</button>
         <button v-if="hanhDong.includes('sua_so_luong')" class="btn-o" :disabled="!!dangChay"
-                @click="batTatSua">{{ dangSua ? '✕ Huỷ sửa số lượng' : '✎ Sửa số lượng' }}</button>
-        <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
+                @click="batTatSua"><Icon :name="dangSua ? 'x' : 'pencil'" :size="16" />{{ dangSua ? 'Huỷ sửa số lượng' : 'Sửa số lượng' }}</button>
+        <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener"><Icon name="download" :size="16" />Tải báo giá (PDF)</a>
       </div>
     </div>
     <!-- Hết việc phải làm nhưng vẫn được xem giá: báo giá còn tải về được. -->
     <div v-else-if="bg.hien_gia" class="mb10">
-      <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener">⬇ Tải báo giá (PDF)</a>
+      <a class="btn-o nut-pdf" :href="pdfUrl" target="_blank" rel="noopener"><Icon name="download" :size="16" />Tải báo giá (PDF)</a>
     </div>
 
-    <div v-if="!bg.hien_gia && bg.nhom === 'dang_bao_gia'" class="card mb10">
+    <div v-if="!bg.hien_gia && bg.nhom === 'dang_bao_gia'" class="card mb10 row wrap gap8">
       <span class="badge b-blue">Miyano đang báo giá</span>
       <span class="tag"> Đơn giá sẽ hiện khi Miyano gửi báo giá cho quý vị.</span>
     </div>
@@ -146,8 +147,9 @@ function guiSuaSoLuong() {
          bảng mặt hàng trên cổng (`CotTenHang`, `ten-hang.js`); bảng rộng hơn
          khung thì cuộn ngang trong thẻ. Cột giá CHỈ vẽ khi server cho xem
          (`bg.hien_gia`) — lúc đó `rate`/`amount` mới khác `null`. -->
-    <div class="card mb10" style="padding: 0; overflow-x: auto">
-      <div class="h3" style="padding: 12px 14px 0">Mặt hàng</div>
+    <div class="card card-flush mb10">
+      <div class="card-hd"><div class="h3 mb0">Mặt hàng</div></div>
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -163,7 +165,7 @@ function guiSuaSoLuong() {
             <td>{{ it.uom }}</td>
             <td class="right">
               <input v-if="dangSua" v-model.number="soLuongMoi[it.name]" type="number" min="0.001"
-                     step="any" style="width: 90px; text-align: right" />
+                     step="any" class="o-so-luong" />
               <template v-else>{{ it.qty }}</template>
             </td>
             <td v-if="bg.hien_gia" class="right">{{ fmtVND(it.rate) }}</td>
@@ -171,10 +173,11 @@ function guiSuaSoLuong() {
           </tr>
         </tbody>
       </table>
-      <p v-if="bg.hien_gia" class="right" style="padding: 10px 14px">
+      </div>
+      <p v-if="bg.hien_gia" class="right tnum tong-bg">
         <b>Tổng cộng: {{ fmtVND(bg.tong_tien) }}</b>
       </p>
-      <div v-if="dangSua" class="flex" style="padding: 0 14px 12px; flex-wrap: wrap">
+      <div v-if="dangSua" class="flex wrap sua-sl">
         <button class="btn" :disabled="!!dangChay" @click="guiSuaSoLuong">
           {{ dangChay === 'sua_so_luong' ? 'Đang gửi…' : 'Gửi lại để báo giá' }}
         </button>
@@ -199,8 +202,15 @@ function guiSuaSoLuong() {
 <style scoped>
 /* Liên kết tải PDF mang dáng nút `.btn-o` (vốn viết cho <button>). */
 .nut-pdf {
-  display: inline-block;
   text-decoration: none;
   font-size: 14px;
 }
+.o-so-luong { width: 90px; text-align: right; }
+.tong-bg {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: #f1f5fa;
+  font-size: 15px;
+}
+.sua-sl { padding: 12px 16px; border-top: 1px solid var(--line); }
 </style>

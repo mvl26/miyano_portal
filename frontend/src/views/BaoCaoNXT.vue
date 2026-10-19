@@ -7,6 +7,7 @@ import {
   NXT_COLUMNS, NXT_LOT_COLUMNS, THE_KHO_COLUMNS, CANH_BAO_COLUMNS,
 } from '../kho-bao-cao-columns'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 
@@ -372,24 +373,24 @@ onMounted(() => {
         <div class="sub">Nhập - Xuất - Tồn, thẻ kho theo vật tư, cảnh báo hạn dùng</div>
       </div>
     </div>
-    <h2 v-else style="margin-bottom: 12px">Báo cáo kho</h2>
+    <h2 v-else class="mb12">Báo cáo kho</h2>
 
     <!-- Bộ lọc dùng chung: khoảng ngày -->
     <div class="card mb10">
-      <div class="flex" style="flex-wrap: wrap; gap: 14px">
-        <div class="field" style="margin-bottom: 0">
+      <div class="flex wrap loc-row">
+        <div class="field mb0 loc-f">
           <label>Từ ngày</label>
           <input type="date" v-model="tuNgay" @change="locThayDoi" />
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Đến ngày</label>
           <input type="date" v-model="denNgay" @change="locThayDoi" />
         </div>
-        <div class="field" style="margin-bottom: 0; flex: 1; min-width: 200px" v-if="tab === 'nxt'">
+        <div class="field mb0 loc-f loc-grow" v-if="tab === 'nxt'">
           <label>Tìm vật tư</label>
           <input type="text" v-model="search" @input="onSearchInput" placeholder="Mã hoặc tên vật tư…" />
         </div>
-        <div class="field" style="margin-bottom: 0" v-if="tab === 'the_kho'">
+        <div class="field mb0 loc-f" v-if="tab === 'the_kho'">
           <label>Vật tư</label>
           <select v-model="vatTuChon">
             <option value="">— Chọn vật tư —</option>
@@ -398,14 +399,14 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <div class="field" style="margin-bottom: 0" v-if="tab === 'canh_bao'">
+        <div class="field mb0 loc-f" v-if="tab === 'canh_bao'">
           <label>Số ngày cảnh báo</label>
           <input
             type="number" min="0" v-model.number="soNgay" @change="locThayDoi"
-            style="width: 100px"
+            class="loc-so"
           />
         </div>
-        <div class="field" style="margin-bottom: 0" v-if="tab === 'dot'">
+        <div class="field mb0 loc-f" v-if="tab === 'dot'">
           <label>Vật tư</label>
           <select v-model="dotVatTuChon">
             <option value="">— Tất cả —</option>
@@ -414,7 +415,7 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <div class="field" style="margin-bottom: 0" v-if="tab === 'dot'">
+        <div class="field mb0 loc-f" v-if="tab === 'dot'">
           <label>Nguồn</label>
           <select v-model="dotNguon">
             <option value="">— Tất cả —</option>
@@ -428,7 +429,7 @@ onMounted(() => {
              tháng hiện tại, nên nút này mở nhanh kỳ 12 tháng — xem
              chon12Thang() cho lý do không tự đổi ngày khi bấm sang tab. -->
         <button v-if="tab === 'cp_thang'" class="btn-o btn-sm" @click="chon12Thang">
-          12 tháng gần nhất
+          <Icon name="calendar" :size="16" />12 tháng gần nhất
         </button>
         <!-- F-5 (review E8): kho_bao_cao_excel CHƯA hỗ trợ tab "Cấp phát
              theo khoa" (loai="cap_phat" không có trong _BAO_CAO_LOAI — quyết
@@ -436,8 +437,8 @@ onMounted(() => {
              cho tab này nên bấm không làm gì, nhưng nút vẫn hiện, im lặng,
              không có gì báo cho người dùng biết vì sao không tải được gì.
              Ẩn hẳn nút thay vì để một hành vi chết đứng trên màn hình. -->
-        <button v-if="tab !== 'cp'" class="btn-o btn-sm" style="margin-left: auto" @click="xuatExcel">
-          ⬇ Xuất Excel
+        <button v-if="tab !== 'cp'" class="btn-o btn-sm ml-auto" @click="xuatExcel">
+          <Icon name="download" :size="16" />Xuất Excel
         </button>
       </div>
     </div>
@@ -455,58 +456,77 @@ onMounted(() => {
       <div v-else-if="nxtError" class="empty">{{ nxtError }}</div>
       <div v-else-if="!nxtRows.length" class="empty">Không có phát sinh trong khoảng ngày đã chọn.</div>
 
-      <div v-else class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="c in NXT_COLUMNS" :key="c.field" :class="{ right: c.field !== 'ma_vat_tu' && c.field !== 'ten_vat_tu' && c.field !== 'dvt' }">
-                {{ c.label }}
-              </th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="row in nxtRows" :key="row.vat_tu">
-              <tr class="clickable" @click="toggleLot(row)">
-                <td v-for="c in NXT_COLUMNS" :key="c.field" :class="{ right: c.field !== 'ma_vat_tu' && c.field !== 'ten_vat_tu' && c.field !== 'dvt' }">
-                  <b v-if="c.field === 'ma_vat_tu'">{{ row[c.field] }}</b>
-                  <template v-else-if="c.field.endsWith('_tt')">{{ fmtVND(row[c.field]) }}</template>
-                  <template v-else-if="c.field.endsWith('_sl')">{{ fmtQty(row[c.field]) }}</template>
-                  <template v-else>{{ row[c.field] }}</template>
-                </td>
-                <td>{{ expanded[row.vat_tu] ? '▾' : '▸' }}</td>
+      <div v-else class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table class="bc-tbl">
+            <thead>
+              <tr>
+                <!-- Nhãn "Nhóm - Chỉ số" (vd. "Tồn đầu - Thành tiền", nguồn
+                     kho-bao-cao-columns.js) tách thành hai dòng gọn: nhóm ở
+                     trên, chỉ số ở dưới; title giữ nguyên nhãn đầy đủ. -->
+                <th
+                  v-for="c in NXT_COLUMNS" :key="c.field" :title="c.label" class="th2"
+                  :class="{ right: c.field !== 'ma_vat_tu' && c.field !== 'ten_vat_tu' && c.field !== 'dvt', 'grp-start': c.field.endsWith('_sl') }"
+                >
+                  <span class="th2-a">{{ c.label.split(' - ')[0] }}</span>
+                  <span v-if="c.label.includes(' - ')" class="th2-b">{{ c.label.split(' - ')[1] }}</span>
+                </th>
+                <th class="chev-cell"><span class="sr-only">Chi tiết theo lô</span></th>
               </tr>
-              <tr v-if="expanded[row.vat_tu]">
-                <td :colspan="NXT_COLUMNS.length + 1" style="background: #f8fafc; padding: 12px 16px">
-                  <div v-if="lotRows[row.vat_tu]?.loading" class="loading">Đang tải theo lô…</div>
-                  <div v-else-if="lotRows[row.vat_tu]?.error" class="empty">{{ lotRows[row.vat_tu].error }}</div>
-                  <div v-else-if="!lotRows[row.vat_tu]?.data?.length" class="empty">Không có lô nào phát sinh trong kỳ.</div>
-                  <div v-else style="overflow-x: auto">
-                    <table style="background: transparent">
-                      <thead>
-                        <tr>
-                          <th v-for="c in NXT_LOT_COLUMNS" :key="c.field" :class="{ right: c.field !== 'so_lo' && c.field !== 'han_su_dung' }">
-                            {{ c.label }}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="lo in lotRows[row.vat_tu].data" :key="lo.so_lo">
-                          <td v-for="c in NXT_LOT_COLUMNS" :key="c.field" :class="{ right: c.field !== 'so_lo' && c.field !== 'han_su_dung' }">
-                            <template v-if="c.field === 'han_su_dung'">{{ lo.han_su_dung ? fmtDate(lo.han_su_dung) : '—' }}</template>
-                            <template v-else-if="c.field.endsWith('_tt')">{{ fmtVND(lo[c.field]) }}</template>
-                            <template v-else-if="c.field.endsWith('_sl')">{{ fmtQty(lo[c.field]) }}</template>
-                            <template v-else>{{ lo[c.field] }}</template>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <template v-for="row in nxtRows" :key="row.vat_tu">
+                <tr class="clickable" :class="{ 'is-open': expanded[row.vat_tu] }" @click="toggleLot(row)">
+                  <td
+                    v-for="c in NXT_COLUMNS" :key="c.field"
+                    :class="{ right: c.field !== 'ma_vat_tu' && c.field !== 'ten_vat_tu' && c.field !== 'dvt', 'cell-code': c.field === 'ma_vat_tu', 'cot-ten-vt': c.field === 'ten_vat_tu', 'grp-start': c.field.endsWith('_sl') }"
+                  >
+                    <b v-if="c.field === 'ma_vat_tu'">{{ row[c.field] }}</b>
+                    <template v-else-if="c.field.endsWith('_tt')">{{ fmtVND(row[c.field]) }}</template>
+                    <template v-else-if="c.field.endsWith('_sl')">{{ fmtQty(row[c.field]) }}</template>
+                    <template v-else>{{ row[c.field] }}</template>
+                  </td>
+                  <td class="chev-cell"><Icon :name="expanded[row.vat_tu] ? 'chevron-down' : 'chevron-right'" :size="16" /></td>
+                </tr>
+                <tr v-if="expanded[row.vat_tu]" class="lot-row">
+                  <td :colspan="NXT_COLUMNS.length + 1" class="lot-cell">
+                    <div v-if="lotRows[row.vat_tu]?.loading" class="loading">Đang tải theo lô…</div>
+                    <div v-else-if="lotRows[row.vat_tu]?.error" class="empty">{{ lotRows[row.vat_tu].error }}</div>
+                    <div v-else-if="!lotRows[row.vat_tu]?.data?.length" class="empty">Không có lô nào phát sinh trong kỳ.</div>
+                    <div v-else class="overflow-x">
+                      <table class="lot-tbl">
+                        <thead>
+                          <tr>
+                            <th
+                              v-for="c in NXT_LOT_COLUMNS" :key="c.field" :title="c.label" class="th2"
+                              :class="{ right: c.field !== 'so_lo' && c.field !== 'han_su_dung', 'grp-start': c.field.endsWith('_sl') }"
+                            >
+                              <span class="th2-a">{{ c.label.split(' - ')[0] }}</span>
+                              <span v-if="c.label.includes(' - ')" class="th2-b">{{ c.label.split(' - ')[1] }}</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="lo in lotRows[row.vat_tu].data" :key="lo.so_lo">
+                            <td
+                              v-for="c in NXT_LOT_COLUMNS" :key="c.field"
+                              :class="{ right: c.field !== 'so_lo' && c.field !== 'han_su_dung', mono: c.field === 'so_lo', 'grp-start': c.field.endsWith('_sl') }"
+                            >
+                              <template v-if="c.field === 'han_su_dung'">{{ lo.han_su_dung ? fmtDate(lo.han_su_dung) : '—' }}</template>
+                              <template v-else-if="c.field.endsWith('_tt')">{{ fmtVND(lo[c.field]) }}</template>
+                              <template v-else-if="c.field.endsWith('_sl')">{{ fmtQty(lo[c.field]) }}</template>
+                              <template v-else>{{ lo[c.field] }}</template>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
       </div>
       <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
@@ -517,26 +537,31 @@ onMounted(() => {
       <div v-else-if="theKhoLoading" class="loading">Đang tải…</div>
       <div v-else-if="theKhoError" class="empty">{{ theKhoError }}</div>
       <div v-else-if="!theKhoRows.length" class="empty">Không có phát sinh trong khoảng ngày đã chọn.</div>
-      <div v-else class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="c in THE_KHO_COLUMNS" :key="c.field" :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }">
-                {{ c.label }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r, idx) in theKhoRows" :key="idx">
-              <td v-for="c in THE_KHO_COLUMNS" :key="c.field" :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }">
-                <template v-if="c.field === 'ngay'">{{ fmtDate(r.ngay) }}</template>
-                <template v-else-if="c.field === 'chung_tu'"><b>{{ r.chung_tu }}</b></template>
-                <template v-else-if="['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field)">{{ fmtQty(r[c.field]) }}</template>
-                <template v-else>{{ r[c.field] || '—' }}</template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table class="bc-tbl">
+            <thead>
+              <tr>
+                <th v-for="c in THE_KHO_COLUMNS" :key="c.field" :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field) }">
+                  {{ c.label }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, idx) in theKhoRows" :key="idx">
+                <td
+                  v-for="c in THE_KHO_COLUMNS" :key="c.field"
+                  :class="{ right: ['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field), 'cell-code': c.field === 'chung_tu', mono: c.field === 'so_lo', nowrap: c.field === 'ngay' }"
+                >
+                  <template v-if="c.field === 'ngay'">{{ fmtDate(r.ngay) }}</template>
+                  <template v-else-if="c.field === 'chung_tu'"><b>{{ r.chung_tu }}</b></template>
+                  <template v-else-if="['sl_nhap', 'sl_xuat', 'ton_luy_ke'].includes(c.field)">{{ fmtQty(r[c.field]) }}</template>
+                  <template v-else>{{ r[c.field] || '—' }}</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <PhanTrang v-if="vatTuChon" v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
@@ -546,38 +571,50 @@ onMounted(() => {
       <div v-if="canhBaoLoading" class="loading">Đang tải…</div>
       <div v-else-if="canhBaoError" class="empty">{{ canhBaoError }}</div>
       <div v-else-if="!canhBaoRows.length" class="empty">Không có lô nào hết hạn hoặc sắp hết hạn.</div>
-      <div v-else class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="c in CANH_BAO_COLUMNS" :key="c.field" :class="{ right: ['so_ngay_con_lai', 'so_luong'].includes(c.field) }">
-                {{ c.label }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r, idx) in canhBaoRows" :key="idx">
-              <td v-for="c in CANH_BAO_COLUMNS" :key="c.field" :class="{ right: ['so_ngay_con_lai', 'so_luong'].includes(c.field) }">
-                <b v-if="c.field === 'ma_vat_tu'">{{ r.ma_vat_tu }}</b>
-                <template v-else-if="c.field === 'han_su_dung'">{{ fmtDate(r.han_su_dung) }}</template>
-                <template v-else-if="c.field === 'so_luong'">{{ fmtQty(r.so_luong) }}</template>
-                <template v-else-if="c.field === 'trang_thai'">
-                  <!-- VĐ-2: "Không có hạn dùng" là một GHI CHÚ dữ liệu, không
-                       phải một cảnh báo — badge xám trung tính, không icon
-                       cảnh báo, để không lặp lại đúng lỗi "báo động sai" mà
-                       bản sửa canh_bao_han_rows() vừa dọn ở tầng dữ liệu. -->
-                  <span
-                    class="badge"
-                    :class="r.trang_thai === 'Đã hết hạn' ? 'b-red' : r.trang_thai === 'Sắp hết hạn' ? 'b-orange' : 'b-gray'"
-                  >
-                    {{ r.trang_thai === 'Đã hết hạn' ? '⛔' : r.trang_thai === 'Sắp hết hạn' ? '⚠' : '' }} {{ r.trang_thai }}
-                  </span>
-                </template>
-                <template v-else>{{ r[c.field] }}</template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table class="bc-tbl">
+            <thead>
+              <tr>
+                <th v-for="c in CANH_BAO_COLUMNS" :key="c.field" :class="{ right: ['so_ngay_con_lai', 'so_luong'].includes(c.field) }">
+                  {{ c.label }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, idx) in canhBaoRows" :key="idx">
+                <td
+                  v-for="c in CANH_BAO_COLUMNS" :key="c.field"
+                  :class="{ right: ['so_ngay_con_lai', 'so_luong'].includes(c.field), 'cell-code': c.field === 'ma_vat_tu', 'cot-ten-vt': c.field === 'ten_vat_tu', mono: c.field === 'so_lo', nowrap: c.field === 'han_su_dung' }"
+                >
+                  <b v-if="c.field === 'ma_vat_tu'">{{ r.ma_vat_tu }}</b>
+                  <template v-else-if="c.field === 'han_su_dung'">{{ fmtDate(r.han_su_dung) }}</template>
+                  <template v-else-if="c.field === 'so_luong'">{{ fmtQty(r.so_luong) }}</template>
+                  <template v-else-if="c.field === 'trang_thai'">
+                    <!-- VĐ-2: "Không có hạn dùng" là một GHI CHÚ dữ liệu, không
+                         phải một cảnh báo — badge xám trung tính, không icon
+                         cảnh báo, để không lặp lại đúng lỗi "báo động sai" mà
+                         bản sửa canh_bao_han_rows() vừa dọn ở tầng dữ liệu.
+                         Hai trạng thái cảnh báo thay chấm màu bằng icon (no-dot)
+                         để không hiện hai dấu hiệu cạnh nhau. -->
+                    <span
+                      class="badge"
+                      :class="[
+                        r.trang_thai === 'Đã hết hạn' ? 'b-red' : r.trang_thai === 'Sắp hết hạn' ? 'b-orange' : 'b-gray',
+                        { 'no-dot': r.trang_thai === 'Đã hết hạn' || r.trang_thai === 'Sắp hết hạn' },
+                      ]"
+                    >
+                      <Icon v-if="r.trang_thai === 'Đã hết hạn'" name="ban" :size="13" />
+                      <Icon v-else-if="r.trang_thai === 'Sắp hết hạn'" name="alert-triangle" :size="13" />
+                      {{ r.trang_thai }}
+                    </span>
+                  </template>
+                  <template v-else>{{ r[c.field] }}</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
     </template>
@@ -588,43 +625,45 @@ onMounted(() => {
       <div v-else-if="dotError" class="empty">{{ dotError }}</div>
       <div v-else-if="!dotRows.length" class="empty">Không có đợt hàng nào trong khoảng ngày đã chọn.</div>
       <template v-else>
-        <div class="card" style="padding: 0; overflow-x: auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Đợt (phiếu nhập)</th>
-                <th>Ngày nhận</th>
-                <th>Nguồn</th>
-                <th>Vật tư / lô</th>
-                <th class="right">SL nhập</th>
-                <th class="right">Đã xuất</th>
-                <th class="right">Còn lại</th>
-                <th class="right">Tuổi tồn</th>
-                <th class="right">%TT</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(r, idx) in dotRows" :key="idx" :style="r.cham_luan_chuyen ? 'background:#fff7ed' : ''">
-                <td>
-                  <router-link :to="`/kho/nhap/${r.dot}`" class="mono"><b>{{ r.dot }}</b></router-link>
-                </td>
-                <td>{{ fmtDate(r.ngay_nhan) }}</td>
-                <td>{{ r.nguon }}<span v-if="r.chung_tu" class="tag"> · {{ r.chung_tu }}</span></td>
-                <td>{{ tenVatTu(r.vat_tu) }} <span class="mono tag">· {{ r.lo }}</span></td>
-                <td class="right">{{ fmtQty(r.sl_nhap) }}</td>
-                <td class="right">{{ fmtQty(r.da_xuat) }}</td>
-                <td class="right"><b>{{ fmtQty(r.con_lai) }}</b></td>
-                <td class="right">{{ r.tuoi_ton_ngay }} ngày</td>
-                <td class="right">{{ r.pct_tieu_thu }}%</td>
-                <td>
-                  <span v-if="r.cham_luan_chuyen" class="badge b-orange">Chậm luân chuyển</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="card card-flush">
+          <div class="tbl-scroll tall">
+            <table class="bc-tbl">
+              <thead>
+                <tr>
+                  <th>Đợt (phiếu nhập)</th>
+                  <th>Ngày nhận</th>
+                  <th>Nguồn</th>
+                  <th>Vật tư / lô</th>
+                  <th class="right">SL nhập</th>
+                  <th class="right">Đã xuất</th>
+                  <th class="right">Còn lại</th>
+                  <th class="right">Tuổi tồn</th>
+                  <th class="right">%TT</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(r, idx) in dotRows" :key="idx" :class="{ 'cham-lc': r.cham_luan_chuyen }">
+                  <td class="nowrap">
+                    <router-link :to="`/kho/nhap/${r.dot}`" class="mono link"><b>{{ r.dot }}</b></router-link>
+                  </td>
+                  <td class="nowrap">{{ fmtDate(r.ngay_nhan) }}</td>
+                  <td>{{ r.nguon }}<span v-if="r.chung_tu" class="tag"> · {{ r.chung_tu }}</span></td>
+                  <td class="cot-ten-vt">{{ tenVatTu(r.vat_tu) }} <span class="mono tag">· {{ r.lo }}</span></td>
+                  <td class="right">{{ fmtQty(r.sl_nhap) }}</td>
+                  <td class="right">{{ fmtQty(r.da_xuat) }}</td>
+                  <td class="right"><b>{{ fmtQty(r.con_lai) }}</b></td>
+                  <td class="right">{{ r.tuoi_ton_ngay }} ngày</td>
+                  <td class="right">{{ r.pct_tieu_thu }}%</td>
+                  <td>
+                    <span v-if="r.cham_luan_chuyen" class="badge b-orange">Chậm luân chuyển</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <p class="tag" style="margin-top: 8px">
+        <p class="tag mt8">
           Số xuất phân bổ cho đợt cũ trước (FIFO trong từng vật tư + lô — BR-D1). Cờ chậm luân chuyển khi
           tuổi tồn vượt ngưỡng cấu hình của kho (Miyano Portal Settings).
         </p>
@@ -638,59 +677,61 @@ onMounted(() => {
       <div v-else-if="cpError" class="empty">{{ cpError }}</div>
       <div v-else-if="!cpResult.nhom.length" class="empty">Không có phiếu Xuất sử dụng nào trong khoảng ngày đã chọn.</div>
       <template v-else>
-        <div class="card" style="padding: 0; overflow-x: auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Khoa phòng</th>
-                <th>Vật tư</th>
-                <th class="right">SL</th>
-                <th class="right">Giá trị</th>
-                <th>Người nhận</th>
-                <th>Phiếu</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="n in cpResult.nhom" :key="n.khoa_phong || '__chua_gan__'">
-                <tr :style="n.khoa_phong ? 'background:#f1f5f9' : 'background:#fffbeb'">
-                  <td colspan="3">
-                    <b>{{ n.ten_hien_thi }} — {{ n.pct }}%</b>
-                    <span v-if="!n.khoa_phong" class="tag"> (phiếu trước khi bật bắt buộc, hoặc kho chưa bật)</span>
-                  </td>
-                  <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b></td>
+        <div class="card card-flush">
+          <div class="tbl-scroll tall">
+            <table class="bc-tbl">
+              <thead>
+                <tr>
+                  <th>Khoa phòng</th>
+                  <th>Vật tư</th>
+                  <th class="right">SL</th>
+                  <th class="right">Giá trị</th>
+                  <th>Người nhận</th>
+                  <th>Phiếu</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="n in cpResult.nhom" :key="n.khoa_phong || '__chua_gan__'">
+                  <tr class="nhom-hd" :class="n.khoa_phong ? 'nhom-kp' : 'nhom-chua-gan'">
+                    <td colspan="3">
+                      <b>{{ n.ten_hien_thi }} — {{ n.pct }}%</b>
+                      <span v-if="!n.khoa_phong" class="tag"> (phiếu trước khi bật bắt buộc, hoặc kho chưa bật)</span>
+                    </td>
+                    <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b></td>
+                    <td colspan="2"></td>
+                  </tr>
+                  <tr v-for="(d, idx) in n.dong" :key="idx">
+                    <!-- F-4 (review E8): nhóm "Chưa gắn khoa" hiện lại noi_nhan
+                         (ô "Nơi nhận" tự do, có TRƯỚC khi khoa_phong tồn tại) —
+                         phiếu cũ rất có thể đã ghi đúng tên khoa vào đó, giấu
+                         đi là mất luôn dữ liệu còn cứu được. -->
+                    <td>
+                      <span v-if="!n.khoa_phong && d.noi_nhan" class="tag">Nơi nhận (cũ): {{ d.noi_nhan }}</span>
+                    </td>
+                    <td class="cot-ten-vt">{{ d.vat_tu }}</td>
+                    <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
+                    <td class="right">{{ fmtVND(d.gia_tri) }}</td>
+                    <td>{{ d.nguoi_nhan || '—' }}</td>
+                    <td class="nowrap"><router-link :to="`/kho/xuat/${d.phieu}`" class="mono link">{{ d.phieu }}</router-link></td>
+                  </tr>
+                </template>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <!-- Brief 2026-08-15 (phân trang) — báo cáo này cắt theo
+                       ĐƠN VỊ NHÓM (khoa phòng), nên "Tổng cộng" ở đây vẫn LUÔN
+                       là tổng TOÀN KỲ (mọi khoa, mọi trang) — server tính
+                       trước khi cắt trang. Ghi rõ "toàn kỳ" để không hiểu
+                       nhầm là tổng của riêng các nhóm đang hiện trên trang. -->
+                  <td colspan="3" class="right"><b>Tổng cộng (toàn kỳ)</b></td>
+                  <td class="right"><b>{{ fmtVND(cpResult.tong_gia_tri) }}</b></td>
                   <td colspan="2"></td>
                 </tr>
-                <tr v-for="(d, idx) in n.dong" :key="idx">
-                  <!-- F-4 (review E8): nhóm "Chưa gắn khoa" hiện lại noi_nhan
-                       (ô "Nơi nhận" tự do, có TRƯỚC khi khoa_phong tồn tại) —
-                       phiếu cũ rất có thể đã ghi đúng tên khoa vào đó, giấu
-                       đi là mất luôn dữ liệu còn cứu được. -->
-                  <td>
-                    <span v-if="!n.khoa_phong && d.noi_nhan" class="tag">Nơi nhận (cũ): {{ d.noi_nhan }}</span>
-                  </td>
-                  <td>{{ d.vat_tu }}</td>
-                  <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
-                  <td class="right">{{ fmtVND(d.gia_tri) }}</td>
-                  <td>{{ d.nguoi_nhan || '—' }}</td>
-                  <td><router-link :to="`/kho/xuat/${d.phieu}`" class="mono">{{ d.phieu }}</router-link></td>
-                </tr>
-              </template>
-            </tbody>
-            <tfoot>
-              <tr>
-                <!-- Brief 2026-08-15 (phân trang) — báo cáo này cắt theo
-                     ĐƠN VỊ NHÓM (khoa phòng), nên "Tổng cộng" ở đây vẫn LUÔN
-                     là tổng TOÀN KỲ (mọi khoa, mọi trang) — server tính
-                     trước khi cắt trang. Ghi rõ "toàn kỳ" để không hiểu
-                     nhầm là tổng của riêng các nhóm đang hiện trên trang. -->
-                <td colspan="3" style="text-align: right"><b>Tổng cộng (toàn kỳ)</b></td>
-                <td class="right"><b>{{ fmtVND(cpResult.tong_gia_tri) }}</b></td>
-                <td colspan="2"></td>
-              </tr>
-            </tfoot>
-          </table>
+              </tfoot>
+            </table>
+          </div>
         </div>
-        <p class="tag" style="margin-top: 8px">
+        <p class="tag mt8">
           Nhóm theo khoa, drill xuống phiếu; "Chưa gắn khoa" tách riêng — không lẫn vào khoa nào (BR-CP4).
           Phiếu bị đảo không tính vào báo cáo.
         </p>
@@ -706,51 +747,53 @@ onMounted(() => {
         Không có phiếu Xuất sử dụng nào trong khoảng ngày đã chọn.
       </div>
       <template v-else>
-        <div class="card" style="padding: 0; overflow-x: auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Khoa phòng / Vật tư</th>
-                <th>Tháng</th>
-                <th class="right">SL</th>
-                <th class="right">Giá trị</th>
-                <th class="right">Số phiếu</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="n in cpThangResult.nhom" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}`">
-                <tr :style="n.khoa_phong ? 'background:#f1f5f9' : 'background:#fffbeb'">
-                  <td><b>{{ n.ten_hien_thi }}</b></td>
-                  <td><b>{{ n.nhan_thang }}</b></td>
-                  <!-- Ô SL của dòng tiêu đề để TRỐNG có chủ ý: tổng số lượng
-                       của một khoa trong một tháng là phép cộng hộp với chai
-                       với cái. Thay vào đó là "số mặt hàng" — một phép đếm,
-                       cộng được. -->
-                  <td class="right"><span class="tag">{{ n.so_mat_hang }} mặt hàng</span></td>
-                  <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b> <span class="tag">{{ n.pct }}%</span></td>
-                  <td class="right"><b>{{ n.so_phieu }}</b></td>
+        <div class="card card-flush">
+          <div class="tbl-scroll tall">
+            <table class="bc-tbl">
+              <thead>
+                <tr>
+                  <th>Khoa phòng / Vật tư</th>
+                  <th>Tháng</th>
+                  <th class="right">SL</th>
+                  <th class="right">Giá trị</th>
+                  <th class="right">Số phiếu</th>
                 </tr>
-                <tr v-for="(d, idx) in n.dong" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}|${idx}`">
-                  <td style="padding-left: 24px">{{ d.vat_tu }}</td>
+              </thead>
+              <tbody>
+                <template v-for="n in cpThangResult.nhom" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}`">
+                  <tr class="nhom-hd" :class="n.khoa_phong ? 'nhom-kp' : 'nhom-chua-gan'">
+                    <td><b>{{ n.ten_hien_thi }}</b></td>
+                    <td class="nowrap"><b>{{ n.nhan_thang }}</b></td>
+                    <!-- Ô SL của dòng tiêu đề để TRỐNG có chủ ý: tổng số lượng
+                         của một khoa trong một tháng là phép cộng hộp với chai
+                         với cái. Thay vào đó là "số mặt hàng" — một phép đếm,
+                         cộng được. -->
+                    <td class="right"><span class="tag">{{ n.so_mat_hang }} mặt hàng</span></td>
+                    <td class="right"><b>{{ fmtVND(n.gia_tri) }}</b> <span class="tag">{{ n.pct }}%</span></td>
+                    <td class="right"><b>{{ n.so_phieu }}</b></td>
+                  </tr>
+                  <tr v-for="(d, idx) in n.dong" :key="`${n.khoa_phong || '__chua_gan__'}|${n.thang}|${idx}`">
+                    <td class="thut cot-ten-vt">{{ d.vat_tu }}</td>
+                    <td></td>
+                    <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
+                    <td class="right">{{ fmtVND(d.gia_tri) }}</td>
+                    <td class="right">{{ d.so_phieu }}</td>
+                  </tr>
+                </template>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <!-- Cùng lý do tab "Cấp phát theo khoa": server tính tổng
+                       TRƯỚC khi cắt trang, nên đây luôn là tổng toàn kỳ. -->
+                  <td colspan="3" class="right"><b>Tổng cộng (toàn kỳ)</b></td>
+                  <td class="right"><b>{{ fmtVND(cpThangResult.tong_gia_tri) }}</b></td>
                   <td></td>
-                  <td class="right">{{ fmtQty(d.sl) }} {{ d.dvt }}</td>
-                  <td class="right">{{ fmtVND(d.gia_tri) }}</td>
-                  <td class="right">{{ d.so_phieu }}</td>
                 </tr>
-              </template>
-            </tbody>
-            <tfoot>
-              <tr>
-                <!-- Cùng lý do tab "Cấp phát theo khoa": server tính tổng
-                     TRƯỚC khi cắt trang, nên đây luôn là tổng toàn kỳ. -->
-                <td colspan="3" style="text-align: right"><b>Tổng cộng (toàn kỳ)</b></td>
-                <td class="right"><b>{{ fmtVND(cpThangResult.tong_gia_tri) }}</b></td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+              </tfoot>
+            </table>
+          </div>
         </div>
-        <p class="tag" style="margin-top: 8px">
+        <p class="tag mt8">
           Mỗi dòng đậm là một khoa phòng trong một tháng; các dòng thụt vào là chi tiết theo vật tư —
           chỉ ở mức đó số lượng mới cộng được (cùng ĐVT). Tháng không phát sinh thì không có dòng.
           Phiếu bị đảo không tính; "Chưa gắn khoa" tách riêng.
@@ -760,3 +803,55 @@ onMounted(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* ---- Bộ lọc: các ô co giãn, không tràn ngang ở 390px ---- */
+.loc-row { gap: 14px; align-items: flex-end; }
+.loc-f { min-width: 0; }
+.loc-grow { flex: 1; min-width: 200px; }
+.loc-so { width: 100px; }
+@media (max-width: 900px) {
+  .loc-f { flex: 1 1 140px; }
+  .loc-grow { flex-basis: 100%; min-width: 0; }
+  .loc-row > .btn-o { flex: 1 1 auto; }
+  .loc-row > .ml-auto { margin-left: 0; }
+}
+
+/* ---- Bảng báo cáo rộng ---- */
+.bc-tbl td.right { white-space: nowrap; }
+.bc-tbl td.cot-ten-vt { min-width: 14rem; }
+/* Nhãn cột hai dòng: nhóm (Tồn đầu / Nhập / Xuất / Tồn cuối) + chỉ số. */
+.th2 { white-space: normal; }
+.th2 span { display: block; white-space: nowrap; }
+.th2-a { color: var(--text-2); }
+.th2-b { font-weight: 500; color: var(--text-3); }
+/* Vạch nhẹ tách từng nhóm SL/Thành tiền. */
+.grp-start { border-left: 1px solid var(--line); }
+
+/* Cột chevron mở chi tiết theo lô. */
+.chev-cell { width: 40px; text-align: center; color: var(--text-3); }
+tr.is-open td { background: var(--accent-soft); }
+tr.is-open .chev-cell { color: var(--accent); }
+
+/* Hàng mở rộng: bảng con theo lô trên nền nhạt. */
+.lot-cell { background: var(--surface-2); padding: 12px 16px; }
+tr.lot-row:hover td.lot-cell { background: var(--surface-2); }
+.lot-tbl { background: transparent; }
+/* Bảng con nằm TRONG .tbl-scroll — tắt header dính toàn cục, để header của
+   nó không đè lên header dính của bảng ngoài khi cuộn. */
+.lot-tbl th {
+  position: static;
+  z-index: auto;
+  box-shadow: none;
+  background: transparent;
+}
+.lot-tbl td { padding: 8px 14px; }
+
+/* Dòng chậm luân chuyển (tab đợt hàng). */
+.cham-lc td { background: #fff7ed; }
+
+/* Dòng tiêu đề nhóm khoa phòng (hai tab cấp phát). */
+.nhom-kp td { background: #f1f5f9; }
+.nhom-chua-gan td { background: #fffbeb; }
+.thut { padding-left: 24px; }
+</style>

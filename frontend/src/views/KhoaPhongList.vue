@@ -5,6 +5,7 @@ import { fmtVND } from '../format'
 import { useIsMobile } from '../useMobile'
 import KhoaPhongModal from '../components/KhoaPhongModal.vue'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 const rows = ref([])
@@ -92,20 +93,23 @@ onMounted(() => {
         <h2>Danh mục khoa phòng</h2>
         <div class="sub">Nơi nhận cấp phát của kho — phiếu Xuất sử dụng chọn từ danh mục này</div>
       </div>
-      <div class="flex" style="gap: 8px">
-        <button class="btn btn-sm" @click="moTao">+ Thêm khoa phòng</button>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+      <div class="row gap8">
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
+        <button class="btn btn-sm" @click="moTao"><Icon name="plus" :size="16" />Thêm khoa phòng</button>
       </div>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
-      <h2>Danh mục khoa phòng</h2>
-      <button class="btn btn-sm" @click="moTao">+ Thêm khoa phòng</button>
+    <div class="sb mb12 gap8" v-else>
+      <h2 class="mb0">Danh mục khoa phòng</h2>
+      <button class="btn btn-sm shrink0" @click="moTao"><Icon name="plus" :size="16" />Thêm khoa phòng</button>
     </div>
 
-    <div v-if="batBuoc !== null" class="note" :class="batBuoc ? 'note-b' : ''" style="margin-bottom: 12px">
-      ⚙ Bắt buộc chọn khoa phòng khi Xuất sử dụng:
-      <b>{{ batBuoc ? 'đang BẬT' : 'đang TẮT' }}</b>
-      <span class="tag"> — chỉ áp phiếu tạo sau khi bật (BR-CP2); do Miyano cấu hình, liên hệ nhân viên kinh doanh nếu cần đổi.</span>
+    <div v-if="batBuoc !== null" class="note note-ic mb12" :class="batBuoc ? 'note-b' : ''">
+      <Icon name="settings" :size="18" />
+      <div>
+        Bắt buộc chọn khoa phòng khi Xuất sử dụng:
+        <b>{{ batBuoc ? 'đang BẬT' : 'đang TẮT' }}</b>
+        <span class="tag"> — chỉ áp phiếu tạo sau khi bật (BR-CP2); do Miyano cấu hình, liên hệ nhân viên kinh doanh nếu cần đổi.</span>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
@@ -115,7 +119,8 @@ onMounted(() => {
     </div>
 
     <!-- DESKTOP -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -128,9 +133,9 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.name" :style="!r.active ? 'opacity:.55' : ''">
+          <tr v-for="r in rows" :key="r.name" :class="{ 'dong-tat': !r.active }">
             <td><b>{{ r.ten_khoa_phong }}</b></td>
-            <td>{{ r.ma_khoa || '—' }}</td>
+            <td class="cell-code">{{ r.ma_khoa || '—' }}</td>
             <td class="right">{{ r.so_phieu_90n }}</td>
             <td class="right">{{ fmtVND(r.gia_tri_90n) }}</td>
             <td>
@@ -138,34 +143,35 @@ onMounted(() => {
                 {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
               </span>
             </td>
-            <td>
+            <td class="right">
               <!-- LUÔN hiện "Sửa" — kể cả khoa đã tắt và đã dùng trên phiếu:
                    đây là đường DUY NHẤT để bật lại một khoa cũ (cùng lý do
                    NccList.vue — E3 đã trả giá vì thiếu ô nhập tương đương). -->
-              <button class="btn-o btn-sm" @click="moSua(r)">Sửa</button>
-              <div v-if="!r.active && r.so_phieu_90n" class="tag">đã dùng trên phiếu — không xoá được</div>
+              <button class="btn-o btn-sm" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button>
+              <div v-if="!r.active && r.so_phieu_90n" class="tag mt4">đã dùng trên phiếu — không xoá được</div>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE -->
     <template v-else>
-      <div v-for="r in rows" :key="r.name" class="card mb10" :style="!r.active ? 'opacity:.55' : ''">
-        <div class="sb">
+      <div v-for="r in rows" :key="r.name" class="card mb10" :class="{ 'the-tat': !r.active }">
+        <div class="sb ai-start">
           <b>{{ r.ten_khoa_phong }}</b>
           <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
             {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
           </span>
         </div>
-        <p class="tag" style="margin-top: 4px">Mã {{ r.ma_khoa || '—' }}</p>
-        <p class="sb" style="margin-top: 8px; font-size: 13px">
+        <p class="tag mt4">Mã {{ r.ma_khoa || '—' }}</p>
+        <p class="sb mt8 fs13">
           <span>{{ r.so_phieu_90n }} phiếu (90 ngày)</span>
-          <b>{{ fmtVND(r.gia_tri_90n) }}</b>
+          <b class="tnum">{{ fmtVND(r.gia_tri_90n) }}</b>
         </p>
-        <button class="btn-o btn-sm" style="margin-top: 8px" @click="moSua(r)">Sửa</button>
-        <p v-if="!r.active && r.so_phieu_90n" class="tag" style="margin-top: 6px">đã dùng trên phiếu — không xoá được</p>
+        <button class="btn-o btn-sm mt8" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button>
+        <p v-if="!r.active && r.so_phieu_90n" class="tag mt6">đã dùng trên phiếu — không xoá được</p>
       </div>
     </template>
 
@@ -174,3 +180,8 @@ onMounted(() => {
     <KhoaPhongModal :open="modalOpen" :initial="modalInitial" :mode="modalMode" @saved="onSaved" @close="modalOpen = false" />
   </div>
 </template>
+
+<style scoped>
+tr.dong-tat td { opacity: 0.55; }
+.the-tat { opacity: 0.55; }
+</style>

@@ -50,9 +50,9 @@ const soMoc = computed(() => props.dong.length)
        mở ra để xem". Đây là sổ ĐỐI CHIẾU, chỉ mở khi hai bên nhớ khác nhau;
        để nó mở sẵn ở đáy trang là bắt mọi người cuộn qua 20 dòng lịch sử
        trong mọi lần xem đơn. -->
-  <details class="card mb10 kdtg" style="margin-bottom: 14px">
+  <details class="card mb10 mb14 kdtg">
     <summary class="kdtg-dau">
-      <span class="h3" style="margin: 0">Dòng thời gian</span>
+      <span class="h3 mb0">Dòng thời gian</span>
       <!-- Số mốc hiện NGAY Ở DÒNG ĐÓNG: người đọc quyết định có mở hay
            không mà không phải mở ra mới biết. -->
       <span v-if="!dangTai && soMoc" class="tag">{{ soMoc }} mốc</span>
@@ -77,7 +77,7 @@ const soMoc = computed(() => props.dong.length)
     </p>
 
     <template v-else>
-      <div class="vtl" style="max-width: 640px">
+      <div class="mw-lg"><div class="vtl">
         <div v-for="(d, i) in dong" :key="i" class="vst">
           <!-- Review vòng 2 — chấm dòng "dựng lại" (`d.suy_ra`, §9.6)
                phải KHÁC dòng ghi thật, không chỉ mờ đi (mờ đọc ra "ít
@@ -94,7 +94,7 @@ const soMoc = computed(() => props.dong.length)
                  chú thích kỹ thuật. Đặt cạnh mốc giờ vì đó là chỗ người
                  đọc dò khi hỏi "hôm nào" — cùng câu hỏi khiến độ tin cậy
                  của mốc giờ đó đáng nói ngay tại chỗ. -->
-            <span v-if="d.suy_ra" class="tag" style="border: 1px solid var(--line); border-radius: 10px; padding: 1px 7px; margin-left: 4px">Dựng lại từ phiếu</span>
+            <span v-if="d.suy_ra" class="tag badge b-gray no-dot ml4">Dựng lại từ phiếu</span>
             <template v-if="d.ten"> · {{ d.ten }}</template>
             <!-- Việc #1 (vòng sửa sau review toàn nhánh) — CÙNG khuôn
                  khối "Yêu cầu & duyệt" (đã bỏ 06/09/2026) từng dùng cho
@@ -114,25 +114,21 @@ const soMoc = computed(() => props.dong.length)
                  gạch). `v-if` trên CHÍNH giá trị số, không `|| '—'`. Điều
                  dưỡng trưởng đọc màn này trên điện thoại — bấm gọi được
                  là khác biệt giữa "thấy số" và "gọi được người" (§9.4). -->
-            <a v-if="d.dien_thoai" :href="'tel:' + d.dien_thoai"> · {{ d.dien_thoai }}</a>
+            <a v-if="d.dien_thoai" :href="'tel:' + d.dien_thoai" class="link"> · {{ d.dien_thoai }}</a>
             <div v-if="d.ghi_chu" class="tag">{{ d.ghi_chu }}</div>
           </div>
         </div>
-      </div>
+      </div></div>
       <!-- §9.3 — chú giải màu đặt DƯỚI khối (người đọc đã hiểu từ ngữ
            cảnh, chú giải chỉ để XÁC NHẬN). Dùng LẠI chính bốn lớp `.vdot.*`
            ở trên, chỉ ghi đè KÍCH THƯỚC bằng style — không phát minh một
            bộ màu inline thứ hai (đó là một nguồn màu THỨ HAI để trôi lệch
            khỏi bảng ở `format.js`/`style.css`). -->
-      <p class="tag" style="margin-top: 10px">
-        <span class="vdot benh-vien" style="width: 10px; height: 10px; min-width: 10px; display: inline-block"></span>
-        Bệnh viện
-        <span class="vdot miyano" style="width: 10px; height: 10px; min-width: 10px; display: inline-block; margin-left: 10px"></span>
-        Miyano
-        <span class="vdot lui" style="width: 10px; height: 10px; min-width: 10px; display: inline-block; margin-left: 10px"></span>
-        Việc đi lùi
-        <span class="vdot he-thong" style="width: 10px; height: 10px; min-width: 10px; display: inline-block; margin-left: 10px"></span>
-        Hệ thống
+      <p class="tag row wrap gap12 chu-giai-mau" style="margin-top: 10px">
+        <span class="inline-flex"><span class="vdot benh-vien"></span>Bệnh viện</span>
+        <span class="inline-flex"><span class="vdot miyano"></span>Miyano</span>
+        <span class="inline-flex"><span class="vdot lui"></span>Việc đi lùi</span>
+        <span class="inline-flex"><span class="vdot he-thong"></span>Hệ thống</span>
       </p>
       <!-- Review vòng 2 — câu giải thích CHUNG, chỉ hiện khi CÓ ít nhất
            một dòng suy_ra (`coDongSuyRa`). CỐ Ý không nêu một ngày cụ
@@ -141,7 +137,7 @@ const soMoc = computed(() => props.dong.length)
            XÁC NHẬN đúng ngày nhật ký được BẬT trên site khách hàng cụ
            thể. Câu dưới đây chỉ nói ĐIỀU LUÔN ĐÚNG (dựng lại từ CHÍNH
            trường trên phiếu, không phải ghi trực tiếp), không đoán ngày. -->
-      <p v-if="coDongSuyRa" class="tag" style="margin-top: 8px">
+      <p v-if="coDongSuyRa" class="tag mt8">
         Dòng có nhãn "Dựng lại từ phiếu" được suy ra từ dữ liệu đã ghi sẵn trên phiếu (ai gửi, ai duyệt), không phải ghi trực tiếp lúc thao tác xảy ra.
       </p>
     </template>

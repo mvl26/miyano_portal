@@ -9,10 +9,13 @@ import { useIsMobile } from '../useMobile'
 import { useDongPhieu } from '../useDongPhieu'
 import VatTuModal from '../components/VatTuModal.vue'
 import NccModal from '../components/NccModal.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
 const isMobile = useIsMobile()
+// Chỉ trình bày: icon đứng trước nhãn nút hành động (nhãn vẫn lấy từ kho-actions.js).
+const ICON_HANH_DONG = { submit: 'badge-check', print: 'printer', cancel: 'ban' }
 
 // Khớp EPS phía server (miyano_portal.kho.ledger.EPS) — chỉ để so sánh float
 // cho ĐÚNG cùng ngưỡng khi báo lỗi sớm ở client; chốt chặn thật vẫn ở server
@@ -383,15 +386,15 @@ onMounted(async () => {
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>{{ isNew ? 'Tạo phiếu nhập kho' : doc.name }}</h2>
-        <div class="sub" v-if="!isNew">
+        <div class="sub row wrap gap6" v-if="!isNew">
           <span class="badge" :class="badge.cls">{{ badge.label }}</span>
-          <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
-          <span v-if="doc.thieu_chung_tu" class="badge b-orange" style="margin-left: 6px">Thiếu chứng từ</span>
+          <span v-if="doc.co_chenh_lech" class="badge b-orange no-dot"><Icon name="alert-triangle" :size="13" />Có chênh lệch</span>
+          <span v-if="doc.thieu_chung_tu" class="badge b-orange">Thiếu chứng từ</span>
         </div>
       </div>
-      <div class="flex" style="gap: 8px">
+      <div class="flex gap8 wrap">
         <button
           v-for="a in actions"
           :key="a.key"
@@ -400,20 +403,20 @@ onMounted(async () => {
           :disabled="submitting || cancelling"
           @click="onAction(a.key)"
         >
-          {{ a.label }}
+          <Icon v-if="ICON_HANH_DONG[a.key]" :name="ICON_HANH_DONG[a.key]" :size="16" />{{ a.label }}
         </button>
         <button v-if="editable" class="btn-o" :disabled="saving" @click="save()">
-          {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
+          <Icon name="check" :size="16" />{{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
-        <router-link to="/kho/nhap" class="btn-o">Quay lại</router-link>
+        <router-link to="/kho/nhap" class="btn-o"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
       </div>
     </div>
-    <div v-else style="margin-bottom: 12px">
-      <div class="sb">
-        <h2>{{ isNew ? 'Tạo phiếu nhập' : doc.name }}</h2>
+    <div v-else class="mb12">
+      <div class="sb wrap">
+        <h2 class="grow">{{ isNew ? 'Tạo phiếu nhập' : doc.name }}</h2>
         <span v-if="!isNew" class="badge" :class="badge.cls">{{ badge.label }}</span>
-        <span v-if="doc.co_chenh_lech" class="badge b-orange" style="margin-left: 6px">Có chênh lệch ⚠</span>
-        <span v-if="doc.thieu_chung_tu" class="badge b-orange" style="margin-left: 6px">Thiếu chứng từ</span>
+        <span v-if="doc.co_chenh_lech" class="badge b-orange no-dot"><Icon name="alert-triangle" :size="13" />Có chênh lệch</span>
+        <span v-if="doc.thieu_chung_tu" class="badge b-orange">Thiếu chứng từ</span>
       </div>
     </div>
 
@@ -445,14 +448,14 @@ onMounted(async () => {
             <input v-model="doc.chung_tu_kem" :disabled="!editable" />
           </div>
         </div>
-        <div class="field" style="margin-top: 10px">
+        <div class="field mt10">
           <label>Diễn giải</label>
           <textarea v-model="doc.dien_giai" :disabled="!editable" rows="2"></textarea>
         </div>
 
         <!-- US-E4.2/BR-N1,N2 — chỉ hiện khi Mua ngoài (NCC khác), khớp pn-ncc/
              pn-ct của bản mẫu (pnLoai()). -->
-        <div v-if="doc.loai_nhap === LOAI_MUA_NGOAI" class="grid2" style="margin-top: 10px">
+        <div v-if="doc.loai_nhap === LOAI_MUA_NGOAI" class="grid2 mt10">
           <div class="field">
             <label>NCC (bắt buộc khi Mua ngoài) *</label>
             <select v-model="doc.ncc" :disabled="!editable" @change="onNccSelect">
@@ -462,16 +465,16 @@ onMounted(async () => {
               </option>
               <option :value="MUC_TAO_NCC">+ Tạo NCC mới…</option>
             </select>
-            <p v-if="!nccList.length" class="tag" style="margin-top: 4px">
+            <p v-if="!nccList.length" class="tag mt4">
               Chưa có NCC nào — chọn "+ Tạo NCC mới…" để thêm.
             </p>
           </div>
-          <div class="flex" style="gap: 14px">
-            <div class="field" style="flex: 1">
+          <div class="flex gap12 ai-start">
+            <div class="field grow">
               <label>Số chứng từ NCC</label>
               <input v-model="doc.so_chung_tu_ncc" :disabled="!editable" placeholder="HĐ/PXK của NCC" />
             </div>
-            <div class="field" style="flex: 1">
+            <div class="field grow">
               <label>Ngày chứng từ</label>
               <input type="date" v-model="doc.ngay_chung_tu" :disabled="!editable" />
             </div>
@@ -479,25 +482,26 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-if="editable" class="flex mb10" style="gap: 8px; flex-wrap: wrap">
-        <a class="btn-o btn-sm" :href="mauUrl">Tải file mẫu</a>
+      <div v-if="editable" class="flex mb10 gap8 wrap">
+        <a class="btn-o btn-sm" :href="mauUrl"><Icon name="file-spreadsheet" :size="16" />Tải file mẫu</a>
         <button class="btn-o btn-sm" :disabled="importing" @click="importInput.click()">
-          {{ importing ? 'Đang đọc…' : '⬆ Nhập từ Excel' }}
+          <Icon name="upload" :size="16" />{{ importing ? 'Đang đọc…' : 'Nhập từ Excel' }}
         </button>
-        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl">⬇ Xuất Excel</a>
-        <input ref="importInput" type="file" accept=".xlsx" style="display: none" @change="onImportFile" />
+        <a v-if="doc.name" class="btn-o btn-sm" :href="exportUrl"><Icon name="download" :size="16" />Xuất Excel</a>
+        <input ref="importInput" type="file" accept=".xlsx" class="hidden" @change="onImportFile" />
       </div>
 
-      <div class="card" style="padding: 0; overflow-x: auto">
-        <table>
+      <div class="card card-flush">
+        <div class="tbl-scroll">
+        <table class="pn-bang">
           <thead>
             <tr>
-              <th style="min-width: 180px">Vật tư</th>
+              <th class="pn-c-vt">Vật tư</th>
               <th>Số lô</th>
               <th>Hạn dùng</th>
               <th class="right">SL giao</th>
               <th class="right">Số lượng</th>
-              <th style="min-width: 140px">Lý do chênh lệch</th>
+              <th class="pn-c-ly-do">Lý do chênh lệch</th>
               <th class="right">Đơn giá</th>
               <th class="right">Thành tiền</th>
               <th v-if="editable"></th>
@@ -507,35 +511,35 @@ onMounted(async () => {
             <tr
               v-for="(r, idx) in doc.items"
               :key="idx"
-              :style="r._trang_thai === 'loi' ? 'background:#fff1f0' : (r._trang_thai === 'ma_moi' ? 'background:#fffbe6' : '')"
+              :class="{ 'pn-dong-loi': r._trang_thai === 'loi', 'pn-dong-ma-moi': r._trang_thai === 'ma_moi' }"
             >
               <td>
-                <select v-if="editable" v-model="r.vat_tu" style="width: 100%" @change="onVatTuSelect(r, idx)">
+                <select v-if="editable" v-model="r.vat_tu" class="w100" @change="onVatTuSelect(r, idx)">
                   <option value="" disabled>-- Chọn vật tư --</option>
                   <option v-for="v in vatTuList" :key="v.name" :value="v.name">
                     {{ v.ma_vat_tu }} — {{ v.ten_vat_tu }}
                   </option>
-                  <option :value="MUC_TAO_MOI">➕ Tạo vật tư mới…</option>
+                  <option :value="MUC_TAO_MOI">+ Tạo vật tư mới…</option>
                 </select>
                 <span v-else>{{ r.ten_vat_tu || tenVatTu(r.vat_tu) }}</span>
 
-                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn" style="margin-top: 4px">
-                  ⚠ Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.
+                <div v-if="editable && r._trang_thai === 'ma_moi' && !r.vat_tu" class="warn mt4 pn-canh-bao">
+                  <Icon name="alert-triangle" :size="14" /><span>Mã <b>{{ r._ma_vat_tu }}</b> chưa có trong kho.</span>
                   <button class="btn-o btn-sm" @click="moTaoTuDong(r, idx)">Tạo vật tư mới</button>
                 </div>
-                <div v-if="r._loi && r._loi.length" class="tag" style="color: #cf1322; margin-top: 4px">
-                  ✗ Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
+                <div v-if="r._loi && r._loi.length" class="tag text-red mt4">
+                  <Icon name="x-circle" :size="14" /> Dòng {{ r._loi_line }} trong tệp: {{ r._loi.join('; ') }}
                 </div>
               </td>
               <td>
-                <input v-if="editable" v-model="r.so_lo" style="width: 110px" />
-                <span v-else>{{ r.so_lo }}</span>
-                <div v-if="r.thieu_lo_han" class="warn" style="margin-top: 4px">
-                  ⚠ Thiếu lô/hạn (Miyano chưa bật theo dõi lô cho vật tư này)
+                <input v-if="editable" v-model="r.so_lo" class="pn-o-lo" />
+                <span v-else class="mono">{{ r.so_lo }}</span>
+                <div v-if="r.thieu_lo_han" class="warn mt4">
+                  <Icon name="alert-triangle" :size="14" /> Thiếu lô/hạn (Miyano chưa bật theo dõi lô cho vật tư này)
                 </div>
               </td>
               <td>
-                <input v-if="editable" type="date" v-model="r.han_su_dung" style="width: 140px" />
+                <input v-if="editable" type="date" v-model="r.han_su_dung" class="pn-o-han" />
                 <span v-else>{{ r.han_su_dung ? fmtDate(r.han_su_dung) : '—' }}</span>
               </td>
               <td class="right">
@@ -550,8 +554,8 @@ onMounted(async () => {
                   :value="r.so_luong"
                   @change="r.so_luong = Number($event.target.value) || 0"
                   inputmode="numeric"
-                  style="width: 80px; text-align: right"
-                  :style="coChenhLech(r) ? 'border-color: #cf1322' : ''"
+                  class="pn-o-sl"
+                  :class="{ 'pn-o-loi': coChenhLech(r) }"
                 />
                 <span v-else>{{ Number(r.so_luong).toLocaleString('vi-VN') }}</span>
               </td>
@@ -561,12 +565,12 @@ onMounted(async () => {
                     v-if="editable"
                     v-model="r.ly_do_chenh_lech"
                     placeholder="VD: thiếu 2 hộp, vỡ 1 chai…"
-                    style="width: 160px"
-                    :style="thieuLyDo(r) ? 'border-color: #cf1322' : ''"
+                    class="pn-o-ly-do"
+                    :class="{ 'pn-o-loi': thieuLyDo(r) }"
                   />
                   <span v-else>{{ r.ly_do_chenh_lech || '—' }}</span>
-                  <div v-if="editable && thieuLyDo(r)" class="warn" style="margin-top: 4px">
-                    ⚠ Bắt buộc — SL thực nhận khác SL giao ({{ slGiao(r).toLocaleString('vi-VN') }})
+                  <div v-if="editable && thieuLyDo(r)" class="warn mt4">
+                    <Icon name="alert-triangle" :size="14" /> Bắt buộc — SL thực nhận khác SL giao ({{ slGiao(r).toLocaleString('vi-VN') }})
                   </div>
                 </template>
                 <span v-else class="tag">—</span>
@@ -577,7 +581,7 @@ onMounted(async () => {
                   :value="r.don_gia"
                   @change="r.don_gia = Number($event.target.value) || 0"
                   inputmode="numeric"
-                  style="width: 100px; text-align: right"
+                  class="pn-o-gia"
                 />
                 <span v-else>{{ fmtVND(r.don_gia) }}</span>
               </td>
@@ -589,24 +593,25 @@ onMounted(async () => {
                      không bao giờ thấy hàng đã mất. Nhận thiếu/mất hoàn toàn
                      thì ghi số lượng 0 + lý do (server chấp nhận từ bản
                      này), không xoá dòng. -->
-                <button v-if="!slGiao(r)" class="btn-o btn-sm" @click="removeRow(idx)">✕</button>
-                <span v-else class="tag" title="Dòng do phiếu giao hàng Miyano sinh ra — không xoá được">🔒</span>
+                <button v-if="!slGiao(r)" class="btn-o btn-sm pn-xoa" aria-label="Xoá dòng" @click="removeRow(idx)"><Icon name="x" :size="16" /></button>
+                <span v-else class="tag pn-khoa" title="Dòng do phiếu giao hàng Miyano sinh ra — không xoá được"><Icon name="lock" :size="16" label="Dòng do phiếu giao hàng Miyano sinh ra — không xoá được" /></span>
               </td>
             </tr>
           </tbody>
           <tfoot>
-            <tr>
-              <td colspan="7" style="text-align: right"><b>Tổng cộng</b></td>
+            <tr class="tong">
+              <td colspan="7" class="right"><b>Tổng cộng</b></td>
               <td class="right"><b>{{ fmtVND(editable ? tongTienPreview : doc.tong_tien) }}</b></td>
               <td v-if="editable"></td>
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
-      <button v-if="editable" class="btn-o btn-sm" style="margin-top: 10px" @click="addRow">+ Thêm dòng</button>
+      <button v-if="editable" class="btn-o btn-sm mt10" @click="addRow"><Icon name="plus" :size="16" />Thêm dòng</button>
 
       <!-- Nút hành động (mobile) -->
-      <div v-if="isMobile" class="flex" style="gap: 8px; margin-top: 16px; flex-wrap: wrap">
+      <div v-if="isMobile" class="flex gap8 mt16 wrap pn-hanh-dong-m">
         <button
           v-for="a in actions"
           :key="a.key"
@@ -615,10 +620,10 @@ onMounted(async () => {
           :disabled="submitting || cancelling"
           @click="onAction(a.key)"
         >
-          {{ a.label }}
+          <Icon v-if="ICON_HANH_DONG[a.key]" :name="ICON_HANH_DONG[a.key]" :size="16" />{{ a.label }}
         </button>
         <button v-if="editable" class="btn-o" :disabled="saving" @click="save()">
-          {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
+          <Icon name="check" :size="16" />{{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
         </button>
       </div>
 
@@ -633,3 +638,31 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Bảng dòng phiếu nhập: các ô nhập có bề rộng cố định để cột không nhảy. */
+.pn-c-vt { min-width: 200px; }
+.pn-c-ly-do { min-width: 160px; }
+.pn-bang td { vertical-align: top; }
+.pn-bang tfoot td { vertical-align: middle; }
+.pn-o-lo { width: 120px; }
+.pn-o-han { width: 150px; }
+.pn-o-sl { width: 88px; text-align: right; }
+.pn-o-gia { width: 110px; text-align: right; }
+.pn-o-ly-do { width: 170px; }
+.pn-o-loi { border-color: var(--err); }
+.pn-o-loi:focus { box-shadow: 0 0 0 3px rgba(183, 28, 28, 0.15); }
+
+/* Dòng đọc từ tệp: lỗi (đỏ nhạt) / mã chưa có trong kho (vàng nhạt). */
+tr.pn-dong-loi td { background: var(--err-bg); }
+tr.pn-dong-ma-moi td { background: var(--warn-bg); }
+
+.pn-canh-bao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pn-xoa { width: 40px; padding: 0; color: var(--text-2); }
+.pn-xoa:hover { color: var(--err); border-color: var(--err); background: var(--err-bg); }
+.pn-khoa { display: inline-flex; width: 40px; height: 32px; align-items: center; justify-content: center; }
+
+@media (max-width: 900px) {
+  .pn-hanh-dong-m > * { flex: 1 1 auto; }
+}
+</style>

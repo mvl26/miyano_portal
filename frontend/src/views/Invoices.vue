@@ -8,6 +8,7 @@ import HoaDonNhap from '../components/HoaDonNhap.vue'
 import { fmtVND, fmtDate, invoiceBadge, daysUntil } from '../format'
 import { useIsMobile } from '../useMobile'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 
@@ -201,97 +202,123 @@ onMounted(async () => {
            khách thấy một danh sách một dòng và tưởng mình mất hết hoá đơn
            cũ. Hai thẻ KPI phía dưới CỐ Ý vẫn là tổng công nợ TOÀN đơn vị,
            không phải của riêng dòng này. -->
-      <div v-if="locHoaDon" class="card" style="padding: 10px 12px; margin-bottom: 12px">
-        <span class="tag">Đang xem hoá đơn <b>{{ locHoaDon }}</b></span>
-        <button class="btn-o btn-sm" style="margin-left: 8px" @click="xemTatCa">
-          Xem tất cả hoá đơn
-        </button>
-        <div v-if="!invoices.length" class="tag" style="margin-top: 6px">
-          Không tìm thấy hoá đơn này — có thể nó đã bị huỷ, hoặc liên kết đã cũ.
+      <div v-if="locHoaDon" class="note note-b note-ic loc-hd">
+        <Icon name="filter" :size="18" />
+        <div class="grow">
+          <div class="row wrap gap8">
+            <span class="grow">Đang xem hoá đơn <b class="mono">{{ locHoaDon }}</b></span>
+            <button class="btn-o btn-sm" @click="xemTatCa">
+              Xem tất cả hoá đơn
+            </button>
+          </div>
+          <div v-if="!invoices.length" class="tag mt6">
+            Không tìm thấy hoá đơn này — có thể nó đã bị huỷ, hoặc liên kết đã cũ.
+          </div>
         </div>
       </div>
 
-      <div class="kpis">
-        <div class="card kpi"><div class="n" style="color: var(--red)">{{ fmtVND(outstanding) }}</div><div class="t">Tổng công nợ hiện tại</div></div>
-        <div class="card kpi"><div class="n" style="color: var(--orange)">{{ fmtVND(overdueTotal) }}</div><div class="t">Quá hạn thanh toán</div></div>
-        <div class="card kpi"><div class="n">{{ dueSoonCount }}</div><div class="t">Hoá đơn đến hạn trong 7 ngày</div></div>
+      <div class="kpis kpis-hd">
+        <div class="card kpi kpi-debt">
+          <span class="kpi-ic t-red"><Icon name="wallet" :size="19" /></span>
+          <span class="kpi-lb t">Tổng công nợ hiện tại</span>
+          <span class="n">{{ fmtVND(outstanding) }}</span>
+        </div>
+        <div class="card kpi kpi-qua-han">
+          <span class="kpi-ic t-orange"><Icon name="alert-triangle" :size="19" /></span>
+          <span class="kpi-lb t">Quá hạn thanh toán</span>
+          <span class="n text-orange">{{ fmtVND(overdueTotal) }}</span>
+        </div>
+        <div class="card kpi">
+          <span class="kpi-ic t-navy"><Icon name="calendar" :size="19" /></span>
+          <span class="kpi-lb t">Hoá đơn đến hạn trong 7 ngày</span>
+          <span class="n">{{ dueSoonCount }}</span>
+        </div>
       </div>
 
       <div v-if="!invoices.length" class="empty">Chưa có hoá đơn nào.</div>
 
       <!-- DESKTOP: bảng -->
-      <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+      <div v-else-if="!isMobile" class="card card-flush">
+        <div class="tbl-scroll">
         <table>
           <thead>
             <tr>
-              <th></th><th>Số hoá đơn</th><th>Ngày</th><th class="right">Giá trị</th>
+              <th class="cot-mo"><span class="sr-only">Mở rộng</span></th><th>Số hoá đơn</th><th>Ngày</th><th class="right">Giá trị</th>
               <th class="right">Còn phải trả</th><th>Hạn TT</th><th>Trạng thái</th>
               <th>HĐĐT</th><th></th>
             </tr>
           </thead>
           <tbody>
             <template v-for="inv in invoices" :key="inv.name">
-              <tr style="cursor: pointer" @click="toggleEinv(inv.name)">
-                <td>{{ einvOpen === inv.name ? '▾' : '▸' }}</td>
-                <td><b>{{ inv.name }}</b></td>
+              <tr class="clickable" :class="{ 'dong-mo': einvOpen === inv.name }" @click="toggleEinv(inv.name)">
+                <td class="cot-mo"><Icon :name="einvOpen === inv.name ? 'chevron-down' : 'chevron-right'" :size="16" /></td>
+                <td class="cell-code">{{ inv.name }}</td>
                 <td>{{ fmtDate(inv.posting_date) }}</td>
                 <td class="right">{{ fmtVND(inv.grand_total) }}</td>
-                <td class="right">{{ fmtVND(inv.outstanding_amount) }}</td>
+                <td class="right fw600">{{ fmtVND(inv.outstanding_amount) }}</td>
                 <td>{{ fmtDate(inv.due_date) }}</td>
                 <td><span class="badge" :class="invoiceBadge(inv.status_vi)">{{ inv.status_vi }}</span></td>
                 <td><span class="badge" :class="inv.einvoice.chinh.badge">{{ inv.einvoice.chinh.nhan }}</span></td>
                 <!-- Bản in nội bộ ERPNext (KHÔNG phải chứng từ HĐĐT có giá trị pháp
                      lý) — đổi nhãn để khách không lưu nhầm bản này làm hoá đơn thuế
                      (review round 1, M-5); bản THẬT nằm trong khối xổ dòng dưới. -->
-                <td @click.stop><a :href="pdfUrl(inv.name)" target="_blank" rel="noopener"><button class="btn-o btn-sm">⬇ Bản in</button></a></td>
+                <td class="right" @click.stop><a :href="pdfUrl(inv.name)" target="_blank" rel="noopener" class="btn-o btn-sm nowrap"><Icon name="download" :size="16" />Bản in</a></td>
               </tr>
-              <tr v-if="einvOpen === inv.name">
-                <td colspan="9" style="background: #f8fafc" @click.stop>
+              <tr v-if="einvOpen === inv.name" class="dong-hddt">
+                <td colspan="9" @click.stop>
                   <template v-if="inv.einvoice.chinh.fei">
-                    <div v-for="muc in dsHddt(inv)" :key="muc.fei" class="flex" style="flex-wrap: wrap; gap: 18px; padding: 8px; border-bottom: 1px solid var(--line)">
-                      <div>
-                        <span class="tag">Số – ký hiệu</span><br>
+                    <div v-for="muc in dsHddt(inv)" :key="muc.fei" class="flex hddt-muc">
+                      <div class="hddt-o">
+                        <span class="tag">Số – ký hiệu</span>
                         <b class="mono">{{ muc.so || '—' }}{{ muc.mau_so ? ' · Mẫu ' + muc.mau_so : '' }}{{ muc.ky_hieu ? ' · ' + muc.ky_hieu : '' }}</b>
                       </div>
-                      <div>
-                        <span class="tag">Trạng thái</span><br>
-                        <span class="badge" :class="muc.badge">{{ muc.nhan }}</span>
+                      <div class="hddt-o">
+                        <span class="tag">Trạng thái</span>
+                        <span><span class="badge" :class="muc.badge">{{ muc.nhan }}</span></span>
                       </div>
-                      <div>
-                        <span class="tag">Ngày phát hành</span><br>
+                      <div class="hddt-o">
+                        <span class="tag">Ngày phát hành</span>
                         <b>{{ muc.ngay_phat_hanh ? fmtDate(muc.ngay_phat_hanh) : '—' }}</b>
                       </div>
-                      <div v-if="muc.ma_tra_cuu">
-                        <span class="tag">Mã tra cứu CQT</span><br>
-                        <b class="mono">{{ muc.ma_tra_cuu }}</b>
-                        <button class="btn-o btn-sm" @click="copyMaTraCuu(muc.ma_tra_cuu)">📋</button>
+                      <div v-if="muc.ma_tra_cuu" class="hddt-o">
+                        <span class="tag">Mã tra cứu CQT</span>
+                        <span class="row gap6">
+                          <b class="mono">{{ muc.ma_tra_cuu }}</b>
+                          <button class="btn-o btn-sm nut-chep" aria-label="Sao chép mã tra cứu" title="Sao chép mã tra cứu" @click="copyMaTraCuu(muc.ma_tra_cuu)"><Icon name="copy" :size="15" /></button>
+                        </span>
                       </div>
-                      <div v-if="muc.ly_do_huy">
-                        <span class="tag">Lý do huỷ</span><br>
+                      <div v-if="muc.ly_do_huy" class="hddt-o">
+                        <span class="tag">Lý do huỷ</span>
                         <b>{{ muc.ly_do_huy }}</b>
                       </div>
-                      <div v-if="muc.hoa_don_goc">
-                        <span class="tag">Hoá đơn gốc</span><br>
-                        <b class="mono">{{ muc.hoa_don_goc.so || muc.hoa_don_goc.fei }}</b>
-                        <span class="badge" :class="muc.hoa_don_goc.badge">{{ muc.hoa_don_goc.nhan }}</span>
+                      <div v-if="muc.hoa_don_goc" class="hddt-o">
+                        <span class="tag">Hoá đơn gốc</span>
+                        <span class="row gap6">
+                          <b class="mono">{{ muc.hoa_don_goc.so || muc.hoa_don_goc.fei }}</b>
+                          <span class="badge" :class="muc.hoa_don_goc.badge">{{ muc.hoa_don_goc.nhan }}</span>
+                        </span>
                       </div>
-                      <div v-if="muc.hoa_don_moi">
-                        <span class="tag">Hoá đơn điều chỉnh/thay thế</span><br>
-                        <b class="mono">{{ muc.hoa_don_moi.so || muc.hoa_don_moi.fei }}</b>
-                        <span class="badge" :class="muc.hoa_don_moi.badge">{{ muc.hoa_don_moi.nhan }}</span>
+                      <div v-if="muc.hoa_don_moi" class="hddt-o">
+                        <span class="tag">Hoá đơn điều chỉnh/thay thế</span>
+                        <span class="row gap6">
+                          <b class="mono">{{ muc.hoa_don_moi.so || muc.hoa_don_moi.fei }}</b>
+                          <span class="badge" :class="muc.hoa_don_moi.badge">{{ muc.hoa_don_moi.nhan }}</span>
+                        </span>
                       </div>
-                      <div v-if="muc.trang_thai === 'nhap'" style="flex-basis: 100%">
+                      <div v-if="muc.trang_thai === 'nhap'" class="hddt-nhap">
                         <HoaDonNhap
                           :du-lieu="{ canh_bao: inv.einvoice.canh_bao }"
                           :url-pdf="urlPdfNhap(inv.name, muc)"
                         />
                       </div>
-                      <div class="flex" style="margin-left: auto; align-items: flex-start">
+                      <div class="row gap8 ai-start ml-auto">
                         <button v-if="muc.tai_duoc" class="btn-o btn-sm" :disabled="taiDangXuLy === inv.name + '|' + muc.fei" @click="taiPdfHddt(inv.name, muc.fei)">
-                          {{ taiDangXuLy === inv.name + '|' + muc.fei ? 'Đang tải…' : '⬇ PDF HĐĐT' }}
+                          <template v-if="taiDangXuLy === inv.name + '|' + muc.fei">Đang tải…</template>
+                          <template v-else><Icon name="download" :size="16" />PDF HĐĐT</template>
                         </button>
                         <button v-if="muc.ho_tro" class="btn-o btn-sm" :disabled="hoTroDangGui === inv.name" @click="yeuCauHoTro(inv.name, muc.fei)">
-                          {{ hoTroDangGui === inv.name ? 'Đang gửi…' : '✉ Yêu cầu hỗ trợ' }}
+                          <template v-if="hoTroDangGui === inv.name">Đang gửi…</template>
+                          <template v-else><Icon name="mail" :size="16" />Yêu cầu hỗ trợ</template>
                         </button>
                       </div>
                     </div>
@@ -299,75 +326,80 @@ onMounted(async () => {
                          PDF ở đây là bản THỂ HIỆN, KHÔNG phải bản gốc pháp lý; không lặp
                          lại câu chú thích cố định của bản mẫu vì sẽ nói sai giá trị pháp
                          lý của file khách vừa tải. -->
-                    <p v-if="coHddtThat(inv)" class="tag" style="padding: 8px">
-                      PDF là bản thể hiện hoá đơn điện tử, không phải bản gốc XML. Cần bản
+                    <p v-if="coHddtThat(inv)" class="tag hddt-chu row-top gap6">
+                      <Icon name="info" :size="15" class="shrink0" />
+                      <span>PDF là bản thể hiện hoá đơn điện tử, không phải bản gốc XML. Cần bản
                       gốc XML có giá trị pháp lý theo NĐ 123/2020, TT 78/2021 — vui lòng
-                      liên hệ kế toán Miyano.
+                      liên hệ kế toán Miyano.</span>
                     </p>
                   </template>
-                  <p v-else class="tag" style="margin: 0; padding: 8px">{{ inv.einvoice.chinh.nhan }} — hệ thống HĐĐT của Miyano đang xử lý, công nợ vẫn ghi nhận bình thường.</p>
+                  <p v-else class="tag hddt-chu">{{ inv.einvoice.chinh.nhan }} — hệ thống HĐĐT của Miyano đang xử lý, công nợ vẫn ghi nhận bình thường.</p>
                 </td>
               </tr>
             </template>
           </tbody>
         </table>
+        </div>
       </div>
 
       <!-- MOBILE: thẻ -->
       <template v-else>
-        <div v-for="inv in invoices" :key="inv.name" class="card mb10">
-          <div class="sb" style="cursor: pointer" @click="toggleEinv(inv.name)">
-            <b>{{ inv.name }}</b><span class="badge" :class="invoiceBadge(inv.status_vi)">{{ inv.status_vi }}</span>
+        <div v-for="inv in invoices" :key="inv.name" class="card mb10 inv-m">
+          <div class="sb pointer" @click="toggleEinv(inv.name)">
+            <span class="cell-code">{{ inv.name }}</span><span class="badge" :class="invoiceBadge(inv.status_vi)">{{ inv.status_vi }}</span>
           </div>
-          <p class="tag" style="margin-top: 4px">
+          <p class="tag mt4">
             {{ fmtDate(inv.posting_date) }} · Hạn TT {{ fmtDate(inv.due_date) }}
             <template v-if="Number(inv.outstanding_amount) > 0"> · Còn {{ fmtVND(inv.outstanding_amount) }}</template>
           </p>
-          <div class="sb" style="margin-top: 6px">
-            <b style="font-size: 15px">{{ fmtVND(inv.grand_total) }}</b>
+          <div class="sb mt8">
+            <b class="fs16 tnum text-navy">{{ fmtVND(inv.grand_total) }}</b>
             <!-- Bản in nội bộ ERPNext, không phải chứng từ HĐĐT (M-5). -->
-            <a :href="pdfUrl(inv.name)" target="_blank" rel="noopener"><button class="btn-o btn-sm">⬇ Bản in</button></a>
+            <a :href="pdfUrl(inv.name)" target="_blank" rel="noopener" class="btn-o btn-sm"><Icon name="download" :size="16" />Bản in</a>
           </div>
-          <div class="sb" style="margin-top: 6px; cursor: pointer" @click="toggleEinv(inv.name)">
-            <span class="tag">HĐĐT</span>
+          <button type="button" class="inv-m-hddt" :aria-expanded="einvOpen === inv.name" @click="toggleEinv(inv.name)">
+            <span class="tag grow">HĐĐT</span>
             <span class="badge" :class="inv.einvoice.chinh.badge">{{ inv.einvoice.chinh.nhan }}</span>
-          </div>
-          <div v-if="einvOpen === inv.name" style="margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px">
+            <Icon :name="einvOpen === inv.name ? 'chevron-up' : 'chevron-down'" :size="16" class="muted" />
+          </button>
+          <div v-if="einvOpen === inv.name" class="inv-m-mo">
             <template v-if="inv.einvoice.chinh.fei">
-              <div v-for="muc in dsHddt(inv)" :key="muc.fei" style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line)">
-                <p style="font-size: 13px; margin: 0 0 4px">
+              <div v-for="muc in dsHddt(inv)" :key="muc.fei" class="inv-m-muc">
+                <p class="inv-m-dong">
                   <span class="badge" :class="muc.badge">{{ muc.nhan }}</span><br>
                   Số – ký hiệu: <b class="mono">{{ muc.so || '—' }}{{ muc.mau_so ? ' · Mẫu ' + muc.mau_so : '' }}{{ muc.ky_hieu ? ' · ' + muc.ky_hieu : '' }}</b><br>
                   Ngày phát hành: <b>{{ muc.ngay_phat_hanh ? fmtDate(muc.ngay_phat_hanh) : '—' }}</b>
                 </p>
-                <p v-if="muc.ma_tra_cuu" style="font-size: 13px; margin: 0 0 4px">
-                  Mã tra cứu CQT: <b class="mono">{{ muc.ma_tra_cuu }}</b>
-                  <button class="btn-o btn-sm" @click="copyMaTraCuu(muc.ma_tra_cuu)">📋</button>
+                <p v-if="muc.ma_tra_cuu" class="inv-m-dong row gap6 wrap">
+                  <span>Mã tra cứu CQT: <b class="mono">{{ muc.ma_tra_cuu }}</b></span>
+                  <button class="btn-o btn-sm nut-chep" aria-label="Sao chép mã tra cứu" title="Sao chép mã tra cứu" @click="copyMaTraCuu(muc.ma_tra_cuu)"><Icon name="copy" :size="15" /></button>
                 </p>
-                <p v-if="muc.ly_do_huy" style="font-size: 13px; margin: 0 0 4px">Lý do huỷ: <b>{{ muc.ly_do_huy }}</b></p>
-                <p v-if="muc.hoa_don_goc" style="font-size: 13px; margin: 0 0 4px">
+                <p v-if="muc.ly_do_huy" class="inv-m-dong">Lý do huỷ: <b>{{ muc.ly_do_huy }}</b></p>
+                <p v-if="muc.hoa_don_goc" class="inv-m-dong">
                   Hoá đơn gốc: <b class="mono">{{ muc.hoa_don_goc.so || muc.hoa_don_goc.fei }}</b>
                   <span class="badge" :class="muc.hoa_don_goc.badge">{{ muc.hoa_don_goc.nhan }}</span>
                 </p>
-                <p v-if="muc.hoa_don_moi" style="font-size: 13px; margin: 0 0 4px">
+                <p v-if="muc.hoa_don_moi" class="inv-m-dong">
                   Hoá đơn điều chỉnh/thay thế: <b class="mono">{{ muc.hoa_don_moi.so || muc.hoa_don_moi.fei }}</b>
                   <span class="badge" :class="muc.hoa_don_moi.badge">{{ muc.hoa_don_moi.nhan }}</span>
                 </p>
-                <div class="flex">
+                <div class="row wrap gap8">
                   <button v-if="muc.tai_duoc" class="btn-o btn-sm" :disabled="taiDangXuLy === inv.name + '|' + muc.fei" @click="taiPdfHddt(inv.name, muc.fei)">
-                    {{ taiDangXuLy === inv.name + '|' + muc.fei ? 'Đang tải…' : '⬇ PDF HĐĐT' }}
+                    <template v-if="taiDangXuLy === inv.name + '|' + muc.fei">Đang tải…</template>
+                    <template v-else><Icon name="download" :size="16" />PDF HĐĐT</template>
                   </button>
                   <button v-if="muc.ho_tro" class="btn-o btn-sm" :disabled="hoTroDangGui === inv.name" @click="yeuCauHoTro(inv.name, muc.fei)">
-                    {{ hoTroDangGui === inv.name ? 'Đang gửi…' : '✉ Yêu cầu hỗ trợ' }}
+                    <template v-if="hoTroDangGui === inv.name">Đang gửi…</template>
+                    <template v-else><Icon name="mail" :size="16" />Yêu cầu hỗ trợ</template>
                   </button>
                 </div>
               </div>
-              <p v-if="coHddtThat(inv)" class="tag" style="margin-top: 6px">
+              <p v-if="coHddtThat(inv)" class="tag mt6">
                 PDF là bản thể hiện, không phải bản gốc XML. Cần bản gốc XML có giá trị
                 pháp lý (NĐ 123/2020, TT 78/2021) — liên hệ kế toán Miyano.
               </p>
             </template>
-            <p v-else class="tag" style="margin: 0">{{ inv.einvoice.chinh.nhan }} — hệ thống HĐĐT đang xử lý.</p>
+            <p v-else class="tag mb0">{{ inv.einvoice.chinh.nhan }} — hệ thống HĐĐT đang xử lý.</p>
           </div>
         </div>
       </template>
@@ -376,3 +408,36 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.loc-hd { margin-bottom: 14px; }
+.kpis-hd { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kpis-hd .kpi-lb { color: var(--text-2); }
+.cot-mo { width: 36px; padding-right: 0; color: var(--text-3); }
+tr.dong-mo td { background: var(--accent-soft); }
+tr.dong-mo .cot-mo { color: var(--accent); }
+tr.dong-hddt > td { background: var(--surface-2); padding: 4px 20px 8px; }
+tr.dong-hddt:hover > td { background: var(--surface-2); }
+.hddt-muc {
+  display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-start;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.hddt-o { display: flex; flex-direction: column; gap: 4px; }
+.hddt-nhap { flex-basis: 100%; }
+.hddt-chu { margin: 0; padding: 10px 0 4px; }
+.nut-chep { padding: 0; width: 32px; justify-content: center; }
+.inv-m-hddt {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding: 8px 0 0; min-height: 44px;
+  background: none; border: none; border-top: 1px solid var(--line); color: inherit; text-align: left;
+}
+.inv-m-mo { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.inv-m-muc { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--line); }
+.inv-m-dong { font-size: 13px; margin: 0 0 6px; line-height: 1.6; }
+@media (max-width: 900px) {
+  .kpis-hd { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .kpis-hd .kpi-debt, .kpis-hd .kpi-qua-han { grid-column: 1 / -1; }
+  .kpis-hd .kpi .n { font-size: 20px; overflow-wrap: anywhere; }
+  .nut-chep { width: 40px; }
+}
+</style>

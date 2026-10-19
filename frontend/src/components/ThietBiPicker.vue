@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import api from '../api'
 import { showToast } from '../toast'
+import Icon from './Icon.vue'
 
 // Task 13 — dropdown chọn MÁY (Customer Equipment), gọi ĐÚNG kho_thiet_bi_list
 // (không bao giờ Link field chuẩn/search_link — endpoint đó là lỗ chưa vá của
@@ -229,12 +230,47 @@ function onCreateNewClick() {
   open.value = false
 }
 
-onUnmounted(() => clearTimeout(searchTimer))
+// Menu dùng `position: fixed`, toạ độ lấy từ ô nhập — để KHÔNG bị cắt khi
+// picker nằm trong một vùng cuộn (`.tbl-scroll` của bảng dòng phiếu xuất).
+// Thiếu chỗ phía dưới thì lật lên trên. Chỉ là trình bày: không đổi lúc nào
+// menu mở/đóng hay chọn được gì.
+const goc = ref(null)
+const menuStyle = ref({})
+function datViTri() {
+  const el = goc.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const cao = 260
+  const duoi = window.innerHeight - r.bottom
+  const lenTren = duoi < cao + 8 && r.top > duoi
+  menuStyle.value = {
+    left: `${r.left}px`,
+    width: `${r.width}px`,
+    ...(lenTren ? { bottom: `${window.innerHeight - r.top + 4}px` } : { top: `${r.bottom + 4}px` }),
+  }
+}
+function batTheoDoi(bat) {
+  const fn = bat ? window.addEventListener : window.removeEventListener
+  fn('scroll', datViTri, true)
+  fn('resize', datViTri)
+}
+watch(open, async (v) => {
+  batTheoDoi(v)
+  if (v) {
+    await nextTick()
+    datViTri()
+  }
+})
+
+onUnmounted(() => {
+  clearTimeout(searchTimer)
+  batTheoDoi(false)
+})
 </script>
 
 <template>
   <input v-if="disabled" type="text" disabled :value="displayLabel || '—'" :title="displayLabel" />
-  <div v-else class="tb-picker">
+  <div v-else ref="goc" class="tb-picker">
     <input
       type="text"
       :value="open ? tuKhoa : displayLabel"
@@ -245,11 +281,11 @@ onUnmounted(() => clearTimeout(searchTimer))
       @input="onInput"
       @blur="onBlur"
     />
-    <div v-if="open" class="tb-picker-menu">
+    <div v-if="open" class="tb-picker-menu" :style="menuStyle">
       <!-- Quy tắc 1+2: ghim dòng đầu, hiện cả khi đã có kết quả; mousedown.prevent
            bắt buộc — @click sẽ thua sự kiện blur của input ở trên. -->
       <button type="button" class="tb-picker-create" @mousedown.prevent="onCreateNewClick">
-        + Tạo nhanh máy{{ tuKhoa.trim() ? ` "${tuKhoa.trim()}"` : '' }}
+        <Icon name="plus" :size="15" /><span>Tạo nhanh máy{{ tuKhoa.trim() ? ` "${tuKhoa.trim()}"` : '' }}</span>
       </button>
       <div v-if="loading" class="tb-picker-empty">Đang tải…</div>
       <template v-else>
@@ -264,7 +300,7 @@ onUnmounted(() => clearTimeout(searchTimer))
           :class="{ on: o.name === modelValue }"
           @mousedown.prevent="selectOption(o)"
         >
-          {{ labelOf(o) }}
+          <span class="grow">{{ labelOf(o) }}</span><Icon v-if="o.name === modelValue" name="check" :size="15" class="tb-tick" />
         </button>
         <div v-if="!options.length" class="tb-picker-empty">Không có máy nào khớp — dùng nút tạo nhanh phía trên.</div>
       </template>
@@ -275,46 +311,53 @@ onUnmounted(() => clearTimeout(searchTimer))
 <style scoped>
 .tb-picker { position: relative; }
 .tb-picker-menu {
-  position: absolute;
-  z-index: 95;
-  left: 0;
-  right: 0;
-  top: calc(100% + 2px);
-  background: #fff;
+  position: fixed;
+  z-index: 130;
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-2);
   max-height: 260px;
   overflow-y: auto;
 }
 .tb-picker-create {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
+  min-height: 40px;
   text-align: left;
-  padding: 8px 10px;
+  padding: 8px 12px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--blue);
-  background: #eff6ff;
+  color: var(--accent);
+  background: var(--accent-soft);
   border: none;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
-.tb-picker-create:hover { background: #dbeafe; }
+.tb-picker-create:hover { background: #d9ecf8; }
 .tb-picker-opt {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  min-height: 36px;
   text-align: left;
-  padding: 7px 10px;
+  padding: 8px 12px;
   font-size: 13px;
-  color: var(--dark);
-  background: #fff;
+  color: var(--text);
+  background: var(--surface);
   border: none;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
 .tb-picker-opt:last-child { border-bottom: none; }
-.tb-picker-opt:hover { background: #f8fafc; }
-.tb-picker-opt.on { background: #eff6ff; font-weight: 600; }
-.tb-picker-empty { padding: 8px 10px; font-size: 12px; color: var(--gray); }
+.tb-picker-opt:hover { background: var(--surface-2); }
+.tb-picker-opt.on { background: var(--accent-soft); color: var(--navy); font-weight: 600; }
+.tb-tick { color: var(--accent); }
+.tb-picker-empty { padding: 10px 12px; font-size: 12px; color: var(--text-3); }
+@media (max-width: 900px) {
+  .tb-picker-create, .tb-picker-opt { min-height: 44px; }
+}
 </style>

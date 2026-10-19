@@ -54,8 +54,9 @@ async function onSave() {
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
-    <div class="card">
-      <h3>Tạo nhanh máy</h3>
+    <div class="card" :class="{ in: isMobile }">
+      <div class="grab hide-d"></div>
+      <h3 class="mb12">Tạo nhanh máy</h3>
       <div class="field">
         <label>Tên máy *</label>
         <input v-model="form.ten_thiet_bi" placeholder="VD: Máy xét nghiệm sinh hoá" />
@@ -64,14 +65,14 @@ async function onSave() {
         <label>Mã máy *</label>
         <input v-model="form.ma_thiet_bi" placeholder="VD: MAY-XN-01" />
       </div>
-      <div class="grid2">
+      <div class="grid2 cot-deu">
         <div class="field"><label>Hãng sản xuất</label><input v-model="form.hang_san_xuat" /></div>
         <div class="field"><label>Xuất xứ</label><input v-model="form.xuat_xu" /></div>
       </div>
       <div class="field"><label>Số serial</label><input v-model="form.so_serial" /></div>
       <p class="tag">Model, năm sản xuất, ngày lắp đặt: bổ sung sau ở Danh mục thiết bị.</p>
 
-      <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+      <div class="row jc-end gap8 mt14 nut-cuoi">
         <button class="btn-o" @click="emit('close')">Huỷ</button>
         <button class="btn" :disabled="saving" @click="onSave">
           {{ saving ? 'Đang lưu…' : 'Lưu' }}
@@ -80,3 +81,11 @@ async function onSave() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.cot-deu { grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 900px) {
+  .cot-deu { grid-template-columns: 1fr; }
+  .nut-cuoi > * { flex: 1; }
+}
+</style>

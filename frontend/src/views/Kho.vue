@@ -4,6 +4,7 @@ import api from '../api'
 import { fmtVND, fmtDate, daysUntil } from '../format'
 import { useIsMobile } from '../useMobile'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 
@@ -118,31 +119,32 @@ onUnmounted(() => clearTimeout(searchTimer))
         <h2>Kho của tôi</h2>
         <div class="sub" v-if="me">{{ me.ten_kho }} · Thủ kho: {{ me.thu_kho || '—' }}</div>
       </div>
-      <div class="flex" v-if="!noWarehouse" style="gap: 8px">
-        <router-link to="/kho/nhap" class="btn-o btn-sm">Phiếu nhập</router-link>
-        <router-link to="/kho/xuat" class="btn-o btn-sm">Phiếu xuất</router-link>
-        <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
-        <router-link to="/kho/vat-tu" class="btn-o btn-sm">Danh mục vật tư</router-link>
-        <router-link to="/kho/ncc" class="btn-o btn-sm">NCC của tôi</router-link>
-        <router-link to="/kho/khoa-phong" class="btn-o btn-sm">Khoa phòng</router-link>
-        <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
-        <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
-        <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+      <nav class="flex kho-loi" v-if="!noWarehouse" aria-label="Lối vào các màn kho">
+        <router-link to="/kho/nhap" class="btn-o btn-sm"><Icon name="arrow-down-to-line" :size="16" />Phiếu nhập</router-link>
+        <router-link to="/kho/xuat" class="btn-o btn-sm"><Icon name="arrow-up-from-line" :size="16" />Phiếu xuất</router-link>
+        <router-link to="/kho/import" class="btn-o btn-sm"><Icon name="file-spreadsheet" :size="16" />Nhập tồn đầu kỳ</router-link>
+        <router-link to="/kho/vat-tu" class="btn-o btn-sm"><Icon name="package" :size="16" />Danh mục vật tư</router-link>
+        <router-link to="/kho/ncc" class="btn-o btn-sm"><Icon name="truck" :size="16" />NCC của tôi</router-link>
+        <router-link to="/kho/khoa-phong" class="btn-o btn-sm"><Icon name="hospital" :size="16" />Khoa phòng</router-link>
+        <router-link to="/kho/thiet-bi" class="btn-o btn-sm"><Icon name="stethoscope" :size="16" />Thiết bị</router-link>
+        <router-link to="/kho/nhat-ky" class="btn-o btn-sm"><Icon name="history" :size="16" />Nhật ký vật tư</router-link>
+        <router-link to="/kho/bao-cao" class="btn-o btn-sm"><Icon name="bar-chart" :size="16" />Báo cáo</router-link>
         <!-- Task 14 — brief chỉ liệt router.js/App.vue/kho-bao-cao-columns.js
              là file phải sửa, BỎ SÓT chính lối vào màn (không router-link
              nào trỏ /kho/bao-cao-thiet-bi thì màn chỉ gõ URL tay mới tới
              được) — thêm ở đây, cạnh nút "Báo cáo" cũ, cùng khuôn Task 12 đã
              làm cho "Thiết bị"/"Khoa phòng" (thêm CẢ hai chỗ desktop lẫn
              mobile cùng lúc, không để lệch). -->
-        <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
-      </div>
+        <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm"><Icon name="clipboard-list" :size="16" />Báo cáo vật tư · máy · khoa</router-link>
+      </nav>
     </div>
 
     <div v-if="meLoading" class="loading">Đang tải…</div>
 
     <!-- Chưa được mở kho: thông báo bình tĩnh, không phải lỗi hệ thống -->
-    <div v-else-if="noWarehouse" class="note">
-      {{ noWarehouseMsg || 'Đơn vị của bạn chưa được mở kho trên cổng. Vui lòng liên hệ nhân viên kinh doanh Miyano.' }}
+    <div v-else-if="noWarehouse" class="note note-ic">
+      <Icon name="info" />
+      <div>{{ noWarehouseMsg || 'Đơn vị của bạn chưa được mở kho trên cổng. Vui lòng liên hệ nhân viên kinh doanh Miyano.' }}</div>
     </div>
     <div v-else-if="meError" class="empty">{{ meError }}</div>
 
@@ -150,30 +152,31 @@ onUnmounted(() => clearTimeout(searchTimer))
       <!-- Header gọn: tên kho + thủ kho (mobile, vì topbar desktop đã ẩn) -->
       <div class="card mb10" v-if="isMobile">
         <div class="sb">
-          <b>{{ me?.ten_kho }}</b>
+          <b class="row gap8 text-navy"><Icon name="warehouse" :size="18" />{{ me?.ten_kho }}</b>
         </div>
-        <p class="tag" style="margin-top: 4px">Thủ kho: {{ me?.thu_kho || '—' }}</p>
-        <div class="flex" style="gap: 8px; margin-top: 10px; flex-wrap: wrap">
-          <router-link to="/kho/nhap" class="btn-o btn-sm">Phiếu nhập</router-link>
-          <router-link to="/kho/xuat" class="btn-o btn-sm">Phiếu xuất</router-link>
-          <router-link to="/kho/import" class="btn-o btn-sm">Nhập tồn đầu kỳ</router-link>
-          <router-link to="/kho/vat-tu" class="btn-o btn-sm">Danh mục vật tư</router-link>
-          <router-link to="/kho/ncc" class="btn-o btn-sm">NCC của tôi</router-link>
+        <p class="tag mt4">Thủ kho: {{ me?.thu_kho || '—' }}</p>
+        <nav class="flex kho-loi kho-loi-m mt10" aria-label="Lối vào các màn kho">
+          <router-link to="/kho/nhap" class="btn-o btn-sm"><Icon name="arrow-down-to-line" :size="16" />Phiếu nhập</router-link>
+          <router-link to="/kho/xuat" class="btn-o btn-sm"><Icon name="arrow-up-from-line" :size="16" />Phiếu xuất</router-link>
+          <router-link to="/kho/import" class="btn-o btn-sm"><Icon name="file-spreadsheet" :size="16" />Nhập tồn đầu kỳ</router-link>
+          <router-link to="/kho/vat-tu" class="btn-o btn-sm"><Icon name="package" :size="16" />Danh mục vật tư</router-link>
+          <router-link to="/kho/ncc" class="btn-o btn-sm"><Icon name="truck" :size="16" />NCC của tôi</router-link>
           <!-- Task 12 — "Khoa phòng" thiếu ở hàng mobile này từ trước (E8),
                chỉ có ở topbar desktop phía trên. Thêm luôn CẢ HAI ở đây: để
                "Thiết bị" một mình mà bỏ qua khoảng trống liền kề là để lại
                đúng kiểu bất đối xứng khó hiểu — sửa cùng lúc, không phải mở
                rộng phạm vi task. -->
-          <router-link to="/kho/khoa-phong" class="btn-o btn-sm">Khoa phòng</router-link>
-          <router-link to="/kho/thiet-bi" class="btn-o btn-sm">Thiết bị</router-link>
-          <router-link to="/kho/nhat-ky" class="btn-o btn-sm">Nhật ký vật tư</router-link>
-          <router-link to="/kho/bao-cao" class="btn-o btn-sm">Báo cáo</router-link>
+          <router-link to="/kho/khoa-phong" class="btn-o btn-sm"><Icon name="hospital" :size="16" />Khoa phòng</router-link>
+          <router-link to="/kho/thiet-bi" class="btn-o btn-sm"><Icon name="stethoscope" :size="16" />Thiết bị</router-link>
+          <router-link to="/kho/nhat-ky" class="btn-o btn-sm"><Icon name="history" :size="16" />Nhật ký vật tư</router-link>
+          <router-link to="/kho/bao-cao" class="btn-o btn-sm"><Icon name="bar-chart" :size="16" />Báo cáo</router-link>
           <!-- Task 14 — cùng lý do bình luận ở khối desktop phía trên. -->
-          <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm">Báo cáo vật tư · máy · khoa</router-link>
-        </div>
+          <router-link to="/kho/bao-cao-thiet-bi" class="btn-o btn-sm"><Icon name="clipboard-list" :size="16" />Báo cáo vật tư · máy · khoa</router-link>
+        </nav>
       </div>
 
-      <div class="field" style="max-width: 360px">
+      <div class="field mw-sm kho-tim">
+        <Icon name="search" :size="16" class="kho-tim-ic" />
         <input
           type="text"
           v-model="search"
@@ -189,118 +192,117 @@ onUnmounted(() => clearTimeout(searchTimer))
       </div>
 
       <!-- DESKTOP: bảng -->
-      <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Mã vật tư</th>
-              <th>Tên vật tư</th>
-              <th>ĐVT</th>
-              <th class="right">SL tồn</th>
-              <th class="right">Giá trị</th>
-              <th class="right">Số lô</th>
-              <th>Hạn gần nhất</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="it in items" :key="it.vat_tu">
-              <tr class="clickable" @click="toggle(it)">
-                <td><b>{{ it.ma_vat_tu }}</b></td>
-                <td>{{ it.ten_vat_tu }}</td>
-                <td>{{ it.dvt }}</td>
-                <td class="right">{{ fmtQty(it.so_luong) }}</td>
-                <td class="right">{{ fmtVND(it.gia_tri) }}</td>
-                <td class="right">{{ it.so_lo_count }}</td>
-                <td>
-                  <template v-if="it.han_gan_nhat">
-                    {{ fmtDate(it.han_gan_nhat) }}
-                    <span
-                      v-if="expiryInfo(it.han_gan_nhat).label"
-                      class="badge"
-                      :class="expiryInfo(it.han_gan_nhat).cls"
-                      style="margin-left: 6px"
-                    >{{ expiryInfo(it.han_gan_nhat).icon }} {{ expiryInfo(it.han_gan_nhat).label }}</span>
-                  </template>
-                  <span v-else class="tag">—</span>
-                </td>
-                <td>{{ expanded[it.vat_tu] ? '▾' : '▸' }}</td>
+      <div v-else-if="!isMobile" class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table>
+            <thead>
+              <tr>
+                <th>Mã vật tư</th>
+                <th>Tên vật tư</th>
+                <th>ĐVT</th>
+                <th class="right">SL tồn</th>
+                <th class="right">Giá trị</th>
+                <th class="right">Số lô</th>
+                <th>Hạn gần nhất</th>
+                <th></th>
               </tr>
-              <tr v-if="expanded[it.vat_tu]">
-                <td colspan="8" style="background: #f8fafc; padding: 12px 16px">
-                  <div v-if="lotsByItem[it.vat_tu]?.loading" class="loading">Đang tải lô…</div>
-                  <div v-else-if="lotsByItem[it.vat_tu]?.error" class="empty">
-                    {{ lotsByItem[it.vat_tu].error }}
-                  </div>
-                  <div v-else-if="!lotsByItem[it.vat_tu]?.data?.length" class="empty">Không có lô nào.</div>
-                  <table v-else style="background: transparent">
-                    <thead>
-                      <tr>
-                        <th>Số lô</th><th>Hạn sử dụng</th><th class="right">Số lượng</th><th class="right">Đơn giá</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo">
-                        <td>{{ lo.so_lo || '—' }}</td>
-                        <td>
-                          <template v-if="lo.han_su_dung">
-                            {{ fmtDate(lo.han_su_dung) }}
-                            <span
-                              v-if="expiryInfo(lo.han_su_dung).label"
-                              class="badge"
-                              :class="expiryInfo(lo.han_su_dung).cls"
-                              style="margin-left: 6px"
-                            >{{ expiryInfo(lo.han_su_dung).icon }} {{ expiryInfo(lo.han_su_dung).label }}</span>
-                          </template>
-                          <span v-else class="tag">Không thời hạn</span>
-                        </td>
-                        <td class="right">{{ fmtQty(lo.so_luong) }}</td>
-                        <td class="right">{{ fmtVND(lo.don_gia) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <template v-for="it in items" :key="it.vat_tu">
+                <tr class="clickable" :class="{ 'kho-mo': expanded[it.vat_tu] }" :aria-expanded="!!expanded[it.vat_tu]" @click="toggle(it)">
+                  <td class="cell-code">{{ it.ma_vat_tu }}</td>
+                  <td>{{ it.ten_vat_tu }}</td>
+                  <td>{{ it.dvt }}</td>
+                  <td class="right">{{ fmtQty(it.so_luong) }}</td>
+                  <td class="right">{{ fmtVND(it.gia_tri) }}</td>
+                  <td class="right">{{ it.so_lo_count }}</td>
+                  <td class="nowrap">
+                    <template v-if="it.han_gan_nhat">
+                      {{ fmtDate(it.han_gan_nhat) }}
+                      <span
+                        v-if="expiryInfo(it.han_gan_nhat).label"
+                        class="badge no-dot ml6"
+                        :class="expiryInfo(it.han_gan_nhat).cls"
+                      ><Icon :name="expiryInfo(it.han_gan_nhat).cls === 'b-red' ? 'ban' : 'alert-triangle'" :size="13" />{{ expiryInfo(it.han_gan_nhat).label }}</span>
+                    </template>
+                    <span v-else class="tag">—</span>
+                  </td>
+                  <td class="kho-chev"><Icon :name="expanded[it.vat_tu] ? 'chevron-down' : 'chevron-right'" :size="18" /></td>
+                </tr>
+                <tr v-if="expanded[it.vat_tu]" class="kho-lo-hang">
+                  <td colspan="8" class="kho-lo">
+                    <div v-if="lotsByItem[it.vat_tu]?.loading" class="loading">Đang tải lô…</div>
+                    <div v-else-if="lotsByItem[it.vat_tu]?.error" class="empty">
+                      {{ lotsByItem[it.vat_tu].error }}
+                    </div>
+                    <div v-else-if="!lotsByItem[it.vat_tu]?.data?.length" class="empty">Không có lô nào.</div>
+                    <table v-else class="kho-lo-tbl">
+                      <thead>
+                        <tr>
+                          <th>Số lô</th><th>Hạn sử dụng</th><th class="right">Số lượng</th><th class="right">Đơn giá</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo">
+                          <td class="mono">{{ lo.so_lo || '—' }}</td>
+                          <td class="nowrap">
+                            <template v-if="lo.han_su_dung">
+                              {{ fmtDate(lo.han_su_dung) }}
+                              <span
+                                v-if="expiryInfo(lo.han_su_dung).label"
+                                class="badge no-dot ml6"
+                                :class="expiryInfo(lo.han_su_dung).cls"
+                              ><Icon :name="expiryInfo(lo.han_su_dung).cls === 'b-red' ? 'ban' : 'alert-triangle'" :size="13" />{{ expiryInfo(lo.han_su_dung).label }}</span>
+                            </template>
+                            <span v-else class="tag">Không thời hạn</span>
+                          </td>
+                          <td class="right">{{ fmtQty(lo.so_luong) }}</td>
+                          <td class="right">{{ fmtVND(lo.don_gia) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
         <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
       </div>
 
       <!-- MOBILE: thẻ -->
       <template v-else>
-        <div v-for="it in items" :key="it.vat_tu" class="card mb10 clickable" @click="toggle(it)">
+        <div v-for="it in items" :key="it.vat_tu" class="card mb10 clickable" :aria-expanded="!!expanded[it.vat_tu]" @click="toggle(it)">
           <div class="sb">
-            <b>{{ it.ma_vat_tu }}</b>
-            <span>{{ expanded[it.vat_tu] ? '▾' : '▸' }}</span>
+            <b class="cell-code">{{ it.ma_vat_tu }}</b>
+            <span class="kho-chev"><Icon :name="expanded[it.vat_tu] ? 'chevron-down' : 'chevron-right'" :size="18" /></span>
           </div>
-          <p class="tag" style="margin-top: 4px">{{ it.ten_vat_tu }}</p>
-          <p class="sb" style="margin-top: 8px; font-size: 13px">
+          <p class="tag mt4">{{ it.ten_vat_tu }}</p>
+          <p class="sb mt8 fs13">
             <span>{{ fmtQty(it.so_luong) }} {{ it.dvt }} · {{ it.so_lo_count }} lô</span>
-            <b>{{ fmtVND(it.gia_tri) }}</b>
+            <b class="tnum">{{ fmtVND(it.gia_tri) }}</b>
           </p>
-          <p style="margin-top: 6px; font-size: 12px" v-if="it.han_gan_nhat">
+          <p class="mt6 fs12" v-if="it.han_gan_nhat">
             Hạn gần nhất: {{ fmtDate(it.han_gan_nhat) }}
             <span
               v-if="expiryInfo(it.han_gan_nhat).label"
-              class="badge"
+              class="badge no-dot ml6"
               :class="expiryInfo(it.han_gan_nhat).cls"
-              style="margin-left: 6px"
-            >{{ expiryInfo(it.han_gan_nhat).icon }} {{ expiryInfo(it.han_gan_nhat).label }}</span>
+            ><Icon :name="expiryInfo(it.han_gan_nhat).cls === 'b-red' ? 'ban' : 'alert-triangle'" :size="13" />{{ expiryInfo(it.han_gan_nhat).label }}</span>
           </p>
 
-          <div v-if="expanded[it.vat_tu]" class="mt10" style="margin-top: 10px" @click.stop>
+          <div v-if="expanded[it.vat_tu]" class="mt10" @click.stop>
             <hr class="sep" />
             <div v-if="lotsByItem[it.vat_tu]?.loading" class="loading">Đang tải lô…</div>
             <div v-else-if="lotsByItem[it.vat_tu]?.error" class="empty">{{ lotsByItem[it.vat_tu].error }}</div>
             <div v-else-if="!lotsByItem[it.vat_tu]?.data?.length" class="empty">Không có lô nào.</div>
             <div v-else v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo" class="rowline">
               <span>
-                Lô {{ lo.so_lo || '—' }}
+                Lô <span class="mono">{{ lo.so_lo || '—' }}</span>
                 <template v-if="lo.han_su_dung">· HSD {{ fmtDate(lo.han_su_dung) }}</template>
                 <template v-else>· Không thời hạn</template>
               </span>
-              <span><b>{{ fmtQty(lo.so_luong) }}</b> · {{ fmtVND(lo.don_gia) }}</span>
+              <span class="tnum nowrap"><b>{{ fmtQty(lo.so_luong) }}</b> · {{ fmtVND(lo.don_gia) }}</span>
             </div>
           </div>
         </div>
@@ -309,3 +311,37 @@ onUnmounted(() => clearTimeout(searchTimer))
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Cụm lối tắt tới các màn kho con: chiếm trọn một hàng dưới tiêu đề,
+   các ô cùng cỡ, icon đứng trước chữ. */
+.kho-loi {
+  flex-basis: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 8px;
+}
+.kho-loi .btn-o { justify-content: flex-start; min-height: 40px; }
+.kho-loi .btn-o .ic { color: var(--accent); }
+.kho-loi-m { grid-template-columns: 1fr 1fr; }
+.kho-loi-m .btn-o { white-space: normal; text-align: left; line-height: 1.25; padding: 6px 10px; }
+
+/* Ô tìm kiếm có icon kính lúp bên trái. */
+.kho-tim { position: relative; }
+.kho-tim-ic { position: absolute; left: 12px; top: 12px; color: var(--text-3); pointer-events: none; }
+.kho-tim input { padding-left: 36px; }
+
+/* Cột chevron mở/đóng lô. */
+.kho-chev { width: 40px; color: var(--text-3); text-align: center; }
+tr.kho-mo td { background: var(--accent-soft); }
+tr.kho-mo .kho-chev { color: var(--accent); }
+
+/* Bảng lô lồng trong dòng vật tư: nền nhạt, header không dính (chỉ header
+   bảng ngoài dính khi cuộn). */
+tr.kho-lo-hang:hover td.kho-lo { background: var(--surface-2); }
+.kho-lo { background: var(--surface-2); padding: 8px 16px 12px 40px; }
+.kho-lo-tbl { background: transparent; }
+.kho-lo-tbl th { position: static; box-shadow: none; background: transparent; }
+.kho-lo-tbl td { background: transparent; padding-top: 8px; padding-bottom: 8px; }
+.kho-lo-tbl tr:hover td { background: var(--surface); }
+</style>

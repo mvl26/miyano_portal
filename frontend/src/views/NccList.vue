@@ -5,6 +5,7 @@ import { fmtVND } from '../format'
 import { useIsMobile } from '../useMobile'
 import NccModal from '../components/NccModal.vue'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 const rows = ref([])
@@ -70,14 +71,14 @@ onMounted(load)
         <h2>NCC của tôi</h2>
         <div class="sub">Danh mục nhà cung ứng ngoài Miyano — phục vụ phiếu nhập mua ngoài</div>
       </div>
-      <div class="flex" style="gap: 8px">
-        <button class="btn btn-sm" @click="moTao">+ Thêm NCC</button>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+      <div class="row gap8">
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
+        <button class="btn btn-sm" @click="moTao"><Icon name="plus" :size="16" />Thêm NCC</button>
       </div>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
-      <h2>NCC của tôi</h2>
-      <button class="btn btn-sm" @click="moTao">+ Thêm NCC</button>
+    <div class="sb mb12" v-else>
+      <h2 class="mb0">NCC của tôi</h2>
+      <button class="btn btn-sm" @click="moTao"><Icon name="plus" :size="16" />Thêm NCC</button>
     </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
@@ -87,7 +88,8 @@ onMounted(load)
     </div>
 
     <!-- DESKTOP -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -101,10 +103,10 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.name" :style="!r.active ? 'opacity:.55' : ''">
+          <tr v-for="r in rows" :key="r.name" :class="{ 'dong-tat': !r.active }">
             <td><b>{{ r.ten_ncc }}</b></td>
-            <td>{{ r.mst || '—' }}</td>
-            <td>{{ r.dien_thoai || '—' }}</td>
+            <td class="mono">{{ r.mst || '—' }}</td>
+            <td class="nowrap">{{ r.dien_thoai || '—' }}</td>
             <td class="right">{{ r.so_phieu }}</td>
             <td class="right">{{ fmtVND(r.gia_tri_90n) }}</td>
             <td>
@@ -112,37 +114,38 @@ onMounted(load)
                 {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
               </span>
             </td>
-            <td>
+            <td class="right">
               <!-- LUÔN hiện "Sửa" — kể cả NCC đã tắt và đã dùng trên phiếu:
                    đây là đường DUY NHẤT để bật lại một NCC cũ (kho_ncc_save
                    cho toggle active hai chiều không giới hạn, chỉ frappe
                    không cho XOÁ hẳn — không có nút xoá nào ở màn này để thay
                    thế). Ẩn nút ở đây sẽ tự khoá luôn đường bật lại, giống
                    đúng bẫy "quy tắc có nhưng quên ô nhập" đã trả giá ở E3. -->
-              <button class="btn-o btn-sm" @click="moSua(r)">Sửa</button>
-              <div v-if="!r.active && r.so_phieu" class="tag">đã dùng trên phiếu — không xoá được</div>
+              <button class="btn-o btn-sm" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button>
+              <div v-if="!r.active && r.so_phieu" class="tag mt4">đã dùng trên phiếu — không xoá được</div>
             </td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE -->
     <template v-else>
-      <div v-for="r in rows" :key="r.name" class="card mb10" :style="!r.active ? 'opacity:.55' : ''">
-        <div class="sb">
+      <div v-for="r in rows" :key="r.name" class="card mb10" :class="{ 'the-tat': !r.active }">
+        <div class="sb ai-start">
           <b>{{ r.ten_ncc }}</b>
           <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
             {{ r.active ? 'Hoạt động' : 'Đã tắt' }}
           </span>
         </div>
-        <p class="tag" style="margin-top: 4px">MST {{ r.mst || '—' }} · ĐT {{ r.dien_thoai || '—' }}</p>
-        <p class="sb" style="margin-top: 8px; font-size: 13px">
+        <p class="tag mt4">MST {{ r.mst || '—' }} · ĐT {{ r.dien_thoai || '—' }}</p>
+        <p class="sb mt8 fs13">
           <span>{{ r.so_phieu }} phiếu</span>
-          <b>{{ fmtVND(r.gia_tri_90n) }}</b>
+          <b class="tnum">{{ fmtVND(r.gia_tri_90n) }}</b>
         </p>
-        <button class="btn-o btn-sm" style="margin-top: 8px" @click="moSua(r)">Sửa</button>
-        <p v-if="!r.active && r.so_phieu" class="tag" style="margin-top: 6px">đã dùng trên phiếu — không xoá được</p>
+        <button class="btn-o btn-sm mt8" @click="moSua(r)"><Icon name="pencil" :size="15" />Sửa</button>
+        <p v-if="!r.active && r.so_phieu" class="tag mt6">đã dùng trên phiếu — không xoá được</p>
       </div>
     </template>
 
@@ -151,3 +154,8 @@ onMounted(load)
     <NccModal :open="modalOpen" :initial="modalInitial" :mode="modalMode" @saved="onSaved" @close="modalOpen = false" />
   </div>
 </template>
+
+<style scoped>
+tr.dong-tat td { opacity: 0.55; }
+.the-tat { opacity: 0.55; }
+</style>

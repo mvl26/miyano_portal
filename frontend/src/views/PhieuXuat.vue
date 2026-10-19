@@ -6,6 +6,7 @@ import { fmtVND, fmtDate } from '../format'
 import { trangThaiBadge } from '../kho-actions'
 import { useIsMobile } from '../useMobile'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 const isMobile = useIsMobile()
@@ -84,19 +85,19 @@ onMounted(() => {
 <template>
   <div>
     <div class="topbar" v-if="!isMobile">
-      <div>
+      <div class="grow">
         <h2>Phiếu xuất kho</h2>
         <div class="sub">Danh sách phiếu xuất đã lập cho kho của bạn</div>
       </div>
-      <button class="btn" @click="taoMoi">+ Tạo phiếu xuất</button>
+      <button class="btn" @click="taoMoi"><Icon name="plus" :size="18" />Tạo phiếu xuất</button>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
+    <div class="sb mb12" v-else>
       <h2>Phiếu xuất kho</h2>
-      <button class="btn btn-sm" @click="taoMoi">+ Tạo phiếu</button>
+      <button class="btn btn-sm" @click="taoMoi"><Icon name="plus" :size="16" />Tạo phiếu</button>
     </div>
 
     <!-- E8/US-E8.4: lọc theo khoa phòng -->
-    <div class="field" style="max-width: 320px">
+    <div class="field mw-sm">
       <label>Khoa phòng nhận</label>
       <select v-model="khoaPhongLoc" @change="locThayDoi">
         <option value="">— Tất cả —</option>
@@ -113,7 +114,8 @@ onMounted(() => {
     </div>
 
     <!-- DESKTOP -->
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
       <table>
         <thead>
           <tr>
@@ -128,7 +130,7 @@ onMounted(() => {
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.name" class="clickable" @click="open(r)">
-            <td><b>{{ r.name }}</b></td>
+            <td class="cell-code nowrap">{{ r.name }}</td>
             <td>{{ fmtDate(r.ngay) }}</td>
             <td>{{ r.loai_xuat }}</td>
             <td>{{ r.khoa_phong ? tenKhoa(r.khoa_phong) : '—' }}</td>
@@ -138,19 +140,20 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- MOBILE -->
     <template v-else>
       <div v-for="r in rows" :key="r.name" class="card mb10 clickable" @click="open(r)">
         <div class="sb">
-          <b>{{ r.name }}</b>
+          <b class="cell-code">{{ r.name }}</b>
           <span class="badge" :class="badge(r.docstatus).cls">{{ badge(r.docstatus).label }}</span>
         </div>
-        <p class="tag" style="margin-top: 4px">{{ r.loai_xuat }} · {{ fmtDate(r.ngay) }}</p>
-        <p class="sb" style="margin-top: 8px; font-size: 13px">
+        <p class="tag mt4">{{ r.loai_xuat }} · {{ fmtDate(r.ngay) }}</p>
+        <p class="sb mt8 fs13">
           <span>{{ r.khoa_phong ? tenKhoa(r.khoa_phong) : (r.noi_nhan || '—') }}</span>
-          <b>{{ fmtVND(r.tong_tien) }}</b>
+          <b class="tnum">{{ fmtVND(r.tong_tien) }}</b>
         </p>
       </div>
     </template>

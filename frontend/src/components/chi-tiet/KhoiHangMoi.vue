@@ -48,11 +48,11 @@ defineProps({
     <div class="card mb10">
       <div v-if="daCoDon" class="h3">Hàng chưa có mã — Miyano đang tìm nguồn</div>
       <div v-else class="h3">Hàng chưa có trong hệ thống — cần xem kỹ trước khi duyệt</div>
-      <p v-if="daCoDon" class="tag" style="margin: 4px 0 10px">
+      <p v-if="daCoDon" class="tag mt4 mb10">
         {{ dong.length }} mặt hàng chưa có trong danh mục. Miyano đang tìm nguồn;
         khi tìm được, hàng sẽ hiện ở bảng mặt hàng phía dưới kèm đơn giá.
       </p>
-      <p v-else class="tag" style="margin: 4px 0 10px">
+      <p v-else class="tag mt4 mb10">
         {{ dong.length }} mặt hàng nhân viên tự khai vì không tìm thấy trong danh
         mục. Miyano sẽ tìm nguồn và báo giá sau khi được duyệt.
       </p>

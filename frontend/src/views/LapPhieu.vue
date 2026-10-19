@@ -79,6 +79,7 @@ import { showToast } from '../toast'
 import PhanTrang from '../components/PhanTrang.vue'
 import LocChon from '../components/LocChon.vue'
 import CotTenHang from '../components/CotTenHang.vue'
+import Icon from '../components/Icon.vue'
 import { ghepTenThuongGoi } from '../ten-hang'
 
 const route = useRoute()
@@ -1012,11 +1013,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="dat-hang" :class="{ 'co-cartbar': isMobile && buoc === 'chon' }">
     <div class="topbar">
       <div>
         <h2>Đặt hàng</h2>
-        <div class="sub">{{ tenKhoa }}<span v-if="tenPhieu"> · Nháp {{ tenPhieu }}</span></div>
+        <div class="sub">{{ tenKhoa }}<span v-if="tenPhieu"> · Nháp <span class="mono">{{ tenPhieu }}</span></span></div>
       </div>
     </div>
 
@@ -1026,23 +1027,31 @@ onMounted(async () => {
     <template v-else>
     <!-- Hai BƯỚC của cùng một việc, không phải hai cửa (QĐ-G5). -->
     <div class="tabs">
-      <button :class="{ on: buoc === 'chon' }" @click="buoc = 'chon'">1 · Chọn hàng</button>
+      <button :class="{ on: buoc === 'chon' }" @click="buoc = 'chon'">
+        <Icon name="search" :size="16" />1 · Chọn hàng
+      </button>
       <button :class="{ on: buoc === 'gio' }" @click="buoc = 'gio'">
-        2 · Giỏ hàng ({{ tongDongGio }})
+        <Icon name="shopping-cart" :size="16" />2 · Giỏ hàng ({{ tongDongGio }})
       </button>
     </div>
 
     <!-- ==================== BƯỚC 1 — DANH SÁCH HÀNG HOÁ ==================== -->
     <template v-if="buoc === 'chon'">
-      <div class="card mb10">
+      <div class="card mb10 the-loc">
         <div class="bo-loc">
-          <div class="field" style="margin-bottom: 8px">
+          <div class="field mb8">
             <label>Tìm theo tên xuất hóa đơn</label>
-            <input v-model="search" placeholder="Nhập tên trên hóa đơn hoặc mã hàng..." />
+            <div class="o-tim">
+              <Icon name="search" :size="16" />
+              <input v-model="search" placeholder="Nhập tên trên hóa đơn hoặc mã hàng..." />
+            </div>
           </div>
-          <div class="field" style="margin-bottom: 8px">
+          <div class="field mb8">
             <label>Tìm theo tên thường gọi</label>
-            <input v-model="searchTenGoi" placeholder="Tên đơn vị bạn quen gọi..." />
+            <div class="o-tim">
+              <Icon name="search" :size="16" />
+              <input v-model="searchTenGoi" placeholder="Tên đơn vị bạn quen gọi..." />
+            </div>
           </div>
         </div>
         <div v-if="nhomVatTuDs.length || nhaCungCapDs.length || maySuDungDs.length" class="bo-loc">
@@ -1061,86 +1070,101 @@ onMounted(async () => {
         </div>
         <!-- LUÔN HIỆN (brief Task 10): khách biết trước hàng mình cần chưa
              có mã thì không phải gõ một từ khoá vô vọng để mở được lối này. -->
-        <button class="btn-o btn-sm" @click="moDatNgoai(search.trim() || searchTenGoi.trim())">
-          + Thêm dòng — hàng chưa có trong hệ thống
-        </button>
+        <div class="loc-cuoi">
+          <button class="btn-o btn-sm" @click="moDatNgoai(search.trim() || searchTenGoi.trim())">
+            <Icon name="plus" :size="16" />Thêm dòng — hàng chưa có trong hệ thống
+          </button>
+        </div>
       </div>
 
-      <div v-if="searchError" class="note note-r" style="margin-bottom: 12px">
-        {{ searchError }}
+      <div v-if="searchError" class="note note-r note-ic mb12">
+        <Icon name="alert-circle" :size="18" /><div>{{ searchError }}</div>
       </div>
       <div v-if="searchLoading" class="loading">Đang tải danh mục…</div>
 
       <template v-else-if="searchResults.length">
-        <div v-if="!isMobile" class="card mb10" style="padding: 0; overflow-x: auto">
-          <table>
-            <thead>
-              <tr>
-                <CotTenHang head /><th>Nhóm</th><th>ĐVT</th>
-                <th>Tình trạng</th><th>Giá</th>
-                <th style="width: 130px">Số lượng</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in searchResults" :key="r.item_code">
-                <CotTenHang :ma="r.item_code" :ten="r.item_name" :ten-goi="r.ten_thuong_goi || []" />
-                <td><span class="tag">{{ r.nhom_vat_tu || '—' }}</span></td>
-                <td>{{ r.dvt }}</td>
-                <td>
-                  <span class="badge" :class="r.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">
-                    {{ r.trang_thai_hang }}
-                  </span>
-                </td>
-                <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
-                <td>
-                  <div class="step">
-                    <button @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))">−</button>
-                    <input v-model="qtys[r.item_code]" inputmode="decimal" />
-                    <button @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)">+</button>
-                  </div>
-                  <div v-if="loiBoiSo(r, soHienTai(r))" class="warn">{{ loiBoiSo(r, soHienTai(r)) }}</div>
-                  <div v-else-if="boiSo(r) > 1" class="muted sm">bội số {{ boiSo(r) }}</div>
-                </td>
-                <td><button class="btn btn-sm" @click="themDong(r)">+ Giỏ</button></td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="!isMobile" class="card card-flush mb10">
+          <div class="tbl-scroll">
+            <table class="bang-hang">
+              <thead>
+                <tr>
+                  <CotTenHang head /><th>Nhóm</th><th>ĐVT</th>
+                  <th>Tình trạng</th><th>Giá</th>
+                  <th class="cot-sl">Số lượng</th><th><span class="sr-only">Thêm vào giỏ</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in searchResults" :key="r.item_code">
+                  <CotTenHang :ma="r.item_code" :ten="r.item_name" :ten-goi="r.ten_thuong_goi || []" />
+                  <td><span class="tag">{{ r.nhom_vat_tu || '—' }}</span></td>
+                  <td>{{ r.dvt }}</td>
+                  <td>
+                    <span class="badge" :class="r.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">
+                      {{ r.trang_thai_hang }}
+                    </span>
+                  </td>
+                  <td><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></td>
+                  <td>
+                    <div class="step">
+                      <button :aria-label="`Giảm số lượng ${r.item_code}`" @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))"><Icon name="minus" :size="16" /></button>
+                      <input v-model="qtys[r.item_code]" inputmode="decimal" :aria-label="`Số lượng ${r.item_code}`" />
+                      <button :aria-label="`Tăng số lượng ${r.item_code}`" @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)"><Icon name="plus" :size="16" /></button>
+                    </div>
+                    <div v-if="loiBoiSo(r, soHienTai(r))" class="warn mt4">{{ loiBoiSo(r, soHienTai(r)) }}</div>
+                    <div v-else-if="boiSo(r) > 1" class="muted sm mt4">bội số {{ boiSo(r) }}</div>
+                  </td>
+                  <td class="right">
+                    <button class="btn btn-sm btn-soft" :aria-label="`Thêm ${r.item_code} vào giỏ`" @click="themDong(r)">
+                      <Icon name="shopping-cart" :size="16" />Giỏ
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <template v-else>
           <div v-for="r in searchResults" :key="r.item_code" class="card item mb10">
-            <div class="nm">{{ r.item_code }} · {{ r.item_name }}</div>
-            <div class="dong-ten-goi">Tên thường gọi: {{ ghepTenThuongGoi(r.ten_thuong_goi) }}</div>
-            <div class="tag" style="margin: 2px 0 6px">
+            <div class="nm"><span class="mono text-navy">{{ r.item_code }}</span> · {{ r.item_name }}</div>
+            <div class="dong-ten-goi mt4">Tên thường gọi: {{ ghepTenThuongGoi(r.ten_thuong_goi) }}</div>
+            <div class="tag dong-phu">
               {{ r.dvt }}<template v-if="r.nhom_vat_tu"> · {{ r.nhom_vat_tu }}</template>
             </div>
-            <div class="sb" style="flex-wrap: wrap; gap: 6px">
+            <div class="sb wrap gap6 jc-start">
               <span class="badge" :class="r.trang_thai_hang === 'Còn hàng' ? 'b-green' : 'b-gray'">
                 {{ r.trang_thai_hang }}
               </span>
               <span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span>
             </div>
-            <div class="sb" style="margin-top: 10px">
+            <div class="sb mt12">
               <div class="step">
-                <button @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))">−</button>
-                <input v-model="qtys[r.item_code]" inputmode="decimal" />
-                <button @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)">+</button>
+                <button :aria-label="`Giảm số lượng ${r.item_code}`" @click="qtys[r.item_code] = Math.max(buoc1(r), soHienTai(r) - buoc1(r))"><Icon name="minus" :size="18" /></button>
+                <input v-model="qtys[r.item_code]" inputmode="decimal" :aria-label="`Số lượng ${r.item_code}`" />
+                <button :aria-label="`Tăng số lượng ${r.item_code}`" @click="qtys[r.item_code] = soHienTai(r) + buoc1(r)"><Icon name="plus" :size="18" /></button>
               </div>
-              <button class="btn btn-sm" @click="themDong(r)">+ Giỏ</button>
+              <button class="btn btn-sm btn-soft" :aria-label="`Thêm ${r.item_code} vào giỏ`" @click="themDong(r)">
+                <Icon name="shopping-cart" :size="16" />Giỏ
+              </button>
             </div>
-            <div v-if="loiBoiSo(r, soHienTai(r))" class="warn">{{ loiBoiSo(r, soHienTai(r)) }}</div>
-            <div v-else-if="boiSo(r) > 1" class="muted sm">Đặt theo bội số {{ boiSo(r) }} {{ r.dvt }}</div>
+            <div v-if="loiBoiSo(r, soHienTai(r))" class="warn mt6">{{ loiBoiSo(r, soHienTai(r)) }}</div>
+            <div v-else-if="boiSo(r) > 1" class="muted sm mt6">Đặt theo bội số {{ boiSo(r) }} {{ r.dvt }}</div>
           </div>
         </template>
         <PhanTrang v-model:trang="searchTrang" v-model:so-dong="searchSoDong" :tong="searchTong" />
       </template>
 
       <div v-if="timKhongRa && !searchError" class="card mb10 tag">
-        <template v-if="nhomVatTu || nhaCungCap || maySuDung || searchTenGoi.trim()">
-          Không có mặt hàng khớp bộ lọc đang chọn — bỏ lọc (nút <b>×</b>) để tìm
-          trong toàn bộ danh mục, hoặc dùng nút
-        </template>
-        <template v-else>Không có mặt hàng khớp tìm kiếm trong hệ thống — dùng nút</template>
-        <b>“+ Thêm dòng”</b> ở trên để Miyano tìm nguồn và báo giá.
+        <div class="row-top">
+          <Icon name="info" :size="18" class="shrink0 text-accent" />
+          <div>
+            <template v-if="nhomVatTu || nhaCungCap || maySuDung || searchTenGoi.trim()">
+              Không có mặt hàng khớp bộ lọc đang chọn — bỏ lọc (nút <b>×</b>) để tìm
+              trong toàn bộ danh mục, hoặc dùng nút
+            </template>
+            <template v-else>Không có mặt hàng khớp tìm kiếm trong hệ thống — dùng nút</template>
+            <b>“+ Thêm dòng”</b> ở trên để Miyano tìm nguồn và báo giá.
+          </div>
+        </div>
       </div>
 
       <!-- Hàng chưa có mã — khách gõ tay, không bao giờ lẫn vào
@@ -1148,12 +1172,12 @@ onMounted(async () => {
            giỏ chỉ liệt kê lại. -->
       <template v-if="dnMoRong || datNgoai.length">
         <div class="card mb10">
-          <div class="sb" style="cursor: pointer" @click="dnMoRong = !dnMoRong">
+          <div class="sb pointer dau-dat-ngoai" @click="dnMoRong = !dnMoRong">
             <b>Hàng chưa có trong hệ thống — Miyano sẽ tìm nguồn và báo giá</b>
-            <span>{{ dnMoRong ? '▾' : '▸' }}</span>
+            <Icon :name="dnMoRong ? 'chevron-down' : 'chevron-right'" :size="18" class="shrink0" />
           </div>
           <template v-if="dnMoRong">
-            <div v-for="(d, i) in datNgoai" :key="i" class="card mb10" style="margin-top: 10px">
+            <div v-for="(d, i) in datNgoai" :key="i" class="card mb10 mt10 the-dat-ngoai">
               <div class="field">
                 <label>Tên hàng <span class="req">*</span></label>
                 <input v-model="d.ten_hang" placeholder="VD: Găng tay nitrile không bột size M" />
@@ -1165,31 +1189,31 @@ onMounted(async () => {
                    dưới) và là thứ BR-Y5 bắt buộc phải có. -->
               <div class="field">
                 <label>Ảnh nhãn hộp <span class="req">*</span></label>
-                <div class="flex" style="flex-wrap: wrap; gap: 6px">
-                  <div v-for="u in d.anh" :key="u" style="position: relative">
+                <div class="flex wrap gap8">
+                  <div v-for="u in d.anh" :key="u" class="relative">
                     <img
                       v-if="anhCache[u]" :src="anhCache[u]" alt="Ảnh hàng chưa có trong hệ thống"
-                      style="width: 64px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line)"
+                      class="anh-nho"
                     />
                     <button
-                      class="btn-o btn-sm btn-danger" :disabled="!!dangTaiAnh"
-                      style="position: absolute; top: -8px; right: -8px; padding: 0 6px; line-height: 18px; border-radius: 50%"
+                      class="btn-o btn-sm btn-danger nut-xoa-anh" :disabled="!!dangTaiAnh"
+                      aria-label="Xoá ảnh"
                       @click="xoaAnh(d, u)"
-                    >×</button>
+                    ><Icon name="x" :size="14" /></button>
                   </div>
                 </div>
                 <label
-                  class="btn-o btn-sm" style="display: inline-block; margin-top: 6px; cursor: pointer"
+                  class="btn-o btn-sm mt8 pointer nut-chon-anh"
                   :class="{ muted: d.anh.length >= CR03_TOI_DA_ANH || dangTaiAnh === d }"
                 >
                   {{ dangTaiAnh === d ? 'Đang tải…' : '+ Chọn ảnh' }}
                   <input
-                    type="file" accept="image/*" style="display: none"
+                    type="file" accept="image/*" class="hidden"
                     :disabled="d.anh.length >= CR03_TOI_DA_ANH || dangTaiAnh === d"
                     @change="chonAnh(d, $event.target.files); $event.target.value = ''"
                   />
                 </label>
-                <div class="tag" style="margin-top: 4px">
+                <div class="tag mt4">
                   {{ d.anh.length }}/{{ CR03_TOI_DA_ANH }} ảnh — Miyano dùng ảnh để tìm đúng hàng.
                 </div>
               </div>
@@ -1199,8 +1223,8 @@ onMounted(async () => {
                    đòi tích cờ này khi dòng không có ảnh, xem
                    `PortalDeXuatMua._kiem_dat_ngoai_du_nhan_dang()`. -->
               <div class="field">
-                <label style="display: flex; align-items: center; gap: 6px; font-weight: normal">
-                  <input type="checkbox" v-model="d.khong_co_anh" style="width: auto" />
+                <label class="nhan-check">
+                  <input type="checkbox" v-model="d.khong_co_anh" />
                   Tôi không chụp được ảnh
                 </label>
                 <template v-if="d.khong_co_anh">
@@ -1211,12 +1235,12 @@ onMounted(async () => {
                 </template>
               </div>
 
-              <div class="sb" style="gap: 8px">
-                <div class="field" style="flex: 1">
+              <div class="sb gap8 ai-start">
+                <div class="field grow">
                   <label>ĐVT <span class="req">*</span></label>
                   <input v-model="d.dvt" placeholder="Hộp" />
                 </div>
-                <div class="field" style="flex: 1">
+                <div class="field grow">
                   <label>Số lượng <span class="req">*</span></label>
                   <!-- `decimal`, không `numeric`: bàn phím ảo `numeric` KHÔNG
                        có dấu thập phân, khách trên điện thoại không gõ nổi
@@ -1232,18 +1256,18 @@ onMounted(async () => {
               <!-- CR-03 §7 — bốn ô MÔ TẢ KỸ THUẬT, gọn trong một `<details>`.
                    Mở sẵn khi dòng CHƯA có ảnh nào (khách cần một lối khai
                    thay thế), thu lại khi đã có ảnh (ảnh đã đủ, đỡ rợp mắt). -->
-              <details :open="!d.anh.length" style="margin-bottom: 12px">
-                <summary style="cursor: pointer">Thông tin trên hộp (giúp Miyano tìm đúng hàng)</summary>
-                <div class="field" style="margin-top: 8px">
+              <details :open="!d.anh.length" class="mb12 khoi-mo">
+                <summary class="pointer">Thông tin trên hộp (giúp Miyano tìm đúng hàng)</summary>
+                <div class="field mt8">
                   <label>Model / mã catalogue</label>
                   <input v-model="d.model_ma" placeholder="VD: NBG-100-M" />
                 </div>
-                <div class="sb" style="gap: 8px">
-                  <div class="field" style="flex: 1">
+                <div class="sb gap8 ai-start">
+                  <div class="field grow">
                     <label>Hãng sản xuất</label>
                     <input v-model="d.hang_san_xuat" placeholder="VD: Ansell" />
                   </div>
-                  <div class="field" style="flex: 1">
+                  <div class="field grow">
                     <label>Nước sản xuất</label>
                     <input v-model="d.nuoc_san_xuat" placeholder="VD: Malaysia" />
                   </div>
@@ -1258,9 +1282,9 @@ onMounted(async () => {
                    trên — đây là thông tin nhà cung cấp/giá hiện tại của
                    BỆNH VIỆN, gộp chung với mô tả kỹ thuật sẽ làm khách khai
                    ra mà không nhận thấy mình vừa khai một thứ nhạy cảm. -->
-              <details style="margin-bottom: 12px">
-                <summary style="cursor: pointer">Tuỳ chọn — giúp Miyano báo giá cạnh tranh hơn</summary>
-                <div class="field" style="margin-top: 8px">
+              <details class="mb12 khoi-mo">
+                <summary class="pointer">Tuỳ chọn — giúp Miyano báo giá cạnh tranh hơn</summary>
+                <div class="field mt8">
                   <label>Nhà cung cấp hiện tại</label>
                   <input v-model="d.ncc_hien_tai" placeholder="VD: Công ty ABC" />
                 </div>
@@ -1270,16 +1294,19 @@ onMounted(async () => {
                 </div>
               </details>
 
-              <button class="btn-o btn-sm" @click="xoaDongDatNgoai(i)">Xoá dòng</button>
+              <button class="btn-o btn-sm" @click="xoaDongDatNgoai(i)"><Icon name="trash-2" :size="16" />Xoá dòng</button>
             </div>
-            <button class="btn-o" style="width: 100%" @click="themDongDatNgoai">+ Thêm dòng</button>
+            <button class="btn-o w100" @click="themDongDatNgoai"><Icon name="plus" :size="16" />Thêm dòng</button>
           </template>
         </div>
       </template>
 
-      <div class="card mb10">
-        <button class="btn" style="width: 100%" @click="buoc = 'gio'">
-          Xem giỏ hàng ({{ tongDongGio }}) →
+      <!-- Nút sang bước giỏ: thẻ thường trên desktop, thanh giỏ hàng nổi
+           (`.cartbar`) trên điện thoại — cùng một nút, chỉ đổi cách trình bày. -->
+      <div class="card mb10 cart-cta" :class="{ cartbar: isMobile }">
+        <button class="btn w100" @click="buoc = 'gio'">
+          <span class="inline-flex"><Icon name="shopping-cart" :size="18" />Xem giỏ hàng ({{ tongDongGio }})</span>
+          <Icon name="arrow-right" :size="18" />
         </button>
       </div>
     </template>
@@ -1290,89 +1317,91 @@ onMounted(async () => {
            yêu cầu báo giá, thì `datHang()` đã điều hướng đi nơi khác
            (`dichSauDatHang`), không tới đây. -->
       <div v-if="donDaDat" class="card success">
-        <div style="font-size: 52px">✅</div>
-        <h2 style="margin: 10px 0 6px">Đã đặt hàng!</h2>
-        <p style="margin: 14px 0; font-size: 17px">
-          Mã đơn: <b style="color: var(--blue)">{{ donDaDat.sales_order }}</b>
+        <div class="success-ic"><Icon name="check-circle" :size="34" /></div>
+        <h2 class="mb6">Đã đặt hàng!</h2>
+        <p class="ma-don">
+          Mã đơn: <b class="mono text-navy">{{ donDaDat.sales_order }}</b>
           <span class="badge b-gray">Chờ xác nhận</span>
         </p>
         <p class="tag">
           Phiếu đề xuất tự duyệt đứng sau đơn:
-          <b>{{ donDaDat.de_xuat || '—' }}</b>
+          <b class="mono">{{ donDaDat.de_xuat || '—' }}</b>
         </p>
-        <div class="flex" style="justify-content: center; margin-top: 20px; flex-wrap: wrap">
-          <button class="btn-o" @click="router.push({ name: 'yeu-cau' })">Xem đơn hàng</button>
-          <button class="btn" @click="donDaDat = null; buoc = 'chon'">Tiếp tục đặt hàng</button>
+        <div class="flex wrap mt24 nut-thanh-cong">
+          <button class="btn-o" @click="router.push({ name: 'yeu-cau' })"><Icon name="clipboard-list" :size="16" />Xem đơn hàng</button>
+          <button class="btn" @click="donDaDat = null; buoc = 'chon'"><Icon name="shopping-cart" :size="16" />Tiếp tục đặt hàng</button>
         </div>
       </div>
 
       <template v-else>
-        <div class="card mb10" style="padding: 0; overflow-x: auto">
-          <div class="h3" style="padding: 12px 14px 0">Thông tin đơn hàng</div>
-          <table>
-            <thead>
-              <tr>
-                <CotTenHang head /><th>ĐVT</th>
-                <th style="width: 150px">SL</th>
-                <th class="right">ĐƠN GIÁ</th><th class="right">THÀNH TIỀN</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in items" :key="r.item_code">
-                <CotTenHang :ma="r.item_code" :ten="r.item_name">
-                  <div><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></div>
-                </CotTenHang>
-                <td>{{ r.dvt }}</td>
-                <td>
-                  <!-- KHÔNG `min="1"`: mâu thuẫn với chính quyết định "số
-                       lượng có thể lẻ" (0.5, 2.5 mét băng gạc) — `min` gắn cờ
-                       `:invalid` cho MỌI số dưới 1, kể cả số lẻ hợp lệ. Chốt
-                       thật ở `kiemTraSoLuong()`, chạy trước mọi lần gửi. -->
-                  <input
-                    type="number" step="any"
-                    v-model="r.so_luong_de_xuat"
-                    :aria-label="`Số lượng cho ${r.item_code}`"
-                    style="width: 90px; text-align: right"
-                  />
-                  <div v-if="loiBoiSo(r, r.so_luong_de_xuat)" class="warn">
-                    {{ loiBoiSo(r, r.so_luong_de_xuat) }}
-                  </div>
-                  <div v-else-if="boiSo(r) > 1" class="muted sm">bội số {{ boiSo(r) }}</div>
-                </td>
-                <!-- §7 — đơn giá và thành tiền của dòng có giá; dòng chờ báo
-                     giá hiện "—". Tổng nằm ở khối nút bên dưới, CHỈ của phần
-                     có giá. -->
-                <td class="right">{{ giaTrongGio(r) }}</td>
-                <td class="right">{{ thanhTien(r) }}</td>
-                <td><button class="btn-o btn-sm btn-danger" @click="xoaDong(r.item_code)">Xoá</button></td>
-              </tr>
-              <tr v-for="(d, i) in datNgoai" :key="'dn' + i">
-                <td class="tag">—</td>
-                <td>
-                  {{ d.ten_hang || '(chưa đặt tên)' }}
-                  <div><span class="badge b-orange">Chờ báo giá</span></div>
-                </td>
-                <td class="tag">—</td>
-                <td>{{ d.dvt || '—' }}</td>
-                <td>{{ d.so_luong || '—' }}</td>
-                <td class="right">—</td>
-                <td class="right">—</td>
-                <td><button class="btn-o btn-sm btn-danger" @click="xoaDongDatNgoai(i)">Xoá</button></td>
-              </tr>
-              <tr v-if="!tongDongGio">
-                <td colspan="8" class="tag">
-                  Giỏ chưa có mặt hàng nào — quay lại bước <b>Chọn hàng</b> để thêm.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="card card-flush mb10">
+          <div class="card-hd"><div class="h3 mb0">Thông tin đơn hàng</div></div>
+          <div class="tbl-scroll">
+            <table class="bang-gio">
+              <thead>
+                <tr>
+                  <CotTenHang head /><th>ĐVT</th>
+                  <th class="cot-sl-gio">SL</th>
+                  <th class="right">ĐƠN GIÁ</th><th class="right">THÀNH TIỀN</th><th><span class="sr-only">Xoá</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in items" :key="r.item_code">
+                  <CotTenHang :ma="r.item_code" :ten="r.item_name">
+                    <div class="mt4"><span class="badge" :class="classTang(r)">{{ nhanTang(r) }}</span></div>
+                  </CotTenHang>
+                  <td>{{ r.dvt }}</td>
+                  <td>
+                    <!-- KHÔNG `min="1"`: mâu thuẫn với chính quyết định "số
+                         lượng có thể lẻ" (0.5, 2.5 mét băng gạc) — `min` gắn cờ
+                         `:invalid` cho MỌI số dưới 1, kể cả số lẻ hợp lệ. Chốt
+                         thật ở `kiemTraSoLuong()`, chạy trước mọi lần gửi. -->
+                    <input
+                      type="number" step="any"
+                      v-model="r.so_luong_de_xuat"
+                      :aria-label="`Số lượng cho ${r.item_code}`"
+                      class="o-sl"
+                    />
+                    <div v-if="loiBoiSo(r, r.so_luong_de_xuat)" class="warn mt4">
+                      {{ loiBoiSo(r, r.so_luong_de_xuat) }}
+                    </div>
+                    <div v-else-if="boiSo(r) > 1" class="muted sm mt4">bội số {{ boiSo(r) }}</div>
+                  </td>
+                  <!-- §7 — đơn giá và thành tiền của dòng có giá; dòng chờ báo
+                       giá hiện "—". Tổng nằm ở khối nút bên dưới, CHỈ của phần
+                       có giá. -->
+                  <td class="right">{{ giaTrongGio(r) }}</td>
+                  <td class="right fw600">{{ thanhTien(r) }}</td>
+                  <td class="right"><button class="btn-o btn-sm btn-danger" @click="xoaDong(r.item_code)"><Icon name="trash-2" :size="15" />Xoá</button></td>
+                </tr>
+                <tr v-for="(d, i) in datNgoai" :key="'dn' + i">
+                  <td class="tag">—</td>
+                  <td>
+                    {{ d.ten_hang || '(chưa đặt tên)' }}
+                    <div class="mt4"><span class="badge b-orange">Chờ báo giá</span></div>
+                  </td>
+                  <td class="tag">—</td>
+                  <td>{{ d.dvt || '—' }}</td>
+                  <td>{{ d.so_luong || '—' }}</td>
+                  <td class="right">—</td>
+                  <td class="right">—</td>
+                  <td class="right"><button class="btn-o btn-sm btn-danger" @click="xoaDongDatNgoai(i)"><Icon name="trash-2" :size="15" />Xoá</button></td>
+                </tr>
+                <tr v-if="!tongDongGio">
+                  <td colspan="8" class="tag gio-trong">
+                    Giỏ chưa có mặt hàng nào — quay lại bước <b>Chọn hàng</b> để thêm.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div v-if="datNgoai.length" class="tag" style="margin: -4px 0 12px 4px">
-          Sửa dòng hàng chưa có mã ở bước <a href="#" @click.prevent="buoc = 'chon'">Chọn hàng</a>.
+        <div v-if="datNgoai.length" class="tag goi-y-sua">
+          Sửa dòng hàng chưa có mã ở bước <a href="#" class="link" @click.prevent="buoc = 'chon'">Chọn hàng</a>.
         </div>
 
         <div class="card mb10">
-          <div class="h3">Thông tin giao hàng</div>
+          <div class="h3 mb12">Thông tin giao hàng</div>
           <!-- Lý do yêu cầu là dữ liệu của LUỒNG DUYỆT (quản lý đọc trước khi
                duyệt). Đường đặt thẳng của quản lý không có ai duyệt nên
                `portal_order_place` tự ghi lý do "đặt trực tiếp, tự động
@@ -1395,7 +1424,7 @@ onMounted(async () => {
                 {{ k.ten_khoa_phong }}
               </option>
             </select>
-            <div class="tag">
+            <div class="tag mt4">
               Chọn khoa để chính khoa đó theo dõi được đơn, phiếu giao và hoá
               đơn của yêu cầu này. Để <b>Toàn viện</b> nếu đơn không thuộc
               khoa nào — khi đó chỉ quản lý xem được.
@@ -1414,17 +1443,17 @@ onMounted(async () => {
               maxlength="140"
               placeholder="Ví dụ: Bổ sung vật tư tiêu hao khoa Dược tháng 9"
             />
-            <div class="tag">
+            <div class="tag mt4">
               Tên gọi để khoa tự nhận ra đơn này trong danh sách. Không bắt
               buộc — bỏ trống thì đơn vẫn tra được bằng mã.
             </div>
           </div>
-          <div class="sb" style="gap: 8px">
-            <div class="field" style="flex: 1">
+          <div class="sb gap12 ai-start hai-o">
+            <div class="field grow">
               <label>Ngày giao mong muốn</label>
               <input type="date" v-model="ngayCan" :min="ngayToiThieu" />
             </div>
-            <div class="field" style="flex: 1">
+            <div class="field grow">
               <label>Địa chỉ giao hàng</label>
               <select v-model="diaChiGiao">
                 <option value="">—</option>
@@ -1432,7 +1461,7 @@ onMounted(async () => {
               </select>
             </div>
           </div>
-          <div class="field" style="margin-bottom: 0">
+          <div class="field mb0">
             <label>Ghi chú</label>
             <textarea rows="2" v-model="ghiChu" placeholder="Yêu cầu giao giờ hành chính..."></textarea>
           </div>
@@ -1444,17 +1473,17 @@ onMounted(async () => {
                * chỉ có hàng chờ báo giá, hoặc phiếu đã từng gửi (không tách
                  nữa) mà còn hàng chờ báo giá → cả phiếu đi vòng báo giá;
                * chỉ có hàng có giá → không cần nói gì. -->
-          <div v-if="tomTat.seTach" class="note note-b" style="margin-bottom: 12px">
-            Lần đặt này sẽ tách làm hai: <b>{{ tomTat.soDatNgay }}</b> mặt hàng có giá thành đơn đặt ngay
-            theo bảng giá, <b>{{ tomTat.soChoBaoGia }}</b> mặt hàng chờ báo giá thành một yêu cầu báo giá riêng.
+          <div v-if="tomTat.seTach" class="note note-b note-ic mb12">
+            <Icon name="info" :size="18" /><div>Lần đặt này sẽ tách làm hai: <b>{{ tomTat.soDatNgay }}</b> mặt hàng có giá thành đơn đặt ngay
+            theo bảng giá, <b>{{ tomTat.soChoBaoGia }}</b> mặt hàng chờ báo giá thành một yêu cầu báo giá riêng.</div>
           </div>
-          <div v-else-if="tomTat.soChoBaoGia" class="note note-b" style="margin-bottom: 12px">
-            Giỏ có hàng chờ báo giá — sẽ gửi thành yêu cầu báo giá; Miyano báo giá, quý vị đồng ý rồi mới thành đơn hàng.
+          <div v-else-if="tomTat.soChoBaoGia" class="note note-b note-ic mb12">
+            <Icon name="info" :size="18" /><div>Giỏ có hàng chờ báo giá — sẽ gửi thành yêu cầu báo giá; Miyano báo giá, quý vị đồng ý rồi mới thành đơn hàng.</div>
           </div>
           <!-- Tạm tính CHỈ của phần có giá, theo bảng giá lúc này; đơn lấy giá
                bảng giá tại thời điểm được tạo (§4.3). Dòng tầng bảng giá chưa
                tải được giá thì nói rõ là chưa gồm — không để tổng lặng lẽ thiếu. -->
-          <p v-if="tomTat.soCoGia" class="right" style="margin-bottom: 12px">
+          <p v-if="tomTat.soCoGia" class="right mb12 tam-tinh">
             <b>Tạm tính (hàng có giá): {{ fmtVND(tomTat.tongTamTinh) }}</b>
             <span v-if="tomTat.soChuaRoGia" class="tag">
               <br />
@@ -1462,12 +1491,12 @@ onMounted(async () => {
               <template v-else>Chưa gồm {{ tomTat.soChuaRoGia }} mặt hàng chưa tải được giá.</template>
             </span>
           </p>
-          <div class="flex" style="flex-wrap: wrap; gap: 8px">
-            <button class="btn-o" @click="buoc = 'chon'">‹ Chọn thêm hàng</button>
+          <div class="flex wrap gap8 hanh-dong">
+            <button class="btn-o" @click="buoc = 'chon'"><Icon name="chevron-left" :size="16" />Chọn thêm hàng</button>
             <!-- Hide, don't disable — nút "Lưu nháp"/"Gửi duyệt" thuộc luồng
                  phiếu; quản lý đặt thẳng không có phiếu Nháp nào để lưu. -->
             <button v-if="!dangDatThang" class="btn-o" :disabled="dangLuu || dangGui" @click="luuNhap">
-              {{ dangLuu ? 'Đang lưu…' : 'Lưu nháp' }}
+              <Icon name="file-text" :size="16" />{{ dangLuu ? 'Đang lưu…' : 'Lưu nháp' }}
             </button>
             <!-- QĐ-G6 — MỘT nút, ĐỘNG TỪ đổi theo vai trò. `de_xuat_gui_duyet`
                  là OWNER-ONLY phía server nên nhánh phiếu chỉ hiện nút cho chủ
@@ -1478,19 +1507,18 @@ onMounted(async () => {
               :disabled="dangLuu || dangGui"
               @click="nutChinh"
             >
-              {{ dangGui ? 'Đang gửi…' : nhanNutChinh }}
+              <Icon name="send" :size="16" />{{ dangGui ? 'Đang gửi…' : nhanNutChinh }}
             </button>
             <!-- `!maDeXuat` — soi gương chốt server (xem ref `maDeXuat`).
                  Phiếu đã từng gửi duyệt đi ra bằng "Huỷ phiếu" của quản lý
                  (§5.4b, giữ dấu vết), không phải bằng nút này. -->
             <button
               v-if="tenPhieu && !maDeXuat"
-              class="btn-o btn-danger"
-              style="margin-left: auto"
+              class="btn-o btn-danger ml-auto"
               :disabled="dangLuu || dangGui || dangXoa"
               @click="xoaPhieu"
             >
-              {{ dangXoa ? 'Đang xoá…' : 'Xoá phiếu' }}
+              <Icon name="trash-2" :size="16" />{{ dangXoa ? 'Đang xoá…' : 'Xoá phiếu' }}
             </button>
           </div>
         </div>
@@ -1499,3 +1527,80 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Bộ lọc gọn trong một thẻ: nút "Thêm dòng" tách khỏi lưới ô bằng một
+   đường kẻ mảnh để không lẫn với ô nhập. */
+.the-loc .bo-loc + .bo-loc { margin-top: 2px; }
+.loc-cuoi { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 6px; }
+.o-tim { position: relative; }
+.o-tim > .ic {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-4); pointer-events: none;
+}
+.o-tim input { padding-left: 36px; }
+
+/* Bảng danh mục / giỏ. */
+.cot-sl { width: 140px; }
+.cot-sl-gio { width: 150px; }
+.o-sl { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
+.gio-trong { padding: 28px 14px; text-align: center; }
+.goi-y-sua { margin: -2px 0 12px 4px; }
+
+/* Thẻ hàng (mobile). */
+.dong-phu { margin: 4px 0 8px; }
+.jc-start { justify-content: flex-start; }
+
+/* Hàng chưa có mã. */
+.dau-dat-ngoai { min-height: 40px; color: var(--navy); }
+.dau-dat-ngoai > .ic { color: var(--text-3); }
+.the-dat-ngoai { background: var(--surface-2); box-shadow: none; }
+.anh-nho {
+  width: 64px; height: 64px; object-fit: cover; display: block;
+  border-radius: var(--r-sm); border: 1px solid var(--line);
+}
+.nut-xoa-anh {
+  position: absolute; top: -10px; right: -10px;
+  width: 26px; min-height: 26px; height: 26px; padding: 0;
+  border-radius: 50%; background: var(--surface); box-shadow: var(--sh-1);
+}
+/* Vùng bấm ≥ 40px cho nút xoá ảnh nhỏ. */
+.nut-xoa-anh::after { content: ""; position: absolute; inset: -7px; }
+.nut-chon-anh { display: inline-flex; }
+.nhan-check {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 500; min-height: 40px; margin-bottom: 4px; cursor: pointer;
+}
+.khoi-mo {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); padding: 0 14px;
+}
+.khoi-mo > summary {
+  min-height: 42px; display: flex; align-items: center;
+  font-weight: 600; font-size: 13.5px; color: var(--navy);
+}
+.khoi-mo[open] { padding-bottom: 2px; }
+
+/* Nút sang giỏ: thẻ trên desktop; trên mobile mang `.cartbar` (toàn cục)
+   nên bỏ khung thẻ, chỉ còn thanh nổi. */
+.cart-cta .btn { justify-content: space-between; min-height: 46px; }
+.cart-cta.cartbar { background: transparent; border: 0; padding: 0; box-shadow: none; margin: 0; }
+.cart-cta.cartbar .btn { min-height: 52px; }
+.co-cartbar { padding-bottom: 68px; }
+
+/* Màn đặt hàng thành công. */
+.ma-don { margin: 14px 0; font-size: 16px; display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.nut-thanh-cong { justify-content: center; }
+
+/* Tổng & hành động. */
+.tam-tinh { font-size: 15px; color: var(--navy); }
+
+@media (max-width: 900px) {
+  .step button { width: 42px; height: 42px; }
+  .step input { min-height: 42px; }
+  .hai-o { flex-direction: column; align-items: stretch; gap: 0; }
+  .hanh-dong > button { flex: 1 1 auto; }
+  .hanh-dong > .ml-auto { margin-left: 0; }
+  .nut-thanh-cong > button { flex: 1 1 100%; }
+}
+</style>

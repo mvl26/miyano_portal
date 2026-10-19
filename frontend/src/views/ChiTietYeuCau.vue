@@ -35,6 +35,7 @@ import { thongBaoSauDuyet } from '../bao-gia'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
 import BangMatHang from '../components/chi-tiet/BangMatHang.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -577,8 +578,8 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="topbar">
-      <router-link :to="quayLaiTo"><button class="btn-o" style="margin-bottom: 8px">← Quay lại</button></router-link>
+    <div class="topbar topbar-lui">
+      <router-link :to="quayLaiTo" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
     </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
@@ -588,9 +589,9 @@ onMounted(async () => {
       <!-- 1. Đầu trang — MỘT mã, MỘT badge giai đoạn. Hai badge chồng nhau
            (loại đơn + trạng thái) là thứ màn cũ làm và là thứ khiến người
            đọc phải tự ghép hai từ điển trạng thái. -->
-      <div class="card mb10" style="margin-bottom: 14px">
-        <div class="sb">
-          <b style="font-size: 16px">{{ ma }}</b>
+      <div class="card mb10 mb14">
+        <div class="sb wrap">
+          <b class="ma-ct">{{ ma }}</b>
           <span class="badge" :class="giaiDoanBadge(giaiDoan)">{{ nhanGiaiDoan(giaiDoan) }}</span>
         </div>
         <!-- Tên đơn hàng ngay dưới mã. KHÔNG thay thế mã: mã là khoá đối
@@ -609,10 +610,10 @@ onMounted(async () => {
              KHÔNG suy lại từ `loai_don` — bản cũ suy vậy nên vẫn hiện nhãn
              này sau khi Miyano đã điền đủ giá, tức nhãn nói sai về chính
              đơn nó gắn vào (Ruling #19: đừng dựng bản sao logic ở client). -->
-        <p v-if="don?.co_dong_cho_bao_gia" style="margin-top: 6px">
+        <p v-if="don?.co_dong_cho_bao_gia" class="mt6">
           <span class="badge b-purple">Có hàng chờ báo giá</span>
         </p>
-        <p class="tag" style="margin-top: 4px">
+        <p class="tag mt4">
           <template v-if="tenKhoa">{{ tenKhoa }}</template>
           <template v-if="don?.order_date"> · Đặt ngày {{ fmtDate(don.order_date) }}</template>
           <template v-if="don?.po_khach"> · Số dự trù: {{ don.po_khach }}</template>
@@ -621,32 +622,33 @@ onMounted(async () => {
              có giá với hàng chờ báo giá). Server chỉ trả `phieu_cung_lan_dat`
              khi người đang xem mở được phiếu kia. Giữ `query` để nút "Quay
              lại" ở phiếu kia vẫn về đúng bộ lọc đang mở của danh sách. -->
-        <p v-if="phieu?.phieu_cung_lan_dat" class="tag" style="margin-top: 4px">
+        <p v-if="phieu?.phieu_cung_lan_dat" class="tag mt4">
           Cùng lần đặt {{ phieu.ma_lan_dat }}:
           <router-link
+            class="link"
             :to="{ name: 'de-xuat-detail', params: { ten: phieu.phieu_cung_lan_dat.name }, query: route.query }"
           >{{ phieu.phieu_cung_lan_dat.ma_de_xuat || phieu.phieu_cung_lan_dat.name }}</router-link>
           ({{ phieu.phieu_cung_lan_dat.trang_thai }})
         </p>
-        <p v-if="phieu?.bao_gia" style="margin-top: 4px">
-          <router-link :to="{ name: 'bao-gia-detail', params: { ten: phieu.bao_gia } }">
-            Xem yêu cầu báo giá {{ phieu.bao_gia }} →
+        <p v-if="phieu?.bao_gia" class="mt4">
+          <router-link :to="{ name: 'bao-gia-detail', params: { ten: phieu.bao_gia } }" class="link inline-flex gap4">
+            Xem yêu cầu báo giá {{ phieu.bao_gia }}<Icon name="arrow-right" :size="16" />
           </router-link>
         </p>
-        <p v-if="lyDoTuChoi" class="tag" style="color: var(--red); margin-top: 8px">
-          Lý do từ chối: {{ lyDoTuChoi }}
+        <p v-if="lyDoTuChoi" class="tag text-red mt8 inline-flex ai-start">
+          <Icon name="alert-circle" :size="16" /><span>Lý do từ chối: {{ lyDoTuChoi }}</span>
         </p>
       </div>
 
       <!-- 2. Việc đang chờ bạn — banner + TOÀN BỘ nút, một chỗ duy nhất. -->
-      <div v-if="hanhDong.length || coTheSuaNhap" class="card mb10" style="margin-bottom: 14px">
+      <div v-if="hanhDong.length || coTheSuaNhap" class="card mb10 mb14 khoi-viec">
         <div class="h3">Việc đang chờ bạn</div>
-        <p v-if="quanLyDangDuyet" class="tag" style="margin-bottom: 10px">
+        <p v-if="quanLyDangDuyet" class="tag mb10">
           Bạn có thể <b>sửa số lượng duyệt</b> ở bảng bên dưới trước khi bấm Duyệt. Để trống một ô
           nghĩa là <b>giữ nguyên</b> dòng đó; gõ <b>0</b> nghĩa là <b>bỏ mặt hàng</b> khỏi đơn.
           Cột SL đề xuất khoá vĩnh viễn, không sửa được.
         </p>
-        <p v-if="coTheSuaNhap" class="tag" style="margin-bottom: 10px">
+        <p v-if="coTheSuaNhap" class="tag mb10">
           Phiếu đang ở trạng thái Nháp — bảng dưới đây chỉ để xem. Sửa số lượng, thêm/xoá dòng ở màn Đặt hàng.
         </p>
         <!-- Spec 2026-10-09 §4.3 — giá bảng giá đã đổi (hoặc mất) từ lúc khoa
@@ -656,20 +658,23 @@ onMounted(async () => {
              là người phải thu hồi và gửi lại khi một mặt hàng mất giá. -->
         <div
           v-if="phieu?.canh_bao_gia?.length"
-          style="border: 1px solid var(--orange); border-radius: 8px; padding: 10px; margin-bottom: 10px"
+          class="note note-ic canh-bao-gia"
         >
-          <b>Giá đã thay đổi so với lúc khoa gửi</b>
-          <p v-for="c in phieu.canh_bao_gia" :key="c.item_code || c.ly_do" class="tag" style="margin: 2px 0">
-            <template v-if="c.ly_do === 'mat_gia'">{{ c.thong_diep }}</template>
-            <template v-else>{{ c.item_code }}: {{ fmtVND(c.gia_cu) }} → {{ fmtVND(c.gia_moi) }}</template>
-          </p>
-          <p v-if="phieu.canh_bao_gia.some((c) => c.ly_do !== 'mat_gia')" class="tag" style="margin: 4px 0 0">
-            Đơn hàng sẽ lấy giá mới khi phiếu được duyệt.
-          </p>
+          <Icon name="alert-triangle" />
+          <div class="grow">
+            <b>Giá đã thay đổi so với lúc khoa gửi</b>
+            <p v-for="c in phieu.canh_bao_gia" :key="c.item_code || c.ly_do" class="tag dong-gia">
+              <template v-if="c.ly_do === 'mat_gia'">{{ c.thong_diep }}</template>
+              <template v-else><span class="mono">{{ c.item_code }}</span>: <span class="tnum">{{ fmtVND(c.gia_cu) }}</span> <Icon name="arrow-right" :size="14" label="thành" /> <span class="tnum">{{ fmtVND(c.gia_moi) }}</span></template>
+            </p>
+            <p v-if="phieu.canh_bao_gia.some((c) => c.ly_do !== 'mat_gia')" class="tag mt4 mb0">
+              Đơn hàng sẽ lấy giá mới khi phiếu được duyệt.
+            </p>
+          </div>
         </div>
-        <div class="flex" style="flex-wrap: wrap">
-          <router-link v-if="coTheSuaNhap" :to="{ name: 'dat-hang', params: { ten: phieu.name } }">
-            <button class="btn">Sửa nháp</button>
+        <div class="flex wrap">
+          <router-link v-if="coTheSuaNhap" :to="{ name: 'dat-hang', params: { ten: phieu.name } }" class="btn">
+            <Icon name="pencil" :size="16" />Sửa nháp
           </router-link>
           <button
             v-for="a in hanhDong"
@@ -730,14 +735,14 @@ onMounted(async () => {
            trơn: mất class này là mất nền/viền/padding của cả khối. `v-if`
            trên chính wrapper (không chỉ trên hai con) — một phiếu chưa có
            đơn (Nháp/Chờ duyệt) không được để lại một khung `.card` RỖNG. -->
-      <div v-if="don" class="card" style="margin-top: 0.875rem">
+      <div v-if="don" class="card mt14">
         <KhoiGiaoHang :don="don" />
         <KhoiHoaDonTaiLieu :don="don" :dang-dat-lai="dangDatLai" @dat-lai="datLai" />
       </div>
 
-      <div v-if="phieu?.ghi_chu" class="card mb10" style="margin-top: 14px">
+      <div v-if="phieu?.ghi_chu" class="card mb10 mt14">
         <div class="h3">Ghi chú</div>
-        <p style="font-size: 13px; white-space: pre-wrap">{{ phieu.ghi_chu }}</p>
+        <p class="fs13 ghi-chu-phieu">{{ phieu.ghi_chu }}</p>
       </div>
 
       <!-- DƯỚI CÙNG và ĐÓNG SẴN (chủ đầu tư 08/09/2026).
@@ -788,6 +793,11 @@ onMounted(async () => {
 /* Tên đơn do người gõ — dưới mã, nhạt hơn mã (mã mới là khoá đối chiếu).
    `overflow-wrap: anywhere` cho một cái tên dài liền mạch xuống dòng thay vì
    đẩy vỡ khung. `rem` để co giãn theo cỡ chữ trình duyệt. */
+.topbar-lui { margin-bottom: 14px; }
+.ma-ct { font-family: var(--mono); font-size: 16px; color: var(--navy); }
+.canh-bao-gia { margin: 0 0 10px; }
+.dong-gia { margin: 2px 0; }
+.ghi-chu-phieu { white-space: pre-wrap; }
 .ten-don-ct {
   margin-top: 0.25rem;
   font-size: 0.875rem;

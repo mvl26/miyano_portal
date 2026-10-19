@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import Icon from './Icon.vue'
 
 // Ô lọc "tìm kiếm + dropdown" (màn Đặt hàng: Nhóm vật tư, Nhà cung cấp).
 // Gõ để thu hẹp danh sách, bấm một dòng để chọn; dòng đầu "Tất cả" = bỏ lọc
@@ -63,11 +64,12 @@ function chon(v) {
       v-if="modelValue"
       class="loc-xoa"
       title="Bỏ lọc"
+      aria-label="Bỏ lọc"
       @mousedown.prevent="chon('')"
-    >×</button>
+    ><Icon name="x" :size="16" /></button>
     <div v-if="open" class="loc-ds">
       <div class="loc-dong" :class="{ on: !modelValue }" @mousedown.prevent="chon('')">
-        Tất cả
+        <span class="grow">Tất cả</span><Icon v-if="!modelValue" name="check" :size="16" class="loc-tick" />
       </div>
       <div
         v-for="o in loc"
@@ -75,7 +77,7 @@ function chon(v) {
         class="loc-dong"
         :class="{ on: o.value === modelValue }"
         @mousedown.prevent="chon(o.value)"
-      >{{ o.label }}</div>
+      ><span class="grow">{{ o.label }}</span><Icon v-if="o.value === modelValue" name="check" :size="16" class="loc-tick" /></div>
       <div v-if="!loc.length" class="loc-dong muted">Không có lựa chọn khớp</div>
     </div>
   </div>
@@ -83,17 +85,29 @@ function chon(v) {
 
 <style scoped>
 .loc-chon { position: relative; }
-.loc-chon input { width: 100%; padding-right: 28px; }
+.loc-chon input { width: 100%; padding-right: 40px; }
 .loc-xoa {
-  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--gray);
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: none; border-radius: var(--r-sm); line-height: 1; cursor: pointer; color: var(--text-3);
 }
+.loc-xoa:hover { background: var(--surface-2); color: var(--navy); }
 .loc-ds {
-  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 2px);
-  max-height: 260px; overflow-y: auto; background: #fff;
-  border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 260px; overflow-y: auto; background: var(--surface); padding: 4px;
+  border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--sh-2);
 }
-.loc-dong { padding: 8px 12px; cursor: pointer; font-size: 14px; }
-.loc-dong:hover { background: var(--bg); }
-.loc-dong.on { font-weight: 600; }
+.loc-dong {
+  display: flex; align-items: center; gap: 8px; min-height: 36px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--text);
+}
+.loc-dong:hover { background: var(--surface-2); }
+.loc-dong.on { font-weight: 600; color: var(--navy); background: var(--accent-soft); }
+.loc-dong.muted { color: var(--text-3); cursor: default; }
+.loc-dong.muted:hover { background: none; }
+.loc-tick { color: var(--accent); }
+@media (max-width: 900px) {
+  .loc-xoa { width: 40px; height: 40px; right: 0; }
+  .loc-dong { min-height: 44px; }
+}
 </style>
