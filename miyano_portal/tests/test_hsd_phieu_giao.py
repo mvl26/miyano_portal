@@ -297,8 +297,92 @@ class TestHsdPhieuGiao(FrappeTestCase):
 			hooks.index("miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao"),
 			hooks.index("miyano_portal.han_dung_khach.kiem_phieu_giao"),
 		)
-		self.assertEqual(
+		self.assertIn(
+			"miyano_portal.han_dung_khach.chot_lo_truoc_validate",
 			frappe.get_hooks("doc_events")["Delivery Note"]["before_validate"],
-			["miyano_portal.han_dung_khach.chot_lo_truoc_validate"],
 		)
 		self.assertTrue(callable(han_dung_khach.kiem_phieu_giao))
+
+	# ---- vòng sửa 1 ----
+
+	def _bundle(self, dn, lo_sl):
+		from erpnext.stock.doctype.serial_and_batch_bundle.test_serial_and_batch_bundle import (
+			make_serial_batch_bundle,
+		)
+
+		return make_serial_batch_bundle(
+			{
+				"item_code": ITEM_PG,
+				"warehouse": self.kho,
+				"voucher_type": "Delivery Note",
+				"voucher_no": dn.name,
+				"posting_date": dn.posting_date,
+				"posting_time": dn.posting_time,
+				"qty": -sum(lo_sl.values()),
+				"batches": frappe._dict(lo_sl),
+				"type_of_transaction": "Outward",
+				"company": COMPANY,
+				"do_not_submit": True,
+			}
+		)
+
+	def _dn_bundle(self, lo_sl):
+		so = self._so()
+		dn = self._dn(so)
+		d = dn.items[0]
+		d.batch_no = None
+		d.use_serial_batch_fields = 0
+		d.serial_and_batch_bundle = self._bundle(dn, lo_sl).name
+		return dn
+
+	def test_bundle_hai_lo_mot_khong_dat(self):
+		dn = self._dn_bundle({LO_A: 2, LO_B: 2})
+		with self.assertRaises(frappe.ValidationError) as cm:
+			dn.submit()
+		tb = str(cm.exception)
+		self.assertIn(f"Dòng 1 – {ITEM_PG}, lô {LO_B}: Khách hàng yêu cầu", tb)
+		self.assertIn("thiếu 26 ngày", tb)
+		self.assertNotIn(f"lô {LO_A}:", tb)
+		self.assertNotIn("không có lô nào đạt", tb)  # lô A đủ 4 → chỉ báo lô B
+
+	def test_bundle_hai_lo_deu_dat(self):
+		_nhap(ITEM_PG, self.kho, 5, "_TEST-PG-C", "2027-06-30")
+		dn = self._dn_bundle({LO_A: 2, "_TEST-PG-C": 2})
+		dn.submit()
+		self.assertEqual(dn.docstatus, 1)
+		self.assertEqual(self._lo_da_xuat(dn), {LO_A, "_TEST-PG-C"})
+
+	def test_khong_chot_lo_bi_khoa(self):
+		# Lô D đạt sàn, HSD sớm hơn A → sẽ được chọn trước nếu không lọc lô bị khoá.
+		_nhap(ITEM_PG, self.kho, 5, "_TEST-PG-D", "2027-01-20")
+		frappe.db.set_value("Batch", "_TEST-PG-D", "disabled", 1)
+		so = self._so()
+		dn = self._dn(so, insert=False)
+		chot_lo_truoc_validate(dn)
+		self.assertEqual(dn.items[0].batch_no, LO_A)
+
+		frappe.db.set_value("Batch", LO_A, "disabled", 1)
+		dn = self._dn(so, insert=False)
+		chot_lo_truoc_validate(dn)
+		self.assertFalse(dn.items[0].batch_no)
+		with self.assertRaises(frappe.ValidationError) as cm:
+			kiem_phieu_giao(dn)
+		tb = str(cm.exception)
+		self.assertIn("không có lô nào đạt", tb)
+		self.assertIn("Không còn lô nào đạt.", tb)
+
+	def test_chot_truoc_validate_dung_ngay_hom_nay(self):
+		# Không tick sửa ngày ghi sổ: sàn tính theo hôm nay (ngày ERPNext sẽ ghi),
+		# không theo posting_date cũ đang lưu (01/11 → sàn 01/02/2027 → không lô nào).
+		so = self._so()
+		dn = self._dn(so, insert=False)
+		dn.set_posting_time = 0
+		dn.posting_date = "2026-11-01"
+		with patch("frappe.utils.nowdate", return_value="2026-10-15"):
+			chot_lo_truoc_validate(dn)
+		self.assertEqual(dn.items[0].batch_no, LO_A)
+
+	def test_dinh_dang_so_luong(self):
+		self.assertEqual(han_dung_khach._sl(6), "6")
+		self.assertEqual(han_dung_khach._sl(1234567.5), "1234567.5")
+		self.assertEqual(han_dung_khach._sl(0.25), "0.25")

@@ -288,7 +288,7 @@ def canh_bao_hsd(so):
 TIEU_DE_CHAN = "Không đáp ứng HSD khách yêu cầu"
 
 
-def _yeu_cau_dong_giao(doc, d):
+def _yeu_cau_dong_giao(doc, d, ngay_ghi_so=None):
 	"""Yêu cầu HSD của dòng phiếu giao, đọc TƯƠI dòng SO; None khi không áp dụng.
 
 	Đọc DB chứ không dùng `custom_hsd_yeu_cau_den` đã lưu: ngày giao trên SO có
@@ -304,7 +304,7 @@ def _yeu_cau_dong_giao(doc, d):
 	)
 	if not dong or not ap_dung(d.get("item_code"), dong.custom_hsd_toi_thieu_thang):
 		return None
-	ngay_ghi_so = getdate(doc.get("posting_date") or frappe.utils.nowdate())
+	ngay_ghi_so = getdate(ngay_ghi_so or doc.get("posting_date") or frappe.utils.nowdate())
 	ngay_moc = max(getdate(dong.delivery_date or ngay_ghi_so), ngay_ghi_so)
 	san = san_cho_phep(dong, ngay_moc)
 	if san is None:
@@ -371,7 +371,11 @@ def _lo_dat_con_lai(doc, d, san):
 			da_giu[lo] = da_giu.get(lo, 0.0) + sl
 	han = dict(
 		frappe.get_all(
-			"Batch", filters={"name": ["in", list(ton)]}, fields=["name", "expiry_date"], as_list=True
+			# Lô bị khoá (disabled) không bao giờ được chốt — như bộ chọn lô của ERPNext.
+			"Batch",
+			filters={"name": ["in", list(ton)], "disabled": 0},
+			fields=["name", "expiry_date"],
+			as_list=True,
 		)
 	)
 	kq = [
@@ -412,13 +416,16 @@ def chot_lo_truoc_validate(doc, method=None):
 	"""
 	if cint(doc.get("is_return")):
 		return
+	# Không tick "Edit Posting Date and Time": `validate` của ERPNext sắp đặt lại
+	# ngày ghi sổ về hôm nay — tính sàn theo ngày đó, không theo ngày cũ đang lưu.
+	ngay_ghi_so = None if cint(doc.get("set_posting_time")) else frappe.utils.nowdate()
 	for d in doc.get("items") or []:
 		if not _dong_can_chot(d):
 			continue
-		san = han_toi_thieu_lo_xuat(doc, d)
-		if san is None:
+		yc = _yeu_cau_dong_giao(doc, d, ngay_ghi_so)
+		if yc is None:
 			continue
-		lo, _ds = _chon_lo_dat(doc, d, san)
+		lo, _ds = _chon_lo_dat(doc, d, yc.san)
 		if lo:
 			_gan_lo(d, lo)
 
@@ -430,8 +437,8 @@ def _cau_san(yc):
 
 
 def _sl(x):
-	x = flt(x)
-	return str(int(x)) if x == int(x) else f"{x:g}"
+	# Không dùng `:g` — 1234567.5 sẽ thành "1.23457e+06".
+	return f"{flt(x, 6):.6f}".rstrip("0").rstrip(".")
 
 
 def _cau_khong_lo_du(d, yc, ds):
