@@ -5,19 +5,20 @@ import { store } from './store'
 import { logout } from './api'
 import api from './api'
 import ToastHost from './ToastHost.vue'
+import Icon from './components/Icon.vue'
 import { capNhatChoDuyetCount } from './cho-duyet'
 
 const route = useRoute()
 
 const NAV = [
-  { to: '/dashboard', icon: '🏠', label: 'Tổng quan', short: 'Tổng quan', key: 'dashboard' },
+  { to: '/dashboard', icon: 'home', label: 'Tổng quan', short: 'Tổng quan', key: 'dashboard' },
   // Task 10 (gộp "Đặt hàng" và "Lập phiếu", 21/08/2026) — MỘT mục duy nhất
   // cho việc "đi mua đồ" (QĐ-G5). Ba mục cũ ("Đặt hàng" `/catalog`, "Giỏ
   // hàng" `/cart`, "Lập phiếu đề xuất" `/de-xuat/lap`) đã gộp vào đây: hai
   // mục cùng nghĩa là để lộ lịch sử thi công ra mặt người dùng, còn giỏ
   // hàng là một BƯỚC của việc đặt hàng chứ không phải một đích đến ai đó mở
   // cổng lên để vào xem. Tên giữ nguyên "Đặt hàng" theo chủ đầu tư.
-  { to: '/dat-hang', icon: '🛒', label: 'Đặt hàng', short: 'Đặt hàng', key: 'dat-hang' },
+  { to: '/dat-hang', icon: 'shopping-cart', label: 'Đặt hàng', short: 'Đặt hàng', key: 'dat-hang', group: 'mua' },
   // Task 11 (QĐ-G11, 21/08/2026) — MỘT mục cho "xem đồ mình xin đã tới
   // đâu". Hai mục cũ ("Đơn hàng của tôi" `/orders`, "Đề xuất mua"
   // `/de-xuat`) là HAI danh sách của CÙNG MỘT THỨ: một yêu cầu nằm ở mục
@@ -35,12 +36,12 @@ const NAV = [
   // `duyet: true` — badge số phiếu chờ duyệt SANG mục này cùng lúc màn
   // `/duyet` nghỉ. Nó vẫn là tín hiệu riêng của quản lý (xem
   // `hienBadgeDuyet` bên dưới), chỉ không còn một cửa riêng để dẫn tới.
-  { to: '/yeu-cau', icon: '📋', label: 'Danh sách đơn hàng', short: 'Đơn hàng', key: 'yeu-cau', duyet: true },
-  { to: '/kho', icon: '🏭', label: 'Kho của tôi', short: 'Kho', key: 'kho' },
-  { to: '/invoices', icon: '🧾', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices' },
+  { to: '/yeu-cau', icon: 'clipboard-list', label: 'Danh sách đơn hàng', short: 'Đơn hàng', key: 'yeu-cau', duyet: true, group: 'mua' },
+  { to: '/kho', icon: 'warehouse', label: 'Kho của tôi', short: 'Kho', key: 'kho', group: 'kho' },
+  { to: '/invoices', icon: 'receipt', label: 'Hoá đơn & công nợ', short: 'Hoá đơn', key: 'invoices', group: 'mua' },
   // Brief 2026-08-15 (trang thông báo) — mục nav MỚI, badge = số chưa đọc.
-  { to: '/thong-bao', icon: '🔔', label: 'Thông báo', short: 'Thông báo', key: 'thong-bao', thongBao: true },
-  { to: '/profile', icon: '🏥', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile' },
+  { to: '/thong-bao', icon: 'bell', label: 'Thông báo', short: 'Thông báo', key: 'thong-bao', thongBao: true, group: 'tk' },
+  { to: '/profile', icon: 'hospital', label: 'Hồ sơ đơn vị', short: 'Hồ sơ', key: 'profile', group: 'tk' },
 ]
 
 // Bottom nav (mobile): Thông báo truy cập qua "Thêm" (Hồ sơ) như Hoá đơn —
@@ -55,11 +56,11 @@ const NAV = [
 // trống bằng một mục khác — lấp cho đủ số là dựng lại đúng thứ task này
 // vừa dỡ (một cửa tồn tại vì có ô trống, không vì có người cần nó).
 const BNAV = [
-  { to: '/dashboard', icon: '🏠', short: 'Tổng quan', key: 'dashboard' },
-  { to: '/dat-hang', icon: '🛒', short: 'Đặt hàng', key: 'dat-hang' },
-  { to: '/yeu-cau', icon: '📋', short: 'Đơn hàng', key: 'yeu-cau' },
-  { to: '/kho', icon: '🏭', short: 'Kho', key: 'kho' },
-  { to: '/profile', icon: '☰', short: 'Thêm', key: 'profile', thongBao: true },
+  { to: '/dashboard', icon: 'home', short: 'Tổng quan', key: 'dashboard' },
+  { to: '/dat-hang', icon: 'shopping-cart', short: 'Đặt hàng', key: 'dat-hang' },
+  { to: '/yeu-cau', icon: 'clipboard-list', short: 'Đơn hàng', key: 'yeu-cau' },
+  { to: '/kho', icon: 'warehouse', short: 'Kho', key: 'kho' },
+  { to: '/profile', icon: 'menu', short: 'Thêm', key: 'profile', thongBao: true },
 ]
 
 const pageTitle = computed(() => route.meta.title || 'Cổng khách hàng')
@@ -80,6 +81,28 @@ const choDuyetNhan = computed(() => `${store.choDuyetCount}${store.choDuyetBiCat
 // mặc định tình cờ đúng" là thứ hỏng lặng lẽ vào ngày ai đó nạp con số
 // này từ một chỗ khác.
 const navItems = computed(() => NAV)
+
+// Sidebar chia nhóm có nhãn (thiết kế v2). Nhóm chỉ là CÁCH TRÌNH BÀY của
+// chính mảng NAV ở trên — không thêm/bớt mục, không đổi thứ tự trong nhóm.
+const NHOM = [
+  { key: undefined, label: '' },
+  { key: 'mua', label: 'Mua hàng' },
+  { key: 'kho', label: 'Kho vận' },
+  { key: 'tk', label: 'Tài khoản' },
+]
+const navGroups = computed(() =>
+  NHOM.map((g) => ({ ...g, items: navItems.value.filter((n) => n.group === g.key) }))
+    .filter((g) => g.items.length),
+)
+
+// Avatar chữ cái đầu của đơn vị: bỏ phần trong ngoặc ("(DEMO)"), lấy chữ đầu
+// của hai từ cuối ("Minh Đức" → "MĐ").
+const chuCaiDau = computed(() => {
+  const ten = (store.me?.customer_name || '').replace(/\(.*?\)/g, '').trim()
+  const tu = ten.split(/\s+/).filter(Boolean)
+  if (!tu.length) return '·'
+  return tu.slice(-2).map((w) => w[0]).join('').toUpperCase()
+})
 const hienBadgeDuyet = computed(() => !!store.me?.la_quan_ly && !!store.choDuyetCount)
 
 // Việc 4 (review toàn nhánh 03/09/2026) — badge "7" phải dẫn tới ĐÚNG bảy
@@ -178,60 +201,82 @@ onMounted(async () => {
 
 <template>
   <div class="mp-shell">
-    <!-- Desktop sidebar (>=900px) -->
-    <aside class="side">
-      <div class="logo">MIYANO<span>◆</span> Portal</div>
+    <a class="sr-only skip" href="#noi-dung">Bỏ qua điều hướng</a>
+    <!-- Desktop sidebar (>=900px) — sidebar SÁNG, chia nhóm có nhãn. -->
+    <aside class="side" aria-label="Điều hướng chính">
+      <router-link to="/dashboard" class="logo" aria-label="Miyano Client Portal — Tổng quan">
+        <span class="logo-mark" aria-hidden="true"><i></i></span>
+        <span>
+          <span class="logo-word">MIYANO</span>
+          <span class="logo-sub block">Client Portal</span>
+        </span>
+      </router-link>
       <nav class="nav">
-        <router-link
-          v-for="n in navItems"
-          :key="n.key"
-          :to="dichNav(n)"
-          :class="{ on: isActive(n.key) }"
-        >
-          <span>{{ n.icon }} {{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
-          <span v-if="n.thongBao && chuaDocThongBao" class="cartn">{{ chuaDocThongBao }}</span>
-          <span v-if="n.duyet && hienBadgeDuyet" class="cartn">{{ choDuyetNhan }}</span>
-        </router-link>
+        <div v-for="g in navGroups" :key="g.key || 'goc'" class="nav-group">
+          <div v-if="g.label" class="nav-label">{{ g.label }}</div>
+          <router-link
+            v-for="n in g.items"
+            :key="n.key"
+            :to="dichNav(n)"
+            :class="{ on: isActive(n.key) }"
+            :aria-current="isActive(n.key) ? 'page' : undefined"
+          >
+            <Icon :name="n.icon" :size="19" />
+            <span class="nav-txt">{{ n.label }}<span v-if="n.newtag" class="newtag">MỚI</span></span>
+            <span v-if="n.thongBao && chuaDocThongBao" class="cartn" :aria-label="`${chuaDocThongBao} thông báo chưa đọc`">{{ chuaDocThongBao }}</span>
+            <span v-if="n.duyet && hienBadgeDuyet" class="cartn cartn-b" :aria-label="`${choDuyetNhan} phiếu chờ duyệt`">{{ choDuyetNhan }}</span>
+          </router-link>
+        </div>
       </nav>
       <!-- Chủ đầu tư chốt 25/08 — dòng dưới là TÊN TÀI KHOẢN, không phải mã
-           khách. `store.me.customer` là DOCNAME của Customer, mà trên site
-           này Customer đặt tên bằng chính `customer_name`, nên khối này in
-           ĐÚNG MỘT chuỗi hai lần ("Bệnh viện Đa khoa Minh Đức (DEMO)" ở cả
-           hai dòng) — tốn một dòng để không nói thêm gì.
-           `store.me.user` (email phiên đang đăng nhập, đã có sẵn trong
-           `portal_me`) là thứ DUY NHẤT phân biệt được hai người cùng một
-           bệnh viện, và là thứ người dùng cần thấy để biết mình đang đăng
-           nhập bằng tài khoản nào trước khi bấm Đăng xuất. -->
+           khách. `store.me.user` (email phiên đang đăng nhập) là thứ DUY NHẤT
+           phân biệt được hai người cùng một bệnh viện, và là thứ người dùng
+           cần thấy để biết mình đang đăng nhập bằng tài khoản nào trước khi
+           bấm Đăng xuất. -->
       <div class="who">
-        <div>👤 {{ store.me?.customer_name || '…' }}</div>
-        <div class="tag" style="color: #cbd5e1">{{ store.me?.user || '' }}</div>
-        <a href="#" @click.prevent="doLogout">Đăng xuất</a>
+        <span class="who-av" aria-hidden="true">{{ chuCaiDau }}</span>
+        <div class="who-txt">
+          <div class="who-name" :title="store.me?.customer_name">{{ store.me?.customer_name || '…' }}</div>
+          <div class="who-mail tag" :title="store.me?.user">{{ store.me?.user || '' }}</div>
+        </div>
+        <a href="#" class="btn-icon" aria-label="Đăng xuất" title="Đăng xuất" @click.prevent="doLogout">
+          <Icon name="log-out" :size="18" />
+        </a>
       </div>
     </aside>
 
-    <!-- Mobile header (<900px). Task 10 — nút giỏ hàng đã bỏ: không còn
-         một giỏ toàn cục nào để đếm; giỏ sống TRONG màn Đặt hàng (bước 2)
-         và biến mất cùng phiếu khi khách rời màn. -->
+    <!-- Mobile header (<900px) — trắng mờ, dính trên cùng. Task 10 — nút
+         giỏ hàng đã bỏ: giỏ sống TRONG màn Đặt hàng (bước 2). -->
     <header class="hdr">
-      <span class="ttl">{{ pageTitle }}</span>
+      <div class="hdr-l">
+        <span class="logo-mark" aria-hidden="true"><i></i></span>
+        <span class="ttl">{{ pageTitle }}</span>
+      </div>
     </header>
 
     <!-- Content -->
-    <main class="main">
-      <router-view />
+    <main id="noi-dung" class="main">
+      <div class="main-in">
+        <router-view v-slot="{ Component }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </router-view>
+      </div>
     </main>
 
     <!-- Mobile bottom nav (<900px) -->
-    <nav class="bnav">
+    <nav class="bnav" aria-label="Điều hướng nhanh">
       <router-link
         v-for="n in BNAV"
         :key="n.key"
         :to="n.to"
         :class="{ on: isActive(n.key) }"
+        :aria-current="isActive(n.key) ? 'page' : undefined"
       >
-        <span class="ic">{{ n.icon }}</span>
+        <span class="pill"><Icon :name="n.icon" :size="21" /></span>
         <span>{{ n.short }}</span>
-        <span v-if="n.thongBao && chuaDocThongBao" class="cartn2">{{ chuaDocThongBao }}</span>
+        <span v-if="n.thongBao && chuaDocThongBao" class="cartn2" :aria-label="`${chuaDocThongBao} thông báo chưa đọc`">{{ chuaDocThongBao }}</span>
       </router-link>
     </nav>
 

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import api from '../api'
 import { store } from '../store'
 import { fmtVND, fmtVNDShort, fmtDate, statusBadge } from '../format'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 
@@ -54,54 +55,109 @@ function openOrder(name) {
 <template>
   <div v-if="loading" class="loading">Đang tải…</div>
   <div v-else-if="error" class="empty">{{ error }}</div>
-  <div v-else>
+  <div v-else class="dash">
     <div class="topbar">
-      <div>
-        <h2>Xin chào, {{ me?.customer_name || 'Quý khách' }} 👋</h2>
+      <div class="grow">
+        <h2>Xin chào, {{ me?.customer_name || 'Quý khách' }}</h2>
         <div class="sub">{{ me?.customer_name }} – cập nhật {{ updatedAt }}</div>
       </div>
-      <router-link to="/dat-hang"><button class="btn">+ Đặt hàng mới</button></router-link>
+      <router-link to="/dat-hang" class="btn"><Icon name="plus" :size="18" />Đặt hàng mới</router-link>
     </div>
 
-    <div class="kpis">
+    <div class="kpis anim">
       <!-- Thẻ này trỏ sang tab báo giá nên chỉ mang con số của tab đó. -->
-      <router-link :to="{ name: 'bao-gia', query: { nhom: 'cho_dong_y' } }" class="card kpi" style="text-decoration: none; color: inherit">
-        <div class="n" style="color: var(--orange)">{{ kpi.bao_gia_cho_dong_y }}</div>
-        <div class="t">Báo giá chờ đồng ý</div>
+      <router-link :to="{ name: 'bao-gia', query: { nhom: 'cho_dong_y' } }" class="card kpi">
+        <span class="kpi-ic t-orange"><Icon name="file-text" :size="19" /></span>
+        <span class="kpi-lb">Báo giá chờ đồng ý</span>
+        <span class="n">{{ kpi.bao_gia_cho_dong_y }}</span>
+        <span class="kpi-ctx">Cần đơn vị xem và đồng ý</span>
+        <Icon class="kpi-go" name="chevron-right" :size="18" />
       </router-link>
-      <div class="card kpi"><div class="n">{{ kpi.don_cho_xac_nhan }}</div><div class="t">Đơn chờ xác nhận</div></div>
-      <div class="card kpi"><div class="n">{{ kpi.don_dang_giao }}</div><div class="t">Đơn đang giao</div></div>
-      <div class="card kpi"><div class="n">{{ kpi.hoa_don_chua_thanh_toan }}</div><div class="t">Hoá đơn chưa thanh toán</div></div>
+      <!-- Ba thẻ dưới KHÔNG bấm được: con số đếm theo trạng thái Sales
+           Order, còn chip ở "Danh sách đơn hàng" lọc theo giai đoạn yêu cầu —
+           dẫn sang đó là hai con số khác nhau cho cùng một câu hỏi. -->
       <div class="card kpi">
-        <div class="n" style="color: var(--red)">{{ fmtVNDShort(outstanding) }}</div>
-        <div class="t">Tổng công nợ</div>
+        <span class="kpi-ic t-navy"><Icon name="clock" :size="19" /></span>
+        <span class="kpi-lb">Đơn chờ xác nhận</span>
+        <span class="n">{{ kpi.don_cho_xac_nhan }}</span>
+        <span class="kpi-ctx">Miyano đang xác nhận</span>
       </div>
+      <div class="card kpi">
+        <span class="kpi-ic"><Icon name="truck" :size="19" /></span>
+        <span class="kpi-lb">Đơn đang giao</span>
+        <span class="n">{{ kpi.don_dang_giao }}</span>
+        <span class="kpi-ctx">Đang trên đường tới đơn vị</span>
+      </div>
+      <div class="card kpi">
+        <span class="kpi-ic t-green"><Icon name="receipt" :size="19" /></span>
+        <span class="kpi-lb">Hoá đơn chưa thanh toán</span>
+        <span class="n">{{ kpi.hoa_don_chua_thanh_toan }}</span>
+        <span class="kpi-ctx">Tính trên toàn bộ hoá đơn</span>
+      </div>
+      <router-link to="/invoices" class="card kpi kpi-debt">
+        <span class="kpi-ic t-red"><Icon name="wallet" :size="19" /></span>
+        <span class="kpi-lb">Tổng công nợ</span>
+        <span class="n">{{ fmtVNDShort(outstanding) }}</span>
+        <span class="kpi-ctx">Xem chi tiết công nợ</span>
+        <Icon class="kpi-go" name="chevron-right" :size="18" />
+      </router-link>
     </div>
 
     <!-- Đơn hàng gần đây. Thẻ hợp đồng từng đứng bên phải đã gỡ (spec
          2026-10-09 §7 — giá theo bảng giá của khách), nên thẻ này không còn
          nằm trong lưới hai cột `.grid2`: để lại sẽ có một ô trống bên phải. -->
-    <div class="card">
-      <h3 style="margin-bottom: 10px">Đơn hàng gần đây</h3>
-      <table v-if="recentOrders.length">
-        <thead>
-          <tr><th>Mã đơn</th><th>Ngày đặt</th><th class="right">Giá trị</th><th>Trạng thái</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="o in recentOrders" :key="o.name" class="clickable" @click="openOrder(o.name)">
-            <td><b>{{ o.name }}</b></td>
-            <td>{{ fmtDate(o.transaction_date) }}</td>
-            <td class="right">{{ fmtVND(o.grand_total) }}</td>
-            <td><span class="badge" :class="statusBadge(o.status_vi)">{{ o.status_vi }}</span></td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="tag" style="padding: 8px 0">Chưa có đơn hàng nào.</p>
+    <div class="card card-flush">
+      <div class="card-hd"><h3>Đơn hàng gần đây</h3></div>
+      <div v-if="recentOrders.length" class="tbl-scroll hide-m">
+        <table>
+          <thead>
+            <tr><th>Mã đơn</th><th>Ngày đặt</th><th class="right">Giá trị</th><th>Trạng thái</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="o in recentOrders" :key="o.name" class="clickable" tabindex="0" @click="openOrder(o.name)" @keydown.enter="openOrder(o.name)">
+              <td class="cell-code">{{ o.name }}</td>
+              <td>{{ fmtDate(o.transaction_date) }}</td>
+              <td class="right">{{ fmtVND(o.grand_total) }}</td>
+              <td><span class="badge" :class="statusBadge(o.status_vi)">{{ o.status_vi }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul v-if="recentOrders.length" class="ds-m hide-d">
+        <li v-for="o in recentOrders" :key="o.name">
+          <button type="button" class="ds-m-row" @click="openOrder(o.name)">
+            <span class="grow">
+              <span class="cell-code block">{{ o.name }}</span>
+              <span class="tag">{{ fmtDate(o.transaction_date) }}</span>
+            </span>
+            <span class="col ai-end">
+              <span class="fw600 tnum">{{ fmtVND(o.grand_total) }}</span>
+              <span class="badge" :class="statusBadge(o.status_vi)">{{ o.status_vi }}</span>
+            </span>
+          </button>
+        </li>
+      </ul>
+      <p v-else class="tag empty-line">Chưa có đơn hàng nào.</p>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Ô lưới của thẻ báo giá: thẻ giãn hết chiều cao như các thẻ bên cạnh, đường
-   dẫn "đơn cũ" (chỉ hiện khi còn đơn) nằm ngay dưới. */
+.card-hd { padding: 16px 20px 4px; margin: 0; }
+.empty-line { padding: 8px 20px 20px; }
+.kpi .n { margin-top: 2px; }
+.ds-m { list-style: none; padding: 0 0 4px; }
+.ds-m li + li { border-top: 1px solid var(--line); }
+.ds-m-row {
+  width: 100%; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: none; border: none; padding: 12px 16px; min-height: 56px; color: inherit;
+}
+.ds-m-row:active { background: var(--accent-soft); }
+.ai-end { align-items: flex-end; }
+@media (max-width: 900px) {
+  .topbar .btn { width: 100%; }
+  .kpi .kpi-lb { font-size: 12.5px; }
+  .kpi .kpi-ctx { display: none; }
+  .kpi-debt { grid-column: 1 / -1; }
+}
 </style>

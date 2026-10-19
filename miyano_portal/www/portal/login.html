@@ -1,42 +1,96 @@
 {% extends "templates/web.html" %}
 {% block page_content %}
+<link rel="stylesheet" href="/assets/miyano_portal/frontend/index.css" />
 <div class="mp-login">
-  <div class="mp-login-box">
-    <div class="mp-logo">MIYANO<span>◆</span> Client Portal</div>
-    <p class="mp-tagline">Cổng đặt hàng vật tư y tế – hoá chất xét nghiệm<br>theo Hợp đồng nguyên tắc</p>
-    <form onsubmit="return miyanoLogin(event)">
-      <div class="mp-field"><label for="usr">Email đăng nhập</label>
-        <input id="usr" type="email" placeholder="ten@congty.vn" required autocomplete="username"></div>
-      <div class="mp-field"><label for="pwd">Mật khẩu</label>
-        <input id="pwd" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
-      <button type="submit" class="mp-btn" id="mp-login-btn">Đăng nhập</button>
-      <p id="err" class="mp-err"></p>
-    </form>
-    <p class="mp-hint">Chưa có tài khoản? Liên hệ nhân viên kinh doanh Miyano<br>Hotline: 024 xxxx xxxx – sales@miyano.com.vn</p>
-  </div>
+  <aside class="mp-brand" aria-hidden="true">
+    <div class="mp-brand-top">
+      <span class="mp-mark"><i></i></span>
+      <span class="mp-word">MIYANO</span>
+    </div>
+    <div class="mp-brand-mid">
+      <p class="mp-claim">Số hóa vận hành –<br>Nâng tầm y tế</p>
+      <ul class="mp-points">
+        <li>Đặt vật tư y tế, hoá chất xét nghiệm theo bảng giá của đơn vị</li>
+        <li>Theo dõi đơn hàng từ lúc duyệt tới khi giao và xuất hoá đơn</li>
+        <li>Quản lý kho, lô và hạn dùng ngay tại khoa phòng</li>
+      </ul>
+    </div>
+    <div class="mp-brand-foot">Công ty TNHH Miyano Việt Nam</div>
+  </aside>
+  <main class="mp-login-pane">
+    <div class="mp-login-box">
+      <div class="mp-logo"><span class="mp-mark"><i></i></span><span>MIYANO</span></div>
+      <h1 class="mp-title">Đăng nhập Client Portal</h1>
+      <p class="mp-tagline">Cổng đặt hàng vật tư y tế – hoá chất xét nghiệm theo Hợp đồng nguyên tắc</p>
+      <form onsubmit="return miyanoLogin(event)">
+        <div class="mp-field"><label for="usr">Email đăng nhập</label>
+          <input id="usr" type="email" placeholder="ten@congty.vn" required autocomplete="username"></div>
+        <div class="mp-field"><label for="pwd">Mật khẩu</label>
+          <input id="pwd" type="password" placeholder="••••••••" required autocomplete="current-password"></div>
+        <button type="submit" class="mp-btn" id="mp-login-btn">Đăng nhập</button>
+        <p id="err" class="mp-err" role="alert"></p>
+      </form>
+      <p class="mp-hint">Chưa có tài khoản? Liên hệ nhân viên kinh doanh Miyano<br>Hotline: 024 xxxx xxxx – sales@miyano.com.vn</p>
+    </div>
+  </main>
 </div>
 <style>
-  body{background:linear-gradient(135deg,#1f4e79,#2d6da3);min-height:100vh}
+  /* Mọi luật đều nằm dưới .mp-login — index.css của cổng (nạp ở trên để có
+     phông Noto Sans tự host) mang luật toàn cục, không được để chúng lẫn
+     sang khung web.html của Frappe. */
   .navbar,.web-footer,footer,.footer,#navbar{display:none!important}
-  .mp-login{position:fixed;inset:0;background:linear-gradient(135deg,#1f4e79,#2d6da3);
-    display:flex;align-items:center;justify-content:center;padding:20px;z-index:1;
-    font-family:'Segoe UI',Roboto,Arial,sans-serif}
-  .mp-login-box{background:#fff;border-radius:16px;padding:36px;width:380px;max-width:92vw;
-    box-shadow:0 20px 50px rgba(0,0,0,.25)}
-  .mp-logo{font-size:22px;font-weight:800;color:#1f4e79;text-align:center;margin-bottom:6px}
-  .mp-logo span{color:#e11d48}
-  .mp-tagline{text-align:center;color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5}
-  .mp-field{margin-bottom:14px}
-  .mp-field label{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
-  .mp-field input{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:11px 12px;
-    font-size:14px;box-sizing:border-box;color:#1e293b}
-  .mp-field input:focus{outline:2px solid #93c5fd;border-color:#2d6da3}
-  .mp-btn{width:100%;margin-top:6px;background:#1f4e79;color:#fff;border:none;border-radius:8px;
-    padding:12px 18px;font-weight:600;font-size:14px;cursor:pointer}
-  .mp-btn:hover{background:#2d6da3}
-  .mp-btn:disabled{opacity:.7;cursor:default}
-  .mp-err{color:#dc2626;font-size:13px;min-height:18px;margin:10px 0 0;text-align:center}
-  .mp-hint{text-align:center;margin-top:16px;font-size:12px;color:#64748b;line-height:1.5}
+  body{background:#f4f6f9}
+  .mp-login{position:fixed;inset:0;z-index:1;display:grid;grid-template-columns:minmax(380px,44%) 1fr;
+    background:#f4f6f9;font-family:'Noto Sans',system-ui,-apple-system,'Segoe UI',sans-serif;color:#0b1f33;
+    -webkit-font-smoothing:antialiased;letter-spacing:normal}
+  .mp-login *{letter-spacing:inherit}
+  .mp-login *{box-sizing:border-box}
+  .mp-login .mp-brand{position:relative;overflow:hidden;background:#003366;color:#fff;
+    display:flex;flex-direction:column;justify-content:space-between;padding:44px 52px}
+  /* Mô-típ ◆ của logo, phóng lớn mờ làm nền — điểm nhận diện duy nhất. */
+  .mp-login .mp-brand::after{content:"";position:absolute;width:520px;height:520px;right:-210px;bottom:-170px;
+    border:1px solid rgba(255,255,255,.09);transform:rotate(45deg);border-radius:48px}
+  .mp-login .mp-brand::before{content:"";position:absolute;width:300px;height:300px;right:-40px;bottom:30px;
+    border:1px solid rgba(255,255,255,.07);transform:rotate(45deg);border-radius:30px}
+  .mp-login .mp-brand-top{display:flex;align-items:center;gap:12px}
+  .mp-login .mp-mark{width:36px;height:36px;border-radius:10px;background:#fff;display:grid;place-items:center;flex-shrink:0}
+  .mp-login .mp-mark i{display:block;width:12px;height:12px;background:#b71c1c;transform:rotate(45deg);border-radius:2px}
+  .mp-login .mp-word{font-size:20px;font-weight:800;letter-spacing:.08em}
+  .mp-login .mp-brand-mid{position:relative;z-index:1;max-width:440px}
+  .mp-login .mp-claim{font-size:38px;line-height:1.18;font-weight:700;letter-spacing:-.02em;margin:0 0 28px}
+  .mp-login .mp-points{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+  .mp-login .mp-points li{position:relative;padding-left:22px;font-size:15px;line-height:1.5;color:#d6e4f2}
+  .mp-login .mp-points li::before{content:"";position:absolute;left:2px;top:8px;width:7px;height:7px;
+    background:#4fb3ea;transform:rotate(45deg);border-radius:1px}
+  .mp-login .mp-brand-foot{position:relative;z-index:1;font-size:13px;color:#9fb6cc}
+  .mp-login .mp-login-pane{display:flex;align-items:center;justify-content:center;padding:32px 24px;overflow:auto}
+  .mp-login .mp-login-box{width:400px;max-width:100%}
+  .mp-login .mp-logo{display:none;align-items:center;gap:10px;font-size:18px;font-weight:800;letter-spacing:.08em;color:#003366;margin-bottom:28px}
+  .mp-login .mp-logo .mp-mark{background:#003366;width:32px;height:32px}
+  .mp-login .mp-logo .mp-mark i{background:#e5484d;width:10px;height:10px}
+  .mp-login .mp-title{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px;color:#0b1f33}
+  .mp-login .mp-tagline{color:#44546a;font-size:14px;margin:0 0 28px;line-height:1.55}
+  .mp-login .mp-field{margin-bottom:16px}
+  .mp-login .mp-field label{display:block;font-size:13px;font-weight:600;color:#44546a;margin-bottom:6px}
+  .mp-login .mp-field input{width:100%;height:44px;border:1px solid #d3dae4;border-radius:10px;padding:0 14px;
+    font-size:15px;color:#0b1f33;background:#fff;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+  .mp-login .mp-field input::placeholder{color:#8a97a8}
+  .mp-login .mp-field input:focus{outline:none;border-color:#0277bd;box-shadow:0 0 0 3px rgba(2,119,189,.28)}
+  .mp-login .mp-btn{width:100%;height:46px;margin-top:8px;background:#003366;color:#fff;border:none;border-radius:10px;
+    font-weight:600;font-size:15px;cursor:pointer;font-family:inherit;transition:background-color .15s,box-shadow .15s}
+  .mp-login .mp-btn:hover{background:#0a4373}
+  .mp-login .mp-btn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(2,119,189,.35)}
+  .mp-login .mp-btn:disabled{opacity:.7;cursor:default}
+  .mp-login .mp-err{color:#b71c1c;font-size:13.5px;min-height:20px;margin:12px 0 0;text-align:center}
+  .mp-login .mp-hint{margin-top:24px;padding-top:20px;border-top:1px solid #e4e8ef;font-size:13px;color:#44546a;line-height:1.6}
+  @media (max-width:900px){
+    .mp-login{grid-template-columns:1fr;background:#fff}
+    .mp-login .mp-brand{display:none}
+    .mp-login .mp-login-pane{align-items:flex-start;padding:48px 20px 32px}
+    .mp-login .mp-logo{display:flex}
+    .mp-login .mp-title{font-size:22px}
+  }
+  @media (prefers-reduced-motion:reduce){.mp-login *{transition:none!important}}
 </style>
 <script>
 async function miyanoLogin(e){
