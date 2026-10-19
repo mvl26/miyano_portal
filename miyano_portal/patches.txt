@@ -85,3 +85,5 @@ miyano_portal.patches.v1_42.bao_gia_quotation
 miyano_portal.patches.v1_43.thong_nhat_ten_hang
 miyano_portal.patches.v1_44.bo_vong_bao_gia_tren_don
 miyano_portal.patches.v1_45.bao_gia_theo_dot
+miyano_portal.patches.v1_46.hsd_toi_thieu
+miyano_portal.patches.v1_46.hsd_toi_thieu_quyen

@@ -356,8 +356,15 @@ def _nhom_vat_tu_ds() -> list:
 def portal_order_place(
     contract=None, items=None, po=None, delivery_date=None, note=None, address=None,
     request_id=None, mode="hdnt", dat_ngoai=None, khoa_phong=None, ten_don_hang=None,
+    hsd_toi_thieu_thang=None,
 ) -> dict:
     """API Spec §1.1 — quản lý đặt hàng trực tiếp từ giỏ.
+
+    `hsd_toi_thieu_thang` — HSD tối thiểu khách yêu cầu cho cả đơn (tháng
+    0-60); mỗi phần tử `items` có thể mang khoá riêng cùng tên. Kiểm TRƯỚC
+    khi tạo chứng từ nào (lỗi ra `frappe.local.response["loi"]` như lỗi giỏ
+    hàng khác). Đơn mang số tháng sang Sales Order; nhánh Quotation chỉ ghi
+    Comment (chưa mang qua Quotation).
 
     Trả `{"sales_order", "bao_gia", "de_xuat", "da_ton_tai", "total",
     "loai_don", "don": [{"sales_order", "bao_gia", "de_xuat", "loai_don"}]}`.
@@ -431,6 +438,9 @@ def portal_order_place(
     ds_ngoai = (
         frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else (dat_ngoai or [])
     )
+    # Kiểm HSD cho CẢ giỏ trước khi tạo bất kỳ chứng từ nào (giỏ trộn tạo
+    # hai chứng từ liên tiếp: lỗi ở lô sau không được để lại lô trước).
+    dat_hang.kiem_hsd_gio(hsd_toi_thieu_thang, ds_items)
     co_gia, cho_bao_gia = tach_phieu.chia_dong(customer, ds_items)
     # Lưới an toàn lúc triển khai (`bao_gia.san_sang`): site chưa `bench
     # migrate` chưa có cột `Quotation.custom_request_id`, mà hàm này hỏi cột đó
@@ -501,6 +511,8 @@ def portal_order_place(
                 delivery_date=delivery_date, note=note, address=address,
                 request_id=rid, khoa_phong=khoa,
             )
+            if not kq.get("da_ton_tai"):
+                bao_gia.ghi_comment_hsd(kq["bao_gia"], hsd_toi_thieu_thang, lo_items)
             kq["sales_order"] = None
             kq["loai_don"] = "Yêu cầu báo giá"
         else:
@@ -508,6 +520,7 @@ def portal_order_place(
                 customer, mode=mode, items=lo_items, dat_ngoai=lo_ngoai,
                 po=po, delivery_date=delivery_date, note=note, address=address,
                 request_id=rid, khoa_phong=khoa,
+                hsd_toi_thieu_thang=hsd_toi_thieu_thang,
             )
             kq["bao_gia"] = None
             kq["loai_don"] = frappe.db.get_value(
@@ -2102,6 +2115,10 @@ def portal_order_track(order) -> dict:
         # trong thông báo giao hàng/hoá đơn) không nạp được nửa phiếu khi
         # phiếu không tồn tại — tên phải đọc được từ chính đơn.
         "ten_don_hang": so.get("custom_ten_don_hang") or "",
+        # HSD tối thiểu khách ĐÃ YÊU CẦU (tháng, 0 = không yêu cầu). CHỈ số
+        # này: kết quả đánh giá/ngoại lệ (`custom_ket_qua_hsd`,
+        # `custom_hsd_ton_tot_nhat`, `custom_ngoai_le_*`) là nội bộ Miyano.
+        "hsd_toi_thieu_thang": frappe.utils.cint(so.get("custom_hsd_toi_thieu_thang")),
         # 03/09/2026 (màn chi tiết GỘP) — phiếu đề xuất đứng sau đơn này.
         # Vào màn bằng đường `/yeu-cau/don/<name>` (link trong mọi thông báo
         # đã gửi đi, xem `_lien_ket_thong_bao`) thì đây là đường DUY NHẤT tìm
@@ -2137,6 +2154,7 @@ def portal_order_track(order) -> dict:
              # `None` với dòng cũ chưa có dấu. Bảng mặt hàng in "Chờ báo
              # giá" cho dòng "Báo giá" chưa có giá thay vì "0 ₫".
              "nguon_gia": i.get("custom_nguon_gia") or None,
+             "hsd_toi_thieu_thang": frappe.utils.cint(i.get("custom_hsd_toi_thieu_thang")),
              # Thời gian giao hàng (09/10/2026) — `None` khi đơn CHƯA được
              # Miyano xác nhận: trước mốc đó `delivery_date` là "ngày cần"
              # do chính khách gõ lúc đặt, in nó ra dưới chữ "Dự kiến giao"

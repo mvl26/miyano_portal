@@ -44,7 +44,12 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 	# dựng đơn — `dat_hang._xay_don` tự hỏi Price List cho từng dòng tại
 	# thời điểm duyệt (kể cả dòng cũ còn mang "Hợp đồng").
 	dong = [
-		{"item_code": d.item_code, "qty": float(d.so_luong_duyet or 0)}
+		{
+			"item_code": d.item_code, "qty": float(d.so_luong_duyet or 0),
+			# Int trên phiếu: 0 = khoa không khai → để None cho đơn kế thừa
+			# đầu phiếu (Task 6).
+			"hsd_toi_thieu_thang": d.get("hsd_toi_thieu_thang") or None,
+		}
 		for d in doc.items if float(d.so_luong_duyet or 0) > 0
 	]
 	if not dong and not doc.dat_ngoai:
@@ -84,6 +89,7 @@ def duyet_va_tao_don(ten_phieu: str, nguoi_duyet: str,
 		delivery_date=doc.ngay_can, address=doc.dia_chi_giao,
 		note=doc.ghi_chu, request_id=doc.request_id or doc.name,
 		khoa_phong=doc.khoa_phong,
+		hsd_toi_thieu_thang=doc.get("hsd_toi_thieu_thang") or None,
 		# Task 9 — đơn MANG THẲNG mã phiếu. DÙNG LẠI `doc.ma_de_xuat` đã
 		# cấp lúc `gui_duyet()`, KHÔNG gọi `sinh_ma()` lần nữa (nó cấp số
 		# mới qua `getseries`, đơn sẽ mang mã không khớp phiếu nào).
@@ -173,6 +179,7 @@ def _duyet_va_tao_bao_gia(doc, dong, dat_ngoai, nguoi_duyet, tu_cach, uy_quyen,
 			frappe.ValidationError,
 		)
 	doc.bao_gia = kq["bao_gia"]
+	bao_gia.ghi_comment_hsd(kq["bao_gia"], doc.get("hsd_toi_thieu_thang") or None, dong)
 	doc.duyet(nguoi_duyet, tu_cach=tu_cach, uy_quyen=uy_quyen)
 	frappe.db.set_value("Quotation", kq["bao_gia"], {
 		"custom_de_xuat": doc.name,

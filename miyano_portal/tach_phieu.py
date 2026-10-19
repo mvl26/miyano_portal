@@ -19,7 +19,7 @@ HAU_TO_BAO_GIA = ":baogia"
 # thể còn mang nó, và phiếu chờ báo giá sinh ra ở đây không được thừa hưởng.
 _TRUONG_CHUNG = (
 	"customer", "khoa_phong", "ngay_can", "dia_chi_giao", "ghi_chu",
-	"ly_do_yeu_cau", "ten_don_hang",
+	"ly_do_yeu_cau", "ten_don_hang", "hsd_toi_thieu_thang",
 )
 
 # Khoá định danh của dòng con — bỏ khi chép dòng sang phiếu mới.

@@ -21,6 +21,9 @@ lọc riêng.
 """
 
 import frappe
+from frappe.utils import cint
+
+from miyano_portal import han_dung_khach
 
 from miyano_portal.portal_context import (
 	cot_lan_dat_ton_tai,
@@ -93,13 +96,22 @@ def de_xuat_tao_nhap(hdnt=None, **_bo_qua) -> dict:
 @frappe.whitelist()
 def de_xuat_luu_nhap(ten, items=None, dat_ngoai=None, ngay_can=None,
                      dia_chi_giao=None, ghi_chu=None, ly_do_yeu_cau=None,
-                     ten_don_hang=None) -> dict:
+                     ten_don_hang=None, hsd_toi_thieu_thang=None) -> dict:
 	doc = _phieu_cua_toi(ten)
 	if doc.trang_thai != "Nháp":
 		frappe.throw("Chỉ sửa được phiếu đang ở trạng thái Nháp.",
 		             frappe.ValidationError)
 	if items is not None:
-		doc.set("items", frappe.parse_json(items) if isinstance(items, str) else items)
+		items = frappe.parse_json(items) if isinstance(items, str) else items
+		# HSD tối thiểu theo dòng: kiểm ở server, rỗng → 0 (không khai).
+		for d in items:
+			if isinstance(d, dict) and "hsd_toi_thieu_thang" in d:
+				d["hsd_toi_thieu_thang"] = han_dung_khach.kiem_so_thang(
+					d["hsd_toi_thieu_thang"]
+				)
+		doc.set("items", items)
+	if hsd_toi_thieu_thang is not None:
+		doc.hsd_toi_thieu_thang = han_dung_khach.kiem_so_thang(hsd_toi_thieu_thang)
 	if dat_ngoai is not None:
 		doc.set("dat_ngoai",
 		        frappe.parse_json(dat_ngoai) if isinstance(dat_ngoai, str) else dat_ngoai)
@@ -333,7 +345,9 @@ def de_xuat_chi_tiet(ten) -> dict:
 	don_da_xac_nhan = bool(dong_tren_don) and (
 		frappe.db.get_value("Sales Order", kq["sales_order"], "docstatus") == 1
 	)
+	kq["hsd_toi_thieu_thang"] = cint(doc.get("hsd_toi_thieu_thang"))
 	for row in dong:
+		row["hsd_toi_thieu_thang"] = cint(row.get("hsd_toi_thieu_thang"))
 		if (row.get("so_luong_xin_sua") or 0) < 0:
 			row["so_luong_xin_sua"] = None
 		row["boi_so"] = boi_so_theo_ma.get(row.get("item_code"))

@@ -22,6 +22,7 @@ import { boSungDongChiCoTrenDon } from '../../dong-bang-mat-hang'
 import TheHangMoi from './TheHangMoi.vue'
 import CotTenHang from '../CotTenHang.vue'
 import Icon from '../Icon.vue'
+import { nhanHsd } from '../../hsd'
 
 const props = defineProps({
   phieu: { type: Object, default: null },
@@ -58,6 +59,13 @@ const yeuCauKhopTheoMa = computed(() => {
   return nhom
 })
 
+// HSD tối thiểu của dòng: dòng phiếu mang giá trị riêng của nó; khi đã có đơn
+// thì giá trị trên dòng đơn (đã gồm phần kế thừa đầu đơn) thắng.
+function hsdDong(row) {
+  const tren = (props.don?.items || []).find((it) => it.item_code === row.item_code)
+  return tren?.hsd_toi_thieu_thang ?? row.hsd_toi_thieu_thang
+}
+
 const dong = computed(() => {
   const co_ban = props.phieu
     ? (props.phieu.items || []).map((r) => ({ ...r }))
@@ -73,6 +81,7 @@ const dong = computed(() => {
         nguon_gia_tren_don: it.nguon_gia,
         da_giao_tren_don: it.delivered_qty,
         ngay_giao_du_kien: it.ngay_giao_du_kien,
+        hsd_toi_thieu_thang: it.hsd_toi_thieu_thang,
       }))
 
   // MỘT BẢNG, KHÔNG BA (chủ đầu tư 08/09/2026: "sau khi đã khớp mã hàng từ
@@ -395,6 +404,7 @@ function toggleChiTietKhop(row) {
         >
           <CotTenHang :ma="row.item_code" :ten="row.item_name || ''">
             <div>
+            <span v-if="nhanHsd(hsdDong(row))" class="badge b-gray mt4">{{ nhanHsd(hsdDong(row)) }}</span>
             <span v-if="khongDuyet(row)" class="badge b-red mt4">Không duyệt</span>
             <span v-if="row.nguon_dong === 'Quản lý thêm'" class="badge b-purple mt4">Quản lý thêm</span>
             <!-- Nhãn + lối vào chi tiết cho dòng Miyano khớp từ hàng gõ tay

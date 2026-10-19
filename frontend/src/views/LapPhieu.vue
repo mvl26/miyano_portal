@@ -81,6 +81,7 @@ import LocChon from '../components/LocChon.vue'
 import CotTenHang from '../components/CotTenHang.vue'
 import Icon from '../components/Icon.vue'
 import { ghepTenThuongGoi } from '../ten-hang'
+import { chuanHoaThang, goiYThangDong } from '../hsd'
 
 const route = useRoute()
 const router = useRouter()
@@ -441,6 +442,13 @@ const lyDoYeuCau = ref('')
 const ghiChu = ref('')
 const ngayCan = ref(addWorkDaysISO(2)) // gợi ý hợp lý, không bắt buộc
 const ngayToiThieu = todayISO()
+// HSD tối thiểu (tháng) khách yêu cầu: ô đầu phiếu + ô riêng từng dòng giỏ
+// (`r.hsd_toi_thieu_thang`, để trống = theo đơn). Giữ CHUỖI thô như ô số lượng;
+// `chuanHoaThang` (hsd.js) mới ép số. Server chốt lại 0–60 (spec 2026-10-19 §4.6).
+const hsdDau = ref('')
+const loiHsdDau = computed(() => chuanHoaThang(hsdDau.value).loi || '')
+const loiHsdDong = (r) => chuanHoaThang(r.hsd_toi_thieu_thang).loi || ''
+const coLoiHsd = computed(() => !!loiHsdDau.value || items.value.some((r) => loiHsdDong(r)))
 const diaChiGiao = ref('')
 const diaChiOptions = computed(() => store.me?.addresses || [])
 
@@ -465,6 +473,7 @@ function resetState() {
   lyDoYeuCau.value = ''
   ghiChu.value = ''
   ngayCan.value = addWorkDaysISO(2)
+  hsdDau.value = ''
   diaChiGiao.value = (store.me?.addresses || [])[0]?.name || ''
   donDaDat.value = null
   buoc.value = 'chon'
@@ -495,6 +504,8 @@ function napTuPhieu(d) {
     tang: tangTuNguonGia(it.nguon_gia, it.don_gia),
     don_gia: Number(it.don_gia) > 0 ? Number(it.don_gia) : null,
     boi_so: it.boi_so ?? null,
+    // Proposal path: Int, 0/rỗng = theo đơn → ô riêng để trống.
+    hsd_toi_thieu_thang: it.hsd_toi_thieu_thang ? String(it.hsd_toi_thieu_thang) : '',
   }))
   // CR-03 — MANG ĐỦ CHÍN FIELD MỚI khi nạp lại một phiếu Nháp đã lưu, không
   // chỉ bốn field gốc. `de_xuat_chi_tiet` trả nguyên `doc.as_dict()` nên cả
@@ -527,6 +538,7 @@ function napTuPhieu(d) {
   lyDoYeuCau.value = d.ly_do_yeu_cau || ''
   ghiChu.value = d.ghi_chu || ''
   ngayCan.value = d.ngay_can || ''
+  hsdDau.value = d.hsd_toi_thieu_thang ? String(d.hsd_toi_thieu_thang) : ''
   diaChiGiao.value = d.dia_chi_giao || (store.me?.addresses || [])[0]?.name || ''
   // Mở thẳng ở bước GIỎ: người dùng quay lại một phiếu dở dang là để xem/sửa
   // những gì đã có trong đó, không phải để bắt đầu tìm hàng lại từ đầu.
@@ -650,6 +662,10 @@ function dongDaDongTay(d) {
 }
 
 function kiemTraSoLuong() {
+  if (loiHsdDau.value) return loiHsdDau.value
+  for (const r of items.value) {
+    if (loiHsdDong(r)) return `Mặt hàng "${r.item_code}": ${loiHsdDong(r)}`
+  }
   for (const r of items.value) {
     const n = Number(r.so_luong_de_xuat)
     if (!Number.isFinite(n) || n <= 0) {
@@ -687,6 +703,8 @@ const itemsPayload = computed(() =>
     item_name: r.item_name,
     dvt: r.dvt,
     so_luong_de_xuat: Number(r.so_luong_de_xuat) || 0,
+    // Int phía server: null/0 = theo đơn.
+    hsd_toi_thieu_thang: chuanHoaThang(r.hsd_toi_thieu_thang).gia_tri,
   }))
 )
 // Ép kiểu số TRƯỚC khi gửi — `d.so_luong` sống trong ô nhập không `.number`
@@ -729,6 +747,7 @@ async function ghiPhieu(ten) {
     // "đừng đụng vào field này", nên gửi `null` cho một ô VỪA BỊ XOÁ TRẮNG
     // sẽ làm giá trị cũ SỐNG LẠI sau khi lưu.
     ngay_can: ngayCan.value ?? '',
+    hsd_toi_thieu_thang: chuanHoaThang(hsdDau.value).gia_tri ?? '',
     dia_chi_giao: diaChiGiao.value ?? '',
     ghi_chu: ghiChu.value ?? '',
     ly_do_yeu_cau: lyDoYeuCau.value ?? '',
@@ -916,10 +935,13 @@ async function datHang() {
         items.value.map((r) => ({
           item_code: r.item_code,
           qty: Number(r.so_luong_de_xuat) || 0,
+          // null = theo đầu đơn; 0 gõ tay được giữ nguyên (không yêu cầu).
+          hsd_toi_thieu_thang: chuanHoaThang(r.hsd_toi_thieu_thang).gia_tri,
         }))
       ),
       dat_ngoai: JSON.stringify(datNgoaiPayload.value),
       delivery_date: ngayCan.value || null,
+      hsd_toi_thieu_thang: chuanHoaThang(hsdDau.value).gia_tri,
       note: ghiChu.value || null,
       // Đường thứ HAI từ cùng giỏ hàng này (quản lý đặt thẳng). Quên
       // nhánh này là đúng một nửa người dùng gõ tên xong mất tên.
@@ -1366,6 +1388,17 @@ onMounted(async () => {
                       {{ loiBoiSo(r, r.so_luong_de_xuat) }}
                     </div>
                     <div v-else-if="boiSo(r) > 1" class="muted sm mt4">bội số {{ boiSo(r) }}</div>
+                    <!-- HSD tối thiểu riêng của dòng (spec 2026-10-19 §4.6): để
+                         trống = theo đầu phiếu, gợi ý hiện ở placeholder. -->
+                    <input
+                      type="number" min="0" max="60" step="1"
+                      v-model="r.hsd_toi_thieu_thang"
+                      :placeholder="goiYThangDong(hsdDau)"
+                      :aria-label="`HSD tối thiểu (tháng) cho ${r.item_code}`"
+                      title="HSD tối thiểu (tháng)"
+                      class="o-hsd mt4"
+                    />
+                    <div v-if="loiHsdDong(r)" class="warn mt4">{{ loiHsdDong(r) }}</div>
                   </td>
                   <!-- §7 — đơn giá và thành tiền của dòng có giá; dòng chờ báo
                        giá hiện "—". Tổng nằm ở khối nút bên dưới, CHỈ của phần
@@ -1454,6 +1487,11 @@ onMounted(async () => {
               <input type="date" v-model="ngayCan" :min="ngayToiThieu" />
             </div>
             <div class="field grow">
+              <label>HSD tối thiểu (tháng)</label>
+              <input type="number" min="0" max="60" step="1" v-model="hsdDau" placeholder="Không yêu cầu" />
+              <div v-if="loiHsdDau" class="warn mt4">{{ loiHsdDau }}</div>
+            </div>
+            <div class="field grow">
               <label>Địa chỉ giao hàng</label>
               <select v-model="diaChiGiao">
                 <option value="">—</option>
@@ -1495,7 +1533,7 @@ onMounted(async () => {
             <button class="btn-o" @click="buoc = 'chon'"><Icon name="chevron-left" :size="16" />Chọn thêm hàng</button>
             <!-- Hide, don't disable — nút "Lưu nháp"/"Gửi duyệt" thuộc luồng
                  phiếu; quản lý đặt thẳng không có phiếu Nháp nào để lưu. -->
-            <button v-if="!dangDatThang" class="btn-o" :disabled="dangLuu || dangGui" @click="luuNhap">
+            <button v-if="!dangDatThang" class="btn-o" :disabled="dangLuu || dangGui || coLoiHsd" @click="luuNhap">
               <Icon name="file-text" :size="16" />{{ dangLuu ? 'Đang lưu…' : 'Lưu nháp' }}
             </button>
             <!-- QĐ-G6 — MỘT nút, ĐỘNG TỪ đổi theo vai trò. `de_xuat_gui_duyet`
@@ -1504,7 +1542,7 @@ onMounted(async () => {
             <button
               v-if="dangDatThang || laChuPhieu"
               class="btn"
-              :disabled="dangLuu || dangGui"
+              :disabled="dangLuu || dangGui || coLoiHsd"
               @click="nutChinh"
             >
               <Icon name="send" :size="16" />{{ dangGui ? 'Đang gửi…' : nhanNutChinh }}
@@ -1544,6 +1582,8 @@ onMounted(async () => {
 .cot-sl { width: 140px; }
 .cot-sl-gio { width: 150px; }
 .o-sl { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Ô HSD riêng của dòng: rộng hơn ô SL để placeholder "theo đơn (12)" không bị cắt. */
+.o-hsd { width: 132px; text-align: right; font-variant-numeric: tabular-nums; }
 .gio-trong { padding: 28px 14px; text-align: center; }
 .goi-y-sua { margin: -2px 0 12px 4px; }
 

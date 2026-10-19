@@ -408,7 +408,18 @@ doc_events = {
 		# tiên, sớm hơn lúc hàng thật sự đi. Chỉ GÁN, không bao giờ ném lỗi —
 		# khác các chốt `before_submit` thường thấy, hook này không chặn gì
 		# (xem docstring hàm).
-		"before_submit": "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
+		"before_submit": [
+			"miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
+			# HSD tối thiểu khách yêu cầu (spec 2026-10-19 §4.5) — chốt lô đạt
+			# cho dòng còn trống, rồi CHẶN duyệt khi lô thực xuất không đạt sàn
+			# (trừ khi dòng SO có ngoại lệ). Dòng/phiếu không yêu cầu: không đụng.
+			"miyano_portal.han_dung_khach.kiem_phieu_giao",
+		],
+		# HSD tối thiểu (spec §4.4) — chốt lô đạt TRƯỚC `validate` của ERPNext:
+		# với trường lô cũ bật, `get_item_details.update_stock` tự điền lô hết
+		# hạn sớm nhất vào mọi dòng trống ở mỗi lần validate. Không bao giờ đổi
+		# lô đã có, không ném lỗi (nháp vẫn lưu được).
+		"before_validate": "miyano_portal.han_dung_khach.chot_lo_truoc_validate",
 		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
 		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
 		# chứng từ không khớp tài khoản cổng nào của khách, nghĩa là
@@ -522,6 +533,10 @@ doc_events = {
 			# `validate` vì lối thứ hai chạy trên đơn nháp ĐÃ LƯU. Tự bỏ qua
 			# báo giá nội bộ và đơn không trỏ về báo giá.
 			"miyano_portal.bao_gia.chan_don_thu_hai_tu_bao_gia_cong",
+			# HSD tối thiểu khách yêu cầu (spec 2026-10-19 §4.2): kế thừa số
+			# tháng đầu phiếu, tính Đạt/Không đạt từng dòng theo tồn lô và
+			# CẢNH BÁO — không bao giờ chặn lưu/submit đơn.
+			"miyano_portal.han_dung_khach.tinh_tren_don",
 		],
 		"before_submit": [
 			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
@@ -543,6 +558,9 @@ doc_events = {
 			"miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 			"miyano_portal.nhat_ky_hook.tu_sales_order_on_update",
 		],
+		# HSD tối thiểu: dòng thêm sau duyệt qua "Update Items" không đi qua
+		# `validate` — kế thừa số tháng đầu phiếu và tính kết quả ở đây.
+		"before_update_after_submit": "miyano_portal.han_dung_khach.tinh_dong_them_sau_duyet",
 	},
 }
 
@@ -677,6 +695,11 @@ before_request = [
 	"miyano_portal.rest_guard.chan_trang_bao_gia_erpnext",
 ]
 # after_request = ["miyano_portal.utils.after_request"]
+
+# HSD tối thiểu khách yêu cầu (19/10/2026): trang Lấy hàng PDA của fork erpnext
+# (`warehouse_operations/vitri/lay_hang.py`) hỏi sàn HSD lô qua tên hook này —
+# erpnext không import miyano_portal. Hàm `(doc, d) -> date | None`.
+han_toi_thieu_lo_xuat = ["miyano_portal.han_dung_khach.han_toi_thieu_lo_xuat"]
 
 # Job Events
 # ----------

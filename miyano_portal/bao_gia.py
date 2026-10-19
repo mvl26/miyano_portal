@@ -10,7 +10,7 @@ phải kiểm quyền của khách trên đúng báo giá đó trước khi gọ
 import math
 
 import frappe
-from frappe.utils import add_days, flt, formatdate, getdate, now_datetime, nowdate
+from frappe.utils import add_days, cint, flt, formatdate, getdate, now_datetime, nowdate
 
 WORKFLOW = "Quotation - Client Portal"
 NGUON_CONG = "Client Portal"
@@ -125,6 +125,31 @@ def can_bao_gia(customer: str, items: list, dat_ngoai: list) -> bool:
 		return True
 	_co_gia, cho_bao_gia = tach_phieu.chia_dong(customer, items or [])
 	return bool(cho_bao_gia)
+
+
+def cau_hsd_yeu_cau(hsd_dau, items) -> str:
+	"""Câu ghi lại HSD tối thiểu khách yêu cầu, hoặc "" nếu không có gì.
+	`items`: các dict có `item_code` và `hsd_toi_thieu_thang` (có thể trùng mã
+	— lấy số lớn nhất). Chỉ liệt kê dòng > 0."""
+	theo_ma: dict = {}
+	for d in items or []:
+		n = cint(d.get("hsd_toi_thieu_thang"))
+		ma = d.get("item_code")
+		if ma and n > 0:
+			theo_ma[ma] = max(theo_ma.get(ma, 0), n)
+	phan = []
+	if cint(hsd_dau) > 0:
+		phan.append(f"{cint(hsd_dau)} tháng (cả đơn)")
+	phan += [f"{ma}: {n} tháng" for ma, n in theo_ma.items()]
+	return ("Khách yêu cầu HSD tối thiểu: " + "; ".join(phan)) if phan else ""
+
+
+def ghi_comment_hsd(ten_bao_gia, hsd_dau, items) -> None:
+	"""Quotation chưa mang HSD (ngoài phạm vi spec §5) nhưng yêu cầu của khách
+	không được mất: ghi thành Comment để nhân viên báo giá đọc được."""
+	cau = cau_hsd_yeu_cau(hsd_dau, items)
+	if cau:
+		frappe.get_doc("Quotation", ten_bao_gia).add_comment("Comment", cau)
 
 
 def tao_bao_gia(

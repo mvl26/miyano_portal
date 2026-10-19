@@ -184,8 +184,67 @@ def _insert_so_idempotent(so, request_id) -> dict:
     return {"sales_order": so.name, "da_ton_tai": False, "total": float(so.grand_total)}
 
 
+def kiem_hsd_gio(hsd_toi_thieu_thang, items) -> tuple:
+    """Kiểm HSD tối thiểu của giỏ TRƯỚC khi tạo bất kỳ chứng từ nào.
+
+    Trả `(hsd_dau, hsd_theo_ma)`: `hsd_dau` là số tháng cả đơn đã chuẩn hoá
+    (`None` nếu khách không khai), `hsd_theo_ma` là `{item_code: tháng}` chỉ
+    gồm dòng CÓ khai. Cùng mã xuất hiện nhiều lần (giỏ gộp theo mã) → lấy giá
+    trị LỚN nhất (chặt hơn); dòng để trống của mã đó tính bằng số tháng đầu
+    phiếu. Sai thì ghi `frappe.local.response["loi"]` theo
+    đúng khuôn lỗi giỏ hàng khác rồi ném ValidationError.
+    """
+    from miyano_portal import han_dung_khach
+
+    loi: list[dict] = []
+
+    def _kiem(gia_tri, item_code=None):
+        try:
+            return han_dung_khach.kiem_so_thang(gia_tri)
+        except frappe.ValidationError:
+            # `kiem_so_thang` đã đẩy thông báo của nó vào message_log; lỗi
+            # giỏ hàng được báo gộp ở cuối hàm nên bỏ bản lẻ đó đi.
+            frappe.clear_last_message()
+            loi.append({
+                "item_code": item_code,
+                "ly_do": "hsd_toi_thieu_khong_hop_le",
+                "thong_diep": (
+                    (f"{item_code}: " if item_code else "")
+                    + "HSD tối thiểu phải là số tháng từ 0 đến 60."
+                ),
+            })
+            return None
+
+    def _co_khai(v):
+        return v is not None and v != ""
+
+    hsd_dau = _kiem(hsd_toi_thieu_thang) if _co_khai(hsd_toi_thieu_thang) else None
+    hsd_theo_ma: dict = {}
+    ma_co_dong_trong: set = set()
+    for line in items or []:
+        raw_code = (line.get("item_code") or "").strip()
+        ma = (frappe.db.get_value("Item", raw_code, "name") if raw_code else None) or raw_code
+        v = line.get("hsd_toi_thieu_thang")
+        if not _co_khai(v):
+            ma_co_dong_trong.add(ma)
+            continue
+        n = _kiem(v, ma)
+        if n is None:
+            continue
+        hsd_theo_ma[ma] = max(hsd_theo_ma.get(ma, n), n)
+    # Cùng mã có dòng khai và dòng để trống (= theo đầu phiếu): dòng gộp phải
+    # giữ yêu cầu CHẶT nhất, kể cả số tháng đầu phiếu mà dòng trống kế thừa.
+    if hsd_dau is not None:
+        for ma in ma_co_dong_trong & set(hsd_theo_ma):
+            hsd_theo_ma[ma] = max(hsd_theo_ma[ma], hsd_dau)
+    if loi:
+        frappe.local.response["loi"] = loi
+        frappe.throw("<br>".join(d["thong_diep"] for d in loi), frappe.ValidationError)
+    return hsd_dau, hsd_theo_ma
+
+
 def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
-             address, po, note, request_id):
+             address, po, note, request_id, hsd_dau=None, hsd_theo_ma=None):
     """MỘT hàm dựng đơn duy nhất của cổng; giá và tầng quyết định ở TỪNG
     DÒNG, theo Price List của khách (spec 2026-10-09 §3.2, §4.2).
 
@@ -216,6 +275,11 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
     Loại đơn (`custom_loai_don`) suy từ dòng: còn ít nhất một dòng chưa có
     giá hoặc một dòng gõ tay thì `"Mua lẻ"` (đi vòng báo giá), ngược lại
     `"Theo bảng giá"`.
+
+    `hsd_dau` / `hsd_theo_ma` — HSD tối thiểu khách yêu cầu (tháng), ĐÃ kiểm
+    ở `kiem_hsd_gio`: số tháng cả đơn và `{item_code: tháng}` theo dòng. Chỉ
+    mang sang đơn; `Sales Order.validate` (`han_dung_khach.tinh_tren_don`) lo
+    kế thừa đầu phiếu và tính kết quả. `bao_gia.tao_bao_gia` không truyền.
     """
     # Spec 2026-10-09 §4.2 — giá và tầng của từng dòng đến từ Price List của
     # khách. Bảo đảm bảng riêng TRƯỚC khi tra: đơn phải mang đúng bảng đó
@@ -464,6 +528,8 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
         else bang_gia_khach.LOAI_DON_BANG_GIA
     )
     so.custom_request_id = request_id
+    if hsd_dau is not None:
+        so.custom_hsd_toi_thieu_thang = hsd_dau
     so.custom_so_po_khach = po
     so.custom_yeu_cau_khach = note
     if address:
@@ -495,6 +561,8 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
             "uom": dvt_goc, "stock_uom": dvt_goc, "conversion_factor": 1,
             "warehouse": item_warehouse, "delivery_date": delivery_date,
             "custom_nguon_gia": d["nguon_gia"],
+            # `None` = dòng không khai → kế thừa đầu phiếu lúc validate.
+            "custom_hsd_toi_thieu_thang": (hsd_theo_ma or {}).get(d["item_code"]),
             # Đặt CẢ HAI `rate` và `price_list_rate` (§4.2):
             # `price_list_rate` là thứ ERPNext coi là nguồn khi tính lại
             # dòng lúc `insert()`.
@@ -522,9 +590,14 @@ def _xay_don(customer, aggregated, dat_ngoai, delivery_date,
 def tao_sales_order(
     customer: str, *, mode: str = "hdnt", contract=None, items=None,
     dat_ngoai=None, po=None, delivery_date=None, note=None, address=None,
-    request_id=None, khoa_phong=None, ma=None,
+    request_id=None, khoa_phong=None, ma=None, hsd_toi_thieu_thang=None,
 ) -> dict:
     """Trả {"sales_order": str, "da_ton_tai": bool, "total": float}
+
+    `hsd_toi_thieu_thang` — HSD tối thiểu khách yêu cầu cho cả đơn (tháng,
+    0-60, `None`/rỗng = không khai). `items[i]["hsd_toi_thieu_thang"]` là giá
+    trị theo dòng; cùng `item_code` nhiều dòng → lấy giá trị LỚN nhất, dòng
+    không khai để `None` (kế thừa đầu phiếu ở `Sales Order.validate`).
 
     Lõi tạo Sales Order cho cổng khách hàng — tách khỏi `portal_order_place`
     (xem docstring đầu file). `customer` là THAM SỐ, không suy từ
@@ -656,6 +729,8 @@ def tao_sales_order(
     # Mã không tra ra Item thật bị từ chối NGAY, không để lọt xuống các
     # tầng kiểm phía dưới rồi lộ ra một thông điệp khó hiểu về một mặt hàng
     # không tồn tại.
+    # HSD tối thiểu: kiểm TRƯỚC khi dựng bất kỳ thứ gì (và trước khi gộp).
+    hsd_dau, hsd_theo_ma = kiem_hsd_gio(hsd_toi_thieu_thang, items)
     aggregated = {}
     for line in items:
         raw_code = (line.get("item_code") or "").strip()
@@ -670,7 +745,7 @@ def tao_sales_order(
 
     so = _xay_don(
         customer, aggregated, dat_ngoai, delivery_date,
-        address, po, note, request_id,
+        address, po, note, request_id, hsd_dau, hsd_theo_ma,
     )
     if so.flags.dong_dat_ngoai:
         # Người gọi chia giỏ trước (`bao_gia.can_bao_gia`): giỏ có dòng gõ tay
