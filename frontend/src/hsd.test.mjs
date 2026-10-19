@@ -2,7 +2,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chuanHoaThang, thangHieuLuc, nhanHsd } from './hsd.js'
+import { chuanHoaThang, thangHieuLuc, nhanHsd, goiYThangDong } from './hsd.js'
 
 test('chuanHoaThang', () => {
   assert.deepEqual(chuanHoaThang(''), { ok: true, gia_tri: null })
@@ -23,6 +23,13 @@ test('thangHieuLuc', () => {
   assert.equal(thangHieuLuc({ hsd_toi_thieu_thang: 0 }, 3), 0)
   assert.equal(thangHieuLuc({ hsd_toi_thieu_thang: 6 }, 3), 6)
   assert.equal(thangHieuLuc({}, null), null)
+})
+
+test('goiYThangDong: placeholder dòng theo đầu phiếu đã chuẩn hoá', () => {
+  assert.equal(goiYThangDong('6'), 'theo đơn (6)')
+  assert.equal(goiYThangDong(' 3 '), 'theo đơn (3)')
+  assert.equal(goiYThangDong('0'), 'theo đơn (0)')
+  for (const x of ['', null, undefined, 'abc', '61']) assert.equal(goiYThangDong(x), 'theo đơn', String(x))
 })
 
 test('nhanHsd: chỉ hiện khi có yêu cầu dương', () => {

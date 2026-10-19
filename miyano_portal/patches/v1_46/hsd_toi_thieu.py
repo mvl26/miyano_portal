@@ -15,7 +15,18 @@ def them_truong():
 
 	# `no_copy=0` cho yêu cầu (bản sao đơn vẫn mang yêu cầu của khách); riêng
 	# ngoại lệ là quyết định của người duyệt trên đúng dòng đó nên `no_copy=1`.
-	ngoai_le = {"no_copy": 1, "allow_on_submit": 1}
+	#
+	# Kết quả, tồn tốt nhất, ngày yêu cầu và ngoại lệ là thông tin NỘI BỘ: khách
+	# cổng (vai Customer, đọc SO ở permlevel 0) không được thấy qua
+	# /api/resource, frappe.client.get hay bản in → `permlevel` 2 (1 đã dành
+	# cho `ignore_pricing_rule`) + `print_hide`. Quyền level 2 cấp ở patch
+	# `hsd_toi_thieu_quyen`.
+	#
+	# Ngoại lệ KHÔNG `allow_on_submit`: sau duyệt chỉ ghi/gỡ qua API
+	# `ghi_ngoai_le`/`go_ngoai_le` (kiểm vai trò, lý do, comment; dùng
+	# `db.set_value` nên không vướng cờ này) — không sửa thẳng trên lưới.
+	noi_bo = {"permlevel": 2, "print_hide": 1}
+	ngoai_le = {"no_copy": 1, "allow_on_submit": 0, **noi_bo}
 	create_custom_fields({
 		"Sales Order": [
 			{
@@ -37,17 +48,17 @@ def them_truong():
 			{
 				"fieldname": "custom_hsd_yeu_cau_den", "label": "HSD yêu cầu đến ngày",
 				"fieldtype": "Date", "insert_after": "custom_hsd_toi_thieu_thang",
-				"read_only": 1, "no_copy": 0,
+				"read_only": 1, "no_copy": 0, **noi_bo,
 			},
 			{
 				"fieldname": "custom_ket_qua_hsd", "label": "Kết quả HSD", "fieldtype": "Select",
 				"options": "\nĐạt\nKhông đạt\nKhông áp dụng",
-				"insert_after": "custom_hsd_yeu_cau_den", "read_only": 1, "no_copy": 0,
+				"insert_after": "custom_hsd_yeu_cau_den", "read_only": 1, "no_copy": 0, **noi_bo,
 			},
 			{
 				"fieldname": "custom_hsd_ton_tot_nhat", "label": "HSD tồn tốt nhất",
 				"fieldtype": "Date", "insert_after": "custom_ket_qua_hsd",
-				"read_only": 1, "no_copy": 0,
+				"read_only": 1, "no_copy": 0, **noi_bo,
 			},
 			{
 				"fieldname": "custom_ngoai_le_hsd", "label": "Ngoại lệ HSD", "fieldtype": "Check",

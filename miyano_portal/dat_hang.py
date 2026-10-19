@@ -190,7 +190,8 @@ def kiem_hsd_gio(hsd_toi_thieu_thang, items) -> tuple:
     Trả `(hsd_dau, hsd_theo_ma)`: `hsd_dau` là số tháng cả đơn đã chuẩn hoá
     (`None` nếu khách không khai), `hsd_theo_ma` là `{item_code: tháng}` chỉ
     gồm dòng CÓ khai. Cùng mã xuất hiện nhiều lần (giỏ gộp theo mã) → lấy giá
-    trị LỚN nhất (chặt hơn). Sai thì ghi `frappe.local.response["loi"]` theo
+    trị LỚN nhất (chặt hơn); dòng để trống của mã đó tính bằng số tháng đầu
+    phiếu. Sai thì ghi `frappe.local.response["loi"]` theo
     đúng khuôn lỗi giỏ hàng khác rồi ném ValidationError.
     """
     from miyano_portal import han_dung_khach
@@ -219,16 +220,23 @@ def kiem_hsd_gio(hsd_toi_thieu_thang, items) -> tuple:
 
     hsd_dau = _kiem(hsd_toi_thieu_thang) if _co_khai(hsd_toi_thieu_thang) else None
     hsd_theo_ma: dict = {}
+    ma_co_dong_trong: set = set()
     for line in items or []:
-        v = line.get("hsd_toi_thieu_thang")
-        if not _co_khai(v):
-            continue
         raw_code = (line.get("item_code") or "").strip()
         ma = (frappe.db.get_value("Item", raw_code, "name") if raw_code else None) or raw_code
+        v = line.get("hsd_toi_thieu_thang")
+        if not _co_khai(v):
+            ma_co_dong_trong.add(ma)
+            continue
         n = _kiem(v, ma)
         if n is None:
             continue
         hsd_theo_ma[ma] = max(hsd_theo_ma.get(ma, n), n)
+    # Cùng mã có dòng khai và dòng để trống (= theo đầu phiếu): dòng gộp phải
+    # giữ yêu cầu CHẶT nhất, kể cả số tháng đầu phiếu mà dòng trống kế thừa.
+    if hsd_dau is not None:
+        for ma in ma_co_dong_trong & set(hsd_theo_ma):
+            hsd_theo_ma[ma] = max(hsd_theo_ma[ma], hsd_dau)
     if loi:
         frappe.local.response["loi"] = loi
         frappe.throw("<br>".join(d["thong_diep"] for d in loi), frappe.ValidationError)

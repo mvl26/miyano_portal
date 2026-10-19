@@ -80,7 +80,7 @@ import PhanTrang from '../components/PhanTrang.vue'
 import LocChon from '../components/LocChon.vue'
 import CotTenHang from '../components/CotTenHang.vue'
 import { ghepTenThuongGoi } from '../ten-hang'
-import { chuanHoaThang } from '../hsd'
+import { chuanHoaThang, goiYThangDong } from '../hsd'
 
 const route = useRoute()
 const router = useRouter()
@@ -1363,7 +1363,7 @@ onMounted(async () => {
                   <input
                     type="number" min="0" max="60" step="1"
                     v-model="r.hsd_toi_thieu_thang"
-                    :placeholder="hsdDau !== '' ? `theo đơn (${hsdDau})` : 'theo đơn'"
+                    :placeholder="goiYThangDong(hsdDau)"
                     :aria-label="`HSD tối thiểu (tháng) cho ${r.item_code}`"
                     title="HSD tối thiểu (tháng)"
                     style="width: 90px; text-align: right; margin-top: 4px"

@@ -21,6 +21,13 @@ export function thangHieuLuc(dong, dauPhieu) {
   return dauPhieu ?? null
 }
 
+// Gợi ý (placeholder) ô HSD của một dòng giỏ đang để trống: số tháng hiệu lực
+// mà dòng sẽ kế thừa từ ô đầu phiếu (chuỗi thô); đầu phiếu trống/sai → "theo đơn".
+export function goiYThangDong(dauPhieuTho) {
+  const n = thangHieuLuc({ hsd_toi_thieu_thang: null }, chuanHoaThang(dauPhieuTho).gia_tri)
+  return n !== null ? `theo đơn (${n})` : 'theo đơn'
+}
+
 // Nhãn hiển thị ở chi tiết đơn; 0/rỗng = không yêu cầu → không hiện gì.
 export function nhanHsd(v) {
   const n = Number(v)

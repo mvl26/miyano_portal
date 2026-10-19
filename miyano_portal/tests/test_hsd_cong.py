@@ -68,6 +68,65 @@ class TestHsdCongOrderPlace(FrappeTestCase):
 		self.assertEqual(so.items[0].qty, 20)
 		self.assertEqual(so.items[0].custom_hsd_toi_thieu_thang, 5)
 
+	def test_gop_cung_ma_dong_trong_theo_dau_phieu(self):
+		# Dòng trống của cùng mã kế thừa đầu phiếu → dòng gộp lấy max(khai, đầu phiếu).
+		res = self._dat([
+			{"item_code": ITEM_A, "qty": 10, "hsd_toi_thieu_thang": 2},
+			{"item_code": ITEM_A, "qty": 10},
+		], hsd_toi_thieu_thang=5)
+		so = frappe.get_doc("Sales Order", res["sales_order"])
+		self.assertEqual(len(so.items), 1)
+		self.assertEqual(so.items[0].custom_hsd_toi_thieu_thang, 5)
+		# Dòng khai chặt hơn đầu phiếu thì giữ dòng khai.
+		res = self._dat([
+			{"item_code": ITEM_A, "qty": 10, "hsd_toi_thieu_thang": 7},
+			{"item_code": ITEM_A, "qty": 10},
+		], hsd_toi_thieu_thang=5)
+		so = frappe.get_doc("Sales Order", res["sales_order"])
+		self.assertEqual(so.items[0].custom_hsd_toi_thieu_thang, 7)
+
+	def test_dat_hang_khong_lo_canh_bao_hsd_cho_khach(self):
+		"""Đơn đặt trên cổng có dòng không đạt HSD: kết quả vẫn được tính nhưng câu
+		cảnh báo nội bộ (tồn kho, HSD lô) không lọt vào message_log trả về cổng."""
+		from unittest.mock import patch
+
+		from miyano_portal import han_dung_khach
+
+		khong_dat = {"dat": False, "hsd_tot_nhat": None, "ton_dat": 0}
+		frappe.clear_messages()
+		with patch.object(han_dung_khach, "ap_dung", return_value=True), patch.object(
+			han_dung_khach, "kiem_ton_cho_dong", return_value=khong_dat
+		):
+			res = self._dat([{"item_code": ITEM_A, "qty": 10}], hsd_toi_thieu_thang=6)
+		self.assertNotIn("HSD", json.dumps(frappe.local.message_log, ensure_ascii=False))
+		self.assertEqual(
+			frappe.db.get_value("Sales Order Item", {"parent": res["sales_order"]}, "custom_ket_qua_hsd"),
+			"Không đạt",
+		)
+
+	def test_client_get_khong_lo_truong_noi_bo(self):
+		"""Khách cổng đọc đơn của mình qua frappe.client.get (bản bọc search_guard):
+		các trường nội bộ HSD không mang giá trị thật."""
+		from miyano_portal import search_guard
+
+		res = self._dat([{"item_code": ITEM_A, "qty": 10}], hsd_toi_thieu_thang=3)
+		ten = res["sales_order"]
+		dong = frappe.db.get_value("Sales Order Item", {"parent": ten}, "name")
+		frappe.db.set_value("Sales Order Item", dong, {
+			"custom_ngoai_le_hsd": 1, "custom_ngoai_le_hsd_den": "2026-12-20",
+			"custom_ngoai_le_ly_do": "Lý do nội bộ", "custom_ngoai_le_boi": "Administrator",
+		})
+		d = search_guard.client_get("Sales Order", ten)
+		self.assertEqual(d["custom_hsd_toi_thieu_thang"], 3)
+		self.assertEqual(d["items"][0]["custom_hsd_toi_thieu_thang"], 3)
+		for f in ("custom_ket_qua_hsd", "custom_hsd_ton_tot_nhat", "custom_hsd_yeu_cau_den",
+		          "custom_ngoai_le_hsd", "custom_ngoai_le_hsd_den", "custom_ngoai_le_ly_do",
+		          "custom_ngoai_le_boi", "custom_ngoai_le_luc"):
+			self.assertIn(d["items"][0].get(f), (None, 0), f)
+		flat = frappe.as_json(d)
+		for gia_tri in ("Không áp dụng", "Lý do nội bộ", "2026-12-20"):
+			self.assertNotIn(gia_tri, flat)
+
 	def test_so_thang_sai_bi_tu_choi(self):
 		truoc = frappe.db.count("Sales Order")
 		for dau, dong in ((61, None), (None, 61), (None, "abc"), (-1, None), (2.5, None)):

@@ -169,3 +169,28 @@ class TestHsdDon(FrappeTestCase):
 		dong.update(custom_ngoai_le_hsd=1, custom_ngoai_le_hsd_den=getdate("2026-12-20"))
 		cau = han_dung_khach.cau_canh_bao(dong, kq, getdate("2026-10-15"))
 		self.assertIn("Đã ghi ngoại lệ: khách chấp nhận đến 20/12/2026.", cau)
+
+	def test_khach_cong_khong_nhan_canh_bao_noi_bo(self):
+		"""Đơn lưu trong phiên khách cổng (Website User) — vd. đặt hàng trên cổng:
+		vẫn tính kết quả nhưng KHÔNG msgprint câu tồn kho/HSD nội bộ."""
+		import json
+
+		web = "hsd_web_khach@example.com"
+		if not frappe.db.exists("User", web):
+			frappe.get_doc(
+				{"doctype": "User", "email": web, "first_name": "hsd web", "send_welcome_email": 0,
+				 "roles": [{"role": "Customer"}]}
+			).insert(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("User", web, "user_type"), "Website User")
+		try:
+			frappe.set_user(web)
+			frappe.clear_messages()
+			so = self._so(hsd=12, dong=[{"qty": 1}])
+			self.assertEqual(so.items[0].custom_ket_qua_hsd, "Không đạt")
+			self.assertNotIn("HSD", json.dumps(frappe.local.message_log, ensure_ascii=False))
+		finally:
+			frappe.set_user("Administrator")
+		# Người dùng nội bộ vẫn nhận cảnh báo.
+		frappe.clear_messages()
+		self._so(hsd=12, dong=[{"qty": 1}])
+		self.assertIn("Không đáp ứng HSD", json.dumps(frappe.local.message_log, ensure_ascii=False))

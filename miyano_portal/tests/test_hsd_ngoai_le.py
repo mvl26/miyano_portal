@@ -12,6 +12,14 @@ USER_SALES = "hsd_sales_user@example.com"
 USER_CONG = "hsd_khach_cong@example.com"
 USER_HAN_CHE = "hsd_sales_han_che@example.com"
 KHACH_KHAC = "_Test HSD Khach Khac"
+TRUONG_NGOAI_LE = (
+	"custom_ngoai_le_hsd",
+	"custom_ngoai_le_hsd_den",
+	"custom_ngoai_le_ly_do",
+	"custom_ngoai_le_boi",
+	"custom_ngoai_le_luc",
+)
+TRUONG_NOI_BO = ("custom_ket_qua_hsd", "custom_hsd_ton_tot_nhat", "custom_hsd_yeu_cau_den", *TRUONG_NGOAI_LE)
 
 
 def _tao_user(email, vai_tro):
@@ -210,3 +218,77 @@ class TestHsdNgoaiLe(FrappeTestCase):
 		self.assertEqual(len(cau), 1)
 		self.assertIn("Khách hàng yêu cầu hàng còn tối thiểu 12 tháng HSD", cau[0])
 		self.assertIn("→ Không đáp ứng (thiếu", cau[0])
+
+	# ---- trường nội bộ (permlevel 2) và khoá sửa ngoại lệ sau duyệt ----
+
+	def _doc_doc_duoc(self, so, user):
+		"""Bản SO người dùng `user` nhận được qua frappe.client.get (đã lọc permlevel)."""
+		frappe.set_user(user)
+		doc = frappe.get_doc("Sales Order", so.name)
+		doc.apply_fieldlevel_read_permissions()
+		return doc.as_dict()
+
+	def test_truong_noi_bo_permlevel_2_va_an_khi_in(self):
+		meta = frappe.get_meta("Sales Order Item")
+		for f in TRUONG_NOI_BO:
+			df = meta.get_field(f)
+			self.assertEqual((df.permlevel, df.print_hide), (2, 1), f)
+		for f in TRUONG_NGOAI_LE:
+			self.assertEqual(meta.get_field(f).allow_on_submit, 0, f)
+		# Yêu cầu của chính khách vẫn ở level 0.
+		self.assertEqual(meta.get_field("custom_hsd_toi_thieu_thang").permlevel, 0)
+		self.assertEqual(frappe.get_meta("Sales Order").get_field("custom_hsd_toi_thieu_thang").permlevel, 0)
+
+	def test_khach_cong_khong_doc_duoc_truong_noi_bo(self):
+		so = self._so()
+		ghi_ngoai_le(so.name, so.items[0].name, "2026-12-20", "ĐT khách")
+		that = frappe.get_doc("Sales Order", so.name).items[0]
+		self.assertEqual((that.custom_ket_qua_hsd, that.custom_ngoai_le_hsd), ("Không đạt", 1))
+		d = self._doc_doc_duoc(so, USER_CONG)
+		self.assertEqual(d["custom_hsd_toi_thieu_thang"], 12)
+		dong = d["items"][0]
+		self.assertEqual(dong["custom_hsd_toi_thieu_thang"], 12)
+		# `as_dict()` dựng lại mọi khoá của meta (giá trị rỗng/0) sau khi Frappe xoá
+		# trường không đủ quyền — điều cần là KHÔNG còn giá trị thật nào.
+		for f in TRUONG_NOI_BO:
+			self.assertIn(dong.get(f), (None, 0), f)
+		flat = frappe.as_json(d)
+		for gia_tri in ("Không đạt", "ĐT khách", "2026-12-20"):
+			self.assertNotIn(gia_tri, flat)
+
+	def test_nhan_vien_noi_bo_van_doc_duoc(self):
+		so = self._so()
+		ghi_ngoai_le(so.name, so.items[0].name, "2026-12-20", "ĐT khách")
+		for user in (USER_SALES, USER_STOCK):
+			dong = self._doc_doc_duoc(so, user)["items"][0]
+			self.assertEqual(dong["custom_ket_qua_hsd"], "Không đạt", user)
+			self.assertEqual(str(dong["custom_ngoai_le_hsd_den"]), "2026-12-20", user)
+			self.assertEqual(dong["custom_ngoai_le_ly_do"], "ĐT khách", user)
+
+	def test_sales_user_luu_nhap_van_tinh_ket_qua(self):
+		# validate_higher_perm_levels chạy TRƯỚC validate: Sales User (có ghi level 2)
+		# lưu nháp thì `tinh_tren_don` vẫn ghi được kết quả.
+		so = self._so(submit=False)
+		self.assertEqual(so.items[0].custom_ket_qua_hsd, "Không đạt")
+		frappe.set_user(USER_SALES)
+		doc = frappe.get_doc("Sales Order", so.name)
+		doc.items[0].custom_hsd_toi_thieu_thang = 0
+		doc.save()
+		frappe.set_user("Administrator")
+		self.assertEqual(
+			frappe.db.get_value("Sales Order Item", doc.items[0].name, "custom_ket_qua_hsd"), "Không áp dụng"
+		)
+
+	def test_sua_ngoai_le_tren_luoi_sau_duyet_bi_chan(self):
+		so = self._so()
+		for user in ("Administrator", USER_SALES):
+			frappe.set_user(user)
+			doc = frappe.get_doc("Sales Order", so.name)
+			d = doc.items[0]
+			d.custom_ngoai_le_hsd = 1
+			d.custom_ngoai_le_hsd_den = "2026-12-20"
+			d.custom_ngoai_le_ly_do = "Sửa tay trên lưới"
+			with self.assertRaises(frappe.UpdateAfterSubmitError):
+				doc.save()
+		frappe.set_user("Administrator")
+		self.assertFalse(frappe.db.get_value("Sales Order Item", so.items[0].name, "custom_ngoai_le_hsd"))

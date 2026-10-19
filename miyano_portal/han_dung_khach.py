@@ -140,6 +140,57 @@ def cau_canh_bao(dong, kq_ton, tu_ngay):
 	return cau
 
 
+def _tinh_dong(doc, d, dau_phieu, ke_thua_khi_0=False):
+	"""Kế thừa số tháng, tính yêu cầu/kết quả/tồn tốt nhất cho MỘT dòng SO.
+
+	Trả câu cảnh báo khi dòng "Không đạt", không thì None. `ke_thua_khi_0`: dòng
+	thêm sau duyệt (Update Items) không khai được số tháng nên 0 cũng kế thừa.
+	"""
+	so_thang = d.get("custom_hsd_toi_thieu_thang")
+	if so_thang is None or so_thang == "" or (ke_thua_khi_0 and not cint(so_thang)):
+		so_thang = dau_phieu
+	d.custom_hsd_toi_thieu_thang = kiem_so_thang(so_thang)
+
+	if doc.docstatus == 0 and cint(d.get("custom_ngoai_le_hsd")):
+		if not d.get("custom_ngoai_le_hsd_den") or not (d.get("custom_ngoai_le_ly_do") or "").strip():
+			frappe.throw(
+				_("Dòng {0}: ngoại lệ HSD cần nhập đủ ngày khách chấp nhận và lý do.").format(d.idx)
+			)
+		if not d.get("custom_ngoai_le_boi"):
+			d.custom_ngoai_le_boi = frappe.session.user
+		if not d.get("custom_ngoai_le_luc"):
+			d.custom_ngoai_le_luc = now_datetime()
+
+	if not ap_dung(d.get("item_code"), d.custom_hsd_toi_thieu_thang):
+		d.custom_ket_qua_hsd = "Không áp dụng"
+		d.custom_hsd_yeu_cau_den = None
+		d.custom_hsd_ton_tot_nhat = None
+		return None
+
+	ngay_giao = d.get("delivery_date") or doc.get("delivery_date")
+	d.custom_hsd_yeu_cau_den = hsd_yeu_cau_den(ngay_giao, d.custom_hsd_toi_thieu_thang)
+	kq = kiem_ton_cho_dong(
+		d.item_code, d.get("warehouse"), flt(d.get("stock_qty")) or flt(d.get("qty")), san_cho_phep(d, ngay_giao)
+	)
+	d.custom_ket_qua_hsd = "Đạt" if kq["dat"] else "Không đạt"
+	d.custom_hsd_ton_tot_nhat = kq["hsd_tot_nhat"]
+	return None if kq["dat"] else cau_canh_bao(d, kq, ngay_giao)
+
+
+def _bao_canh_bao(canh_bao):
+	"""Một msgprint gom các dòng — chỉ cho người dùng nội bộ.
+
+	Khách cổng (Website User) đặt đơn/duyệt đề xuất cũng chạy `validate` của SO;
+	câu tồn kho, HSD lô là thông tin nội bộ nên không được lọt vào
+	`_server_messages` trả về cổng.
+	"""
+	if not canh_bao:
+		return
+	if frappe.get_cached_value("User", frappe.session.user, "user_type") == "Website User":
+		return
+	frappe.msgprint("<br>".join(canh_bao), indicator="orange", title=_("Không đáp ứng HSD khách yêu cầu"))
+
+
 def tinh_tren_don(doc, method=None):
 	"""Hook `validate` của Sales Order: kế thừa số tháng, tính kết quả từng dòng, cảnh báo.
 
@@ -148,41 +199,38 @@ def tinh_tren_don(doc, method=None):
 	"""
 	dau_phieu = kiem_so_thang(doc.get("custom_hsd_toi_thieu_thang"))
 	doc.custom_hsd_toi_thieu_thang = dau_phieu
+	canh_bao = [c for d in doc.get("items") or [] if (c := _tinh_dong(doc, d, dau_phieu))]
+	_bao_canh_bao(canh_bao)
+
+
+def tinh_dong_them_sau_duyet(doc, method=None):
+	"""`before_update_after_submit` của Sales Order: dòng thêm qua "Update Items".
+
+	`update_child_qty_rate` của ERPNext ghi thẳng dòng mới rồi lưu đơn theo lối
+	sửa-sau-duyệt — `validate` (và `tinh_tren_don`) không chạy, dòng mới mang số
+	tháng 0 và lọt khỏi chốt phiếu giao. Dòng mới được nhận ra bằng TRẠNG THÁI:
+	`custom_ket_qua_hsd` rỗng = chưa từng được tính (dòng nào đi qua
+	`tinh_tren_don` cũng mang một trong ba giá trị). Dòng đã tính thì không đụng:
+	các trường kết quả không `allow_on_submit`, đổi chúng trên lần lưu sửa-sau-
+	duyệt bình thường (vd. hẹn lịch giao mới) sẽ bị Frappe chặn.
+
+	Chỉ xử lý khi Frappe không kiểm sửa-sau-duyệt (cờ của Update Items) hoặc dòng
+	thật sự mới — đơn cũ trước tính năng (kết quả rỗng) lưu kiểu khác thì để yên.
+	"""
+	dau_phieu = cint(doc.get("custom_hsd_toi_thieu_thang"))
+	truoc = doc.get_doc_before_save()
+	ten_cu = {d.name for d in (truoc.get("items") if truoc else None) or []}
+	bo_kiem = bool(doc.flags.ignore_validate_update_after_submit)
 	canh_bao = []
 	for d in doc.get("items") or []:
-		so_thang = d.get("custom_hsd_toi_thieu_thang")
-		d.custom_hsd_toi_thieu_thang = kiem_so_thang(dau_phieu if so_thang is None or so_thang == "" else so_thang)
-
-		if doc.docstatus == 0 and cint(d.get("custom_ngoai_le_hsd")):
-			if not d.get("custom_ngoai_le_hsd_den") or not (d.get("custom_ngoai_le_ly_do") or "").strip():
-				frappe.throw(
-					_("Dòng {0}: ngoại lệ HSD cần nhập đủ ngày khách chấp nhận và lý do.").format(d.idx)
-				)
-			if not d.get("custom_ngoai_le_boi"):
-				d.custom_ngoai_le_boi = frappe.session.user
-			if not d.get("custom_ngoai_le_luc"):
-				d.custom_ngoai_le_luc = now_datetime()
-
-		if not ap_dung(d.get("item_code"), d.custom_hsd_toi_thieu_thang):
-			d.custom_ket_qua_hsd = "Không áp dụng"
-			d.custom_hsd_yeu_cau_den = None
-			d.custom_hsd_ton_tot_nhat = None
+		if d.get("custom_ket_qua_hsd"):
 			continue
-
-		ngay_giao = d.get("delivery_date") or doc.get("delivery_date")
-		d.custom_hsd_yeu_cau_den = hsd_yeu_cau_den(ngay_giao, d.custom_hsd_toi_thieu_thang)
-		kq = kiem_ton_cho_dong(
-			d.item_code, d.get("warehouse"), flt(d.get("stock_qty")) or flt(d.get("qty")), san_cho_phep(d, ngay_giao)
-		)
-		d.custom_ket_qua_hsd = "Đạt" if kq["dat"] else "Không đạt"
-		d.custom_hsd_ton_tot_nhat = kq["hsd_tot_nhat"]
-		if not kq["dat"]:
-			canh_bao.append(cau_canh_bao(d, kq, ngay_giao))
-
-	if canh_bao:
-		frappe.msgprint(
-			"<br>".join(canh_bao), indicator="orange", title=_("Không đáp ứng HSD khách yêu cầu")
-		)
+		if not bo_kiem and d.name in ten_cu:
+			continue
+		c = _tinh_dong(doc, d, dau_phieu, ke_thua_khi_0=True)
+		if c:
+			canh_bao.append(c)
+	_bao_canh_bao(canh_bao)
 
 
 VAI_TRO_NGOAI_LE = {"Sales User", "Sales Manager", "System Manager"}
@@ -318,9 +366,23 @@ def _yeu_cau_dong_giao(doc, d, ngay_ghi_so=None):
 	)
 
 
+def _ngay_ghi_so_se_dung(doc):
+	"""Ngày ghi sổ ERPNext SẼ dùng khi lưu/duyệt phiếu giao.
+
+	Không tick "Edit Posting Date and Time": `validate` của ERPNext đặt lại ngày
+	ghi sổ về hôm nay — sàn phải tính theo ngày đó, không theo ngày cũ đang lưu
+	trên phiếu nháp. Có tick thì None (= dùng `posting_date` của phiếu).
+	"""
+	return None if cint(doc.get("set_posting_time")) else frappe.utils.nowdate()
+
+
 def han_toi_thieu_lo_xuat(doc, d):
-	"""Sàn HSD (date) một lô phải đạt để xuất cho dòng `d` của phiếu giao `doc`; None khi không áp dụng."""
-	yc = _yeu_cau_dong_giao(doc, d)
+	"""Sàn HSD (date) một lô phải đạt để xuất cho dòng `d` của phiếu giao `doc`; None khi không áp dụng.
+
+	Cùng ngày mốc với `chot_lo_truoc_validate`/`kiem_phieu_giao`: trang lấy hàng
+	PDA mở một phiếu nháp cũ vẫn tính sàn theo ngày ERPNext sẽ ghi sổ.
+	"""
+	yc = _yeu_cau_dong_giao(doc, d, _ngay_ghi_so_se_dung(doc))
 	return yc.san if yc else None
 
 
@@ -416,9 +478,7 @@ def chot_lo_truoc_validate(doc, method=None):
 	"""
 	if cint(doc.get("is_return")):
 		return
-	# Không tick "Edit Posting Date and Time": `validate` của ERPNext sắp đặt lại
-	# ngày ghi sổ về hôm nay — tính sàn theo ngày đó, không theo ngày cũ đang lưu.
-	ngay_ghi_so = None if cint(doc.get("set_posting_time")) else frappe.utils.nowdate()
+	ngay_ghi_so = _ngay_ghi_so_se_dung(doc)
 	for d in doc.get("items") or []:
 		if not _dong_can_chot(d):
 			continue
@@ -482,8 +542,11 @@ def kiem_phieu_giao(doc, method=None):
 	if cint(doc.get("is_return")):
 		return
 	loi = []
+	# Lúc `before_submit`, `validate` đã đặt lại ngày ghi sổ nên giá trị này trùng
+	# `posting_date`; gọi chung một hàm để ba chỗ không bao giờ lệch nhau.
+	ngay_ghi_so = _ngay_ghi_so_se_dung(doc)
 	for d in doc.get("items") or []:
-		yc = _yeu_cau_dong_giao(doc, d)
+		yc = _yeu_cau_dong_giao(doc, d, ngay_ghi_so)
 		if yc is None:
 			continue
 		if _dong_can_chot(d):

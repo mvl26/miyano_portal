@@ -36,6 +36,12 @@ function dong_hsd_khong_dat(frm) {
 
 // Câu cảnh báo lấy từ máy chủ (`han_dung_khach.canh_bao_hsd`) để đúng từng chữ với cảnh báo khi lưu.
 function hien_canh_bao_hsd(frm) {
+	// Xoá banner HSD lần trước (dòng đã hết "Không đạt" thì banner phải mất) —
+	// chỉ khi intro đang là của ta, để không xoá intro của chỗ khác.
+	if (frm._mvl_intro_hsd) {
+		frm.set_intro("");
+		frm._mvl_intro_hsd = false;
+	}
 	if (frm.is_new() || !dong_hsd_khong_dat(frm).length) return;
 	if (!VAI_NGOAI_LE_HSD.some((v) => frappe.user_roles.includes(v))) return;
 	const ten = frm.doc.name;
@@ -49,6 +55,7 @@ function hien_canh_bao_hsd(frm) {
 			`<b>${__("Không đáp ứng HSD khách yêu cầu")}</b><ul style="margin:.25rem 0 0 1rem">${li}</ul>`,
 			"orange"
 		);
+		frm._mvl_intro_hsd = true;
 	});
 }
 

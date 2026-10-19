@@ -73,7 +73,7 @@ class TestHsdPhieuGiao(FrappeTestCase):
 
 	# ---- dựng dữ liệu ----
 
-	def _so(self, hsd=3, dong=((4,),), item=ITEM_PG):
+	def _so(self, hsd=3, dong=((4,),), item=ITEM_PG, **kw):
 		items = [
 			{"item_code": item, "qty": d[0], "rate": 1000, "warehouse": self.kho, "delivery_date": "2026-10-15"}
 			for d in dong
@@ -87,6 +87,7 @@ class TestHsdPhieuGiao(FrappeTestCase):
 				"delivery_date": "2026-10-15",
 				"custom_hsd_toi_thieu_thang": hsd,
 				"items": items,
+				**kw,
 			}
 		)
 		so.insert(ignore_permissions=True)
@@ -386,3 +387,61 @@ class TestHsdPhieuGiao(FrappeTestCase):
 		self.assertEqual(han_dung_khach._sl(6), "6")
 		self.assertEqual(han_dung_khach._sl(1234567.5), "1234567.5")
 		self.assertEqual(han_dung_khach._sl(0.25), "0.25")
+
+	def test_pda_tinh_san_theo_ngay_hom_nay_khi_khong_tick_sua_ngay(self):
+		# Phiếu nháp cũ (ngày ghi sổ 01/11 đang lưu) không tick sửa ngày: ERPNext sẽ ghi
+		# sổ hôm nay (15/10) → sàn PDA = 15/10 + 3 tháng, KHÔNG phải 01/11 + 3 tháng.
+		so = self._so()
+		dn = self._dn(so, insert=False)
+		dn.set_posting_time = 0
+		dn.posting_date = "2026-11-01"
+		with patch("frappe.utils.nowdate", return_value="2026-10-15"):
+			self.assertEqual(str(han_toi_thieu_lo_xuat(dn, dn.items[0])), "2027-01-15")
+		# Có tick: giữ đúng ngày ghi sổ trên phiếu.
+		dn.set_posting_time = 1
+		with patch("frappe.utils.nowdate", return_value="2026-10-15"):
+			self.assertEqual(str(han_toi_thieu_lo_xuat(dn, dn.items[0])), "2027-02-01")
+
+	def test_dong_them_sau_duyet_qua_update_items_bi_chan(self):
+		"""ERPNext "Update Items" thêm dòng vào SO đã duyệt không qua `validate`:
+		dòng mới vẫn phải kế thừa số tháng đầu phiếu và bị chốt phiếu giao chặn."""
+		import json
+
+		from erpnext.controllers.accounts_controller import update_child_qty_rate
+
+		so = self._so(set_warehouse=self.kho)
+		d0 = so.items[0]
+		update_child_qty_rate(
+			"Sales Order",
+			json.dumps([
+				{"docname": d0.name, "item_code": ITEM_PG, "qty": d0.qty, "rate": d0.rate,
+				 "delivery_date": str(d0.delivery_date), "conversion_factor": 1, "uom": d0.uom},
+				{"item_code": ITEM_PG, "qty": 2, "rate": 1000, "delivery_date": "2026-10-15",
+				 "conversion_factor": 1},
+			]),
+			so.name,
+		)
+		so.reload()
+		self.assertEqual(len(so.items), 2)
+		moi = so.items[1]
+		self.assertEqual(moi.warehouse, self.kho)
+		self.assertEqual(moi.custom_hsd_toi_thieu_thang, 3)
+		self.assertEqual(str(moi.custom_hsd_yeu_cau_den), "2027-01-15")
+		self.assertEqual(moi.custom_ket_qua_hsd, "Đạt")
+		self.assertEqual(str(moi.custom_hsd_ton_tot_nhat), "2027-01-30")
+		# Dòng cũ không bị tính lại.
+		self.assertEqual(so.items[0].custom_ket_qua_hsd, d0.custom_ket_qua_hsd)
+
+		dn = self._dn(so, lo=[LO_A, LO_B])
+		with self.assertRaises(frappe.ValidationError) as cm:
+			dn.submit()
+		self.assertIn(f"Dòng 2 – {ITEM_PG}, lô {LO_B}", str(cm.exception))
+
+	def test_sua_sau_duyet_khong_dung_dong_da_tinh(self):
+		# Lưu sửa-sau-duyệt bình thường (không cờ của Update Items) trên đơn có dòng đã
+		# tính: hook không đổi trường kết quả (không allow_on_submit) → không bị chặn.
+		so = self._so()
+		so.reload()
+		so.items[0].delivery_date = "2026-10-20"
+		so.save()
+		self.assertEqual(so.items[0].custom_ket_qua_hsd, "Đạt")

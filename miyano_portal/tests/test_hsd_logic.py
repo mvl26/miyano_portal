@@ -69,5 +69,27 @@ class TestHsdLogic(FrappeTestCase):
 		for f in ("custom_hsd_toi_thieu_thang", "custom_ngoai_le_hsd_den", "custom_ket_qua_hsd"):
 			self.assertTrue(frappe.get_meta("Sales Order Item").has_field(f))
 		self.assertTrue(frappe.get_meta("Sales Order").has_field("custom_hsd_toi_thieu_thang"))
-		self.assertTrue(frappe.get_meta("Sales Order Item").get_field("custom_ngoai_le_hsd").allow_on_submit)
+		# Ngoại lệ sau duyệt chỉ đi qua API (db.set_value) — không sửa thẳng trên lưới.
+		self.assertFalse(frappe.get_meta("Sales Order Item").get_field("custom_ngoai_le_hsd").allow_on_submit)
 		self.assertTrue(frappe.get_meta("Portal De Xuat Mua Item").has_field("hsd_toi_thieu_thang"))
+
+	def test_patch_quyen_chay_lai_duoc(self):
+		from miyano_portal.patches.v1_46 import hsd_toi_thieu_quyen
+
+		hsd_toi_thieu_quyen.execute()
+		hsd_toi_thieu_quyen.execute()
+		dong = frappe.get_all(
+			"Custom DocPerm",
+			filters={"parent": "Sales Order", "permlevel": 2},
+			fields=["role", "read", "write"],
+		)
+		self.assertEqual(len(dong), len({d.role for d in dong}))  # không nhân đôi
+		quyen = {d.role: (d.read, d.write) for d in dong}
+		for role, ghi in hsd_toi_thieu_quyen.VAI_TRO.items():
+			co_level_0 = frappe.db.exists("Custom DocPerm", {"parent": "Sales Order", "role": role, "permlevel": 0})
+			if co_level_0:
+				self.assertEqual(quyen.get(role), (1, ghi), role)
+			else:
+				self.assertNotIn(role, quyen)
+		self.assertNotIn("Customer", quyen)
+		self.assertEqual(frappe.get_meta("Sales Order Item").get_field("custom_ket_qua_hsd").permlevel, 2)

@@ -558,6 +558,9 @@ doc_events = {
 			"miyano_portal.portal_thong_bao_khach.kiem_tra_dinh_tuyen_thong_bao_khach",
 			"miyano_portal.nhat_ky_hook.tu_sales_order_on_update",
 		],
+		# HSD tối thiểu: dòng thêm sau duyệt qua "Update Items" không đi qua
+		# `validate` — kế thừa số tháng đầu phiếu và tính kết quả ở đây.
+		"before_update_after_submit": "miyano_portal.han_dung_khach.tinh_dong_them_sau_duyet",
 	},
 }
 
