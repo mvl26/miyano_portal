@@ -181,3 +181,80 @@ def tinh_tren_don(doc, method=None):
 		frappe.msgprint(
 			"<br>".join(canh_bao), indicator="orange", title=_("Không đáp ứng HSD khách yêu cầu")
 		)
+
+
+VAI_TRO_NGOAI_LE = {"Sales User", "Sales Manager", "System Manager"}
+
+
+def _kiem_quyen_va_dong(so, dong, ly_do):
+	"""Kiểm vai trò → đơn đã duyệt còn mở → dòng thuộc đơn và áp dụng → lý do. Trả thông tin dòng."""
+	if not VAI_TRO_NGOAI_LE & set(frappe.get_roles()):
+		frappe.throw(_("Bạn không có quyền ghi/gỡ ngoại lệ HSD."), frappe.PermissionError)
+
+	don = frappe.db.get_value("Sales Order", so, ["docstatus", "status"], as_dict=True)
+	if not don:
+		frappe.throw(_("Không tìm thấy đơn bán hàng {0}.").format(so))
+	if don.docstatus != 1 or don.status in ("Closed", "Completed"):
+		frappe.throw(_("Chỉ ghi/gỡ ngoại lệ HSD trên đơn đã duyệt và chưa đóng/hoàn tất."))
+
+	d = frappe.db.get_value(
+		"Sales Order Item",
+		dong,
+		["parent", "idx", "item_code", "custom_hsd_toi_thieu_thang", "custom_ngoai_le_hsd"],
+		as_dict=True,
+	)
+	if not d or d.parent != so:
+		frappe.throw(_("Dòng {0} không thuộc đơn {1}.").format(dong, so))
+	if not ap_dung(d.item_code, d.custom_hsd_toi_thieu_thang):
+		frappe.throw(_("Dòng {0} không yêu cầu HSD tối thiểu nên không cần ngoại lệ.").format(d.idx))
+	if not (ly_do or "").strip():
+		frappe.throw(_("Vui lòng nhập lý do."))
+	return d
+
+
+@frappe.whitelist()
+def ghi_ngoai_le(so, dong, chap_nhan_den, ly_do):
+	"""Ghi ngoại lệ HSD cho một dòng của Sales Order đã duyệt: khách chấp nhận hàng đến ngày `chap_nhan_den`."""
+	d = _kiem_quyen_va_dong(so, dong, ly_do)
+	if not chap_nhan_den:
+		frappe.throw(_("Vui lòng nhập ngày khách chấp nhận."))
+	den = getdate(chap_nhan_den)
+	ly_do = ly_do.strip()
+	frappe.db.set_value(
+		"Sales Order Item",
+		dong,
+		{
+			"custom_ngoai_le_hsd": 1,
+			"custom_ngoai_le_hsd_den": den,
+			"custom_ngoai_le_ly_do": ly_do,
+			"custom_ngoai_le_boi": frappe.session.user,
+			"custom_ngoai_le_luc": now_datetime(),
+		},
+	)
+	frappe.get_doc("Sales Order", so).add_comment(
+		"Comment",
+		f"Ghi ngoại lệ HSD dòng {d.idx} ({d.item_code}): khách chấp nhận đến {_ngay(den)} — {ly_do}",
+	)
+	return {"dong": dong, "custom_ngoai_le_hsd_den": str(den), "custom_ngoai_le_boi": frappe.session.user}
+
+
+@frappe.whitelist()
+def go_ngoai_le(so, dong, ly_do):
+	"""Gỡ ngoại lệ HSD của một dòng; lý do gỡ được lưu vào `custom_ngoai_le_ly_do`."""
+	d = _kiem_quyen_va_dong(so, dong, ly_do)
+	ly_do = ly_do.strip()
+	frappe.db.set_value(
+		"Sales Order Item",
+		dong,
+		{
+			"custom_ngoai_le_hsd": 0,
+			"custom_ngoai_le_hsd_den": None,
+			"custom_ngoai_le_ly_do": ly_do,
+			"custom_ngoai_le_boi": frappe.session.user,
+			"custom_ngoai_le_luc": now_datetime(),
+		},
+	)
+	frappe.get_doc("Sales Order", so).add_comment(
+		"Comment", f"Gỡ ngoại lệ HSD dòng {d.idx} ({d.item_code}) — {ly_do}"
+	)
+	return {"dong": dong}

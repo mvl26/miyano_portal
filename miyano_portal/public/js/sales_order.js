@@ -20,8 +20,116 @@ frappe.ui.form.on("Sales Order", {
 		}, __("Miyano"));
 
 		hien_doi_sanh_ton(frm);
+		hien_canh_bao_hsd(frm);
+		to_do_ket_qua_hsd(frm);
+		nut_ngoai_le_hsd(frm);
 	},
 });
+
+// HSD tối thiểu theo yêu cầu khách (spec 2026-10-19 §4.3, §4.7).
+// Quyền ghi/gỡ KHỚP `han_dung_khach.VAI_TRO_NGOAI_LE`; chốt thật ở máy chủ.
+const VAI_NGOAI_LE_HSD = ["Sales User", "Sales Manager", "System Manager"];
+
+function dong_hsd_khong_dat(frm) {
+	return (frm.doc.items || []).filter((d) => d.custom_ket_qua_hsd === "Không đạt");
+}
+
+function hien_canh_bao_hsd(frm) {
+	const esc = frappe.utils.escape_html;
+	const dong = dong_hsd_khong_dat(frm);
+	if (!dong.length) return;
+	const ngay = (v) => (v ? frappe.datetime.str_to_user(v) : "—");
+	const li = dong.map((d) => {
+		const ngoai_le = d.custom_ngoai_le_hsd
+			? `đã ghi ngoại lệ, khách chấp nhận đến ${ngay(d.custom_ngoai_le_hsd_den)}`
+			: "chưa có ngoại lệ";
+		return `<li>Dòng ${d.idx} – ${esc(d.item_code || "")}: HSD yêu cầu đến ${ngay(d.custom_hsd_yeu_cau_den)}, ` +
+			`HSD tồn tốt nhất ${ngay(d.custom_hsd_ton_tot_nhat)}, ${ngoai_le}</li>`;
+	}).join("");
+	frm.set_intro(
+		`<b>${__("Không đáp ứng HSD khách yêu cầu")}</b><ul style="margin:.25rem 0 0 1rem">${li}</ul>`,
+		"orange"
+	);
+}
+
+// Tô đỏ ô kết quả "Không đạt" trên lưới mặt hàng.
+function to_do_ket_qua_hsd(frm) {
+	const luoi = frm.fields_dict.items && frm.fields_dict.items.grid;
+	const df = luoi && luoi.get_docfield("custom_ket_qua_hsd");
+	if (!df || df._mvl_to_do) return;
+	df._mvl_to_do = true;
+	df.formatter = (value, field, options, doc) => {
+		const text = frappe.utils.escape_html(__(value || ""));
+		return value === "Không đạt"
+			? `<span class="indicator-pill red">${text}</span>`
+			: text;
+	};
+	luoi.refresh();
+}
+
+function nut_ngoai_le_hsd(frm) {
+	if (frm.doc.docstatus !== 1 || ["Closed", "Completed"].includes(frm.doc.status)) return;
+	if (!VAI_NGOAI_LE_HSD.some((v) => frappe.user_roles.includes(v))) return;
+	const dong = (frm.doc.items || []).filter(
+		(d) => d.custom_hsd_toi_thieu_thang > 0 && d.custom_ket_qua_hsd && d.custom_ket_qua_hsd !== "Không áp dụng"
+	);
+	if (!dong.length) return;
+	frm.add_custom_button(__("Ghi ngoại lệ HSD"), () => hop_thoai_ngoai_le(frm, dong, true), __("Miyano"));
+	if (dong.some((d) => d.custom_ngoai_le_hsd)) {
+		frm.add_custom_button(__("Gỡ ngoại lệ HSD"), () => hop_thoai_ngoai_le(frm, dong, false), __("Miyano"));
+	}
+}
+
+function hop_thoai_ngoai_le(frm, dong, ghi) {
+	const nhan = (d) => `${d.idx} – ${d.item_code}`;
+	const ds = ghi ? dong : dong.filter((d) => d.custom_ngoai_le_hsd);
+	const tim = (v) => ds.find((d) => nhan(d) === v);
+	const fields = [
+		{
+			fieldname: "dong", fieldtype: "Select", reqd: 1, label: __("Dòng hàng"),
+			options: ds.map(nhan).join("\n"), default: nhan(ds[0]),
+			change() {
+				const d = tim(this.get_value());
+				if (ghi && d) hop.set_value("chap_nhan_den", d.custom_hsd_ton_tot_nhat || "");
+			},
+		},
+	];
+	if (ghi) {
+		fields.push({
+			fieldname: "chap_nhan_den", fieldtype: "Date", reqd: 1,
+			label: __("Khách chấp nhận hàng đến ngày"), default: ds[0].custom_hsd_ton_tot_nhat,
+		});
+	}
+	fields.push({
+		fieldname: "ly_do", fieldtype: "Small Text", reqd: 1,
+		label: ghi ? __("Lý do / người khách xác nhận") : __("Lý do gỡ"),
+	});
+	const hop = new frappe.ui.Dialog({
+		title: ghi ? __("Ghi ngoại lệ HSD") : __("Gỡ ngoại lệ HSD"),
+		fields,
+		primary_action_label: ghi ? __("Ghi ngoại lệ") : __("Gỡ ngoại lệ"),
+		primary_action(v) {
+			const d = tim(v.dong);
+			if (!d) return;
+			frappe.call({
+				method: "miyano_portal.han_dung_khach." + (ghi ? "ghi_ngoai_le" : "go_ngoai_le"),
+				args: ghi
+					? { so: frm.doc.name, dong: d.name, chap_nhan_den: v.chap_nhan_den, ly_do: v.ly_do }
+					: { so: frm.doc.name, dong: d.name, ly_do: v.ly_do },
+				freeze: true,
+			}).then((r) => {
+				if (!r.message) return;
+				hop.hide();
+				frappe.show_alert({
+					message: ghi ? __("Đã ghi ngoại lệ HSD") : __("Đã gỡ ngoại lệ HSD"),
+					indicator: "green",
+				});
+				frm.reload_doc();
+			});
+		},
+	});
+	hop.show();
+}
 
 function hen_lich_giao(frm) {
 	frappe.prompt(
