@@ -693,6 +693,11 @@ before_request = [
 ]
 # after_request = ["miyano_portal.utils.after_request"]
 
+# HSD tối thiểu khách yêu cầu (19/10/2026): trang Lấy hàng PDA của fork erpnext
+# (`warehouse_operations/vitri/lay_hang.py`) hỏi sàn HSD lô qua tên hook này —
+# erpnext không import miyano_portal. Hàm `(doc, d) -> date | None`.
+han_toi_thieu_lo_xuat = ["miyano_portal.han_dung_khach.han_toi_thieu_lo_xuat"]
+
 # Job Events
 # ----------
 # before_job = ["miyano_portal.utils.before_job"]
