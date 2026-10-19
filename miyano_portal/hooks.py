@@ -408,7 +408,18 @@ doc_events = {
 		# tiên, sớm hơn lúc hàng thật sự đi. Chỉ GÁN, không bao giờ ném lỗi —
 		# khác các chốt `before_submit` thường thấy, hook này không chặn gì
 		# (xem docstring hàm).
-		"before_submit": "miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
+		"before_submit": [
+			"miyano_portal.portal_thoi_gian_giao.dien_thoi_gian_giao",
+			# HSD tối thiểu khách yêu cầu (spec 2026-10-19 §4.5) — chốt lô đạt
+			# cho dòng còn trống, rồi CHẶN duyệt khi lô thực xuất không đạt sàn
+			# (trừ khi dòng SO có ngoại lệ). Dòng/phiếu không yêu cầu: không đụng.
+			"miyano_portal.han_dung_khach.kiem_phieu_giao",
+		],
+		# HSD tối thiểu (spec §4.4) — chốt lô đạt TRƯỚC `validate` của ERPNext:
+		# với trường lô cũ bật, `get_item_details.update_stock` tự điền lô hết
+		# hạn sớm nhất vào mọi dòng trống ở mỗi lần validate. Không bao giờ đổi
+		# lô đã có, không ném lỗi (nháp vẫn lưu được).
+		"before_validate": "miyano_portal.han_dung_khach.chot_lo_truoc_validate",
 		# brief 2026-08-15 (trang thông báo) Phần 2 — điểm giòn định tuyến:
 		# PHÁT HIỆN (không sửa được, xem docstring hàm) khi contact_email của
 		# chứng từ không khớp tài khoản cổng nào của khách, nghĩa là

@@ -1,7 +1,8 @@
 """HSD tối thiểu theo yêu cầu khách hàng: logic thuần (spec 2026-10-19).
 
-Không đụng DB ngoài `ap_dung` (đọc cờ `has_batch_no` của Item). Các hàm còn lại
-chỉ tính ngày để SO (cảnh báo) và Delivery Note (chặn) dùng chung một cách tính.
+Các hàm tính ngày (`hsd_yeu_cau_den`, `san_cho_phep`, `danh_gia_lo`,
+`mo_ta_chenh_lech`) là logic thuần, để SO (cảnh báo) và Delivery Note (chốt lô,
+chặn duyệt) dùng chung một cách tính; các hook/API bên dưới đọc DB qua chúng.
 """
 
 import datetime
@@ -280,3 +281,226 @@ def canh_bao_hsd(so):
 		kq = {"hsd_tot_nhat": d.get("custom_hsd_ton_tot_nhat")}
 		cau.append(cau_canh_bao(d, kq, tu_ngay))
 	return cau
+
+
+# ---- Phiếu giao (spec §4.4, §4.5) ----
+
+TIEU_DE_CHAN = "Không đáp ứng HSD khách yêu cầu"
+
+
+def _yeu_cau_dong_giao(doc, d):
+	"""Yêu cầu HSD của dòng phiếu giao, đọc TƯƠI dòng SO; None khi không áp dụng.
+
+	Đọc DB chứ không dùng `custom_hsd_yeu_cau_den` đã lưu: ngày giao trên SO có
+	thể đổi và ngoại lệ có thể được ghi/gỡ sau khi phiếu giao đã lập nháp.
+	"""
+	if cint(doc.get("is_return")) or not d.get("so_detail"):
+		return None
+	dong = frappe.db.get_value(
+		"Sales Order Item",
+		d.so_detail,
+		["parent", "delivery_date", "custom_hsd_toi_thieu_thang", "custom_ngoai_le_hsd", "custom_ngoai_le_hsd_den"],
+		as_dict=True,
+	)
+	if not dong or not ap_dung(d.get("item_code"), dong.custom_hsd_toi_thieu_thang):
+		return None
+	ngay_ghi_so = getdate(doc.get("posting_date") or frappe.utils.nowdate())
+	ngay_moc = max(getdate(dong.delivery_date or ngay_ghi_so), ngay_ghi_so)
+	san = san_cho_phep(dong, ngay_moc)
+	if san is None:
+		return None
+	return frappe._dict(
+		san=san,
+		ngay_moc=ngay_moc,
+		so=d.get("against_sales_order") or dong.parent,
+		so_thang=cint(dong.custom_hsd_toi_thieu_thang),
+		ngoai_le=bool(cint(dong.custom_ngoai_le_hsd) and dong.custom_ngoai_le_hsd_den),
+	)
+
+
+def han_toi_thieu_lo_xuat(doc, d):
+	"""Sàn HSD (date) một lô phải đạt để xuất cho dòng `d` của phiếu giao `doc`; None khi không áp dụng."""
+	yc = _yeu_cau_dong_giao(doc, d)
+	return yc.san if yc else None
+
+
+def _sl_dong(d):
+	return flt(d.get("stock_qty")) or flt(d.get("qty")) * (flt(d.get("conversion_factor")) or 1)
+
+
+def _lo_cua_bundle(bundle):
+	"""{lô: số lượng (dương)} trong một Serial and Batch Bundle."""
+	kq = {}
+	for e in frappe.get_all(
+		"Serial and Batch Entry", filters={"parent": bundle}, fields=["batch_no", "qty"], order_by="idx asc"
+	):
+		if e.batch_no:
+			kq[e.batch_no] = kq.get(e.batch_no, 0.0) + abs(flt(e.qty))
+	return kq
+
+
+def _lo_cua_dong(d):
+	"""Các lô thực xuất của dòng: từ bundle nếu có, cộng `batch_no`."""
+	lo = {}
+	if d.get("serial_and_batch_bundle"):
+		lo.update(_lo_cua_bundle(d.serial_and_batch_bundle))
+	if d.get("batch_no") and d.batch_no not in lo:
+		lo[d.batch_no] = _sl_dong(d)
+	return lo
+
+
+def _lo_dat_con_lai(doc, d, san):
+	"""Lô đạt sàn của mặt hàng ở kho của dòng, kèm tồn còn lại sau khi trừ phần MỌI dòng
+	khác trên cùng phiếu đang giữ (cùng mặt hàng, kho, lô). Sắp HSD tăng dần, rồi mã lô.
+	"""
+	from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+	if not d.get("item_code") or not d.get("warehouse"):
+		return []
+	ton = {}
+	for b in get_batch_qty(item_code=d.item_code, warehouse=d.warehouse) or []:
+		if b.get("batch_no"):
+			ton[b.get("batch_no")] = ton.get(b.get("batch_no"), 0.0) + flt(b.get("qty"))
+	if not ton:
+		return []
+	da_giu = {}
+	for khac in doc.get("items") or []:
+		if khac is d or khac.get("item_code") != d.item_code or khac.get("warehouse") != d.warehouse:
+			continue
+		for lo, sl in _lo_cua_dong(khac).items():
+			da_giu[lo] = da_giu.get(lo, 0.0) + sl
+	han = dict(
+		frappe.get_all(
+			"Batch", filters={"name": ["in", list(ton)]}, fields=["name", "expiry_date"], as_list=True
+		)
+	)
+	kq = [
+		frappe._dict(batch_no=lo, expiry_date=getdate(han[lo]), con=sl - da_giu.get(lo, 0.0))
+		for lo, sl in ton.items()
+		if han.get(lo) and danh_gia_lo(han[lo], san)
+	]
+	kq.sort(key=lambda x: (x.expiry_date, x.batch_no))
+	return kq
+
+
+def _chon_lo_dat(doc, d, san):
+	"""Lô đạt HSD sớm nhất đủ một mình cho dòng; trả (lô hoặc None, danh sách lô đạt)."""
+	ds = _lo_dat_con_lai(doc, d, san)
+	can = _sl_dong(d)
+	for x in ds:
+		if x.con >= can:
+			return x.batch_no, ds
+	return None, ds
+
+
+def _dong_can_chot(d):
+	return not d.get("batch_no") and not d.get("serial_and_batch_bundle")
+
+
+def _gan_lo(d, lo):
+	d.batch_no = lo
+	d.use_serial_batch_fields = 1
+
+
+def chot_lo_truoc_validate(doc, method=None):
+	"""`before_validate` của Delivery Note: dòng có yêu cầu HSD mà chưa có lô → chốt lô đạt.
+
+	Chạy TRƯỚC `validate` của ERPNext, nơi `update_stock` tự điền lô hết hạn sớm
+	nhất vào dòng trống (Stock Settings dùng trường lô cũ). Lô đã có sẵn — người
+	hoặc PDA chọn — không bao giờ bị đổi. Không lô đạt nào đủ thì để trống, không
+	ném lỗi: phiếu nháp vẫn lưu được, chốt `kiem_phieu_giao` lúc duyệt quyết.
+	"""
+	if cint(doc.get("is_return")):
+		return
+	for d in doc.get("items") or []:
+		if not _dong_can_chot(d):
+			continue
+		san = han_toi_thieu_lo_xuat(doc, d)
+		if san is None:
+			continue
+		lo, _ds = _chon_lo_dat(doc, d, san)
+		if lo:
+			_gan_lo(d, lo)
+
+
+def _cau_san(yc):
+	if yc.ngoai_le:
+		return f"(khách chấp nhận đến {_ngay(yc.san)})"
+	return f"(đến {_ngay(yc.san)})"
+
+
+def _sl(x):
+	x = flt(x)
+	return str(int(x)) if x == int(x) else f"{x:g}"
+
+
+def _cau_khong_lo_du(d, yc, ds):
+	con = [x for x in ds if x.con > 0]
+	if con:
+		hien_co = "Lô đạt hiện có: " + ", ".join(f"{x.batch_no} ({_sl(x.con)})" for x in con)
+	else:
+		hien_co = "Không còn lô nào đạt."
+	return (
+		f"Dòng {d.idx} – {d.item_code}: không có lô nào đạt HSD yêu cầu (đến {_ngay(yc.san)}) "
+		f"đủ {_sl(_sl_dong(d))} {d.get('stock_uom') or d.get('uom') or ''}. {hien_co} — "
+		f"tách dòng theo lô, hoặc ghi ngoại lệ trên SO {yc.so}."
+	)
+
+
+def _cau_lo_khong_dat(d, yc, lo, expiry):
+	cau = (
+		f"Dòng {d.idx} – {d.item_code}, lô {lo}: Khách hàng yêu cầu hàng còn tối thiểu "
+		f"{yc.so_thang:02d} tháng HSD {_cau_san(yc)}. "
+	)
+	if expiry:
+		cl = mo_ta_chenh_lech(yc.san, expiry, yc.ngay_moc)
+		cau += (
+			f"Lô này HSD {_ngay(expiry)}, chỉ còn {cl['con_lai']} "
+			f"→ Không đáp ứng (thiếu {cl['thieu_ngay']} ngày). "
+		)
+	else:
+		cau += "Lô này không có HSD → Không đáp ứng. "
+	cau += f"Vui lòng xác nhận với Khách hàng và ghi ngoại lệ trên SO {yc.so} trước khi giao."
+	return cau
+
+
+def kiem_phieu_giao(doc, method=None):
+	"""`before_submit` của Delivery Note: chốt lô đạt cho dòng còn trống, rồi chặn duyệt khi
+	có lô thực xuất không đạt HSD khách yêu cầu (spec §4.5). Gom lỗi, ném MỘT lần.
+
+	Lỗi lô không đạt kèm câu "không có lô nào đạt …" khi cũng không lô đạt nào đủ
+	cho dòng — trường hợp ERPNext đã tự điền lô không đạt vì thiếu lô đạt.
+	Không có cờ bỏ qua nào ngoài ngoại lệ trên dòng SO.
+	"""
+	if cint(doc.get("is_return")):
+		return
+	loi = []
+	for d in doc.get("items") or []:
+		yc = _yeu_cau_dong_giao(doc, d)
+		if yc is None:
+			continue
+		if _dong_can_chot(d):
+			lo, ds = _chon_lo_dat(doc, d, yc.san)
+			if lo:
+				_gan_lo(d, lo)
+			else:
+				loi.append(_cau_khong_lo_du(d, yc, ds))
+				continue
+
+		lo_xuat = list(_lo_cua_dong(d))
+		han = dict(
+			frappe.get_all(
+				"Batch", filters={"name": ["in", lo_xuat]}, fields=["name", "expiry_date"], as_list=True
+			)
+		)
+		loi_dong = [
+			_cau_lo_khong_dat(d, yc, lo, han.get(lo)) for lo in lo_xuat if not danh_gia_lo(han.get(lo), yc.san)
+		]
+		if loi_dong:
+			loi.extend(loi_dong)
+			lo_thay, ds = _chon_lo_dat(doc, d, yc.san)
+			if not lo_thay:
+				loi.append(_cau_khong_lo_du(d, yc, ds))
+
+	if loi:
+		frappe.throw("<br>".join(loi), title=_(TIEU_DE_CHAN))
