@@ -34,22 +34,22 @@ function dong_hsd_khong_dat(frm) {
 	return (frm.doc.items || []).filter((d) => d.custom_ket_qua_hsd === "Không đạt");
 }
 
+// Câu cảnh báo lấy từ máy chủ (`han_dung_khach.canh_bao_hsd`) để đúng từng chữ với cảnh báo khi lưu.
 function hien_canh_bao_hsd(frm) {
-	const esc = frappe.utils.escape_html;
-	const dong = dong_hsd_khong_dat(frm);
-	if (!dong.length) return;
-	const ngay = (v) => (v ? frappe.datetime.str_to_user(v) : "—");
-	const li = dong.map((d) => {
-		const ngoai_le = d.custom_ngoai_le_hsd
-			? `đã ghi ngoại lệ, khách chấp nhận đến ${ngay(d.custom_ngoai_le_hsd_den)}`
-			: "chưa có ngoại lệ";
-		return `<li>Dòng ${d.idx} – ${esc(d.item_code || "")}: HSD yêu cầu đến ${ngay(d.custom_hsd_yeu_cau_den)}, ` +
-			`HSD tồn tốt nhất ${ngay(d.custom_hsd_ton_tot_nhat)}, ${ngoai_le}</li>`;
-	}).join("");
-	frm.set_intro(
-		`<b>${__("Không đáp ứng HSD khách yêu cầu")}</b><ul style="margin:.25rem 0 0 1rem">${li}</ul>`,
-		"orange"
-	);
+	if (frm.is_new() || !dong_hsd_khong_dat(frm).length) return;
+	if (!VAI_NGOAI_LE_HSD.some((v) => frappe.user_roles.includes(v))) return;
+	const ten = frm.doc.name;
+	frappe.call({
+		method: "miyano_portal.han_dung_khach.canh_bao_hsd",
+		args: { so: ten },
+	}).then((r) => {
+		if (frm.doc.name !== ten || !(r.message || []).length) return;
+		const li = r.message.map((c) => `<li>${frappe.utils.escape_html(c)}</li>`).join("");
+		frm.set_intro(
+			`<b>${__("Không đáp ứng HSD khách yêu cầu")}</b><ul style="margin:.25rem 0 0 1rem">${li}</ul>`,
+			"orange"
+		);
+	});
 }
 
 // Tô đỏ ô kết quả "Không đạt" trên lưới mặt hàng.
@@ -84,13 +84,14 @@ function hop_thoai_ngoai_le(frm, dong, ghi) {
 	const nhan = (d) => `${d.idx} – ${d.item_code}`;
 	const ds = ghi ? dong : dong.filter((d) => d.custom_ngoai_le_hsd);
 	const tim = (v) => ds.find((d) => nhan(d) === v);
+	let hop = null; // khai báo trước: `change` có thể chạy ngay khi dựng hộp thoại
 	const fields = [
 		{
 			fieldname: "dong", fieldtype: "Select", reqd: 1, label: __("Dòng hàng"),
 			options: ds.map(nhan).join("\n"), default: nhan(ds[0]),
 			change() {
 				const d = tim(this.get_value());
-				if (ghi && d) hop.set_value("chap_nhan_den", d.custom_hsd_ton_tot_nhat || "");
+				if (hop && ghi && d) hop.set_value("chap_nhan_den", d.custom_hsd_ton_tot_nhat || "");
 			},
 		},
 	];
@@ -104,7 +105,7 @@ function hop_thoai_ngoai_le(frm, dong, ghi) {
 		fieldname: "ly_do", fieldtype: "Small Text", reqd: 1,
 		label: ghi ? __("Lý do / người khách xác nhận") : __("Lý do gỡ"),
 	});
-	const hop = new frappe.ui.Dialog({
+	hop = new frappe.ui.Dialog({
 		title: ghi ? __("Ghi ngoại lệ HSD") : __("Gỡ ngoại lệ HSD"),
 		fields,
 		primary_action_label: ghi ? __("Ghi ngoại lệ") : __("Gỡ ngoại lệ"),

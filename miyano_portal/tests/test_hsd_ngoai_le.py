@@ -3,12 +3,15 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from miyano_portal import han_dung_khach
 from miyano_portal.han_dung_khach import VAI_TRO_NGOAI_LE, ghi_ngoai_le, go_ngoai_le
 from miyano_portal.tests.test_hsd_don import COMPANY, ITEM_KHONG_LO, ITEM_LO, KHACH, _nhap_lo, _tao_item
 
 USER_STOCK = "hsd_stock_user@example.com"
 USER_SALES = "hsd_sales_user@example.com"
 USER_CONG = "hsd_khach_cong@example.com"
+USER_HAN_CHE = "hsd_sales_han_che@example.com"
+KHACH_KHAC = "_Test HSD Khach Khac"
 
 
 def _tao_user(email, vai_tro):
@@ -46,6 +49,15 @@ class TestHsdNgoaiLe(FrappeTestCase):
 		_tao_user(USER_STOCK, ["Stock User"])
 		_tao_user(USER_SALES, ["Sales User"])
 		_tao_user(USER_CONG, ["Customer"])
+		_tao_user(USER_HAN_CHE, ["Sales User"])
+		if not frappe.db.exists("Customer", KHACH_KHAC):
+			frappe.get_doc(
+				{"doctype": "Customer", "customer_name": KHACH_KHAC, "customer_group": "All Customer Groups",
+				 "territory": "All Territories"}
+			).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": USER_HAN_CHE, "allow": "Customer", "for_value": KHACH_KHAC}
+		).insert(ignore_permissions=True)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -165,3 +177,36 @@ class TestHsdNgoaiLe(FrappeTestCase):
 			ghi_ngoai_le(so1.name, so2.items[0].name, "2026-12-20", "ĐT khách")
 		with self.assertRaises(frappe.ValidationError):
 			ghi_ngoai_le(so1.name, "khong-ton-tai", "2026-12-20", "ĐT khách")
+
+	def test_user_permission_gioi_han_khach_bi_tu_choi(self):
+		so = self._so()
+		d = so.items[0]
+		frappe.set_user(USER_HAN_CHE)
+		with self.assertRaises(frappe.PermissionError):
+			ghi_ngoai_le(so.name, d.name, "2026-12-20", "ĐT khách")
+		frappe.set_user("Administrator")
+		self.assertFalse(frappe.db.get_value("Sales Order Item", d.name, "custom_ngoai_le_hsd"))
+		self.assertEqual(self._comments(so), [])
+
+	def test_go_dong_chua_co_ngoai_le_bi_tu_choi(self):
+		so = self._so()
+		d = so.items[0]
+		with self.assertRaises(frappe.ValidationError):
+			go_ngoai_le(so.name, d.name, "Nhầm")
+		self.assertIsNone(frappe.db.get_value("Sales Order Item", d.name, "custom_ngoai_le_ly_do"))
+		self.assertEqual(self._comments(so), [])
+
+	def test_ly_do_khong_phai_chuoi_khong_gay_attribute_error(self):
+		so = self._so()
+		d = so.items[0]
+		with self.assertRaises(frappe.ValidationError):
+			ghi_ngoai_le(so.name, d.name, 12345, "ĐT khách")
+		with self.assertRaises(frappe.ValidationError):
+			ghi_ngoai_le(so.name, d.name, "2026-12-20", None)
+
+	def test_canh_bao_hsd_dung_mau_server(self):
+		so = self._so()
+		cau = han_dung_khach.canh_bao_hsd(so.name)
+		self.assertEqual(len(cau), 1)
+		self.assertIn("Khách hàng yêu cầu hàng còn tối thiểu 12 tháng HSD", cau[0])
+		self.assertIn("→ Không đáp ứng (thiếu", cau[0])

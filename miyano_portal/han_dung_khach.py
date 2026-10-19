@@ -4,6 +4,7 @@ Không đụng DB ngoài `ap_dung` (đọc cờ `has_batch_no` của Item). Các
 chỉ tính ngày để SO (cảnh báo) và Delivery Note (chặn) dùng chung một cách tính.
 """
 
+import datetime
 import math
 
 import frappe
@@ -186,10 +187,12 @@ def tinh_tren_don(doc, method=None):
 VAI_TRO_NGOAI_LE = {"Sales User", "Sales Manager", "System Manager"}
 
 
-def _kiem_quyen_va_dong(so, dong, ly_do):
+def _kiem_quyen_va_dong(so, dong, ly_do, go=False):
 	"""Kiểm vai trò → đơn đã duyệt còn mở → dòng thuộc đơn và áp dụng → lý do. Trả thông tin dòng."""
 	if not VAI_TRO_NGOAI_LE & set(frappe.get_roles()):
 		frappe.throw(_("Bạn không có quyền ghi/gỡ ngoại lệ HSD."), frappe.PermissionError)
+	# Vai trò chưa đủ: User Permission (vd. giới hạn theo khách) vẫn phải được tôn trọng.
+	frappe.has_permission("Sales Order", "write", so, throw=True)
 
 	don = frappe.db.get_value("Sales Order", so, ["docstatus", "status"], as_dict=True)
 	if not don:
@@ -207,8 +210,10 @@ def _kiem_quyen_va_dong(so, dong, ly_do):
 		frappe.throw(_("Dòng {0} không thuộc đơn {1}.").format(dong, so))
 	if not ap_dung(d.item_code, d.custom_hsd_toi_thieu_thang):
 		frappe.throw(_("Dòng {0} không yêu cầu HSD tối thiểu nên không cần ngoại lệ.").format(d.idx))
-	if not (ly_do or "").strip():
+	if not str(ly_do or "").strip():
 		frappe.throw(_("Vui lòng nhập lý do."))
+	if go and not cint(d.custom_ngoai_le_hsd):
+		frappe.throw(_("Dòng {0} chưa có ngoại lệ HSD để gỡ.").format(d.idx))
 	return d
 
 
@@ -216,10 +221,10 @@ def _kiem_quyen_va_dong(so, dong, ly_do):
 def ghi_ngoai_le(so, dong, chap_nhan_den, ly_do):
 	"""Ghi ngoại lệ HSD cho một dòng của Sales Order đã duyệt: khách chấp nhận hàng đến ngày `chap_nhan_den`."""
 	d = _kiem_quyen_va_dong(so, dong, ly_do)
-	if not chap_nhan_den:
+	if not chap_nhan_den or not isinstance(chap_nhan_den, (str, datetime.date)):
 		frappe.throw(_("Vui lòng nhập ngày khách chấp nhận."))
 	den = getdate(chap_nhan_den)
-	ly_do = ly_do.strip()
+	ly_do = str(ly_do).strip()
 	frappe.db.set_value(
 		"Sales Order Item",
 		dong,
@@ -241,8 +246,8 @@ def ghi_ngoai_le(so, dong, chap_nhan_den, ly_do):
 @frappe.whitelist()
 def go_ngoai_le(so, dong, ly_do):
 	"""Gỡ ngoại lệ HSD của một dòng; lý do gỡ được lưu vào `custom_ngoai_le_ly_do`."""
-	d = _kiem_quyen_va_dong(so, dong, ly_do)
-	ly_do = ly_do.strip()
+	d = _kiem_quyen_va_dong(so, dong, ly_do, go=True)
+	ly_do = str(ly_do).strip()
 	frappe.db.set_value(
 		"Sales Order Item",
 		dong,
@@ -258,3 +263,20 @@ def go_ngoai_le(so, dong, ly_do):
 		"Comment", f"Gỡ ngoại lệ HSD dòng {d.idx} ({d.item_code}) — {ly_do}"
 	)
 	return {"dong": dong}
+
+
+@frappe.whitelist()
+def canh_bao_hsd(so):
+	"""Câu cảnh báo (cùng mẫu `cau_canh_bao`) cho các dòng 'Không đạt' đã lưu của đơn, cho banner Desk."""
+	if not VAI_TRO_NGOAI_LE & set(frappe.get_roles()):
+		frappe.throw(_("Bạn không có quyền xem cảnh báo HSD."), frappe.PermissionError)
+	doc = frappe.get_doc("Sales Order", so)
+	doc.check_permission("read")
+	cau = []
+	for d in doc.items:
+		if d.get("custom_ket_qua_hsd") != "Không đạt":
+			continue
+		tu_ngay = d.get("delivery_date") or doc.get("delivery_date")
+		kq = {"hsd_tot_nhat": d.get("custom_hsd_ton_tot_nhat")}
+		cau.append(cau_canh_bao(d, kq, tu_ngay))
+	return cau
