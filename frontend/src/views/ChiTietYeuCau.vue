@@ -35,6 +35,7 @@ import { thongBaoSauDuyet } from '../bao-gia'
 import KhoiGiaoHang from '../components/chi-tiet/KhoiGiaoHang.vue'
 import KhoiHoaDonTaiLieu from '../components/chi-tiet/KhoiHoaDonTaiLieu.vue'
 import BangMatHang from '../components/chi-tiet/BangMatHang.vue'
+import { nhanHsd } from '../hsd'
 
 const route = useRoute()
 const router = useRouter()
@@ -616,6 +617,9 @@ onMounted(async () => {
           <template v-if="tenKhoa">{{ tenKhoa }}</template>
           <template v-if="don?.order_date"> · Đặt ngày {{ fmtDate(don.order_date) }}</template>
           <template v-if="don?.po_khach"> · Số dự trù: {{ don.po_khach }}</template>
+        </p>
+        <p v-if="nhanHsd(don?.hsd_toi_thieu_thang)" class="tag" style="margin-top: 4px">
+          {{ nhanHsd(don.hsd_toi_thieu_thang) }}
         </p>
         <!-- Spec 2026-10-09 §7 — hai phiếu tách từ MỘT lần đặt (giỏ trộn hàng
              có giá với hàng chờ báo giá). Server chỉ trả `phieu_cung_lan_dat`
