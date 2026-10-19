@@ -5,6 +5,7 @@ import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import ThietBiPicker from './ThietBiPicker.vue'
 import ThietBiQuickCreate from './ThietBiQuickCreate.vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -175,18 +176,22 @@ async function vanTao() {
 
 <template>
   <div v-if="open" :class="isMobile ? 'sheet' : 'modal'" @click.self="emit('close')">
-    <div class="card">
+    <div class="card" :class="{ in: isMobile }">
+      <div v-if="isMobile" class="grab"></div>
       <template v-if="duplicateWarning">
         <h3>Có vật tư tên gần giống</h3>
-        <div class="note" style="margin-top: 10px">
-          <b>{{ duplicateWarning.ma_vat_tu }} — {{ duplicateWarning.ten_vat_tu }}</b> chưa được tạo.
-          Tên gần giống vật tư có sẵn:
-          <ul style="margin: 6px 0 0 18px">
-            <li v-for="g in duplicateWarning.canh_bao_trung" :key="g">{{ g }}</li>
-          </ul>
-          Nếu đây thực chất là cùng một vật tư, hãy huỷ rồi dùng vật tư có sẵn thay vì tạo mới.
+        <div class="note note-ic mt10">
+          <Icon name="alert-triangle" :size="18" />
+          <div>
+            <b>{{ duplicateWarning.ma_vat_tu }} — {{ duplicateWarning.ten_vat_tu }}</b> chưa được tạo.
+            Tên gần giống vật tư có sẵn:
+            <ul class="ds-trung">
+              <li v-for="g in duplicateWarning.canh_bao_trung" :key="g">{{ g }}</li>
+            </ul>
+            Nếu đây thực chất là cùng một vật tư, hãy huỷ rồi dùng vật tư có sẵn thay vì tạo mới.
+          </div>
         </div>
-        <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+        <div class="flex jc-end gap8 mt14">
           <button class="btn-o" :disabled="saving" @click="huyCanhBao">Huỷ</button>
           <button class="btn" :disabled="saving" @click="vanTao">
             {{ saving ? 'Đang tạo…' : 'Vẫn tạo' }}
@@ -195,12 +200,12 @@ async function vanTao() {
       </template>
 
       <template v-else>
-      <h3>{{ mode === 'sua' ? 'Sửa vật tư' : 'Tạo vật tư mới' }}</h3>
+      <h3 class="mb16">{{ mode === 'sua' ? 'Sửa vật tư' : 'Tạo vật tư mới' }}</h3>
 
       <div class="field">
         <label>Mã vật tư *</label>
         <input v-model="form.ma_vat_tu" :disabled="khoa" placeholder="VD: BV-KIM-22G" />
-        <p v-if="khoa" class="tag">🔒 Vật tư đã có phát sinh trong sổ — không đổi được mã.</p>
+        <p v-if="khoa" class="tag inline-flex mt4"><Icon name="lock" :size="13" />Vật tư đã có phát sinh trong sổ — không đổi được mã.</p>
       </div>
       <div class="field">
         <label>Tên vật tư *</label>
@@ -209,7 +214,7 @@ async function vanTao() {
       <div class="field">
         <label>ĐVT *</label>
         <input v-model="form.dvt" :disabled="khoa" placeholder="VD: Hộp" />
-        <p v-if="khoa" class="tag">🔒 Đã có phát sinh — đổi ĐVT sẽ làm sai số tồn cũ.</p>
+        <p v-if="khoa" class="tag inline-flex mt4"><Icon name="lock" :size="13" />Đã có phát sinh — đổi ĐVT sẽ làm sai số tồn cũ.</p>
       </div>
       <div class="grid2">
         <div class="field"><label>Quy cách</label><input v-model="form.quy_cach" /></div>
@@ -217,7 +222,7 @@ async function vanTao() {
       </div>
       <div class="field"><label>Ghi chú</label><input v-model="form.ghi_chu" /></div>
       <div v-if="mode === 'sua'" class="field">
-        <label style="display: flex; align-items: center; gap: 6px">
+        <label class="inline-flex pointer chk-lb">
           <input type="checkbox" :checked="form.active === 1" @change="form.active = $event.target.checked ? 1 : 0" />
           Đang dùng
         </label>
@@ -229,15 +234,17 @@ async function vanTao() {
       <div class="field">
         <label>Máy sử dụng (gợi ý khi lập phiếu xuất — không bắt buộc)</label>
         <template v-if="bietDanhSachMay">
-          <div v-if="form.may_su_dung.length" class="chips" style="flex-wrap: wrap; margin-bottom: 8px">
+          <div v-if="form.may_su_dung.length" class="chips wrap mb8">
             <span
               v-for="(m, i) in form.may_su_dung"
               :key="m.thiet_bi"
-              class="chip"
-              style="display: flex; align-items: center; gap: 6px"
+              class="chip chip-may"
             >
               {{ m.ten_thiet_bi || m.thiet_bi }}
-              <button type="button" class="btn-o btn-sm" style="padding: 1px 7px" @click="boMay(i)">✕</button>
+              <button
+                type="button" class="btn-icon bo-may" :aria-label="'Bỏ máy ' + (m.ten_thiet_bi || m.thiet_bi)"
+                @click="boMay(i)"
+              ><Icon name="x" :size="14" /></button>
             </span>
           </div>
           <ThietBiPicker
@@ -255,7 +262,7 @@ async function vanTao() {
         </p>
       </div>
 
-      <div class="flex" style="justify-content: flex-end; margin-top: 14px; gap: 8px">
+      <div class="flex jc-end gap8 mt14">
         <button class="btn-o" @click="emit('close')">Huỷ</button>
         <button class="btn" :disabled="saving" @click="onSave">
           {{ saving ? 'Đang lưu…' : 'Lưu' }}
@@ -271,3 +278,16 @@ async function vanTao() {
     @close="quickCreateOpen = false"
   />
 </template>
+
+<style scoped>
+.ds-trung { margin: 6px 0 0 18px; }
+/* Ghi đè `.field label { display: block }` toàn cục cho nhãn checkbox. */
+.chk-lb { display: flex; align-items: center; gap: 6px; min-height: 40px; }
+/* Chip máy đã chọn: nút bỏ gọn trong chip (vùng bấm vẫn đủ 32px trên desktop,
+   40px trên mobile). */
+.chip-may { padding-right: 4px; }
+.bo-may { width: 32px; height: 32px; border-radius: 999px; }
+@media (max-width: 900px) {
+  .bo-may { width: 40px; height: 40px; }
+}
+</style>

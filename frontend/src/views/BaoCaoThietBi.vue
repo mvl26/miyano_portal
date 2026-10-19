@@ -5,6 +5,7 @@ import { fmtVND } from '../format'
 import { useIsMobile } from '../useMobile'
 import { BAO_CAO_THIET_BI_COLUMNS, BAO_CAO_THIET_BI_MAY_COLUMNS } from '../kho-bao-cao-columns'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 // Task 14 — "vật tư này nhập về bao nhiêu, cấp phát cho máy nào, khoa nào?"
 // Backend: miyano_portal.api.kho.kho_bao_cao_thiet_bi (THÊM MỚI ở task này —
@@ -198,27 +199,27 @@ onMounted(() => {
         <h2>Báo cáo vật tư · máy · khoa phòng</h2>
         <div class="sub">Vật tư này nhập về bao nhiêu, cấp phát cho máy nào, khoa nào</div>
       </div>
-      <div class="flex" style="gap: 8px">
-        <button class="btn-o btn-sm" @click="xuatExcel">⬇ Xuất Excel</button>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+      <div class="flex gap8">
+        <button class="btn-o btn-sm" @click="xuatExcel"><Icon name="download" :size="16" />Xuất Excel</button>
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
       </div>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
+    <div class="sb mb12" v-else>
       <h2>Vật tư · máy · khoa phòng</h2>
-      <button class="btn-o btn-sm" @click="xuatExcel">⬇ Excel</button>
+      <button class="btn-o btn-sm shrink0" @click="xuatExcel"><Icon name="download" :size="16" />Excel</button>
     </div>
 
     <div class="card mb10">
-      <div class="flex" style="flex-wrap: wrap; gap: 14px">
-        <div class="field" style="margin-bottom: 0">
+      <div class="flex wrap loc-row">
+        <div class="field mb0 loc-f">
           <label>Từ ngày</label>
           <input type="date" v-model="tuNgay" />
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Đến ngày</label>
           <input type="date" v-model="denNgay" />
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Máy</label>
           <select v-model="mayChon">
             <option value="">— Tất cả máy —</option>
@@ -227,7 +228,7 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Khoa phòng</label>
           <select v-model="khoaChon">
             <option value="">— Tất cả khoa —</option>
@@ -236,12 +237,12 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <div class="field" style="margin-bottom: 0; flex: 1; min-width: 200px">
+        <div class="field mb0 loc-f loc-grow">
           <label>Tìm vật tư</label>
           <input type="text" v-model="tim" placeholder="Mã hoặc tên vật tư…" />
         </div>
       </div>
-      <p class="tag" style="margin-top: 6px">
+      <p class="tag mt8">
         File Excel là danh sách phẳng (vật tư × máy) — chỉ gồm những vật tư ĐÃ cấp phát cho ít nhất một máy trong
         kỳ, không có các cột Tồn đầu/Đã nhập/Xuất khác/Tồn cuối của bảng trên màn hình.
         <template v-if="excelBoLocThieu">
@@ -250,126 +251,136 @@ onMounted(() => {
       </p>
     </div>
 
-    <p class="tag mb10" v-if="result.loc_theo_may_hoac_khoa">
-      Đang lọc theo Máy hoặc Khoa phòng: bảng chi tiết theo máy (mở rộng một dòng) chỉ hiện phần khớp bộ lọc, còn
-      cột "Đã cấp phát" vẫn là tổng CẢ vật tư trong kỳ — hai số sẽ KHÔNG khớp nhau trong lúc đang lọc. Bỏ chọn
-      Máy/Khoa phòng để đối chiếu tổng cấp phát với tổng theo máy.
-    </p>
+    <div class="note note-b note-ic mt0 mb10" v-if="result.loc_theo_may_hoac_khoa">
+      <Icon name="info" :size="18" />
+      <div>
+        Đang lọc theo Máy hoặc Khoa phòng: bảng chi tiết theo máy (mở rộng một dòng) chỉ hiện phần khớp bộ lọc, còn
+        cột "Đã cấp phát" vẫn là tổng CẢ vật tư trong kỳ — hai số sẽ KHÔNG khớp nhau trong lúc đang lọc. Bỏ chọn
+        Máy/Khoa phòng để đối chiếu tổng cấp phát với tổng theo máy.
+      </div>
+    </div>
 
     <div v-if="loading" class="loading">Đang tải…</div>
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!result.dong.length" class="empty">{{ trangThaiRong }}</div>
 
     <template v-else>
-      <div class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="c in BAO_CAO_THIET_BI_COLUMNS" :key="c.field"
-                  :class="{ right: !['ma_vat_tu', 'vat_tu', 'dvt', 'may_su_dung'].includes(c.field) }">
-                {{ c.label }}
-                <span
-                  v-if="c.field === 'xuat_khac'"
-                  class="tag" style="cursor: help"
-                  title="Xuất huỷ / hết hạn, xuất trả lại, điều chỉnh kiểm kê, và phần thuộc phiếu đã bị huỷ. Các loại này không gắn máy nên không nằm trong phần tách theo máy."
-                >ⓘ</span>
-              </th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="row in result.dong" :key="row.vat_tu_id">
-              <tr class="clickable" @click="toggleExpand(row)">
-                <td><b>{{ row.ma_vat_tu }}</b></td>
-                <td>{{ row.vat_tu }}</td>
-                <td>{{ row.dvt }}</td>
-                <td class="right">{{ fmtQty(row.ton_dau) }}</td>
-                <td class="right">{{ fmtQty(row.nhap) }}</td>
-                <td class="right"><b>{{ fmtQty(row.cap_phat) }}</b></td>
-                <td class="right">{{ fmtQty(row.xuat_khac) }}</td>
-                <td class="right"><b>{{ fmtQty(row.ton_cuoi) }}</b></td>
-                <td>
-                  <template v-if="dsMaySuDung(row).rong">—</template>
-                  <template v-else>
-                    <span>{{ dsMaySuDung(row).ten.join(', ') }}</span>
-                    <span v-if="dsMaySuDung(row).coChuaGan" class="chua-gan">
-                      {{ dsMaySuDung(row).ten.length ? ', ' : '' }}Chưa gắn máy
-                    </span>
-                  </template>
-                </td>
-                <td>{{ expanded[row.vat_tu_id] ? '▾' : '▸' }}</td>
+      <div class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table class="bc-tbl">
+            <thead>
+              <tr>
+                <th v-for="c in BAO_CAO_THIET_BI_COLUMNS" :key="c.field"
+                    :class="{ right: !['ma_vat_tu', 'vat_tu', 'dvt', 'may_su_dung'].includes(c.field) }">
+                  {{ c.label }}
+                  <span
+                    v-if="c.field === 'xuat_khac'"
+                    class="tag th-info"
+                    role="img"
+                    aria-label="Xuất huỷ / hết hạn, xuất trả lại, điều chỉnh kiểm kê, và phần thuộc phiếu đã bị huỷ. Các loại này không gắn máy nên không nằm trong phần tách theo máy."
+                    title="Xuất huỷ / hết hạn, xuất trả lại, điều chỉnh kiểm kê, và phần thuộc phiếu đã bị huỷ. Các loại này không gắn máy nên không nằm trong phần tách theo máy."
+                  ><Icon name="info" :size="14" /></span>
+                </th>
+                <th class="chev-cell"><span class="sr-only">Chi tiết theo máy</span></th>
               </tr>
-              <tr v-if="expanded[row.vat_tu_id]">
-                <td :colspan="BAO_CAO_THIET_BI_COLUMNS.length + 1" style="background: #f8fafc; padding: 12px 16px">
-                  <div v-if="!row.theo_may.length" class="empty" style="padding: 12px">
-                    Chưa cấp phát cho máy nào trong kỳ này.
-                    <template v-if="row.may_tuong_thich.length">
-                      Máy tương thích đã khai (chưa từng xuất trong kỳ):
-                      {{ row.may_tuong_thich.map((m) => m.ten).join(', ') }}.
+            </thead>
+            <tbody>
+              <template v-for="row in result.dong" :key="row.vat_tu_id">
+                <tr class="clickable" :class="{ 'is-open': expanded[row.vat_tu_id] }" @click="toggleExpand(row)">
+                  <td class="cell-code"><b>{{ row.ma_vat_tu }}</b></td>
+                  <td class="cot-ten-vt">{{ row.vat_tu }}</td>
+                  <td>{{ row.dvt }}</td>
+                  <td class="right">{{ fmtQty(row.ton_dau) }}</td>
+                  <td class="right">{{ fmtQty(row.nhap) }}</td>
+                  <td class="right"><b>{{ fmtQty(row.cap_phat) }}</b></td>
+                  <td class="right">{{ fmtQty(row.xuat_khac) }}</td>
+                  <td class="right"><b>{{ fmtQty(row.ton_cuoi) }}</b></td>
+                  <td>
+                    <template v-if="dsMaySuDung(row).rong">—</template>
+                    <template v-else>
+                      <span>{{ dsMaySuDung(row).ten.join(', ') }}</span>
+                      <span v-if="dsMaySuDung(row).coChuaGan" class="chua-gan">
+                        {{ dsMaySuDung(row).ten.length ? ', ' : '' }}Chưa gắn máy
+                      </span>
                     </template>
-                  </div>
-                  <div v-else style="overflow-x: auto">
-                    <table style="background: transparent">
-                      <thead>
-                        <tr>
-                          <th v-for="c in BAO_CAO_THIET_BI_MAY_COLUMNS" :key="c.field"
-                              :class="{ right: !['ten_may', 'ten_khoa'].includes(c.field) }">
-                            {{ c.label }}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <!-- "Chưa gắn máy" backend LUÔN xếp cuối theo_may (đã
-                             kiểm ở test_tb6_bao_cao.py::test_phieu_cu_khong_
-                             may_vao_nhom_chua_gan) — KHÔNG re-sort ở đây, chỉ
-                             tô khác đi để không trông như một máy thật.
+                  </td>
+                  <td class="chev-cell"><Icon :name="expanded[row.vat_tu_id] ? 'chevron-down' : 'chevron-right'" :size="16" /></td>
+                </tr>
+                <tr v-if="expanded[row.vat_tu_id]" class="lot-row">
+                  <td :colspan="BAO_CAO_THIET_BI_COLUMNS.length + 1" class="lot-cell">
+                    <div v-if="!row.theo_may.length" class="empty empty-sm">
+                      Chưa cấp phát cho máy nào trong kỳ này.
+                      <template v-if="row.may_tuong_thich.length">
+                        Máy tương thích đã khai (chưa từng xuất trong kỳ):
+                        {{ row.may_tuong_thich.map((m) => m.ten).join(', ') }}.
+                      </template>
+                    </div>
+                    <div v-else class="overflow-x">
+                      <table class="lot-tbl">
+                        <thead>
+                          <tr>
+                            <th v-for="c in BAO_CAO_THIET_BI_MAY_COLUMNS" :key="c.field"
+                                :class="{ right: !['ten_may', 'ten_khoa'].includes(c.field) }">
+                              {{ c.label }}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <!-- "Chưa gắn máy" backend LUÔN xếp cuối theo_may (đã
+                               kiểm ở test_tb6_bao_cao.py::test_phieu_cu_khong_
+                               may_vao_nhom_chua_gan) — KHÔNG re-sort ở đây, chỉ
+                               tô khác đi để không trông như một máy thật.
 
-                             KEY ghép CẢ thiet_bi LẪN khoa_phong (đợt sửa cuối,
-                             I-1): từ khi khoa lấy từ PHIẾU thay vì từ máy, một
-                             máy dùng chung có thể xuất hiện ở HAI dòng trong
-                             cùng theo_may (cùng máy, khác khoa trên phiếu) —
-                             key chỉ theo thiet_bi sẽ trùng, khiến Vue mis-patch
-                             hàng. -->
-                        <tr v-for="m in row.theo_may"
-                            :key="(m.thiet_bi || '__chua_gan__') + '|' + (m.khoa_phong || '__chua_gan_khoa__')"
-                            :class="{ 'chua-gan': !m.thiet_bi }">
-                          <td>{{ m.ten_may }}</td>
-                          <td>{{ m.ten_khoa || '—' }}</td>
-                          <td class="right">{{ fmtQty(m.sl) }}</td>
-                          <td class="right">{{ fmtVND(m.gia_tri) }}</td>
-                          <td class="right">{{ m.pct }}%</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                               KEY ghép CẢ thiet_bi LẪN khoa_phong (đợt sửa cuối,
+                               I-1): từ khi khoa lấy từ PHIẾU thay vì từ máy, một
+                               máy dùng chung có thể xuất hiện ở HAI dòng trong
+                               cùng theo_may (cùng máy, khác khoa trên phiếu) —
+                               key chỉ theo thiet_bi sẽ trùng, khiến Vue mis-patch
+                               hàng. -->
+                          <tr v-for="m in row.theo_may"
+                              :key="(m.thiet_bi || '__chua_gan__') + '|' + (m.khoa_phong || '__chua_gan_khoa__')"
+                              :class="{ 'chua-gan': !m.thiet_bi }">
+                            <td>{{ m.ten_may }}</td>
+                            <td>{{ m.ten_khoa || '—' }}</td>
+                            <td class="right">{{ fmtQty(m.sl) }}</td>
+                            <td class="right">{{ fmtVND(m.gia_tri) }}</td>
+                            <td class="right">{{ m.pct }}%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot v-if="result.tong_doi_chieu">
+              <tr>
+                <td colspan="3" class="right"><b>Tổng cộng (toàn kỳ)</b></td>
+                <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.ton_dau) }}</b></td>
+                <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.nhap) }}</b></td>
+                <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.cap_phat) }}</b></td>
+                <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.xuat_khac) }}</b></td>
+                <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.ton_cuoi) }}</b></td>
+                <td colspan="2">
+                  <span v-if="!canDoi" class="warn inline-flex nowrap"><Icon name="alert-triangle" :size="14" />Số liệu không cân — báo kỹ thuật</span>
                 </td>
               </tr>
-            </template>
-          </tbody>
-          <tfoot v-if="result.tong_doi_chieu">
-            <tr>
-              <td colspan="3" style="text-align: right"><b>Tổng cộng (toàn kỳ)</b></td>
-              <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.ton_dau) }}</b></td>
-              <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.nhap) }}</b></td>
-              <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.cap_phat) }}</b></td>
-              <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.xuat_khac) }}</b></td>
-              <td class="right"><b>{{ fmtQty(result.tong_doi_chieu.ton_cuoi) }}</b></td>
-              <td colspan="2">
-                <span v-if="!canDoi" class="warn">⚠ Số liệu không cân — báo kỹ thuật</span>
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
-      <div class="note note-loi" v-if="!canDoi">
-        <b>⚠ Số liệu không cân — báo kỹ thuật.</b>
-        Tồn đầu + Đã nhập − Đã cấp phát − Xuất khác phải bằng Tồn cuối ở dòng tổng, nhưng số liệu nhận được không
-        khớp. Vui lòng liên hệ nhân viên kỹ thuật Miyano, đừng tự đối chiếu tay bằng số liệu này.
+      <div class="note note-loi note-ic" v-if="!canDoi">
+        <Icon name="alert-triangle" :size="18" />
+        <div>
+          <b>Số liệu không cân — báo kỹ thuật.</b>
+          Tồn đầu + Đã nhập − Đã cấp phát − Xuất khác phải bằng Tồn cuối ở dòng tổng, nhưng số liệu nhận được không
+          khớp. Vui lòng liên hệ nhân viên kỹ thuật Miyano, đừng tự đối chiếu tay bằng số liệu này.
+        </div>
       </div>
 
       <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="tong" />
-      <p class="tag" style="margin-top: 6px">
+      <p class="tag mt6">
         Cột "Đã cấp phát" luôn khớp đúng tổng SL xuất của bảng theo máy khi KHÔNG lọc Máy/Khoa phòng — hai cột xuất
         tách riêng vì báo cáo này chỉ tính "Xuất sử dụng" chưa bị huỷ vào cấp phát; "Xuất khác" gồm huỷ/hết hạn,
         trả lại, điều chỉnh kiểm kê và phần thuộc phiếu đã bị huỷ, các loại này không gắn máy theo thiết kế.
@@ -387,4 +398,34 @@ onMounted(() => {
   color: var(--gray);
   font-style: italic;
 }
+
+/* ---- Bộ lọc: các ô co giãn, không tràn ngang ở 390px ---- */
+.loc-row { gap: 14px; align-items: flex-end; }
+.loc-f { min-width: 0; }
+.loc-grow { flex: 1; min-width: 200px; }
+@media (max-width: 900px) {
+  .loc-f { flex: 1 1 140px; }
+  .loc-grow { flex-basis: 100%; min-width: 0; }
+}
+
+/* ---- Bảng báo cáo ---- */
+.bc-tbl td.right { white-space: nowrap; }
+.bc-tbl td.cot-ten-vt { min-width: 14rem; }
+.th-info { cursor: help; margin-left: 2px; color: var(--text-3); }
+.chev-cell { width: 40px; text-align: center; color: var(--text-3); }
+tr.is-open td { background: var(--accent-soft); }
+tr.is-open .chev-cell { color: var(--accent); }
+.lot-cell { background: var(--surface-2); padding: 12px 16px; }
+tr.lot-row:hover td.lot-cell { background: var(--surface-2); }
+.empty-sm { padding: 12px; }
+.lot-tbl { background: transparent; }
+/* Bảng con nằm TRONG .tbl-scroll — tắt header dính toàn cục để không đè lên
+   header dính của bảng ngoài khi cuộn. */
+.lot-tbl th {
+  position: static;
+  z-index: auto;
+  box-shadow: none;
+  background: transparent;
+}
+.lot-tbl td { padding: 8px 14px; }
 </style>

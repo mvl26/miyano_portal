@@ -4,6 +4,7 @@ import api from '../api'
 import { showToast } from '../toast'
 import { useIsMobile } from '../useMobile'
 import VatTuModal from '../components/VatTuModal.vue'
+import Icon from '../components/Icon.vue'
 import PhanTrang from '../components/PhanTrang.vue'
 
 const isMobile = useIsMobile()
@@ -99,17 +100,17 @@ onMounted(load)
   <div>
     <div class="topbar">
       <h2>Danh mục vật tư</h2>
-      <div class="flex" style="gap: 8px; flex-wrap: wrap">
-        <button class="btn btn-sm" @click="moTao">+ Thêm vật tư</button>
-        <a class="btn-o btn-sm" :href="exportUrl">⬇ Xuất danh mục</a>
-        <router-link to="/kho/vat-tu/import" class="btn-o btn-sm">⬆ Nhập danh mục</router-link>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+      <div class="flex gap8 wrap">
+        <button class="btn btn-sm" @click="moTao"><Icon name="plus" :size="16" />Thêm vật tư</button>
+        <a class="btn-o btn-sm" :href="exportUrl"><Icon name="download" :size="16" />Xuất danh mục</a>
+        <router-link to="/kho/vat-tu/import" class="btn-o btn-sm"><Icon name="upload" :size="16" />Nhập danh mục</router-link>
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
       </div>
     </div>
 
-    <div class="card mb10 flex" style="gap: 12px; align-items: center; flex-wrap: wrap">
-      <input v-model="tim" placeholder="Tìm theo mã hoặc tên…" style="flex: 1; min-width: 200px" />
-      <label style="display: flex; align-items: center; gap: 6px">
+    <div class="card mb10 flex gap12 wrap">
+      <input v-model="tim" placeholder="Tìm theo mã hoặc tên…" class="tim-o" />
+      <label class="inline-flex pointer chk-lb">
         <input type="checkbox" v-model="caTat" @change="locThayDoi" />
         Hiện cả vật tư đã tắt
       </label>
@@ -119,44 +120,46 @@ onMounted(load)
     <div v-else-if="error" class="empty">{{ error }}</div>
     <div v-else-if="!rows.length" class="empty">Chưa có vật tư nào.</div>
 
-    <div v-else-if="!isMobile" class="card" style="padding: 0; overflow-x: auto">
-      <table>
-        <thead>
-          <tr>
-            <th>Mã</th><th>Tên</th><th>ĐVT</th><th>Mã hàng Miyano</th>
-            <th>Quy cách</th><th>Nhóm</th><th>Đang dùng</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in rows" :key="r.name">
-            <td>{{ r.ma_vat_tu }}</td>
-            <td>{{ r.ten_vat_tu }}</td>
-            <td>{{ r.dvt }}</td>
-            <td>{{ r.item_code || '—' }}</td>
-            <td>{{ r.quy_cach || '—' }}</td>
-            <td>{{ r.nhom || '—' }}</td>
-            <td>
-              <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
-                {{ r.active ? 'Đang dùng' : 'Đã tắt' }}
-              </span>
-            </td>
-            <td><button class="btn-o btn-sm" @click="moSua(r)">Sửa</button></td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-else-if="!isMobile" class="card card-flush">
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Mã</th><th>Tên</th><th>ĐVT</th><th>Mã hàng Miyano</th>
+              <th>Quy cách</th><th>Nhóm</th><th>Đang dùng</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in rows" :key="r.name">
+              <td class="cell-code">{{ r.ma_vat_tu }}</td>
+              <td>{{ r.ten_vat_tu }}</td>
+              <td>{{ r.dvt }}</td>
+              <td class="mono">{{ r.item_code || '—' }}</td>
+              <td>{{ r.quy_cach || '—' }}</td>
+              <td>{{ r.nhom || '—' }}</td>
+              <td>
+                <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
+                  {{ r.active ? 'Đang dùng' : 'Đã tắt' }}
+                </span>
+              </td>
+              <td class="right"><button class="btn-o btn-sm" @click="moSua(r)"><Icon name="pencil" :size="14" />Sửa</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div v-else>
       <div v-for="r in rows" :key="r.name" class="card mb10">
         <div class="sb">
-          <b>{{ r.ma_vat_tu }}</b>
+          <b class="cell-code">{{ r.ma_vat_tu }}</b>
           <span class="badge" :class="r.active ? 'b-green' : 'b-gray'">
             {{ r.active ? 'Đang dùng' : 'Đã tắt' }}
           </span>
         </div>
-        <div>{{ r.ten_vat_tu }}</div>
+        <div class="mt4 fw500">{{ r.ten_vat_tu }}</div>
         <p class="tag">ĐVT {{ r.dvt }} · {{ r.item_code ? 'Mã Miyano ' + r.item_code : 'Mã riêng' }}</p>
-        <button class="btn-o btn-sm" @click="moSua(r)">Sửa</button>
+        <button class="btn-o btn-sm mt8" @click="moSua(r)"><Icon name="pencil" :size="14" />Sửa</button>
       </div>
     </div>
 
@@ -173,3 +176,11 @@ onMounted(load)
     />
   </div>
 </template>
+
+<style scoped>
+.tim-o { flex: 1; min-width: 200px; }
+.chk-lb { min-height: 40px; }
+@media (max-width: 900px) {
+  .tim-o { min-width: 0; flex-basis: 100%; }
+}
+</style>

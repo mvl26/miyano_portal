@@ -4,6 +4,7 @@ import api from '../api'
 import { fmtVND, fmtDate } from '../format'
 import { useIsMobile } from '../useMobile'
 import PhanTrang from '../components/PhanTrang.vue'
+import Icon from '../components/Icon.vue'
 
 const isMobile = useIsMobile()
 
@@ -183,25 +184,25 @@ onMounted(() => {
         <h2>Nhật ký vật tư</h2>
         <div class="sub">Mọi biến động — dựng từ sổ kho, chỉ đọc</div>
       </div>
-      <div class="flex" style="gap: 8px">
+      <div class="flex gap8">
         <button
           class="btn-o btn-sm" :disabled="!vatTuChon"
           :title="!vatTuChon ? 'Chọn vật tư trước khi xuất' : ''" @click="xuatExcel"
-        >⬇ Excel (bắt buộc chọn kỳ)</button>
-        <router-link to="/kho" class="btn-o btn-sm">Quay lại</router-link>
+        ><Icon name="download" :size="16" />Excel (bắt buộc chọn kỳ)</button>
+        <router-link to="/kho" class="btn-o btn-sm"><Icon name="arrow-left" :size="16" />Quay lại</router-link>
       </div>
     </div>
-    <div class="sb" v-else style="margin-bottom: 12px">
+    <div class="sb mb12" v-else>
       <h2>Nhật ký vật tư</h2>
       <button
-        class="btn-o btn-sm" :disabled="!vatTuChon"
+        class="btn-o btn-sm shrink0" :disabled="!vatTuChon"
         :title="!vatTuChon ? 'Chọn vật tư trước khi xuất' : ''" @click="xuatExcel"
-      >⬇ Excel</button>
+      ><Icon name="download" :size="16" />Excel</button>
     </div>
 
     <div class="card mb10">
-      <div class="flex" style="flex-wrap: wrap; gap: 14px">
-        <div class="field" style="margin-bottom: 0; flex: 1; min-width: 260px">
+      <div class="flex wrap loc-row">
+        <div class="field mb0 loc-f loc-grow">
           <label>Vật tư (bắt buộc)</label>
           <select v-model="vatTuChon">
             <option value="">— Chọn vật tư —</option>
@@ -210,17 +211,17 @@ onMounted(() => {
             </option>
           </select>
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Từ ngày</label>
           <input type="date" v-model="tuNgay" />
         </div>
-        <div class="field" style="margin-bottom: 0">
+        <div class="field mb0 loc-f">
           <label>Đến ngày</label>
           <input type="date" v-model="denNgay" />
         </div>
       </div>
 
-      <div v-if="vatTuChon" class="flex" style="margin-top: 10px; flex-wrap: wrap; gap: 8px">
+      <div v-if="vatTuChon" class="flex wrap gap8 mt12">
         <button class="chip" :class="{ on: !loaiFilter && !nguonFilter }" @click="chonBoLoc('', '')">Tất cả</button>
         <button class="chip" :class="{ on: loaiFilter === 'Nhập' }" @click="chonBoLoc('Nhập', nguonFilter)">Chỉ nhập</button>
         <button class="chip" :class="{ on: loaiFilter === 'Xuất' }" @click="chonBoLoc('Xuất', nguonFilter)">Chỉ xuất</button>
@@ -245,46 +246,48 @@ onMounted(() => {
     <div v-else-if="!result.dong.length" class="empty">Không có phát sinh trong khoảng ngày đã chọn.</div>
 
     <template v-else>
-      <div class="card" style="padding: 0; overflow-x: auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Ngày</th>
-              <th>Phiếu</th>
-              <th>Loại</th>
-              <th>Nguồn / đợt</th>
-              <th>Lô</th>
-              <th class="right">Nhập</th>
-              <th class="right">Xuất</th>
-              <th class="right">Đơn giá</th>
-              <th class="right">Tồn sau GD</th>
-              <th>Người ghi sổ</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r, idx) in result.dong" :key="idx" :class="{ rowdim: r.da_dao }">
-              <td>{{ fmtDate(r.ngay) }}</td>
-              <td>
-                <router-link :to="phieuUrl(r)" class="mono"><b>{{ r.phieu }}</b></router-link>
-              </td>
-              <td>
-                {{ r.loai }}
-                <span v-if="r.da_dao" class="badge b-gray" style="margin-left: 4px">đã đảo</span>
-              </td>
-              <td>{{ r.nguon || '—' }}</td>
-              <td class="mono">{{ r.lo }}</td>
-              <td class="right">{{ r.sl_nhap ? fmtQty(r.sl_nhap) : '' }}</td>
-              <td class="right">{{ r.sl_xuat ? fmtQty(r.sl_xuat) : '' }}</td>
-              <td class="right">{{ fmtVND(r.don_gia) }}</td>
-              <td class="right"><b>{{ fmtQty(r.ton_sau) }}</b></td>
-              <td class="tag">{{ r.nguoi_ghi_so }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="card card-flush">
+        <div class="tbl-scroll tall">
+          <table class="bc-tbl">
+            <thead>
+              <tr>
+                <th>Ngày</th>
+                <th>Phiếu</th>
+                <th>Loại</th>
+                <th>Nguồn / đợt</th>
+                <th>Lô</th>
+                <th class="right">Nhập</th>
+                <th class="right">Xuất</th>
+                <th class="right">Đơn giá</th>
+                <th class="right">Tồn sau GD</th>
+                <th>Người ghi sổ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, idx) in result.dong" :key="idx" :class="{ rowdim: r.da_dao }">
+                <td class="nowrap">{{ fmtDate(r.ngay) }}</td>
+                <td class="nowrap">
+                  <router-link :to="phieuUrl(r)" class="mono link"><b>{{ r.phieu }}</b></router-link>
+                </td>
+                <td>
+                  {{ r.loai }}
+                  <span v-if="r.da_dao" class="badge b-gray ml4">đã đảo</span>
+                </td>
+                <td>{{ r.nguon || '—' }}</td>
+                <td class="mono">{{ r.lo }}</td>
+                <td class="right">{{ r.sl_nhap ? fmtQty(r.sl_nhap) : '' }}</td>
+                <td class="right">{{ r.sl_xuat ? fmtQty(r.sl_xuat) : '' }}</td>
+                <td class="right">{{ fmtVND(r.don_gia) }}</td>
+                <td class="right"><b>{{ fmtQty(r.ton_sau) }}</b></td>
+                <td class="tag">{{ r.nguoi_ghi_so }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <PhanTrang v-model:trang="trang" v-model:so-dong="soDong" :tong="result.tong_dong" />
-      <p class="tag" style="margin-top: 6px">
+      <p class="tag mt6">
         Vật tư đang xem: {{ tenVatTu(vatTuChon) }}.
         <template v-if="!loaiFilter && !nguonFilter && !loFilter && trang * soDong >= result.tong_dong">
           Tồn sau giao dịch dòng cuối = tồn hiện tại (đối chiếu màn Tồn kho).
@@ -293,3 +296,16 @@ onMounted(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* Bộ lọc: các ô co giãn, không tràn ngang ở 390px (tên vật tư dài trong
+   ô chọn không đẩy thẻ rộng ra). */
+.loc-row { gap: 14px; align-items: flex-end; }
+.loc-f { min-width: 0; }
+.loc-grow { flex: 1; min-width: 260px; }
+@media (max-width: 900px) {
+  .loc-f { flex: 1 1 140px; }
+  .loc-grow { flex-basis: 100%; min-width: 0; }
+}
+.bc-tbl td.right { white-space: nowrap; }
+</style>
