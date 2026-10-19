@@ -18,6 +18,7 @@
   "ten_don_hang",
   "hdnt",
   "ngay_can",
+  "hsd_toi_thieu_thang",
   "col_2",
   "dia_chi_giao",
   "request_id",
@@ -125,6 +126,12 @@
    "fieldname": "ngay_can",
    "fieldtype": "Date",
    "label": "Ngày cần hàng"
+  },
+  {
+   "fieldname": "hsd_toi_thieu_thang",
+   "fieldtype": "Int",
+   "label": "HSD tối thiểu (tháng)",
+   "description": "Số tháng hạn sử dụng còn lại tối thiểu khách yêu cầu khi nhận hàng (0 = không yêu cầu)."
   },
   {
    "fieldname": "col_2",
@@ -280,7 +287,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-16 00:00:00.000000",
+ "modified": "2026-10-19 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Miyano Portal",
  "name": "Portal De Xuat Mua",
