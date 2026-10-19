@@ -4,6 +4,8 @@ Không đụng DB ngoài `ap_dung` (đọc cờ `has_batch_no` của Item). Các
 chỉ tính ngày để SO (cảnh báo) và Delivery Note (chặn) dùng chung một cách tính.
 """
 
+import math
+
 import frappe
 from dateutil.relativedelta import relativedelta
 from frappe import _
@@ -28,7 +30,7 @@ def kiem_so_thang(so_thang):
 		gia_tri = float(so_thang)
 	except (TypeError, ValueError):
 		frappe.throw(thong_bao)
-	if gia_tri != int(gia_tri) or not 0 <= gia_tri <= TOI_DA_THANG:
+	if not math.isfinite(gia_tri) or gia_tri != int(gia_tri) or not 0 <= gia_tri <= TOI_DA_THANG:
 		frappe.throw(thong_bao)
 	return int(gia_tri)
 

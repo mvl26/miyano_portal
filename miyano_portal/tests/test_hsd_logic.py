@@ -5,6 +5,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import getdate
 
 from miyano_portal.han_dung_khach import (
+	ap_dung,
 	danh_gia_lo,
 	hsd_yeu_cau_den,
 	kiem_so_thang,
@@ -45,9 +46,20 @@ class TestHsdLogic(FrappeTestCase):
 	def test_kiem_so_thang(self):
 		self.assertEqual(kiem_so_thang(None), 0)
 		self.assertEqual(kiem_so_thang("3"), 3)
-		for xau in (-1, 61, "abc", 2.5):
+		for xau in (-1, 61, "abc", 2.5, "nan", "inf", "-inf", float("nan"), float("inf")):
 			with self.assertRaises(frappe.ValidationError):
 				kiem_so_thang(xau)
+
+	def test_ap_dung(self):
+		from unittest.mock import patch
+
+		with patch("frappe.db.get_value", return_value=1):
+			self.assertTrue(ap_dung("X", 3))
+			self.assertFalse(ap_dung("X", 0))
+			self.assertFalse(ap_dung("X", None))
+		with patch("frappe.db.get_value", return_value=0):
+			self.assertFalse(ap_dung("X", 3))
+		self.assertFalse(ap_dung("KHONG-TON-TAI-HSD", 3))
 
 	def test_patch_chay_lai_duoc_va_tao_truong(self):
 		from miyano_portal.patches.v1_46 import hsd_toi_thieu
