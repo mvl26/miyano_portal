@@ -9,7 +9,7 @@ import math
 import frappe
 from dateutil.relativedelta import relativedelta
 from frappe import _
-from frappe.utils import add_months, cint, getdate
+from frappe.utils import add_months, cint, flt, formatdate, getdate, now_datetime
 
 TOI_DA_THANG = 60
 
@@ -75,3 +75,109 @@ def mo_ta_chenh_lech(hsd_yeu_cau, hsd_thuc_te, tu_ngay):
 	if kc.days:
 		con_lai += f" {kc.days:02d} ngày"
 	return {"con_lai": con_lai, "thieu_ngay": thieu_ngay}
+
+
+def kiem_ton_cho_dong(item_code, warehouse, stock_qty, san):
+	"""Tồn theo lô của mặt hàng ở kho có đủ lô đạt sàn cho `stock_qty` không.
+
+	Trả `dat`, `hsd_tot_nhat` (HSD lớn nhất trong các lô còn tồn > 0), `ton_dat`
+	(tổng tồn các lô đạt sàn).
+	"""
+	from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+	lo_ton = []
+	if item_code and warehouse:
+		lo_ton = [b for b in (get_batch_qty(item_code=item_code, warehouse=warehouse) or []) if flt(b.get("qty")) > 0]
+	han = {}
+	if lo_ton:
+		han = dict(
+			frappe.get_all(
+				"Batch",
+				filters={"name": ["in", [b.get("batch_no") for b in lo_ton]]},
+				fields=["name", "expiry_date"],
+				as_list=True,
+			)
+		)
+	ton_dat = 0.0
+	hsd_tot_nhat = None
+	for b in lo_ton:
+		expiry = han.get(b.get("batch_no"))
+		if expiry:
+			expiry = getdate(expiry)
+			if hsd_tot_nhat is None or expiry > hsd_tot_nhat:
+				hsd_tot_nhat = expiry
+		if danh_gia_lo(expiry, san):
+			ton_dat += flt(b.get("qty"))
+	return {"dat": ton_dat >= flt(stock_qty), "hsd_tot_nhat": hsd_tot_nhat, "ton_dat": ton_dat}
+
+
+def _ngay(d):
+	return formatdate(d, "dd/mm/yyyy")
+
+
+def cau_canh_bao(dong, kq_ton, tu_ngay):
+	"""Câu cảnh báo một dòng không đáp ứng HSD khách yêu cầu (mẫu spec §4.2)."""
+	so_thang = cint(dong.get("custom_hsd_toi_thieu_thang"))
+	yeu_cau = dong.get("custom_hsd_yeu_cau_den")
+	cau = (
+		f"Dòng {dong.get('idx')} – {dong.get('item_code')}: Khách hàng yêu cầu hàng còn tối thiểu "
+		f"{so_thang:02d} tháng HSD (đến {_ngay(yeu_cau)}). "
+	)
+	tot_nhat = kq_ton.get("hsd_tot_nhat")
+	if tot_nhat:
+		cl = mo_ta_chenh_lech(yeu_cau, tot_nhat, tu_ngay)
+		cau += (
+			f"Tồn kho tốt nhất HSD {_ngay(tot_nhat)}, chỉ còn {cl['con_lai']} "
+			f"→ Không đáp ứng (thiếu {cl['thieu_ngay']} ngày)."
+		)
+	else:
+		cau += "Không còn tồn kho lô nào."
+	if cint(dong.get("custom_ngoai_le_hsd")) and dong.get("custom_ngoai_le_hsd_den"):
+		cau += f" Đã ghi ngoại lệ: khách chấp nhận đến {_ngay(dong.get('custom_ngoai_le_hsd_den'))}."
+	cau += " Vui lòng xác nhận với Khách hàng trước khi giao hàng."
+	return cau
+
+
+def tinh_tren_don(doc, method=None):
+	"""Hook `validate` của Sales Order: kế thừa số tháng, tính kết quả từng dòng, cảnh báo.
+
+	Cảnh báo không bao giờ chặn lưu/submit; chỉ số tháng sai hoặc ngoại lệ thiếu
+	thông tin mới bị từ chối.
+	"""
+	dau_phieu = kiem_so_thang(doc.get("custom_hsd_toi_thieu_thang"))
+	doc.custom_hsd_toi_thieu_thang = dau_phieu
+	canh_bao = []
+	for d in doc.get("items") or []:
+		so_thang = d.get("custom_hsd_toi_thieu_thang")
+		d.custom_hsd_toi_thieu_thang = kiem_so_thang(dau_phieu if so_thang is None or so_thang == "" else so_thang)
+
+		if doc.docstatus == 0 and cint(d.get("custom_ngoai_le_hsd")):
+			if not d.get("custom_ngoai_le_hsd_den") or not (d.get("custom_ngoai_le_ly_do") or "").strip():
+				frappe.throw(
+					_("Dòng {0}: ngoại lệ HSD cần nhập đủ ngày khách chấp nhận và lý do.").format(d.idx)
+				)
+			if not d.get("custom_ngoai_le_boi"):
+				d.custom_ngoai_le_boi = frappe.session.user
+			if not d.get("custom_ngoai_le_luc"):
+				d.custom_ngoai_le_luc = now_datetime()
+
+		if not ap_dung(d.get("item_code"), d.custom_hsd_toi_thieu_thang):
+			d.custom_ket_qua_hsd = "Không áp dụng"
+			d.custom_hsd_yeu_cau_den = None
+			d.custom_hsd_ton_tot_nhat = None
+			continue
+
+		ngay_giao = d.get("delivery_date") or doc.get("delivery_date")
+		d.custom_hsd_yeu_cau_den = hsd_yeu_cau_den(ngay_giao, d.custom_hsd_toi_thieu_thang)
+		kq = kiem_ton_cho_dong(
+			d.item_code, d.get("warehouse"), flt(d.get("stock_qty")) or flt(d.get("qty")), san_cho_phep(d, ngay_giao)
+		)
+		d.custom_ket_qua_hsd = "Đạt" if kq["dat"] else "Không đạt"
+		d.custom_hsd_ton_tot_nhat = kq["hsd_tot_nhat"]
+		if not kq["dat"]:
+			canh_bao.append(cau_canh_bao(d, kq, ngay_giao))
+
+	if canh_bao:
+		frappe.msgprint(
+			"<br>".join(canh_bao), indicator="orange", title=_("Không đáp ứng HSD khách yêu cầu")
+		)

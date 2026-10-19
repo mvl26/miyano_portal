@@ -522,6 +522,10 @@ doc_events = {
 			# `validate` vì lối thứ hai chạy trên đơn nháp ĐÃ LƯU. Tự bỏ qua
 			# báo giá nội bộ và đơn không trỏ về báo giá.
 			"miyano_portal.bao_gia.chan_don_thu_hai_tu_bao_gia_cong",
+			# HSD tối thiểu khách yêu cầu (spec 2026-10-19 §4.2): kế thừa số
+			# tháng đầu phiếu, tính Đạt/Không đạt từng dòng theo tồn lô và
+			# CẢNH BÁO — không bao giờ chặn lưu/submit đơn.
+			"miyano_portal.han_dung_khach.tinh_tren_don",
 		],
 		"before_submit": [
 			"miyano_portal.portal_duyet_don.kiem_nguong_duyet",
