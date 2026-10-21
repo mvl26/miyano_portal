@@ -142,7 +142,7 @@ function blankRow() {
     vat_tu: '', so_lo: '', so_luong: 1, xac_nhan_het_han: false, ghi_chu: '',
     han_su_dung: null, don_gia: 0, // chỉ để xem trước — server luôn tính lại từ lô
     thiet_bi: '', // Task 13 — Customer Equipment của dòng này (không bắt buộc)
-    _lots: [], _lotsLoading: false, _hetHan: false,
+    _lots: [], _lotsLoading: false, _hetHan: false, _lotKey: '',
   }
 }
 function addRow() {
@@ -152,9 +152,26 @@ function removeRow(idx) {
   doc.items.splice(idx, 1)
 }
 
-function applyLotToRow(row, soLo) {
-  const lot = row._lots.find((l) => l.so_lo === soLo)
+// Spec tách số lô 19/10/2026: số lô in trên bao bì có thể trùng giữa hai lô
+// thật khác hạn dùng, nên MỘT lựa chọn trong ô Số lô là cặp (số lô, hạn dùng),
+// không phải số lô một mình. `_lotKey` là giá trị của ô chọn; `so_lo` +
+// `han_su_dung` mới là thứ gửi lên (hạn chỉ làm bộ chọn — server vẫn ghi đè
+// hạn/giá bằng đúng dòng tồn khớp được).
+const SEP_LO = '\u0001'
+function lotKey(l) {
+  return `${l.so_lo || ''}${SEP_LO}${l.han_su_dung || ''}`
+}
+// Lô của dòng trong danh sách tồn: số lô đó chỉ có một dòng thì là dòng đó (dòng
+// đọc từ tệp hay nháp cũ chưa mang hạn vẫn khớp); nhiều dòng thì khớp theo hạn.
+function findLot(row) {
+  const cung = (row._lots || []).filter((l) => l.so_lo === row.so_lo)
+  if (cung.length <= 1) return cung[0] || null
+  return cung.find((l) => (l.han_su_dung || '') === (row.han_su_dung || '')) || null
+}
+
+function applyLotToRow(row, lot) {
   if (!lot) return
+  row._lotKey = lotKey(lot)
   row.so_lo = lot.so_lo
   row.han_su_dung = lot.han_su_dung
   row.don_gia = lot.don_gia
@@ -174,6 +191,7 @@ function applyLotToRow(row, soLo) {
 function resetLotState(row) {
   row._lots = []
   row.so_lo = ''
+  row._lotKey = ''
   row.han_su_dung = null
   row.don_gia = 0
   row._hetHan = false
@@ -216,9 +234,9 @@ async function loadLotsForRow(row) {
       //       lô thay thế chắc chắn còn tồn, chỉ vết truy xuất lô là sai.
       const chuaChonLo = !row.so_lo || row.so_lo === LOT_KHONG_CO
       if (chuaChonLo) {
-        applyLotToRow(row, row._lots[0].so_lo)
-      } else if (row._lots.some((l) => l.so_lo === row.so_lo)) {
-        applyLotToRow(row, row.so_lo)
+        applyLotToRow(row, row._lots[0])
+      } else if (findLot(row)) {
+        applyLotToRow(row, findLot(row))
       } else {
         // Không biết gì về hạn/giá của một lô không còn tồn: xoá phần xem
         // trước của lô CŨ thay vì để nó nằm lại trên dòng này. Không đụng tới
@@ -226,6 +244,7 @@ async function loadLotsForRow(row) {
         row.han_su_dung = null
         row.don_gia = 0
         row._hetHan = false
+        row._lotKey = lotKey(row)
       }
     } else {
       // Nhánh này chạy cho HAI tình huống khác nhau, không được gộp làm một:
@@ -245,6 +264,7 @@ async function loadLotsForRow(row) {
       const soLoTruoc = row.so_lo
       resetLotState(row)
       row.so_lo = soLoTruoc && soLoTruoc !== LOT_KHONG_CO ? soLoTruoc : LOT_KHONG_CO
+      row._lotKey = lotKey(row)
     }
   } catch (e) {
     showToast(e.message || 'Không tải được danh sách lô.', 'error')
@@ -284,7 +304,7 @@ function loCanhBao(r) {
   // Chưa gắn lô nào: ô chọn đã tự nói ("Chọn vật tư trước" / "chưa còn tồn lô
   // nào"), không chồng thêm một câu nữa.
   if (!r.so_lo || r.so_lo === LOT_KHONG_CO) return ''
-  if ((r._lots || []).some((l) => l.so_lo === r.so_lo)) return ''
+  if (findLot(r)) return ''
   return `Lô ${r.so_lo} không còn tồn trong kho. Vẫn lưu nháp được, nhưng ghi sổ sẽ bị chặn — chọn lô khác hoặc nhập kho lô này trước.`
 }
 
@@ -378,9 +398,11 @@ function onSoLoChange(row) {
   // Ô chọn có thể đang chứa cả mục "không còn tồn" (số lô đọc từ tệp hoặc từ
   // nháp cũ mà lô đã hết) — applyLotToRow() không tìm thấy lô đó nên tự thoát,
   // để lại hạn/giá của lô TRƯỚC ĐÓ trên dòng. Xoá tường minh ở đây.
-  if (row._lots.some((l) => l.so_lo === row.so_lo)) {
-    applyLotToRow(row, row.so_lo)
+  const lot = row._lots.find((l) => lotKey(l) === row._lotKey)
+  if (lot) {
+    applyLotToRow(row, lot)
   } else {
+    row.so_lo = (row._lotKey || '').split(SEP_LO)[0]
     row.han_su_dung = null
     row.don_gia = 0
     row._hetHan = false
@@ -492,7 +514,7 @@ async function load() {
     const out = await api.callKho('kho_phieu_get', { doctype: DOCTYPE, name: route.params.name })
     Object.assign(doc, out)
     doc.items = (out.items || []).map((r) => ({
-      ...r, _lots: [], _lotsLoading: false, _hetHan: false,
+      ...r, _lots: [], _lotsLoading: false, _hetHan: false, _lotKey: lotKey(r),
     }))
     // Task 13 — get_doc() không chạy validate() nên canh_bao_thiet_bi luôn về
     // [] ở đây (xem docstring _phieu_to_dict); vẫn gán qua applyCanhBaoThietBi
@@ -559,6 +581,7 @@ function payload() {
     dien_giai: doc.dien_giai,
     items: doc.items.map((r) => ({
       vat_tu: r.vat_tu, so_lo: r.so_lo, so_luong: r.so_luong,
+      han_su_dung: r.han_su_dung || null, // bộ chọn dòng tồn khi số lô có nhiều hạn
       xac_nhan_het_han: r.xac_nhan_het_han ? 1 : 0, ghi_chu: r.ghi_chu,
       thiet_bi: r.thiet_bi || null, // Task 13
     })),
@@ -590,6 +613,7 @@ async function save({ silent } = {}) {
       const cu = before.find((old) => old.vat_tu === r.vat_tu && old.so_lo === r.so_lo)
       return {
         ...r,
+        _lotKey: lotKey(r),
         _lots: cu ? cu._lots : [],
         _lotsLoading: false,
         _hetHan: cu ? cu._hetHan : false,
@@ -858,8 +882,8 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
               <td>
                 <template v-if="editable">
                   <div v-if="r._lotsLoading" class="tag">Đang tải lô…</div>
-                  <select v-else-if="r._lots.length" v-model="r.so_lo" class="w100" @change="onSoLoChange(r)">
-                    <option v-for="l in r._lots" :key="l.so_lo" :value="l.so_lo">
+                  <select v-else-if="r._lots.length" v-model="r._lotKey" class="w100" @change="onSoLoChange(r)">
+                    <option v-for="l in r._lots" :key="lotKey(l)" :value="lotKey(l)">
                       {{ l.so_lo }} · còn {{ Number(l.so_luong_ton).toLocaleString('vi-VN') }}
                       {{ l.han_su_dung ? '· HSD ' + fmtDate(l.han_su_dung) : '· không hạn' }}
                       {{ l.het_han ? ' ⚠ QUÁ HẠN' : '' }}
@@ -869,7 +893,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
                          sách, nếu không v-model không khớp option nào và ô
                          chọn hiện trống — trông như dòng chưa chọn lô trong
                          khi dữ liệu vẫn mang đúng số lô đó. -->
-                    <option v-if="loCanhBao(r)" :value="r.so_lo">{{ r.so_lo }} · không còn tồn</option>
+                    <option v-if="loCanhBao(r)" :value="r._lotKey">{{ r.so_lo }} · không còn tồn</option>
                   </select>
                   <span v-else-if="r.vat_tu" class="tag">
                     Vật tư này chưa còn tồn lô nào.
@@ -897,7 +921,7 @@ onUnmounted(() => clearTimeout(nguoiNhanTimer))
               <td>{{ r.han_su_dung ? fmtDate(r.han_su_dung) : '—' }}</td>
               <td class="right">
                 <span v-if="editable && r._lots.length">
-                  {{ Number((r._lots.find((l) => l.so_lo === r.so_lo) || {}).so_luong_ton || 0).toLocaleString('vi-VN') }}
+                  {{ Number((findLot(r) || {}).so_luong_ton || 0).toLocaleString('vi-VN') }}
                 </span>
                 <span v-else>—</span>
               </td>

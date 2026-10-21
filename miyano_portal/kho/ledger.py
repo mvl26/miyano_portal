@@ -10,6 +10,7 @@ bút toán kho ở đó đều chảy vào sổ kế toán của Miyano.
 """
 
 import frappe
+from frappe.utils import getdate
 
 LOT_KHONG_CO = "KHONG-LO"
 
@@ -18,16 +19,50 @@ LOT_KHONG_CO = "KHONG-LO"
 EPS = 0.0005
 
 
-def _lot_balance_name(kho: str, vat_tu: str, so_lo: str) -> str | None:
-	return frappe.db.get_value(
+def _cung_han(a, b) -> bool:
+	return (getdate(a) if a else None) == (getdate(b) if b else None)
+
+
+def _lot_balance_name(kho: str, vat_tu: str, so_lo: str, han_su_dung=None) -> str | None:
+	"""Dòng tồn của (kho, vật tư, số lô, HẠN DÙNG) — spec tách số lô 19/10/2026.
+
+	Số lô giờ là số lô NCC in trên bao bì (không còn là mã lô ERPNext), nên hai
+	lô thật khác hạn dùng có thể mang CÙNG số lô. Hạn dùng rỗng là một giá trị.
+
+	- Có `han_su_dung`: khớp đúng hạn đó; không có thì khớp dòng CHƯA có hạn
+	  (E1 — tồn cũ nhập trước khi có hạn, `_apply_to_balance` sẽ điền hạn vào).
+	- Không có `han_su_dung`: số lô đó chỉ có MỘT dòng thì là dòng đó (hành vi
+	  cũ, khi số lô còn là khoá); từ hai dòng trở lên thì không đoán — báo người
+	  dùng chọn hạn dùng.
+	"""
+	ds = frappe.get_all(
 		"Customer Stock Lot Balance",
-		{"kho": kho, "vat_tu": vat_tu, "so_lo": so_lo},
-		"name",
+		filters={"kho": kho, "vat_tu": vat_tu, "so_lo": so_lo},
+		fields=["name", "han_su_dung"],
+		order_by="name asc",
+	)
+	if not ds:
+		return None
+	if han_su_dung:
+		for d in ds:
+			if d.han_su_dung and _cung_han(d.han_su_dung, han_su_dung):
+				return d.name
+		for d in ds:
+			if not d.han_su_dung:
+				return d.name
+		return None
+	if len(ds) == 1:
+		return ds[0].name
+	cac_han = ", ".join(str(d.han_su_dung) if d.han_su_dung else "không hạn" for d in ds)
+	frappe.throw(
+		f"Lô {so_lo} (vật tư {vat_tu}) có {len(ds)} hạn dùng khác nhau ({cac_han}) — "
+		"chọn đúng hạn dùng của lô.",
+		frappe.ValidationError,
 	)
 
 
-def _current_qty(kho: str, vat_tu: str, so_lo: str) -> float:
-	name = _lot_balance_name(kho, vat_tu, so_lo)
+def _current_qty(kho: str, vat_tu: str, so_lo: str, han_su_dung=None) -> float:
+	name = _lot_balance_name(kho, vat_tu, so_lo, han_su_dung)
 	if not name:
 		return 0.0
 	return float(frappe.db.get_value("Customer Stock Lot Balance", name, "so_luong") or 0)
@@ -84,7 +119,7 @@ def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 	(12.000.000 − 5.000.000) / 100 = 70.000 — đúng thực tế, phần còn lại chính
 	là lô đã nhập giá 70.000.
 	"""
-	name = _lot_balance_name(kho, vat_tu, so_lo)
+	name = _lot_balance_name(kho, vat_tu, so_lo, han_su_dung)
 	if name:
 		bal = frappe.get_doc("Customer Stock Lot Balance", name)
 	else:
@@ -92,6 +127,8 @@ def _apply_to_balance(kho, vat_tu, so_lo, han_su_dung, delta, don_gia):
 		bal.kho = kho
 		bal.vat_tu = vat_tu
 		bal.so_lo = so_lo
+		# Gán TRƯỚC khi lưu: `autoname` băm cả hạn dùng vào tên.
+		bal.han_su_dung = han_su_dung or None
 		bal.so_luong = 0
 		bal.don_gia = 0
 
@@ -162,9 +199,14 @@ def post_lines(voucher, lines: list[dict]) -> list[str]:
 		# Chặn TRƯỚC khi insert dòng sổ: sổ là append-only, không xoá được, nên
 		# nếu chặn muộn hơn (trong _apply_to_balance, sau insert) một dòng làm
 		# tồn âm sẽ đã nằm vĩnh viễn trong sổ trước khi lỗi được ném ra.
+		# Cùng (số lô, hạn dùng) mà `_apply_to_balance` sẽ ghi vào — kiểm một
+		# dòng tồn rồi ghi dòng khác là lưới an toàn thủng.
 		_ensure_non_negative(
 			voucher.kho, line["vat_tu"], line["so_lo"],
-			_current_qty(voucher.kho, line["vat_tu"], line["so_lo"]), so_luong,
+			_current_qty(
+				voucher.kho, line["vat_tu"], line["so_lo"], line.get("han_su_dung")
+			),
+			so_luong,
 		)
 
 		entry = frappe.new_doc("Customer Stock Ledger Entry")
@@ -190,10 +232,20 @@ def post_lines(voucher, lines: list[dict]) -> list[str]:
 	return created
 
 
-def get_lot_balance(kho: str, vat_tu: str, so_lo: str) -> dict | None:
+def get_lot_balance(kho: str, vat_tu: str, so_lo: str, han_su_dung=None) -> dict | None:
+	"""Dòng tồn của một lô, cho phiếu XUẤT/kiểm tra tồn (khác `_lot_balance_name`
+	ở một chỗ): `han_su_dung` truyền vào không khớp dòng nào thì rơi về luật
+	"số lô chỉ có một dòng" — client có thể còn giữ hạn cũ của lô đã chọn trước
+	đó, đừng vì thế mà coi như lô hết tồn. Nhiều dòng thì vẫn báo chọn hạn dùng.
+	"""
+	name = _lot_balance_name(kho, vat_tu, so_lo, han_su_dung)
+	if not name and han_su_dung:
+		name = _lot_balance_name(kho, vat_tu, so_lo)
+	if not name:
+		return None
 	return frappe.db.get_value(
 		"Customer Stock Lot Balance",
-		{"kho": kho, "vat_tu": vat_tu, "so_lo": so_lo},
+		name,
 		["name", "so_luong", "don_gia", "han_su_dung"],
 		as_dict=True,
 	)

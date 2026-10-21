@@ -1073,13 +1073,17 @@ def kho_phieu_xuat_save(payload) -> dict:
 
 	doc.set("items", [])
 	for row in items:
-		# don_gia và han_su_dung KHÔNG nhận từ client dù có gửi kèm: controller
+		# don_gia KHÔNG nhận từ client dù có gửi kèm: controller
 		# (_lay_gia_va_han_tu_lo) luôn ghi đè bằng giá/hạn hiện hành của lô ở
 		# validate(), đúng như test_price_taken_from_lot_not_user đã khẳng định.
+		# `han_su_dung` thì NHẬN, nhưng chỉ làm BỘ CHỌN dòng tồn: từ 19/10/2026
+		# (spec tách số lô) một số lô NCC có thể ứng với nhiều dòng tồn khác hạn
+		# — controller khớp dòng rồi vẫn ghi đè hạn bằng hạn của chính dòng đó.
 		tb_dong = row.get("thiet_bi")
 		doc.append("items", {
 			"vat_tu": row.get("vat_tu"),
 			"so_lo": row.get("so_lo"),
+			"han_su_dung": row.get("han_su_dung") or None,
 			"so_luong": row.get("so_luong"),
 			"xac_nhan_het_han": 1 if row.get("xac_nhan_het_han") else 0,
 			"ghi_chu": row.get("ghi_chu"),

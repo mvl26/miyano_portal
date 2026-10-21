@@ -239,7 +239,8 @@ class CustomerStockReceipt(Document):
 		"""Không cho huỷ nếu hàng của lô đó đã bị xuất mất rồi.
 
 		Đảo lại sẽ kéo tồn xuống âm, mà sổ này không cho phép tồn âm. Phải
-		CỘNG DỒN theo (vat_tu, so_lo) trước khi so với tồn: một phiếu có hai
+		CỘNG DỒN theo (vat_tu, so_lo, hạn dùng) trước khi so với tồn (hạn dùng:
+		spec tách số lô 19/10/2026, một số lô có thể ứng với nhiều dòng tồn): một phiếu có hai
 		dòng cùng lô (hai giá khác nhau, ví dụ) mà so từng dòng riêng lẻ với
 		tồn hiện tại sẽ đánh giá sai — cả hai dòng đều "đủ" khi xét độc lập dù
 		tổng hai dòng cộng lại vượt quá tồn, vì chưa dòng nào thật sự bị trừ
@@ -247,14 +248,14 @@ class CustomerStockReceipt(Document):
 		"""
 		tong_theo_lo = {}
 		for r in self.items:
-			key = (r.vat_tu, r.so_lo)
+			key = (r.vat_tu, r.so_lo, r.han_su_dung or None)
 			info = tong_theo_lo.setdefault(
 				key, {"so_luong": 0.0, "ten_vat_tu": r.ten_vat_tu, "dvt": r.dvt}
 			)
 			info["so_luong"] += float(r.so_luong)
 
-		for (vat_tu, so_lo), info in tong_theo_lo.items():
-			bal = ledger.get_lot_balance(self.kho, vat_tu, so_lo)
+		for (vat_tu, so_lo, han), info in tong_theo_lo.items():
+			bal = ledger.get_lot_balance(self.kho, vat_tu, so_lo, han)
 			con = float(bal["so_luong"]) if bal else 0.0
 			if con < info["so_luong"] - ledger.EPS:
 				frappe.throw(
