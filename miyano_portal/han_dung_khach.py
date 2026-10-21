@@ -501,10 +501,23 @@ def _sl(x):
 	return f"{flt(x, 6):.6f}".rstrip("0").rstrip(".")
 
 
+def _ten_lo(ma_lo: str) -> str:
+	"""Chữ in trong câu báo cho một lô ERPNext: SỐ LÔ NCC (spec tách số lô
+	19/10/2026 — người đọc nhận ra lô qua số lô trên bao bì), kèm mã lô khi hai
+	thứ khác nhau để còn tra được. Lô cũ (số lô = tên) hay site chưa có cột thì
+	in nguyên mã, đúng như trước."""
+	so_lo = None
+	if frappe.get_meta("Batch").has_field("custom_so_lo"):
+		so_lo = frappe.db.get_value("Batch", ma_lo, "custom_so_lo")
+	if not so_lo or so_lo == ma_lo:
+		return ma_lo
+	return f"{so_lo} (mã {ma_lo})"
+
+
 def _cau_khong_lo_du(d, yc, ds):
 	con = [x for x in ds if x.con > 0]
 	if con:
-		hien_co = "Lô đạt hiện có: " + ", ".join(f"{x.batch_no} ({_sl(x.con)})" for x in con)
+		hien_co = "Lô đạt hiện có: " + ", ".join(f"{_ten_lo(x.batch_no)} ({_sl(x.con)})" for x in con)
 	else:
 		hien_co = "Không còn lô nào đạt."
 	return (
@@ -516,7 +529,7 @@ def _cau_khong_lo_du(d, yc, ds):
 
 def _cau_lo_khong_dat(d, yc, lo, expiry):
 	cau = (
-		f"Dòng {d.idx} – {d.item_code}, lô {lo}: Khách hàng yêu cầu hàng còn tối thiểu "
+		f"Dòng {d.idx} – {d.item_code}, lô {_ten_lo(lo)}: Khách hàng yêu cầu hàng còn tối thiểu "
 		f"{yc.so_thang:02d} tháng HSD {_cau_san(yc)}. "
 	)
 	if expiry:

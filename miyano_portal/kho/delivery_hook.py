@@ -625,14 +625,32 @@ def _han_su_dung(so_lo: str) -> str | None:
 	return str(han) if han else None
 
 
+def _so_lo_va_han(ma_lo: str) -> tuple[str, str | None]:
+	"""Mã lô ERPNext → (số lô NCC, hạn dùng) để ghi vào sổ kho khách.
+
+	Spec tách số lô 19/10/2026: tên `Batch` là mã tự sinh `L26-…` (khoá, mã
+	vạch), số lô in trên bao bì nằm ở `Batch.custom_so_lo`. Bệnh viện đọc số lô
+	trên bao bì để lập phiếu xuất, nên sổ kho khách phải mang SỐ LÔ. Lô cũ (trước
+	19/10) có số lô = chính tên lô. Site chưa chạy patch erpnext (chưa có cột)
+	thì rơi về mã — đúng hành vi cũ.
+	"""
+	if not ma_lo or ma_lo == LOT_KHONG_CO:
+		return LOT_KHONG_CO, None
+	so_lo = None
+	if frappe.get_meta("Batch").has_field("custom_so_lo"):
+		so_lo = frappe.db.get_value("Batch", ma_lo, "custom_so_lo")
+	return so_lo or ma_lo, _han_su_dung(ma_lo)
+
+
 def _lo_cua_dong(row) -> list[tuple[str, str | None, float]]:
-	"""Một dòng Delivery Note → danh sách (số lô, hạn dùng, số lượng).
+	"""Một dòng Delivery Note → danh sách (số lô NCC, hạn dùng, số lượng).
 
 	Thứ tự đọc: `serial_and_batch_bundle` TRƯỚC, `batch_no` sau, cuối cùng mới
 	đến LOT_KHONG_CO. Xem docstring đầu module về lý do thứ tự này không đảo
 	được.
 
-	Gộp theo số lô TRƯỚC khi trả về. Hàng theo serial cho ra N entry qty 1;
+	Gộp theo (số lô NCC, hạn dùng) TRƯỚC khi trả về — hai lô ERPNext khác mã có
+	thể cùng số lô NCC, và cùng hạn thì là một dòng tồn ở kho khách. Hàng theo serial cho ra N entry qty 1;
 	không gộp thì một dòng DN 50 cái thành 50 dòng phiếu nhập. Trường hợp này
 	KHÔNG trùng với "một dòng tách nhiều lô" và không được test đó bắt.
 
@@ -646,20 +664,18 @@ def _lo_cua_dong(row) -> list[tuple[str, str | None, float]]:
 
 	bundle = row.get("serial_and_batch_bundle")
 	if bundle:
-		gop: dict[str, float] = {}
+		gop: dict[tuple[str, str | None], float] = {}
 		for e in _entry_cua_bundle(bundle):
-			so_lo = e.get("batch_no") or LOT_KHONG_CO
-			gop[so_lo] = gop.get(so_lo, 0.0) + abs(float(e.get("qty") or 0)) / he_so
-		ket_qua = [
-			(so_lo, _han_su_dung(so_lo), sl) for so_lo, sl in gop.items() if sl > 0
-		]
+			khoa = _so_lo_va_han(e.get("batch_no") or LOT_KHONG_CO)
+			gop[khoa] = gop.get(khoa, 0.0) + abs(float(e.get("qty") or 0)) / he_so
+		ket_qua = [(so_lo, han, sl) for (so_lo, han), sl in gop.items() if sl > 0]
 		if ket_qua:
 			return ket_qua
 		# Bundle rỗng (chưa submit, hoặc đã bị xoá entry): rơi xuống nhánh dưới
 		# thay vì trả về danh sách rỗng, để dòng hàng không biến mất khỏi phiếu.
 
 	if row.get("batch_no"):
-		return [(row.batch_no, _han_su_dung(row.batch_no), qty)]
+		return [(*_so_lo_va_han(row.batch_no), qty)]
 
 	return [(LOT_KHONG_CO, None, qty)]
 

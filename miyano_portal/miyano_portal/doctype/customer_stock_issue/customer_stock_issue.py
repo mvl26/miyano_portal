@@ -198,7 +198,10 @@ class CustomerStockIssue(Document):
 		voucher.fill_ten_dvt(self)
 		if not self.flags.dang_tao_dao:
 			for row in self.items:
-				bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo)
+				# `han_su_dung` client gửi chỉ là BỘ CHỌN dòng tồn khi một số lô
+				# có nhiều hạn (spec tách số lô 19/10/2026) — giá và hạn vẫn ghi
+				# đè bằng đúng dòng tồn khớp được, như trước.
+				bal = ledger.get_lot_balance(self.kho, row.vat_tu, row.so_lo, row.han_su_dung)
 				row.don_gia = float(bal["don_gia"]) if bal else 0.0
 				row.han_su_dung = bal["han_su_dung"] if bal else None
 		voucher.tinh_tien(self)
@@ -321,17 +324,17 @@ class CustomerStockIssue(Document):
 			)
 
 	def _chan_xuat_qua_ton(self):
-		"""Cộng dồn theo (vật tư, lô) TRƯỚC khi so với tồn.
+		"""Cộng dồn theo (vật tư, lô, hạn dùng) TRƯỚC khi so với tồn.
 
 		Nếu kiểm tra từng dòng riêng lẻ, người dùng tách một lần xuất thành hai
 		dòng cùng lô là lọt qua cả hai lần kiểm tra mà tổng vẫn vượt tồn.
 		"""
 		gop = defaultdict(float)
 		for row in self.items:
-			gop[(row.vat_tu, row.so_lo)] += float(row.so_luong or 0)
+			gop[(row.vat_tu, row.so_lo, row.han_su_dung or None)] += float(row.so_luong or 0)
 
-		for (vat_tu, so_lo), can in gop.items():
-			bal = ledger.get_lot_balance(self.kho, vat_tu, so_lo)
+		for (vat_tu, so_lo, han), can in gop.items():
+			bal = ledger.get_lot_balance(self.kho, vat_tu, so_lo, han)
 			con = float(bal["so_luong"]) if bal else 0.0
 			if can > con + ledger.EPS:
 				ten = frappe.db.get_value(

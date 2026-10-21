@@ -243,7 +243,7 @@ onUnmounted(() => clearTimeout(searchTimer))
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo">
+                        <tr v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo + '|' + (lo.han_su_dung || '')">
                           <td class="mono">{{ lo.so_lo || '—' }}</td>
                           <td class="nowrap">
                             <template v-if="lo.han_su_dung">
@@ -296,7 +296,7 @@ onUnmounted(() => clearTimeout(searchTimer))
             <div v-if="lotsByItem[it.vat_tu]?.loading" class="loading">Đang tải lô…</div>
             <div v-else-if="lotsByItem[it.vat_tu]?.error" class="empty">{{ lotsByItem[it.vat_tu].error }}</div>
             <div v-else-if="!lotsByItem[it.vat_tu]?.data?.length" class="empty">Không có lô nào.</div>
-            <div v-else v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo" class="rowline">
+            <div v-else v-for="lo in lotsByItem[it.vat_tu].data" :key="lo.so_lo + '|' + (lo.han_su_dung || '')" class="rowline">
               <span>
                 Lô <span class="mono">{{ lo.so_lo || '—' }}</span>
                 <template v-if="lo.han_su_dung">· HSD {{ fmtDate(lo.han_su_dung) }}</template>

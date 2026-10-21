@@ -342,6 +342,84 @@ class TestKhoLedger(FrappeTestCase):
         self.assertEqual(lots, [])
 
 
+
+class TestKhoLoTheoHanDung(FrappeTestCase):
+    """Spec tách số lô 19/10/2026: số lô NCC trùng được giữa các lô thật, nên tồn
+    kho khách khoá theo (kho, vật tư, số lô, HẠN DÙNG). Hạn dùng rỗng là một giá
+    trị; nhập có hạn vào lô cũ chưa có hạn thì dùng lại dòng đó và điền hạn (E1).
+    """
+
+    def setUp(self):
+        self.kho = seed_kho_demo()
+        self.k, self.vt = self.kho["kho_bm"], self.kho["vt_bm"]
+        frappe.db.delete("Customer Stock Ledger Entry", {"kho": self.k})
+        frappe.db.delete("Customer Stock Lot Balance", {"kho": self.k})
+
+    def _ghi(self, so_luong, so_lo, han, row, name="TEST-PN-HSD",
+             doctype="Customer Stock Receipt"):
+        v = _FakeVoucher(self.k, doctype=doctype, name=name)
+        return ledger.post_lines(v, [{
+            "vat_tu": self.vt, "so_lo": so_lo, "han_su_dung": han,
+            "so_luong": so_luong, "don_gia": 1000, "chung_tu_row": row,
+        }])
+
+    def _dong_ton(self, so_lo):
+        return frappe.get_all(
+            "Customer Stock Lot Balance",
+            filters={"kho": self.k, "vat_tu": self.vt, "so_lo": so_lo},
+            fields=["so_luong", "han_su_dung"], order_by="han_su_dung asc",
+        )
+
+    def test_cung_so_lo_khac_hsd_hai_dong_ton(self):
+        self._ghi(10, "X", "2027-01-31", "r1")
+        self._ghi(5, "X", "2027-06-30", "r2")
+        dong = self._dong_ton("X")
+        self.assertEqual(
+            [(float(d.so_luong), str(d.han_su_dung)) for d in dong],
+            [(10.0, "2027-01-31"), (5.0, "2027-06-30")],
+        )
+
+    def test_ton_cu_khong_hsd_khop_va_dien_hsd(self):
+        self._ghi(10, "Y", None, "r1")
+        self._ghi(5, "Y", "2027-01-31", "r2")
+        dong = self._dong_ton("Y")
+        self.assertEqual(len(dong), 1)
+        self.assertEqual((float(dong[0].so_luong), str(dong[0].han_su_dung)),
+                         (15.0, "2027-01-31"))
+
+    def test_xuat_co_hsd_tru_dung_dong(self):
+        self._ghi(10, "Z", "2027-01-31", "r1")
+        self._ghi(5, "Z", "2027-06-30", "r2")
+        self._ghi(-3, "Z", "2027-06-30", "r9", name="TEST-PX-HSD",
+                  doctype="Customer Stock Issue")
+        self.assertEqual(
+            [float(d.so_luong) for d in self._dong_ton("Z")], [10.0, 2.0]
+        )
+
+    def test_get_lot_balance_khong_hsd_dong_duy_nhat_thi_khop(self):
+        self._ghi(10, "W", "2027-01-31", "r1")
+        bal = ledger.get_lot_balance(self.k, self.vt, "W")
+        self.assertEqual(float(bal["so_luong"]), 10.0)
+        self.assertEqual(str(bal["han_su_dung"]), "2027-01-31")
+
+    def test_get_lot_balance_khong_hsd_nhieu_dong_thi_bat_chon(self):
+        self._ghi(10, "V", "2027-01-31", "r1")
+        self._ghi(5, "V", "2027-06-30", "r2")
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            ledger.get_lot_balance(self.k, self.vt, "V")
+        self.assertIn("hạn dùng", str(ctx.exception))
+        bal = ledger.get_lot_balance(self.k, self.vt, "V", "2027-06-30")
+        self.assertEqual(float(bal["so_luong"]), 5.0)
+
+    def test_rebuild_giu_hai_dong_theo_hsd(self):
+        self._ghi(10, "U", "2027-01-31", "r1")
+        self._ghi(5, "U", "2027-06-30", "r2")
+        ledger.rebuild_lot_balance(self.k)
+        self.assertEqual(
+            [float(d.so_luong) for d in self._dong_ton("U")], [10.0, 5.0]
+        )
+
+
 # Dung sai khi so tổng `gia_tri` của sổ với `gia_tri` của cache. Cả hai cột đều
 # là Currency, lưu trong `decimal(21,9)`, nên sai lệch duy nhất có thể xảy ra là
 # rác dấu phẩy động ở hàng phần tỷ khi đơn giá bình quân là số vô hạn tuần hoàn

@@ -386,6 +386,44 @@ class TestDeliveryNoteHook(FrappeTestCase):
 		self.assertEqual(str(phieu.items[0].han_su_dung), HAN_A)
 		self.assertEqual(phieu.items[0].so_luong, 5)
 
+	def test_phieu_giao_ghi_so_lo_khong_ghi_ma(self):
+		"""Spec tách số lô 19/10/2026: lô ERPNext tên `L26-…` (mã) mang số lô NCC
+		`custom_so_lo`; bệnh viện đọc số lô trên bao bì nên sổ kho khách ghi SỐ LÔ."""
+		self._tao_vat_tu_co_lo()
+		frappe.db.set_value("Batch", LOT_A, "custom_so_lo", "PG-1")
+		self.addCleanup(frappe.db.set_value, "Batch", LOT_A, "custom_so_lo", LOT_A)
+		bundle = self._bundle({LOT_A: -5}, qty=-5)
+		dn = self._dn(rows=[
+			{"item_code": ITEM_LO, "qty": 5, "rate": 12000, "bundle": bundle}
+		])
+		self.assertEqual(dn.docstatus, 1)
+		phieu = self._phieu_duy_nhat(dn)
+		self.assertEqual(phieu.items[0].so_lo, "PG-1")
+		self.assertEqual(str(phieu.items[0].han_su_dung), HAN_A)
+
+	def test_xuat_go_so_lo_tru_dung_ton_phieu_giao(self):
+		"""Review Focus 5: bệnh viện gõ số lô bao bì trên phiếu xuất — phải trừ
+		đúng dòng tồn mà phiếu giao ERPNext tạo ra."""
+		self._tao_vat_tu_co_lo()
+		frappe.db.set_value("Batch", LOT_A, "custom_so_lo", "PG-2")
+		self.addCleanup(frappe.db.set_value, "Batch", LOT_A, "custom_so_lo", LOT_A)
+		bundle = self._bundle({LOT_A: -5}, qty=-5)
+		dn = self._dn(rows=[
+			{"item_code": ITEM_LO, "qty": 5, "rate": 12000, "bundle": bundle}
+		])
+		phieu = self._phieu_duy_nhat(dn)
+		phieu.submit()
+		vat_tu = phieu.items[0].vat_tu
+		xuat = frappe.get_doc({
+			"doctype": "Customer Stock Issue", "kho": self.kho_bm,
+			"ngay": frappe.utils.today(), "loai_xuat": "Xuất trả lại",
+			"items": [{"vat_tu": vat_tu, "so_lo": "PG-2", "so_luong": 2}],
+		})
+		xuat.insert(ignore_permissions=True)
+		xuat.submit()
+		bal = ledger.get_lot_balance(self.kho_bm, vat_tu, "PG-2", HAN_A)
+		self.assertEqual(float(bal["so_luong"]), 3.0)
+
 	def test_mot_dong_dn_hai_lo_thanh_hai_dong_phieu(self):
 		self._tao_vat_tu_co_lo()
 		bundle = self._bundle({LOT_A: -3, LOT_B: -2}, qty=-5)

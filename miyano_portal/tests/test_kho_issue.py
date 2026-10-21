@@ -57,6 +57,28 @@ class TestPhieuXuat(FrappeTestCase):
         doc.insert(ignore_permissions=True)
         return doc
 
+    def test_cung_so_lo_hai_han_thi_bat_chon_han(self):
+        """Spec tách số lô 19/10/2026: "LO-A" có hai dòng tồn khác hạn. Không
+        gửi hạn thì chặn và nói rõ phải chọn hạn; gửi hạn thì trừ đúng dòng đó,
+        giá/hạn vẫn lấy từ dòng tồn."""
+        han_2 = frappe.utils.add_days(frappe.utils.today(), 700)
+        self._nhap("LO-A", 20, 70000, han=han_2)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._xuat(so_luong=5)
+        self.assertIn("hạn dùng", str(ctx.exception))
+
+        doc = self._xuat(lines=[{
+            "vat_tu": self.kho["vt_bm"], "so_lo": "LO-A", "so_luong": 5,
+            "han_su_dung": han_2,
+        }])
+        self.assertEqual(doc.items[0].don_gia, 70000)
+        doc.submit()
+        k, vt = self.kho["kho_bm"], self.kho["vt_bm"]
+        self.assertEqual(ledger.get_lot_balance(k, vt, "LO-A", han_2)["so_luong"], 15)
+        self.assertEqual(
+            ledger.get_lot_balance(k, vt, "LO-A", self.han_con_han)["so_luong"], 100
+        )
+
     def test_naming(self):
         self.assertTrue(self._xuat().name.startswith("PX-BM-2026-"))
 
